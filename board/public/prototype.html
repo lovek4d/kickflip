@@ -27,7 +27,23 @@
   #stage:has(> .kit-served) { max-width: none; padding: 0; }
   .kit-served { display: block; width: 100%; min-height: 320px; height: calc(100dvh - 60px - var(--ps-footer-h, 150px) - var(--app-bottom, 0px) - env(safe-area-inset-top)); border: 0; background: var(--panel); }
   .ps-pane .kit-served { height: calc(100dvh - var(--ps-footer-h, 150px)); }
-  .kit-served-failed pre { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+  /* A served round's landing while its site starts (prototype-kit.js servedStatus), centred in the frame's place: the
+     start steps' bars with a caption under each, grey but for the running one's orange and a failed one's red. */
+  .kit-landing { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; box-sizing: border-box; padding: 16px;
+    min-height: calc(100dvh - 60px - var(--ps-footer-h, 150px) - var(--app-bottom, 0px) - env(safe-area-inset-top)); text-align: center; color: var(--muted); font-size: 13px; }
+  .ps-pane .kit-landing { min-height: calc(100dvh - var(--ps-footer-h, 150px)); }
+  .kit-landing > p { margin: 0; max-width: 100%; }
+  .kit-landing-steps { width: min(100%, 320px); }
+  .kit-landing-steps .phase-bars { display: flex; gap: 4px; }
+  .kit-landing-steps .phase-bars i { flex: 1 1 0; width: auto; height: 5px; }
+  .kit-landing-captions { display: flex; gap: 4px; margin-top: 5px; }
+  .kit-step { flex: 1 1 0; min-width: 0; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .kit-step.now { color: var(--color-notice); }
+  .kit-step.failed, .kit-landing-why, .kit-landing-error { color: var(--color-danger); }
+  .kit-landing-last { width: min(100%, 320px); font: 11px ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kit-landing-error { font: 12px ui-monospace, monospace; overflow-wrap: anywhere; }
+  .kit-landing pre { width: min(100%, 640px); box-sizing: border-box; margin: 0; max-height: 40vh; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+    text-align: left; white-space: pre; font: 11px/1.35 ui-monospace, monospace; color: var(--text); }
   .kit-missing { margin: 0; padding: 16px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); overflow-wrap: anywhere; }
   #protoToast { position: fixed; z-index: 40; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100vw - 32px); }
   #protoToast[hidden] { display: none; }

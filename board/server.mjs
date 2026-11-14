@@ -272,10 +272,13 @@
 //                                rows from byte `from` to its last whole line (transcript.mjs readRunTranscript); the reader
 //                                sheet's View transcript reads it on from `next` while it grows
 //   GET  /api/try/main/log      {lines}: last 40 lines of main's log, from at most its last 64 KiB
-//   GET  /api/try/prototypes    {state, https, since, lines}: the hub's serve of the board's base prototype worktree,
-//                                which a served round's viewer frames, since when its ready run started, and its log's
-//                                last 40 lines once it failed
-//                                (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md)
+//   GET  /api/try/prototypes    {state, https, since, lines, step, stepAt, steps, last, error}: the hub's serve of the
+//                                board's base prototype worktree, which a served round's viewer frames, since when its
+//                                ready run started, and its log's last 40 lines and error once it failed
+//                                (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md);
+//                                while it starts or once it failed, its start step since stepAt and each finished step's
+//                                ms, and while it starts the log's last line, for the page's landing
+//                                (docs/adr/2026-11-14-1446-a-prototype-pages-landing-shows-its-sites-start-steps.md)
 // The last 40 lines of a hub run's log, data/try/<name>.log, from at most its last 64 KiB; [] with no log.
 async function tryLogTail(here, name) {
   let file;
@@ -293,6 +296,13 @@ async function tryLogTail(here, name) {
     if (e.code === 'ENOENT') return [];
     throw e;
   } finally { await file?.close(); }
+}
+
+// A log's last non-empty line as a terminal last showed it: the text after its last carriage return, without escape
+// codes; null with none.
+function lastLogLine(lines) {
+  const shown = lines.map((line) => (line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').split('\r').findLast((part) => part.trim()) || '').trim());
+  return shown.findLast(Boolean) || null;
 }
 
 // data/try.json is the hub's run state; data/main.json holds main's published install link.
@@ -1315,7 +1325,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (p === '/api/try/main/log' && req.method === 'GET') return json(res, 200, { lines: await tryLogTail(here, 'main') });
       if (p === '/api/try/prototypes' && req.method === 'GET') {
         const run = (await readJSON(path.join(here, 'data', 'try.json'), {}))?.prototypes || {};
-        return json(res, 200, { state: run.state || null, https: run.state === 'ready' ? run.https || null : null, since: run.state === 'ready' ? run.since || null : null, lines: run.state === 'failed' ? await tryLogTail(here, 'prototypes') : [] });
+        const starting = run.state === 'running' || run.state === 'failed';
+        return json(res, 200, { state: run.state || null, https: run.state === 'ready' ? run.https || null : null, since: run.state === 'ready' ? run.since || null : null, lines: run.state === 'failed' ? await tryLogTail(here, 'prototypes') : [],
+          step: starting ? run.step || null : null, stepAt: starting ? run.stepAt || null : null, steps: starting ? run.steps || [] : [],
+          last: run.state === 'running' ? lastLogLine(await tryLogTail(here, 'prototypes')) : null, error: run.state === 'failed' ? run.error || null : null });
       }
       if (p === '/api/log' && req.method === 'GET') {
         const name = url.searchParams.get('file') || '';

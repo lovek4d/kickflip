@@ -1351,14 +1351,21 @@ test('try forwards only the board route and key over loopback, returning hub sta
     assert.deepEqual(await tail.json(), { lines: lines.slice(-40) });
     // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md: the served viewer's poll.
     const baseURL = `http://127.0.0.1:${boardPort}/api/try/prototypes`;
-    assert.deepEqual(await (await fetch(baseURL)).json(), { state: null, https: null, since: null, lines: [] });
+    const none = { step: null, stepAt: null, steps: [], last: null, error: null };
+    assert.deepEqual(await (await fetch(baseURL)).json(), { state: null, https: null, since: null, lines: [], ...none });
     const tryFile = path.join(site, 'data/try.json');
     const tryBefore = fs.existsSync(tryFile) ? fs.readFileSync(tryFile, 'utf8') : null;
     fs.writeFileSync(tryFile, JSON.stringify({ kind: 'web', cards: {}, prototypes: { state: 'ready', port: 40001, https: 8503, since: '2026-11-07T20:00:00.000Z' } }));
-    assert.deepEqual(await (await fetch(baseURL)).json(), { state: 'ready', https: 8503, since: '2026-11-07T20:00:00.000Z', lines: [] });
-    fs.writeFileSync(tryFile, JSON.stringify({ kind: 'web', cards: {}, prototypes: { state: 'failed' } }));
+    assert.deepEqual(await (await fetch(baseURL)).json(), { state: 'ready', https: 8503, since: '2026-11-07T20:00:00.000Z', lines: [], ...none });
+    // docs/adr/2026-11-14-1446-a-prototype-pages-landing-shows-its-sites-start-steps.md: a running serve's step, its
+    // finished steps' times and the log's last non-empty line, without its colour codes or a progress line's overwritten part.
+    const steps = [{ name: 'building', ms: 4000 }];
+    fs.writeFileSync(tryFile, JSON.stringify({ kind: 'web', cards: {}, prototypes: { state: 'running', step: 'starting', stepAt: '2026-11-07T20:00:04.000Z', steps } }));
+    fs.writeFileSync(path.join(site, 'data/try/prototypes.log'), 'vite v5\n\x1b[32m✓\x1b[0m 12 modules\rtransforming (412) src/a.ts\x1b[K\n\n');
+    assert.deepEqual(await (await fetch(baseURL)).json(), { state: 'running', https: null, since: null, lines: [], step: 'starting', stepAt: '2026-11-07T20:00:04.000Z', steps, last: 'transforming (412) src/a.ts', error: null });
+    fs.writeFileSync(tryFile, JSON.stringify({ kind: 'web', cards: {}, prototypes: { state: 'failed', step: 'starting', stepAt: '2026-11-07T20:00:04.000Z', steps, error: 'Nothing answered.' } }));
     fs.writeFileSync(path.join(site, 'data/try/prototypes.log'), 'npm ERR! missing\nexit 1\n');
-    assert.deepEqual(await (await fetch(baseURL)).json(), { state: 'failed', https: null, since: null, lines: ['npm ERR! missing', 'exit 1'] });
+    assert.deepEqual(await (await fetch(baseURL)).json(), { state: 'failed', https: null, since: null, lines: ['npm ERR! missing', 'exit 1'], step: 'starting', stepAt: '2026-11-07T20:00:04.000Z', steps, last: null, error: 'Nothing answered.' });
     if (tryBefore === null) fs.rmSync(tryFile); else fs.writeFileSync(tryFile, tryBefore);
     assert.equal((await post({ key: 'prototypes' })).status, 202);
     assert.deepEqual(seen.at(-1).slice(0, 2), ['/_hub/build', { route: 'own-route', key: 'prototypes' }]);

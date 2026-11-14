@@ -439,7 +439,9 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   }
   async function failure(run, code, signal, error) {
     const { board, key } = run;
-    update(board, key, { state: 'failed', port: undefined, https: undefined });
+    // The base serve's error names why it failed for its landing; its step stays where it stopped.
+    update(board, key, { state: 'failed', port: undefined, https: undefined,
+      ...(key === BASE_KEY ? { error: error?.message || (signal ? `The build script was stopped by ${signal}.` : `The build script exited with code ${code}.`) } : {}) });
     if (!isCard(key)) return;
     // The thread's status line names one reason: the keychain, the error, the signal, else the log's last line.
     let last = '';
@@ -497,8 +499,11 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
     const { state } = stateOf(board);
     const previous = entryOf(state, key);
-    // since: when the base serve's run started, so a viewer tells a new run from the one it framed.
-    const entry = { ...(isCard(key) ? previous : {}), ...metadata, sha, script: true, state: 'running', ...(isCard(key) ? { at: stamp(), head: sha } : {}), ...(key === BASE_KEY ? { since: stamp() } : {}) };
+    // since: when the base serve's run started, so a viewer tells a new run from the one it framed. step: the base serve's
+    // start step, running since stepAt, and steps each finished one's ms, for the prototype page's landing
+    // (docs/adr/2026-11-14-1446-a-prototype-pages-landing-shows-its-sites-start-steps.md).
+    const entry = { ...(isCard(key) ? previous : {}), ...metadata, sha, script: true, state: 'running', ...(isCard(key) ? { at: stamp(), head: sha } : {}),
+      ...(key === BASE_KEY ? { since: stamp(), step: 'building', stepAt: stamp(), steps: [] } : {}) };
     delete entry.port;
     delete entry.https;
     delete entry.killed;
@@ -515,6 +520,11 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     recordGroup(run);
     runs.set(id, run);
     lastHeads.set(id, sha);
+    // The base serve moves on to its next start step, keeping the finished one's time.
+    const stepTo = (step) => {
+      if (key !== BASE_KEY) return;
+      update(board, key, { step, stepAt: stamp(), steps: [...entry.steps, { name: entry.step, ms: now() - Date.parse(entry.stepAt) }] });
+    };
     let spawnError;
     let failed;
     const fail = (message) => { failed ||= new Error(message); terminate(run); };
@@ -530,6 +540,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       run.port = port;
       run.group.port = port;
       persist(board);
+      stepTo('starting');
       clearTimeout(run.deadline);
       let until;
       let probing = false;
@@ -539,12 +550,14 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
         try {
           if (await answers(port)) {
             if (run.stopped || failed || child.exitCode !== null || child.signalCode !== null) return;
+            stepTo('opening');
             run.opening = openPort(run);
             await run.opening;
             if (run.stopped || failed || child.exitCode !== null || child.signalCode !== null) return;
             run.ready = true;
             state.kind = 'web';
             update(board, key, { state: 'ready', port, https: run.https });
+            stepTo('ready');
             clearInterval(run.poll);
             if (key === 'main') await retire(board);
           } else if (now() >= until) fail('Nothing answered on the build script’s port within 60 seconds.');
@@ -800,7 +813,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     try { await start({ route: board.route, key: BASE_KEY }, { manifest, moved: true }); }
     catch (e) {
       if ([409, 503].includes(e.status)) return;
-      state.prototypes = { state: 'failed' };
+      state.prototypes = { state: 'failed', error: e.message };
       failureLog(board, BASE_KEY, e);
       persist(board);
       throw e;

@@ -4,13 +4,14 @@
 // renders the shell's first sidebar with it in a vm context. style.css draws the bars.
 (function () {
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  // {count, done, now, percent, dim, label}, or null for no bar. done counts the steps reached, filled; now is the
+  // {count, done, now, percent, dim, failed, label}, or null for no bar. done counts the steps reached, filled; now is the
   // index of the one step still running, which pulses, so no bar can draw two. percent fills the step after the done
-  // ones that far. A dim bar draws its running step filled, without the pulse.
+  // ones that far. A dim bar draws its running step filled, without the pulse. failed is the index of a step that
+  // failed, drawn red (a prototype page's landing, prototype-kit.js).
   function progressBar(bar) {
     if (!bar) return '';
-    const { count, done, now, percent, dim, label } = bar;
-    const step = (i) => (i === now ? `<i class="${dim ? 'done' : 'now'}"></i>` : i < done ? '<i class="done"></i>'
+    const { count, done, now, percent, dim, failed, label } = bar;
+    const step = (i) => (i === failed ? '<i class="failed"></i>' : i === now ? `<i class="${dim ? 'done' : 'now'}"></i>` : i < done ? '<i class="done"></i>'
       : i === done && percent !== undefined ? `<i class="fill" style="--p:${percent}%"></i>` : '<i class=""></i>');
     return `<span class="phase-bars${dim ? ' dim' : ''}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${Array.from({ length: count }, (_, i) => step(i)).join('')}</span>`;
   }

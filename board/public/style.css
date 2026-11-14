@@ -338,6 +338,7 @@ button.attach:disabled { opacity: .35; }
 .phase-bars { --bar-fill: var(--color-notice); }
 .phase-bars.dim { --bar-fill: color-mix(in srgb, var(--muted) 55%, transparent); }
 .phase-bars i.done, .phase-bars i.now { background: var(--bar-fill); }
+.phase-bars i.failed { background: var(--color-danger); }
 /* A bar part way, to --p: a starting board's clone (ui-sidebar.js). */
 .phase-bars i.fill { background: linear-gradient(to right, var(--bar-fill) var(--p), var(--line) var(--p)); }
 /* The pulse dims the bar's own fill, so it pulses in its lane's colour. */

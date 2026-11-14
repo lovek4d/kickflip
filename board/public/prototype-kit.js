@@ -196,14 +196,38 @@
     if (state) url.searchParams.set('state', state);
     return url.href;
   }
-  // The stage while the serve isn't ready ({state, lines} from api/try/prototypes): Starting, or its failure with the
-  // log's last lines and Try again.
-  function servedStatus(run) {
-    if (run.state !== 'failed') return '<p class="kit-missing">Starting the prototype site…</p>';
-    return `<div class="kit-missing kit-served-failed"><p>The prototype site didn’t start.</p><pre>${esc((run.lines || []).join('\n'))}</pre><button type="button" data-kit-served="retry">Try again</button></div>`;
+  // The site's start steps as hub/try.mjs records them, and their captions.
+  const START_STEPS = { building: 'building', starting: 'starting server', opening: 'opening' };
+  const STOPPED = 'The prototype site had stopped. Starting it again...';
+  // The stage while the serve isn't ready (api/try/prototypes; {} before the hub runs it), its landing
+  // (docs/adr/2026-11-14-1446-a-prototype-pages-landing-shows-its-sites-start-steps.md): the start steps' bars, centred,
+  // a caption under each, and the log's last line. Only the running step's caption is coloured, orange, with its seconds
+  // since stepAt (a host clock ahead counts from 0s); a finished one is grey with its time, a later one grey. A failure
+  // turns its step red, then the error, the log's last lines and Try again; a site that failed once up (step ready) has
+  // every step done. stopped: T-120's line above the steps, while the site starts again.
+  function servedStatus(run, now = Date.now(), stopped = false) {
+    const failed = run.state === 'failed';
+    const keys = Object.keys(START_STEPS);
+    const at = run.step === 'ready' ? keys.length : Math.max(0, keys.indexOf(run.step));
+    const seconds = (ms) => `${Math.max(0, Math.floor(ms / 1000))}s`;
+    const caption = (key, i) => {
+      if (i === at) return failed ? `<span class="kit-step failed">${START_STEPS[key]}</span>`
+        : `<span class="kit-step now">${START_STEPS[key]} · ${seconds(run.stepAt ? now - Date.parse(run.stepAt) : 0)}</span>`;
+      const done = i < at && (run.steps || []).find((s) => s.name === key);
+      return `<span class="kit-step">${START_STEPS[key]}${done ? ` · ${seconds(done.ms)}` : ''}</span>`;
+    };
+    const up = at === keys.length;
+    const label = up ? 'started, then stopped' : `${START_STEPS[keys[at]]}${failed ? ' failed' : ''}, step ${at + 1} of ${keys.length}`;
+    const bars = BoardUI.progressBar({ count: keys.length, done: at, ...(failed ? { failed: at } : { now: at }), label });
+    const why = up ? 'The prototype site stopped after it started.' : `The prototype site didn’t start while ${START_STEPS[keys[at]]}.`;
+    const end = failed
+      ? `<p class="kit-landing-why">${why}</p>${run.error ? `<p class="kit-landing-error">${esc(run.error)}</p>` : ''}`
+        + `<pre>${esc((run.lines || []).join('\n'))}</pre><button type="button" data-kit-served="retry">Try again</button>`
+      : run.last ? `<p class="kit-landing-last">${esc(run.last)}</p>` : '';
+    return `<div class="kit-landing">${stopped && !failed ? `<p class="kit-landing-stopped">${STOPPED}</p>` : ''}`
+      + `<div class="kit-landing-steps">${bars}<div class="kit-landing-captions">${keys.map(caption).join('')}</div></div>${end}</div>`;
   }
   const KEEP_UP_MS = 5 * 60_000;
-  const STOPPED = 'The prototype site had stopped. Starting it again...';
   function served(data) {
     const site = globalThis.ClaudeSite;
     const stage = document.getElementById('stage');
@@ -223,11 +247,11 @@
     const post = () => frame.contentWindow.postMessage({ kickflip: 'prototype', ...at }, origin);
     // Polls the serve while the page is open (docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md):
     // a ready run the frame doesn't show, the first or a new one after a restart or a base move, gets a new frame at the
-    // current take and state; a serve that's down shows Starting. A poll that can't reach the board leaves the stage.
+    // current take and state; a serve that's down shows its landing. A poll that can't reach the board leaves the stage.
     async function poll() {
       let run;
       try { run = await (await fetch(site.url('api/try/prototypes'), { cache: 'no-store' })).json(); } catch {
-        if (!frame) stage.innerHTML = servedStatus({});
+        if (!frame && !stage.innerHTML) stage.innerHTML = servedStatus({});
         wait(poll, 1500);
         return;
       }
@@ -251,7 +275,7 @@
       frame = null;
       // A site the page had framed that is now down had stopped: say so and ask again at once. A failed serve waits for Try again.
       if (!run.state && framed !== null) { framed = null; stopped = true; serve(); }
-      stage.innerHTML = stopped && !run.state ? `<p class="kit-missing">${STOPPED}</p>` : servedStatus(run);
+      stage.innerHTML = servedStatus(run, Date.now(), stopped);
       if (run.state !== 'failed') wait(poll, 1500);
     }
     nativeAdd.call(stage, 'click', (e) => {

@@ -831,6 +831,53 @@ test("the board's base prototype worktree is served while an open question links
   assert.deepEqual(thread(), []);
 });
 
+// docs/adr/2026-11-14-1446-a-prototype-pages-landing-shows-its-sites-start-steps.md
+test("the base serve records its start step and each finished step's time, building → starting → opening → ready, and a failure keeps its step and error", async (t) => {
+  fakeRelays(t);
+  let up = false;
+  const { answers, asked } = prober(() => up);
+  setManager(tryManager({ now: () => clock, answers, log() {} }));
+  const base = path.join(home, '.claude', 'kickflip', 'worktrees', 'orch-prototypes');
+  git(repo, 'worktree', 'add', '--quiet', '--detach', base, 'main');
+  t.after(() => git(repo, 'worktree', 'remove', '--force', base));
+  const go = path.join(home, 'base-go');
+  fs.rmSync(go, { force: true });
+  // The script prints its port once the test lets it, so the building step can be seen.
+  setScript(`const fs = require('node:fs'); const wait = setInterval(() => { if (fs.existsSync(${JSON.stringify(go)})) { clearInterval(wait); console.log('port 32127'); setInterval(() => {}, 1000); } }, 20);`, base);
+  write(path.join(site, 'data', 'owner.json'), { topics: [], items: [] });
+  write(path.join(site, 'data', 'prototypes.json'), { prototypes: [] });
+  const started = new Date(clock).toISOString();
+  await manager.start({ route: 'orch', key: 'prototypes' }, { manifest });
+  assert.equal(state().prototypes.state, 'running');
+  assert.deepEqual([state().prototypes.step, state().prototypes.stepAt, state().prototypes.steps], ['building', started, []]);
+  advance(4000);
+  fs.writeFileSync(go, '');
+  await asked(32127);
+  assert.equal(state().prototypes.step, 'starting');
+  assert.equal(state().prototypes.stepAt, new Date(clock).toISOString());
+  assert.deepEqual(state().prototypes.steps, [{ name: 'building', ms: 4000 }]);
+  advance(2000);
+  up = true;
+  await manager.settled();
+  assert.equal(state().prototypes.state, 'ready');
+  assert.equal(state().prototypes.step, 'ready');
+  assert.deepEqual(state().prototypes.steps, [{ name: 'building', ms: 4000 }, { name: 'starting', ms: 2000 }, { name: 'opening', ms: 0 }]);
+
+  await manager.stop();
+  up = false;
+  const again = prober(() => up);
+  setManager(tryManager({ now: () => clock, answers: again.answers, log() {} }));
+  await manager.start({ route: 'orch', key: 'prototypes' }, { manifest });
+  await again.asked(32127);
+  assert.equal(state().prototypes.step, 'starting');
+  assert.deepEqual(state().prototypes.steps, [{ name: 'building', ms: 0 }], 'a new run starts its steps again');
+  advance(61_000);
+  await manager.settled();
+  assert.equal(state().prototypes.state, 'failed');
+  assert.equal(state().prototypes.step, 'starting');
+  assert.equal(state().prototypes.error, 'Nothing answered on the build script’s port within 60 seconds.');
+});
+
 // docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md
 test("a move of the base worktree to a new commit restarts its serve on the same https port as a new run, and an unmoved base keeps its run", async (t) => {
   fakeRelays(t);

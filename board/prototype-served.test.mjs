@@ -124,19 +124,55 @@ test('the viewer bar lists the round’s states as a row of chips, the current o
   assert.equal(sw.startTake(['empty', 'busy'], 'gone'), 'empty');
 });
 
-test("the served viewer frames the page at the base worktree's port with the take and state, and shows Starting or the failure with Try again", async () => {
-  const context = vm.createContext({ location: { hostname: 'mac.ts.net' }, setTimeout, clearTimeout, setInterval, clearInterval, EventTarget, URL, document: new EventTarget() });
+// The kit with the board's progress bar, as prototype.html loads them.
+const kitContext = (extra = {}) => {
+  const context = vm.createContext({ location: { hostname: 'mac.ts.net' }, setTimeout, clearTimeout, setInterval, clearInterval, EventTarget, URL, document: new EventTarget(), ...extra });
   context.window = context;
+  vm.runInContext(fs.readFileSync(new URL('./public/ui-progress-bar.js', import.meta.url), 'utf8'), context);
   vm.runInContext(fs.readFileSync(new URL('./public/prototype-kit.js', import.meta.url), 'utf8'), context);
-  const kit = context.PrototypeKit;
+  return context;
+};
+
+test("the served viewer frames the page at the base worktree's port with the take and state", async () => {
+  const kit = kitContext().PrototypeKit;
   assert.equal(kit.servedSrc({ https: 8512, path: '/proto/look?theme=dark', take: 'B', state: 'busy' }), 'https://mac.ts.net:8512/proto/look?theme=dark&variant=B&state=busy');
   assert.equal(kit.servedSrc({ https: 8512, path: '/proto/look', take: 'A', state: null }), 'https://mac.ts.net:8512/proto/look?variant=A');
-  assert.match(kit.servedStatus({ state: 'running' }), /Starting the prototype site/);
-  assert.match(kit.servedStatus({}), /Starting the prototype site/);
-  const failed = kit.servedStatus({ state: 'failed', lines: ['npm ERR! <missing>', 'exit 1'] });
-  assert.match(failed, /The prototype site didn’t start/);
-  assert.match(failed, /npm ERR! &lt;missing&gt;\nexit 1/);
-  assert.match(failed, /<button type="button" data-kit-served="retry">Try again<\/button>/);
+});
+
+// docs/adr/2026-11-14-1446-a-prototype-pages-landing-shows-its-sites-start-steps.md
+test("the landing draws the site's three start steps with a caption under each: only the running one orange, a finished one grey with its time, and a failed one red above its error, log and Try again", async () => {
+  const kit = kitContext().PrototypeKit;
+  const now = Date.parse('2026-11-14T20:00:09.000Z');
+  const captions = (html) => [...html.matchAll(/<span class="kit-step( \w+)?">([^<]*)<\/span>/g)].map((m) => `${(m[1] || '').trim() || 'grey'}: ${m[2]}`);
+  const bars = (html) => [...html.matchAll(/<i class="(\w*)"/g)].map((m) => m[1] || 'empty');
+
+  const asked = kit.servedStatus({}, now);
+  assert.deepEqual(captions(asked), ['now: building · 0s', 'grey: starting server', 'grey: opening'], 'before the hub runs it, step 1 at 0s');
+  assert.deepEqual(bars(asked), ['now', 'empty', 'empty']);
+  assert.doesNotMatch(asked, /had stopped/);
+
+  const starting = kit.servedStatus({ state: 'running', step: 'starting', stepAt: '2026-11-14T20:00:06.000Z', steps: [{ name: 'building', ms: 4300 }], last: 'listening <on> 4173' }, now);
+  assert.deepEqual(captions(starting), ['grey: building · 4s', 'now: starting server · 3s', 'grey: opening'], 'a finished step keeps its time, grey');
+  assert.deepEqual(bars(starting), ['done', 'now', 'empty']);
+  assert.match(starting, /<p class="kit-landing-last">listening &lt;on&gt; 4173<\/p>/);
+
+  const ahead = kit.servedStatus({ state: 'running', step: 'building', stepAt: '2026-11-14T20:00:20.000Z', steps: [] }, now);
+  assert.deepEqual(captions(ahead), ['now: building · 0s', 'grey: starting server', 'grey: opening'], 'a host clock ahead counts from 0s');
+
+  const restarting = kit.servedStatus({ state: 'running', step: 'building', stepAt: '2026-11-14T20:00:09.000Z', steps: [] }, now, true);
+  assert.match(restarting, /^<div class="kit-landing"><p class="kit-landing-stopped">The prototype site had stopped\. Starting it again\.\.\.<\/p>/);
+
+  const failed = kit.servedStatus({ state: 'failed', step: 'opening', stepAt: '2026-11-14T20:00:08.000Z', steps: [{ name: 'building', ms: 4000 }, { name: 'starting', ms: 2000 }],
+    error: 'tailnet port <8443> refused', lines: ['npm ERR! <missing>', 'exit 1'] }, now, true);
+  assert.deepEqual(captions(failed), ['grey: building · 4s', 'grey: starting server · 2s', 'failed: opening']);
+  assert.deepEqual(bars(failed), ['done', 'done', 'failed']);
+  assert.doesNotMatch(failed, /had stopped/, 'a failure replaces the stopped line');
+  assert.match(failed, /<p class="kit-landing-why">The prototype site didn’t start while opening\.<\/p><p class="kit-landing-error">tailnet port &lt;8443&gt; refused<\/p><pre>npm ERR! &lt;missing&gt;\nexit 1<\/pre><button type="button" data-kit-served="retry">Try again<\/button>/);
+  assert.deepEqual(captions(kit.servedStatus({ state: 'failed', error: 'No build script.', lines: [] }, now)), ['failed: building', 'grey: starting server', 'grey: opening'], 'a launch that failed before its first step fails building');
+  const crashed = kit.servedStatus({ state: 'failed', step: 'ready', steps: [{ name: 'building', ms: 4000 }, { name: 'starting', ms: 2000 }, { name: 'opening', ms: 0 }], error: 'The build script exited with code 1.', lines: [] }, now);
+  assert.deepEqual(captions(crashed), ['grey: building · 4s', 'grey: starting server · 2s', 'grey: opening · 0s'], 'a site that was up and then failed finished every step');
+  assert.deepEqual(bars(crashed), ['done', 'done', 'done']);
+  assert.match(crashed, /<p class="kit-landing-why">The prototype site stopped after it started\.<\/p>/);
 });
 
 // docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md
@@ -166,6 +202,7 @@ test('the served viewer keeps polling while the frame shows: Starting while the 
     }),
   });
   context.window = context;
+  vm.runInContext(fs.readFileSync(new URL('./public/ui-progress-bar.js', import.meta.url), 'utf8'), context);
   vm.runInContext(fs.readFileSync(new URL('./public/prototype-kit.js', import.meta.url), 'utf8'), context);
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   // Answers the next poll with answer, and returns what the stage shows after it.
@@ -178,7 +215,7 @@ test('the served viewer keeps polling while the frame shows: Starting while the 
   answers.push({ state: 'running' });
   context.PrototypeKit.start({ served: '/proto/look', title: 'Look', takes: [{ key: 'A', label: 'A' }, { key: 'B', label: 'B' }], states: [{ key: 'busy', label: 'Busy' }] });
   await settle();
-  assert.match(stage.innerHTML, /Starting the prototype site/);
+  assert.match(stage.innerHTML, /<span class="kit-step now">building · 0s<\/span>/);
   assert.equal(posts.length, 1, 'the page asks on load');
   assert.equal(await step({ state: 'ready', https: 8500, since: 's1' }), 'https://mac.ts.net:8500/proto/look?variant=A&state=busy');
   assert.equal(posts.length, 1, 'a poll that finds the site up asks nothing');
@@ -201,11 +238,11 @@ test('the served viewer keeps polling while the frame shows: Starting while the 
   assert.equal(await step(new Error('the board is out of reach')), first.src);
   assert.equal(stage.frame, first, 'a poll that fails keeps the frame');
   stage.frame = null;
-  assert.equal(await step({ state: null }), '<p class="kit-missing">The prototype site had stopped. Starting it again...</p>');
+  assert.match(await step({ state: null }), /^<div class="kit-landing"><p class="kit-landing-stopped">The prototype site had stopped. Starting it again...<\/p>.*building · 0s/);
   assert.equal(posts.length, 4, 'a framed site found down is asked for at once');
   assert.match(await step({ state: null }), /had stopped/);
   assert.equal(posts.length, 4, 'once');
-  assert.match(await step({ state: 'running' }), /Starting the prototype site/);
+  assert.match(await step({ state: 'running', step: 'starting', stepAt: new Date().toISOString(), steps: [{ name: 'building', ms: 1000 }] }), /had stopped.*building · 1s.*kit-step now">starting server/, 'the stopped line stays above the steps while the site starts again');
   assert.equal(await step({ state: 'ready', https: 8500, since: 's2' }), 'https://mac.ts.net:8500/proto/look?variant=B&state=busy');
   const second = stage.frame;
   assert.notEqual(second, first);
