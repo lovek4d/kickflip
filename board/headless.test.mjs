@@ -94,6 +94,8 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
   assert.ok(!brief.includes(`${b} land`), 'done finishes the task, so the brief never runs land');
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'calls come before the finishing step');
   assert.match(builderBrief({ ...card, notes: null }), /no notes file/);
+  assert.ok(brief.includes('tick each against evidence') && brief.includes('call "Missing: <deliverable>, <why>"'), "the brief has the builder tick the card's deliverables, a missing one a Missing: call");
+  assert.ok(brief.indexOf('Missing: <deliverable>') < brief.indexOf(`${b} builder done`), 'the deliverables are ticked before the finishing step');
 });
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
