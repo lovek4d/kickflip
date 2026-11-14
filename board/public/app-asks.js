@@ -7,8 +7,9 @@ BoardView.part((B) => {
   const { $, state, toast, seen, markRead } = B;
   const { waitOn, keyedSend } = BoardUI;
 
+  // The tasks the page hasn't sent yet follow the board's, in the order they were sent (app-threads.js unsentAsks).
   function renderNew(d) {
-    const entries = BoardUI.newEntries(d, seen);
+    const entries = [...BoardUI.newEntries(d, seen), ...B.unsentAsks(d)];
     const el = $('#newStrip');
     el.hidden = !entries.length;
     BoardUI.setHTML(el, entries.length ? BoardUI.newStrip(entries, state.edits) : '');

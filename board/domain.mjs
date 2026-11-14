@@ -1053,7 +1053,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     }),
     ...(index.reopens.get(`item:${key}`) || []).map((e) => ({ ts: e.ts, who: 'love', kind: e.kind, request: true, mark: REOPENED, text: `Question ${numberOf(asked, e.data.question)} was reopened`, ...byOf(e) })),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
-      .flatMap((e) => [...routedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
+      .flatMap((e) => [...routedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
@@ -1295,7 +1295,7 @@ export function buildBoard(snapshot) {
       delete it.askMsg;
       if (it.unsorted && m) {
         it.isNew = true;
-        it.ask = { eventId: m.eventId, state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null };
+        it.ask = { eventId: m.eventId, ...(m.sendId ? { sendId: m.sendId } : {}), state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null };
       }
     }
     // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a card whose block ended waits for the

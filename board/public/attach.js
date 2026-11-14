@@ -8,6 +8,8 @@
 //   BoardAttach.files(id, site)  the uploaded files, ready for an event's data.files
 //   BoardAttach.busy(id, site)   true while any upload is running
 //   BoardAttach.clear(id, site)  after sending
+//   BoardAttach.settled(id, site) a promise, once no upload runs, of whether every file is up (none failed)
+//   BoardAttach.restore(id, files, site) puts files sent before, each an uploaded file, back as chips
 //   BoardAttach.onChange(fn)     fn(id) after each change, such as to disable Send while busy; each composer
 //                                painted also gets a bubbling attach-change event with detail {id}
 window.BoardAttach = (function () {
@@ -15,6 +17,10 @@ window.BoardAttach = (function () {
   const OVER = 'Over 20 MB';
   const state = new Map();
   const listeners = [];
+  // By site and composer id, the resolves of settled() calls waiting for its uploads.
+  const waiters = new Map();
+  const running = (site, id) => list(site, id).some((p) => p.status === 'uploading');
+  const allUp = (site, id) => !list(site, id).some((p) => p.status === 'error');
   let seq = 0;
   const own = () => ClaudeSite.root;
   const siteOf = (el) => el.closest('[data-site]')?.dataset.site || own();
@@ -29,6 +35,10 @@ window.BoardAttach = (function () {
       c.dispatchEvent(new CustomEvent('attach-change', { bubbles: true, detail: { id } }));
     }
     for (const fn of listeners) fn(id);
+    const waiting = waiters.get(keyOf(site, id));
+    if (!waiting || running(site, id)) return;
+    waiters.delete(keyOf(site, id));
+    for (const resolve of waiting) resolve(allUp(site, id));
   }
   const paintAll = () => { for (const c of document.querySelectorAll('[data-composer]')) paint(c.dataset.composer, siteOf(c)); };
 
@@ -147,7 +157,15 @@ window.BoardAttach = (function () {
 
   return {
     files: (id, site = own()) => list(site, id).filter((p) => p.status === 'done').map((p) => p.file),
-    busy: (id, site = own()) => list(site, id).some((p) => p.status === 'uploading'),
+    busy: (id, site = own()) => running(site, id),
+    settled(id, site = own()) {
+      if (!running(site, id)) return Promise.resolve(allUp(site, id));
+      return new Promise((resolve) => waiters.set(keyOf(site, id), [...(waiters.get(keyOf(site, id)) || []), resolve]));
+    },
+    restore(id, files, site = own()) {
+      state.set(keyOf(site, id), [...list(site, id), ...files.map((file) => ({ id: 'f' + ++seq, name: file.name || 'file', type: file.type || 'application/octet-stream', status: 'done', file }))]);
+      paint(id, site);
+    },
     clear(id, site = own()) { for (const p of list(site, id)) if (p.preview) URL.revokeObjectURL(p.preview); state.delete(keyOf(site, id)); paint(id, site); },
     onChange(fn) { listeners.push(fn); },
     paint, paintAll,

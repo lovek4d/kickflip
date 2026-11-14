@@ -1,6 +1,6 @@
 // The + button and the sheet that sends a new task as an ask event, on the board's main page alone: the board view's markup
 // (app.js) puts BoardNewTask.markup() in its root and app-asks.js wires it with BoardNewTask.wire(B). No other page
-// opts in. The ask goes through B.send, which lands the board the ask changed. B.newTaskKey(ev) is the n-twice handler, which a framed page's document also feeds.
+// opts in. The ask goes through the outbox (app-threads.js enqueue) and shows at once in the New strip. B.newTaskKey(ev) is the n-twice handler, which a framed page's document also feeds.
 globalThis.BoardNewTask = (function () {
   const markup = () => `<button id="compose" class="fab" type="button" aria-label="New task" title="New task (press n twice)" aria-haspopup="dialog" aria-expanded="false"><svg width="35" height="35" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
 <dialog id="sheet" class="sheet" aria-labelledby="sheetTitle">
@@ -9,7 +9,6 @@ globalThis.BoardNewTask = (function () {
     ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>')}
     <div class="pending-files" data-files></div>
     <div class="send-actions">${BoardUI.sendButton('Implement', 1, ' data-intent="quick"')}${BoardUI.sendButton('Discuss', 0, ' data-intent="discuss"')}</div>
-    <p class="muted small" id="askStatus" aria-live="polite"></p>
   </form>
 </dialog>`;
 
@@ -18,9 +17,8 @@ globalThis.BoardNewTask = (function () {
     // n twice opens nothing.
     const html = document.documentElement.classList;
     if (html.contains('shared-view') && !html.contains('shared-full')) return;
-    const { $, store, toast, quieted, sendDraft } = B;
+    const { $, store, quieted, sendDraft } = B;
     const { waitOn, keyedSend } = BoardUI;
-    const send = (kind, data) => (B.send ? B.send(kind, data) : B.site.send(kind, data));
     // The ask box is a bottom sheet: a <dialog> opened from the + button. Closing keeps the draft.
     const sheet = $('#sheet');
     const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -80,23 +78,38 @@ globalThis.BoardNewTask = (function () {
     B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); closeSheet(); });
     // Discuss has the session reply to the task, starting its discussion; Implement sends the ask with quick: true, and
     // the session marks the card ready (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md).
+    // docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md: a send closes the box at once
+    // and the task goes through the outbox (app-threads.js enqueue), its New strip row reading sending… until the board
+    // has it. A file still uploading holds the box open, the tapped button spinning, until the upload finishes; one
+    // that failed keeps the box open, its chip saying why.
+    let holding = false;
     B.on($('#askForm'), 'submit', async (ev) => {
       ev.preventDefault();
       $('#askText').blur();
-      const text = $('#askText').value.trim();
-      const files = BoardAttach.files('ask', B.site.root);
       const button = ev.submitter;
       const quick = button.dataset.intent === 'quick';
-      if ((!text && !files.length) || BoardAttach.busy('ask', B.site.root)) return;
-      $('#askStatus').textContent = '';
-      try {
-        await waitOn(button, sendDraft('draft:ask', $('#askText'), () => $('#askText'), () => send('ask', { text, ...(files.length ? { files } : {}), ...(quick ? { quick: true } : {}) })));
-        BoardAttach.clear('ask', B.site.root);
-        $('#askStatus').textContent = '';
-        closeSheet();
-        toast('Sent');
-      } catch { $('#askStatus').textContent = 'Could not send'; }
+      if (holding) return;
+      if (BoardAttach.busy('ask', B.site.root)) {
+        holding = true;
+        const up = await waitOn(button, BoardAttach.settled('ask', B.site.root), { group: $('#askForm').querySelectorAll('button[type="submit"]') }).finally(() => { holding = false; });
+        if (!up || !B.alive()) return;
+      }
+      const text = $('#askText').value.trim();
+      const files = BoardAttach.files('ask', B.site.root);
+      if (!text && !files.length) return;
+      await sendDraft('draft:ask', $('#askText'), () => $('#askText'), async () => B.enqueue(undefined, { kind: 'ask', text, files, ...(quick ? { fields: { quick: true } } : {}) }));
+      BoardAttach.clear('ask', B.site.root);
+      closeSheet();
     });
+    // X on a New task the board didn't take (app-threads.js) puts its text back in the box, before whatever is typed
+    // there, and its files with it, and opens the box.
+    B.reopenAsk = (m) => {
+      const text = [m.text, $('#askText').value].filter(Boolean).join('\n\n');
+      $('#askText').value = text;
+      store.set('draft:ask', text);
+      BoardAttach.restore('ask', m.files, B.site.root);
+      openSheet();
+    };
   }
 
   return { markup, wire };

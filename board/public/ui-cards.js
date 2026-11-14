@@ -387,7 +387,13 @@
   const readsAt = (e) => `data-dismiss-new="${esc(e.key)}" data-at="${esc(e.at)}"`;
   // A New entry's footer opens with its time, as a thread message's does (ui-threads.js msgFooter), then the state words.
   const newTime = (iso) => `<span class="new-time">${esc(globalThis.BoardUI.time(iso))}</span>`;
+  // docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md: a task the page hasn't sent yet
+  // (app-threads.js unsentAsks) reads sending…, or not sent with Retry and X, as a thread message's footer does, with
+  // no edit or delete.
   function newEntry(e, edit) {
+    if (e.unsent) {
+      return `<div class="new-entry" data-new="${esc(e.id)}" data-send="${esc(e.id)}"><div class="new-msg">${esc(e.text)}</div>${globalThis.BoardUI.attachments(e.files)}<div class="new-line sub">${newTime(e.sent)} · ${globalThis.BoardUI.pickUp(e.unsent)}</div></div>`;
+    }
     const done = e.made || e.into;
     const actions = done ? `<button type="button" class="ghost icon new-dismiss" ${readsAt(e)} aria-label="Dismiss" title="Dismiss">${globalThis.BoardUI.DISMISS}</button>`
       : `${editButton(e.id)}${withdrawButton(e.id)}`;

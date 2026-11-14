@@ -169,3 +169,32 @@ test("pressing a composer's send button or its eye, fire or image leaves the tex
   }
   assert.equal(pressed('.chip'), false);
 });
+
+// docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md
+test("settled waits for a composer's uploads to finish, true when each one is up and false when one failed, and answers at once with none running", async () => {
+  const p = attachPage();
+  const { BoardAttach } = p.win;
+  assert.equal(await BoardAttach.settled('ask', '/board-a'), true);
+  p.fire(p.box, 'paste', { clipboardData: { types: ['Files'], files: [p.file('a.png', 'image/png'), p.file('b.pdf', 'application/pdf')] } });
+  const outcome = [];
+  BoardAttach.settled('ask', '/board-a').then((ok) => outcome.push(ok));
+  const [a, b] = p.uploads.map((u) => u.xhr);
+  Object.assign(a, { status: 200, responseText: JSON.stringify({ name: 'a.png', url: 'uploads/1-a.png' }) });
+  a.onload();
+  await null;
+  assert.deepEqual(outcome, [], 'one still runs');
+  Object.assign(b, { status: 500, responseText: '{}' });
+  b.onload();
+  await null;
+  assert.deepEqual(outcome, [false]);
+});
+
+test("restore puts a sent task's files back in its composer as uploaded chips, ready to send again", () => {
+  const p = attachPage();
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  p.win.BoardAttach.restore('ask', [shot], '/board-a');
+  assert.deepEqual(JSON.parse(JSON.stringify(p.win.BoardAttach.files('ask', '/board-a'))), [shot]);
+  assert.equal(p.win.BoardAttach.busy('ask', '/board-a'), false);
+  const chips = p.composer.querySelectorAll('[data-files] .pfile');
+  assert.deepEqual(chips.map((c) => [c.getAttribute('title'), c.classList.contains('done')]), [['shot.png', true]]);
+});

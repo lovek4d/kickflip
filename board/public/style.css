@@ -317,8 +317,6 @@ form[data-reply] .row { flex-wrap: wrap; gap: 6px; }
 form[data-reply] .row > .send-actions { flex: 0 0 100%; margin-top: 4px; }
 .key-hint { display: none; font-size: 11px; font-weight: 400; color: inherit; white-space: nowrap; }
 @media (hover: hover) and (pointer: fine) and (min-width: 600px) { .key-hint { display: inline; } }
-#askStatus { margin: 6px 2px 0; }
-#askStatus:empty { display: none; }
 .q .proto-view { display: inline-block; margin: 0 0 10px; color: var(--accent); }
 .msg .ask-actions { margin: -4px -6px 0 8px; }
 button.attach { border: 0; background: transparent; padding: 0; }
@@ -418,13 +416,13 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 .msg .reply.msg-foot { column-gap: 4px; }
 .msg-foot .foot-status { display: inline-flex; align-items: center; }
 .msg-foot .thinking, .status-line .thinking { font-weight: 400; }
-.msg-foot .not-sent, .status-line .not-sent { color: var(--color-danger); font-weight: 600; }
+.msg-foot .not-sent, .status-line .not-sent, .new-line .not-sent { color: var(--color-danger); font-weight: 600; }
 .msg-foot .send-again { margin-left: auto; display: inline-flex; gap: 2px; }
-.msg-foot .send-again .icon, .status-line .send-again .icon { width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; color: var(--color-danger); }
-/* A bare tap's failed line keeps Retry and X on its line of text, the same bare 16px glyphs as a message footer's,
-   overlapping the line's height rather than growing it
+.msg-foot .send-again .icon, .status-line .send-again .icon, .new-line .send-again .icon { width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; color: var(--color-danger); }
+/* A bare tap's failed line, and a New strip row's, keeps Retry and X on its line of text, the same bare 16px glyphs as
+   a message footer's, overlapping the line's height rather than growing it
    (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md). */
-.status-line .send-again { display: inline-flex; gap: 2px; margin: -8px 0 -8px 4px; vertical-align: middle; text-indent: 0; }
+.status-line .send-again, .new-line .send-again { display: inline-flex; gap: 2px; margin: -8px 0 -8px 4px; vertical-align: middle; text-indent: 0; }
 /* The thread's eye and fire are toggles: pressed reads as chosen, and the hint under the box says what Send posts. */
 button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chip); }
 /* INT-30: card line order */

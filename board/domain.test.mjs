@@ -3040,3 +3040,10 @@ test('a card whose planner waits in the queue for a launch hold carries plannerQ
   assert.deepEqual(built({ 'w/A1': { kind: 'grill' } }).items.map((i) => i.plannerQueued), [true, false]);
   assert.deepEqual(built(undefined).items.map((i) => i.plannerQueued), [false, false]);
 });
+
+// docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md
+test("a New card's ask carries the send id the page gave it, so the page's sending row gives way to the card's", () => {
+  const b = askBoard([askAt('a1', '2026-10-23T09:00:00Z', { data: { text: 'Fix the header', sendId: 's1' } }), askAt('a2', '2026-10-23T09:05:00Z', { data: { text: 'From Slack' } })],
+    { items: [{ id: 'T-1', title: 'Fix the header', from_ask: 'a1' }, { id: 'T-2', title: 'From Slack', from_ask: 'a2' }] });
+  assert.deepEqual(['w/T-1', 'w/T-2'].map((key) => b.items.find((i) => i.key === key).ask.sendId), ['s1', undefined]);
+});

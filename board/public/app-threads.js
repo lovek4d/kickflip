@@ -80,11 +80,23 @@ BoardView.part((B) => {
   // under the board's own keys, so a reload keeps them. Each is {sendId, key, kind?, text, files, intent?, fields?, ts,
   // failed?}: kind is its event (item-message when absent), fields the rest of its event's data (a Hold's hold and for).
   // The board records a sendId once (server.mjs), so a resend never doubles a tap.
+  // docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md: the New task box's sends go
+  // through it too, kind ask with no key, and queue apart from every card's; the New strip draws them (unsentAsks).
   const outbox = () => store.get('outbox', []);
   const queuedFor = (key) => outbox().filter((m) => m.key === key);
   const setOutbox = (list) => store.set('outbox', list);
   const eventOf = (m) => m.kind || 'item-message';
-  const bodyOf = (m) => ({ key: m.key, ...(m.text || !m.kind ? { text: m.text } : {}), ...(m.files.length ? { files: m.files } : {}), ...(m.intent ? { intent: m.intent } : {}), ...m.fields, sendId: m.sendId });
+  const bodyOf = (m) => ({ ...(m.key ? { key: m.key } : {}), ...(m.text || !m.kind || m.kind === 'ask' ? { text: m.text } : {}), ...(m.files.length ? { files: m.files } : {}), ...(m.intent ? { intent: m.intent } : {}), ...m.fields, sendId: m.sendId });
+  // A card's sends draw in its thread, the New task box's in the New strip, which the board's first land draws when a
+  // task is sent before it.
+  const repaint = (key) => (key ? B.repaintThread(key) : state.board && B.renderNew(state.board));
+  // The New strip's rows for the asks of the outbox the board d doesn't hold yet (ui-cards.js newEntry); once it holds
+  // one, matched by its sendId, the board's own row takes its place.
+  function unsentAsks(d) {
+    const have = new Set(d.items.map((it) => it.ask?.sendId).filter(Boolean));
+    return queuedFor(undefined).filter((m) => !have.has(m.sendId))
+      .map((m) => ({ id: m.sendId, sent: m.ts, text: m.text, files: m.files, unsent: { sendId: m.sendId, state: m.failed ? 'failed' : 'sending' } }));
+  }
   // The line a tap draws until the board's own takes its place, in the board's words (domain.mjs COMMANDS, ACTION_LABELS,
   // INTENT_LABELS): with text or files the owner's message with the tap in its footer, else the tap's status line. waits:
   // whether a session picks the board's line up, so it reads waiting… once the board has it; the board applies a Hold,
@@ -219,7 +231,8 @@ BoardView.part((B) => {
   // Sends key's outbox in order, one at a time: each leaves the outbox once the board has it, and the thread loads
   // with it in place while the next one goes. A failed one stays as not sent and holds the ones behind it until Retry
   // or X, so the board gets them in the order they were written. A Done closes its card once the board answers
-  // (app-cards.js closeCard); a card tap's change of lane or hold changes the box's send buttons.
+  // (app-cards.js closeCard); a card tap's change of lane or hold changes the box's send buttons. The New task box's
+  // asks (no key) go the same way; the board their answer lands holds each one's own New strip row.
   const flushing = new Set();
   async function flush(key) {
     if (flushing.has(key)) return;
@@ -227,17 +240,19 @@ BoardView.part((B) => {
     try {
       for (let m = queuedFor(key)[0]; m && !m.failed && B.alive(); m = queuedFor(key)[0]) {
         const was = patched.get(key);
-        try { await B.sentHere(key, () => B.send(eventOf(m), bodyOf(m), m.kind === 'card-done' ? () => B.closeCard(key) : null)); }
+        const send = () => B.send(eventOf(m), bodyOf(m), m.kind === 'card-done' ? () => B.closeCard(key) : null);
+        try { await (key ? B.sentHere(key, send) : send()); }
         catch (e) {
           setOutbox(outbox().map((o) => (o.sendId === m.sendId ? { ...o, failed: true } : o)));
-          B.repaintThread(key);
+          repaint(key);
           B.failed(e);
           continue;
         }
+        setOutbox(outbox().filter((o) => o.sendId !== m.sendId));
+        if (!key) { repaint(key); continue; }
         // The send's answer, a board built after the board recorded the tap, patched in its thread with the board's own
         // line in it unless the thread couldn't line up; until then the tap shows as landed.
         if (patched.get(key) === was) landed.set(m.sendId, { m, at: seq });
-        setOutbox(outbox().filter((o) => o.sendId !== m.sendId));
         B.repaintThread(key);
         if (CARD_TAPS[m.kind]) B.syncSends(key);
         loadThread(key, { force: true });
@@ -248,38 +263,43 @@ BoardView.part((B) => {
   function enqueue(key, { kind, text = '', files = [], intent, fields } = {}) {
     const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, ...(kind ? { kind } : {}), text, files, ...(intent ? { intent } : {}), ...(fields ? { fields } : {}), ts: new Date().toISOString() };
     setOutbox([...outbox(), m]);
-    B.repaintThread(key);
+    repaint(key);
     flush(key);
   }
   // Whatever a reload left in the outbox goes out again, a failed send included, once the board first lands (app.js land).
   function resendOutbox() {
     const left = outbox();
     if (left.some((m) => m.failed)) setOutbox(left.map(({ failed, ...m }) => m));
-    for (const key of new Set(left.map((m) => m.key))) { B.repaintThread(key); flush(key); }
+    for (const key of new Set(left.map((m) => m.key))) { repaint(key); flush(key); }
   }
 
   // Retry and X on a failed send, each after a confirm: Retry sends it again in place; X drops it and puts its text
-  // back in the box, before whatever is typed there. A bare tap's confirm names its line.
+  // back in the box, before whatever is typed there, a New task's in the New task box with its files, opened
+  // (new-task.js reopenAsk). A bare tap's confirm names its line.
   B.on(B.root, 'click', async (ev) => {
-    const b = ev.target.closest('[data-thread] button[data-resend], [data-thread] button[data-unsend]');
+    const b = ev.target.closest('[data-thread] button[data-resend], [data-thread] button[data-unsend], #newStrip button[data-resend], #newStrip button[data-unsend]');
     if (!b) return;
     const retry = b.hasAttribute('data-resend');
     const sendId = retry ? b.dataset.resend : b.dataset.unsend;
     const tapped = outbox().find((o) => o.sendId === sendId);
     const words = tapped && tapOf(tapped).words;
-    const ask = words ? (retry ? `Send “${words}” again?` : `Dismiss “${words}”?`) : retry ? 'Send this message again?' : 'Dismiss this message? Its text goes back in the box.';
+    const ask = tapped?.kind === 'ask' ? (retry ? 'Send this task again?' : 'Dismiss this task? Its text and files go back in the New task box.')
+      : words ? (retry ? `Send “${words}” again?` : `Dismiss “${words}”?`) : retry ? 'Send this message again?' : 'Dismiss this message? Its text goes back in the box.';
     if (!(await B.confirm(ask)) || !B.alive()) return;
     const m = outbox().find((o) => o.sendId === sendId);
     if (!m) return;
     if (retry) setOutbox(outbox().map((o) => (o.sendId === sendId ? { ...o, failed: false } : o)));
     else {
       setOutbox(outbox().filter((o) => o.sendId !== sendId));
-      const ta = $(`form[data-reply="${CSS.escape(m.key)}"] textarea`);
-      const text = [m.text, ta?.value ?? store.get('draft:' + m.key, '')].filter(Boolean).join('\n\n');
-      if (ta) ta.value = text;
-      store.set('draft:' + m.key, text);
+      if (!m.key) B.reopenAsk(m);
+      else {
+        const ta = $(`form[data-reply="${CSS.escape(m.key)}"] textarea`);
+        const text = [m.text, ta?.value ?? store.get('draft:' + m.key, '')].filter(Boolean).join('\n\n');
+        if (ta) ta.value = text;
+        store.set('draft:' + m.key, text);
+      }
     }
-    B.repaintThread(m.key);
+    repaint(m.key);
     flush(m.key);
   });
 
@@ -317,14 +337,16 @@ BoardView.part((B) => {
     if (ev.submitter?.dataset.confirm) { B.confirmTap(ev.submitter); return; }
     post(f, slashOf(f.querySelector('textarea').value).flag, ev.submitter);
   });
-  // A composer's send buttons wait while its files upload, the ask's included (attach.js attach-change).
+  // A composer's send buttons wait while its files upload (attach.js attach-change). The New task box's stay free: a
+  // tap there spins until the upload finishes, then sends (new-task.js).
   B.on(B.root, 'attach-change', (ev) => {
+    if (ev.target.matches?.('#askForm')) return;
     for (const b of ev.target.querySelectorAll('button[type=submit]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
     if (ev.target.matches?.('form[data-reply]')) for (const b of ev.target.querySelectorAll('button[data-proto], button[data-grill], button[data-visual]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
   });
 
   Object.assign(B, {
-    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, enqueue,
+    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, enqueue, unsentAsks,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
     syncSends: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncSends(el, key); },
   });

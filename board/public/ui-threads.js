@@ -31,9 +31,11 @@
     working: (m) => thinkingLine(m.since),
     failed: (m) => `<span class="not-sent">not sent</span><span class="send-again"><button type="button" class="ghost icon" data-resend="${esc(m.sendId)}" aria-label="Retry" title="Retry">${RETRY}</button><button type="button" class="ghost icon" data-unsend="${esc(m.sendId)}" aria-label="Dismiss" title="Dismiss, its text back in the box">${DISMISS}</button></span>`,
   };
+  // Where an owner's message or a New strip row the page hasn't sent yet (ui-cards.js newEntry) is, by its state.
+  const pickUp = (m) => PICK_UP[stateOf(m)]?.(m);
   // Every message's footer: its time, its own tags (via, Moved, Edited), the tap, and for the owner's own message where it is.
   const msgFooter = (m, tags) => {
-    const parts = [`<span>${esc(time(m.ts))}</span>`, ...tags.map((t) => `<span>${t}</span>`), m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, footed(m) && PICK_UP[stateOf(m)]?.(m)].filter(Boolean);
+    const parts = [`<span>${esc(time(m.ts))}</span>`, ...tags.map((t) => `<span>${t}</span>`), m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, footed(m) && pickUp(m)].filter(Boolean);
     return `<div class="reply muted small msg-foot">${parts.join('<span>·</span>')}</div>`;
   };
   // The owner's messages, the board's events and the outbox's, also show where they are in their footer.
@@ -173,5 +175,5 @@
     return sendButton('Done', 1, `${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}"`);
   }
 
-  Object.assign(globalThis.BoardUI, { DISMISS, threadMessages, threadFrom, withReplies, doneButton, doneTone, SYSTEM_KINDS });
+  Object.assign(globalThis.BoardUI, { DISMISS, pickUp, threadMessages, threadFrom, withReplies, doneButton, doneTone, SYSTEM_KINDS });
 })();

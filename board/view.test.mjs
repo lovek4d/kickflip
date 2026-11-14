@@ -99,7 +99,7 @@ function fakePage(localStorage) {
     setTimeout: (fn, ms) => { timeouts.set(++ids, { fn, ms }); return ids; },
     clearTimeout: (id) => timeouts.delete(id),
     BoardDialogs: { confirm: async () => false, notice: async () => {} },
-    BoardAttach: { files: () => [], busy: () => false, clear() {}, paint() {}, paintAll() {} },
+    BoardAttach: { files: () => [], busy: () => false, settled: async () => true, restore() {}, clear() {}, paint() {}, paintAll() {} },
     ClaudeSite: {
       site: (root) => ({
         root, url: (p) => new URL(`${root}/${p}`, 'https://mac.ts.net/').href, send: async () => ({}), events: async () => [], syncBadge() {},
@@ -3060,13 +3060,142 @@ test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the
   };
   await send('Plain task', 'discuss');
   await send('Quick task', 'quick');
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask', { text: 'Plain task' }], ['ask', { text: 'Quick task', quick: true }]]);
+  assert.deepEqual(sentNoIds(b), [['ask', { text: 'Plain task' }], ['ask', { text: 'Quick task', quick: true }]]);
   const pressed = [];
   form.requestSubmit = (s) => pressed.push(s?.dataset.intent ?? null);
   const box = b.root.querySelector('#askText');
   const key = (ev) => b.page.fire(box, 'keydown', { key: 'Enter', target: box, ...ev }).defaultPrevented;
   assert.deepEqual([key({ metaKey: true }), key({ ctrlKey: true }), key({ altKey: true }), key({}), key({ shiftKey: true })], [true, true, true, false, false]);
   assert.deepEqual(pressed, ['discuss', 'discuss', 'quick']);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md
+// The New strip's rows the page hasn't sent yet, as read: the task's text and what follows its time.
+const askOut = (b) => b.root.querySelectorAll('#newStrip .new-entry[data-send]').map((el) => [el.querySelector('.new-msg').textContent, dotted(el.querySelector('.new-line').textContent).slice(1).join(' · ')]);
+const askFoot = (el) => dotted(el.querySelector('.new-line').textContent);
+// Opens the New task box, types text and taps the button of intent; the box's close animation runs out.
+async function askTap(b, text, intent) {
+  const form = b.root.querySelector('#askForm');
+  b.page.fire(b.root.querySelector('#compose'), 'click');
+  b.root.querySelector('#askText').value = text;
+  const button = form.querySelector(`button[data-intent="${intent}"]`);
+  b.page.fire(form, 'submit', { target: form, submitter: button });
+  await b.settle();
+  b.page.runTimers(180);
+  await b.settle();
+  return button;
+}
+const recorded = (id, at, text, sendId) => { const it = newAsk(id, at, 'waiting', text); return { ...it, ask: { ...it.ask, askedAt: at, sendId } }; };
+test("Implement or Discuss in the New task box closes it at once, its button never waiting, and the task joins the end of the New strip reading <time> · sending…; tasks go one at a time in order under send ids, and the board's own row, matched by its send id, takes each one's place reading <time> · waiting…", async () => {
+  const sends = heldSends();
+  const older = newAsk('a0', '2026-11-13T09:00:00.000Z');
+  const b = boardOnDom({ board: boardOf([older]), threads: {}, send: sends.send });
+  await b.settle();
+  const sheet = b.root.querySelector('#sheet');
+  const implement = await askTap(b, 'Fix the header', 'quick');
+  assert.deepEqual([sheet.open, waitState(implement), b.root.querySelector('#askText').value, b.storage.get('site:board-a:draft:ask')], [false, IDLE, '', '""']);
+  assert.deepEqual(askOut(b), [['Fix the header', 'sending…']]);
+  const [stored] = JSON.parse(b.storage.get(OUTBOX));
+  const row = b.root.querySelector(`#newStrip .new-entry[data-send="${stored.sendId}"]`);
+  assert.equal(row.querySelector('.new-time').textContent, b.page.win.BoardUI.time(stored.ts), 'the time leads the footer');
+  assert.deepEqual(b.root.querySelectorAll('#newStrip .new-entry').map((el) => el.dataset.new), ['a0', stored.sendId], 'at the end of the strip');
+  assert.equal(b.root.querySelector('#newStrip .new-head .count').textContent, '2');
+  assert.equal(row.querySelectorAll('button[data-edit], button[data-withdraw]').length, 0);
+
+  await askTap(b, 'Dark mode', 'discuss');
+  assert.deepEqual([askOut(b), b.sent.length], [[['Fix the header', 'sending…'], ['Dark mode', 'sending…']], 1], 'the second waits for the first');
+  const [kind, first] = b.sent[0];
+  assert.deepEqual([kind, first.text, first.quick, first.key, first.sendId], ['ask', 'Fix the header', true, undefined, stored.sendId]);
+
+  b.server.board = boardOf([older, recorded('e1', stored.ts, 'Fix the header', first.sendId)]);
+  sends.answer();
+  await b.settle();
+  assert.deepEqual(askOut(b), [['Dark mode', 'sending…']]);
+  assert.deepEqual(askFoot(b.root.querySelector('#newStrip .new-entry[data-new="e1"]')), [b.page.win.BoardUI.time(stored.ts), 'waiting…']);
+  assert.deepEqual(sentNoIds(b), [['ask', { text: 'Fix the header', quick: true }], ['ask', { text: 'Dark mode' }]]);
+  assert.notEqual(b.sent[1][1].sendId, first.sendId);
+  b.view.unmount();
+});
+
+test("a New task the board didn't take reads <time> · not sent with Retry and X in its strip row, each after a confirm: Retry sends it again under the same send id, and X drops the row and reopens the New task box with its text before the draft and its files back", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([]), threads: {}, send: sends.send, confirm: true });
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  let attached = [shot];
+  const restored = [];
+  Object.assign(b.page.win.BoardAttach, { files: (id) => (id === 'ask' ? attached : []), clear: () => { attached = []; }, restore: (id, files) => restored.push([id, files]) });
+  await b.settle();
+  await askTap(b, 'Fix the header', 'quick');
+  const { sendId } = b.sent[0][1];
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent[0][1].files)), [shot]);
+  sends.answer(false, 'The board server is restarting. Try again in a moment.');
+  await b.settle();
+  const row = () => b.root.querySelector(`#newStrip .new-entry[data-send="${sendId}"]`);
+  assert.deepEqual(askOut(b), [['Fix the header', 'not sent']]);
+  assert.ok(row().querySelector(`button[data-resend="${sendId}"]`) && row().querySelector(`button[data-unsend="${sendId}"]`));
+  assert.deepEqual(JSON.parse(b.storage.get(OUTBOX)).map((m) => [m.text, Boolean(m.failed)]), [['Fix the header', true]]);
+
+  b.page.fire(b.root, 'click', { target: row().querySelector('button[data-resend]') });
+  await b.settle();
+  assert.deepEqual([b.confirms.at(-1), askOut(b), b.sent.length, b.sent[1][1].sendId], ['Send this task again?', [['Fix the header', 'sending…']], 2, sendId]);
+  sends.answer(false);
+  await b.settle();
+  assert.deepEqual(askOut(b), [['Fix the header', 'not sent']]);
+
+  b.root.querySelector('#askText').value = 'Draft';
+  b.page.fire(b.root, 'click', { target: row().querySelector('button[data-unsend]') });
+  await b.settle();
+  assert.deepEqual([b.confirms.at(-1), askOut(b), JSON.parse(b.storage.get(OUTBOX))], ['Dismiss this task? Its text and files go back in the New task box.', [], []]);
+  assert.deepEqual([b.root.querySelector('#sheet').open, b.root.querySelector('#askText').value, b.storage.get('site:board-a:draft:ask')], [true, 'Fix the header\n\nDraft', JSON.stringify('Fix the header\n\nDraft')]);
+  assert.deepEqual(JSON.parse(JSON.stringify(restored)), [['ask', [shot]]]);
+  b.view.unmount();
+});
+
+test("a New task the board never recorded survives a reload: the strip shows it as sending… again and resends it under its send id, a failed one included", async () => {
+  const kept = { sendId: 's-kept', kind: 'ask', text: 'Kept', files: [], fields: { quick: true }, ts: '2026-11-13T11:00:00.000Z', failed: true };
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([]), threads: {}, send: sends.send, stored: [[OUTBOX, JSON.stringify([kept])]] });
+  await b.settle();
+  assert.deepEqual(askOut(b), [['Kept', 'sending…']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask', { text: 'Kept', quick: true, sendId: 's-kept' }]]);
+  b.server.board = boardOf([recorded('e1', kept.ts, 'Kept', 's-kept')]);
+  sends.answer();
+  await b.settle();
+  assert.deepEqual([askOut(b), b.root.querySelectorAll('#newStrip .new-entry[data-new="e1"]').length, JSON.parse(b.storage.get(OUTBOX))], [[], 1, []]);
+  b.view.unmount();
+});
+
+test("a file still uploading holds the New task box open, the tapped button spinning, until the upload finishes; then the box closes and the task joins the strip with the file. An upload that fails keeps the box open and sends nothing", async () => {
+  const b = boardOnDom({ board: boardOf([]), threads: {}, send: () => new Promise(() => {}) });
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  let busy = true;
+  let finish;
+  Object.assign(b.page.win.BoardAttach, {
+    files: (id) => (id === 'ask' && !busy ? [shot] : []), busy: (id) => id === 'ask' && busy,
+    settled: () => new Promise((resolve) => { finish = (ok) => { busy = false; resolve(ok); }; }),
+  });
+  await b.settle();
+  const form = b.root.querySelector('#askForm');
+  b.page.fire(form, 'attach-change', { target: form, detail: { id: 'ask' } });
+  const implement = form.querySelector('button[data-intent="quick"]');
+  assert.equal(implement.disabled, false, 'its buttons stay free to tap while a file uploads');
+  await askTap(b, 'Look at this', 'quick');
+  assert.deepEqual([b.root.querySelector('#sheet').open, waitState(implement), b.sent, askOut(b)], [true, WAITING, [], []]);
+  finish(true);
+  await b.settle();
+  b.page.runTimers(180);
+  await b.settle();
+  assert.deepEqual([b.root.querySelector('#sheet').open, waitState(implement), askOut(b)], [false, IDLE, [['Look at this', 'sending…']]]);
+  assert.deepEqual(sentNoIds(b), [['ask', { text: 'Look at this', files: [shot], quick: true }]]);
+
+  busy = true;
+  await askTap(b, 'Another', 'discuss');
+  finish(false);
+  await b.settle();
+  b.page.runTimers(180);
+  await b.settle();
+  assert.deepEqual([b.root.querySelector('#sheet').open, waitState(form.querySelector('button[data-intent="discuss"]')), b.sent.length, b.root.querySelector('#askText').value], [true, IDLE, 1, 'Another']);
   b.view.unmount();
 });
 
@@ -4012,7 +4141,8 @@ test("a Merge tap spins until a board shows the card left In Review or the merge
 });
 
 // docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md
-test("a thread's Reply never waits, and the New task sheet's Send waits, disabled with its label kept, until the server answers, and the sheet has no Sending… line", async () => {
+// docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md
+test("a thread's Reply and the New task box's buttons never wait: each send shows at once and its button is free for the next", async () => {
   const sends = heldSends();
   const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
   await b.settle();
@@ -4025,14 +4155,10 @@ test("a thread's Reply never waits, and the New task sheet's Send waits, disable
   sends.answer();
   await b.settle();
 
-  b.root.querySelector('#askText').value = 'A new task';
-  const askSend = b.root.querySelector('#askForm button[data-nth="0"]');
-  b.page.fire(b.root.querySelector('#askForm'), 'submit', { target: b.root.querySelector('#askForm'), submitter: askSend });
-  await b.settle();
-  assert.deepEqual([...waitState(askSend), b.root.querySelector('#askStatus').textContent], [...WAITING, '']);
+  const askSend = await askTap(b, 'A new task', 'quick');
+  assert.deepEqual(waitState(askSend), IDLE);
   sends.answer();
   await b.settle();
-  assert.deepEqual(waitState(askSend), IDLE);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), ['item-message', 'ask']);
   b.view.unmount();
 });
