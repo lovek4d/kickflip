@@ -10,8 +10,9 @@ BoardView.part((B) => {
   // From 900px, the pane beside the lanes, the same width the stylesheet splits the board at.
   const wide = matchMedia('(min-width: 900px)');
 
-  // A fresh board repaints an open viewer's Round pill.
+  // A fresh board repaints the pane's questions and an open viewer's Round pill.
   function renderPane(d) {
+    questions?.B.take(d);
     if (viewer) paintViewer(d);
   }
 
@@ -33,7 +34,9 @@ BoardView.part((B) => {
     if (questions) { closeViewer(); questions.unmount(); questions.slot.remove(); questions = null; return; }
     $('#boardPane').insertAdjacentHTML('beforeend', `<div class="view-questions pane-questions">${AppViews.questions.markup({ embedded: true })}</div>`);
     const slot = $('#boardPane .pane-questions');
-    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, openOnBoard, onTopic: showTopic }), { slot });
+    // The lanes' board is the pane's: the pane holds none of its own, and renderPane hands it each board that lands.
+    const host = { board: () => state.board, send: (kind, data) => B.send(kind, data), reload: () => B.loadBoard({ via: 'signal' }) };
+    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, host, openOnBoard, onTopic: showTopic }), { slot });
     questions.mount();
   }
   // The shell's one rule for a questions URL from 900px (shell.js go): it shows the board and asks here for the question

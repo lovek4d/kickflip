@@ -24,7 +24,8 @@
 // with none shows the hub's moon and "no open questions". A link to a question still opens its topic, as a work item's
 // Questions button does (docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md).
 // markup({embedded: true}) and ctx.embedded mount it in the board's desktop pane (app-pane.js): no header,
-// and the board's URL and scroll are left alone.
+// and the board's URL and scroll are left alone; it holds no board of its own: the lanes' board paints it
+// (ctx.host, docs/adr/2026-11-14-2230-the-desktop-pane-shows-the-lanes-board.md).
 // Returning to Waiting on you opens the topic it last showed for the app's life, while that topic has an open question
 // (lastTopic, by board route), and paints at once from the board's saved copy, then asks only for the changes since its
 // number (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md,
@@ -69,7 +70,8 @@ const lastTopic = new Map();
     const SUGGESTED = 'suggested options are selected';
     const statusHtml = (line) => (line.startsWith(PROTOTYPE_REQUESTED) ? '<span class="try-spin" aria-hidden="true"></span>' : '') + esc(line);
 
-    const send = (kind, data) => site.send(kind, { ...data, ...(board ? { since: board.version } : {}) });
+    // Embedded, the board is the lanes' (ctx.host, app-pane.js): its load, its send, and take() for each board it lands.
+    const send = (kind, data) => (ctx.embedded ? ctx.host.send(kind, data) : site.send(kind, { ...data, ...(board ? { since: board.version } : {}) }));
     const byId = (id) => all.find((q) => q.id === id) || resolved.questions.find((q) => q.id === id);
     const topicOf = (qid) => topics.find((t) => t.questions.includes(qid)) || null;
     const openTopics = () => topics.filter((t) => t.state !== 'resolved');
@@ -173,7 +175,8 @@ const lastTopic = new Map();
     async function moveOnOnceLoaded({ from, pills, picks: at }, what, out, footer = what) {
       await loading;
       if (!B.alive()) return;
-      if (!land(out.board, false)) await load(false);
+      // Embedded, the host's send landed the answer in the lanes' board, which take() drew here.
+      if (!ctx.embedded && !land(out.board, false)) await load(false);
       // Tapped to another topic meanwhile: the page stays there and only the toast says what was recorded.
       if (picks !== at) { B.toast(what); return; }
       moveOn(from, pills, what, typeof footer === 'function' ? footer() : footer, typeof footer !== 'function');
@@ -247,7 +250,7 @@ const lastTopic = new Map();
     // while one runs shares it. → true when the board's answer landed in this view.
     let loading = null;
     let loaded = false;
-    const load = (first) => (loading ||= fetchBoard(first).finally(() => { loading = null; }));
+    const load = (first) => (ctx.embedded ? ctx.host.reload() : (loading ||= fetchBoard(first).finally(() => { loading = null; })));
     // While the board can't be reached, the page holds its sending buttons and shows the board's copy here, painted live,
     // or with none and nothing landed the landing for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
     let copy = null;
@@ -494,6 +497,13 @@ const lastTopic = new Map();
     };
 
     // The saved copy of this build paints first, and the load names its number; with none, the load is the whole board.
+    // Embedded, the lanes' board paints here with no fetch: take() draws each board the lanes land, and this the one held.
+    if (ctx.embedded) {
+      B.take = (d) => { if (d !== board && land(d, !loaded)) repaint(!shown); };
+      const held = ctx.host.board();
+      if (held) B.take(held);
+      return;
+    }
     BoardUI.boardCopy(site.url(''), document.documentElement.dataset.build).then((c) => {
       if (B.alive() && c && !board) { land(c.board, true); repaint(true); }
     }, () => {}).then(() => { if (B.alive()) load(!board); });

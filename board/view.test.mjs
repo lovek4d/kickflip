@@ -4512,7 +4512,14 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
     shell.board = root;
     return true;
   };
-  let questionsView = page.win.AppViews.questions.create(shell.root, base, embedded ? { view, embedded: true } : { view, up });
+  // Embedded, the lanes' board stands in: held, sent for and reloaded by the host, and taken by the pane as it lands.
+  let held = boardBody();
+  const host = {
+    board: () => held,
+    send: async (kind, data) => { const out = await page.win.ClaudeSite.site(base).send(kind, data); held = out.board; questionsView.B.take(held); return out; },
+    reload: async () => { held = boardBody(); questionsView.B.take(held); return true; },
+  };
+  let questionsView = page.win.AppViews.questions.create(shell.root, base, embedded ? { view, embedded: true, host } : { view, up });
   const idle = page.left();
   questionsView.mount();
   const $ = (sel) => shell.root.querySelector(sel);
@@ -5943,6 +5950,20 @@ test("from 900px Waiting on you sits in a pane beside the lanes with a drag seam
   }
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.doesNotMatch(css, /needs-deck|deck-card/, 'the stylesheet keeps no deck rules');
+});
+
+// docs/adr/2026-11-14-2230-the-desktop-pane-shows-the-lanes-board.md
+test("the desktop Waiting on you pane shows the board the lanes hold, with no /api/board fetch of its own, and repaints when the lanes' board changes", async () => {
+  const board = { ...questionsBoard([openQuestion('q1', 't1')], []), version: 'v1' };
+  const wide = boardOnDom({ board, threads: {}, width: 1280 });
+  await wide.settle();
+  const pane = wide.root.querySelector('#boardPane');
+  const asked = () => pane.querySelectorAll('.pane-questions section.q').map((s) => s.dataset.q);
+  const fetches = () => wide.gets.filter((g) => g.endsWith('/api/board')).length;
+  assert.deepEqual([asked(), fetches()], [['q1'], 1], 'one board fetch paints the lanes and the pane');
+  await wide.change({ board: { ...questionsBoard([openQuestion('q1', 't1'), openQuestion('q2', 't1')], []), version: 'v2' } });
+  assert.deepEqual([asked(), fetches()], [['q1', 'q2'], 2], "the lanes' next load repaints the pane, which asks for nothing");
+  wide.view.unmount();
 });
 
 // docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md
