@@ -478,7 +478,7 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .new-entry:first-child { border-top: 0; }
 .new-msg { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .new-entry .new-line { margin-top: 4px; }
-.new-entry .processing { color: var(--color-notice); font-size: 12px; font-weight: 600; }
+.new-entry .processing { color: var(--color-info); font-size: 12px; font-weight: 600; }
 .new-entry .processing .working-dot { background: currentColor; }
 .new-done, .new-link { color: var(--color-info); font-size: 12px; font-weight: 600; text-decoration: none; }
 .new-entry .new-time { color: var(--muted); font-weight: 400; }

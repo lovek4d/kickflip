@@ -1567,17 +1567,21 @@ test("a builder line shows the progress and its age, not who is building", () =>
 });
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
-test("an ask in the New strip reads the owner's whole message, then whether it was moved or edited and a grey waiting… or an orange processing..., with edit and delete; an ingested one links to its card, in blue, with Dismiss", () => {
+test("an ask in the New strip reads the owner's whole message, then whether it was moved or edited and a grey waiting… or a blue processing..., with edit and delete; an ingested one links to its card, in blue, with Dismiss", () => {
   const sent = ago(1);
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix <it>\nand more', files: [], ...extra } });
   const strip = (items, merges = []) => ui.newStrip(ui.newEntries({ items, merges }, {}), new Map());
   const entryText = (html) => text(html.split('<div class="new-list">')[1]);
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: grey "waiting…", its dot still, until the
-  // orchestrator picks the task up, then the orange "processing...".
+  // orchestrator picks the task up, then the blue "processing...".
   assert.match(strip([ask({ state: 'waiting' })]), /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div>/);
   assert.match(strip([ask({ state: 'waiting' })]), /<span class="pickup-wait"><span class="working-dot" aria-hidden="true"><\/span>waiting…<\/span>/);
   assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub"><span class="new-time">[^<]+<\/span> · Edited · <span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing...<\/span><\/div>/);
   assert.match(entryText(strip([ask({ state: 'waiting', from: 'Orch' })])), /Moved from Orch · waiting…$/);
+  // The processing line is info, blue (AGENTS.md colour priority), dot and word.
+  const style = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(style, /\.new-entry \.processing \{ color: var\(--color-info\);/);
+  assert.doesNotMatch(style, /\.new-entry \.processing \{[^}]*--color-notice/);
   // docs/adr/2026-11-13-0000-a-new-strip-entry-shows-its-time-first.md: the footer starts with the ask's time, as a thread reply's does.
   assert.ok(entryText(strip([ask({ state: 'waiting' })])).endsWith(`${ui.time(sent)} · waiting…`));
   assert.deepEqual([...strip([ask({ state: 'waiting' })]).matchAll(/data-(card-bump|edit|withdraw|dismiss-new)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['edit', 'a1'], ['withdraw', 'a1']]);
