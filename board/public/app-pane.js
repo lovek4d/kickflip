@@ -16,11 +16,10 @@ BoardView.part((B) => {
   }
 
   let questions = null;
-  // A click on a pane pill, or on the topic's title, focuses its topic on the board: item:<key> is a card (an ask is one, ask:<id>),
-  // wave:<slug> or file:<slug> a band; any other topic, or one the board doesn't show, does nothing.
+  // A click on a pane pill, or on the topic's title, focuses its topic on the board: item:<key> is a card (an ask is one, ask:<id>);
+  // any other topic, or one the board doesn't show, does nothing.
   function openOnBoard(id) {
     if (id.startsWith('item:')) B.focusOnBoard({ key: id.slice(5) });
-    else if (id.startsWith('wave:') || id.startsWith('file:')) B.focusOnBoard({ slug: id.slice(5) });
   }
   // What can cover the pane: each closes itself. A new overlay over the pane (the thread's questions modal) joins this list.
   const paneOverlays = [() => B.closeReader?.(), () => closeViewer()];

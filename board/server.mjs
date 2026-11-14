@@ -4,7 +4,6 @@
 // It writes page events, hidden events, uploads and the owner's card taps; agent sessions write the other files
 // below through bin/board.mjs (store.mjs):
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
-//   wave create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
 // <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build,max_implementers, max_planners, max_serves, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
@@ -21,9 +20,8 @@
 // public/, since iOS's installer fetches the manifest and .ipa with no cookies. A builder working on an item has a record in
 // agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the item file. An item's parent is the key of the card it was spun out of, which makes it a follow-up, and
 // its related the keys of cards it is Related to; an item file's older followups list moves into its items as the server
-// starts (store.mjs migrateFollowups). An item file's waves [{slug, title, goal,
-// items: [id] (or a wave made in steps' phases: [[id]]), finished_at?}] are the owner's waves over its cards (store.mjs createWave). domain.mjs
-// decides lanes and card state from what this server reads.
+// starts (store.mjs migrateFollowups). Item files are storage only: deps order the cards, and parent and related group
+// them (docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md). domain.mjs decides lanes and card state from what this server reads.
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
 //                                docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). /index.html redirects to /
@@ -89,10 +87,9 @@
 //                                the ask, a link line for each work item made from it (from_ask) or related to it
 //                                (data/ask-links.json), then data/threads/ask__<event id>.jsonl and item-message
 //                                events whose key is ask:<event id>
-//   GET  /api/notes?item=w/id    {key, ref, title, markdown}: the item's notes file, only a .md inside its wave's
+//   GET  /api/notes?item=w/id    {key, ref, title, markdown}: the item's notes file, only a .md inside its item file's
 //                                folder, or with no file its short notes text (store.mjs readNotes); otherwise 404
 //                                {error}. /api/plan is the same, for pages loaded before the rename
-//   GET  /api/notes?wave=<slug>  {title, markdown}: a wave's goal, order and note (store.mjs readWaveNotes)
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude. → {id, board}: the
 //                                event's id and /api/board's answer as the tap left it, version included, so the page draws the tap from
@@ -235,7 +232,7 @@
 //                                (uploads/<file>) and path is absolute. Over 20 MB → 413
 //   GET  /uploads/<file>         a stored upload with its type; nothing else under data/ is served
 //   POST /api/arch-review        {} starts an architecture review of the board's repo (arch-review.mjs startReview) and appends
-//                                arch-review {key, repo, github, branch, wave | file, scope?} → {key, id, existing: false};
+//                                arch-review {key, repo, github, branch, file?, scope?} → {key, id, existing: false};
 //                                while a review is open → {key, ref, existing: true}; a review that must wait → 409 {error}
 //   POST /api/hide               {id, hidden} → data/hidden.json; the page clears an event for
 //                                every device, without waking Claude
@@ -340,7 +337,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -471,8 +468,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
   // the header's GitHub check stay the owner's, as does any kind not listed.
   const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', QUESTION_REOPEN, 'grill-more', 'visual-request', 'item-message',
-    'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-bump', 'card-unbump',
-    'plan-waves']);
+    'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-bump', 'card-unbump']);
   const VIEW_ONLY = 'This board is shared with you to look at only.';
   const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
   // → null for the owner's request, {refused} for one a shared person can't make, else {by: {login, name}}
@@ -675,7 +671,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         for (const p of cardPRs(it, repo)) prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? null : prViewOf(routeRecord(checked, prKeyOf(p)), limited);
       }
     }
-    const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'item-message', 'wave-triage', 'overnight-triage']);
+    const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'item-message', 'overnight-triage']);
     const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null, replies: [] })));
     await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
       const lines = await readLines(threadFile(`ask:${e.id}`));
@@ -1107,10 +1103,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         return json(res, 200, { working: built.workingOn.map((w) => ({ id: w.id, kind: w.kind, card: refs.get(w.key) || null, since: w.since })) });
       }
       if (p === '/api/thread') return json(res, 200, await thread(String(url.searchParams.get('key') || '')));
-      if (p === '/api/notes' && url.searchParams.has('wave')) {
-        try { return json(res, 200, await readWaveNotes(here, String(url.searchParams.get('wave')), settingsOf(await config()).tickets)); }
-        catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
-      }
       if (p === '/api/notes' || p === '/api/plan') {
         const key = String(url.searchParams.get('item') || '');
         try {

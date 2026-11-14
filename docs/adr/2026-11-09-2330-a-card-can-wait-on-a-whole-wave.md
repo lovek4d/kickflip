@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping (a split still moves its waiters, onto the tasks it split into by key)
 ---
 
 # A card can wait on a whole wave, and a split moves the cards waiting on it

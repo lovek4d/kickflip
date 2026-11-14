@@ -122,7 +122,6 @@ BoardView.part((B) => {
     readLog(n);
   }
   async function openNotes(search) {
-    const wave = new URLSearchParams(search).has('wave');
     const n = show('notes', '');
     let html;
     try {
@@ -130,7 +129,7 @@ BoardView.part((B) => {
       const answer = await r.json();
       if (!r.ok) throw new Error(answer.error || `notes ${r.status}`);
       if (n !== opened) return;
-      sheet.querySelector('.reader-ref').textContent = `${wave ? answer.title : answer.ref} notes`;
+      sheet.querySelector('.reader-ref').textContent = `${answer.ref} notes`;
       html = `<article class="plan reader-md">${markdown(answer.markdown, linkContext(state.board?.items || [], answer.key ?? null))}</article>`;
     } catch (e) { html = `<p class="muted">Could not load these notes: ${esc(e.message)}</p>`; }
     if (n === opened) body.innerHTML = html;

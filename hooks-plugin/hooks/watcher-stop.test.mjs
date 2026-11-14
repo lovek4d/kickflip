@@ -55,7 +55,7 @@ test("a watcher counts while its pid runs and ps names it wait-events.mjs or giv
 
 test('the Stop hook also blocks once while a message on a board the session owns reads Working on it with no answer, naming each', async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-stop-'));
-  let working = [{ id: 'e7', kind: 'ask', card: 'INT-3', since: '2026-11-02T10:00:00Z' }, { id: 'e8', kind: 'wave-triage', card: null, since: '2026-11-02T10:01:00Z' }];
+  let working = [{ id: 'e7', kind: 'ask', card: 'INT-3', since: '2026-11-02T10:00:00Z' }, { id: 'e8', kind: 'overnight-triage', card: null, since: '2026-11-02T10:01:00Z' }];
   const server = http.createServer((req, res) => res.end(JSON.stringify(req.url === '/api/working' ? { working } : {})));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
@@ -70,7 +70,7 @@ test('the Stop hook also blocks once while a message on a board the session owns
     const watcher = { id: 'b1', type: 'shell', status: 'running', description: 'watcher', command: 'node wait-events.mjs orch s1' };
     child.stdin.end(JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false, background_tasks: [watcher], session_id: 's1', ...extra }));
   });
-  assert.deepEqual(await stop(), { decision: 'block', reason: 'These read Working on it with no answer: /orch ask e7 on INT-3; /orch wave-triage e8. Answer each with board.mjs reply or a thread line on its task, even a short "Looking into it" while an agent works, then end your turn.' });
+  assert.deepEqual(await stop(), { decision: 'block', reason: 'These read Working on it with no answer: /orch ask e7 on INT-3; /orch overnight-triage e8. Answer each with board.mjs reply or a thread line on its task, even a short "Looking into it" while an agent works, then end your turn.' });
   assert.equal(await stop({ stop_hook_active: true }), null);
   working = [];
   assert.equal(await stop(), null);

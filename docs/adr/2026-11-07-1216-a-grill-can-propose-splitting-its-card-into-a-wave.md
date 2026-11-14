@@ -1,6 +1,6 @@
 # A grill can propose splitting its card into a wave
 
-Status: accepted
+Status: accepted; the split's tasks go into no wave since [waves are dropped; deps and Related carry order and grouping](2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md): they are Children of the original, ordered by their deps.
 
 The owner asked (11/07) whether a Discuss on a new task could end with the task broken into a wave of smaller cards, created from that one task, rather than a wave only grouping cards that already exist. Before this, a split happened only after filing: wave triage proposes splits for a lineup's unstarted cards, and the architecture review's audit card files a card per finding. No grill could split its own card.
 

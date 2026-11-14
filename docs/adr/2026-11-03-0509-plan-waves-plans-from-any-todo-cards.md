@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping
 ---
 
 # Plan waves plans from any Todo cards

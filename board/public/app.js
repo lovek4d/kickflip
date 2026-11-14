@@ -232,7 +232,7 @@ window.BoardView = (function () {
       state.openItems.add(focusKey);
       state.restored.delete(focusKey);
       const it = state.board?.items.find((i) => i.key === focusKey);
-      if (it) { const s = store.get('lanes', {}); s[it.lane] = true; store.set('lanes', s); B.openBand({ key: focusKey }); }
+      if (it) { const s = store.get('lanes', {}); s[it.lane] = true; store.set('lanes', s); }
     }
     // The owner's own moves rewrite the fragment in place, with no history entry and no hashchange.
     B.saveFragment = (changes) => {
@@ -247,13 +247,13 @@ window.BoardView = (function () {
       ev.preventDefault();
       readHash(); render(); scrollToFocus();
     });
-    // Opens and scrolls to the card key or the band slug on the board → whether the board shows it.
-    function focusOnBoard({ key, slug }) {
-      const band = slug && state.board?.waveBands?.find((b) => b.slug === slug);
-      if (!band && !state.board?.items.some((i) => i.key === key)) return false;
-      if (key) { location.hash = AppRouter.hashWith(location.hash, { selectedCard: key }); readHash(); } else B.openBand({ slug });
+    // Opens and scrolls to the card key on the board → whether the board shows it.
+    function focusOnBoard({ key }) {
+      if (!state.board?.items.some((i) => i.key === key)) return false;
+      location.hash = AppRouter.hashWith(location.hash, { selectedCard: key });
+      readHash();
       render();
-      if (key) scrollToFocus(); else $(`section.wb[data-lane="todo"][data-band="${CSS.escape(slug)}"]`)?.scrollIntoView({ block: 'start' });
+      scrollToFocus();
       return true;
     }
     // A card missing from the last visit's board waits for the fresh one, which is final.

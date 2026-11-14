@@ -216,7 +216,6 @@ BoardView.part((B) => {
     const pr = it.pr;
     const ctx = links(it.key);
     const rows = [];
-    if (it.wave) rows.push(['Wave', escText(it.wave.title)]);
     if (pr) {
       const ci = pr.checks ? `${pr.checks.state}${pr.checks.fail ? ` (${pr.checks.fail} failing)` : pr.checks.pending ? ` (${pr.checks.pending} running)` : ''}` : 'unknown';
       if (pr.state === 'OPEN') {

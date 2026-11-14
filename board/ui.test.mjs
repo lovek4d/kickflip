@@ -583,7 +583,6 @@ test("the app's router reads every hub URL as a view and writes each view back a
     ['/orch/settings.html', { kind: 'settings', route: 'orch' }],
     ['/orch/questions.html#q-1', { kind: 'questions', route: 'orch', id: 'q-1' }],
     ['/orch/notes.html?item=w%2FA1', { kind: 'notes', route: 'orch', item: 'w/A1' }],
-    ['/orch/notes.html?wave=mon', { kind: 'notes', route: 'orch', wave: 'mon' }],
     ['/_hub/', { kind: 'hub' }],
     ['/_hub/settings', { kind: 'hub', hash: '#notifications' }],
     ['/_hub/settings#rules', { kind: 'hub', hash: '#rules' }],
@@ -608,7 +607,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
   assert.equal(viewOf('https://elsewhere.example/orch/', { boards: new Set(['orch']), base }), null);
   for (const url of ['/orch/uploads/1-shot.png', '/orch/api/board', '/learn', '/_hub/kickflip.png', '/sw.js']) assert.equal(read(url), null, url);
   assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url),
-    ['/orch/', '/orch/#selectedCard=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1', '/orch/notes.html?wave=mon',
+    ['/orch/', '/orch/#selectedCard=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1',
       '/_hub/', '/_hub/settings', '/_hub/settings#rules', '/_hub/#quiet',
       '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });
@@ -1087,10 +1086,10 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
-  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
+  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(NOW - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
-  assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Status', 'in review'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
+  assert.deepEqual(rows(pushed), [['Branch', 'INT-12'], ['Status', 'in review'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
   assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
   // Notes is a button at the end of the workflow row, after Hold, and has no ↗.
   assert.match(B.detail(open), /<div class="action-row workflow">.*<a class="button" href="notes\.html\?item=w%2FA1">Notes<\/a><\/div>/s);
@@ -1104,7 +1103,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   assert.deepEqual([copied, link.textContent, prevented], [['INT-12'], 'Copied the branch name', true]);
   later.at(-1)[1]();
   assert.equal(link.textContent, 'Pushed INT-12 to gitlab.com · 25m ago');
-  assert.deepEqual(rows(open), [['Wave', 'W'], ['Status', 'in review'], ['Next', 'Waiting for PR reviewers']]);
+  assert.deepEqual(rows(open), [['Status', 'in review'], ['Next', 'Waiting for PR reviewers']]);
   assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes/);
   assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes|notes\.html/);
   const install = { url: 'https://m/app.apk', older: false };
@@ -1129,7 +1128,7 @@ test("a card with a worktree opens it in VS Code from its Links line, live on th
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, worktree: '/Users/me/.claude/kickflip/worktrees/A 1' };
+  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, worktree: '/Users/me/.claude/kickflip/worktrees/A 1' };
   assert.deepEqual(rows(open).at(-1), ['Links', 'Open in VS Code']);
   assert.match(B.detail(open), /<a href="vscode:\/\/file\/Users\/me\/\.claude\/kickflip\/worktrees\/A%201" title="Open the worktree in VS Code">Open in VS Code /);
   assert.deepEqual(rows({ ...open, hasNotes: false }).at(-1), ['Links', 'Open in VS Code']);
@@ -1152,14 +1151,14 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref) => ({ key: `w/GH-${ref.slice(1)}`, ref });
-  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, wave: { slug: 'w1', title: 'W' }, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
+  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
     parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  assert.deepEqual(rows(card), [['Wave', 'W'], ['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
+  assert.deepEqual(rows(card), [['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
     [['#selectedCard=w%2FGH-53', '#53'], ['#selectedCard=w%2FGH-94', '#94'], ['#selectedCard=w%2FGH-95', '#95'], ['#selectedCard=w%2FGH-75', '#75'], ['#selectedCard=w%2FGH-80', '#80'], ['#selectedCard=w%2FGH-99', '#99']]);
-  assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'to do']]);
-  // The Status row reads the card's lane and agent, never the wave file's stored lane
+  assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Status', 'to do']]);
+  // The Status row reads the card's lane and agent, never the item file's stored lane
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
   const bare = { ...card, storedLane: 'review', parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] };
   const building = { progress: 'Building · x', phase: 'building', at: null };
@@ -1177,9 +1176,9 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
     [{ lane: 'todo', ready: true, phase: 'ready' }, 'ready'],
     [{ lane: 'review' }, 'in review'],
     [{ lane: 'done' }, 'done'],
-  ]) assert.deepEqual(rows({ ...bare, ...extra }), [['Wave', 'W'], ['Status', want]], JSON.stringify(extra));
+  ]) assert.deepEqual(rows({ ...bare, ...extra }), [['Status', want]], JSON.stringify(extra));
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on</);
-  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 3), ['Task Five', 'Wave: W', 'blocked by #80']);
+  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Task Five', 'blocked by #80']);
   assert.doesNotMatch(app.BoardUI.workLines(card), /follow-up/);
 });
 
@@ -1191,7 +1190,7 @@ test('every task reference the board draws is a link ending with its lane ring: 
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref, lane) => ({ key: `w/GH-${ref.slice(1)}`, ref, lane });
-  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, wave: { slug: 'w1', title: 'W' }, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
+  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
     parent: link('#53', 'done'), children: [link('#94', 'progress')], related: [link('#75', 'review')], blockedBy: [link('#80', 'progress'), link('#81', 'todo')], waitsOnIt: [link('#99', 'todo')] };
   // Each anchor to a card is followed, inside it, by that card's ring.
   const anchors = (html) => [...html.matchAll(/<a\b[^>]*href="#selectedCard=[^"]*"[^>]*>(.*?)<\/a>/g)].map(([, inner]) => inner);
@@ -1328,7 +1327,7 @@ test("an open card's action row has no Implement, which lives in a Todo card's t
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
-  const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: null, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], holdable: true, hasNotes: true,
+  const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: null, deps: [], manualSteps: [], holdable: true, hasNotes: true,
     try: { kind: 'web', script: true, changes: false }, buildable: true };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
   assert.deepEqual(row(todo), ['Hold']);
@@ -1683,19 +1682,11 @@ test('ticket badges use the board source and link out', () => {
   assert.doesNotMatch(foreign, /ENG-1|#4/);
 });
 
-test('a card in a wave names it under its status line in every lane, and a card in no wave shows none', () => {
+// docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md
+test('a card names no wave or item file in any lane', () => {
   for (const lane of ['todo', 'progress', 'review', 'done']) {
-    const html = ui.workLines({ ...workCard, lane, wave: { slug: 'w', title: 'Search' } });
-    assert.match(html, /<div class="line3 sub wave">Wave: Search<\/div>/);
-    assert.ok(html.indexOf('Next: ') < html.indexOf('Wave: Search'));
-    assert.doesNotMatch(ui.workLines({ ...workCard, lane, wave: null }), /Wave: /);
+    assert.doesNotMatch(ui.workLines({ ...workCard, lane, wave: { slug: 'w', title: 'Search' }, fileLabel: 'Search', fileTitle: 'Search' }), /Wave: |Search/);
   }
-});
-
-test('a card in no wave names its item file when it has a file label, and a declared wave wins', () => {
-  assert.match(ui.workLines({ ...workCard, wave: null, fileLabel: 'Search' }), /Wave: Search<\/div>/);
-  assert.match(ui.workLines({ ...workCard, wave: { slug: 'w', title: 'Own' }, fileLabel: 'Search' }), /Wave: Own<\/div>/);
-  assert.doesNotMatch(ui.workLines({ ...workCard, wave: null, fileLabel: null }), /Wave: /);
 });
 
 test('a work card reads its title, then its next step or builder, its chips, and last its time line with what blocks it, Action needed and its unread messages', () => {
@@ -1970,15 +1961,6 @@ test("a local board's Main has a refresh icon right of its timestamp that spins 
   assert.match(failed, /class="ghost gh-refresh failed" type="button" data-main-pull aria-label="can’t pull: local changes"/);
   assert.match(failed, /<span class="main-pull-why" role="tooltip">can’t pull: local changes<\/span>/);
   assert.match(ui.mainBar({ ...main, pull: { running: false, error: 'x' } }, { open: true }), /class="main-pull-why open"/);
-});
-
-test('Todo offers Plan waves in the Show more style once two cards are free, with their keys', () => {
-  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'work' }, { key: 'v/B2', kind: 'work', blockedBy: [] }, { key: 'v/C3', kind: 'work', held: true }, { key: 'v/D4', kind: 'work', blockedBy: [{ ref: 'A1' }], blocked: true }, { key: 'v/E5', kind: 'work', blockedBy: [], blockedUntil: 'x', blocked: true }, { key: 'ask:n1', kind: 'ask' }];
-  const html = ui.planButton(todo);
-  assert.match(html, /^<button type="button" class="thread-more" data-plan="w\/A1 w\/ENG-1 v\/B2">/);
-  assert.equal(text(html), 'Plan waves');
-  assert.equal(ui.planButton(todo.slice(0, 1)), '');
-  assert.equal(ui.planButton([todo[0], todo[3], todo[4], todo[5]]), '');
 });
 
 test("a card's ETA line gives the time, with the day when not today", () => {
@@ -2269,7 +2251,7 @@ const boardItems = [
   { key: 'att/A2', file: 'att', kind: 'work', ref: 'A2', internal: false, linear: [], repo: 'acme/app' },
   { key: 'att/ENG-2467', file: 'att', kind: 'work', ref: 'ENG-2467', internal: false, linear: [{ id: 'ENG-2467', url: 'https://linear.app/acme/issue/ENG-2467' }], repo: 'acme/app' },
   { key: 'elig/A1', file: 'elig', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'OPS-7', url: 'https://linear.app/acme/issue/OPS-7' }], repo: 'o/r' },
-  { key: 'ask:e9', wave: null, kind: 'ask', ref: 'Ask', internal: false, linear: [], repo: null },
+  { key: 'ask:e9', kind: 'ask', ref: 'Ask', internal: false, linear: [], repo: null },
 ];
 const refLine = 'INT-54 shipped, INT-99 did not. ENG-2310, OPS-7 and ENG-2467 next, then A1. See acme/app#3116, app#3050, foo#4 and #2988, not #ffffff, #000000 or UTF-8. https://github.com/o/r/pull/1#issuecomment-2 and (https://x.test/a_(b)).';
 
@@ -2302,7 +2284,7 @@ test("a Linear id links in its board's own workspace, and a board without a work
   assert.match(ui.linearChips({ linear: [{ id: 'ENG-2310', url: null }] }), /^<span class="chip tone-quiet"[^>]*>ENG-2310<\/span>$/);
 });
 
-test("a bare #n opens the card it is the ticket of from any thread, else links only in a thread whose item has a repo, and a wave's short id links only from that wave's cards", () => {
+test("a bare #n opens the card it is the ticket of from any thread, else links only in a thread whose item has a repo, and an item file's short id links only from that file's cards", () => {
   const line = [{ ts: ago(1), who: 'claude', text: 'A1 and A2 wait on #2988' }];
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'elig/A1'))), [
     ['#selectedCard=elig%2FA1', 'A1', false], ['https://github.com/o/r/pull/2988', '#2988', true],

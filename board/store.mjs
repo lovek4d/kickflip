@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, waveItems, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -186,9 +186,7 @@ export async function writeReply(site, eventId, md, title) {
   await replace(file, text(md, 'the reply'));
   const lines = key ? await freshenPush(site, key, md) : [];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
-  const triaged = event.kind === 'wave-triage' ? ['wave', 'file'].filter((k) => typeof event.data?.[k] === 'string').map((k) => `${k}:${event.data[k]}`) : [];
-  const topic = card ? `item:${card.key}` : triaged[0];
-  if (topic) lines.push(...await resolveAnsweredOn(site, topic, 'Acted on: replied'));
+  if (card) lines.push(...await resolveAnsweredOn(site, `item:${card.key}`, 'Acted on: replied'));
   return { file, lines };
 }
 
@@ -200,7 +198,7 @@ export async function readWorking(site) {
 }
 
 // The kinds bin/wait-events.mjs marks working as it hands them to the session (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
-export const WORKING_KINDS = ['ask', 'item-message', 'wave-triage', 'overnight-triage'];
+export const WORKING_KINDS = ['ask', 'item-message', 'overnight-triage'];
 export async function markWorking(site, eventIds) {
   if (!eventIds.length) return;
   const at = new Date().toISOString();
@@ -574,7 +572,7 @@ export const fileAsk = (site, eventId, pending) => ticketWrite(site, async () =>
 });
 
 // The item file an ask's card goes in, {source, itemFile}: the first there is; a file-items board starts its one file.
-// A waves board with no wave yet has nowhere to file it, and filing never makes a wave, so the ask is refused.
+// A board over ~/.claude/waves with no item file yet has nowhere to file it, and filing never makes one, so the ask is refused.
 async function askFile(site) {
   const sources = await itemSources(site);
   for (const source of sources) {
@@ -1729,8 +1727,6 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
       const card = await askCardOf(site, await checkAsk(site, q.topic.slice(9), `${name}.topic`));
       fail(`${name}.topic: an ask's questions go on its task's topic${card ? `, item:${card.key}` : ''}`);
     } else if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
-    else if (q.topic.startsWith('wave:')) await findWave(site, q.topic.slice(5));
-    else if (q.topic.startsWith('file:')) await triagedFile(site, q.topic.slice(5));
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);
     text(q.question, `${name}.question`);
     const long = lineFault(q.question);
@@ -2678,20 +2674,10 @@ function addPRs(item, refs, repo) {
   item.prs = list;
 }
 const depKey =(slug, dep) => (String(dep).includes('/') ? String(dep) : `${slug}/${dep}`);
-// docs/adr/2026-11-09-2330-a-card-can-wait-on-a-whole-wave.md: a dep is a card, by key or by bare id in item file slug,
-// or wave:<slug>, every card that wave holds now. → the keys of the cards deps waits on
-const WAVE_DEP = /^wave:(.+)$/;
-async function depCards(site, slug, deps) {
-  const keys = await Promise.all((deps || []).map(async (d) => {
-    const wave = String(d).match(WAVE_DEP)?.[1];
-    if (!wave) return [depKey(slug, d)];
-    const { source, wave: found } = await findWave(site, wave);
-    return waveItems(found).map((id) => `${source.slug}/${id}`);
-  }));
-  return [...new Set(keys.flat())];
-}
+// A dep is a card, by key or by bare id in item file slug. → the keys of the cards deps waits on
+const depCards = (slug, deps) => [...new Set((deps || []).map((d) => depKey(slug, d)))];
 async function unfinishedDeps(site, slug, item) {
-  const keys = await depCards(site, slug, item.deps);
+  const keys = depCards(slug, item.deps);
   const deps = await Promise.all(keys.map((k) => loadItem(site, k).then(({ item: d }) => d, () => null)));
   return keys.filter((k, i) => deps[i] && !closed(deps[i]));
 }
@@ -2717,39 +2703,29 @@ async function unblockedBy(site, key) {
   for (const s of await itemSources(site)) {
     const itemFile = await readJSON(s.file, null);
     for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
-      if (closed(it) || it.blocked_until || !(await depCards(site, s.slug, it.deps)).includes(key)) continue;
+      if (closed(it) || it.blocked_until || !depCards(s.slug, it.deps).includes(key)) continue;
       if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
     }
   }
   return out;
 }
 
-// docs/adr/2026-11-09-2330-a-card-can-wait-on-a-whole-wave.md: --split-into for card key, closing as a split: wave:<slug>
-// or a comma list of cards (deps entries), none of them key. → {entries: each wave:<slug> or a card's full key, words:
-// what it split into, "the wave <title> (#a, #b)" or "#a, #b", waiters: the keys of the open cards with a dep on key}.
-// It refuses a waiter that is one of the cards it splits into, which would wait on itself.
+// docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md: --split-into for card key, closing as a split: a comma
+// list of cards (deps entries), none of them key. → {entries: each card's full key, words: what it split into, "#a, #b",
+// waiters: the keys of the open cards with a dep on key}. It refuses a waiter that is one of the cards it splits into,
+// which would wait on itself.
 async function splitPlan(site, key, splitInto) {
   const slug = parseKey(key).file;
-  const entries = (await depList(site, slug, splitInto)).map((d) => (WAVE_DEP.test(d) ? d : depKey(slug, d)));
-  if (!entries.length) fail('--split-into takes wave:<slug> or the tasks the split filed, <id>,<file>/<id>');
-  if ((await depCards(site, slug, entries)).includes(key)) fail(`${key} can't be split into itself`);
-  const words = await Promise.all(entries.map(async (d) => {
-    const wave = d.match(WAVE_DEP)?.[1];
-    if (!wave) return cardName(site, d);
-    const { source, wave: found } = await findWave(site, wave);
-    const names = await Promise.all(waveItems(found).map((id) => cardName(site, `${source.slug}/${id}`)));
-    return `the wave ${found.title} (${names.join(', ')})`;
-  }));
+  const entries = depCards(slug, await depList(site, slug, splitInto));
+  if (!entries.length) fail('--split-into takes the tasks the split filed, <id>,<file>/<id>');
+  if (entries.includes(key)) fail(`${key} can't be split into itself`);
+  const words = await Promise.all(entries.map((d) => cardName(site, d)));
   const waiters = [];
   for (const s of await itemSources(site)) {
     for (const it of (await readJSON(s.file, null))?.items || []) {
       const own = `${s.slug}/${it.id}`;
       if (closed(it) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
-      for (const d of entries) {
-        if (!(await depCards(site, slug, [d])).includes(own)) continue;
-        fail(WAVE_DEP.test(d) ? `${own} waits on ${key} and is in the wave "${d.match(WAVE_DEP)[1]}", so it would wait on itself; split into the new tasks by key`
-          : `${own} waits on ${key} and is one of the tasks it splits into, so it would wait on itself`);
-      }
+      if (entries.includes(own)) fail(`${own} waits on ${key} and is one of the tasks it splits into, so it would wait on itself`);
       waiters.push(own);
     }
   }
@@ -2764,7 +2740,7 @@ async function moveWaiters(site, key, { entries, words, waiters }) {
     if (!mine.length) continue;
     const itemFile = await readJSON(s.file, null);
     for (const it of itemFile.items.filter((x) => mine.includes(`${s.slug}/${x.id}`))) {
-      const moved = entries.map((d) => (!WAVE_DEP.test(d) && parseKey(d).file === s.slug ? parseKey(d).id : d));
+      const moved = entries.map((d) => (parseKey(d).file === s.slug ? parseKey(d).id : d));
       it.deps = [...new Set([...it.deps.filter((d) => depKey(s.slug, d) !== key), ...moved])];
     }
     await writeJSON(s.file, itemFile);
@@ -2788,7 +2764,7 @@ async function markUnblocked(site, key, ts) {
 
 async function checkNextDeps(site, key, item, next) {
   const mentions = new Set(next.match(/#?[\w-]+(?:\.[\w-]+)*(?:\/[\w-]+(?:\.[\w-]+)*)*/g) || []);
-  const deps = new Set(await depCards(site, parseKey(key).file, item.deps));
+  const deps = new Set(depCards(parseKey(key).file, item.deps));
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     for (const other of itemFile?.items || []) {
@@ -2964,7 +2940,7 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   setBuildChoice(item, { size, model });
   if (risk !== undefined) item.risk = risk;
   if (deps !== undefined) {
-    const list = await depList(site, parseKey(key).file, deps, key);
+    const list = await depList(site, parseKey(key).file, deps);
     if (list.length) item.deps = list; else delete item.deps;
   }
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md: a block waits on cards (deps) or a condition,
@@ -3270,15 +3246,10 @@ export async function breakOwnerCheck(site, key, check, error) {
   return true;
 }
 
-// A comma list of deps, each an item that exists or wave:<slug> naming a wave that exists and doesn't hold key, the card
-// they are for (none for a new card, which no wave holds yet), since that card would wait on itself; "" is none.
-async function depList(site, slug, deps, key) {
+// A comma list of deps, each an item that exists; "" is none.
+async function depList(site, slug, deps) {
   const list = [...new Set(String(deps).split(',').map((d) => d.trim()).filter(Boolean))];
-  for (const d of list) {
-    const wave = d.match(WAVE_DEP)?.[1];
-    if (!wave) { await loadItem(site, depKey(slug, d)); continue; }
-    if ((await depCards(site, slug, [d])).includes(key)) fail(`${key} is in the wave "${wave}", so it would wait on itself`);
-  }
+  for (const d of list) await loadItem(site, depKey(slug, d));
   return list;
 }
 
@@ -3644,7 +3615,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
       await appendCommand(site, target, { command: 'blocked-by', card: added });
     }
   }
-  for (const other of intake && site ? (item.deps || []).filter((d) => !WAVE_DEP.test(d)) : []) {
+  for (const other of intake && site ? item.deps || [] : []) {
     await appendCommand(site, added, { command: 'blocked-by', card: depKey(slug, other) });
     await appendCommand(site, depKey(slug, other), { command: 'unblocks', card: added });
   }
@@ -3986,7 +3957,7 @@ async function renameWaveNames(site) {
     if (!Array.isArray(itemFile?.lineups)) continue;
     const { lineups, ...rest } = itemFile;
     await writePlain(source.file, { ...rest, waves: [...(rest.waves || []), ...lineups] });
-    for (const { slug } of lineups) await fs.rename(path.join(source.dir, `lineup-${slug}.md`), path.join(source.dir, waveNoteFile(slug))).catch((e) => { if (e.code !== 'ENOENT') throw e; });
+    for (const { slug } of lineups) await fs.rename(path.join(source.dir, `lineup-${slug}.md`), path.join(source.dir, `wave-${slug}.md`)).catch((e) => { if (e.code !== 'ENOENT') throw e; });
   }
   const data = path.join(site, 'data');
   for (const name of (await fs.readdir(data).catch(() => [])).filter((f) => f.endsWith('.json'))) {
@@ -4001,202 +3972,44 @@ async function renameWaveNames(site) {
   }
 }
 
-// A wave, as the owner calls it: a named set of one item file's cards in build order, kept in that file's `waves`
-// (docs/adr/2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md, which called it a lineup). Its note is
-// wave-<slug>.md beside the file. Every write keeps its cards as `items`, and each card is blocked only by the earlier
-// cards of the wave it names as its conflicts
-// (docs/adr/2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with.md).
-export const waveNoteFile = (slug) => `wave-${slug}.md`;
-const waveSlug = (v) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`a wave's slug uses only a-z, 0-9 and "-", not "${v}"`));
-
-async function findWave(site, slug) {
-  for (const source of await itemSources(site)) {
-    const itemFile = await readJSON(source.file, null);
-    const wave = (itemFile?.waves || []).find((l) => l.slug === slug);
-    if (wave) return { source, itemFile, wave };
-  }
-  return fail(`this board has no wave "${slug}"; wave create makes one`);
-}
-
-// An item file's triage questions use topic file:<slug>, and only a board over ~/.claude/waves shows its item files as
-// wave bands (domain.mjs waveBandsOf).
-async function triagedFile(site, slug) {
-  if ((await boardConfig(site)).items !== 'waves') fail(`topic file:${slug} is for a board over ~/.claude/waves; a wave's triage uses wave:<slug>`);
-  await loadItemFile(site, slug);
-}
-
-// The cards named by <file>/<id> keys, all in one item file and none in another open wave. → their ids
-function waveCards(source, itemFile, keys, slug) {
-  return keys.map((key) => {
-    const { file: from, id } = parseKey(key);
-    if (from !== source.slug) fail(`${key} is not in item file "${source.slug}"; a wave's tasks share one file`);
-    const card = itemFile.items.find((it) => it.id === id) || fail(`item file "${from}" has no item "${id}"`);
-    if ((card.deps || []).includes(`wave:${slug}`)) fail(`${key} waits on the wave "${slug}", so it can't be in it`);
-    const other = (itemFile.waves || []).find((l) => l.slug !== slug && !l.finished_at && waveItems(l).includes(id));
-    if (other) fail(`${key} is already in the wave "${other.slug}"; wave remove ${other.slug} ${key} first`);
-    return id;
+// docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md
+// The drop of waves, over every board in the manifest, once (its `migrated` list records 'drop-waves'). Run by the hub
+// as it starts, after migrateWaveNames, before it starts any board. In each item file a dep wave:<slug> becomes the
+// cards that wave held, by bare id in their own file, and `waves` goes; every other dep, Parent and Related to stays.
+// The wave-<slug>.md notes stay on disk as written. → the routes of the boards it changed
+export async function migrateDropWaves() {
+  return withManifestLock(async () => {
+    const manifest = readManifest();
+    const done = Array.isArray(manifest.migrated) ? manifest.migrated : [];
+    if (done.includes('drop-waves') || !Object.keys(manifest.sites || {}).length) return [];
+    const routes = [];
+    for (const { route, dir } of listBoards(manifest)) if (await dropWaves(dir)) routes.push(route);
+    manifest.migrated = [...done, 'drop-waves'];
+    await writeManifest(manifest);
+    return routes;
   });
 }
 
-// A comma list of cards, each <id> or <file>/<id> as item set --deps takes them; "" is none.
-const cardList = (v) => [...new Set(String(v ?? '').split(',').map((d) => d.trim()).filter(Boolean))];
-
-// Each --card value, "<file>/<id>" or "<file>/<id>:<card>,…" naming the earlier cards it conflicts with. → [[key, [card, …]], …]
-function cardSpecs(values) {
-  const specs = [values ?? []].flat().map((v) => {
-    const [key, after] = String(v).split(':');
-    return [key.trim(), cardList(after)];
-  });
-  if (!specs.length || specs.some(([key]) => !key)) fail("--card takes one task per flag in build order, as <file>/<id>, or <file>/<id>:<file>/<id>,… naming the earlier tasks it conflicts with");
-  return specs;
-}
-
-// Card id's links to the wave's cards become the cards named in after, each an earlier card of the wave; its links to
-// cards outside the wave stay.
-function relink(source, itemFile, wave, id, after) {
-  const at = wave.items.indexOf(id);
-  const ids = after.map((d) => {
-    const key = depKey(source.slug, d);
-    const { file, id: dep } = parseKey(key);
-    const was = file === source.slug ? wave.items.indexOf(dep) : -1;
-    if (was < 0 || was >= at) fail(`${key} is not an earlier task of the wave "${wave.slug}"`);
-    return dep;
-  });
-  const it = itemFile.items.find((x) => x.id === id);
-  const deps = [...(it.deps || []).filter((d) => !inWave(source, wave, d)), ...ids];
-  if (deps.length) it.deps = deps; else delete it.deps;
-}
-const inWave = (source, wave, dep) => waveItems(wave).some((id) => depKey(source.slug, dep) === `${source.slug}/${id}`);
-
-async function writeWave(site, source, itemFile, wave, note) {
-  if (note !== undefined) await replace(path.join(source.dir, waveNoteFile(wave.slug)), `${text(note, 'the note').replace(/\n*$/, '\n')}`);
-  await writeJSON(source.file, itemFile);
-  const { tickets } = settingsOf(await boardConfig(site));
-  return { file: source.file, lines: [`order: ${orderLine(source, itemFile, wave, tickets)}`] };
-}
-
-// A wave's cards by label in build order, by commas, each with the earlier cards it waits on: "#1, #2, #3 (after #1, #2)".
-function orderLine(source, itemFile, wave, tickets) {
-  const label = (id) => refOf(itemFile, itemFile.items.find((it) => it.id === id) || { id }, tickets);
-  return waveItems(wave).map((id) => {
-    const after = (itemFile.items.find((it) => it.id === id)?.deps || []).filter((d) => inWave(source, wave, d));
-    return after.length ? `${label(id)} (after ${after.map((d) => label(parseKey(depKey(source.slug, d)).id)).join(', ')})` : label(id);
-  }).join(', ');
-}
-
-export async function createWave(site, slug, { title, goal, cards, note }) {
-  waveSlug(slug);
-  const specs = cardSpecs(cards);
-  if (note === undefined) fail('wave create needs the wave note, as --note <text> or --file <path>');
+async function dropWaves(site) {
   const sources = await itemSources(site);
-  if (sources.some((s) => s.slug === slug)) fail(`"${slug}" is an item file on this board; pick another slug`);
-  for (const s of sources) if (((await readJSON(s.file, null))?.waves || []).some((l) => l.slug === slug)) fail(`this board already has a wave "${slug}"`);
-  const source = sources.find((s) => s.slug === parseKey(specs[0][0]).file) || fail(`this board has no item file "${parseKey(specs[0][0]).file}"`);
-  const { itemFile } = await loadItemFile(site, source.slug);
-  const ids = waveCards(source, itemFile, specs.map(([key]) => key), slug);
-  if (new Set(ids).size !== ids.length) fail('--card names a task twice');
-  const wave = { slug, title: text(title, '--title'), goal: text(goal, '--goal'), items: ids, created: new Date().toISOString() };
-  specs.forEach(([, after], i) => relink(source, itemFile, wave, ids[i], after));
-  itemFile.waves = [...(itemFile.waves || []), wave];
-  return writeWave(site, source, itemFile, wave, note);
-}
-
-// Adds a card last, linked to the earlier cards --after names; removes one, which keeps its own links as ordinary
-// blocked-by and is refused while an open card of the wave waits on it; or, for card, rewrites only that card's links to
-// the wave's cards to --after's ("" clears them). Also renames, sets the goal or rewrites the note.
-// docs/adr/2026-11-09-2345-a-card-leaves-a-wave-only-once-no-open-card-waits-on-it.md
-export async function changeWave(site, slug, { add, remove, card, after, title, goal, note }) {
-  if ([add, remove, card, after, title, goal, note].every((v) => v === undefined)) fail('nothing to change: pass a task with --after, --title, --goal, --note or --file');
-  if (after !== undefined && add === undefined && card === undefined) fail(`--after goes with a task: wave set ${slug} <file>/<id> --after <file>/<id>,…`);
-  if (card !== undefined && after === undefined) fail(`wave set ${slug} ${card} needs --after <file>/<id>,… ("" clears its links)`);
-  const { source, itemFile, wave } = await findWave(site, slug);
-  if (wave.finished_at) fail(`the wave "${slug}" is finished`);
-  wave.items = waveItems(wave);
-  delete wave.phases;
-  const blockedBefore = remove === undefined ? [] : await waveBlocked(site, slug);
-  if (add !== undefined) {
-    const [id] = waveCards(source, itemFile, [add], slug);
-    if (wave.items.includes(id)) fail(`${add} is already in the wave "${slug}"`);
-    wave.items.push(id);
-    relink(source, itemFile, wave, id, cardList(after));
-  }
-  if (card !== undefined) {
-    const { file, id } = parseKey(card);
-    if (file !== source.slug || !wave.items.includes(id)) fail(`${card} is not in the wave "${slug}"`);
-    relink(source, itemFile, wave, id, cardList(after));
-  }
-  if (remove !== undefined) {
-    const [id] = waveCards(source, itemFile, [remove], slug);
-    if (!wave.items.includes(id)) fail(`${remove} is not in the wave "${slug}"`);
-    if (wave.items.length === 1) fail(`${remove} is the wave's last task; wave finish ${slug} ends the wave`);
-    const waiting = (it) => !closed(it) && (it.deps || []).some((d) => depKey(source.slug, d) === `${source.slug}/${id}`);
-    const waiters = itemFile.items.filter((it) => wave.items.includes(it.id) && it.id !== id && waiting(it));
-    const gone = itemFile.items.find((it) => it.id === id);
-    if (waiters.length && !(gone && closed(gone))) {
-      const lines = await Promise.all(waiters.map(async (it) => `${await cardName(site, `${source.slug}/${it.id}`)} waits on ${remove}: wave set ${slug} ${source.slug}/${it.id} --after <its other conflicts, or "">`));
-      fail(`${remove} can't leave the wave "${slug}" while open tasks wait on it; relink each, then remove:\n${lines.join('\n')}`);
+  const files = await Promise.all(sources.map((s) => readPlain(s.file).catch(() => null)));
+  const held = new Map(sources.flatMap((s, i) => (files[i]?.waves || [])
+    .map((w) => [`wave:${w.slug}`, (w.items || w.phases.flat()).map((id) => `${s.slug}/${id}`)])));
+  const waveDep = (d) => String(d).startsWith('wave:');
+  let changed = false;
+  for (const [i, s] of sources.entries()) {
+    const itemFile = files[i];
+    if (!itemFile || !('waves' in itemFile || (itemFile.items || []).some((it) => (it.deps || []).some(waveDep)))) continue;
+    const { waves, ...rest } = itemFile;
+    for (const it of rest.items || []) {
+      if (!(it.deps || []).some(waveDep)) continue;
+      const own = (key) => (parseKey(key).file === s.slug ? parseKey(key).id : key);
+      it.deps = [...new Set(it.deps.flatMap((d) => (waveDep(d) ? (held.get(d) || []).map(own) : [d])))].filter((d) => d !== it.id);
     }
-    // A Done card blocks nobody, so the wave's cards drop their links to it.
-    if (gone && closed(gone)) {
-      for (const it of itemFile.items.filter((x) => wave.items.includes(x.id) && x.deps)) {
-        it.deps = it.deps.filter((d) => depKey(source.slug, d) !== `${source.slug}/${id}`);
-        if (!it.deps.length) delete it.deps;
-      }
-    }
-    wave.items = wave.items.filter((x) => x !== id);
+    await writePlain(s.file, rest);
+    changed = true;
   }
-  if (title !== undefined) wave.title = text(title, '--title');
-  if (goal !== undefined) wave.goal = text(goal, '--goal');
-  const written = await writeWave(site, source, itemFile, wave, note);
-  if (remove !== undefined) await noticeWaveUnblocked(site, slug, blockedBefore, remove);
-  return written;
-}
-
-// The keys of the open cards waiting on wave:<slug> that its open cards block now, which a removal can lift.
-async function waveBlocked(site, slug) {
-  const out = [];
-  for (const s of await itemSources(site)) {
-    const itemFile = await readJSON(s.file, null);
-    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
-      if (closed(it) || !(it.deps || []).includes(`wave:${slug}`)) continue;
-      if ((await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
-    }
-  }
-  return out;
-}
-
-// A removal that lifts a wave:<slug> block ends the wait as a Done close does: an Unblocked line, and card-unblocked.
-async function noticeWaveUnblocked(site, slug, blockedBefore, removed) {
-  const lifted = `${await cardName(site, removed)} left the wave "${slug}"`;
-  for (const k of blockedBefore) {
-    const { item } = await loadItem(site, k);
-    if (item.blocked_until || (await unfinishedDeps(site, parseKey(k).file, item)).length) continue;
-    const { line } = await appendStatus(site, k, 'unblocked', { lifted });
-    await markUnblocked(site, k, line.ts);
-    await appendEvent({ dir: site }, 'card-unblocked', { key: k });
-  }
-}
-
-// A finished wave's band leaves Todo; its cards keep their links. It finishes only once every card in it is Done, which
-// a card waiting on wave:<slug> waits for too (docs/adr/2026-11-09-2330-a-card-can-wait-on-a-whole-wave.md).
-export async function finishWave(site, slug) {
-  const { source, itemFile, wave } = await findWave(site, slug);
-  // A card gone from the item file went to the archive Done, as unfinishedDeps reads it.
-  const open = itemFile.items.filter((it) => waveItems(wave).includes(it.id) && !closed(it));
-  if (open.length) {
-    const names = await Promise.all(open.map((it) => cardName(site, `${source.slug}/${it.id}`)));
-    fail(`the wave "${slug}" still has ${names.join(', ')} open; wave finish waits until every task in it is Done`);
-  }
-  wave.finished_at = new Date().toISOString();
-  await writeJSON(source.file, itemFile);
-  return { file: source.file };
-}
-
-// → {title, markdown}: the wave's goal and order, then its note file.
-export async function readWaveNotes(site, slug, tickets) {
-  const { source, itemFile, wave } = await findWave(site, slug);
-  const note = await fs.readFile(path.join(source.dir, waveNoteFile(slug)), 'utf8').catch(() => '');
-  return { title: wave.title, markdown: `**Goal** ${wave.goal}\n\n**Order** ${orderLine(source, itemFile, wave, tickets)}\n\n${note}` };
+  return changed;
 }
 
 // One record per agent on an item: agents/<id>.json for agent main, agents/<id>@<agent>.json for any other

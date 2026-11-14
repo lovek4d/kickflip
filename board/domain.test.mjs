@@ -1432,7 +1432,6 @@ test("a checking card sits in In Progress waiting on Claude's check, with no bui
   assert.deepEqual([one.lane, one.waitsOn, one.builder, one.next, one.bumpable], ['progress', 'checking', null, null, true]);
   assert.deepEqual(card('site/S2').blockedBy, [{ key: 'site/S1', ref: 'INT-1', lane: 'progress' }]);
   assert.deepEqual([card('w/A1').lane, card('w/A1').waitsOn, card('w/A2').lane], ['progress', 'checking', 'progress']);
-  assert.equal(b.itemFiles[0].finished, false);
 });
 
 test('an edited ask, or a thread message edited before thread edits went, shows its latest text marked Edited and keeps its files', () => {
@@ -1496,7 +1495,7 @@ test('Done holds every closed work card, however old, with no Older fold, and ca
   assert.deepEqual(b.items.map((i) => i.lane).slice(-8), Array(8).fill('done'));
 });
 
-test('an item file whose every work item is in Done, landed or not, is finished, until an open card reopens it, and its Done cards stay in the one newest-first Done list with no fold', () => {
+test("an item file's Done cards, landed or not, stay in the one newest-first Done list with no fold, and a reopened one goes back to Todo", () => {
   const now = Date.parse('2026-11-20T12:00:00Z');
   const at = (d) => new Date(now - d * 86400000).toISOString();
   const prs = { 'o/r#1': { state: 'MERGED', mergedAt: at(1) }, 'o/r#2': { state: 'CLOSED', updatedAt: at(3) }, 'o/r#3': { state: 'MERGED', mergedAt: at(20) } };
@@ -1508,7 +1507,6 @@ test('an item file whose every work item is in Done, landed or not, is finished,
     { slug: 'empty', itemFile: { items: [] } },
   ];
   const b = buildBoard({ now, fromWaves: false, prs, files: files(false) });
-  assert.deepEqual(b.itemFiles.map((w) => [w.slug, w.finished]), [['x', true], ['site', true], ['open', false], ['empty', false]]);
   assert.deepEqual(b.items.map((i) => [i.key, i.lane]), [
     ['open/O2', 'progress'],
     ['x/X1', 'done'], ['x/ENG-2', 'done'], ['x/ENG-1', 'done'], ['x/X2', 'done'], ['x/X4', 'done'],
@@ -1516,7 +1514,6 @@ test('an item file whose every work item is in Done, landed or not, is finished,
   ]);
   assert.ok(b.items.every((i) => !('fold' in i)));
   const reopened = buildBoard({ now, fromWaves: false, prs, files: files(true) });
-  assert.deepEqual(reopened.itemFiles.map((w) => [w.slug, w.finished]), [['x', false], ['site', true], ['open', false], ['empty', false]]);
   assert.deepEqual(reopened.items.filter((i) => i.file === 'x').map((i) => [i.key, i.lane]), [
     ['x/ENG-2', 'todo'],
     ['x/X1', 'done'], ['x/ENG-1', 'done'], ['x/X2', 'done'], ['x/X4', 'done'], ['x/X3', 'done'],
@@ -1607,69 +1604,21 @@ test('review records use one precedence order and date the card from the item re
   assert.equal(Object.hasOwn(board().itemFiles[0], 'watched'), false);
 });
 
-// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-test("each open wave is a band with its cards in order, its next unstarted card ready or why not, progress and triage, its cards carry its slug; an item file is a band only on a board over the waves, with triage from wave-triage {file} and topic file:<slug>", () => {
-  const items = [
-    { id: 'INT-1', title: 'One', lane: 'done' }, { id: 'INT-2', title: 'Two', lane: 'progress' }, { id: 'INT-3', title: 'Three', deps: ['INT-2'], phase: 'ready' },
-    { id: 'INT-4', title: 'Four', lane: 'done', prs: [{ repo: 'o/r', number: 4 }] }, { id: 'INT-5', title: 'Five' }, { id: 'INT-6', title: 'Six', lane: 'done' }, { id: 'INT-7', title: 'Loose' },
-    { id: 'INT-8', title: 'Eight', phase: 'ready' }, { id: 'INT-9', title: 'Nine', phase: 'grilling', deps: ['INT-8'] }, { id: 'INT-10', title: 'Ten', held: true },
+// docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md
+test("item files are storage only: a board over ~/.claude/waves builds no band, every card shows once with no wave, and a waves record or wave:<slug> dep left in a file changes nothing", () => {
+  const files = [
+    { slug: 'plan-a', itemFile: { title: 'Plan A', items: [{ id: 'A1', title: 'One', phase: 'ready' }, { id: 'A2', title: 'Two', deps: ['A1', 'wave:old'] }],
+      waves: [{ slug: 'old', title: 'Old', goal: 'G', items: ['A1', 'A2'] }] } },
+    { slug: 'plan-b', itemFile: { title: 'Plan B', items: [{ id: 'B1', title: 'Three', deps: ['plan-a/A2'] }] } },
   ];
-  const waves = [
-    { slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', items: ['INT-1', 'INT-2', 'INT-3', 'INT-4'] },
-    { slug: 'old', title: 'Old', goal: 'Gone.', items: ['INT-5'], finished_at: '2026-11-01T00:00:00Z' },
-    { slug: 'all-done', title: 'All done', goal: 'Shipped.', items: ['INT-6'] },
-    { slug: 'go', title: 'Go', goal: 'Ready to go.', items: ['INT-8', 'INT-9'] },
-    { slug: 'hold', title: 'Hold', goal: 'Held.', items: ['INT-10'] },
-  ];
-  const question = (id, topic) => ({ id, topic, question: 'Split it?', options: [{ id: 'yes', label: 'Yes' }] });
-  const triage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { wave: 'mon' }, reply });
-  const build = (events, owner = {}, fromWaves = false) => buildBoard({ fromWaves, now: Date.parse('2026-11-02T12:00:00Z'), events, owner, prs: { 'o/r#4': { state: 'CLOSED' } },
-    files: [{ slug: 'hub', itemFile: { internal: true, items, waves } }, { slug: 'other', itemFile: { items: [{ id: 'X1', title: 'Elsewhere' }] } }] });
-
-  const idle = build([]);
-  const keys = (...ids) => ids.map((id) => `hub/${id}`);
-  assert.deepEqual(idle.waveBands[0], { kind: 'wave', slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
-    keys: keys('INT-1', 'INT-2', 'INT-3', 'INT-4'), next: { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'blocked by INT-2' }, triage: { running: false, questions: 0 } });
-  assert.deepEqual(idle.waveBands.map((b) => [b.slug, b.next]), [
-    ['mon', { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'blocked by INT-2' }],
-    ['go', { key: 'hub/INT-8', ref: 'INT-8', ready: true, word: 'ready' }],
-    ['hold', { key: 'hub/INT-10', ref: 'INT-10', ready: false, word: 'held' }],
-  ]);
-  const chip = (id) => idle.items.find((i) => i.id === id).wave;
-  assert.deepEqual([chip('INT-3'), chip('INT-5'), chip('INT-7')], [{ slug: 'mon', title: 'Monitor' }, { slug: 'old', title: 'Old' }, null]);
-
-  assert.deepEqual(build([triage('t1', '2026-11-02T10:00:00Z')]).waveBands[0].triage, { running: true, questions: 0 });
-  const asked = build([triage('t1', '2026-11-02T10:00:00Z', { html: '2 questions' }), { id: 'a1', ts: '2026-11-02T10:05:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'yes' } }],
-    { items: [question('q1', 'wave:mon'), question('q2', 'wave:mon'), { ...question('q3', 'wave:mon'), resolved: 'Done', resolved_at: '2026-11-02T09:00:00Z' }] });
-  assert.deepEqual(asked.waveBands[0].triage, { running: false, questions: 2 });
-  assert.deepEqual(asked.needs.map((n) => [n.text, n.band, n.url]), [['Monitor · 1 question', 'mon', 'questions.html#q1']]);
-
-  const idleRow = { running: false, questions: 0 };
-  const fileBands = build([], {}, true).waveBands.filter((b) => b.kind === 'file');
-  assert.deepEqual(fileBands.map((b) => [b.slug, b.goal, b.next, b.triage, `${b.merged}/${b.total}`]), [['hub', null, null, idleRow, '2/10'], ['other', null, null, idleRow, '0/1']]);
-  assert.deepEqual(fileBands[1].keys, ['other/X1']);
-  const waveTriage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { file: 'other' }, reply });
-  const triaged = (events, owner) => Object.fromEntries(build(events, owner, true).waveBands.map((r) => [`${r.kind}:${r.slug}`, r.triage]));
-  assert.deepEqual(triaged([waveTriage('t2', '2026-11-02T10:00:00Z')]), { 'wave:mon': idleRow, 'wave:go': idleRow, 'wave:hold': idleRow, 'file:hub': idleRow, 'file:other': { running: true, questions: 0 } });
-  const fileAsked = build([waveTriage('t2', '2026-11-02T10:00:00Z', { html: '1 question' })], { items: [question('q4', 'file:other'), question('q5', 'wave:mon')] }, true);
-  assert.deepEqual(fileAsked.waveBands.map((r) => r.triage.questions), [1, 0, 0, 0, 1]);
-  assert.deepEqual(fileAsked.needs.map((n) => [n.text, n.topic, n.band]), [['Monitor · 1 question', 'wave:mon', 'mon'], ['other · 1 question', 'file:other', 'other']]);
-});
-
-// docs/adr/2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with.md
-test("a wave's band lists its cards in order, and Implement goes to its first ready card, so free cards are offered in turn and a card waits only on the cards it links to; a wave made in steps reads its steps in order", () => {
-  const items = [
-    { id: 'P1', title: 'One', lane: 'done' }, { id: 'P2', title: 'Two', phase: 'ready' }, { id: 'P3', title: 'Three', phase: 'ready', deps: ['P1'] },
-    { id: 'P4', title: 'Four', phase: 'ready', deps: ['P2'] },
-  ];
-  const build = (over = {}, waves = [{ slug: 'cw', title: 'Conflicts', goal: 'G', items: ['P1', 'P2', 'P3', 'P4'] }]) => buildBoard({ now: Date.parse('2026-11-04T12:00:00Z'), events: [], owner: {},
-    files: [{ slug: 'w', itemFile: { internal: true, items: items.map((it) => ({ ...it, ...over[it.id] })), waves } }] });
-  const [band] = build().waveBands;
-  assert.deepEqual([band.keys, 'phases' in band], [['w/P1', 'w/P2', 'w/P3', 'w/P4'], false]);
-  assert.deepEqual(band.next, { key: 'w/P2', ref: 'P2', ready: true, word: 'ready' });
-  assert.deepEqual(build({ P2: { lane: 'progress' } }).waveBands[0].next, { key: 'w/P3', ref: 'P3', ready: true, word: 'ready' });
-  assert.deepEqual(build({ P2: { lane: 'progress' }, P3: { lane: 'progress' } }).waveBands[0].next, { key: 'w/P4', ref: 'P4', ready: false, word: 'blocked by P2' });
-  assert.deepEqual(build({}, [{ slug: 'old', title: 'Old', goal: 'G', phases: [['P1'], ['P3', 'P2'], ['P4']] }]).waveBands[0].keys, ['w/P1', 'w/P3', 'w/P2', 'w/P4']);
+  const b = buildBoard({ fromWaves: true, now: Date.parse('2026-11-02T12:00:00Z'), events: [], owner: {}, files });
+  assert.equal('waveBands' in b, false);
+  assert.deepEqual(b.items.filter((i) => i.kind === 'work').map((i) => i.key).sort(), ['plan-a/A1', 'plan-a/A2', 'plan-b/B1']);
+  assert.equal(b.items.some((i) => 'wave' in i || 'fileLabel' in i), false);
+  // Order comes from deps alone: a dep naming a wave waits on nothing.
+  const card = (id) => b.items.find((i) => i.id === id);
+  assert.deepEqual([card('A2').blockedBy.map((d) => d.ref), card('B1').blockedBy.map((d) => d.ref)], [['A1'], ['A2']]);
+  assert.equal(b.ownerTopics.some((t) => /^(wave|file):/.test(t.id)), false);
 });
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
@@ -2362,7 +2311,7 @@ test('the idle notification pushes once 15 minutes into an idle stretch, and aga
   assert.equal(step(true), true, 'a new stretch pushes again');
 });
 
-test("the idle push sums up the cards landed and waves finished since the last idle push", () => {
+test("the idle push sums up the cards landed since the last idle push", () => {
   const items = [
     { id: 'A1', title: 'Old', lane: 'done', closed_at: '2026-11-04T09:00:00Z' },
     { id: 'A2', title: 'Two', lane: 'done', closed_at: '2026-11-04T10:10:00Z' },
@@ -2370,11 +2319,10 @@ test("the idle push sums up the cards landed and waves finished since the last i
     { id: 'A4', title: 'Unlanded', lane: 'done', closed_at: '2026-11-04T10:20:00Z', prs: [{ repo: 'o/r', number: 4 }] },
     { id: 'B1', title: 'Open' },
   ];
-  const waves = [{ slug: 'mon', title: 'Monitor', items: ['A1', 'A2', 'A3'] }, { slug: 'open', title: 'Still open', items: ['A4', 'B1'] }];
-  const built = buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), events: [], owner: {}, prs: { 'o/r#4': { state: 'CLOSED' } }, files: [{ slug: 'w', itemFile: { internal: true, items, waves } }] });
+  const built = buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), events: [], owner: {}, prs: { 'o/r#4': { state: 'CLOSED' } }, files: [{ slug: 'w', itemFile: { internal: true, items } }] });
   const ref = (id) => built.items.find((i) => i.id === id).ref;
-  assert.equal(idleSummary(built.items, '2026-11-04T10:00:00Z'), `2 tasks landed: ${ref('A3')}, ${ref('A2')} · Monitor finished`);
-  assert.equal(idleSummary(built.items, '2026-11-04T10:15:00Z'), `1 task landed: ${ref('A3')} · Monitor finished`);
+  assert.equal(idleSummary(built.items, '2026-11-04T10:00:00Z'), `2 tasks landed: ${ref('A3')}, ${ref('A2')}`);
+  assert.equal(idleSummary(built.items, '2026-11-04T10:15:00Z'), `1 task landed: ${ref('A3')}`);
   assert.equal(idleSummary(built.items, '2026-11-04T10:30:00Z'), 'Nothing closed since the last idle notification.');
 });
 
@@ -2929,23 +2877,6 @@ test("the board's status lines carry their kind's mark; only a fault is unread, 
     ['hub', 'pulled', 'Implementation requested', false], ['hub', 'host-busy', 'Held', false], ['hub', 'relaunch-failed', 'Fault', true]]);
 });
 
-test("a wave:<slug> dep waits on every card the wave holds now until each is Done, and those cards list the card as waiting on them", () => {
-  const items = [
-    { id: 'A1', title: 'One', lane: 'done', closed_at: '2026-10-23T11:00:00Z' },
-    { id: 'A2', title: 'Two' },
-    { id: 'A3', title: 'Three', deps: ['A2'] },
-    { id: 'B1', title: 'Waiter', deps: ['wave:mon'] },
-    { id: 'B2', title: 'Also', deps: ['wave:mon', 'A2'] },
-  ];
-  const snapshot = (waveCards) => ({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [{ slug: 'w', agents: {}, itemFile: { items, waves: [{ slug: 'mon', title: 'Monitor', goal: 'G', items: waveCards }] } }] });
-  const card = (s, id) => buildBoard(s).items.find((i) => i.id === id);
-  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'B1').blockedBy, [{ key: 'w/A2', ref: 'A2', lane: 'todo' }, { key: 'w/A3', ref: 'A3', lane: 'todo' }]);
-  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'B2').blockedBy, [{ key: 'w/A2', ref: 'A2', lane: 'todo' }, { key: 'w/A3', ref: 'A3', lane: 'todo' }]);
-  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'A3').waitsOnIt.map((c) => c.ref), ['B1', 'B2']);
-  assert.deepEqual(card(snapshot(['A1']), 'B1').blockedBy, []);
-  assert.equal(card(snapshot(['A1']), 'B1').blocked, false);
-});
-
 test("a PR whose hub record has no url still links to it, by its repo and number, so the card's chips draw", () => {
   const item = board({ pr: { state: 'MERGED', isDraft: false, reviewDecision: 'APPROVED', url: undefined } }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual(item.prs.map((p) => p.url), ['https://github.com/o/r/pull/7']);
@@ -2999,14 +2930,6 @@ test('on a tie a message sorts above the status line it causes', () => {
   const lines = [{ ts, who: 'claude', command: 'staged', text: 'Marked as staging' }, { ts, who: 'claude', kind: 'move', text: 'Moved to In Progress' }];
   const thread = threadOf('w/A1', { lines, events: [msg] });
   assert.deepEqual(thread.map((m) => m.text), ['Go build it', 'Marked as staging', 'Moved to In Progress']);
-});
-
-test('a card in no wave carries its item file title on a board with more than one item file, and none on a one-file board', () => {
-  const file = (slug, title) => ({ slug, itemFile: { title, items: [{ id: `${slug}1`, title: 'a' }] } });
-  const two = buildBoard({ now: Date.now(), fromWaves: false, files: [file('x', 'Search'), file('y', 'Billing')] });
-  assert.deepEqual(two.items.map((i) => i.fileLabel), ['Search', 'Billing']);
-  const one = buildBoard({ now: Date.now(), fromWaves: false, files: [file('x', 'Search')] });
-  assert.deepEqual(one.items.map((i) => i.fileLabel), [null]);
 });
 
 // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md

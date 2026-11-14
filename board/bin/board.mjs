@@ -36,8 +36,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   reply <eventId> (--text <md> | --file <path>)          data/replies/<eventId>.md, markdown the board draws. A
                                                          reply to an ask answers the task it became, as reply
                                                          <file>/<id> does, and resolves that task's answered
-                                                         questions; one to wave-triage resolves its wave's,
-                                                         noting "Acted on: replied". A
+                                                         questions, noting "Acted on: replied". A
                                                          reply to overnight-triage ends that triage
          [--title <t>]                                   retitles the New or discussing task the ask became
          [--questions <json>]                            the questions to ask with the message (thread takes it too),
@@ -82,8 +81,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
           source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, next_gate?, prototype_gate?}; topic is declared, item:<file>/<id> (an ask's
-          questions go on its task's), wave:<slug> for a wave's triage, or file:<slug> for an item file's triage on
-          a board over ~/.claude/waves. A question on a done task reopens it.
+          questions go on its task's). A question on a done task reopens it.
          A question on an item: topic whose task has a grill or prototype planner running is staged, not published,
          whoever adds it: it shows nowhere until the planner finishes, fails or is stopped, when every staged question
          on the task publishes in the order added, with one owner push. The command says "staged" and why.
@@ -239,10 +237,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--size small|large] [--model opus|sonnet]      what builder pick reads while the hub's Claude model is
                                                          Auto: a small task gets Claude Sonnet, any other Opus, and
                                                          --model wins over --size; "" clears either
-         [--deps <id>,<file>/<id>,wave:<slug>]           replaces its blocked-by list; --deps "" clears it.
-                                                         wave:<slug> waits on every task in the wave at the
-                                                         time, as it grows, until each is Done; refused for a
-                                                         task in that wave
+         [--deps <id>,<file>/<id>]                       replaces its blocked-by list; --deps "" clears it
          [--blocked-until "<condition>"]                 blocks it until a condition an agent can check, which
                                                          the orchestrator checks on its passes over the tasks;
                                                          --blocked-until "" clears it, which threads and emits
@@ -268,8 +263,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--text <t>]                                    with --done, required on a site: the task's closing line,
                                                          written last in its thread, saying why it closed (merged,
                                                          dropped, superseded)
-         [--split-into wave:<slug> | <id>,<file>/<id>]   with --done, in place of --text: closes a split task. Each
-                                                         open task waiting on it waits on the wave or tasks it
+         [--split-into <id>,<file>/<id>]                 with --done, in place of --text: closes a split task. Each
+                                                         open task waiting on it waits on the tasks it
                                                          split into instead, with a line in its thread, and the
                                                          closing line reads "Split into …". Refused when a
                                                          waiting task is one of them, or the task is already Done
@@ -290,7 +285,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          closes again only on the owner's Done
   item add <file>[/<id>] --title <t>                    a new task, unstarted; never
          [--ticket <id> | --new-ticket]                  hand-edit the item file to add one. Refuses an id the file has.
-         [--deps <id>,<file>/<id>,wave:<slug>]           A task with no ticket unless --ticket links one or
+         [--deps <id>,<file>/<id>]                       A task with no ticket unless --ticket links one or
                                                          --new-ticket makes one from the title and notes
          [--notes <t> | --notes-from <draft.md>]         the board makes the task's own notes, <id>-notes.md beside
                                                          its item file, read-only: the draft verbatim, or "# <title>"
@@ -353,34 +348,6 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          that isn't New
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
-  wave create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of tasks from
-         --card <file>/<id>[:<file>/<id>,…] [--card …]   one item file, one --card per task in build order, each
-         (--note <t> | --file <f>)                       naming after a colon the earlier tasks it would conflict
-                                                         with (as item set --deps takes them). Each task is then
-                                                         blocked by those tasks alone (its links outside the wave
-                                                         stay), so tasks that don't conflict build side by side,
-                                                         and the note goes to wave-<slug>.md beside the item file.
-                                                         Todo shows it as a band of its tasks in order, each with
-                                                         the board's blocked-by line, its goal on its name, and
-                                                         Notes opens the goal, the order and the note. Refuses a
-                                                         task already in another open wave, and a conflict that
-                                                         isn't an earlier task of the wave. Prints the order by
-                                                         task label, each task with "(after …)" its conflicts
-  wave add <slug> <file>/<id> [--after <file>/<id>,…]  puts a task in the wave, last, blocked by the earlier
-                                                         tasks --after names; refused for a task whose --deps
-                                                         names the wave
-  wave remove <slug> <file>/<id>                       takes a task out, keeping its own links; refused
-                                                         while an open wave task waits on it, naming each and
-                                                         the wave set … --after to run
-  wave set <slug> [<file>/<id> --after <file>/<id>,…]  rewrites only that task's links to the wave's tasks to
-         [--title <t>] [--goal <t>]                      --after's earlier tasks ("" clears them), renames the
-         [--note <t> | --file <f>]                       wave, sets its goal or rewrites its note
-  wave finish <slug>                                   the wave's band leaves Todo; its tasks keep their
-                                                         links. Refused, naming them, while a task in it is
-                                                         open. A wave whose tasks are all Done leaves it too
-         A band's Triage sends wave-triage {wave}, or {file} for an item file's band; it reads
-         Triaging… until you reply to that event, then "Triage: N open questions" while questions on topic
-         wave:<slug> or file:<slug> are open or answered
   reviewers set --file <json>                            the board's reviewers in board.json, replacing them:
                                                          [{name, slack_user, dm, github}], as in an item file.
                                                          The settings page lists them; new item files copy them
@@ -750,9 +717,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          and pushes when Push main is on; a conflict or failing
                                                          tests launch a headless lander that lands it
   arch file <file>/<id>                                  turns the architecture review audit task's answered findings
-                                                         into tasks in the review's wave: titled with the picked
-                                                         option's label, its detail, practice and the owner's note as
-                                                         notes, each after the audit task, its question resolved
+                                                         into tasks: titled with the picked option's label, its
+                                                         detail, practice and the owner's note as notes, each a
+                                                         Child of the audit task and after it, its question resolved
                                                          "Filed as <ref>."; a Skip pick resolves its question alone.
                                                          Prints "filed: <ref> from <id>", "skipped: <id>", and
                                                          "waiting: <ids>" while any are unanswered; once none is, it
@@ -953,14 +920,6 @@ const COMMANDS = {
   }],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
-  'wave create': [['slug'], ['title', 'goal', '...card', 'note', 'file'], (site, [slug], f) => store.createWave(site, slug, { title: f.title, goal: f.goal, cards: f.card, note: noteOf(f) })],
-  'wave add': [['slug', 'file/id'], ['after'], (site, [slug, key], f) => store.changeWave(site, slug, { add: key, after: f.after })],
-  'wave remove': [['slug', 'file/id'], [], (site, [slug, key]) => store.changeWave(site, slug, { remove: key })],
-  'wave set': [['slug', '...file/id?'], ['after', 'title', 'goal', 'note', 'file'], (site, [slug, ...keys], f) => {
-    if (keys.length > 1) throw new UsageError('wave set takes <slug> [<file/id>]');
-    return store.changeWave(site, slug, { card: keys[0], after: f.after, title: f.title, goal: f.goal, note: noteOf(f) });
-  }],
-  'wave finish': [['slug'], [], (site, [slug]) => store.finishWave(site, slug)],
   slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
   'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {
     const fields = { 'self-dm': 'self_dm', user: 'owner_slack_user', domain: 'slack_domain', timezone: 'timezone' };
@@ -1164,11 +1123,6 @@ const SAID = {
   'item relate-ask': async (site, [id, key]) => `ask ${id} folded into ${await card(site, key)}`,
   'ask unfold': (site, [id]) => `ask ${id} back on a task of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
-  'wave create': (site, [slug]) => `wave ${slug} created`,
-  'wave add': async (site, [slug, key]) => `${await card(site, key)} added to wave ${slug}`,
-  'wave remove': async (site, [slug, key]) => `${await card(site, key)} taken out of wave ${slug}`,
-  'wave set': (site, [slug]) => `wave ${slug} updated`,
-  'wave finish': (site, [slug]) => `wave ${slug} finished`,
   'review record': (site, [pr], f) => `review of PR #${pr} recorded: ${f.state === 'needs' ? 'needs you' : 'posted'}`,
   'reviewers set': () => 'reviewers replaced',
   'reviewers add': () => 'reviewers added',

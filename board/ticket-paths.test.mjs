@@ -284,7 +284,6 @@ const KNOWN = {
   'board/store.mjs fileAsks': "old asks with no task filed as T-<n> tasks from nextTaskId, under the tickets lock",
   'board/store.mjs migrateFollowups':"old follow-ups moved into tasks, keeping the tickets they had",
   'board/store.mjs askNotNew': 'a list of the tasks an ask became, read only',
-  'board/store.mjs changeWave': "a wave's list of task ids, which makes no task",
   'board/store.mjs reviewDigest': "a reviewer's list of PRs",
   'board/store.mjs publishQuestions': "owner.json's questions",
   'board/store.mjs settleQuestion': "owner.json's questions: a screened one, settled",

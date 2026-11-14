@@ -1473,21 +1473,14 @@ test("a message in a stalled card's thread clears the orchestrator's stall, and 
   assert.deepEqual([(await card()).stalled, (await card()).action], [null, null]);
 });
 
-test("a wave's triage runs from its wave-triage event until Claude replies, and its notes show its goal, order and note", async () => {
+// docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md
+test('the board serves no wave bands or wave notes, even from an item file that still holds a waves record', async () => {
   await putWave(JSON.stringify({ internal: true, items: [{ id: 'S1', title: 'One' }, { id: 'S2', title: 'Two', deps: ['S1'] }],
     waves: [{ slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', items: ['S1', 'S2'] }] }));
-  fs.writeFileSync(path.join(site, 'data', 'wave-mon.md'), 'Why: one PR each.\n');
-  await heard(path.join(site, 'data', 'wave-mon.md'));
-  const row = async () => (await (await fetch(`${base}/api/board`)).json()).waveBands[0];
-  assert.deepEqual([(await row()).slug, (await row()).triage], ['mon', { running: false, questions: 0 }]);
-  const { id } = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'wave-triage', wave: 'mon' }) })).json();
-  assert.equal((await row()).triage.running, true);
-  fs.writeFileSync(path.join(site, 'data', 'replies', `${id}.html`), 'No changes.');
-  await heard(path.join(site, 'data', 'replies', `${id}.html`));
-  assert.equal((await row()).triage.running, false, "the board sees Claude's reply");
-  const notes = await fetch(`${base}/api/notes?wave=mon`);
-  assert.deepEqual(await notes.json(), { title: 'Monitor', markdown: '**Goal** Runs in kickflip.\n\n**Order** INT-1, INT-2 (after INT-1)\n\nWhy: one PR each.\n' });
-  assert.equal((await fetch(`${base}/api/notes?wave=nope`)).status, 404);
+  const snap = await (await fetch(`${base}/api/board`)).json();
+  assert.equal('waveBands' in snap, false);
+  assert.deepEqual(snap.items.filter((i) => i.kind === 'work').map((i) => ['wave' in i, 'fileLabel' in i, 'fileTitle' in i]), [[false, false, false], [false, false, false]]);
+  assert.equal((await fetch(`${base}/api/notes?wave=mon`)).status, 404);
 });
 
 test("a later reply to an event is its own entry: the event lists every reply oldest first, and reply is the newest", async () => {

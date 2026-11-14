@@ -1,5 +1,5 @@
 ---
-status: superseded in part by 2026-11-04-0238-a-wave-builds-in-phases
+status: superseded by 2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping
 ---
 
 # A wave the owner asks for is a lineup of cards

@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping (a task still waits only on the earlier tasks it conflicts with, through its deps)
 ---
 
 # A wave's cards wait only on the earlier cards they'd conflict with

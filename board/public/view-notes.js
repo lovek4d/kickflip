@@ -1,10 +1,9 @@
 // An item's notes, /<route>/notes.html?item=<file>/<id>, a view of the app shell (shell.js)
 // (docs/adr/2026-10-29-1816-notes-replace-the-full-plan-and-cards-start-on-their-own.md). Back goes to the item's card.
-// ?wave=<slug> shows a wave's goal, order and note instead, and back goes to the board.
 (globalThis.AppViews ||= {}).notes = {
   className: 'view-notes',
   title: () => 'Notes',
-  markup: ({ item, wave }) => `${BoardUI.header({ lead: 'back', title: 'Notes', titleId: 'ref', backHref: wave ? './' : `./#selectedCard=${encodeURIComponent(item || '')}`, controls: false })}
+  markup: ({ item }) => `${BoardUI.header({ lead: 'back', title: 'Notes', titleId: 'ref', backHref: `./#selectedCard=${encodeURIComponent(item || '')}`, controls: false })}
 <main>
   <article class="plan" id="plan"><p class="muted">Loading the notes…</p></article>
 </main>`,
@@ -13,17 +12,16 @@
     const { $, site } = B;
     const { esc, markdown, linkContext, fetchJSON, downLanding, copyNote, pageCopy } = BoardUI;
     const key = ctx.view.item || '';
-    const wave = ctx.view.wave;
     const el = $('#plan');
     const get = (url, opts = {}) => fetchJSON(url, { ...opts, sleep: B.sleep });
     const paint = (body, items, note = '') => {
-      $('#ref').textContent = `${wave ? body.title : body.ref} notes`;
+      $('#ref').textContent = `${body.ref} notes`;
       document.title = $('#ref').textContent;
       el.innerHTML = note + markdown(body.markdown, linkContext(items, key, { base: './' }));
     };
     // While the board can't be reached, the notes' last answer here shows under its copy line, or with none the landing
     // for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
-    const url = site.url(`api/notes?${wave ? `wave=${encodeURIComponent(wave)}` : `item=${encodeURIComponent(key)}`}`);
+    const url = site.url(`api/notes?item=${encodeURIComponent(key)}`);
     let copy = null;
     let live = false;
     let copied = false;

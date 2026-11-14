@@ -10,13 +10,12 @@ import { buildBoard, archivedOf, slimDone, DONE_KEPT } from './domain.mjs';
 import { archiveCards, readArchive, appendMessage, setItem, stripDeadFields } from './store.mjs';
 
 const at = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
-// count Done cards D0 (newest) … D<count-1>, then O1, an open card depending on D<count-2>, and O2, in an open
-// wave with D<count-1>. D<count-3> still has a question open; D<count-4>, made from ask a1, has a resolved one and an answer.
+// count Done cards D0 (newest) … D<count-1>, then O1, an open card depending on D<count-2>, and O2, an open card
+// Related to D<count-1>. D<count-3> still has a question open; D<count-4>, made from ask a1, has a resolved one and an answer.
 function waveOf(count) {
   const done = Array.from({ length: count }, (_, n) => ({ id: `D${n}`, title: `Done ${n}`, lane: 'done', lane_at: at(n), closed_at: at(n), created: at(n + 500),
     ...(n === count - 4 ? { from_ask: 'a1' } : {}) }));
-  return { title: 'T', items: [...done, { id: 'O1', title: 'Open', lane: 'todo', deps: [`D${count - 2}`] }, { id: 'O2', title: 'Lined up', lane: 'todo' }],
-    waves: [{ slug: 'lu', title: 'Wave', phases: [[`D${count - 1}`], ['O2']] }] };
+  return { title: 'T', items: [...done, { id: 'O1', title: 'Open', lane: 'todo', deps: [`D${count - 2}`] }, { id: 'O2', title: 'Lined up', lane: 'todo', related: [`t/D${count - 1}`] }] };
 }
 const ownerOf = (count) => ({ topics: [], items: [
   { id: 'q-open', topic: `item:t/D${count - 3}`, question: 'Still open?', options: [{ id: 'a', label: 'A' }] },
@@ -25,7 +24,7 @@ const ownerOf = (count) => ({ topics: [], items: [
 ] });
 const snapshotOf = (count) => ({ files: [{ slug: 't', itemFile: waveOf(count), agents: {} }], owner: ownerOf(count), threads: {}, events: [] });
 
-test('the Done cards past the newest 100 leave the board, except one in an open wave, one an open card names and one with a question open', () => {
+test('the Done cards past the newest 100 leave the board, except the ones an open card names as a dep or Related to and one with a question open', () => {
   const built = buildBoard(snapshotOf(DONE_KEPT + 6));
   assert.deepEqual(archivedOf(built).map((c) => c.key), ['t/D100', 't/D101', 't/D102']);
   assert.deepEqual(archivedOf(buildBoard(snapshotOf(DONE_KEPT))), []);

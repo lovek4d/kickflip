@@ -9,7 +9,7 @@
 //                             what came in, on which card and what to do (plainLine, from ./event-lines.mjs), prefixed `already shown: `
 //                             for one the PostToolUse hook showed mid-task (./event-lines.mjs shownFile,
 //                             docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md); on a board it marks each ask,
-//                             item-message, wave-triage and overnight-triage working in data/working.json, moves the mark of an ask
+//                             item-message and overnight-triage working in data/working.json, moves the mark of an ask
 //                             whose ask-edited it prints to now (the stamp sorting commands check), and answers a ping for the
 //                             session (board/store.mjs ackPing), then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>

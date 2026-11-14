@@ -1,5 +1,7 @@
 # Waves are bands in Todo, each with its next card's Implement
 
+Status: superseded by [waves are dropped; deps and Related carry order and grouping](2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md).
+
 The owner, on #156, settled on take C of `prototypes/wave-groups-3`: "Waves show as lane-style bands inside Todo … no goal line; the goal shows on hover (title) or long-press … only the wave with a ready card starts expanded; cards in wave order with step numbers; done cards fold into "N done"; a ⋯ menu moves a card up or down … Each wave's band carries Implement (starts its next ready card) or "next: #N <state>" … Loose Todo cards below the bands." This replaces the Waves section above the lanes and its tap-to-filter ([a wave the owner asks for is a lineup of cards](2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md) keeps the lineup itself).
 
 - **Bands come from the board.** `domain.mjs` `waveBandsOf` gives each open lineup, then on a board over ~/.claude/waves each unfinished wave file, as `{kind, slug, title, goal, keys, next, merged, total, triage}`. A lineup's keys are in build order and its `next` is its first card still in Todo, `ready` when that card is ready and buildable, else a word for why not: held, "waits on #N", needs you, new, its state, or not ready. A wave file's band has its cards in lane order and no `next`, step numbers or ⋯, since it has no order.

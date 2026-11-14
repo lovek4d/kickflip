@@ -142,10 +142,6 @@ function prStateOf(pr, mergedAt) {
 // A Done card whose least-ready PR closed unmerged: its work never landed.
 export const unlanded = (i) => i.pr?.status === PR_STATE.closed;
 
-// An item file is finished once it has work items and every work item is in Done
-// (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
-const finishedOf = (cards) => cards.some((i) => i.kind === 'work') && cards.every((i) => i.lane === 'done');
-
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // When the card's newest build handed back for the orchestrator's check (store.mjs handBackCalls, relaunchLander): that
 // record closed with handed_back, and no build has started since. Install builds don't count. → the time, or null.
@@ -354,7 +350,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const land = step && { ...step, words: LAND_WORDS[step.step].card(step) };
   return {
     land,
-    key, kind: 'work', order, file: slug, fileTitle: itemFile.title || slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
+    key, kind: 'work', order, file: slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
     created: it.created || null, reviewSince: (idle && reopenAt) || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: itemFile.internal === true, repo: itemFile.internal === true && !itemFile.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt) || backInTodo, answered: Boolean(answeredAt), awaitsDone,
@@ -1095,49 +1091,6 @@ function foldSubmits(msgs) {
 // The states of the events a message stands for: each answer of a folded submit, else the message itself.
 export const stateEntries = (m) => (m.answers || [m]).filter((a) => a.eventId).map((a) => [a.eventId, a.state]);
 
-// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-// The wave bands in Todo: each open wave (docs/adr/2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md),
-// then on a board over ~/.claude/waves each unfinished item file. A wave is open until finished_at or until all its
-// cards are Done. A band's keys are its cards, a wave's in build order and an item file's in lane order; next is a
-// wave's first ready Todo card, else its first Todo card with a word for why not; an item file's is null. A band's kind is
-// wave or file (an item file). Triage runs from the newest wave-triage {<kind>: <slug>} event until that event's
-// reply, and its questions use topic <kind>:<slug>. Each wave card gets `wave` {slug, title}, an open wave's over a
-// finished one's, which arch-review.mjs archOf counts a review's wave by.
-function waveBandsOf(snapshot, itemFiles, waves, items, questions, events) {
-  const triageOf = (kind, slug) => {
-    const last = events.filter((e) => e.kind === 'wave-triage' && e.data?.[kind] === slug).pop();
-    const pending = questions.filter((q) => q.topic === `${kind}:${slug}` && (q.state === 'open' || q.state === 'answered')).length;
-    return { running: Boolean(last && !last.reply), questions: pending };
-  };
-  const byKey = new Map(items.map((i) => [i.key, i]));
-  const merged = (cards) => cards.filter((i) => i.lane === 'done' && !unlanded(i)).length;
-  const open = waves.map((l) => ({ l, cards: l.keys.map((k) => byKey.get(k)).filter(Boolean) }))
-    .map((x) => ({ ...x, open: !x.l.finished_at && x.cards.some((i) => i.lane !== 'done') }))
-    .sort((a, b) => Number(a.open) - Number(b.open));
-  for (const { l, cards } of open) for (const i of cards) i.wave = { slug: l.slug, title: l.title };
-  const bands = open.filter((x) => x.open)
-    .map(({ l, cards }) => ({ kind: 'wave', slug: l.slug, title: l.title, goal: l.goal, keys: cards.map((i) => i.key), next: nextOf(cards),
-      merged: merged(cards), total: cards.length, triage: triageOf('wave', l.slug) }));
-  if (!snapshot.fromWaves) return bands;
-  return [...bands, ...itemFiles.filter((w) => !w.finished).map((w) => ({ w, cards: items.filter((i) => i.file === w.slug && i.kind !== 'ask') }))
-    .filter(({ cards }) => cards.length).map(({ w, cards }) => ({ kind: 'file', slug: w.slug, title: w.title, goal: null, keys: cards.map((i) => i.key), next: null,
-      merged: merged(cards), total: cards.length, triage: triageOf('file', w.slug) }))];
-}
-// A wave's next card: its first Todo card Implement can start now, so its ready cards are offered in turn, else
-// its first Todo card, with the word for why Implement can't start it.
-function nextOf(cards) {
-  const todo = cards.filter((i) => i.lane === 'todo');
-  const it = todo.find((i) => i.ready && i.buildable) || todo[0];
-  if (!it) return null;
-  const ready = it.ready && it.buildable;
-  const word = ready ? 'ready' : it.held ? 'held' : it.blockedBy.length ? `blocked by ${it.blockedBy.map((d) => d.ref).join(', ')}` : it.blockedUntil ? `blocked until ${it.blockedUntil}`
-    : it.action ? 'needs you' : it.phase === 'new' ? 'not ready' : it.phase;
-  return { key: it.key, ref: it.ref, ready, word };
-}
-
-// docs/adr/2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with.md
-// A wave's card ids in build order: its `items`, or for a wave made in steps its stored `phases` in order.
-export const waveItems = (wave) => wave.items || wave.phases.flat();
 
 // snapshot: {files: [{slug, itemFile, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
@@ -1190,7 +1143,7 @@ export function buildBoard(snapshot) {
   const remote = snapshot.github ? null : remoteFromInput(snapshot.remote);
   for (const { slug, itemFile, agents: records = {} } of snapshot.files) {
     const repo = snapshot.github || itemFile.repo || null;
-    itemFiles.push({ slug, title: itemFile.title || slug, status: itemFile.status || null, internal: Boolean(itemFile.internal), finished: false, reviewers: (itemFile.reviewers || []).map((r) => r.name) });
+    itemFiles.push({ slug, title: itemFile.title || slug, status: itemFile.status || null, internal: Boolean(itemFile.internal), reviewers: (itemFile.reviewers || []).map((r) => r.name) });
     itemFile.items.forEach((it, order) => {
       const key = `${slug}/${it.id}`;
       // An archived card's own ask is linked to it as well (store.mjs archiveCards), and counts once, as its from_ask.
@@ -1293,19 +1246,9 @@ export function buildBoard(snapshot) {
       merges.push({ key: into.key, ref: into.ref, text, at: String(merged.ts), id: e.id, askedAt: String(e.ts), message });
     }
   }
-  for (const w of itemFiles) {
-    const cards = items.filter((i) => i.file === w.slug);
-    w.finished = finishedOf(cards);
-  }
-  for (const i of items) { i.wave = null; i.fileLabel = itemFiles.length > 1 ? i.fileTitle : null; }
   const declared = new Set((owner.topics || []).map((t) => t.id));
-  const waves = snapshot.files.flatMap(({ slug, itemFile }) => (itemFile.waves || []).map((l) => {
-    return { ...l, keys: waveItems(l).map((id) => `${slug}/${id}`) };
-  }));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
-    .map((it) => ({ id: `item:${it.key}`, card: it.key, title: `${it.ref}: ${it.title}` })),
-  ...waves.filter((l) => !declared.has(`wave:${l.slug}`)).map((l) => ({ id: `wave:${l.slug}`, title: l.title, summary: 'Wave triage.' })),
-  ...(snapshot.fromWaves ? itemFiles : []).filter((w) => !declared.has(`file:${w.slug}`)).map((w) => ({ id: `file:${w.slug}`, title: w.title, summary: 'Wave triage.' }))], questions,
+    .map((it) => ({ id: `item:${it.key}`, card: it.key, title: `${it.ref}: ${it.title}` }))], questions,
   new Set(items.filter(closedLane).map((it) => `item:${it.key}`)));
   const itemTopics = new Map(topicsOf().map((t) => [t.id, t]));
   for (const it of items) {
@@ -1323,12 +1266,10 @@ export function buildBoard(snapshot) {
   // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md).
   // It also waits on its blocked-until condition until an agent clears it, and a block, by either, carries its reason
   // (docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md). blocked: either holds it.
-  // A dep wave:<slug> waits on every card the wave holds now (docs/adr/2026-11-09-2330-a-card-can-wait-on-a-whole-wave.md).
   const byKey = new Map(items.map((i) => [i.key, i]));
-  const waveCards = new Map(waves.map((l) => [`wave:${l.slug}`, l.keys]));
   for (const it of items) {
     const open = it.kind === 'work' && it.lane !== 'done';
-    const depKeys = new Set(it.deps.flatMap((d) => waveCards.get(d) || [String(d).includes('/') ? d : `${it.file}/${d}`]));
+    const depKeys = new Set(it.deps.map((d) => (String(d).includes('/') ? d : `${it.file}/${d}`)));
     it.blockedBy = !open ? [] : [...depKeys].map((k) => byKey.get(k))
       .filter((d) => d && d.lane !== 'done' && !d.reopened).map(linkOf);
     it.blockedUntil = open ? it.blockedUntil ?? null : null;
@@ -1408,7 +1349,6 @@ export function buildBoard(snapshot) {
   // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
 
-  const waveBands = waveBandsOf(snapshot, itemFiles, waves, items, questions, events);
   // Built again after the sort, so the item topics follow the lanes' order.
   const topicList = topicsOf();
   const reviews = reviewsOf({ on: snapshot.autoReview, incoming: snapshot.incoming, records: snapshot.reviewRecords, events, now,
@@ -1427,7 +1367,7 @@ export function buildBoard(snapshot) {
     .sort((a, b) => b.at.localeCompare(a.at));
   merges.sort((a, b) => b.at.localeCompare(a.at));
   // unfiled: the asks with no card yet, for the board server to file (store.mjs fileAsks).
-  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, waveBands, items, moved: Object.fromEntries(moved), answers, merges, unfiled, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews }, snapshot);
+  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews }, snapshot);
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
@@ -1517,8 +1457,7 @@ function needsOf(items, topics, questions) {
   const firstOpen = (ids) => ids.find((id) => questions.find((q) => q.id === id)?.state === 'open') || ids[0];
   const fromTopics = topics.filter((t) => t.state !== 'resolved' && t.open > 0 && !onItems.has(t.id)).map((t) => {
     const url = `questions.html#${firstOpen(t.questions)}`;
-    const band = /^(?:wave|file):(.+)$/.exec(t.id)?.[1] || null;
-    return { kind: 'Question', title: t.title, text: `${t.title} · ${plural(t.open, 'question')}`, url, topic: t.id, band, questions: { open: t.open, url }, ready: null,
+    return { kind: 'Question', title: t.title, text: `${t.title} · ${plural(t.open, 'question')}`, url, topic: t.id, questions: { open: t.open, url }, ready: null,
       since: questions.filter((q) => q.topic === t.id && q.state === 'open').map((q) => q.asked_at).filter(Boolean).sort()[0] || null };
   });
   const fromItems = items.map((it) => {
@@ -1735,22 +1674,21 @@ export function triageOf(items) {
 // The board keeps its newest DONE_KEPT Done cards, and GET /api/done pages the archive in as many at a time.
 export const DONE_KEPT = 100;
 // The fields of a Done card the page draws: the Done lane's card and its open detail (ui-cards.js workLines,
-// app-cards.js), the wave bands' "N done" links (app-lanes.js), unread counts (othersAt), the Notes, Questions and
-// Prototypes buttons, and ui-snapshot.js updateSign. No page file reads `agents`, and the rest are set on a Done card only to be sent.
-export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fileTitle', 'fileLabel', 'wave', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
+// app-cards.js), unread counts (othersAt), the Notes, Questions and Prototypes buttons, and ui-snapshot.js updateSign.
+// No page file reads `agents`, and the rest are set on a Done card only to be sent.
+export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
   'review', 'reviewers', 'risky', 'risk', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
 
 // The built board's Done cards that move to the archive (store.mjs archiveCards): past the newest `keep` by when they
-// closed, finished in their item file, and none that the board still counts or links: a card in a wave band, one an
-// unfinished card names as a dep, parent, child or related card, and one with a question not yet resolved.
+// closed, finished in their item file, and none that the board still links: one an unfinished card names as a dep,
+// parent, child or related card, and one with a question not yet resolved.
 export function archivedOf(built, keep = DONE_KEPT) {
-  const banded = new Set((built.waveBands || []).flatMap((b) => b.keys));
   const linked = new Set(built.items.filter((i) => i.lane !== 'done').flatMap((i) => [
     ...(i.deps || []).map((d) => (String(d).includes('/') ? String(d) : `${i.file}/${d}`)), i.parent?.key, ...(i.children || []).map((c) => c.key), ...(i.related || []).map((r) => r.key)]));
   return built.items.filter((i) => i.lane === 'done' && i.kind === 'work').sort((a, b) => String(b.closedAt || '').localeCompare(String(a.closedAt || '')))
-    .slice(keep).filter((i) => i.storedLane === 'done' && !i.reopened && !banded.has(i.key) && !linked.has(i.key) && (!i.questions || i.questions.state === 'resolved'));
+    .slice(keep).filter((i) => i.storedLane === 'done' && !i.reopened && !linked.has(i.key) && (!i.questions || i.questions.state === 'resolved'));
 }
 
 // docs/adr/2026-11-11-1200-every-lane-has-phases.md
@@ -1975,15 +1913,11 @@ export function idleStep(state, { idle, now }) {
   return { state: { last: at, since: state.since, pushed: true }, push: true };
 }
 
-// The idle push's body for built items: the work cards that landed in Done since since, dropped ones left out, and the
-// waves whose every card is Done with the last one closing since since.
+// The idle push's body for built items: the work cards that landed in Done since since, dropped ones left out.
 export function idleSummary(items, since) {
   const after = (i) => String(i.closedAt || '') > since;
   const landed = items.filter((i) => i.kind === 'work' && i.lane === 'done' && !unlanded(i) && after(i));
-  const waves = new Map();
-  for (const i of items) if (i.wave) waves.set(i.wave.slug, [...(waves.get(i.wave.slug) || []), i]);
-  const finished = [...waves.values()].filter((cards) => cards.every((i) => i.lane === 'done') && cards.some(after)).map((cards) => cards[0].wave.title);
+  if (!landed.length) return 'Nothing closed since the last idle notification.';
   const refs = landed.slice(0, 3).map((i) => i.ref).join(', ') + (landed.length > 3 ? ` and ${landed.length - 3} more` : '');
-  const parts = [landed.length && `${landed.length} ${landed.length === 1 ? 'task' : 'tasks'} landed: ${refs}`, ...finished.map((t) => `${t} finished`)].filter(Boolean);
-  return parts.join(' · ') || 'Nothing closed since the last idle notification.';
+  return `${landed.length} ${landed.length === 1 ? 'task' : 'tasks'} landed: ${refs}`;
 }

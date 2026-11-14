@@ -6,8 +6,7 @@
 //   board {route, hash}         /<route>/, hash such as #selectedCard=<key>&openItemsCard=<topic id>, or the older #item=<key>&reply
 //   settings {route}            /<route>/settings.html, a request to open the modal over that board
 //   questions {route, id}       /<route>/questions.html#<id>
-//   notes {route, item | wave}  /<route>/notes.html?item=<key> or ?wave=<wave slug>, and plan.html, which the board
-//                               redirects there
+//   notes {route, item}         /<route>/notes.html?item=<key>, and plan.html, which the board redirects there
 //   hub {hash}                  /_hub/ with a settings modal named by hash; legacy /_hub/settings opens the same modals
 //                               ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)),
 //                               and the old Polling page, /_hub/settings/polling, opens Quiet hours
@@ -49,7 +48,7 @@ globalThis.AppRouter = (function () {
       return { kind: 'questions', route, id };
     }
     if (page === 'notes.html' || page === 'plan.html') {
-      return u.searchParams.has('wave') ? { kind: 'notes', route, wave: u.searchParams.get('wave') } : { kind: 'notes', route, item: u.searchParams.get('item') };
+      return { kind: 'notes', route, item: u.searchParams.get('item') };
     }
     return frame;
   }
@@ -61,7 +60,7 @@ globalThis.AppRouter = (function () {
       case 'board': return r + (view.hash || '');
       case 'settings': return `${r}settings.html`;
       case 'questions': return `${r}questions.html${view.id ? `#${encodeURIComponent(view.id)}` : ''}`;
-      case 'notes': return `${r}notes.html${view.wave ? `?wave=${encodeURIComponent(view.wave)}` : view.item ? `?item=${encodeURIComponent(view.item)}` : ''}`;
+      case 'notes': return `${r}notes.html${view.item ? `?item=${encodeURIComponent(view.item)}` : ''}`;
       case 'hub': return `/_hub/${view.hash || ''}`;
       default: return view.url;
     }

@@ -5298,90 +5298,16 @@ test("Todo has no Queued section: its cards show in the server's order, a bumped
   assert.equal(todo.querySelector('summary .count').textContent, '2');
 });
 
-// docs/adr/2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with.md
-test("a wave's band lists its cards with no step number and no ⋯ menu, a card waiting on another reads the board's blocked-by line, and its header carries no Implement", async () => {
-  const keys = ['w/P1', 'w/P2', 'w/P3', 'w/P4'];
-  const band = (next) => ({ kind: 'wave', slug: 'cw', title: 'Conflicts', goal: 'G', keys, next, merged: 1, total: 4, triage: { running: false, questions: 0 } });
-  const cards = (p2 = {}) => [workCard('P1', { lane: 'done' }), workCard('P2', { ready: true, buildable: true, ...p2 }), workCard('P3', { ready: true, buildable: true }), workCard('P4', { blockedBy: [{ key: 'w/P2', ref: 'P2' }] })];
-  const b = boardOnDom({ board: { ...boardOf(cards()), waveBands: [band({ key: 'w/P2', ref: 'P2', ready: true, word: 'ready' })] }, threads: {}, confirm: true });
+// docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md
+test('every lane lists its cards plainly, with no wave band, group header or Plan waves row, and a card blocked by another reads the blocked-by line', async () => {
+  const cards = [workCard('A3'), workCard('A2', { blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A6', { ready: true, buildable: true }), workCard('A8', { lane: 'progress' }), workCard('A1', { lane: 'done' })];
+  const b = boardOnDom({ board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
-  const head = () => b.root.querySelector('.wb[data-lane="todo"][data-band="cw"] > .wb-head');
-  const shown = () => b.root.querySelectorAll('.wb[data-lane="todo"][data-band="cw"] details.item').map((el) => el.dataset.key);
-  assert.deepEqual(shown(), ['w/P2', 'w/P3', 'w/P4']);
-  assert.deepEqual([b.root.querySelector('.wb .wn'), b.root.querySelector('.wb [data-band-menu]')], [null, null]);
-  assert.equal(b.root.querySelector('.wb details.item[data-key="w/P4"] .card-blocked').textContent, 'blocked by P2');
-  assert.equal(head().querySelector('button[data-confirm="card-build"]'), null);
-  await b.change({ board: { ...boardOf(cards({ lane: 'progress' })), waveBands: [band({ key: 'w/P3', ref: 'P3', ready: true, word: 'ready' })] } });
-  assert.deepEqual(shown(), ['w/P3', 'w/P4']);
-  assert.equal(head().querySelector('.wb-label').textContent, 'Conflicts');
-});
-
-// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, its name then Notes then the counts in its head with no next section, its Todo cards in order and its done ones one line", async () => {
-  const idle = { running: false, questions: 0 };
-  const band = (slug, title, keys, next, extra = {}) => ({ kind: 'wave', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), next, merged: 1, total: keys.length, triage: idle, ...extra });
-  const cards = [workCard('A3'), workCard('A2', { blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A5'), workCard('A6', { ready: true, buildable: true }), workCard('A7'), workCard('A4'),
-    workCard('A8', { lane: 'progress' }), workCard('A1', { lane: 'done' })];
-  const bands = (mon = idle, pilot = idle) => [
-    band('mon', 'Monitor', ['A1', 'A2', 'A8', 'A5'], { key: 'w/A2', ref: 'A2', ready: false, word: 'blocked by A9' }, { triage: mon }),
-    band('go', 'Go', ['A6', 'A7'], { key: 'w/A6', ref: 'A6', ready: true, word: 'ready' }, { merged: 0 }),
-    { kind: 'file', slug: 'pilot', title: 'Pilot', goal: null, keys: ['w/A4'], next: null, merged: 0, total: 1, triage: pilot },
-  ];
-  const b = boardOnDom({ board: { ...boardOf(cards), waveBands: bands() }, threads: {}, confirm: true });
-  await b.settle();
-  assert.equal(b.root.querySelector('#waves'), null);
   const todo = () => b.root.querySelector('details.lane[data-lane="todo"] > .list');
-  const head = (slug) => b.root.querySelector(`.wb[data-lane="todo"][data-band="${slug}"] > .wb-head`);
-  const shown = (slug) => b.root.querySelectorAll(`.wb[data-lane="todo"][data-band="${slug}"] details.item`).map((el) => el.dataset.key);
-  assert.deepEqual(todo().children.map((el) => el.dataset.band || el.getAttribute('class')), ['mon', 'go', 'pilot', 'no-wave', 'thread-more']);
-  assert.deepEqual(b.root.querySelectorAll('.wb[data-band="no-wave"] details.item').map((el) => el.dataset.key), ['w/A3']);
-  assert.equal(b.root.querySelector('.wb[data-band="no-wave"] .lane-name').textContent, 'No wave');
-  assert.deepEqual(['mon', 'go', 'pilot'].map((slug) => head(slug).getAttribute('aria-expanded')), ['false', 'true', 'false']);
-  assert.deepEqual(shown('mon'), []);
-
-  assert.equal(head('go').querySelector('[data-goal]').getAttribute('title'), 'Go goal.');
-  assert.equal(b.root.querySelector('.wb-goal'), null);
-  assert.equal(head('go').querySelector('.wb-label').textContent, 'Go');
-  assert.deepEqual(head('go').children.map((el) => el.getAttribute('class').split(' ')[0]).slice(1, 4), ['wb-label', 'wb-links', 'wb-counts']);
-  assert.equal(head('go').querySelector('a[href="notes.html?wave=go"]').textContent.trim(), 'Notes');
-  assert.equal(head('go').querySelector('button[data-triage]'), null);
-  assert.equal(head('pilot').querySelector('a[href^="notes.html"]'), null);
-  assert.equal(head('pilot').querySelector('button[data-triage]'), null);
-  assert.equal(b.root.querySelector('.wb-head button[data-confirm]'), null);
-  assert.equal(b.root.querySelector('.wb-next'), null);
-  assert.equal(head('mon').querySelector('.wb-label').textContent, 'Monitor');
-  assert.deepEqual(shown('go'), ['w/A6', 'w/A7']);
-
-  b.page.fire(b.root, 'click', { target: head('mon').querySelector('.wb-label') });
-  await b.settle();
-  assert.equal(head('mon').getAttribute('aria-expanded'), 'true');
-  assert.deepEqual(shown('mon'), ['w/A2', 'w/A5']);
-  const done = b.root.querySelector('.wb[data-lane="todo"][data-band="mon"] .wb-done');
-  assert.equal(done.textContent, '1 done · A1');
-  assert.equal(done.querySelector('a').getAttribute('href'), '#selectedCard=w%2FA1');
-  assert.deepEqual(shown('pilot'), []);
-  b.page.fire(b.root, 'click', { target: head('go') });
-  await b.settle();
-  assert.equal(head('go').getAttribute('aria-expanded'), 'false');
-  b.page.fire(b.root, 'click', { target: head('go') });
-  await b.settle();
-
-  await b.change({ board: { ...b.server.board, waveBands: bands({ running: true, questions: 0 }, { running: false, questions: 1 }) } });
-  assert.equal(b.root.querySelector('.wv-busy'), null);
-  assert.equal(head('pilot').textContent.includes('Triage'), false);
-
-  const touch = (type) => b.page.fire(b.root, type, { target: head('go').querySelector('[data-goal]'), pointerType: 'touch' });
-  touch('pointerdown');
-  b.page.runTimers(600);
-  await b.settle();
-  assert.equal(head('go').querySelector('.wb-pop').textContent, 'Go goal.');
-  touch('pointerup');
-  b.page.fire(b.root, 'click', { target: head('go').querySelector('[data-goal]') });
-  await b.settle();
-  assert.deepEqual([head('go').getAttribute('aria-expanded'), head('go').querySelector('.wb-pop').textContent], ['true', 'Go goal.']);
-  b.page.fire(b.root, 'click', { target: todo() });
-  await b.settle();
-  assert.equal(b.root.querySelector('.wb-pop'), null);
+  assert.deepEqual(todo().querySelectorAll('details.item').map((el) => el.dataset.key), ['w/A3', 'w/A2', 'w/A6']);
+  assert.equal(b.root.querySelector('.wb, .wb-head, [data-band], button[data-plan], #waves'), null);
+  assert.equal(b.root.querySelector('details.item[data-key="w/A2"] .card-blocked').textContent, 'blocked by A9');
+  assert.doesNotMatch(b.root.querySelector('#lanes').textContent, /Wave|Plan waves|No wave/);
 });
 
 // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
@@ -5406,19 +5332,6 @@ test("each lane shows its cards in the order they arrive, with no sort icon in i
     ['2026-10-29T08:00:00.000Z', '2026-10-28T08:00:00.000Z'], ['2026-10-21T08:00:00.000Z', '2026-10-20T08:00:00.000Z'], ['2026-10-25T08:00:00.000Z', '2026-10-24T08:00:00.000Z'],
   ]);
   assert.equal(b.root.querySelector('.lane-sort, .lane-sort-menu, [data-lane-sort]'), null);
-});
-
-// docs/adr/2026-11-03-0509-plan-waves-plans-from-any-todo-cards.md
-test('Plan waves ends Todo as a Show more row and, once confirmed, sends plan-waves with the free Todo cards', async () => {
-  const cards = [workCard('T1'), workCard('T2'), workCard('T3', { held: true })];
-  const b = boardOnDom({ open: [], board: boardOf(cards), threads: {}, confirm: true });
-  await b.settle();
-  const btn = b.root.querySelector('#lanes details.lane[data-lane="todo"] .list > button[data-plan]');
-  assert.ok(btn.classList.contains('thread-more'));
-  assert.equal(btn.textContent, 'Plan waves');
-  b.page.fire(b.root, 'click', { target: btn });
-  await b.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['plan-waves', { keys: ['w/T1', 'w/T2'] }]]);
 });
 
 // docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md
@@ -6001,62 +5914,6 @@ test("a Permissions switch keeps its spinner past the server's answer until the 
   v.unmount();
 });
 
-// docs/adr/2026-11-05-0215-every-lane-groups-its-cards-by-wave.md
-test("every lane groups its cards under wave headers, none for a wave with no cards there, cards in no wave last under No wave, each header counting the wave across all lanes with its own lane bold", async () => {
-  const idle = { running: false, questions: 0 };
-  const band = (slug, title, ids) => ({ kind: 'wave', slug, title, goal: null, keys: ids.map((id) => `w/${id}`), next: null, merged: 0, total: ids.length, triage: idle });
-  const cards = [workCard('A1', { lane: 'done' }), workCard('A2', { lane: 'progress' }), workCard('A3'), workCard('A4'),
-    workCard('B1', { lane: 'review' }), workCard('B2', { lane: 'done' }), workCard('L1', { lane: 'progress' }), workCard('L2', { lane: 'done' })];
-  const b = boardOnDom({ board: { ...boardOf(cards), waveBands: [band('a', 'Alpha', ['A1', 'A2', 'A3', 'A4']), band('b', 'Beta', ['B1', 'B2'])] }, threads: {} });
-  await b.settle();
-  const lane = (id) => b.root.querySelector(`details.lane[data-lane="${id}"]`);
-  const heads = (id) => lane(id).querySelectorAll('.wb > .wb-head').map((h) => h.querySelector('.lane-name').textContent);
-  assert.deepEqual(heads('progress'), ['Alpha', 'No wave']);
-  assert.deepEqual(heads('review'), ['Beta']);
-  assert.deepEqual(heads('done'), ['Alpha', 'Beta', 'No wave']);
-  assert.deepEqual(heads('todo'), ['Alpha']);
-  assert.deepEqual(lane('progress').querySelectorAll('details.item').map((el) => el.dataset.key), ['w/A2', 'w/L1']);
-  const counts = (id, name) => lane(id).querySelectorAll('.wb-head').find((h) => h.querySelector('.lane-name').textContent === name).querySelector('.wb-counts');
-  assert.equal(counts('progress', 'Alpha').querySelectorAll(':scope > span:not(.wb-tip)').map((s) => s.textContent).join(''), '2/1/0/1');
-  assert.equal(counts('progress', 'Alpha').querySelector('.wb-tip').textContent, '2 in Todo1 in progress0 in review1 done');
-  assert.ok(!counts('progress', 'Alpha').classList.contains('open'));
-  b.page.fire(b.root, 'click', { target: counts('progress', 'Alpha') }); await b.settle();
-  assert.ok(counts('progress', 'Alpha').classList.contains('open'));
-  b.page.fire(b.root, 'click', { target: counts('review', 'Beta') }); await b.settle();
-  assert.ok(!counts('progress', 'Alpha').classList.contains('open'));
-  assert.ok(counts('review', 'Beta').classList.contains('open'));
-  b.page.fire(b.root, 'click', { target: counts('review', 'Beta') }); await b.settle();
-  assert.ok(!counts('review', 'Beta').classList.contains('open'));
-  b.page.fire(b.root, 'click', { target: counts('review', 'Beta') }); await b.settle();
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('.lane-name') }); await b.settle();
-  assert.ok(!counts('review', 'Beta').classList.contains('open'));
-  assert.equal(counts('progress', 'Alpha').querySelector('.wv-cur').textContent, '1');
-  assert.equal(counts('review', 'Beta').querySelector('.wv-cur').textContent, '1');
-  assert.equal(counts('todo', 'Alpha').querySelector('.wv-cur').textContent, '2');
-  const toggle = (id, name) => lane(id).querySelectorAll('.wb-head').find((h) => h.querySelector('.lane-name').textContent === name);
-  const cardsIn = (id) => lane(id).querySelectorAll('details.item').map((el) => el.dataset.key);
-  for (const [id, name, left] of [['progress', 'Alpha', ['w/L1']], ['progress', 'No wave', []], ['done', 'No wave', ['w/A1', 'w/B2']]]) {
-    assert.equal(toggle(id, name).getAttribute('aria-expanded'), 'true');
-    b.page.fire(b.root, 'click', { target: toggle(id, name).querySelector('.lane-name') }); await b.settle();
-    assert.equal(toggle(id, name).getAttribute('aria-expanded'), 'false', `${id} ${name} collapses`);
-    assert.deepEqual(cardsIn(id), left);
-  }
-});
-
-// docs/adr/2026-11-10-0030-group-headers-lead-with-a-chevron.md
-test("every group header, No wave included, leads with a chevron in place of the wave icon, and only the open group's body carries the divider", async () => {
-  const idle = { running: false, questions: 0 };
-  const band = { kind: 'wave', slug: 'a', title: 'Alpha', goal: null, keys: ['w/A1'], next: null, merged: 0, total: 1, triage: idle };
-  const b = boardOnDom({ board: { ...boardOf([workCard('A1', { lane: 'progress' }), workCard('L1', { lane: 'progress' })]), waveBands: [band] }, threads: {} });
-  await b.settle();
-  const heads = b.root.querySelectorAll('details.lane[data-lane="progress"] .wb > .wb-head');
-  assert.equal(heads.length, 2);
-  for (const h of heads) {
-    assert.ok(h.querySelector(':scope > svg.wb-chevron'));
-    assert.ok(!h.querySelector('.wave-icon'));
-  }
-});
-
 const openQuestion = (id, topic, extra = {}) => ({ id, topic, source: 'Grill', question: `Question ${id}?`, context: `Why ${id}`, answers: [], state: 'open',
   options: [{ id: 'A', label: 'Yes', detail: 'Do it', recommended: true }, { id: 'B', label: 'No', detail: 'Leave it' }], ...extra });
 const questionsBoard = (questions, needs = []) => {
@@ -6213,20 +6070,15 @@ test("at every width the board header's ? carries the open-question count as a b
   }
 });
 
-test("on a desktop, one click on a pill in the pane opens that topic's card on the board and scrolls to it, a wave topic opens its band, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
-  const idle = { running: false, questions: 0 };
-  const band = { kind: 'wave', slug: 'alpha', title: 'Alpha', goal: null, keys: ['w/T1'], next: null, merged: 0, total: 1, triage: idle };
-  const board = { ...questionsBoard([openQuestion('q1', 'item:w/T1'), openQuestion('q2', 'file:alpha'), openQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')], waveBands: [band] };
+test("on a desktop, one click on a pill in the pane opens that topic's card on the board and scrolls to it, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
+  const board = { ...questionsBoard([openQuestion('q1', 'item:w/T1'), openQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')] };
   const wide = boardOnDom({ board, threads: {}, width: 1280 });
   await wide.settle();
   const scrolled = [];
-  wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key || this.dataset.band || this.dataset.topic); };
+  wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key || this.dataset.topic); };
   const dbl = async (id) => { const target = wide.root.querySelector(`#boardPane button[data-topic="${id}"]`); const slot = wide.root.querySelector('#boardPane .pane-questions'); wide.page.fire(slot, 'click', { target }); await wide.settle(); };
   await dbl('item:w/T1');
   assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#selectedCard=w%2FT1', true, 'w/T1'], 'a task topic opens its task');
-  scrolled.length = 0;
-  await dbl('file:alpha');
-  assert.deepEqual(scrolled, ['alpha'], 'a wave topic scrolls to its band');
   scrolled.length = 0;
   await dbl('item:w/T9');
   assert.deepEqual([scrolled, wide.page.win.location.hash], [[], '#selectedCard=w%2FT1'], 'a topic with nothing on the board does nothing');
