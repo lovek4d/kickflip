@@ -26,6 +26,13 @@ test("landStep gives a verified card's land one step for every way its lander ca
   // A run that ended on the usage limit spends no relaunch.
   assert.deepEqual(step({ verified: v, pid: 8, relaunched: 1 }, { limited: true }), { step: 'launch', fresh: true, relaunched: 1 });
   assert.deepEqual(step({ verified: v, pid: 8, relaunched: 1 }, { limited: true, held: 'usage paused' }), { step: 'held', held: 'usage paused', relaunched: 1 });
+  // A card store.mjs landable skips takes the skip as its step, over a hold: no lander starts while it stands.
+  assert.deepEqual(step(undefined, { skip: { step: 'blocked', blocked: 'by #12' }, held: 'host busy' }), { step: 'blocked', blocked: 'by #12', relaunched: 0 });
+  assert.deepEqual(step({ verified: v, pid: 7 }, { skip: { step: 'worktree-gone' } }), { step: 'worktree-gone', relaunched: 0 });
+  assert.deepEqual(step(undefined, { skip: { step: 'asking' } }), { step: 'asking', relaunched: 0 });
+  // A lander already running keeps its step, and a fault stays one.
+  assert.deepEqual(step({ verified: v, pid: 7 }, { alive: true, skip: { step: 'blocked', blocked: 'by #12' } }), { step: 'running', relaunched: 0 });
+  assert.deepEqual(step({ verified: v, pid: 8, relaunched: 1 }, { skip: { step: 'worktree-gone' } }), { step: 'fault', relaunched: 1 });
 });
 
 test("a verified card's status line and its wait on the orchestrator print its land step", () => {
@@ -48,6 +55,14 @@ test("a verified card's status line and its wait on the orchestrator print its l
   assert.equal(faulted.land, 'fault');
   assert.equal(faulted.waits[0][0], 'stale', 'a faulted land is a stale wait');
   assert.match(faulted.waits[0][1], /board\.mjs lander w\/A1/);
+  // What landable skips reads in both lines, never "Lander starting".
+  assert.deepEqual(read({ landSkips: { 'w/A1': { step: 'blocked', blocked: 'by #12' } } }),
+    { land: 'blocked', words: 'Landing blocked by #12', waits: [['checking', 'Landing blocked by #12; the board launches a lander once nothing blocks it']] });
+  assert.deepEqual(read({ landSkips: { 'w/A1': { step: 'asking' } } }),
+    { land: 'asking', words: 'Landing waits on its open question', waits: [['checking', 'Landing waits on its open question; the board launches a lander once it is answered']] });
+  const gone = read({ landSkips: { 'w/A1': { step: 'worktree-gone' } } });
+  assert.deepEqual([gone.land, gone.words, gone.waits[0][0]], ['worktree-gone', "Lander can't start: its worktree is gone", 'stale']);
+  assert.match(gone.waits[0][1], /^Its worktree is gone, so no lander can start/);
   // Calls still to verify: no land step yet.
   const unverified = buildBoard({ now: Date.parse('2026-11-14T06:00:00Z'), owner: {}, events: [], threads: {}, working: {},
     files: [{ slug: 'w', agents: { A1: { main: { ...agents.A1.main, verified: null } } }, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }] });

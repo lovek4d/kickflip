@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { freePorts, startBoard } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI } from './headless.mjs';
-import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, writeBrief } from './store.mjs';
+import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, verifyCalls, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
 
 // The server tests run the board server in this process (shared/test-helpers.mjs startBoard), so the board reads its
@@ -543,6 +543,41 @@ test('a lander that exited without landing on a checked card is relaunched once 
   assert.deepEqual(faults.map((m) => m.text), ['Its lander exited twice unfinished; it waits on the orchestrator.']);
   const faulted = await card();
   assert.deepEqual([faulted.land.step, faulted.orchestrator.kind], ['fault', 'stale']);
+});
+
+// A handed-back build with no calls has nothing to land until builder verified marks it; a gone worktree reads so on
+// the card and launches nothing, and once it is back the next pass launches the lander.
+test('builder verified on a no-call handed-back build lets the next pass launch its lander, which a gone worktree skips', async (t) => {
+  const home = emptyHome();
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  const clone = path.join(home, 'clone');
+  fs.mkdirSync(clone);
+  execFileSync('git', ['-C', clone, 'init', '--quiet', '-b', 'main']);
+  const kickflip = path.join(home, '.claude', 'kickflip');
+  fs.mkdirSync(kickflip, { recursive: true });
+  fs.writeFileSync(path.join(kickflip, 'manifest.json'), JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  const worktree = path.join(home, 'wt');
+  const recordFile = path.join(data, 'agents', 'H5.json');
+  fs.writeFileSync(recordFile, JSON.stringify({ started: '2026-11-13T20:00:00.000Z', done: '2026-11-13T21:00:00.000Z', kind: 'claude', model: 'opus', handed_back: '2026-11-13T21:00:00.000Z', worktree: { path: worktree, branch: 'H5', repo: clone } }));
+  const waveFile = path.join(data, 'items.json');
+  fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'H5', title: 'fix: verified', lane: 'progress' }] }));
+  const card = async () => (await fetch(`${board.base}/api/board`).then((r) => r.json())).items.find((c) => c.key === 't/H5');
+  const { runs, launch } = launcher(t);
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.deepEqual([runs.length, (await card()).land], [0, null], 'unverified: nothing to land');
+  await verifyCalls(site, 't/H5', {});
+  await wrote(board, recordFile);
+  assert.equal(runs.length, 0, 'its worktree is gone: no lander');
+  const gone = await card();
+  assert.deepEqual([gone.land.step, gone.land.words, gone.orchestrator.kind], ['worktree-gone', "Lander can't start: its worktree is gone", 'stale']);
+  fs.mkdirSync(worktree);
+  await wrote(board, recordFile);
+  assert.equal(runs.length, 1, 'the next pass launches its lander');
+  assert.equal((await card()).land.step, 'running');
 });
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md

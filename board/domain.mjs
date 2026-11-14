@@ -90,21 +90,26 @@ function laneOf(item, pr, running, checking, pushed, reopened, skipDraft, rebasi
 export const LANDER = 'Lander';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
+// docs/adr/2026-11-14-0031-a-land-step-reads-landables-skips.md
 // The one next step of a verified card's land: the board server's launchLanders acts on it, and the card's status line
 // and the orchestrator's waits line print it, so no line promises a launch the server won't make. verified is the
 // verification the card waits to land, entry its data/landers.json entry {verified, pid, log, relaunched, handedBack}
 // (relaunched counts the launches after the first for that verification), alive whether the entry's process lives,
 // held the words for what holds the server's launches of its kind now (shared/usage-gate.mjs launchHeldWords) or null,
-// and limited whether the entry's run ended on the usage limit, which spends no relaunch.
+// and limited whether the entry's run ended on the usage limit, which spends no relaunch. skip is what store.mjs
+// landable skips the card for, or null: {step: 'worktree-gone'}, {step: 'blocked', blocked: blockWords' words} or
+// {step: 'asking'} (a question on it is open).
 // running: the lander launched for this verification lives. fault: a relaunched lander exited without landing too, or
-// the server already said so (handedBack). held: the launch waits for the hold to clear. launch: the first launch for a
-// verification resumes the card's builder, a relaunch takes a fresh lander (fresh).
-// → {step, relaunched, fresh?, held?}, relaunched the count the entry records with a launch now.
-export function landStep({ verified, entry, alive = false, held = null, limited = false }) {
+// the server already said so (handedBack). A skip: no lander launches while it stands. held: the launch waits for the
+// hold to clear. launch: the first launch for a verification resumes the card's builder, a relaunch takes a fresh
+// lander (fresh).
+// → {step, relaunched, fresh?, held?, blocked?}, relaunched the count the entry records with a launch now.
+export function landStep({ verified, entry, alive = false, held = null, limited = false, skip = null }) {
   const again = Boolean(entry) && entry.verified === verified;
   const count = again ? entry.relaunched ?? 0 : 0;
   if (again && alive) return { step: 'running', relaunched: count };
   if (again && (entry.handedBack || (count > 0 && !limited))) return { step: 'fault', relaunched: count };
+  if (skip) return { ...skip, relaunched: count };
   if (held) return { step: 'held', held, relaunched: count };
   return { step: 'launch', fresh: again, relaunched: again && !limited ? count + 1 : count };
 }
@@ -113,6 +118,9 @@ export const LAND_WORDS = {
   running: { card: () => 'Lander running', next: () => 'A lander is landing the verified build' },
   launch: { card: () => 'Lander starting', next: () => 'The board launches a lander within a minute to land the verified build' },
   held: { card: ({ held }) => `Landing held: ${held}`, next: ({ held }) => `Landing held: ${held}; the board launches a lander once that clears` },
+  blocked: { card: ({ blocked }) => `Landing blocked ${blocked}`, next: ({ blocked }) => `Landing blocked ${blocked}; the board launches a lander once nothing blocks it` },
+  asking: { card: () => 'Landing waits on its open question', next: () => 'Landing waits on its open question; the board launches a lander once it is answered' },
+  'worktree-gone': { card: () => "Lander can't start: its worktree is gone", next: ({ key }) => `Its worktree is gone, so no lander can start: restore ${key}'s worktree from its branch, or ${STALL_NEXT}` },
   fault: { card: () => 'Lander exited twice without landing', next: ({ key }) => `Its lander exited twice without landing: read its log, then board.mjs lander ${key} to try once more, or ${STALL_NEXT}` },
 };
 // docs/adr/2026-11-06-1546-only-a-run-that-changes-code-moves-an-in-review-card.md
@@ -212,7 +220,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && (m.kin
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 // The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
 const STILL_MERGING = ['lander-handoff', 'land-waiting'];
-function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld }) {
+function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips }) {
   // An archived PR the board no longer reads the hub's check for draws what it kept (store.mjs keptPRs). A hub record
   // read without its url (a Done card's PR) keeps the one its repo and number give.
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, ...(p.gh || p.kept || {}), url: (p.gh || p.kept)?.url || prURL(p), status: prStateOf(p.gh, p.merged_at) }));
@@ -334,11 +342,12 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     ? agents.flatMap((a) => a.calls).sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1)?.text ?? null : null;
   const briefing = lane === 'done' ? null : BRIEF_KINDS.find((k) => (it.briefs || []).some((b) => b.kind === k && !b.brief)) ?? null;
   // A checked card with nothing left to verify waits to land: its land step (landStep), read from the server's lander
-  // for it (landers {<key>: {...entry, alive, limited}}) and what holds a launch of its kind (landHeld {<kind>: words}).
+  // for it (landers {<key>: {...entry, alive, limited}}), what holds a launch of its kind (landHeld {<kind>: words}) and
+  // what store.mjs landable skips it for (landSkips {<key>: skip}), as the server's launchLanders reads them.
   const verifiedAt = agents.map((a) => a.verified?.at).filter(Boolean).map(String).sort().at(-1) ?? null;
   const lander = routeRecord(landers, key);
   const step = waitsOn === 'checking' && verifiedAt && !unverifiedOf(agents)
-    ? landStep({ verified: verifiedAt, entry: lander, alive: lander?.alive, limited: lander?.limited, held: routeRecord(landHeld, providerOf(newestBuild(agents)?.kind) ?? 'claude') ?? null }) : null;
+    ? landStep({ verified: verifiedAt, entry: lander, alive: lander?.alive, limited: lander?.limited, skip: routeRecord(landSkips, key) ?? null, held: routeRecord(landHeld, providerOf(newestBuild(agents)?.kind) ?? 'claude') ?? null }) : null;
   // The card's status line reads the step's words (public/ui-cards.js).
   const land = step && { ...step, words: LAND_WORDS[step.step].card(step) };
   return {
@@ -1196,7 +1205,7 @@ export function buildBoard(snapshot) {
         said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
         askedAt: (index.questions.get(`item:${key}`) || []).filter((q) => q.asked_at).map((q) => q.asked_at),
         topicItems, prSlack: snapshot.prSlack || {}, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
-        mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets, landers: snapshot.landers || {}, landHeld: snapshot.landHeld || {},
+        mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets, landers: snapshot.landers || {}, landHeld: snapshot.landHeld || {}, landSkips: snapshot.landSkips || {},
       }));
       const card = items[items.length - 1];
       // A card filed from an ask takes the ask's place: Todo sorts it by when the ask was sent
@@ -1848,8 +1857,8 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
         : { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent, then finish its run or ${RESTART_NEXT}` })
       : it.lane === 'review' && it.stale && { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), daily: true, next: `Find out why the review went stale and fix what you can: rebase, CI, comments; if only a reviewer owes it, a thread line naming who; or ${STALL_NEXT}` },
       it.waitsOn === 'checking' && (facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: facts.next || "Verify the builder's judgment calls" }
-        // A verified card's wait says its land step; a lander that faulted is a stale run.
-        : it.land ? { kind: it.land.step === 'fault' ? 'stale' : 'checking', since: facts.handedBackAt, next: LAND_WORDS[it.land.step].next({ ...it.land, key: it.key }) }
+        // A verified card's wait says its land step; a lander that faulted, or one with no worktree to land from, is stale.
+        : it.land ? { kind: ['fault', 'worktree-gone'].includes(it.land.step) ? 'stale' : 'checking', since: facts.handedBackAt, next: LAND_WORDS[it.land.step].next({ ...it.land, key: it.key }) }
         : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }),
       it.grilling && facts.grillAt && !running('grill') && !briefed('grill') && { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' },
       it.prototyping && facts.prototypeAt && !running('prototype') && !briefed('prototype') && { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' },

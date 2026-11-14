@@ -5012,11 +5012,13 @@ export async function listCalls(site, key, { dir, agent = 'main' }) {
   return { lines: [...calls.map((c, i) => `${i + 1}. ${c.text}`), state] };
 }
 
-// The session's review puts each deferred ask to the owner before it marks the calls verified.
+// The session's review puts each deferred ask to the owner before it marks the calls verified. A build handed back with
+// no calls is marked too, as builder done with none finishes: that is the way back for one whose verification was lost.
 export async function verifyCalls(site, key, { dir, agent = 'main', note }) {
   const file = await builderFile(site, key, dir, agent);
   const record = await readJSON(file, null);
-  if (!unverifiedCalls(record).length) fail(`${key} has no unverified judgment calls${agent === 'main' ? '' : ` from agent ${agent}`}; builder calls ${key} lists them`);
+  const noCallsBack = Boolean(record?.done && record.handed_back) && !record.calls?.length;
+  if (!unverifiedCalls(record).length && !noCallsBack) fail(`${key} has no unverified judgment calls${agent === 'main' ? '' : ` from agent ${agent}`}; builder calls ${key} lists them`);
   if (site) {
     const put = new Set((await readJSON(ownerFile(site), { items: [] })).items?.filter((q) => q.topic === `item:${key}` && q.ask).map((q) => q.ask));
     const owed = (await builderAsks(site, key)).find((a) => a.deferred && a.agent === agent && !put.has(a.id));
@@ -5061,10 +5063,13 @@ async function cardLinks(site, key) {
   }));
 }
 
-// The cards a headless lander lands: handed back (domain.mjs handedBackAt) and not done, every call on their records
-// verified, none of their questions open, nothing blocking them, and their worktree still there. → [{key, verified,
-// kind, model}], verified the newest verification's time, and kind and model the newest record's, so the lander runs as
-// the agent that built the card.
+// docs/adr/2026-11-14-0031-a-land-step-reads-landables-skips.md
+// The cards whose verified build waits to land: handed back (domain.mjs handedBackAt) and not done, every call on their
+// records verified. A lander lands one with no skip; skip says why one gets none (domain.mjs landStep reads it as the
+// card's step): {step: 'worktree-gone'}, else {step: 'blocked', blocked: blockWords' words}, else {step: 'asking'}
+// while a question on it is open. A gone worktree goes first, as the one the orchestrator must act on.
+// → [{key, verified, kind, model, skip}], verified the newest verification's time, and kind and model the newest
+// record's, so the lander runs as the agent that built the card.
 export async function landable(site) {
   const out = [];
   for (const source of await itemSources(site)) {
@@ -5076,9 +5081,14 @@ export async function landable(site) {
       const verified = records.map((r) => r.verified?.at).filter(Boolean).sort().at(-1);
       if (!verified || records.some((r) => unverifiedCalls(r).length)) continue;
       const key = `${source.slug}/${item.id}`;
-      if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open') || await blockWords(site, key, item)) continue;
-      const newest = records.filter((r) => r.worktree?.path && r.kind !== HELPER).sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
-      if (newest && existsSync(newest.worktree.path)) out.push({ key, verified, kind: providerOf(newest.kind), model: newest.model });
+      const builds = records.filter((r) => r.kind !== HELPER).sort((a, b) => String(b.started).localeCompare(String(a.started)));
+      const newest = builds.find((r) => r.worktree?.path);
+      const blocked = await blockWords(site, key, item);
+      const skip = !newest || !existsSync(newest.worktree.path) ? { step: 'worktree-gone' }
+        : blocked ? { step: 'blocked', blocked }
+        : (await cardQuestions(site, key)).asked.some((q) => q.state === 'open') ? { step: 'asking' } : null;
+      const built = newest ?? builds[0];
+      out.push({ key, verified, kind: providerOf(built?.kind), model: built?.model, skip });
     }
   }
   return out;

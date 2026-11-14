@@ -64,9 +64,13 @@ test("a blocked card's held Merge can't be tapped, and the lander skips its veri
   fs.mkdirSync(tree, { recursive: true });
   setA1({ merge_ready: undefined, lane: 'progress' });
   write(recordFile(), { started: now(), done: now(), handed_back: now(), kind: 'claude', worktree: { path: tree }, verified: { at: now() } });
-  assert.deepEqual(await store.landable(site('orch')), []);
+  assert.deepEqual((await store.landable(site('orch'))).map((c) => [c.key, c.skip]), [['w/A1', { step: 'blocked', blocked: 'by ENG-1' }]]);
   setA1({ deps: undefined });
-  assert.deepEqual((await store.landable(site('orch'))).map((c) => c.key), ['w/A1']);
+  assert.deepEqual((await store.landable(site('orch'))).map((c) => [c.key, c.skip]), [['w/A1', null]]);
+  // A gone worktree is the skip a block can't hide: it needs the orchestrator.
+  setA1({ deps: ['ENG-1'] });
+  fs.rmSync(tree, { recursive: true });
+  assert.deepEqual((await store.landable(site('orch'))).map((c) => [c.key, c.skip]), [['w/A1', { step: 'worktree-gone' }]]);
 });
 
 test('a finishing dep unblocks a card In Review, waking the orchestrator', async () => {

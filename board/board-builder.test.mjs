@@ -138,6 +138,18 @@ test('builder call appends a one-line call to the open record, calls prints them
   assert.deepEqual(['calls' in read(main), 'verified' in read(main), 'worktree' in read(main)], [false, false, false]);
 });
 
+// A build handed back with no calls that lost its verification (a lander's start replaced the verified record) is
+// marked verified again, so the board's land step finds it.
+test('builder verified marks a handed-back build with no calls, and refuses one still open', async () => {
+  const main = at('waves', 'w', 'agents', 'A1.json');
+  assert.equal((await board('builder', 'start', 'w/A1')).code, 0);
+  assert.match((await board('builder', 'verified', 'w/A1')).err, /no unverified judgment calls/, 'an open build has no hand-back to verify');
+  write(main, { ...read(main), done: new Date().toISOString(), handed_back: new Date().toISOString() });
+  const verified = await board('builder', 'verified', 'w/A1');
+  assert.equal(verified.code, 0, verified.err);
+  assert.equal(typeof read(main).verified.at, 'string');
+});
+
 test('builder asks --wait returns once every ask is answered and fails after its timeout while one waits', async (t) => {
   onHome(t);
   const orch = (...args) => board('--site', 'orch', ...args);

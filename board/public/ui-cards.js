@@ -243,12 +243,12 @@
     return `<div class="line3 sub agent${tone(it)}${picked && !isPaused() ? '' : ' waiting-gray'}">${words}</div>`;
   }
   // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
-  // A verified card's land step (domain.mjs landStep) in its words: a fault in red, a hold in grey, a lander starting or
-  // running in its lane's colour with the dot.
+  // A verified card's land step (domain.mjs landStep) in its words: a fault or a gone worktree in red, a hold, a block or
+  // an open question in grey, a lander starting or running in its lane's colour with the dot.
   function landStatus(it) {
     const { step, words } = it.land;
-    if (step === 'fault') return `<div class="line3 sub refused">${escText(words)}</div>`;
-    if (step === 'held') return `<div class="line3 sub agent waiting-gray">${escText(words)}</div>`;
+    if (step === 'fault' || step === 'worktree-gone') return `<div class="line3 sub refused">${escText(words)}</div>`;
+    if (step === 'held' || step === 'blocked' || step === 'asking') return `<div class="line3 sub agent waiting-gray">${escText(words)}</div>`;
     return `<div class="line3 sub agent${tone(it)}">${DOT}${escText(words)}</div>`;
   }
   // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md

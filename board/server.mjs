@@ -697,6 +697,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const alive = Object.create(null);
     const headless = await readJSON(path.join(data, 'headless-builders.json'), {});
     const landers = await readLanders();
+    // landSkips {<key>: skip}: what store.mjs landable skips each verified card for, so its land step reads what
+    // launchLanders will do. Only a card with a verified record can wait to land, so with none landable isn't read.
+    const verifiedAny = files.some(({ agents }) => Object.values(agents || {}).some((byAgent) => Object.values(byAgent).some((r) => r?.verified)));
+    const landSkips = verifiedAny ? Object.fromEntries((await landable(here)).filter((c) => c.skip).map((c) => [c.key, c.skip])) : {};
     const rebases = await readJSON(path.join(data, 'rebases.json'), {});
     for (const [key, entry] of [...Object.entries(landers), ...Object.entries(rebases), ...Object.entries(headless)]) {
       if (entry?.pid === null && routeRecord(headless, key) === entry) alive[key] = 'held';
@@ -711,7 +715,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
       owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
       topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
-      screening: await readScreening(here), landers, landHeld: outside.landHeld,
+      screening: await readScreening(here), landers, landHeld: outside.landHeld, landSkips,
     };
   }
 
@@ -1856,8 +1860,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
   // data/landers.json (readLanders): the lander launched for each card's verification, its process and log, and how many
   // times it was relaunched for that verification. Each card whose verified build waits to land (store.mjs landable)
-  // takes the one step domain.mjs landStep gives it: running leaves it, held waits for the hold to clear (the minute check
-  // brings in the next pass), launch lands it through its builder (headless.mjs landByBuilder: the first launch resumes
+  // takes the one step domain.mjs landStep gives it: running and a skip of landable's (blocked, asking, worktree-gone)
+  // leave it, held waits for the hold to clear (the minute check brings in the next pass), launch lands it through its builder (headless.mjs landByBuilder: the first launch resumes
   // the builder, a relaunch is a fresh lander), and fault, the first time, puts the exited-twice line on the card and marks
   // the entry handedBack, so the orchestrator's wait on it is a stale one. A lander whose process has gone while its own
   // record is still open stopped partway: its card is handed back again (store.mjs relaunchLander) and takes its step in
@@ -1894,7 +1898,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (!anyChecking && !sentBack) return save();
     const gate = readUsageGate({ dir: here });
     for (const c of byBump(items, await landable(here))) {
-      const step = landStep({ verified: c.verified, entry: sent[c.key], alive: sent[c.key]?.alive, limited: sent[c.key]?.limited, held: launchHeldWords(gate, c.kind ?? 'claude') });
+      const step = landStep({ verified: c.verified, entry: sent[c.key], alive: sent[c.key]?.alive, limited: sent[c.key]?.limited, skip: c.skip, held: launchHeldWords(gate, c.kind ?? 'claude') });
       const inputs = { verified: c.verified, before: kept[c.key] ?? null };
       if (step.step === 'held') heldByPause = true;
       if (step.step === 'fault' && !kept[c.key].handedBack) {
