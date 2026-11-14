@@ -38,13 +38,21 @@ export async function setSlack(changes) {
   return withFileLock(fileOf(), () => save({ ...readSlack(), ...changes }));
 }
 
+// now's day in the Slack timezone: its date, and open on a weekday from 09:00 to the day's end, when the digest is due.
 export function slackDay(now = new Date()) {
+  const parts = slackParts(now);
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, open: !['Sat', 'Sun'].includes(parts.weekday) && Number(parts.hour) >= 9 };
+}
+// now's 24-hour time in the Slack timezone, “HH:MM”.
+export function slackClock(now = new Date()) {
+  const parts = slackParts(now);
+  return `${parts.hour}:${parts.minute}`;
+}
+function slackParts(now) {
   const timezone = readSlack().timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', hourCycle: 'h23',
+  return Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(now).map(({ type, value }) => [type, value]));
-  // open: a weekday from 09:00 until 17:00, when a digest may go out
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, open: !['Sat', 'Sun'].includes(parts.weekday) && Number(parts.hour) >= 9 && Number(parts.hour) < 17 };
 }
 
 // Slack through the owner's user token (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md):
@@ -60,11 +68,13 @@ export class SlackError extends Error {
 const api = () => process.env.KICKFLIP_SLACK_URL || 'https://slack.com/api';
 const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired', 'account_inactive'];
 
-// The last line of every message the hub or the orchestrator posts: the kickflip emoji, or 🤖 while the workspace lacks it.
+// The last line of every message the hub or the orchestrator posts: the kickflip emoji, or 🤖 while the workspace lacks
+// it, followed on a message the hub edited by “ · _updated HH:MM_”, the edit's time.
 const SIGN_OFF = '- :claude_kickflip:';
 const SIGN_OFF_FALLBACK = '- :robot_face:';
+const SIGNED_OFF = /^- :(claude_kickflip|robot_face):( · _updated \d\d:\d\d_)?$/;
 // Whether text is one of ours, by its last line; our posts go out as the owner, so the hub hears past them by this.
-export const isSignedOff = (text) => [SIGN_OFF, SIGN_OFF_FALLBACK].includes(String(text || '').split('\n').at(-1));
+export const isSignedOff = (text) => SIGNED_OFF.test(String(text || '').split('\n').at(-1));
 
 // checked(works) follows each answer: false when Slack refused the token, true when it answered ok.
 export function slackClient(token, { fetch = globalThis.fetch, checked = () => {} } = {}) {
@@ -85,9 +95,10 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
   }
   // Whether the workspace has :claude_kickflip:, asked once per client; no emoji:read scope or any failure reads as no.
   let signOff;
-  const signedOff = (text) => {
+  // edited: an edit's time, which the line then names.
+  const signedOff = (text, edited) => {
     signOff ??= call('emoji.list').then((out) => (out.emoji?.claude_kickflip ? SIGN_OFF : SIGN_OFF_FALLBACK), () => SIGN_OFF_FALLBACK);
-    return signOff.then((line) => `${text}\n${line}`);
+    return signOff.then((line) => `${text}\n${line}${edited ? ` · _updated ${slackClock(edited)}_` : ''}`);
   };
   return {
     async who() {
@@ -109,8 +120,8 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     openDM: async (user) => (await call('conversations.open', { users: user })).channel.id,
     // Every message ends with the sign-off line. → the message ts
     post: async ({ channel, text, thread_ts }) => (await call('chat.postMessage', { channel, text: await signedOff(text), unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
-    // Edits a message this token posted, signed off as a post is.
-    update: async ({ channel, ts, text }) => { await call('chat.update', { channel, ts, text: await signedOff(text), unfurl_links: false }); },
+    // Edits a message this token posted, signed off as a post is and named updated at at's time.
+    update: async ({ channel, ts, text, at = new Date() }) => { await call('chat.update', { channel, ts, text: await signedOff(text, at), unfurl_links: false }); },
     // A reaction already there counts as added.
     async react({ channel, ts, name }) {
       try { await call('reactions.add', { channel, timestamp: ts, name }); } catch (e) { if (e.message !== 'Slack: already_reacted') throw e; }

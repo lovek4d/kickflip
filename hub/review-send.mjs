@@ -2,21 +2,20 @@
 // board's files as board/store.mjs posts it (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md,
 // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md,
 // docs/adr/2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md,
-// docs/adr/2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md). Each reviewer gets one thread per board for
-// each Slack day, in the DM the hub opens with them: the weekday digest opens it when it is due first, else a
-// “<board> reviews” header line. Each PR's link goes in as a reply, and nothing else about the PR does. Reactions go on
-// every posted link and reply. A failed send stays owed and goes again next poll. After the sends, the hub hears the
-// day threads (hearBoards).
+// docs/adr/2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md,
+// docs/adr/2026-11-14-0449-one-digest-opens-each-day-thread.md). Each reviewer gets one thread per board for each
+// Slack day, in the DM the hub opens with them, and the day's digest opens it: from 09:00 on a weekday, or as the
+// day's first link to that reviewer goes. Each PR's link goes in as a reply, and nothing else about the PR does.
+// Reactions go on every posted link and reply. A failed send stays owed and goes again next poll. After the sends, the
+// hub hears the day threads (hearBoards).
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendEvent, listBoards } from './boards.mjs';
 import { savedSlack, slackStatus, refusalUnpushed, markRefusalPushed, missingScope, setHearing, hearingUnpushed, markHearingPushed, slackUserId, isSignedOff } from './slack.mjs';
 import { deliver } from './push.mjs';
-import { reviewDue, postLink, recordReaction, postDigest, recordHeader, openDayThread, heardThreads, markHeard, boardPosts } from '../board/store.mjs';
+import { reviewDue, postLink, recordReaction, postDigest, recordHeader, dayThread, heardThreads, markHeard, boardPosts } from '../board/store.mjs';
 
 const refusedToken = (e) => e.status === 400 && e.message === 'Slack refused the token.';
-
-const digestHeader = (board) => (n) => `${board.title} digest: ${n ? `${n} pending your review` : 'all reviewed'}`;
 
 async function sendBoard(board, slack, now) {
   const due = await reviewDue(board.dir, { now });
@@ -30,12 +29,11 @@ async function sendBoard(board, slack, now) {
       failed.push(`${board.route}: ${what}: ${e.message}`);
     }
   };
-  // The digest goes first, so on a weekday morning it opens the day's thread.
+  // The digest goes first, as it opens the day's thread.
   for (const reviewer of (due.digest?.reviewers || []).filter((r) => r.owed)) {
     await attempt(`digest to ${reviewer.name}`, async () => {
       await postDigest(board.dir, due.digest.date, reviewer, {
         channel: reviewer.sent?.channel || await slack.openDM(reviewer.slack_user),
-        header: digestHeader(board),
         post: (message) => slack.post(message),
       });
     });
@@ -43,19 +41,15 @@ async function sendBoard(board, slack, now) {
   // A posted digest header's count follows its reviewer's PRs as they leave review; a failed edit stays owed.
   for (const h of due.headers) {
     await attempt(`digest count for ${h.reviewer}`, async () => {
-      await slack.update({ channel: h.channel, ts: h.ts, text: `${h.lead}${digestHeader(board)(h.n)}${h.tail}` });
+      await slack.update({ channel: h.channel, ts: h.ts, text: h.text, at: now });
       await recordHeader(board.dir, h);
     });
   }
-  // Each reviewer's day thread, opened at most once a poll; a failed open fails that reviewer's sends until the next.
-  const threads = new Map();
-  const dayThread = (name, channel) => {
-    if (!threads.has(name)) threads.set(name, (async () => openDayThread(board.dir, due.date, name, { channel: await channel(), header: `${board.title} reviews`, post: (message) => slack.post(message) }))());
-    return threads.get(name);
-  };
+  // A link waits on its reviewer's digest, whose failure fails their links until the next poll.
   for (const link of due.links) {
     await attempt(`link to ${link.reviewer} on ${link.pr}`, async () => {
-      const thread = await dayThread(link.reviewer, () => slack.openDM(link.slack_user));
+      const thread = await dayThread(board.dir, due.date, link.reviewer);
+      if (!thread) throw new Error("the day's thread waits on its digest");
       await postLink(board.dir, link, thread, () => slack.post({ channel: thread.channel, thread_ts: thread.ts, text: link.text }));
     });
   }

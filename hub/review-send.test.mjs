@@ -10,6 +10,7 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'review-send-'));
 process.env.HOME = home;
 process.on('exit', () => fs.rmSync(home, { recursive: true, force: true }));
 const { sendReviews } = await import('./review-send.mjs');
+const { isSignedOff } = await import('./slack.mjs');
 const { reviewDigest, reviewDue } = await import('../board/store.mjs');
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
@@ -40,7 +41,7 @@ const SIGN_OFF = '\n- :claude_kickflip:';
 // Each post's words, with its sign-off line taken off.
 const pairs = (list) => list.map((m) => [m.channel, m.text.endsWith(SIGN_OFF) ? m.text.slice(0, -SIGN_OFF.length) : m.text, m.thread_ts ?? null]);
 
-test("review posts go into one thread per board in each reviewer's DM each day, opened by a header line: only each PR's link, never a bump", async () => {
+test("review posts go into one thread per board in each reviewer's DM each day, opened by the day's digest: then only each PR's link, never a bump", async () => {
   const world = { ...slackWorld(), dms: { U1: 'D1', U2: 'D9' } };
   const slack = fakeSlack(world);
   write(waveFile, { repo: 'o/r', reviewers: [bob], items: [{ id: 'A1', title: 'Limits', prs: [{ number: 1 }, { number: 2 }, { number: 3 }] }] });
@@ -50,21 +51,27 @@ test("review posts go into one thread per board in each reviewer's DM each day, 
   assert.deepEqual(await poll(), { sent: [], failed: [] });
   assert.equal(slack.calls.length, 0);
   saveToken(world);
-  assert.deepEqual((await poll()).sent, ['orch: link to Ann on o/r#1', 'orch: link to Bob on o/r#1']);
+  // Sunday has no scheduled digest, so the first link opens each reviewer's thread with it.
+  assert.deepEqual((await poll()).sent, ['orch: digest to Ann', 'orch: digest to Bob', 'orch: link to Ann on o/r#1', 'orch: link to Bob on o/r#1']);
   const link1 = (u) => `<@${u}> ${label(1)} ready for review: Fix limiter (+84/-12, 5 files)`;
-  const [annDay, ann1, bobDay, bob1] = world.messages.map((m) => m.ts);
-  assert.deepEqual(pairs(world.messages), [['D1', 'Orch reviews', null], ['D1', link1('U1'), annDay], ['D9', 'Orch reviews', null], ['D9', link1('U2'), bobDay]]);
-  assert.deepEqual(prSlack()['o/r#1'], { links: { Ann: { reactions: [], channel: 'D1', thread_ts: annDay, ts: ann1 }, Bob: { reactions: [], channel: 'D9', thread_ts: bobDay, ts: bob1 } }, replies: [] });
+  const listed = (u, n) => `<@${u}> https://github.com/o/r/pull/${n} · Limits`;
+  const opener = 'Orch Digest\n1 PR pending review';
+  const [annDay, annListed, bobDay, bobListed, ann1, bob1] = world.messages.map((m) => m.ts);
+  assert.deepEqual(pairs(world.messages), [
+    ['D1', opener, null], ['D1', listed('U1', 1), annDay], ['D9', opener, null], ['D9', listed('U2', 1), bobDay],
+    ['D1', link1('U1'), annDay], ['D9', link1('U2'), bobDay],
+  ]);
+  assert.deepEqual(prSlack()['o/r#1'].links, { Ann: { reactions: [], channel: 'D1', thread_ts: annDay, ts: ann1 }, Bob: { reactions: [], channel: 'D9', thread_ts: bobDay, ts: bob1 } });
   assert.deepEqual(digests().map((d) => [d.date, d.reviewer, d.channel, d.ts]), [['2026-11-01', 'Ann', 'D1', annDay], ['2026-11-01', 'Bob', 'D9', bobDay]]);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
   // A push posts nothing; the draft coming out is a new link in the day's thread.
   setPRs({ 'o/r#1': pr({ head: 'ccc0000000' }), 'o/r#2': pr({ title: 'Docs', additions: 3, deletions: 0, files: 1 }), 'o/r#3': pr({ isDraft: true, title: 'Tests' }) });
-  world.messages.length = 0;
+  let since = world.messages.length;
   await poll();
   const link2 = (u) => `<@${u}> ${label(2)} ready for review: Docs (+3/-0, 1 file)`;
-  assert.deepEqual(pairs(world.messages), [['D1', link2('U1'), annDay], ['D9', link2('U2'), bobDay]]);
-  const [ann2, bob2] = world.messages.map((m) => m.ts);
+  assert.deepEqual(pairs(world.messages.slice(since)), [['D1', link2('U1'), annDay], ['D9', link2('U2'), bobDay]]);
+  const [ann2, bob2] = world.messages.slice(since).map((m) => m.ts);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
   // A bump an earlier build queued and never sent is dropped: review due owes no bumps.
@@ -74,28 +81,32 @@ test("review posts go into one thread per board in each reviewer's DM each day, 
   assert.equal('replies' in await reviewDue(site, { now: sunday }), false);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
-  // GitHub's APPROVED review decision reacts git_approved on every link to that PR, then git_merged on merge, or x on a close;
-  // the day's header names no PR and gets none.
+  // GitHub's APPROVED review decision reacts git_approved on every link to that PR and its digest line, then git_merged on
+  // merge, or x on a close; the digest's header names no PR and gets none, and its count is edited down.
   setPRs({ 'o/r#1': pr({ head: 'ccc0000000', approved: true, reviewDecision: 'APPROVED' }), 'o/r#2': pr({ title: 'Docs', state: 'CLOSED' }), 'o/r#3': pr({ isDraft: true, title: 'Tests' }) });
   await poll();
   const reacted = () => world.reactions.map((r) => `${r.timestamp} ${r.name}`).sort();
   const on = (list, name) => list.map((ts) => `${ts} ${name}`);
-  assert.deepEqual(reacted(), [...on([ann1, bob1], 'git_approved'), ...on([ann2, bob2], 'x')].sort());
+  assert.deepEqual(reacted(), [...on([ann1, bob1, annListed, bobListed], 'git_approved'), ...on([ann2, bob2], 'x')].sort());
+  assert.equal(world.messages.find((m) => m.ts === annDay).text, 'Orch Digest\nAll reviewed\n- :claude_kickflip: · _updated 09:00_');
   setPRs({ 'o/r#1': pr({ head: 'ccc0000000', approved: true, reviewDecision: 'APPROVED', state: 'MERGED' }), 'o/r#2': pr({ title: 'Docs', state: 'CLOSED' }), 'o/r#3': pr({ isDraft: true, title: 'Tests' }) });
   await poll();
-  assert.deepEqual(reacted(), [...on([ann1, bob1], 'git_approved'), ...on([ann1, bob1], 'git_merged'), ...on([ann2, bob2], 'x')].sort());
-  assert.ok(world.reactions.every((r) => r.channel === ([bob1, bob2].includes(r.timestamp) ? 'D9' : 'D1')));
+  assert.deepEqual(reacted(), [...on([ann1, bob1, annListed, bobListed], 'git_approved'), ...on([ann1, bob1, annListed, bobListed], 'git_merged'), ...on([ann2, bob2], 'x')].sort());
+  assert.ok(world.reactions.every((r) => r.channel === ([bob1, bob2, bobListed].includes(r.timestamp) ? 'D9' : 'D1')));
   assert.deepEqual(prSlack()['o/r#1'].links.Ann.reactions, ['git_approved', 'git_merged']);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
-  // A link the next day goes in that day's thread, which a header opens.
+  // The next day's thread opens with that day's digest, however late on the weekday the hub gets to it.
   setPRs({ 'o/r#3': pr({ title: 'Tests', additions: 1, deletions: 1, files: 1 }) });
-  world.messages.length = 0;
+  since = world.messages.length;
   const mondayEvening = new Date('2026-11-03T02:00:00Z');
   await poll(mondayEvening);
-  const [annNext, , bobNext] = world.messages.map((m) => m.ts);
+  const [annNext, , bobNext] = world.messages.slice(since).map((m) => m.ts);
   const link3 = (u) => `<@${u}> ${label(3)} ready for review: Tests (+1/-1, 1 file)`;
-  assert.deepEqual(pairs(world.messages), [['D1', 'Orch reviews', null], ['D1', link3('U1'), annNext], ['D9', 'Orch reviews', null], ['D9', link3('U2'), bobNext]]);
+  assert.deepEqual(pairs(world.messages.slice(since)), [
+    ['D1', opener, null], ['D1', listed('U1', 3), annNext], ['D9', opener, null], ['D9', listed('U2', 3), bobNext],
+    ['D1', link3('U1'), annNext], ['D9', link3('U2'), bobNext],
+  ]);
   assert.deepEqual(digests().map((d) => [d.date, d.reviewer]), [['2026-11-01', 'Ann'], ['2026-11-01', 'Bob'], ['2026-11-02', 'Ann'], ['2026-11-02', 'Bob']]);
 
   // A refused token stops every send, and is pushed once while a board has reviewers.
@@ -121,7 +132,7 @@ test('a link posted top-level before the day threads, and a bump sent before bum
   assert.deepEqual(world.reactions.map((r) => [r.channel, r.timestamp, r.name]).sort(), [['D1', '1792700000.000100', 'git_approved'], ['D1', '1792700000.000200', 'git_approved']]);
 });
 
-test("a digest due once the day's thread is open goes in it as one reply listing the PRs", async () => {
+test("a link before 09:00 opens the day's thread with the digest, and the weekday morning sends no second one", async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);
   saveToken(world);
@@ -129,17 +140,37 @@ test("a digest due once the day's thread is open goes in it as one reply listing
   setPRs({ 'o/r#1': pr() });
   await sendReviews({ boards, fetch: slack.fetch, now: new Date('2026-11-02T16:00:00Z') });
   const [day] = world.messages.map((m) => m.ts);
+  assert.deepEqual(pairs(world.messages), [
+    ['D1', 'Orch Digest\n1 PR pending review', null], ['D1', '<@U1> https://github.com/o/r/pull/1 · Open', day],
+    ['D1', `<@U1> ${label(1)} ready for review: Fix limiter (+84/-12, 5 files)`, day],
+  ]);
   setPRs({ 'o/r#1': pr(), 'o/r#2': pr({ title: 'Docs' }) });
   world.messages.length = 0;
   await sendReviews({ boards, fetch: slack.fetch, now: monday });
-  assert.deepEqual(pairs(world.messages), [
-    ['D1', '<@U1> Orch digest: 2 pending your review\nhttps://github.com/o/r/pull/1 · Open (9 days old)\nhttps://github.com/o/r/pull/2 · Open', day],
+  assert.deepEqual(pairs(world.messages), [['D1', `<@U1> ${label(2)} ready for review: Docs (+84/-12, 5 files)`, day]]);
+  assert.equal((await reviewDigest(site, { now: monday })).due, false);
+});
+
+test("a digest due in a thread an earlier build opened with a header line goes in it as one reply listing the PRs, its count live", async () => {
+  const world = slackWorld();
+  const slack = fakeSlack(world);
+  saveToken(world);
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }] }] });
+  setPRs({ 'o/r#1': pr(), 'o/r#2': pr({ title: 'Docs' }) });
+  const day = slack.say({ channel: 'D1', user: 'U0', text: 'Orch reviews\n- :claude_kickflip:' });
+  write(path.join(site, 'data', 'review-digests.json'), { digests: [{ date: '2026-11-02', reviewer: 'Ann', channel: 'D1', ts: day }] });
+  await sendReviews({ boards, fetch: slack.fetch, now: monday });
+  const listed = '\nhttps://github.com/o/r/pull/1 · Open\nhttps://github.com/o/r/pull/2 · Open';
+  assert.deepEqual(pairs(world.messages.slice(1)), [
+    ['D1', `<@U1> Orch Digest\n2 PRs pending review${listed}`, day],
+    ['D1', `<@U1> ${label(1)} ready for review: Fix limiter (+84/-12, 5 files)`, day],
     ['D1', `<@U1> ${label(2)} ready for review: Docs (+84/-12, 5 files)`, day],
   ]);
   assert.equal((await reviewDigest(site, { now: monday })).due, false);
-  world.messages.length = 0;
+  setPRs({ 'o/r#1': pr({ state: 'MERGED' }), 'o/r#2': pr({ title: 'Docs' }) });
   await sendReviews({ boards, fetch: slack.fetch, now: monday });
-  assert.equal(world.messages.length, 0);
+  assert.equal(world.messages[1].text, `<@U1> Orch Digest\n1 PR pending review${listed}${SIGN_OFF} · _updated 09:00_`);
+  assert.equal(world.messages.length, 4);
 });
 
 test("one reviewer's failed send leaves the others sent and goes again next poll, and a post whose record fails is never posted twice", async () => {
@@ -149,10 +180,10 @@ test("one reviewer's failed send leaves the others sent and goes again next poll
   write(waveFile, { repo: 'o/r', reviewers: [bob], items: [{ id: 'A1', title: 'Open', pr: 1 }] });
   setPRs({ 'o/r#1': pr() });
   const out = await sendReviews({ boards, fetch: slack.fetch, now: sunday });
-  assert.deepEqual(out.failed, ['orch: link to Ann on o/r#1: Slack: user_not_found']);
+  assert.deepEqual(out.failed, ['orch: digest to Ann: Slack: user_not_found', "orch: link to Ann on o/r#1: the day's thread waits on its digest"]);
   assert.equal(prSlack()['o/r#1'].links.Ann, undefined);
   world.dms.U1 = 'D1';
-  assert.deepEqual((await sendReviews({ boards, fetch: slack.fetch, now: sunday })).sent, ['orch: link to Ann on o/r#1']);
+  assert.deepEqual((await sendReviews({ boards, fetch: slack.fetch, now: sunday })).sent, ['orch: digest to Ann', 'orch: link to Ann on o/r#1']);
 
   // The data folder turns read-only just after Slack takes the post, so its ts can't be recorded.
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'A2', title: 'Two', pr: 2 }] });
@@ -172,15 +203,54 @@ test("one reviewer's failed send leaves the others sent and goes again next poll
   assert.deepEqual(world.messages.map((m) => m.channel), ['D2'], "only Bob's link to #2 goes; Ann's is never posted again");
 });
 
-test('the digest is owed to each reviewer until its header and every reply are posted, resumes without a second header, and skips a day missed by 17:00', async () => {
+test('the digest is due each weekday from 09:00 however late the hub gets to it, and on a weekend only as a link opens the thread', async () => {
+  saveToken(slackWorld());
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }] }] });
+  setPRs({ 'o/r#1': pr(), 'o/r#2': pr() });
+  const sent = { channel: 'D1', ts: '1792700000.000100', reactions: [] };
+  write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { links: { Ann: sent }, replies: [] }, 'o/r#2': { links: { Ann: sent }, replies: [] } });
+  const due = async (at) => (await reviewDigest(site, { now: new Date(at) })).due;
+  // Monday 2 November in Los Angeles
+  assert.equal(await due('2026-11-02T16:59:00Z'), false, '08:59');
+  assert.equal(await due('2026-11-02T17:00:00Z'), true, '09:00');
+  assert.equal(await due('2026-11-03T00:59:00Z'), true, '16:59');
+  assert.equal(await due('2026-11-03T04:00:00Z'), true, '20:00');
+  assert.equal(await due('2026-11-07T17:00:00Z'), false, 'Saturday 09:00');
+  setPRs({ 'o/r#1': pr(), 'o/r#2': pr(), 'o/r#3': pr() });
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }, { number: 3 }] }] });
+  assert.equal(await due('2026-11-07T17:00:00Z'), true, "Saturday, with #3's link owed");
+});
+
+test("a link on a day with no thread opens it with the same digest the weekday morning sends", async () => {
+  const world = slackWorld();
+  const slack = fakeSlack(world);
+  saveToken(world);
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }, { number: 3 }] }] });
+  setPRs({ 'o/r#1': pr(), 'o/r#2': pr(), 'o/r#3': pr() });
+  await sendReviews({ boards, fetch: slack.fetch, now: new Date('2026-11-07T17:00:00Z') });
+  const [day] = world.messages.map((m) => m.ts);
+  const listed = (n) => ['D1', `<@U1> https://github.com/o/r/pull/${n} · Open`, day];
+  const link = (n) => ['D1', `<@U1> ${label(n)} ready for review: Fix limiter (+84/-12, 5 files)`, day];
+  assert.deepEqual(pairs(world.messages), [['D1', 'Orch Digest\n3 PRs pending review', null], listed(1), listed(2), listed(3), link(1), link(2), link(3)]);
+  const onDemand = world.messages.slice(0, 4);
+
+  // Monday 09:00, every link sent: the schedule opens that day's thread with the same digest, its PRs now days old.
+  const since = world.messages.length;
+  await sendReviews({ boards, fetch: slack.fetch, now: new Date('2026-11-09T17:00:00Z') });
+  const scheduled = world.messages.slice(since);
+  assert.ok(scheduled.slice(1).every((m) => m.thread_ts === scheduled[0].ts));
+  const words = (list) => pairs(list).map(([channel, text]) => [channel, text.replace(/ \(\d+ days old\)$/, '')]);
+  assert.deepEqual(words(scheduled), words(onDemand));
+  assert.match(scheduled[1].text, /· Open \(\d+ days old\)\n/);
+});
+
+test('the digest is owed to each reviewer until its header and every reply are posted, and resumes without a second header', async () => {
   const world = { ...slackWorld(), dms: { U2: 'D2' } };
   const slack = fakeSlack(world);
   saveToken(world);
   write(waveFile, { repo: 'o/r', reviewers: [bob], items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }] }] });
   setPRs({ 'o/r#1': pr(), 'o/r#2': pr() });
   const poll = (now = monday, fetch = slack.fetch) => sendReviews({ boards, fetch, now });
-  assert.equal((await reviewDigest(site, { now: new Date('2026-11-03T01:00:00Z') })).due, false, '17:00 in Los Angeles: that day is skipped');
-  assert.equal((await reviewDigest(site, { now: new Date('2026-11-03T00:59:00Z') })).due, true);
 
   // Ann can't be reached; Bob's thread replies fail once his header is up.
   let failReplies = true;
@@ -192,7 +262,7 @@ test('the digest is owed to each reviewer until its header and every reply are p
   const first = await poll(monday, flaky);
   assert.ok(first.failed.includes('orch: digest to Ann: Slack: user_not_found'), first.failed.join('\n'));
   assert.ok(first.failed.includes('orch: digest to Bob: Slack: ratelimited'), first.failed.join('\n'));
-  assert.deepEqual(world.messages.filter((m) => m.text.includes('digest')).map((m) => [m.channel, m.text]), [['D2', 'Orch digest: 2 pending your review\n- :claude_kickflip:']]);
+  assert.deepEqual(world.messages.filter((m) => m.text.includes('Digest')).map((m) => [m.channel, m.text]), [['D2', 'Orch Digest\n2 PRs pending review\n- :claude_kickflip:']]);
 
   failReplies = false;
   world.dms.U1 = 'D1';
@@ -203,7 +273,7 @@ test('the digest is owed to each reviewer until its header and every reply are p
   const bobDigest = digests().find((d) => d.reviewer === 'Bob').ts;
   const fix = (u, n) => `<@${u}> ${label(n)} ready for review: Fix limiter (+84/-12, 5 files)`;
   assert.deepEqual(pairs(world.messages), [
-    ['D1', 'Orch digest: 2 pending your review', null], ['D1', '<@U1> https://github.com/o/r/pull/1 · Open', annDigest], ['D1', '<@U1> https://github.com/o/r/pull/2 · Open', annDigest],
+    ['D1', 'Orch Digest\n2 PRs pending review', null], ['D1', '<@U1> https://github.com/o/r/pull/1 · Open', annDigest], ['D1', '<@U1> https://github.com/o/r/pull/2 · Open', annDigest],
     ['D2', '<@U2> https://github.com/o/r/pull/1 · Open', bobDigest], ['D2', '<@U2> https://github.com/o/r/pull/2 · Open', bobDigest],
     ['D1', fix('U1', 1), annDigest], ['D2', fix('U2', 1), bobDigest], ['D1', fix('U1', 2), annDigest], ['D2', fix('U2', 2), bobDigest],
   ]);
@@ -225,42 +295,29 @@ test('the digest is owed to each reviewer until its header and every reply are p
   assert.deepEqual(digests().map((d) => d.date), ['2026-11-03', '2026-11-03', '2026-11-09', '2026-11-09']);
 });
 
-test("a digest header's count is edited as its reviewer's PRs leave review, to all reviewed at none, and a failed edit leaves the post alone to go again", async () => {
+test("a digest header's count is edited as its reviewer's PRs leave review, to All reviewed at none, signed off with the edit's time, and a failed edit leaves the post alone to go again", async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);
   saveToken(world);
   write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }] }] });
   setPRs({ 'o/r#1': pr(), 'o/r#2': pr() });
-  const poll = () => sendReviews({ boards, fetch: slack.fetch, now: monday });
+  const poll = (now = monday) => sendReviews({ boards, fetch: slack.fetch, now });
   await poll();
-  const header = () => world.messages.find((m) => m.text.startsWith('Orch digest')).text;
-  assert.equal(header(), `Orch digest: 2 pending your review${SIGN_OFF}`);
+  const header = () => world.messages.find((m) => m.text.startsWith('Orch Digest')).text;
+  assert.equal(header(), `Orch Digest\n2 PRs pending review${SIGN_OFF}`);
 
   setPRs({ 'o/r#1': pr({ reviewDecision: 'APPROVED', approved: true }), 'o/r#2': pr() });
   world.updateError = 'ratelimited';
   assert.deepEqual((await poll()).failed, ['orch: digest count for Ann: Slack: ratelimited']);
-  assert.equal(header(), `Orch digest: 2 pending your review${SIGN_OFF}`);
+  assert.equal(header(), `Orch Digest\n2 PRs pending review${SIGN_OFF}`);
   delete world.updateError;
   assert.deepEqual((await poll()).sent, ['orch: digest count for Ann']);
-  assert.equal(header(), `Orch digest: 1 pending your review${SIGN_OFF}`);
+  assert.equal(header(), `Orch Digest\n1 PR pending review${SIGN_OFF} · _updated 09:00_`);
+  assert.ok(isSignedOff(header()));
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
+  // 14:05 in Los Angeles
   setPRs({ 'o/r#1': pr({ state: 'MERGED' }), 'o/r#2': pr({ state: 'CLOSED' }) });
-  await poll();
-  assert.equal(header(), `Orch digest: all reviewed${SIGN_OFF}`);
-});
-
-test('a digest listed in a thread already open keeps its count live in that reply', async () => {
-  const world = slackWorld();
-  const slack = fakeSlack(world);
-  saveToken(world);
-  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }] }] });
-  setPRs({ 'o/r#1': pr() });
-  await sendReviews({ boards, fetch: slack.fetch, now: new Date('2026-11-02T16:00:00Z') });
-  setPRs({ 'o/r#1': pr(), 'o/r#2': pr({ title: 'Docs' }) });
-  await sendReviews({ boards, fetch: slack.fetch, now: monday });
-  setPRs({ 'o/r#1': pr({ state: 'MERGED' }), 'o/r#2': pr({ title: 'Docs' }) });
-  await sendReviews({ boards, fetch: slack.fetch, now: monday });
-  const reply = world.messages.find((m) => m.text.startsWith('<@U1> Orch digest'));
-  assert.equal(reply.text, `<@U1> Orch digest: 1 pending your review\nhttps://github.com/o/r/pull/1 · Open (9 days old)\nhttps://github.com/o/r/pull/2 · Open${SIGN_OFF}`);
+  await poll(new Date('2026-11-02T22:05:00Z'));
+  assert.equal(header(), `Orch Digest\nAll reviewed${SIGN_OFF} · _updated 14:05_`);
 });

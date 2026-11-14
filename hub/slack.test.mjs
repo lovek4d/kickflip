@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fakeSlack, slackWorld } from '../shared/test-helpers.mjs';
-import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack } from './slack.mjs';
+import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack, isSignedOff } from './slack.mjs';
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -106,4 +106,20 @@ test('every post ends with a “- :claude_kickflip:” line, or “- :robot_face
     assert.deepEqual(world.messages.map((m) => m.text), [`one\n${line}`, `two\nlines\n${line}`], name);
     assert.equal(slack.calls.filter((c) => c.method === 'emoji.list').length, 1, name);
   }
+});
+
+test('an edit is signed off with its time in the Slack timezone, in italics, and still reads as ours', async () => {
+  for (const [change, line] of [[{}, '- :claude_kickflip:'], [{ noEmoji: true }, '- :robot_face:']]) {
+    const world = Object.assign(slackWorld(), change);
+    const slack = fakeSlack(world);
+    const client = slackClient(world.token, { fetch: slack.fetch });
+    const ts = await client.post({ channel: 'D2', text: 'Board Digest\n2 PRs pending review' });
+    // 14:05 in Los Angeles
+    await client.update({ channel: 'D2', ts, text: 'Board Digest\n1 PR pending review', at: new Date('2026-11-02T22:05:00Z') });
+    assert.equal(world.messages[0].text, `Board Digest\n1 PR pending review\n${line} · _updated 14:05_`);
+    assert.ok(isSignedOff(world.messages[0].text));
+  }
+  assert.ok(isSignedOff('words\n- :claude_kickflip:'));
+  assert.ok(!isSignedOff('words\n- :claude_kickflip: · updated later'));
+  assert.ok(!isSignedOff('- :claude_kickflip:\nmore words'));
 });

@@ -396,8 +396,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          @kickflip, which expects no reply
   slack say <reviewer> --text <t>                       posts "🤖 " and the words, at most 250 characters, in the
                                                          reviewer's day thread for today, opening it with the
-                                                         "<board> reviews" header when none is open; only on the
-                                                         owner's explicit ask
+                                                         day's digest when none is open; only on the owner's
+                                                         explicit ask
   slack task <eventId> <file> --title <t>               a request for work in that thread: a new task in item file
          (--notes <md> | --notes-from <draft.md>)       <file>, filed discussing for the owner's review, never ready;
                                                          the Slack message is its first thread line, by its writer
@@ -428,8 +428,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          owner, which puts it in Needs you and pushes. Same PRs as
                                                          review post
   review digest                                         pending reviews as JSON, one item per PR; a reviewer is
-                                                         owed the day's digest weekdays 09:00-17:00 in the Slack
-                                                         identity timezone until data/review-digests.json has it all
+                                                         owed the day's digest from 09:00 on a weekday in the Slack
+                                                         identity timezone, or any day a link to them is owed with
+                                                         no thread open, until data/review-digests.json has it all
   rules list                                             the hub rules, then with --site the board's, one
                                                          "<hub|board> <id> <owner|claude> <text>" line each
   rules add --text <t> [--hub] [--by claude]             a rule in board.json, or with --hub in the hub's

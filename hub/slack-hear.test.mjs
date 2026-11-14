@@ -38,7 +38,7 @@ beforeEach(() => {
   write(kf('github-state.json'), { prs: { 'o/r#1': pr } });
 });
 
-// A board with Ann's day thread open, its header and the PR's link posted. → {world, slack, poll, day}
+// A board with Ann's day thread open, its digest and the PR's link posted. → {world, slack, poll, day}
 async function opened() {
   const world = slackWorld();
   const slack = fakeSlack(world);
@@ -50,7 +50,7 @@ async function opened() {
 
 test("each new message in an open day thread wakes its board once with a slack-question event: a reviewer's always expects an answer, the owner's only when it names @kickflip, and the board's own posts wake nobody", async () => {
   const { world, slack, poll, day } = await opened();
-  assert.deepEqual(world.messages.map((m) => m.text), ['Orch reviews\n- :claude_kickflip:', `<@U1> <https://github.com/o/r/pull/1|r#1> ready for review: Fix limiter (+84/-12, 5 files)\n- :claude_kickflip:`]);
+  assert.deepEqual(world.messages.map((m) => m.text), ['Orch Digest\n1 PR pending review\n- :claude_kickflip:', '<@U1> https://github.com/o/r/pull/1 · Limits\n- :claude_kickflip:', `<@U1> <https://github.com/o/r/pull/1|r#1> ready for review: Fix limiter (+84/-12, 5 files)\n- :claude_kickflip:`]);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
   assert.deepEqual(questions(), []);
 
@@ -90,7 +90,7 @@ test("until the token can read DMs (im:history), sends go on, the owner is pushe
   world.unheard = true;
   const poll = () => sendReviews({ boards, fetch: slack.fetch, now: sunday });
   const first = await poll();
-  assert.deepEqual(first.sent, ['orch: link to Ann on o/r#1', "pushed that Slack can't read the review threads"]);
+  assert.deepEqual(first.sent, ['orch: digest to Ann', 'orch: link to Ann on o/r#1', "pushed that Slack can't read the review threads"]);
   assert.deepEqual(first.failed, []);
   assert.equal(slackStatus().unheard, true);
   const [row] = readinessRows({ slack: slackStatus() });
@@ -112,7 +112,10 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
   const client = slackClient(world.token, { fetch: slack.fetch });
 
   assert.deepEqual((await slackThread(site, question.id, client)).lines, [
-    'board: Orch reviews',
+    'board: Orch Digest',
+    '    1 PR pending review',
+    '    - :claude_kickflip:',
+    'board: <@U1> https://github.com/o/r/pull/1 · Limits',
     '    - :claude_kickflip:',
     'board: <@U1> <https://github.com/o/r/pull/1|r#1> ready for review: Fix limiter (+84/-12, 5 files)',
     '    - :claude_kickflip:',
@@ -145,14 +148,16 @@ test("slack say posts the words signed off in the reviewer's day thread, opening
   await poll();
   assert.deepEqual(questions(), []);
 
-  // The next day, the words open that day's thread under the board's header.
+  // The next day, the words open that day's thread with its digest, as the hub opens one, and the hub sends no second.
   world.messages.length = 0;
   await slackSay(site, 'Ann', 'Merged.', { now: days(1) }, client);
-  const [header, said] = world.messages;
-  assert.deepEqual([header.channel, header.text, header.thread_ts], ['D1', 'Orch reviews\n- :claude_kickflip:', undefined]);
+  const [header, listed, said] = world.messages;
+  assert.deepEqual([header.channel, header.text, header.thread_ts], ['D1', 'Orch Digest\n1 PR pending review\n- :claude_kickflip:', undefined]);
+  assert.deepEqual([listed.text, listed.thread_ts], ['<@U1> https://github.com/o/r/pull/1 · Limits (9 days old)\n- :claude_kickflip:', header.ts]);
   assert.deepEqual([said.text, said.thread_ts], ['Merged.\n- :claude_kickflip:', header.ts]);
   await poll(days(1));
   assert.deepEqual(questions(), []);
+  assert.equal(world.messages.length, 3);
 
   await assert.rejects(slackSay(site, 'Ann', 'x'.repeat(251), { now: sunday }, client), /runs to 251 characters, past the orchestrator's 250/);
   await assert.rejects(slackSay(site, 'Zed', 'hi', { now: sunday }, client), /no reviewer "Zed" on this board; its reviewers are Ann/);

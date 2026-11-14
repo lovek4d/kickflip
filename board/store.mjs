@@ -943,6 +943,8 @@ export const setReviewers = (site, list) => writeReviewers(site, () => checkRevi
 const prSlackFile = (site) => path.join(needSite(site), 'data', 'pr-slack.json');
 export const readPRSlack = (site) => readJSON(prSlackFile(site), {});
 const held = (message) => Boolean(message?.ts || message?.posting_at);
+// Whether a reviewer is owed a PR's link: the hub last read it open and out of draft, and its link isn't held.
+const linkOwed = (gh, record, pr, name) => gh?.state === 'OPEN' && !gh.isDraft && !held(record[pr]?.links?.[name]);
 
 // One locked read, edit and write of a JSON object file. → edit's answer
 async function editJSON(file, edit) {
@@ -1024,9 +1026,8 @@ export async function reviewDue(site, options) {
       for (const p of cardPRs(item, boardRepoOf(site, itemFile))) {
         const pr = prKeyOf(p);
         const gh = routeRecord(cache.prs, pr);
-        if (gh?.state !== 'OPEN' || gh.isDraft) continue;
         for (const r of people) {
-          if (held(record[pr]?.links?.[r.name]) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;
+          if (!linkOwed(gh, record, pr, r.name) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;
           links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, text: aboutPR(r.slack_user, pr, linkText(gh, item)) });
         }
       }
@@ -1043,13 +1044,14 @@ export async function reviewDue(site, options) {
     for (const [name, link] of Object.entries(rec.links)) react(name, link);
     for (const reply of rec.replies) for (const [name, sent] of Object.entries(reply.to)) react(name, sent, reply.id);
   }
-  // headers: each posted digest header whose count of PRs still pending that reviewer differs from the count it shows.
+  // headers: each posted digest header whose count of PRs still pending that reviewer differs from the count it shows,
+  // with the header's text at the new count.
   const headers = [];
   for (const d of (await readJSON(digestFile(site), {})).digests || []) {
     const ts = d.live && (d.live.reply === undefined ? d.ts : d.replies?.[d.live.reply]?.ts);
     if (!ts) continue;
     const n = d.live.prs.filter((pr) => { const gh = routeRecord(cache.prs, pr); return gh?.state === 'OPEN' && !approved(gh); }).length;
-    if (n !== d.live.shown) headers.push({ date: d.date, reviewer: d.reviewer, channel: d.channel, ts, n, lead: d.live.lead, tail: d.live.tail });
+    if (n !== d.live.shown) headers.push({ date: d.date, reviewer: d.reviewer, channel: d.channel, ts, n, text: `${d.live.lead}${digestHeader(cfg.title, n)}${d.live.tail}` });
   }
   const digest = await reviewDigest(site, options);
   return { date: slackDay(options?.now).date, links, reactions, headers, digest: digest.due ? digest : null };
@@ -1063,9 +1065,11 @@ const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.j
 // with its digest reply's text, “<PR link> · <card title>” plus “ (<n> days old)” for a link over two days old.
 // data/review-digests.json {digests: [{date, reviewer, channel, ts, heard?, replies?: [{pr | prs, text, ts}]}]} holds
 // each reviewer's thread for each day, posted as postOnce posts: ts is its opener, the digest's header or the header
-// line openDayThread posts, and replies are the digest's, absent until the digest begins. heard is the newest message
-// in the thread the hub has read (docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md). A reviewer is owed the day's
-// digest until it is posted, weekdays from 09:00 to 17:00 in the Slack timezone; a day missed by 17:00 is skipped.
+// line an earlier build posted, and replies are the digest's. heard is the newest message in the thread the hub has
+// read (docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md). The day's digest opens each reviewer's
+// day thread (docs/adr/2026-11-14-0449-one-digest-opens-each-day-thread.md): it is owed from 09:00 on a weekday in the
+// Slack timezone, however late the hub gets to it that day, and any day a link is owed to a reviewer whose thread is
+// not open yet (linked); until every message of it is posted.
 export async function reviewDigest(site, { now = new Date() } = {}) {
   needSite(site);
   const cfg = await boardConfig(site);
@@ -1084,6 +1088,7 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
       for (const p of cardPRs(item, boardRepoOf(site, itemFile))) {
         const pr = prKeyOf(p);
         const gh = routeRecord(cache.prs, pr);
+        for (const r of people) if (linkOwed(gh, record, pr, r.name)) reviewers.get(r.name).linked = true;
         if (gh?.state !== 'OPEN' || gh.isDraft || gh.failing?.length || approved(gh)) continue;
         for (const r of people) {
           const ts = record[pr]?.links?.[r.name]?.ts || routeRecord(legacy, r.name)?.ts || null;
@@ -1101,11 +1106,15 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
   for (const sent of today) if (!reviewers.has(sent.reviewer)) reviewers.set(sent.reviewer, { name: sent.reviewer, items: [] });
   const list = [...reviewers.values()].map((r) => {
     const sent = today.find((d) => d.reviewer === r.name);
-    const owed = sent?.replies ? !sent.posting_at && (!sent.ts || sent.replies.some((reply) => !held(reply))) : !sent?.posting_at && r.items.length > 0;
+    const owed = sent?.replies ? !sent.posting_at && (!sent.ts || sent.replies.some((reply) => !held(reply)))
+      : !sent?.posting_at && ((open && r.items.length > 0) || (!sent?.ts && Boolean(r.linked)));
     return { ...r, owed, ...(sent ? { sent } : {}) };
-  }).filter((r) => r.items.length || r.sent);
-  return { date, due: !waiting && open && list.some((r) => r.owed), ...(waiting ? { waiting } : {}), reviewers: list };
+  }).filter((r) => r.items.length || r.sent || r.owed);
+  return { date, due: !waiting && list.some((r) => r.owed), ...(waiting ? { waiting } : {}), reviewers: list };
 }
+
+// The digest's top lines: “<board title> Digest”, then its count of PRs pending review.
+const digestHeader = (title, n) => `${title} Digest\n${n ? `${n} PR${n === 1 ? '' : 's'} pending review` : 'All reviewed'}`;
 
 const dayEntry = (date, name) => (all) => (all.digests || []).find((d) => d.date === date && d.reviewer === name);
 // The hub hears a day thread for HEARD_DAYS days, the day it opens included.
@@ -1180,8 +1189,8 @@ export async function slackAnswer(site, eventId, words, slack = savedSlack()) {
   return { lines: [`answered in ${q.reviewer}'s day thread`] };
 }
 
-// `slack say`: the words, signed off, posted in the reviewer's day thread for now's Slack day, opened with the board's
-// “<title> reviews” header when none is open, as the hub opens one. The owner's explicit ask is its only use
+// `slack say`: the words, signed off, posted in the reviewer's day thread for now's Slack day, opened with the day's
+// digest when none is open, as the hub opens one. The owner's explicit ask is its only use
 // (SKILL.md); a message in a thread is answered with slack answer. Refuses words past WORDS_LIMIT.
 export async function slackSay(site, name, words, { now = new Date() } = {}, slack = savedSlack()) {
   needSite(site);
@@ -1194,9 +1203,8 @@ export async function slackSay(site, name, words, { now = new Date() } = {}, sla
   const client = throughSlack(slack);
   const { date } = slackDay(now);
   const open = dayEntry(date, reviewer.name)(await readJSON(digestFile(site), {}));
-  const thread = await slackCall(openDayThread(site, date, reviewer.name, {
+  const thread = open?.ts ? open : await slackCall(postDigest(site, date, (await reviewDigest(site, { now })).reviewers.find((r) => r.name === reviewer.name) || { ...reviewer, items: [] }, {
     channel: open?.channel || await slackCall(client.openDM(reviewer.slack_user)),
-    header: `${cfg.title} reviews`,
     post: (m) => client.post(m),
   }));
   await slackCall(client.post({ channel: thread.channel, thread_ts: thread.ts, text: message }));
@@ -1218,23 +1226,23 @@ export async function slackTask(site, eventId, file, { title, notes, notesFrom }
   return { ...filed, lines: [`filed ${filed.key} discussing, for the owner's review`] };
 }
 
-// The reviewer's thread for date, opened with the header line unless the digest or an earlier post opened it.
-// post({channel, text}) → ts. → {channel, ts}
-export async function openDayThread(site, date, name, { channel, header, post }) {
-  const file = digestFile(site);
-  const entry = dayEntry(date, name);
-  const opened = await editJSON(file, (all) => { addDayEntry(all, date, name, { channel }); return { ...entry(all) }; });
-  return { channel: opened.channel, ts: opened.ts || await postOnce(file, entry, () => post({ channel: opened.channel, text: header })) };
+// The reviewer's day thread for date, {channel, ts}, or null until its opener is posted.
+export async function dayThread(site, date, name) {
+  const opened = dayEntry(date, name)(await readJSON(digestFile(site), {}));
+  return opened?.ts ? { channel: opened.channel, ts: opened.ts } : null;
 }
 
-// Posts a reviewer's owed digest for date. Opening the day's thread, it is the header, then one reply per PR; in a
-// thread already open, it is one reply listing the PRs. Each reply opens with the reviewer's mention, and a digest
-// already begun keeps the PRs it began with. The entry's live holds the header's PRs and the count it shows, which
-// review due finds to edit. post({channel, text, thread_ts?}) → ts; header(n) → the header's text.
-export async function postDigest(site, date, reviewer, { channel, header, post }) {
+// Posts a reviewer's owed digest for date, one of review digest's reviewers. Opening the day's thread, it is the
+// header, then one reply per PR; in a thread an earlier build opened, it is one reply listing the PRs. Each reply opens
+// with the reviewer's mention, and a digest already begun keeps the PRs it began with. The entry's live holds the
+// header's PRs and the count it shows, which review due finds to edit. post({channel, text, thread_ts?}) → ts.
+// → the day thread, {channel, ts}
+export async function postDigest(site, date, reviewer, { channel, post }) {
   const file = digestFile(site);
   const entry = dayEntry(date, reviewer.name);
   const mention = `<@${reviewer.slack_user}>`;
+  const { title } = await boardConfig(site);
+  const header = (n) => digestHeader(title, n);
   await editJSON(file, (all) => {
     addDayEntry(all, date, reviewer.name, { channel });
     const opened = entry(all);
@@ -1250,7 +1258,7 @@ export async function postDigest(site, date, reviewer, { channel, header, post }
     }
   });
   const sent = entry(await readJSON(file, {}));
-  const top = sent.ts || await postOnce(file, entry, () => post({ channel: sent.channel, text: header(sent.replies.length) }));
+  const top = sent.ts || await postOnce(file, entry, () => post({ channel: sent.channel, text: header(sent.live.prs.length) }));
   for (const [i, reply] of sent.replies.entries()) {
     if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text }));
   }
@@ -1265,6 +1273,7 @@ export async function postDigest(site, date, reviewer, { channel, header, post }
       bump.to[reviewer.name] ||= { channel: sent.channel, ts: reply.ts, reactions: [] };
     }
   });
+  return { channel: sent.channel, ts: top };
 }
 
 // One reviewer or an array; each replaces the board's reviewer of the same name, ignoring case, or is added.
