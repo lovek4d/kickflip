@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
 
@@ -117,4 +117,51 @@ test('with thousands of folders and lock folders coming and going, the board ans
     fs.writeFileSync(path.join(data, 'w3', 'attachments', 'a7', 'note.json'), String(writes++));
     return new Promise((resolve) => setTimeout(() => resolve(changes() > settled), 500));
   }, 'a write in a normal folder sends a change during churn', 8000);
+});
+
+// Moved from server.test.mjs, whose server runs with no file watch: the real watch reports a write to a thread or a
+// wave file, also once a rename replaced the file, and in a folder made after the stream opened.
+test('the stream sends a change, uncompressed, after a write to a thread or a wave file, also once a rename replaced the file, and in a folder made after the stream opened', async (t) => {
+  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'board-stream-'));
+  const site = path.join(own, 'site');
+  fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Started' }] }));
+  const [port] = await freePorts();
+  const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: own, PORT: String(port), PREFIX: '' } });
+  const exited = new Promise((resolve) => server.once('exit', resolve));
+  let req;
+  t.after(async () => {
+    req?.destroy();
+    server.kill(); await exited;
+    fs.rmSync(own, { recursive: true, force: true });
+  });
+  await boardListening(server);
+  req = http.get(`http://127.0.0.1:${port}/api/stream`, { headers: { 'accept-encoding': 'gzip' } });
+  const res = await new Promise((resolve, reject) => req.once('response', resolve).once('error', reject));
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers['content-type'], /^text\/event-stream/);
+  assert.equal(res.headers['content-encoding'], undefined);
+  res.setEncoding('utf8');
+  let text = '';
+  res.on('data', (c) => { text += c; });
+  const changes = () => text.split('\n\n').filter((block) => /^event: change$/m.test(block)).length;
+  const nextChange = async (n) => {
+    const seen = changes();
+    await until(() => changes() > seen, `the board stream sends a change after file write ${n}`);
+  };
+  await until(() => text.includes('retry: 3000\n\n'), 'the board change stream opens');
+  for (const [n, write] of [
+    // The thread line goes through the store's own writer, in a child whose home is the bench's.
+    () => execFileSync(process.execPath, ['--input-type=module', '-e', `import { appendMessage } from ${JSON.stringify(new URL('./store.mjs', import.meta.url).href)}; await appendMessage(${JSON.stringify(site)}, 't/S1', { text: 'Live' });`], { env: { ...process.env, HOME: own } }),
+    () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Streamed' }] })),
+    () => { fs.writeFileSync(path.join(site, 'data', 'wave.json.tmp'), JSON.stringify({ items: [{ id: 'S1', title: 'Renamed' }] })); fs.renameSync(path.join(site, 'data', 'wave.json.tmp'), path.join(site, 'data', 'items.json')); },
+    () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'S1', title: 'In place' }] })),
+    () => fs.mkdirSync(path.join(site, 'data', 'streamed', 'deeper'), { recursive: true }),
+    () => fs.writeFileSync(path.join(site, 'data', 'streamed', 'deeper', 'note.json'), '{}'),
+  ].entries()) {
+    const signal = nextChange(n);
+    write();
+    await signal;
+  }
 });
