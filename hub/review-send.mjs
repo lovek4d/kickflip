@@ -50,7 +50,7 @@ async function sendBoard(board, slack, now) {
     await attempt(`link to ${link.reviewer} on ${link.pr}`, async () => {
       const thread = await dayThread(board.dir, due.date, link.reviewer);
       if (!thread) throw new Error("the day's thread waits on its digest");
-      await postLink(board.dir, link, thread, () => slack.post({ channel: thread.channel, thread_ts: thread.ts, text: link.text }));
+      await postLink(board.dir, link, thread, () => slack.post({ channel: thread.channel, thread_ts: thread.ts, text: link.text, attachments: link.attachments }));
     });
   }
   for (const r of due.reactions) {
@@ -110,7 +110,7 @@ async function hearBoards(boards, slack, now) {
           const ours = await boardPosts(board.dir);
           // Each message is marked heard once its event is in, so a failure part way wakes no message twice.
           for (const m of fresh) {
-            if (!m.subtype && !m.bot_id && !ours.has(m.ts) && !(m.user === owner && isSignedOff(m.text))) {
+            if (!m.subtype && !m.bot_id && !ours.has(m.ts) && !(m.user === owner && isSignedOff(m.text, m.attachments))) {
               const from = m.user === owner ? 'owner' : 'reviewer';
               await appendEvent(board, 'slack-question', { reviewer: thread.reviewer, channel, thread_ts: thread.ts, ts: m.ts, from, answer: from === 'reviewer' || /@kickflip\b/i.test(m.text || '') });
               sent.push(`${board.route}: slack-question from ${from === 'owner' ? 'the owner' : thread.reviewer}`);

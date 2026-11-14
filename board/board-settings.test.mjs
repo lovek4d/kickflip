@@ -647,7 +647,8 @@ test("review due lists each PR's owed links, thread replies and reactions, and t
   });
   write(at('kickflip', 'github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false, head: 'h1', title: 'Open PR', additions: 1, deletions: 2, files: 3 }, 'o/r#2': { state: 'OPEN', isDraft: true }, 'o/r#3': { state: 'MERGED' } } });
   const owed = due();
-  assert.deepEqual(owed.links, [{ pr: 'o/r#1', key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', text: '<@U2> <https://github.com/o/r/pull/1|r#1> ready for review: Open PR (+1/-2, 3 files)' }]);
+  assert.deepEqual(owed.links, [{ pr: 'o/r#1', key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', text: '<@U2>',
+    attachments: [{ color: '#9e9e9e', title: 'Open PR', title_link: 'https://github.com/o/r/pull/1', text: '+1/-2 · 3 files', fallback: 'r#1 Open PR · +1/-2 · 3 files' }] }]);
   // A bump queued before bumps stopped is never owed.
   assert.equal('replies' in owed, false);
   assert.deepEqual(owed.reactions, [{ pr: 'o/r#3', reviewer: 'Bob', channel: 'D2', ts: '3.2', emoji: 'git_merged' }]);

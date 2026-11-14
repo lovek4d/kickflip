@@ -987,16 +987,26 @@ export const recordReaction = (site, due) => editJSON(prSlackFile(site), (all) =
   message.reactions = [...new Set([...(message.reactions || []), due.emoji])];
 });
 
-// A PR's link in a day thread, in the owner's words: “@reviewer repo#n <what>”, the reviewer's mention so Slack tells
-// them of the reply, and repo#n linking the PR.
-function aboutPR(slackUser, pr, what) {
+// docs/adr/2026-11-14-0451-a-prs-slack-link-is-a-bar-coloured-by-the-builders-risk.md
+// A PR's link in a day thread: the reviewer's mention as its text, so Slack tells them of the reply, and one attachment
+// whose colour bar is the card's risk (grey with none), titled by the PR's title linking the PR, then
+// “+N/-M · K files · <risk> risk”, the size from GitHub and the risk word repeating the colour. The Slack client signs
+// off the text, so the sign-off stays the message's last line of text. → {text, attachments}
+const RISKS = ['low', 'medium', 'high'];
+const RISK_COLOURS = { low: '#2eb67d', medium: '#e8912d', high: '#e01e5a' };
+const NO_RISK_COLOUR = '#9e9e9e';
+function prLink(slackUser, pr, gh, item) {
   const [repo, number] = pr.split('#');
-  return `<@${slackUser}> <${prURL({ repo, number })}|${repo.split('/').pop()}#${number}> ${what}`;
-}
-// What a link says after the PR: its title and “+N/-M, K files”.
-function linkText(gh, item) {
-  const size = Number.isInteger(gh.additions) ? ` (+${gh.additions}/-${gh.deletions}, ${gh.files} file${gh.files === 1 ? '' : 's'})` : '';
-  return `ready for review: ${gh.title || item.title}${size}`;
+  const title = gh.title || item.title;
+  const size = Number.isInteger(gh.additions) ? [`+${gh.additions}/-${gh.deletions}`, `${gh.files} file${gh.files === 1 ? '' : 's'}`] : [];
+  const line = [...size, item.risk && `${item.risk} risk`].filter(Boolean).join(' · ');
+  return {
+    text: `<@${slackUser}>`,
+    attachments: [{
+      color: RISK_COLOURS[item.risk] || NO_RISK_COLOUR, title, title_link: prURL({ repo, number }), text: line,
+      fallback: [`${repo.split('/').pop()}#${number} ${title}`, line].filter(Boolean).join(' · '),
+    }],
+  };
 }
 const approved = (gh) => Boolean(gh?.approved) || gh?.reviewDecision === 'APPROVED';
 // docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: a PR's Slack
@@ -1028,7 +1038,7 @@ export async function reviewDue(site, options) {
         const gh = routeRecord(cache.prs, pr);
         for (const r of people) {
           if (!linkOwed(gh, record, pr, r.name) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;
-          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, text: aboutPR(r.slack_user, pr, linkText(gh, item)) });
+          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, ...prLink(r.slack_user, pr, gh, item) });
         }
       }
     }
@@ -1164,17 +1174,18 @@ async function slackQuestion(site, eventId) {
 const throughSlack = (slack) => slack || fail(SLACK_NEEDS_TOKEN);
 const slackCall = (call) => call.catch((e) => (e instanceof SlackError ? fail(e.message) : Promise.reject(e)));
 
-// `slack thread`: the event's day thread, read from Slack, one message a line and continued lines indented, each
-// named board (the board's posts and answers), you (the owner) or the reviewer; → marks the event's message.
+// `slack thread`: the event's day thread, read from Slack, one message a line and continued lines indented, then each
+// attachment's fallback, such as a PR link's bar, indented too; each named board (the board's posts and answers), you
+// (the owner) or the reviewer; → marks the event's message.
 export async function slackThread(site, eventId, slack = savedSlack()) {
   const q = await slackQuestion(site, eventId);
   const ours = await boardPosts(site);
   const owner = slackUserId();
   const messages = await slackCall(throughSlack(slack).replies({ channel: q.channel, ts: q.thread_ts }));
   const lines = messages.flatMap((m) => {
-    const who = ours.has(m.ts) || (m.user === owner && isSignedOff(m.text)) ? 'board' : m.user === owner ? 'you' : q.reviewer;
+    const who = ours.has(m.ts) || (m.user === owner && isSignedOff(m.text, m.attachments)) ? 'board' : m.user === owner ? 'you' : q.reviewer;
     const [first, ...rest] = String(m.text || '').split('\n');
-    return [`${m.ts === q.ts ? '→ ' : ''}${who}: ${first}`, ...rest.map((l) => `    ${l}`)];
+    return [`${m.ts === q.ts ? '→ ' : ''}${who}: ${first}`, ...[...rest, ...(m.attachments || []).map((a) => a.fallback)].map((l) => `    ${l}`)];
   });
   return { lines };
 }
@@ -2878,8 +2889,9 @@ function markMerged(item, merged, repo) {
 // ownerStep is the owner step builder done or land records, and ownerDone the owner's Done, which alone clears it
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
-// step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk }, options) {
+// step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
+// change, low, medium or high, which builder done records and the PR's Slack link shows (prLink).
+async function changeItem(site, key, { risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -2892,6 +2904,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (fromAsk !== undefined && done) fail('--from-ask opens a task; close it in another call');
   if (said !== undefined) messageText(said);
   if (ownerStep !== undefined) text(ownerStep, '--owner-step');
+  if (risk !== undefined && !RISKS.includes(risk)) fail(`--risk takes low, medium or high, not "${risk}"`);
   const spec = check === undefined || check === '' ? check : checkSpec(check);
   if (said !== undefined && fromAsk === undefined && !done && phase !== 'ready') fail('--text goes with --from-ask, --done, or --phase ready on a staging task');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
@@ -2899,7 +2912,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
+  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check, risk].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   if (ask) await refuseFiled(site, ask, key);
@@ -2939,6 +2952,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   const owedBefore = owesNext(item, records);
   if (title !== undefined) item.title = cardTitle(title);
   setBuildChoice(item, { size, model });
+  if (risk !== undefined) item.risk = risk;
   if (deps !== undefined) {
     const list = await depList(site, parseKey(key).file, deps, key);
     if (list.length) item.deps = list; else delete item.deps;

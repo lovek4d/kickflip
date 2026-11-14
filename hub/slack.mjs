@@ -69,12 +69,15 @@ const api = () => process.env.KICKFLIP_SLACK_URL || 'https://slack.com/api';
 const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired', 'account_inactive'];
 
 // The last line of every message the hub or the orchestrator posts: the kickflip emoji, or 🤖 while the workspace lacks
-// it, followed on a message the hub edited by “ · _updated HH:MM_”, the edit's time.
+// it, followed on a message the hub edited by “ · _updated HH:MM_”, the edit's time. A message with attachments, such as
+// a PR's link, ends its last attachment with it, under what the bar holds
+// (docs/adr/2026-11-14-0451-a-prs-slack-link-is-a-bar-coloured-by-the-builders-risk.md).
 const SIGN_OFF = '- :claude_kickflip:';
 const SIGN_OFF_FALLBACK = '- :robot_face:';
 const SIGNED_OFF = /^- :(claude_kickflip|robot_face):( · _updated \d\d:\d\d_)?$/;
-// Whether text is one of ours, by its last line; our posts go out as the owner, so the hub hears past them by this.
-export const isSignedOff = (text) => SIGNED_OFF.test(String(text || '').split('\n').at(-1));
+// Whether a message is one of ours, by the last line of its text or, with attachments, of its last attachment's; our
+// posts go out as the owner, so the hub hears past them by this.
+export const isSignedOff = (text, attachments = []) => SIGNED_OFF.test(String((attachments.length ? attachments.at(-1).text : text) || '').split('\n').at(-1));
 
 // checked(works) follows each answer: false when Slack refused the token, true when it answered ok.
 export function slackClient(token, { fetch = globalThis.fetch, checked = () => {} } = {}) {
@@ -95,10 +98,15 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
   }
   // Whether the workspace has :claude_kickflip:, asked once per client; no emoji:read scope or any failure reads as no.
   let signOff;
-  // edited: an edit's time, which the line then names.
-  const signedOff = (text, edited) => {
+  // A message's {text, attachments?} with the sign-off line ended on, the last attachment's text taking it when there
+  // are attachments; edited: an edit's time, which the line then names.
+  const signedOff = async ({ text, attachments }, edited) => {
     signOff ??= call('emoji.list').then((out) => (out.emoji?.claude_kickflip ? SIGN_OFF : SIGN_OFF_FALLBACK), () => SIGN_OFF_FALLBACK);
-    return signOff.then((line) => `${text}\n${line}${edited ? ` · _updated ${slackClock(edited)}_` : ''}`);
+    const line = `${await signOff}${edited ? ` · _updated ${slackClock(edited)}_` : ''}`;
+    const end = (words) => (words ? `${words}\n${line}` : line);
+    if (!attachments?.length) return { text: end(text) };
+    const last = attachments.at(-1);
+    return { text, attachments: [...attachments.slice(0, -1), { ...last, text: end(last.text), mrkdwn_in: ['text'] }] };
   };
   return {
     async who() {
@@ -118,10 +126,11 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     },
     // The owner's DM with a user → its channel id
     openDM: async (user) => (await call('conversations.open', { users: user })).channel.id,
-    // Every message ends with the sign-off line. → the message ts
-    post: async ({ channel, text, thread_ts }) => (await call('chat.postMessage', { channel, text: await signedOff(text), unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
+    // Every message ends with the sign-off line: its text's last line, or with attachments, Slack's colour-barred
+    // blocks, the last attachment's. → the message ts
+    post: async ({ channel, text, thread_ts, attachments }) => (await call('chat.postMessage', { channel, ...await signedOff({ text, attachments }), unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
     // Edits a message this token posted, signed off as a post is and named updated at at's time.
-    update: async ({ channel, ts, text, at = new Date() }) => { await call('chat.update', { channel, ts, text: await signedOff(text, at), unfurl_links: false }); },
+    update: async ({ channel, ts, text, attachments, at = new Date() }) => { await call('chat.update', { channel, ts, ...await signedOff({ text, attachments }, at), unfurl_links: false }); },
     // A reaction already there counts as added.
     async react({ channel, ts, name }) {
       try { await call('reactions.add', { channel, timestamp: ts, name }); } catch (e) { if (e.message !== 'Slack: already_reacted') throw e; }

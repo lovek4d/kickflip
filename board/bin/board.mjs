@@ -576,6 +576,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          --next stops a build without finishing it. Closing the
                                                          last record of a task left In Progress with no Next is
                                                          refused without --next, which sets it
+         [--risk low|medium|high]                        the builder's judgment of its change's risk, kept on the
+                                                         task: its PR's Slack link takes a green, orange or red bar
+                                                         and the word, and its card a chip; none reads grey. Any
+                                                         other word is refused before anything else happens
          [--owner-step <t>]                              a step only the owner can do once the code lands: the task
                                                          then waits in In Review with it as its Next, its ticket
                                                          open, until the owner's Done; refused on a task already
@@ -859,7 +863,9 @@ function noteOf(f) {
 }
 
 // name: [positional args, allowed flags (...<flag> may repeat, and run gets its values as a list), run(site, args, flags) → message]
-async function builderDone(site, key, { 'owner-step': ownerStep, check, text, title, ...f }) {
+async function builderDone(site, key, { 'owner-step': ownerStep, check, text, title, risk, ...f }) {
+  if (risk !== undefined && (!site || f.dir)) throw new UsageError('--risk goes on a board task: pass --site, not --dir');
+  if (risk !== undefined) await store.setItem(site, key, { risk });
   if (ownerStep !== undefined && (!site || f.dir)) throw new UsageError('--owner-step goes on a board task: pass --site, not --dir');
   if (check !== undefined && ownerStep === undefined) throw new UsageError('--check goes with --owner-step: it is the code check that closes the task once the step is done');
   if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep, check });
@@ -1017,7 +1023,7 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'title'], (site, [key], f) => builderDone(site, key, f)],
+  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'title', 'risk'], (site, [key], f) => builderDone(site, key, f)],
   'builder pick': [['file/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   'agent launch': [['file/id'], ['name', 'task', 'writes', 'model'], (site, [key], f) => store.requestHelper(site, key, f)],
   'agent wait': [['file/id'], ['name', 'agent', 'timeout'], (site, [key], f) => store.waitHelper(site, key, { ...f, alive: pidAlive })],

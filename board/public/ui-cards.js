@@ -415,10 +415,12 @@
   const newStrip = (entries, edits, { label = 'New', empty = '' } = {}) => `<div class="new-head"><span class="lane-name">${esc(label)}</span><span class="count">${entries.length}</span></div>
     <div class="new-list">${entries.length ? entries.map((e) => (e.routed ? routedEntry(e.routed) : newEntry(e, edits.get(e.id)))).join('') : `<div class="new-entry new-empty">${esc(empty)}</div>`}</div>`;
 
+  const RISK_TONES = { low: 'ready', medium: 'notice', high: 'danger' };
   function workLines(it, { unread = 0 } = {}) {
     const ids = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
     // A card shows its ticket, or Task when it has none.
-    const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
+    // The builder's risk (builder done --risk), coloured as its PR's Slack bar.
+    const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${it.risk ? badge(RISK_TONES[it.risk], `${it.risk} risk`) : ''}${installChip(it)}`;
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: preheating, planning prototype
     // or planning visual while the orchestrator writes the brief, generating visual while a visual agent draws, in blue.
     const status = it.planning && !it.builder ?`<div class="line3 sub agent planner">${DOT}${esc(it.planning)}</div>`

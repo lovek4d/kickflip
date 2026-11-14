@@ -26,6 +26,19 @@ test('the client checks the token, opens a DM, posts and threads, and reacts onc
   const ts = await client.post({ channel: 'D2', text: 'https://github.com/o/r/pull/1' });
   await client.post({ channel: 'D2', text: 'reply', thread_ts: ts });
   assert.deepEqual(world.messages.map((m) => [m.channel, m.text, m.thread_ts ?? null]), [['D2', 'https://github.com/o/r/pull/1\n- :claude_kickflip:', null], ['D2', 'reply\n- :claude_kickflip:', ts]]);
+  // With attachments, the sign-off ends the last one's text instead, as its last line, and an edit names its time there.
+  const bar = [{ color: '#2eb67d', title: 'Fix', title_link: 'https://github.com/o/r/pull/1', text: '+1/-0 · 1 file · low risk', fallback: 'r#1 Fix' }];
+  const barred = await client.post({ channel: 'D2', text: '<@U2>', thread_ts: ts, attachments: bar });
+  const signed = (a, line) => ({ ...a, text: `${a.text}\n${line}`, mrkdwn_in: ['text'] });
+  assert.deepEqual(world.messages.at(-1), { channel: 'D2', user: 'U0', text: '<@U2>', thread_ts: ts, ts: barred, attachments: [signed(bar[0], '- :claude_kickflip:')] });
+  assert.ok(isSignedOff(world.messages.at(-1).text, world.messages.at(-1).attachments));
+  assert.ok(!isSignedOff('<@U2>', bar));
+  const red = { ...bar[0], color: '#e01e5a' };
+  // 14:05 in Los Angeles
+  await client.update({ channel: 'D2', ts: barred, text: '<@U2>', attachments: [red], at: new Date('2026-11-02T22:05:00Z') });
+  assert.deepEqual(world.messages.at(-1).attachments, [signed(red, '- :claude_kickflip: · _updated 14:05_')]);
+  assert.ok(isSignedOff(world.messages.at(-1).text, world.messages.at(-1).attachments));
+  world.messages.length = 2;
   for (let i = 0; i < 2; i++) await client.react({ channel: 'D2', ts, name: 'git_merged' });
   assert.deepEqual(world.reactions, [{ channel: 'D2', timestamp: ts, name: 'git_merged' }]);
   await assert.rejects(client.openDM('U404'), { message: 'Slack: user_not_found', status: 502 });

@@ -726,6 +726,18 @@ test('builder done on a record with judgment calls hands the card back, its reco
   assert.deepEqual([typeof record().handed_back, item().next], ['string', "Answer the builder's questions"]);
 });
 
+test("builder done --risk keeps the builder's risk on the card, and refuses any word but low, medium or high", async () => {
+  const item = () => read(at('waves', 'w', 'wave.json')).items[0];
+  assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder')).code, 0);
+  assert.equal((await board('builder', 'call', 'w/A1', '--site', 'orch', 'Kept the old label')).code, 0);
+  const refused = await board('builder', 'done', 'w/A1', '--site', 'orch', '--risk', 'huge');
+  assert.deepEqual([refused.code, refused.err], [1, '--risk takes low, medium or high, not "huge"\n']);
+  assert.equal('risk' in item(), false);
+  const done = await board('builder', 'done', 'w/A1', '--site', 'orch', '--risk', 'medium');
+  assert.equal(done.code, 0, done.err);
+  assert.equal(item().risk, 'medium');
+});
+
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
 test('agent launch asks for a helper on an open card, which then starts, reports and hands back as its own agent; agent wait prints its hand-back and agent merge brings in its branch', async (t) => {
   const repo = scratchRepo();

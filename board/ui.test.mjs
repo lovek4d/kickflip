@@ -1664,6 +1664,11 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread|new/);
   const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
   assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● CI ✓ Jamie ● risky', 'held']);
+  // The builder's risk is a chip coloured as the PR's Slack bar: green low, orange medium, red high.
+  for (const [risk, tone] of [['low', 'ready'], ['medium', 'notice'], ['high', 'danger']]) {
+    assert.deepEqual(lines(ui.workLines({ ...workCard, risk })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', `repo#7 ● CI ✓ Jamie ● ${risk} risk`]);
+    assert.match(ui.workLines({ ...workCard, risk }), new RegExp(`chip tone-${tone}">${risk} risk<`));
+  }
   const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, prs: [], linear: [{ id: 'ENG-9', url: 'u' }], next: null };
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),

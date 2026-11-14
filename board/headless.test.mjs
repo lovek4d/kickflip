@@ -85,7 +85,7 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
   for (const want of [
     'ENG-1', 'Make it go', '/s/waves/w/a1.md', 'Work only in /wt/A1', 'Use Node 22+',
     `${b} builder start w/A1 --kind build`, `${b} builder progress w/A1 --phase`, `${b} builder call w/A1`, `${b} builder ask w/A1`,
-    `${b} builder asks w/A1`, `${b} builder done w/A1 --text`, "git -c core.commentChar=';' rebase main", 'Never push',
+    `${b} builder asks w/A1`, `${b} builder done w/A1 --risk low|medium|high --text`, "git -c core.commentChar=';' rebase main", 'Never push',
     `run the tests your change affects once, in the foreground, at the end, as \`${b} test --dir /wt/A1 --base main\``,
   ]) assert.ok(brief.includes(want), `the brief has ${want}`);
   assert.ok(!brief.includes('node --test'), 'the brief runs the affected tests, not the full suite');
@@ -93,6 +93,7 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
   assert.ok(brief.includes("don't start the text with it"), 'the brief says not to lead with the phase word');
   assert.ok(!brief.includes(`${b} land`), 'done finishes the task, so the brief never runs land');
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'calls come before the finishing step');
+  assert.match(brief, /--risk is your judgment of .*: it colours the PR's Slack message for its reviewers\./, 'the brief says why it asks for risk');
   assert.match(builderBrief({ ...card, notes: null }), /no notes file/);
   assert.ok(brief.includes('tick each against evidence') && brief.includes('call "Missing: <deliverable>, <why>"'), "the brief has the builder tick the card's deliverables, a missing one a Missing: call");
   assert.ok(brief.indexOf('Missing: <deliverable>') < brief.indexOf(`${b} builder done`), 'the deliverables are ticked before the finishing step');

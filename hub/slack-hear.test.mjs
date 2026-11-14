@@ -50,7 +50,8 @@ async function opened() {
 
 test("each new message in an open day thread wakes its board once with a slack-question event: a reviewer's always expects an answer, the owner's only when it names @kickflip, and the board's own posts wake nobody", async () => {
   const { world, slack, poll, day } = await opened();
-  assert.deepEqual(world.messages.map((m) => m.text), ['Orch Digest\n1 PR pending review\n- :claude_kickflip:', '<@U1> https://github.com/o/r/pull/1 · Limits\n- :claude_kickflip:', `<@U1> <https://github.com/o/r/pull/1|r#1> ready for review: Fix limiter (+84/-12, 5 files)\n- :claude_kickflip:`]);
+  assert.deepEqual(world.messages.map((m) => m.text), ['Orch Digest\n1 PR pending review\n- :claude_kickflip:', '<@U1> https://github.com/o/r/pull/1 · Limits\n- :claude_kickflip:', '<@U1>']);
+  assert.equal(world.messages.at(-1).attachments.at(-1).text, '+84/-12 · 5 files\n- :claude_kickflip:');
   assert.deepEqual(await poll(), { sent: [], failed: [] });
   assert.deepEqual(questions(), []);
 
@@ -117,8 +118,8 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
     '    - :claude_kickflip:',
     'board: <@U1> https://github.com/o/r/pull/1 · Limits',
     '    - :claude_kickflip:',
-    'board: <@U1> <https://github.com/o/r/pull/1|r#1> ready for review: Fix limiter (+84/-12, 5 files)',
-    '    - :claude_kickflip:',
+    'board: <@U1>',
+    '    r#1 Fix limiter · +84/-12 · 5 files',
     '→ Ann: Could the digest skip drafts?',
     '    They clutter it.',
     'you: fyi',
