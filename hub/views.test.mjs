@@ -17,7 +17,7 @@ const notify = (s, n) => ({ ...s, notifications: { ...ON, ...n } });
 const status = (now, s, count = 0) => ({ settings: s, hold: hold(now, s), count, nextFlushAt: count ? flushAt(now, s) : null });
 const plain = (v) => JSON.parse(JSON.stringify(v));
 // The hub views wait on ui.js waitOn and draw its BUSY; board/view.test.mjs tests how a waiting control looks.
-const BOARD_UI = { header: () => '', BUSY: ' disabled aria-busy="true"', waitOn: (control, promise) => promise, onBackdrop: (ev, backdrop) => ev.target === backdrop, newStrip: () => '' };
+const BOARD_UI = { header: () => '', BUSY: ' disabled aria-busy="true"', waitOn: (control, promise) => promise, onBackdrop: (ev, backdrop) => ev.target === backdrop, swipeToDismiss: () => () => {}, newStrip: () => '' };
 const USABLE = { usable: true, reason: null, words: null, fix: null };
 const NOT_INSTALLED = codexStatus({ installed: false });
 const LOGGED_OUT = codexStatus({ installed: true, home: '/nonexistent' });

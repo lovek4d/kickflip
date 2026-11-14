@@ -85,6 +85,7 @@ BoardView.part((B) => {
   });
   B.on($('#linksClose'), 'click', closeLinks);
   B.on(linksSheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, linksSheet)) closeLinks(); });
+  B.atUnmount(BoardUI.swipeToDismiss(linksSheet));
   B.on(linksSheet, 'cancel', (ev) => { ev.preventDefault(); closeLinks(); });
   function askGitHub() {
     state.githubPending = Date.now();

@@ -141,6 +141,7 @@
       if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) close();
     });
     dialog.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+    BoardUI.swipeToDismiss(dialog);
     dialog.showModal();
     wrap.querySelector('#linearKeyTitle').focus({ preventScroll: true });
     fetch('/_hub/api/settings', { cache: 'no-store', headers: { accept: 'application/json' } }).then((r) => (r.ok ? r.json() : Promise.reject())).then((out) => {

@@ -174,6 +174,7 @@ BoardView.part((B) => {
   });
   // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it.
   B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal) close(); });
+  B.atUnmount(BoardUI.swipeToDismiss(sheet));
   B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
   B.on(body, 'scroll', () => {
     if (!log?.stream) return;

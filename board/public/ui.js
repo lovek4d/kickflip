@@ -472,8 +472,65 @@
   if (typeof document !== 'undefined') document.addEventListener('pointerdown', (e) => { pressedOn = e.target; }, true);
   const onBackdrop = (ev, backdrop) => ev.target === backdrop && pressedOn === backdrop;
 
+  // Swiping a sheet down drags it to dismiss (docs/adr/2026-11-14-1700-swiping-a-sheet-down-drags-it-to-dismiss.md).
+  // A release past a third of the sheet's height, or a flick, counts as Escape: the sheet's own cancel handler runs.
+  const SWIPE = { share: 0.3, flick: 0.6, minFlick: 24, slop: 8 };
+  const swipeVerdict = (dy, height, ms) => (dy > height * SWIPE.share || (dy > SWIPE.minFlick && dy / Math.max(ms, 1) > SWIPE.flick) ? 'dismiss' : 'back');
+  // A drag may start on the sheet's header, or anywhere once every scroller between the finger and the sheet is at its top.
+  const swipeMayStart = (target, sheet) => {
+    if (target.closest('.sheet-head, .settings-head')) return true;
+    if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return false;
+    for (let el = target; el && el !== sheet.parentElement; el = el.parentElement) if (el.scrollTop > 0) return false;
+    return true;
+  };
+  // Registers the drag once per sheet and returns what removes it, for a sheet that outlives a view's mount.
+  const swipers = new WeakMap();
+  function swipeToDismiss(sheet) {
+    if (swipers.has(sheet)) return swipers.get(sheet);
+    let from = null;
+    let dragging = false;
+    let dy = 0;
+    const set = (y, animate) => {
+      sheet.style.transition = animate ? 'transform .2s ease-out' : 'none';
+      sheet.style.transform = y ? `translateY(${y}px)` : '';
+      sheet.style.setProperty('--swipe', String(Math.min(1, y / sheet.offsetHeight)));
+    };
+    const clear = () => { sheet.style.transition = ''; sheet.style.transform = ''; sheet.style.removeProperty('--swipe'); };
+    const start = (e) => {
+      from = e.touches.length === 1 && swipeMayStart(e.target, sheet) ? { y: e.touches[0].clientY, at: e.timeStamp } : null;
+      dragging = false;
+    };
+    const move = (e) => {
+      if (!from) return;
+      dy = e.touches[0].clientY - from.y;
+      if (!dragging && dy < SWIPE.slop) { if (dy < -SWIPE.slop) from = null; return; }
+      dragging = true;
+      e.preventDefault();
+      set(Math.max(0, dy), false);
+    };
+    const end = (e) => {
+      if (!from || !dragging) { from = null; return; }
+      const verdict = e.type === 'touchend' ? swipeVerdict(dy, sheet.offsetHeight, e.timeStamp - from.at) : 'back';
+      from = null;
+      dragging = false;
+      if (verdict === 'dismiss') {
+        set(dy, false);
+        const cancel = new Event('cancel', { cancelable: true });
+        sheet.dispatchEvent(cancel);
+        if (!cancel.defaultPrevented) { sheet.close(); return; }
+        if (!sheet.open || sheet.classList.contains('closing')) return;
+      }
+      set(0, true);
+    };
+    const on = [['close', clear], ['touchstart', start, { passive: true }], ['touchmove', move, { passive: false }], ['touchend', end], ['touchcancel', end]];
+    for (const [type, fn, opts] of on) sheet.addEventListener(type, fn, opts);
+    const stop = () => { swipers.delete(sheet); for (const [type, fn, opts] of on) sheet.removeEventListener(type, fn, opts); };
+    swipers.set(sheet, stop);
+    return stop;
+  }
+
   globalThis.BoardUI = {
-    LINK_ARROW, escText, onBackdrop,
+    LINK_ARROW, escText, onBackdrop, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, counted, recount, isPaused, PAUSED, BADGE_TONES, badge,
   };

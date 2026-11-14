@@ -77,6 +77,7 @@ BoardView.part((B) => {
   });
   B.on($('#mainLogClose'), 'click', closeMainLog);
   B.on(mainSheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, mainSheet)) closeMainLog(); });
+  B.atUnmount(BoardUI.swipeToDismiss(mainSheet));
   B.on(mainSheet, 'cancel', (ev) => { ev.preventDefault(); closeMainLog(); });
   B.on(mainRetry, 'click', async () => {
     if (mainRetry.disabled) return;
@@ -192,6 +193,7 @@ BoardView.part((B) => {
     holdPicking = input;
     try { input.showPicker(); } catch { /* iOS opens its wheel on the tap itself. */ }
   });
+  B.atUnmount(BoardUI.swipeToDismiss(holdSheet));
   B.on(holdSheet, 'cancel', (ev) => { ev.preventDefault(); closeHold(); });
   // A chip's pointerdown comes before Custom's focusout; without this reset Custom sends first and the chip's is lost.
   B.on(holdSheet, 'pointerdown', (ev) => {

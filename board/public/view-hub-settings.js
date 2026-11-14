@@ -188,6 +188,7 @@
       });
       let reopening = null;
       B.atUnmount(() => closeModal(false));
+      B.atUnmount(BoardUI.swipeToDismiss(modal));
       const device = HubKit.device(B, { paint, changed: () => ctx.sidebarChanged?.() });
       device.ready.then(() => { if (B.alive()) paint(); });
       B.on(root, 'click', async (e) => {

@@ -64,6 +64,7 @@ BoardView.part((B) => {
     $('#archBody').innerHTML = body(a);
     sheet.showModal();
   });
+  B.atUnmount(BoardUI.swipeToDismiss(sheet));
   B.on(sheet, 'click', (ev) => {
     if (BoardUI.onBackdrop(ev, sheet) || ev.target.closest('#archClose')) { sheet.close(); return; }
     const open = ev.target.closest('[data-arch-open]');

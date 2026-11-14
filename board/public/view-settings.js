@@ -160,6 +160,7 @@
       }
     });
     B.atUnmount(() => { unfitModal(); modal.close(); if (previous?.isConnected) previous.focus({ preventScroll: true }); });
+    B.atUnmount(BoardUI.swipeToDismiss(modal));
     modal.showModal();
     $('#boardSettingsTitle').focus({ preventScroll: true });
     const route = B.route;
@@ -200,6 +201,7 @@
     });
     B.on(typed, 'input', () => { closeConfirm.disabled = closing || typed.value !== closure?.title; });
     B.on($('#closeBoardCancel'), 'click', () => closeSheet.close());
+    B.atUnmount(BoardUI.swipeToDismiss(closeSheet));
     B.on(closeSheet, 'close', () => { unfit?.(); unfit = null; });
     B.on(closeSheet, 'click', (e) => { if (BoardUI.onBackdrop(e, closeSheet) && !closing) closeSheet.close(); });
     B.on($('#closeBoardForm'), 'submit', async (e) => {

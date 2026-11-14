@@ -274,6 +274,7 @@
         if (previous?.isConnected) previous.focus({ preventScroll: true });
       });
       document.body.appendChild(el);
+      BoardUI.swipeToDismiss(el);
       el.showModal();
       read();
     }
@@ -329,6 +330,7 @@
         if (previous?.isConnected) previous.focus({ preventScroll: true });
       });
       document.body.appendChild(el);
+      BoardUI.swipeToDismiss(el);
       el.showModal();
       (el.querySelector('[data-failed-retry]') || el.querySelector('[data-failed-dismiss]')).focus({ preventScroll: true });
     }
@@ -386,6 +388,7 @@
       el.addEventListener('click', (e) => { if (BoardUI.onBackdrop(e, el)) closeHelp(); });
       help = { el, previous: document.activeElement };
       document.body.appendChild(el);
+      BoardUI.swipeToDismiss(el);
       el.showModal();
     }
 

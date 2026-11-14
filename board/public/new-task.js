@@ -76,6 +76,7 @@ globalThis.BoardNewTask = (function () {
     B.on(document, 'keydown', newTaskKey);
     B.on($('#sheetClose'), 'click', closeSheet);
     B.on(sheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, sheet)) closeSheet(); });
+    B.atUnmount(BoardUI.swipeToDismiss(sheet));
     B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); closeSheet(); });
     // Discuss has the session reply to the task, starting its discussion; Implement sends the ask with quick: true, and
     // the session marks the card ready (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md).

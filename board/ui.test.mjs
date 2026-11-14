@@ -1083,7 +1083,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const clicks = [], later = [];
-  const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
@@ -1124,7 +1124,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
 test("a card with a worktree opens it in VS Code from its Links line, live on the host and muted with a tooltip off it",() => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
-  const B = { $: () => ({}), on() {}, later() {}, store: {}, state: { board: { items: [], onHost: true } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, later() {}, store: {}, state: { board: { items: [], onHost: true } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
@@ -1147,7 +1147,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   // The linked cards are on the board, so each label reads the ref its card has now.
   const onBoard = [53, 75, 80, 94, 95, 99].map((n) => ({ key: `w/GH-${n}`, id: `GH-${n}`, ref: `#${n}`, file: 'w' }));
-  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: onBoard } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext(onBoard, key) };
+  const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, store: {}, state: { board: { items: onBoard } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext(onBoard, key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref) => ({ key: `w/GH-${ref.slice(1)}`, ref });
@@ -1186,7 +1186,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
 test('every task reference the board draws is a link ending with its lane ring: the footer, the open card rows and the Done list', () => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
-  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref, lane) => ({ key: `w/GH-${ref.slice(1)}`, ref, lane });
@@ -1324,7 +1324,7 @@ test("an open card's action row has no Implement, which lives in a Todo card's t
   assert.equal(ui.buildButton, undefined);
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
-  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: null, deps: [], manualSteps: [], holdable: true, hasNotes: true,

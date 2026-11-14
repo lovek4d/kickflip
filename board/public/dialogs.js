@@ -364,6 +364,7 @@
     });
     document.body.appendChild(el);
     const stopFitting = fitSheet(el);
+    BoardUI.swipeToDismiss(el);
     el.showModal();
     el.querySelector('h2').focus({ preventScroll: true });
     picker();
