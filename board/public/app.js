@@ -146,7 +146,6 @@ window.BoardView = (function () {
     const place = places.get(B.route) || null;
     places.delete(B.route);
     Object.assign(B, { store, state, signal, pause: opts.pause, away: opts.away, place, keep });
-    BoardUI.usagePause = opts.pause;
 
     function mount() {
       if (B.alive()) return;

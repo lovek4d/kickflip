@@ -218,7 +218,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && (m.kin
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 // The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
 const STILL_MERGING = ['lander-handoff', 'land-waiting'];
-function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips }) {
+function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
   // An archived PR the board no longer reads the hub's check for draws what it kept (store.mjs keptPRs). A hub record
   // read without its url (a Done card's PR) keeps the one its repo and number give.
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, ...(p.gh || p.kept || {}), url: (p.gh || p.kept)?.url || prURL(p), status: prStateOf(p.gh, p.merged_at) }));
@@ -354,6 +354,9 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     created: it.created || null, reviewSince: (idle && reopenAt) || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: itemFile.internal === true, repo: itemFile.internal === true && !itemFile.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt) || backInTodo, answered: Boolean(answeredAt), awaitsDone,
+    // A planner of the card waits in the server's queue for a launch hold to lift (server.mjs launchPlanner): the
+    // card's footer reads paused.
+    plannerQueued,
     ownerStep: awaitsDone ? ownerStep : null,
     // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
@@ -1168,7 +1171,7 @@ export function buildBoard(snapshot) {
         said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
         askedAt: (index.questions.get(`item:${key}`) || []).filter((q) => q.asked_at).map((q) => q.asked_at),
         topicItems, prSlack: snapshot.prSlack || {}, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
-        mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets, landers: snapshot.landers || {}, landHeld: snapshot.landHeld || {}, landSkips: snapshot.landSkips || {},
+        mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets, landers: snapshot.landers || {}, landHeld: snapshot.landHeld || {}, landSkips: snapshot.landSkips || {}, plannerQueued: routeRecord(snapshot.queuedPlanners || {}, key) !== undefined,
       }));
       const card = items[items.length - 1];
       // A card filed from an ask takes the ask's place: Todo sorts it by when the ask was sent

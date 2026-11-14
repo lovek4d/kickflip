@@ -1590,11 +1590,11 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: waiting }), ['in-progress waiting-gray', 'waiting for orchestrator · 14m']);
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
     ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review · 3m']);
-  // A usage pause reads paused in gray, picked up or not, on the card and in a thread's pick-up line.
+  // The browser never reads the usage pause: the orchestrator's marks read the same under it.
   ui.usagePause = () => ({ state: 'paused' });
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
-    ['in-progress waiting-gray', '<span class="paused">paused</span> · 3m']);
-  assert.match(ui.threadMessages([{ ts: '2020-01-01T10:00:00Z', who: 'love', kind: 'item-message', text: 'x', eventId: 'e1', state: 'working' }]), /<span class="paused">paused<\/span>/);
+    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review · 3m']);
+  assert.doesNotMatch(ui.threadMessages([{ ts: '2020-01-01T10:00:00Z', who: 'love', kind: 'item-message', text: 'x', eventId: 'e1', state: 'working' }]), /paused/);
   ui.usagePause = null;
   assert.deepEqual(status({ lane: 'todo', refusal: 'Couldn’t start', orchestrator: { ...waiting, kind: 'refused' } }), ['in-todo waiting-gray', 'waiting for orchestrator · 14m']);
   // docs/adr/2026-11-05-0802-todo-has-no-queue.md: an Implement message's card waits like any other.
@@ -3077,4 +3077,11 @@ test("the Hub row's busy word opens what's loading the host: the load now and ov
   assert.match(text(ui.loadSheet({ ...data, groups: [] })), /Nothing is loading the host\.$/);
   assert.match(text(ui.loadSheet({ ...data, groups: null })), /ps gave no answer in time, as happens on a busy host\. Try again in a moment\.$/);
   assert.match(text(ui.loadSheet({ ...data, average: null, samples: [] })), /58 now, 10 cores No samples yet/);
+});
+
+test('a card whose planner is queued for the usage reset ends its alert row with a grey bold paused', () => {
+  const alert = (it) => /<div class="line6 sub card-alert">(.*?)<\/div>/.exec(ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
+  assert.equal(alert({ plannerQueued: true }), '<span class="paused">paused</span>');
+  assert.equal(alert({ plannerQueued: false }), undefined);
+  assert.match(alert({ plannerQueued: true, stalled: true }), /card-stalled">stalled<\/span><span class="sep"> · <\/span><span class="paused">paused<\/span>$/);
 });

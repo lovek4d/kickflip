@@ -714,7 +714,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
       owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
       topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
-      screening: await readScreening(here), landers, landHeld: outside.landHeld, landSkips,
+      screening: await readScreening(here), queuedPlanners: await readJSON(path.join(data, 'queued-planners.json'), {}), landers, landHeld: outside.landHeld, landSkips,
     };
   }
 

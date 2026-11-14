@@ -164,12 +164,9 @@
       el.replaceChildren(...(dot ? [dot] : []), withCount(el.dataset.word, el.dataset.since, now));
     }
   };
-  // Every paused status, whatever its place, is this one class (style.css .paused); BoardUI.usagePause is set by the
-  // board view (app.js) to read the hub's usage pause.
+  // Every paused status, whatever its place, is this one class (style.css .paused); the server says what is held.
   const PAUSED = '<span class="paused">paused</span>';
-  const isPaused = () => BoardUI.usagePause?.()?.state === 'paused';
-  // The orchestrator's "thinking" while its usage allows, else paused.
-  const thinkingLine = (since) => (isPaused() ? PAUSED : since ? counted('thinking', 'thinking…', since) : workingLine);
+  const thinkingLine = (since) => (since ? counted('thinking', 'thinking…', since) : workingLine);
   // html is markup the caller has escaped; href, title and attrs values are escaped here.
   const BADGE_TONES = Object.freeze(['quiet', 'normal', 'notice', 'danger', 'ready', 'merged']);
   function badge(tone, html, { href, title, button = false, attrs = {} } = {}) {
@@ -537,6 +534,6 @@
   globalThis.BoardUI = {
     LINK_ARROW, escText, onBackdrop, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, counted, recount, isPaused, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

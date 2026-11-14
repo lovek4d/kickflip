@@ -3033,3 +3033,10 @@ test("an owner event's thread line carries the sendId of the tap that wrote it, 
   ];
   assert.deepEqual(threadOf('w/A1', { events }).map((m) => m.sendId), ['s-1', 'p-1', undefined]);
 });
+
+test('a card whose planner waits in the queue for a launch hold carries plannerQueued, from the server only', () => {
+  const built = (queuedPlanners) => buildBoard({ now: Date.parse('2026-11-14T06:00:00Z'), owner: {}, events: [], threads: {}, working: {}, queuedPlanners,
+    files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'todo' }, { id: 'A2', title: 'Two', lane: 'todo' }] } }] });
+  assert.deepEqual(built({ 'w/A1': { kind: 'grill' } }).items.map((i) => i.plannerQueued), [true, false]);
+  assert.deepEqual(built(undefined).items.map((i) => i.plannerQueued), [false, false]);
+});

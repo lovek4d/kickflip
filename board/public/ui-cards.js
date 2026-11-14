@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-progress-bar.js.
 (function () {
-  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, cardBumpButton, editButton, withdrawButton, dropZone, sendButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
+  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, PAUSED, badge, cardBumpButton, editButton, withdrawButton, dropZone, sendButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state and CI show: its mark and tone, with the state and the CI in its title
   // (docs/adr/2026-11-14-1600-a-prs-one-badge-shows-draft-ready-by-ci-or-merged.md): draft grey ●, ready by CI orange ●,
@@ -239,8 +239,8 @@
   // review with its dot once the session picks it up, each with how long ago.
   function orchestratorStatus(it) {
     const { since, picked } = it.orchestrator;
-    const words = isPaused() ? `${PAUSED} · ${esc(lasted(picked || since))}` : picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`;
-    return `<div class="line3 sub agent${tone(it)}${picked && !isPaused() ? '' : ' waiting-gray'}">${words}</div>`;
+    const words = picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`;
+    return `<div class="line3 sub agent${tone(it)}${picked ? '' : ' waiting-gray'}">${words}</div>`;
   }
   // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
   // A verified card's land step (domain.mjs landStep) in its words: a fault or a gone worktree in red, a hold, a block or
@@ -333,7 +333,7 @@
       it.hostHeld && '<span class="card-host-held">held while host recovers</span>',
       !it.stalled && it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', pauseWords(pause), bars].filter(Boolean);
     const news = newWords(unread, 'message');
-    const alert = [actionWords(it), news && `<span class="card-unread">${news}</span>`, it.stalled && '<span class="card-stalled">stalled</span>'].filter(Boolean);
+    const alert = [actionWords(it), news && `<span class="card-unread">${news}</span>`, it.stalled && '<span class="card-stalled">stalled</span>', it.plannerQueued && PAUSED].filter(Boolean);
     return [footer.length && `<div class="line6 sub card-time">${footer.join(SEP)}</div>`,
       alert.length && `<div class="line6 sub card-alert">${alert.join(SEP)}</div>`].filter(Boolean).join('');
   }
@@ -374,7 +374,7 @@
   const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting…</span>';
   const PROCESSING = `<span class="processing">${DOT}processing...</span>`;
   const processing = (since) => (since ? globalThis.BoardUI.counted('processing', 'processing...', since) : PROCESSING);
-  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? (isPaused() ? PAUSED : processing(ask.since)) : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
+  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? processing(ask.since) : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
   // An entry waiting or processing edits and deletes its ask, its edit box in place of its text (edit, from
   // app-asks.js's state.edits); an ingested one links to its card, in blue, and dismisses with no confirm. The link and
   // Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the entry too.
