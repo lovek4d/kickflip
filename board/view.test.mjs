@@ -3578,7 +3578,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   const b = boardOnDom({ open: ['w/R1'], board: data, threads: {} });
   await b.settle();
   assert.equal(b.root.querySelector('#tryMain a').getAttribute('href'), 'https://mac.ts.net:8500/');
-  assert.match(b.root.querySelector('#tryMain').textContent, /o\/rVisit.*main@abcdef1/);
+  assert.match(b.root.querySelector('#tryMain').textContent, /o\/rmain@abcdef1.*Visit/);
   assert.doesNotMatch(b.root.innerHTML, /\u2197/);
   const links = [...b.root.querySelectorAll('.external-links a, #tryMain a.tone-ready')];
   assert.ok(links.length);

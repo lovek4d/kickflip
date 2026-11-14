@@ -1961,17 +1961,15 @@ test('main is a slim branch bar with a ready link, running status or failed log 
   }
 });
 
-test('while main re-serves or after its new build failed, the bar names the old server’s commit and keeps Visit to it, with Updating… or Update failed on row 2', () => {
+test('while main re-serves or after its new build failed, the bar names the old server’s commit and keeps Visit to it, with Updating… or Update failed left of Visit', () => {
   const main = { kind: 'web', slug: 'owner/repo', branch: 'main', sha: '58818ab', at: ago(1), state: 'running', url: null, port: 8500, serving: { sha: '54837cd', at: ago(9) } };
   const rebuilding = ui.mainBar(main);
   assert.match(rebuilding, /@<code>54837cd<\/code> <span class="muted">9h<\/span>/);
-  assert.match(rebuilding, /<div class="meta"><span[^>]*role="status"[^>]*><span class="try-spin"[^>]*><\/span>Updating…<\/span><\/div><\/div><\/div>$/);
-  assert.match(rebuilding, /<div class="meta"><a[^>]*href="https:\/\/mac\.ts\.net:8500\/"/);
-  assert.ok(text(rebuilding).indexOf('Visit') < text(rebuilding).indexOf('Updating…'));
+  assert.match(rebuilding, /<div class="meta"><span[^>]*role="status"[^>]*><span class="try-spin"[^>]*><\/span>Updating…<\/span><a[^>]*href="https:\/\/mac\.ts\.net:8500\/"[^>]*>Visit .*<\/a><\/div><\/div>$/);
+  assert.ok(text(rebuilding).indexOf('Updating…') < text(rebuilding).indexOf('Visit'));
   const failed = ui.mainBar({ ...main, state: 'failed' });
   assert.match(failed, /@<code>54837cd<\/code>/);
-  assert.match(failed, /<button[^>]*data-main-log=""[^>]*>Update failed<\/button><\/div><\/div><\/div>$/);
-  assert.match(failed, /<div class="meta"><a[^>]*href="https:\/\/mac\.ts\.net:8500\/"/);
+  assert.match(failed, /<div class="meta"><button[^>]*data-main-log=""[^>]*>Update failed<\/button><a[^>]*href="https:\/\/mac\.ts\.net:8500\/"/);
   // With no old server left (a hub restart, or a build on the old server's port), the bar is as before.
   assert.doesNotMatch(ui.mainBar({ ...main, port: null, serving: null }), /href=/);
   assert.match(ui.mainBar({ ...main, port: null, serving: null }), /@<code>58818ab<\/code>/);
@@ -1981,7 +1979,7 @@ test("a local board's Main has a refresh icon right of its timestamp that spins 
   const main = { kind: 'web', slug: 'owner/repo', branch: 'main', sha: '1234567', at: ago(2), state: 'ready', url: null, port: 8500 };
   assert.doesNotMatch(ui.mainBar({ ...main, pull: null }), /data-main-pull/);
   const idle = ui.mainBar({ ...main, pull: { running: false, error: null } });
-  assert.match(idle, /<\/code> <span class="muted">[^<]+<\/span><span class="main-pull"><button class="ghost gh-refresh" type="button" data-main-pull aria-label="Pull main now"><svg/);
+  assert.match(idle, /<\/code> <span class="muted">[^<]+<\/span><\/span><span class="main-pull"><button class="ghost gh-refresh" type="button" data-main-pull aria-label="Pull main now"><svg/);
   assert.doesNotMatch(idle, /role="tooltip"/);
   assert.equal(text(idle).includes('Visit'), true);
   const running = ui.mainBar({ ...main, pull: { running: true, error: null } });

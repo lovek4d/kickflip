@@ -159,9 +159,10 @@
     const why = failed ? `<span class="main-pull-why${open ? ' open' : ''}" role="tooltip">${esc(pull.error)}</span>` : '';
     return `<span class="main-pull"><button class="ghost gh-refresh${busy ? ' spinning' : ''}${failed ? ' failed' : ''}" type="button" data-main-pull aria-label="${esc(label)}"${busy ? ' aria-disabled="true"' : ''}>${BoardUI.refreshIcon(14)}</button>${why}</span>`;
   }
-  // Main's bar is two rows, each control in its own steady place: the name and Visit, then the commit, its age, the
-  // refresh icon and the state. While Main re-serves, or after its new build failed, the old server still serves
-  // (main.serving): the bar names its commit and keeps Visit to it, with Updating… or Update failed on row 2.
+  // Main's bar is one row: the name, then the commit with its age and refresh icon, on the left; Updating… or Update
+  // failed and Visit on the right. When the left side doesn't fit, the commit group wraps to a second line under the
+  // name; the state and Visit stay on line 1. While Main re-serves, or after its new build failed, the old server still
+  // serves (main.serving): the bar names its commit and keeps Visit to it, with Updating… or Update failed beside it.
   function mainBar(main, pulling) {
     if (!main) return '';
     const words = tryWords(main.kind);
@@ -171,8 +172,8 @@
       : main.state === 'failed' ? badge('danger', 'Update failed', { button: true, attrs: { type: 'button', 'data-main-log': '', 'aria-haspopup': 'dialog' }, title: 'Read main’s build log and retry this tip.' }) : '';
     const visit = (main.state === 'ready' || old) && url ? badge('ready', `${words.done} ${LINK_ARROW}`, { href: url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
     const shown = old || main;
-    return `<div class="tb-main" role="region" aria-label="Main’s version"><div class="tb-main-row">${BRANCH}<div class="tb-main-text">${esc(main.slug)}</div><div class="meta">${visit}</div></div>`
-      + `<div class="tb-main-row"><div class="tb-main-text"><strong>${esc(main.branch)}</strong>@<code>${esc(shown.sha)}</code> <span class="muted">${esc(lasted(shown.at))}</span>${mainPull(main.pull, pulling)}</div><div class="meta">${status}</div></div></div>`;
+    return `<div class="tb-main" role="region" aria-label="Main’s version"><div class="tb-main-left"><div class="tb-main-name">${BRANCH}<span>${esc(main.slug)}</span></div>`
+      + `<div class="tb-main-commit"><span class="tb-main-text"><strong>${esc(main.branch)}</strong>@<code>${esc(shown.sha)}</code> <span class="muted">${esc(lasted(shown.at))}</span></span>${mainPull(main.pull, pulling)}</div></div><div class="meta">${status}${visit}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, waiting while the
   // server records it (app-cards.js), and waits (ui.js BUSY) while the session merges it, or the board server lands a
