@@ -652,7 +652,7 @@ test("review due lists each PR's owed links, thread replies and reactions, and t
   assert.deepEqual(owed.reactions, [{ pr: 'o/r#3', reviewer: 'Bob', channel: 'D2', ts: '3.2', emoji: 'git_merged' }]);
   assert.deepEqual([owed.digest.due, owed.digest.reviewers.map((r) => r.name)], [true, ['Ann', 'Bob']]);
   slackToken({ refused_at: '2026-11-02T00:00:00Z' });
-  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', links: [], reactions: [], digest: null });
+  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', links: [], reactions: [], headers: [], digest: null });
 });
 
 test("review due reacts git_approved once GitHub's review decision is APPROVED, or on any approval where the branch asks for no review", async () => {
