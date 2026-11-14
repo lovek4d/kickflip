@@ -215,3 +215,32 @@ test('a tick that finds a newer version while the owner has been away 15 minutes
   await waiting.tick();
   assert.equal(runs, 1);
 });
+
+// docs/adr/2026-11-13-2345-a-checkbox-under-the-hubs-version-turns-auto-update-off.md
+test('with auto update off a tick still finds the newer version and names it but never pulls, and a tap pulls once', async () => {
+  const root = install({ version: '0.7.1' });
+  let auto = false;
+  let runs = 0;
+  const up = upgrader({ root, fetch: registry('0.7.2').fetch, run: async () => { runs++; return { ok: true }; }, awayFor: () => AWAY_MS, autoUpdate: () => auto });
+  assert.equal(up.available(), null);
+  await up.tick();
+  await up.tick();
+  assert.equal(runs, 0);
+  assert.equal(up.available(), '0.7.2');
+  auto = true;
+  await up.tick();
+  assert.equal(runs, 1, 'turned back on, the held version pulls under the usual rule');
+
+  auto = false;
+  const tapped = upgrader({ root: install({ version: '0.7.1' }), fetch: registry('0.7.2').fetch, run: async () => { runs++; return { ok: true }; }, autoUpdate: () => auto });
+  assert.deepEqual(await tapped.check(), { state: 'pulling', latest: '0.7.2' });
+  assert.equal(runs, 2);
+});
+
+test('available names nothing while the install is current, and a clone says it is one', async () => {
+  const same = upgrader({ root: install({ version: '0.7.2' }), fetch: registry('0.7.2').fetch, run: async () => ({ ok: true }) });
+  await same.check();
+  assert.equal(same.available(), null);
+  assert.equal(same.clone, false);
+  assert.equal(upgrader({ root: install({ clone: true }), fetch: registry('9.0.0').fetch, run: async () => ({ ok: true }) }).clone, true);
+});

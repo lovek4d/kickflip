@@ -182,6 +182,15 @@ export function setCodexShare(value, status = codexStatus()) {
   return value;
 }
 
+// Auto update (docs/adr/2026-11-13-2345-a-checkbox-under-the-hubs-version-turns-auto-update-off.md): off only when settings.json
+// says autoUpdate: false; unset is on.
+export const readAutoUpdate = (home = os.homedir()) => readSettingsFile(home).autoUpdate !== false;
+
+export function setAutoUpdate(on, home = os.homedir()) {
+  const { autoUpdate: _, ...rest } = readSettingsFile(home);
+  writeSettingsFile(on ? rest : { ...rest, autoUpdate: false }, home);
+}
+
 // Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md):
 // opus or sonnet forces it, auto leaves it to the card (shared/usage-gate.mjs builderPick). A missing or unknown stored
 // value is auto.

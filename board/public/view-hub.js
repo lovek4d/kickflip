@@ -96,8 +96,13 @@ ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/k
 ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed || [])}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>`;
   }
 
-  // The version is a button: a tap checks npm now (POST /_hub/check-update) and the answer shows beside it (updateNote).
-  const footer = (d, note = '') => `<footer><span class="host">${esc(d.host)}</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / <button type="button" class="version" data-check-update>v${esc(d.version)}</button>${note ? ` <span class="update-note" role="status">${esc(note)}</span>` : ''}</span></footer>`;
+  // The version line is one button: a tap checks npm now and pulls what it finds (POST /_hub/check-update), answering in
+  // place (updateNote). A newer version npm has shows beside the version, old > new (new), whatever the auto update box says.
+  // The box sits on the line under it; a clone never pulls, so it has no box.
+  const footer = (d, note = '') => {
+    const { latest, auto, clone } = d.update;
+    return `<footer><span class="host">${esc(d.host)}</span><button type="button" class="version" data-check-update>kickflip.sh / ${esc(d.version)}${latest ? ` &gt; <span class="new">${esc(latest)} (new)</span>` : ''}${note ? ` <span class="update-note${note.startsWith('pulling') ? ' pulling' : ''}" role="status">${esc(note)}</span>` : ''}</button>${clone ? '' : `<label class="auto-update"><input type="checkbox" data-auto-update${auto ? ' checked' : ''}> auto update</label>`}</footer>`;
+  };
   // What the hub's answer to a version tap says (hub/upgrade.mjs check()).
   const updateNote = (out) => ({
     clone: `${out.commit} · pulls with main`,
@@ -209,6 +214,11 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
       });
       const foot = B.$('.hub-foot');
       B.on(foot, 'click', (e) => { if (e.target.closest?.('[data-check-update]')) checkUpdate(); });
+      B.on(foot, 'change', async (e) => {
+        if (!e.target.matches?.('[data-auto-update]')) return;
+        await fetch('/_hub/settings/auto-update', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ auto_update: e.target.checked ? 'on' : 'off' }) });
+        load();
+      });
       // A #keep-awake link scrolls to Health's Keep awake row once it is drawn.
       let scrollToAwake = ctx.view?.hash === '#keep-awake';
       const paint = () => {

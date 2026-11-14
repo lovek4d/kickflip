@@ -522,9 +522,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   });
   assert.deepEqual(data.groups[0].sites.map((s) => s.remembered), [sessions, []]);
   live.paint({ ...data, version: '0.4.2', remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
-  const brand = root.querySelector('.hub-foot footer .brand');
-  assert.equal(brand.textContent, 'kickflip.sh / v0.4.2');
-  assert.equal(brand.querySelector('a').getAttribute('href'), 'https://kickflip.sh');
+  assert.equal(root.querySelector('.hub-foot footer .version').textContent, 'kickflip.sh / 0.4.2');
   // Keep awake is a toggle row in Health under the machine row, and the Hub row no longer says Keeping awake.
   const healthGroup = root.querySelector('#keep-awake').parentNode;
   assert.deepEqual(healthGroup.querySelectorAll('.title').map((el) => el.textContent), ['Hub', 'Machine', 'Keep awake']);
@@ -893,7 +891,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   let live;
   let changed = 0;
   let gate = { pause_at: 90, state: 'paused', used: 91, window: 'five_hour', resets_at: new Date(Date.now() + 3600_000).toISOString(), machine: CALM_GATE.machine };
-  const data = () => ({ integrations: [], pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [], awake: { on: false, unsupported: null } });
+  const data = () => ({ integrations: [], pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
     BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
@@ -960,8 +958,17 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
   const note = () => root.querySelector('.update-note')?.textContent ?? null;
   const reply = (status, body) => answers.shift()({ ok: status < 400, json: async () => body });
 
-  assert.equal(root.querySelector('[data-check-update]').textContent, 'v0.7.7');
+  assert.equal(root.querySelector('[data-check-update]').textContent, 'kickflip.sh / 0.7.7');
+  assert.equal(root.querySelector('[data-auto-update]').hasAttribute('checked'), true);
   assert.equal(note(), null);
+  const paintWith = (update) => live.paint({ ...hubView({ now, st: status(now, DEFAULTS), rows: [], code: { running: 'abc', onDisk: 'abc' },
+    sidebar: { pause: CALM_GATE, sites: [], hub: { tone: 'ok', word: 'ok', detail: '' }, notifications: {}, total: 0 }, update }), version: '0.7.7' });
+  paintWith({ latest: '0.7.8', auto: false, clone: false });
+  assert.equal(root.querySelector('[data-check-update]').textContent, 'kickflip.sh / 0.7.7 > 0.7.8 (new)');
+  assert.equal(root.querySelector('[data-auto-update]').hasAttribute('checked'), false);
+  paintWith({ latest: null, auto: true, clone: true });
+  assert.equal(root.querySelector('[data-auto-update]'), null);
+  paintWith({ latest: null, auto: true, clone: false });
   tap();
   await settle();
   assert.deepEqual(requests, [['/_hub/check-update', 'POST', '{}']]);

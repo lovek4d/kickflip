@@ -5,6 +5,8 @@
 // that finishes OK calls pulled() only when the package.json on disk is newer than the version the hub started with, and the
 // hub answers by restarting itself (self-restart.mjs); an OK pull that left the version put logs both versions instead. A
 // failed pull is only logged by run, and the next check tries again. A clone (root has .git) never asks. The hub page's version tap runs check() now (/_hub/check-update) and shows its answer.
+// With autoUpdate() false (the hub's auto update box, docs/adr/2026-11-13-2345-a-checkbox-under-the-hubs-version-turns-auto-update-off.md)
+// a tick's check still finds the newer version and available() names it, but only a tap's check() pulls it.
 // A tick's check only holds the newer version: tick() pulls it once awayFor() (ms the owner has been away, 0 while present) reaches
 // AWAY_MS, so an update and its restart never land mid-use; a tap's check() pulls at once
 // (docs/adr/2026-11-12-0300-an-npm-hub-pulls-only-once-the-owner-has-been-away-15-minutes.md).
@@ -31,18 +33,19 @@ export function newer(a, b) {
 
 // → {check(), tick()}; check() → {state: 'clone' | 'same' | 'pulling' | 'failed', latest?, error?}, where pulling means a pull runs (this check
 // began it or an earlier one had).
-export function upgrader({ root, fetch = globalThis.fetch, run, log = () => {}, pulled = () => {}, now = Date.now, awayFor = () => AWAY_MS }) {
+export function upgrader({ root, fetch = globalThis.fetch, run, log = () => {}, pulled = () => {}, now = Date.now, awayFor = () => AWAY_MS, autoUpdate = () => true }) {
   const clone = fs.existsSync(path.join(root, '.git'));
   const installed = () => JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   const running = installed();
   let pulling = false;
   let checkedAt = null;
   let held = null;
+  let newest = null;
   let logged = { line: null, at: 0 };
 
   function tick() {
     if (checkedAt === null || now() - checkedAt >= CHECK_MS) return check({ hold: true });
-    if (held && newer(held, installed()) && awayFor() >= AWAY_MS) return pull(held);
+    if (held && autoUpdate() && newer(held, installed()) && awayFor() >= AWAY_MS) return pull(held);
   }
 
   async function check({ hold = false } = {}) {
@@ -56,8 +59,9 @@ export function upgrader({ root, fetch = globalThis.fetch, run, log = () => {}, 
     } catch (e) { log(`kickflip update check failed: ${e.message}`); return { state: 'failed', error: e.message }; }
     const line = `kickflip update check: npm ${latest}, running ${installed()}`;
     if (line !== logged.line || now() - logged.at >= QUIET_LOG_MS) { log(line); logged = { line, at: now() }; }
-    if (!newer(latest, installed())) { held = null; return { state: 'same', latest }; }
-    if (hold && awayFor() < AWAY_MS) { held = latest; return { state: 'waiting', latest }; }
+    if (!newer(latest, installed())) { held = null; newest = null; return { state: 'same', latest }; }
+    newest = latest;
+    if (hold && (!autoUpdate() || awayFor() < AWAY_MS)) { held = latest; return { state: 'waiting', latest }; }
     pull(latest);
     return { state: 'pulling', latest };
   }
@@ -76,5 +80,8 @@ export function upgrader({ root, fetch = globalThis.fetch, run, log = () => {}, 
       .finally(() => { clearTimeout(timer); pulling = false; });
   }
 
-  return { check, tick };
+  // The newer version the last check found, or null once the install has it.
+  const available = () => (newest && newer(newest, installed()) ? newest : null);
+
+  return { check, tick, available, clone };
 }

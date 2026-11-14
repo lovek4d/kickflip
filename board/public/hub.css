@@ -78,7 +78,13 @@
 .hub-view .dur-on .title { font-weight:600; white-space:normal; }
 .hub-view code { font-family:var(--mono); font-size:.85em; white-space:nowrap; }
 .hub-view footer { color:var(--muted); font-size:12px; margin:1.8rem 2px 0; }
-.hub-view .version { font:inherit; color:inherit; background:none; border:0; padding:0; text-decoration:underline dotted; cursor:pointer; }
+.hub-view footer .version, .hub-view footer .auto-update { display:block; margin:0; padding:0; font:inherit; line-height:inherit; white-space:nowrap; text-align:left; }
+.hub-view .version { color:inherit; background:none; border:0; cursor:pointer; }
+.hub-view .version:hover { text-decoration:underline dotted; }
+.hub-view .version .new { color:var(--accent); }
+.hub-view .version .update-note.pulling { color:var(--color-notice); }
+.hub-view .auto-update { cursor:pointer; }
+.hub-view .auto-update input { width:12px; height:12px; margin:0 4px 0 0; vertical-align:-2px; accent-color:var(--accent); }
 .hub-view .host { font-family:var(--mono); font-size:11px; overflow-wrap:anywhere; }
 .hub-view .st.ok { color:var(--color-success); }
 .hub-view .links { display:block; margin-top:2px; }
