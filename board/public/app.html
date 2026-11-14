@@ -5,11 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Claude</title>
 <script>
-// The board this URL opens, or `/`'s last board, starts loading with its open cards' threads here, beside the scripts
-// below; app.js loadBoard takes the loads over when it mounts that board. With a copy of the board saved under this
-// build (app-snapshot.js copyVersion), it asks only for the changes since the copy's number. A board's other views load their own, and a
-// site this device's last sidebar copy lists as no board loads nothing here. Above the stylesheets, since a script
-// after one waits for it to load.
+// The board this URL opens, or `/`'s last board, starts loading here, beside the scripts below; app.js loadBoard takes
+// the loads over when it mounts that board. With a copy of the board saved under this build (app-snapshot.js
+// copyVersion), it asks only for the changes since the copy's number, which carry the threads that changed
+// (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md); with none, the open cards' threads load beside the whole
+// board. A board's other views load their own, and a site this device's last sidebar copy lists as no board loads
+// nothing here. Above the stylesheets, since a script after one waits for it to load.
 window.BoardBoot = (function () {
   if (!/^\/(?:[^/]+\/)?$/.test(location.pathname)) return null;
   let route = null;
@@ -26,7 +27,7 @@ window.BoardBoot = (function () {
   if (focus) open.push(decodeURIComponent(focus[1]));
   let since = null;
   try { const c = JSON.parse(localStorage.getItem(`site:${route}:copyVersion`) || 'null'); if (c?.build === document.documentElement.dataset.build && Number.isInteger(c.version)) since = c.version; } catch {}
-  return { route, board: get('api/board' + (since === null ? '' : '?since=' + since)), threads: new Map([...new Set(open)].map((k) => [k, get('api/thread?key=' + encodeURIComponent(k))])) };
+  return { route, board: get('api/board' + (since === null ? '' : '?since=' + since)), threads: new Map(since === null ? [...new Set(open)].map((k) => [k, get('api/thread?key=' + encodeURIComponent(k))]) : []) };
 })();
 </script>
 <script>try { if (localStorage.getItem('hub:sidebarCollapsed') === '1') document.documentElement.classList.add('sb-collapsed'); } catch {}</script>

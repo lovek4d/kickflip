@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { freshSync, stamp, patchSince, TOMBSTONES_KEPT } from './sync.mjs';
+import { freshSync, stamp, patchSince, TOMBSTONES_KEPT, THREAD_APPENDS_KEPT } from './sync.mjs';
 
 const context = vm.createContext({});
 vm.runInContext(fs.readFileSync(new URL('./public/ui-patch.js', import.meta.url), 'utf8'), context);
@@ -107,4 +107,72 @@ test("a patch carries the request's onHost beside the board, and applies only to
   assert.equal(applyPatch({ ...was, version: was.version - 1 }, p), null);
   assert.equal(applyPatch({ ...was, onHost: true }, p).onHost, false);
   assert.deepEqual(plain(was), before);
+});
+
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md
+const { threadPatch } = context.BoardUI;
+const line = (text) => ({ ts: `2026-11-06T00:${text}`, who: 'claude', text });
+const threadsOf = (map) => new Map(Object.entries(map));
+// patchSince with the threads the board was stamped beside.
+const since = (s, map, n) => patchSince(s, board(), n, threadsOf(map));
+const cache = (threads) => new Map(Object.entries(plain(threads)));
+const applied = (held, p) => {
+  const { set, stale } = threadPatch(held, plain(p).threads || {});
+  return plain({ threads: Object.fromEntries([...held, ...set]), stale });
+};
+
+test('each card on the board has its thread stamped beside it: a thread that changed alone steps the number, and an unchanged one moves nothing', () => {
+  const one = stamp(freshSync(START), board(), threadsOf({ 'w/A': [line('a1')], 'w/B': [] }));
+  assert.equal(one.sync.n, START + 1);
+  assert.deepEqual(Object.keys(one.sync.threads), ['w/A', 'w/B']);
+  assert.equal(one.board.threads, undefined, 'the board itself carries no threads; a whole board has none');
+  assert.equal(stamp(one.sync, board(), threadsOf({ 'w/A': [line('a1')], 'w/B': [] })).sync.n, one.sync.n);
+  const two = stamp(one.sync, board(), threadsOf({ 'w/A': [line('a1'), line('a2')], 'w/B': [] }));
+  assert.equal(two.sync.n, one.sync.n + 1);
+  assert.deepEqual(plain(patchSince(two.sync, two.board, one.board.version, threadsOf({ 'w/A': [line('a1'), line('a2')], 'w/B': [] })).threads), { 'w/A': { from: 1, lines: [line('a2')] } }, 'only the lines added since');
+});
+
+test("since a number before any thread's lines were edited or removed, the patch carries its whole thread; after it, the lines added since across several changes", () => {
+  const at = (threads, s) => stamp(s, board(), threadsOf(threads));
+  const one = at({ 'w/A': [line('a1'), line('a2')] }, freshSync(START));
+  const edited = at({ 'w/A': [{ ...line('a1'), state: 'answered' }, line('a2')] }, one.sync);
+  const more = at({ 'w/A': [{ ...line('a1'), state: 'answered' }, line('a2'), line('a3')] }, edited.sync);
+  const most = at({ 'w/A': [{ ...line('a1'), state: 'answered' }, line('a2'), line('a3'), line('a4')] }, more.sync);
+  const now = [{ ...line('a1'), state: 'answered' }, line('a2'), line('a3'), line('a4')];
+  assert.deepEqual(plain(since(most.sync, { 'w/A': now }, one.board.version).threads), { 'w/A': { from: 0, lines: now } });
+  assert.deepEqual(plain(since(most.sync, { 'w/A': now }, edited.board.version).threads), { 'w/A': { from: 2, lines: [line('a3'), line('a4')] } });
+  assert.deepEqual(plain(since(most.sync, { 'w/A': now }, more.board.version).threads), { 'w/A': { from: 3, lines: [line('a4')] } });
+  assert.equal(since(most.sync, { 'w/A': now }, most.board.version).threads, undefined, 'a patch with no thread changes carries no threads');
+  const shorter = at({ 'w/A': [line('a1')] }, most.sync);
+  assert.deepEqual(plain(since(shorter.sync, { 'w/A': [line('a1')] }, most.board.version).threads), { 'w/A': { from: 0, lines: [line('a1')] } }, 'a removed line sends it whole');
+});
+
+test('a card new to the board comes with its whole thread, and a card that leaves drops its thread from the sync', () => {
+  const one = stamp(freshSync(START), board(), threadsOf({ 'w/A': [line('a1')] }));
+  const two = stamp(one.sync, board(), threadsOf({ 'w/B': [line('b1')] }));
+  assert.deepEqual(Object.keys(two.sync.threads), ['w/B']);
+  assert.deepEqual(plain(since(two.sync, { 'w/B': [line('b1')] }, one.board.version).threads), { 'w/B': { from: 0, lines: [line('b1')] } });
+});
+
+test('a thread keeps the numbers of its newest appends; a since older than them all gets the thread whole', () => {
+  let s = freshSync(START);
+  const lines = [];
+  ({ sync: s } = stamp(s, board(), threadsOf({ 'w/A': [] })));
+  const held = s.n;
+  for (let i = 0; i <= THREAD_APPENDS_KEPT; i++) { lines.push(line(`x${i}`)); ({ sync: s } = stamp(s, board(), threadsOf({ 'w/A': lines }))); }
+  assert.equal(s.threads['w/A'].appends.length, THREAD_APPENDS_KEPT);
+  assert.equal(plain(since(s, { 'w/A': lines }, held).threads)['w/A'].from, 0);
+  assert.equal(plain(since(s, { 'w/A': lines }, s.n - 1).threads)['w/A'].from, lines.length - 1);
+});
+
+test("the page appends a thread's new lines to the copy it holds, takes a whole thread in place, and names a thread whose copy doesn't end where the lines start as one to fetch", () => {
+  const one = stamp(freshSync(START), board(), threadsOf({ 'w/A': [line('a1')], 'w/B': [line('b1')], 'w/C': [line('c1')] }));
+  const now = { 'w/A': [line('a1'), line('a2')], 'w/B': [line('B1')], 'w/C': [line('c1'), line('c2')] };
+  const p = since(stamp(one.sync, board(), threadsOf(now)).sync, now, one.board.version);
+  const held = cache({ 'w/A': [line('a1')], 'w/B': [line('b1')] });
+  const { threads, stale } = applied(held, p);
+  assert.deepEqual(threads, { 'w/A': [line('a1'), line('a2')], 'w/B': [line('B1')] });
+  assert.deepEqual(stale, ['w/C'], 'a thread the page never held');
+  assert.deepEqual(applied(cache({ 'w/A': [line('a1'), line('a2')] }), p).stale, ['w/A', 'w/C'], 'a thread already fetched past the patch is fetched again rather than doubled');
+  assert.deepEqual(held.get('w/A'), [line('a1')], 'the cache it was given stays as it was');
 });

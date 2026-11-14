@@ -1,4 +1,5 @@
-// A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
+// A card's thread on the board view: taking it from the board's sync or loading it, rendering it, and its reply box
+// (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). Needs app-core.js and ui-patch.js.
 BoardView.part((B) => {
   const { $, store, state, quieted, sendDraft, links } = B;
   const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, visualButton, attachButton, doneButton, doneTone, BUTTON } = BoardUI;
@@ -142,19 +143,24 @@ BoardView.part((B) => {
   // bare request (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
   const PLACEHOLDER = 'Reply in this thread… (/prototype, /grill or /visual asks for one)';
 
+  // docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md: every card's thread rides the board's sync, so the page
+  // holds them all (state.threadCache, saved with the board's copy) and opening a card loads nothing. A board patch's
+  // threads go in through takeThreads; a whole board carries none, so fillThreads loads them. loadThread loads one
+  // thread: a card the cache doesn't hold (a Done page loaded later, a first load still filling), a thread a patch
+  // couldn't line up, and a forced reload after a send.
   // A load while one for the same thread runs shares it, so a card the page inserts open isn't fetched twice; force
-  // starts a new one, after a send. maxAge skips a thread that loaded that recently. from is a load already started
-  // (app.html BoardBoot). A response older than the one shown is dropped. A failed load keeps the previous render.
+  // starts a new one. from is a load already started (app.html BoardBoot). A response older than the one shown is
+  // dropped. A failed load keeps the previous render.
   // docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md: after is the board load
   // fetched beside it, which settles once its board has landed; the thread draws then, so a line and the card change it
   // tells of (Created ticket and the header's ticket badge) show in one update.
   const inflight = new Map();
-  const loadedAt = new Map();
   const shown = new Map();
+  // By key, the shown number of the last thread a board patch brought (takeThreads).
+  const patched = new Map();
   let seq = 0;
-  function loadThread(key, { force = false, maxAge = 0, from = null, after = null } = {}) {
+  function loadThread(key, { force = false, from = null, after = null } = {}) {
     if (!force && inflight.has(key)) return inflight.get(key);
-    if (maxAge && Date.now() - (loadedAt.get(key) || 0) < maxAge) return Promise.resolve();
     const n = ++seq;
     const p = (from || fetch(B.site.url('api/thread?key=' + encodeURIComponent(key)), { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`thread ${r.status}`)))))
@@ -164,7 +170,6 @@ BoardView.part((B) => {
         shown.set(key, n);
         const have = new Set(msgs.map((m) => m.sendId).filter(Boolean));
         for (const [sendId, l] of landed) if (l.m.key === key && (have.has(sendId) || l.at < n)) landed.delete(sendId);
-        loadedAt.set(key, Date.now());
         state.threadCache.set(key, msgs);
         renderThread(key, msgs);
         B.checkShown();
@@ -174,6 +179,35 @@ BoardView.part((B) => {
       .finally(() => { if (inflight.get(key) === p) inflight.delete(key); });
     inflight.set(key, p);
     return p;
+  }
+
+  // A board patch's threads (ui-patch.js threadPatch) into the cache, before the board they came with draws them; a
+  // thread the cache can't line up with its lines loads whole.
+  function takeThreads(threads) {
+    const { set, stale } = BoardUI.threadPatch(state.threadCache, threads);
+    for (const [key, msgs] of set) {
+      const n = ++seq;
+      shown.set(key, n);
+      patched.set(key, n);
+      const have = new Set(msgs.map((m) => m.sendId).filter(Boolean));
+      for (const [sendId, l] of landed) if (l.m.key === key && (have.has(sendId) || l.at < n)) landed.delete(sendId);
+      state.threadCache.set(key, msgs);
+    }
+    for (const key of stale) loadThread(key, { force: true });
+  }
+
+  // After a board lands, the threads of the cards on it the cache lacks load, or with whole, after a whole board, which
+  // carries no threads, every card's (ui-snapshot.js fillOrder): the open cards' at once, and the rest FILL_AT_ONCE at
+  // a time, those the cache lacks first. → a promise of the open cards' loads.
+  const FILL_AT_ONCE = 4;
+  function fillThreads({ whole = false } = {}) {
+    const lacks = (key) => whole || !state.threadCache.has(key);
+    const order = BoardUI.fillOrder(state.board.items, state.openItems, state.threadCache);
+    const open = order.open.filter(lacks);
+    const rest = order.rest.filter(lacks);
+    const next = () => { const key = rest.shift(); if (key !== undefined && B.alive()) loadThread(key).then(next); };
+    for (let i = 0; i < FILL_AT_ONCE; i++) next();
+    return Promise.all(open.map((key) => loadThread(key)));
   }
 
   B.on(B.root, 'input', (ev) => {
@@ -192,6 +226,7 @@ BoardView.part((B) => {
     flushing.add(key);
     try {
       for (let m = queuedFor(key)[0]; m && !m.failed && B.alive(); m = queuedFor(key)[0]) {
+        const was = patched.get(key);
         try { await B.sentHere(key, () => B.send(eventOf(m), bodyOf(m), m.kind === 'card-done' ? () => B.closeCard(key) : null)); }
         catch (e) {
           setOutbox(outbox().map((o) => (o.sendId === m.sendId ? { ...o, failed: true } : o)));
@@ -199,8 +234,11 @@ BoardView.part((B) => {
           B.failed(e);
           continue;
         }
-        landed.set(m.sendId, { m, at: seq });
+        // The send's answer, a board built after the board recorded the tap, patched in its thread with the board's own
+        // line in it unless the thread couldn't line up; until then the tap shows as landed.
+        if (patched.get(key) === was) landed.set(m.sendId, { m, at: seq });
         setOutbox(outbox().filter((o) => o.sendId !== m.sendId));
+        B.repaintThread(key);
         if (CARD_TAPS[m.kind]) B.syncSends(key);
         loadThread(key, { force: true });
       }
@@ -286,7 +324,7 @@ BoardView.part((B) => {
   });
 
   Object.assign(B, {
-    thread, renderThread, loadThread, resendOutbox, enqueue,
+    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, enqueue,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
     syncSends: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncSends(el, key); },
   });

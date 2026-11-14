@@ -23,5 +23,22 @@
     return next;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { applyPatch });
+  // docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md
+  // cache maps a card's key to the thread messages the page holds (app.js state.threadCache), and threads is a patch's
+  // {<key>: {from, lines}}. → {set: [[key, messages]], stale: [key]}, leaving cache as it was: a whole thread (from 0)
+  // takes the place of the held one, and lines added since append to a held thread that ends where they start. A held
+  // thread of any other length is stale, for the page to fetch whole.
+  function threadPatch(cache, threads) {
+    const set = [];
+    const stale = [];
+    for (const [key, { from, lines }] of Object.entries(threads)) {
+      const held = cache.get(key);
+      if (from === 0) set.push([key, lines]);
+      else if (held?.length === from) set.push([key, [...held, ...lines]]);
+      else stale.push(key);
+    }
+    return { set, stale };
+  }
+
+  Object.assign(globalThis.BoardUI ||= {}, { applyPatch, threadPatch });
 })();

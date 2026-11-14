@@ -1,10 +1,10 @@
-// The board this device last held, saved in IndexedDB with its change number, which the board page paints live on open
-// and catches up from (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md). Needs ui.js.
+// The board this device last held, saved in IndexedDB with its change number and every card's thread, which the board
+// page paints live on open and catches up from (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md,
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). Needs ui.js.
 (function () {
-  const ACTIVE_LANES = ['review', 'progress', 'todo'];
-
-  // threads maps item keys to thread messages (app.js state.threadCache). → {build, savedAt, board, threads} with the
-  // threads of the cards on the board; build is the saving page's (app.html data-build).
+  // threads maps item keys to thread messages (app.js state.threadCache), which the board's sync keeps for every card on
+  // it. → {build, savedAt, board, threads} with the threads of the cards on the board; build is the saving page's
+  // (app.html data-build).
   const copyOf = (board, threads, { build, savedAt }) => {
     const onBoard = new Set(board.items.map((i) => i.key));
     return { build, savedAt, board, threads: Object.fromEntries([...threads].filter(([key]) => onBoard.has(key))) };
@@ -46,10 +46,13 @@
   // → {savedAt, board, threads} or null.
   const boardCopy = (key, build) => copyStore('boards', 'readonly', (store) => store.get(key)).then((s) => readCopy(s, build ?? s?.build), () => null);
 
-  // The cards whose threads load right after the board, so tapping one opens it filled; open cards load with the board.
-  const preloadKeys = (items, open) => {
-    const opened = new Set(open);
-    return items.filter((i) => ACTIVE_LANES.includes(i.lane) && !opened.has(i.key)).map((i) => i.key);
+  // The order a whole board's threads load in, since a whole board carries none (app-threads.js fillThreads): → {open,
+  // rest}, open the keys of the open cards, which load at once, and rest every other card's, those held lacks first,
+  // each in board order.
+  const fillOrder = (items, open, held) => {
+    const keys = items.map((i) => i.key);
+    const shut = keys.filter((k) => !open.has(k));
+    return { open: keys.filter((k) => open.has(k)), rest: [...shut.filter((k) => !held.has(k)), ...shut.filter((k) => held.has(k))] };
   };
 
   // before and after map a line's id to its text; the ids of the lines that are new or read differently flash once.
@@ -60,5 +63,5 @@
   const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.lane ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
     it.next ?? null, it.ask?.state ?? null, ...(it.prs || []).map((pr) => [pr.state, pr.isDraft, pr.reviewDecision, pr.checks?.state ?? null])]);
 
-  Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, pageCopy, boardCopy, preloadKeys, changedLines, updateSign });
+  Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, pageCopy, boardCopy, fillOrder, changedLines, updateSign });
 })();

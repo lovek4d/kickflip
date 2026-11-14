@@ -4,6 +4,9 @@
 // came after it, and patchSince answers from the current board alone: every record whose number is above it, the
 // removals above it, and each other part of the board, sent whole, that changed above it. server.mjs keeps the state in
 // data/sync.json, so a restart carries on counting; public/ui-patch.js applies the patch on the page.
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md: each card's thread rides the same counter beside the board.
+// A whole board carries no threads; a patch carries, for each thread changed since, the lines added since, or the whole
+// thread when a line already sent was edited or removed since.
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 
@@ -13,6 +16,8 @@ export const LISTS = { items: 'key', owner: 'id', ownerTopics: 'id' };
 const OWN = new Set(['version', 'generatedAt', 'onHost', ...Object.keys(LISTS)]);
 // The removals kept; a since older than the newest one dropped gets the whole board.
 export const TOMBSTONES_KEPT = 1000;
+// The appends kept per thread; a since older than the oldest kept gets the thread whole.
+export const THREAD_APPENDS_KEPT = 50;
 
 const hash = (v) => crypto.createHash('sha1').update(JSON.stringify(v) ?? '').digest('base64url').slice(0, 16);
 
@@ -31,16 +36,38 @@ function hashes(board) {
 
 // The state of a sync file that doesn't exist yet. It counts from start, the time in ms it begins, so a number a page
 // holds from an earlier file is below its floor and gets the whole board. floor is the lowest since it can answer.
-export const freshSync = (start) => ({ n: start, floor: start, stamps: {}, hashes: {}, tombstones: [] });
+export const freshSync = (start) => ({ n: start, floor: start, stamps: {}, hashes: {}, tombstones: [], threads: {} });
 
-// → {sync, board}: sync moved on by board (n stepped once when anything in it changed or went), and board with n as its
-// version and each record's changed. Leaves sync and board as they were.
-export function stamp(sync, board) {
+// The thread records of the cards in threads (key → its messages), each {n, cut, len, h, appends}: n the number of its
+// last change, h the hash of its len messages, and appends [[n, from], …] each append since cut, the lines from index
+// from on added at n. A since below cut gets the thread whole. → the records, or null when none changed or went.
+function threadRecords(was = {}, threads, n) {
+  let changed = Object.keys(was).some((key) => !threads.has(key));
+  const out = {};
+  for (const [key, msgs] of threads) {
+    const old = was[key];
+    const h = hash(msgs);
+    if (old?.h === h) { out[key] = old; continue; }
+    changed = true;
+    if (old && msgs.length > old.len && hash(msgs.slice(0, old.len)) === old.h) {
+      const appends = [...old.appends, [n, old.len]];
+      const dropped = appends.splice(0, Math.max(0, appends.length - THREAD_APPENDS_KEPT));
+      out[key] = { n, cut: Math.max(old.cut, dropped.at(-1)?.[0] ?? old.cut), len: msgs.length, h, appends };
+    } else out[key] = { n, cut: n, len: msgs.length, h, appends: [] };
+  }
+  return changed ? out : null;
+}
+
+// → {sync, board}: sync moved on by board and threads, the messages of each card on it by key (n stepped once when
+// anything in them changed or went), and board with n as its version and each record's changed. Leaves sync and board
+// as they were.
+export function stamp(sync, board, threads = new Map()) {
   const now = hashes(board);
   const changed = [...now].filter(([id, h]) => sync.hashes[id] !== h);
   const gone = Object.keys(sync.hashes).filter((id) => !now.has(id));
+  const threadsNext = threadRecords(sync.threads, threads, sync.n + 1);
   let next = sync;
-  if (changed.length || gone.length) {
+  if (changed.length || gone.length || threadsNext) {
     const n = sync.n + 1;
     const stamps = { ...sync.stamps };
     const kept = { ...sync.hashes };
@@ -48,7 +75,7 @@ export function stamp(sync, board) {
     for (const id of gone) { delete stamps[id]; delete kept[id]; }
     const tombstones = [...sync.tombstones.filter((t) => !now.has(t.id)), ...gone.map((id) => ({ id, n }))];
     const dropped = tombstones.splice(0, Math.max(0, tombstones.length - TOMBSTONES_KEPT));
-    next = { n, floor: Math.max(sync.floor, dropped.at(-1)?.n ?? sync.floor), stamps, hashes: kept, tombstones };
+    next = { n, floor: Math.max(sync.floor, dropped.at(-1)?.n ?? sync.floor), stamps, hashes: kept, tombstones, threads: threadsNext || sync.threads || {} };
   }
   const out = { ...board, version: next.n };
   for (const [name, id] of Object.entries(LISTS)) {
@@ -57,9 +84,11 @@ export function stamp(sync, board) {
   return { sync: next, board: out };
 }
 
-// board is the one sync last stamped. → {since, version, generatedAt, set, unset, lists: {<list>: {set, drop, order?}}}
-// with what changed after since, or null when since is no number this sync can answer from.
-export function patchSince(sync, board, since) {
+// board is the one sync last stamped, and threads the messages it stamped beside it. → {since, version, generatedAt, set,
+// unset, lists: {<list>: {set, drop, order?}}, threads?: {<key>: {from, lines}}} with what changed after since, or null
+// when since is no number this sync can answer from. A thread's lines take the place of its messages from index from
+// on: from 0 is the whole thread.
+export function patchSince(sync, board, since, threads = new Map()) {
   if (!Number.isInteger(since) || since < sync.floor || since > sync.n) return null;
   const after = (id) => sync.stamps[id] > since;
   const gone = sync.tombstones.filter((t) => t.n > since).map((t) => t.id);
@@ -75,7 +104,13 @@ export function patchSince(sync, board, since) {
     };
     if (p.set.length || p.drop.length || p.order) lists[name] = p;
   }
-  return { since, version: sync.n, generatedAt: board.generatedAt, set, unset, lists };
+  const sent = {};
+  for (const [key, t] of Object.entries(sync.threads || {})) {
+    if (t.n <= since) continue;
+    const from = since < t.cut ? 0 : t.appends.find(([n]) => n > since)[1];
+    sent[key] = { from, lines: threads.get(key).slice(from) };
+  }
+  return { since, version: sync.n, generatedAt: board.generatedAt, set, unset, lists, ...(Object.keys(sent).length ? { threads: sent } : {}) };
 }
 
 // data/sync.json → the state it holds, or a fresh one starting now when there is none.

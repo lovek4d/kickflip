@@ -61,8 +61,10 @@
 //                                a request whose If-None-Match names it answers 304 with no body
 //                                (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md)
 //                                ?since=<n>: the answer is a patch of what changed after n, {since, version, generatedAt,
-//                                set, unset, lists, onHost} (sync.mjs patchSince, public/ui-patch.js); the whole board when
-//                                n is older than the oldest removal kept, or no number this board counted. A card's question
+//                                set, unset, lists, threads?, onHost} (sync.mjs patchSince, public/ui-patch.js), threads
+//                                the lines each card's thread gained after n, or the whole thread
+//                                (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md); the whole board, with no
+//                                threads, when n is older than the oldest removal kept, or no number this board counted. A card's question
 //                                topic names its card as card and leaves its title to it
 //                                (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md)
 //                                Done cards come slim (domain.mjs slimDone), the newest 100 and the ones the Done
@@ -78,7 +80,8 @@
 //   GET  /api/links              {links}: the same list alone
 //   GET  /api/working            {working: [{id, kind, card, since}]}: each event marked Working on it with no answer yet,
 //                                card its work card's ref or null (hooks-plugin/hooks/watcher-stop.mjs reads it)
-//   GET  /api/thread?key=w/id    data/threads/<w>__<id>.jsonl ({ts, who, text, link, via}; who is
+//   GET  /api/thread?key=w/id    the thread the board's sync carries for a card on it (domain.mjs buildBoard threadViews):
+//                                data/threads/<w>__<id>.jsonl ({ts, who, text, link, via}; who is
 //                                claude, love or a reviewer's name; via github or slack) plus the page's own
 //                                events for that key, its from_ask ask and the asks folded into it (data/ask-links.json),
 //                                each with its own thread, and a line for
@@ -673,7 +676,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       }
     }
     const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'item-message', 'wave-triage', 'overnight-triage']);
-    const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
+    const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null, replies: [] })));
     await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
       const lines = await readLines(threadFile(`ask:${e.id}`));
       if (lines.length) threadLines[`ask:${e.id}`] = lines;
@@ -834,27 +837,32 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md). A card's question topic leaves its title,
   // summary and askedAt to its card while the card is on the board: the page names the topic from the card
   // (view-questions.js), so a card's change patches the card alone (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md).
-  // It holds nothing of the request's, so every page reads the same board at the same change number.
+  // It holds nothing of the request's, so every page reads the same board at the same change number. → {board, threads}:
+  // threads maps each card on it to its thread (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md), which the
+  // board's sync carries beside it.
   async function buildPageBoard(req) {
     if (!['GET', 'HEAD'].includes(req.method)) dataVersion++;
-    const b = { ...(await board()), doneArchived: await archiveCount(here) };
+    const { threadViews, ...built } = await board();
+    const b = { ...built, doneArchived: await archiveCount(here) };
     b.owner = b.owner.filter((q) => q.state !== 'resolved');
     const marks = await readMarks(here);
     b.items = b.items.map((i) => ({ ...(i.lane === 'done' ? slimDone(i) : i), readAt: marks[i.key] || null }));
     const shown = new Set(b.items.map((i) => i.key));
     b.ownerTopics = b.ownerTopics.map(({ title, summary, askedAt, ...t }) => (shown.has(t.card) ? t : { ...t, title, summary, ...(askedAt ? { askedAt } : {}) }));
-    return b;
+    return { board: b, threads: new Map(b.items.map((i) => [i.key, threadViews[i.key]])) };
   }
 
   // docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md: the change numbers (sync.mjs), kept in data/sync.json,
-  // and latest, the newest page board stamped with them. A board built before latest leaves both as they are, so a slow
-  // build can't undo a newer one. No answer names a number before data/sync.json holds it, so a restart never counts a
-  // number twice. data/sync.json's writes send no change signal (quiet).
+  // and latest, the newest page board stamped with them, with latestThreads, its cards' threads stamped beside it. A
+  // board built before latest leaves all three as they are, so a slow build can't undo a newer one. No answer names a
+  // number before data/sync.json holds it, so a restart never counts a number twice. data/sync.json's writes send no
+  // change signal (quiet).
   const syncFile = path.join(data, 'sync.json');
   let sync = await readSync(syncFile);
   let syncSaved = sync.n;
   let syncWrites = Promise.resolve();
   let latest = null;
+  let latestThreads = new Map();
   function saveSync() {
     syncWrites = syncWrites.then(async () => {
       const s = sync;
@@ -865,12 +873,15 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     });
     return syncWrites;
   }
-  // → {sync, board}: latest and the state that stamped it, taken together.
+  // → {sync, board, threads}: latest, its threads and the state that stamped them, taken together.
   async function pageBoard(req) {
-    const b = await buildPageBoard(req);
-    if (!latest || b.generatedAt >= latest.generatedAt) ({ sync, board: latest } = stamp(sync, b));
+    const { board: b, threads } = await buildPageBoard(req);
+    if (!latest || b.generatedAt >= latest.generatedAt) {
+      ({ sync, board: latest } = stamp(sync, b, threads));
+      latestThreads = threads;
+    }
     while (syncSaved < sync.n) await saveSync();
-    return { sync, board: latest };
+    return { sync, board: latest, threads: latestThreads };
   }
 
   // → undefined for a POST /_claude/events?board=0, so its answer carries no board key. since is the change number the
@@ -880,9 +891,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   async function answerBoard(req, since) {
     if (new URL(req.url, 'http://site').searchParams.get('board') === '0') return undefined;
     const onHost = await fromHost(req);
-    const { sync: at, board: b } = await pageBoard(req);
+    const { sync: at, board: b, threads } = await pageBoard(req);
     req.boardRead = true;
-    const patch = /^\d+$/.test(since) ? patchSince(at, b, Number(since)) : null;
+    const patch = /^\d+$/.test(since) ? patchSince(at, b, Number(since), threads) : null;
     return { ...(patch || b), onHost };
   }
 
@@ -930,7 +941,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return links;
   }
 
+  // A card's thread: a card in an item file has the one the board build made (domain.mjs buildBoard threadViews), the
+  // thread the board's sync carries (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md); an archived card's or an
+  // ask's is made here.
   async function thread(key) {
+    const built = (await sharedBoard()).threadViews[key];
+    if (built) return built;
     const { item, agents, questions } = key.startsWith('ask:') ? { item: null, agents: {}, questions: [] } : await itemOf(key);
     const stored = await readJSON(path.join(data, 'owner.json'), { items: [] });
     const owner = { ...stored, items: [...(stored.items || []), ...questions] };

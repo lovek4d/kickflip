@@ -12,11 +12,12 @@ import { freshSync, stamp, patchSince } from './sync.mjs';
 import { transcriptChunk } from './transcript.mjs';
 
 // The patch the server sends a page holding from once the board reads to, as board/sync.mjs makes it, between the
-// versions the two boards name.
-function boardPatch(from, to) {
-  const held = stamp(freshSync(0), from);
-  const now = stamp(held.sync, to);
-  return { ...patchSince(now.sync, now.board, held.sync.n), since: from.version, version: to.version };
+// versions the two boards name. threads, {from, to}, are the cards' threads beside each board.
+function boardPatch(from, to, threads = { from: {}, to: {} }) {
+  const map = (t) => new Map(Object.entries(t));
+  const held = stamp(freshSync(0), from, map(threads.from));
+  const now = stamp(held.sync, to, map(threads.to));
+  return { ...patchSince(now.sync, now.board, held.sync.n, map(threads.to)), since: from.version, version: to.version };
 }
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
@@ -1396,18 +1397,77 @@ test("out of reach, Board Settings shows each part's last answer here, read only
 });
 
 // docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
-test("an open card's thread that answers before its board waits for that board to land, so a Created ticket line and the ticket badge draw together", async () => {
-  const page = fakePage(memoryStorage().localStorage);
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md
+test("a whole board carries no threads, so every card's thread loads after it, and the saved copy keeps them all; the next mount opens any card from the copy with no request", async () => {
+  const { localStorage } = memoryStorage();
+  const page = fakePage(localStorage);
+  page.win.indexedDB = memoryIndexedDB();
+  const site = 'https://mac.ts.net/board-a';
+  const lanes = ['review', 'progress', 'todo', 'todo', 'done', 'done'];
+  const items = lanes.map((lane, n) => ({ key: `w/${n}`, id: String(n), ref: String(n), kind: 'work', lane, title: `Card ${n}`, deps: [], manualSteps: [], othersAt: [] }));
+  const board = { title: 'A', version: 1762400000005, generatedAt: '2026-10-29T10:00:00.000Z', items, files: [], needs: [], answers: [], owner: [], ownerTopics: [] };
+  const threadOf = (key) => [{ ts: '2026-10-29T09:00:00.000Z', who: 'claude', text: `Thread of ${key}` }];
+  const asked = [];
+  page.win.fetch = async (url) => {
+    asked.push(url);
+    const key = new URL(url).searchParams.get('key');
+    return { ok: true, status: 200, json: async () => (key ? threadOf(key) : board) };
+  };
+  const left = page.win.BoardView.create(new page.El(), site);
+  left.mount();
+  await drain(() => items.every((i) => left.B.state.threadCache.has(i.key)), "every card's thread loads, Done's too");
+  assert.deepEqual(asked.filter((u) => u.includes('/api/thread')).map((u) => new URL(u).searchParams.get('key')).sort(), items.map((i) => i.key));
+  left.unmount();
+
+  asked.length = 0;
+  page.win.fetch = async (url) => { asked.push(url); return new Promise(() => {}); };
+  const { Element } = miniDom(page.Target, page.win.document);
+  const root = page.win.document.body.appendChild(new Element('div'));
+  root.innerHTML = page.win.BoardView.markup({ title: 'A' });
+  const back = page.win.BoardView.create(root, site);
+  back.mount();
+  await drain(() => root.dataset.board === 'fresh', 'the copy paints');
+  const card = root.querySelector('details.item[data-key="w/5"]');
+  card.open = true;
+  page.fire(root, 'toggle', { target: card });
+  await drain(() => root.querySelector('[data-thread="w/5"]')?.dataset.sig, 'the Done card opens');
+  assert.match(root.querySelector('[data-thread="w/5"]').dataset.sig, /Thread of w\/5/, 'its thread draws from the copy');
+  assert.deepEqual(asked.filter((u) => !u.includes('/api/board')), [], 'opening the card asked for nothing');
+  back.unmount();
+});
+
+test("a patch carries the lines added to a card's thread since the page's number: the open card draws them with the board, a closed card opens with them, and nothing asks for a thread", async () => {
+  const v1 = { ...boardOf([workCard('A1', { lane: 'progress' }), workCard('A2')]), version: 'v1' };
+  const v2 = { ...v1, generatedAt: '2026-10-30T10:00:01.000Z', version: 'v2' };
+  const said = (n, text) => ({ ts: `2026-10-30T09:0${n}:00.000Z`, who: 'claude', text });
+  const before = { 'w/A1': [said(1, 'One')], 'w/A2': [said(1, 'Uno')] };
+  const b = boardOnDom({ open: ['w/A1'], board: v1, threads: before });
+  b.server.held = { v1 };
+  b.server.heldThreads = { v1: before };
+  await drain(() => b.view.B.state.threadCache.size === 2, 'the whole board loads both threads');
+  const threadGets = () => b.gets.filter((p) => p.endsWith('/api/thread')).length;
+  const loaded = threadGets();
+  const shown = (key) => b.root.querySelector(`[data-thread="${key}"] .msgs`).textContent;
+  await b.change({ board: v2, threads: { 'w/A1': [said(1, 'One'), said(2, 'Two')], 'w/A2': [said(1, 'Uno'), said(2, 'Dos')] } });
+  assert.deepEqual([b.patched, b.view.B.state.board.version], [['v1'], 'v2']);
+  assert.match(shown('w/A1'), /One[\s\S]*Two/);
+  const card = b.root.querySelector('details.item[data-key="w/A2"]');
+  card.open = true;
+  b.page.fire(b.root, 'toggle', { target: card });
+  await b.settle();
+  assert.match(shown('w/A2'), /Uno[\s\S]*Dos/);
+  assert.equal(threadGets(), loaded, 'no thread was fetched after the first load');
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md: only a whole board's load fetches the open threads beside it.
+test("an open card's thread that answers before its whole board waits for that board to land, so a Created ticket line and the ticket badge draw together", async () => {
+  const page = fakePage(memoryStorage([['site:board-a:openItems', JSON.stringify(['hub/T-2'])]]).localStorage);
   const site = 'https://mac.ts.net/board-a';
   const item = (ticket) => ({ key: 'hub/T-2', id: 'T-2', ref: ticket || 'T-2', ticket: ticket ? { id: ticket } : null, lane: 'todo', title: 'Two', kind: 'work' });
   const boardOf = (version, ticket) => ({ title: 'A', version, generatedAt: `2026-11-12T23:3${version}:00.000Z`, items: [item(ticket)], files: [], needs: [], answers: [], owner: [], ownerTopics: [] });
   const made = [{ ts: '2026-11-12T23:34:09.229Z', who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'Created ticket', words: 'Created ticket', card: 'hub/T-2', text: 'Created ticket #631', link: '#selectedCard=hub%2FT-2' }];
   const answer = (body) => ({ ok: true, status: 200, json: async () => body });
-  page.win.fetch = async (url) => answer(url.includes('/api/thread') ? [] : boardOf(1));
-  const view = page.win.BoardView.create(new page.El(), site);
-  view.mount();
-  await drain(() => view.B.state.board?.version === 1, 'the first board lands');
-  view.B.state.openItems.add('hub/T-2');
   let release;
   const held = new Promise((resolve) => { release = resolve; });
   let threadAnswered = false;
@@ -1416,7 +1476,9 @@ test("an open card's thread that answers before its board waits for that board t
     await held;
     return answer(boardOf(2, '#631'));
   };
-  const loading = view.B.loadBoard({ via: 'signal' });
+  const view = page.win.BoardView.create(new page.El(), site);
+  view.mount();
+  const loading = drain(() => view.B.state.board?.version === 2, 'the board lands');
   await drain(() => threadAnswered, 'the thread answered');
   await new Promise((resolve) => setImmediate(resolve));
   assert.notDeepEqual(view.B.state.threadCache.get('hub/T-2'), made, 'the line waits for its board');
@@ -2774,7 +2836,7 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm
     if (u.pathname.endsWith('/api/board') && server.board.version && opts.headers?.['if-none-match'] === `"${server.board.version}"`) return { ok: false, status: 304, json: async () => { throw new Error('a 304 has no body'); } };
     // A reload naming a version the server holds gets a patch from it, as board/server.mjs answerBoard does.
     const since = u.pathname.endsWith('/api/board') && server.held?.[u.searchParams.get('since')];
-    if (since) { patched.push(u.searchParams.get('since')); const patch = boardPatch(since, server.board); return { ok: true, status: 200, json: async () => structuredClone(patch), text: async () => JSON.stringify(patch) }; }
+    if (since) { patched.push(u.searchParams.get('since')); const patch = boardPatch(since, server.board, { from: server.heldThreads?.[u.searchParams.get('since')] || {}, to: server.threads || {} }); return { ok: true, status: 200, json: async () => structuredClone(patch), text: async () => JSON.stringify(patch) }; }
     if (u.pathname.endsWith('/api/board')) downloads.push(server.board.version);
     if (u.pathname.endsWith('/api/done')) return { ok: true, status: 200, json: async () => structuredClone(server.done(u.searchParams)) };
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
@@ -3083,6 +3145,27 @@ test("a thread load that began before the send was answered and already holds th
   await b.view.B.loadThread('w/T1', { force: true });
   await b.settle();
   assert.deepEqual(threadLines(b, 'w/T1'), ['Once (waiting…)'], 'and once after the reload');
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md
+test("a send whose answer patches in the board's own line shows the message once, as the board has it, before any thread reload answers", async () => {
+  const v1 = { ...boardOf([workCard('T1')]), version: 'v1' };
+  const v2 = { ...v1, generatedAt: '2026-10-30T10:00:01.000Z', version: 'v2' };
+  const mine = { ts: '2026-10-30T10:01:00.000Z', who: 'love', via: 'site', kind: 'item-message', text: 'Hello', files: [], eventId: 'e1', reply: null, state: 'waiting' };
+  const b = boardOnDom({ open: ['w/T1'], board: v1, threads: { 'w/T1': [] }, send: (kind, data, server) => {
+    server.board = v2;
+    server.threads = { 'w/T1': [mine] };
+    return { id: 'e1', board: structuredClone(boardPatch(v1, v2, { from: { 'w/T1': [] }, to: server.threads })) };
+  } });
+  await b.settle();
+  const fetchAll = b.page.win.fetch;
+  b.page.win.fetch = (url, opts) => (url.includes('/api/thread') ? new Promise(() => {}) : fetchAll(url, opts));
+  const form = b.root.querySelector('form[data-reply="w/T1"]');
+  form.querySelector('textarea').value = 'Hello';
+  b.page.fire(b.root, 'submit', { target: form, submitter: form.querySelector('button[data-intent="reply"]') });
+  await b.settle();
+  assert.deepEqual(threadLines(b, 'w/T1'), ['Hello (waiting…)']);
   b.view.unmount();
 });
 

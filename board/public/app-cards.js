@@ -412,8 +412,10 @@ BoardView.part((B) => {
       unread?.remove();
       if (line && !line.children.length) line.remove();
       if (it && !el.querySelector('.detail')) { el.insertAdjacentHTML('beforeend', detail(it)); }
+      // docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md: the board's sync keeps every card's thread, so a card
+      // opens from it with no request; one it lacks loads.
       if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
-      B.loadThread(key, { maxAge: 10000 });
+      else B.loadThread(key);
     } else {
       state.openItems.delete(key);
     }

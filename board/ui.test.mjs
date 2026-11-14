@@ -306,10 +306,10 @@ test('a stored copy that is damaged, saved under another build, undated or holdi
   assert.deepEqual(Object.keys(ui.readCopy({ ...good, threads: { 'w/A': 'text', 'w/B': [{ text: 'b' }] } }, 'b1').threads), ['w/B']);
 });
 
-test('threads load in the background for every In Review, In Progress and Todo card that is not already open', () => {
-  const items = ['review', 'review', 'progress', 'todo', 'followups', 'done', 'todo'].map((lane, n) => ({ key: `w/${n}`, lane }));
-  assert.deepEqual([...ui.preloadKeys(items, new Set(['w/2']))], ['w/0', 'w/1', 'w/3', 'w/6']);
-  assert.deepEqual([...ui.preloadKeys(items, [])], ['w/0', 'w/1', 'w/2', 'w/3', 'w/6']);
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md
+test("after a whole board every card's thread loads, Done's and New's too: the open cards' first, then those the page lacks, then those it holds, each in board order", () => {
+  const items = ['review', 'progress', 'todo', 'new', 'done', 'done'].map((lane, n) => ({ key: `w/${n}`, lane }));
+  assert.deepEqual(plain(ui.fillOrder(items, new Set(['w/4']), new Map([['w/0', []], ['w/3', []]]))), { open: ['w/4'], rest: ['w/1', 'w/2', 'w/5', 'w/0', 'w/3'] });
 });
 
 test('when the catch-up lands on the saved copy, only lines whose text changed or that are new flash', () => {

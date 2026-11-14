@@ -1176,6 +1176,9 @@ export function buildBoard(snapshot) {
   const itemFiles = [];
   const items = [];
   const threadStates = new Map();
+  // docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md: each card's thread as a page shows it, its builders' lines
+  // included (threadOf with agents), by key: GET /api/thread's answer, and what the board's sync carries.
+  const threadViews = {};
   // By card key: when Claude last answered in its thread, and when a Done work card closed.
   const claudeAt = new Map();
   const closedWork = new Map();
@@ -1194,7 +1197,9 @@ export function buildBoard(snapshot) {
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(itemFile, it, tickets), became: true }]);
       const clearedAt = [routeRecord(actedOn, key), it.lane === 'done' ? it.closed_at : null, cardDones.get(key)].filter(Boolean).map(String).sort().pop() || '';
-      const msgs = threadOf(key, { lines, events, owner, working, clearedAt, fromAsk: it.from_ask || null, sorted: Boolean(it.phase), moved: folded, cards, index });
+      const thread = { lines, events, owner, working, clearedAt, fromAsk: it.from_ask || null, sorted: Boolean(it.phase), moved: folded, cards, index };
+      const msgs = threadOf(key, thread);
+      threadViews[key] = threadOf(key, { ...thread, agents: routeRecord(records, it.id) || {} });
       for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
       claudeAt.set(key, claudeAtOf(msgs));
       items.push(workItem({
@@ -1419,7 +1424,7 @@ export function buildBoard(snapshot) {
     .sort((a, b) => b.at.localeCompare(a.at));
   merges.sort((a, b) => b.at.localeCompare(a.at));
   // unfiled: the asks with no card yet, for the board server to file (store.mjs fileAsks).
-  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, waveBands, items, moved: Object.fromEntries(moved), answers, merges, unfiled, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now) }, snapshot);
+  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, waveBands, items, moved: Object.fromEntries(moved), answers, merges, unfiled, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews }, snapshot);
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md

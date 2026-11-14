@@ -765,6 +765,9 @@ test("a new task is a New T-<n> card from the moment it arrives, whose thread ho
   const reply = await post('/_claude/events', { kind: 'item-message', key: `ask:${id}`, text: 'Also the footer' });
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'threads', `ask__${id}.jsonl`), JSON.stringify({ ts: new Date(Date.now() + 60000).toISOString(), who: 'claude', text: 'Footer too.' }) + '\n');
+  // A card's thread comes from the board build, which reads a write once the watch reports it
+  // (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md).
+  await heard(path.join(site, 'data', 'threads', `ask__${id}.jsonl`));
   assert.deepEqual(await thread(`ask:${id}`), [[id, 'Fix the header', 'answered'], ['#selectedCard=t%2FAK2', 'Became AK2', undefined], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
   assert.deepEqual([await card(), (await board()).moved], [undefined, { [`ask:${id}`]: 't/AK2' }]);
   assert.deepEqual(await thread('t/AK2'), [[id, 'Fix the header', 'answered'], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
@@ -1733,6 +1736,31 @@ test("a reload naming the number it holds as since gets a patch of the cards cha
     assert.equal(unknown.since, undefined, since);
     assert.ok(Array.isArray(unknown.items));
   }
+});
+
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md
+test("a whole board carries no threads; a patch carries the lines added to each card's thread since, and /api/thread answers the same thread the board's sync carries", async () => {
+  const vmContext = (await import('node:vm')).createContext({});
+  (await import('node:vm')).runInContext(fs.readFileSync(new URL('./public/ui-patch.js', import.meta.url), 'utf8'), vmContext);
+  const { threadPatch } = vmContext.BoardUI;
+  const get = async (q) => (await fetch(`${base}${q}`)).json();
+  // The cards earlier tests' asks became stay, so no ask is left without its card for the server to file again.
+  const items = path.join(site, 'data', 'items.json');
+  const asked = fs.existsSync(items) ? JSON.parse(fs.readFileSync(items, 'utf8')).items.filter((i) => i.from_ask) : [];
+  const file = path.join(site, 'data', 'threads', 't__H1.jsonl');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ ts: '2026-11-14T10:00:00.000Z', who: 'claude', text: 'First' }) + '\n');
+  await putWave(JSON.stringify({ items: [...asked, { id: 'H1', title: 'Threaded', lane: 'todo', phase: 'discussing' }] }));
+  const first = await get('/api/board');
+  assert.equal(first.threads, undefined);
+  const held = await get('/api/thread?key=t%2FH1');
+  assert.deepEqual(held.map((m) => m.text), ['First']);
+  fs.appendFileSync(file, JSON.stringify({ ts: '2026-11-14T10:01:00.000Z', who: 'claude', text: 'Second' }) + '\n');
+  await heard(file);
+  const patch = await get(`/api/board?since=${first.version}`);
+  assert.deepEqual(JSON.parse(JSON.stringify(patch.threads['t/H1'])), { from: 1, lines: [{ ...held[0], ts: '2026-11-14T10:01:00.000Z', text: 'Second' }] });
+  const { set } = threadPatch(new Map([['t/H1', held]]), patch.threads);
+  assert.deepEqual(JSON.parse(JSON.stringify(new Map(set).get('t/H1'))), await get('/api/thread?key=t%2FH1'));
 });
 
 test('an event posted with board=0, as the hub posts, is answered with its id alone, building no board', async () => {

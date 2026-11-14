@@ -1,10 +1,11 @@
-// The board view's saved copy: reading it from IndexedDB and saving it there with its change number
-// (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md), flashing the lines the catch-up changed, and the sign
+// The board view's saved copy: reading it from IndexedDB and saving it there with its change number and every card's
+// thread (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md,
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md), flashing the lines the catch-up changed, and the sign
 // on a card that changed lanes or was updated (docs/adr/2026-11-02-2354-an-updated-card-takes-a-brief-tint.md).
 // Needs app-core.js and ui-snapshot.js; app.js paints it.
 BoardView.part((B) => {
   const { $$, state } = B;
-  const { copyOf, boardCopy, copyStore, preloadKeys, changedLines, updateSign } = BoardUI;
+  const { copyOf, boardCopy, copyStore, changedLines, updateSign } = BoardUI;
   // The hub serves every site from one origin, so each board keeps its own key in the one store.
   const KEY = B.site.url('');
   const BUILD = document.documentElement.dataset.build;

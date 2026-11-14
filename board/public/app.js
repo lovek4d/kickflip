@@ -176,11 +176,11 @@ window.BoardView = (function () {
   // The board itself, after every part: rendering, the URL fragment, loading and the change signal.
   function start(B) {
     const { $, $$, store, state, steady, markSeen } = B;
-    const { setHTML, preloadKeys } = BoardUI;
+    const { setHTML } = BoardUI;
 
     // The spinUntil taps waiting for their change to show.
     const showing = new Set();
-    // Renders open threads from state.threadCache; loadBoard and opening a card load them.
+    // Renders open threads from state.threadCache, which the board's sync fills (app-threads.js takeThreads, fillThreads).
     function render(load = null) {
       const d = state.board;
       const title = $(':scope > .top h1');
@@ -299,13 +299,15 @@ window.BoardView = (function () {
     }
 
     // The first load takes over app.html's BoardBoot fetches, so only the first view mounted takes them, and only for
-    // its own board. Each load fetches the open cards' threads beside the
-    // board. via is ui-header.js nextFresh's: a refresh or a change signal fetches every open thread anew rather than
-    // share a load that started before the change.
+    // its own board. A load with no board on screen to patch gets a whole board, which carries no threads, so it fetches
+    // the open cards' threads beside it; a patch carries the threads that changed
+    // (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). via is ui-header.js nextFresh's: a refresh or a change
+    // signal fetches every open thread anew rather than share a load that started before the change.
     let boot = globalThis.BoardBoot || null;
     globalThis.BoardBoot = null;
     if (boot?.route && boot.route !== B.route) boot = null;
-    let preloaded = false;
+    // The open cards' loads of the last land's fillThreads, which the load that landed the board waits for.
+    let filling = Promise.resolve();
     // A load nothing answers gives up after this, so an asleep host reads as out of reach.
     const LOAD_TIMEOUT = 20000;
     // A failed answer, carried to showDown for BoardUI.downOf.
@@ -314,28 +316,25 @@ window.BoardView = (function () {
       const load = B.boardLoad = (B.boardLoad || 0) + 1;
       const started = boot;
       boot = null;
+      // A reload names the change number of the board on screen: an unchanged board answers 304 with no body
+      // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md), and a changed one a patch of what
+      // changed after it (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
+      const tag = state.view === 'fresh' && !state.oldCopy ? state.board.version : null;
       // The open threads draw once this load's board has landed or failed (app-threads.js loadThread's after).
       let boardIn;
       const after = new Promise((resolve) => { boardIn = resolve; });
-      const threads = [...state.openItems].map((k) => B.loadThread(k, { from: started?.threads.get(k) || null, force: via !== 'poll', after }));
+      const threads = tag ? [] : [...state.openItems].map((k) => B.loadThread(k, { from: started?.threads.get(k) || null, force: via !== 'poll', after }));
       let landed = false;
       try {
-        // A reload names the change number of the board on screen: an unchanged board answers 304 with no body
-        // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md), and a changed one a patch of what
-        // changed after it (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
-        const tag = state.view === 'fresh' && !state.oldCopy ? state.board.version : null;
         const timeout = new AbortController();
         const stopTimer = B.later(LOAD_TIMEOUT, () => timeout.abort());
         const board = await (started?.board || fetch(B.site.url('api/board' + (tag ? '?since=' + encodeURIComponent(tag) : '')), { cache: 'no-store', signal: timeout.signal, ...(tag ? { headers: { 'if-none-match': `"${tag}"` } } : {}) })
           .then((r) => (r.status === 304 ? null : r.ok ? r.json().catch(() => { throw unanswered(r); }) : Promise.reject(unanswered(r))))
           .finally(stopTimer));
-        if (board) land(board, load); else B.linkUp();
+        if (board && land(board, load)) threads.push(filling);
+        else if (!board) B.linkUp();
         boardIn();
         landed = true;
-        if (!preloaded) {
-          preloaded = true;
-          for (const key of preloadKeys(state.board.items, state.openItems)) B.loadThread(key);
-        }
       } catch (e) {
         boardIn();
         B.linkDown();
@@ -391,7 +390,9 @@ window.BoardView = (function () {
 
     // A board from the server, a load's or an events POST's, or a patch from the board on screen (ui-patch.js). One built
     // before the board on screen leaves it as it is, so a slow load can't undo a newer one; a newer patch from a board
-    // no longer on screen, which another answer replaced meanwhile, reloads instead. → whether it landed
+    // no longer on screen, which another answer replaced meanwhile, reloads instead. A patch's threads go into the cache
+    // before the board draws; then the threads the cache lacks load, or after a whole board every card's
+    // (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). → whether it landed
     function land(answer, load) {
       if (state.view === 'fresh' && state.board && answer.generatedAt < state.board.generatedAt) return false;
       const board = answer.since === undefined ? answer : BoardUI.applyPatch(state.view === 'fresh' ? state.board : null, answer);
@@ -399,6 +400,7 @@ window.BoardView = (function () {
       const first = state.view !== 'fresh';
       state.board = board;
       state.oldCopy = false;
+      if (answer.since !== undefined) B.takeThreads(answer.threads || {});
       if (state.down) {
         state.down = null;
         $('#downLanding').hidden = true;
@@ -409,6 +411,7 @@ window.BoardView = (function () {
       B.linkUp();
       try { render(load); } catch (e) { drawFailed(e); return true; }
       if (first) B.resendOutbox();
+      filling = B.fillThreads({ whole: answer.since === undefined });
       scrollToFocus();
       returnToPlace();
       B.site.syncBadge();
