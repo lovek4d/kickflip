@@ -252,6 +252,8 @@
   // draws their boards alone: no Hub row, update or notification rows, and no New board.
   // Whole minutes the host has been busy (machine.since is when it turned busy), 0 while it isn't.
   const busyMinutes = (data, now = Date.now()) => (data?.pause?.machine?.state === 'busy' ? Math.floor((now - Date.parse(data.pause.machine.since)) / 60_000) : 0);
+  // Busy for longer than this adds a banner at the sidebar's top.
+  const BUSY_BANNER_MINUTES = 30;
   // Whether the Hub row reads busy: the host has been busy for a minute and no usage pause reads first.
   const hubBusy = (data, now = Date.now()) => busyMinutes(data, now) >= 1 && data?.pause?.state !== 'paused';
   // The logo's one dot, the highest that applies (AGENTS.md colour order): 'down' (red) for a broken hub, Claude not listening on a
@@ -270,9 +272,13 @@
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
     const paused = data?.pause?.state === 'paused';
-    // A busy host holds every board's new work but shows only on the Hub row and the logo's dot, never on a board, and a pause reads before it
+    // A busy host holds every board's new work but shows only on the Hub row and the logo's dot, never on a board, and a pause reads before it;
+    // busy for more than BUSY_BANNER_MINUTES it also shows as a banner at the sidebar's top that opens the load sheet
     // (docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md).
     const busy = hubBusy(data, now);
+    const busyBanner = busy && now - Date.parse(data.pause.machine.since) > BUSY_BANNER_MINUTES * 60_000
+      ? `<button type="button" class="sb-busy-banner" data-load-sheet aria-haspopup="dialog">${iconText('dot', HUB_COLOURS.wait, `Host busy for ${busyMinutes(data, now)}m${data.pause.machine.reason ? `: ${esc(data.pause.machine.reason)}` : ''}`)}</button>`
+      : '';
     // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
     // A red fault on a board row keeps its word, and a down or degraded hub keeps the Hub row: red and orange beat the grey pause (AGENTS.md).
     const held = (s) => s.board && (paused || s.pause?.state === 'paused') && s.sub?.status?.colour !== 'red';
@@ -315,7 +321,7 @@
     const boardsLabel = `<div class="sb-label ks-label"><span class="ks-label-text">Boards</span>${hint}</div>`;
     if (data?.shared) return `${top}<div class="sb-scroll"><section class="sb-boards" aria-label="Boards">${boardsLabel}<div class="sb-group">${boards.map(siteRow).join('')}</div></section></div>`;
     return top
-      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update)}</div><div class="sb-group">`
+      + `<div class="sb-scroll">${busyBanner}<section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update)}</div><div class="sb-group">`
       + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], mark: f.href === '/_hub/' ? moon : '', ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')

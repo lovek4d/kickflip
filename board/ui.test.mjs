@@ -3048,6 +3048,20 @@ test("only written messages count toward a thread's newest 3: command lines and 
   assert.equal(ui.isMessage({ ts: at(6), who: 'love', kind: 'visual-request', text: 'Show it' }), true);
 });
 
+// docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md
+test('a host busy for more than 30 minutes adds a banner at the sidebar top that opens the load sheet, gone when the host eases', () => {
+  const busyFor = (minutes, extra = {}) => ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy', reason: 'load high', since: new Date(NOW - minutes * 60_000).toISOString() } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' }, ...extra });
+  assert.doesNotMatch(busyFor(29), /sb-busy-banner/, 'no banner at 29 minutes');
+  assert.match(busyFor(29), /data-load-sheet/, 'the Hub row still reads busy');
+  const banner = busyFor(31).match(/<button[^>]*sb-busy-banner[^>]*>.*?<\/button>/s)?.[0];
+  assert.ok(banner, 'a banner at 31 minutes');
+  assert.match(banner, /data-load-sheet/, 'it opens the load sheet');
+  assert.match(text(banner), /Host busy for 31m: load high/);
+  assert.ok(busyFor(31).indexOf('sb-busy-banner') < busyFor(31).indexOf('sb-utility'), 'it sits above the Hub section');
+  assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /sb-busy-banner/, 'gone when idle');
+  assert.doesNotMatch(busyFor(31, { pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine: { state: 'busy', reason: 'load high', since: new Date(NOW - 31 * 60_000).toISOString() } } }), /sb-busy-banner/, 'a usage pause reads first');
+});
+
 // docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md
 test("the Hub row's busy word opens what's loading the host: the load now and over the hour, then collapsed groups with orphans open and Stop on orphans alone", () => {
   const machine = { state: 'busy', reason: 'load high', since: new Date(NOW - 42 * 60_000).toISOString() };
