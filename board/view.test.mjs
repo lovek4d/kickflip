@@ -415,6 +415,7 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
     assert.deepEqual(page.left(), loaded, kind);
     const sent = fetches;
     v.mount();
+    await new Promise((r) => setImmediate(r));
     v.unmount();
     await new Promise((r) => setImmediate(r));
     assert.ok(fetches > sent, kind);
@@ -1316,6 +1317,51 @@ test("out of reach, Waiting on you paints the board's copy with its sending butt
     assert.equal(page.fire(root, 'click', { target: send }).defaultPrevented, true, 'a sending tap is held');
     view.unmount();
   }
+});
+
+test('Waiting on you opens again on the topic it last showed while that topic has an open question, and the first open topic once it has none', async () => {
+  const topics = [1, 2].map((n) => ({ id: `item:w/T${n}`, title: `INT-${n}: Topic` }));
+  const question = (id, topic) => ({ id, topic, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }], answers: [], state: 'open' });
+  const v = questionsOnDom({ topics, questions: [question('q1', topics[0].id), question('q2', topics[1].id)], at: '' });
+  await v.settle();
+  assert.deepEqual(v.shown().questions, ['q1'], 'a first visit opens the first open topic');
+  v.page.fire(v.root, 'click', { target: v.root.querySelector(`button[data-topic="${topics[1].id}"]`) });
+  assert.deepEqual(v.shown().questions, ['q2']);
+  v.remount();
+  await v.settle();
+  assert.deepEqual(v.shown().questions, ['q2'], 'a return opens the topic last shown');
+  v.server.questions.find((q) => q.id === 'q2').state = 'resolved';
+  v.remount();
+  await v.settle();
+  assert.deepEqual(v.shown().questions, ['q1'], 'a topic with no open question is not kept');
+  v.unmount();
+});
+
+test("Waiting on you paints the board's saved copy at once, then asks only for the changes since its number", async () => {
+  const site = 'https://mac.ts.net/board-a';
+  const q = (id, title) => ({ id, topic: 't1', state: 'open', title, question: title, options: [{ id: 'a', label: 'A' }], answers: [], source: 'w/A1' });
+  const topic = (qs) => ({ id: 't1', title: 'Look', state: 'open', questions: qs.map((x) => x.id), open: qs.length, answered: 0, resolved: 0 });
+  const saved = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [], files: [], needs: [], answers: [], owner: [q('q1', 'Saved one')], ownerTopics: [topic([q('q1', 'Saved one')])] };
+  const page = fakePage(memoryStorage().localStorage);
+  page.win.indexedDB = memoryIndexedDB();
+  await page.win.BoardUI.copyStore('boards', 'readwrite', (store) => store.put({ build: 'build-1', savedAt: saved.generatedAt, board: saved, threads: {} }, `${site}/`));
+  const asked = [];
+  let answer;
+  page.win.fetch = (url) => { asked.push(url); return new Promise((resolve) => { answer = resolve; }); };
+  const root = new page.El();
+  const view = page.win.AppViews.questions.create(root, site, { view: { kind: 'questions', route: 'board-a' } });
+  view.mount();
+  const pageEl = root.querySelector('#page');
+  const arrived = [];
+  root.querySelector('#qform').querySelector('.bar').insertAdjacentHTML = (where, html) => arrived.push(html);
+  await drain(() => asked.length > 0, 'the load asks');
+  assert.match(pageEl.innerHTML, /id="q1"/, 'the copy is drawn before the host answers');
+  assert.equal(root.classList.contains('offline'), false);
+  assert.match(asked[0], /\/api\/board\?since=7$/);
+  const next = { ...saved, version: 8, owner: [q('q1', 'Saved one'), q('q2', 'Fresh two')], ownerTopics: [topic([q('q1', 'Saved one'), q('q2', 'Fresh two')])] };
+  answer({ ok: true, status: 200, text: async () => JSON.stringify(next), json: async () => next });
+  await drain(() => arrived.some((html) => /Fresh two/.test(html)), 'the answer lands as a new card');
+  view.unmount();
 });
 
 test("out of reach, Board Settings shows each part's last answer here, read only under its copy line, and reopens live once the board answers", async () => {
@@ -4350,7 +4396,7 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
     shell.board = root;
     return true;
   };
-  const questionsView = page.win.AppViews.questions.create(shell.root, base, embedded ? { view, embedded: true } : { view, up });
+  let questionsView = page.win.AppViews.questions.create(shell.root, base, embedded ? { view, embedded: true } : { view, up });
   const idle = page.left();
   questionsView.mount();
   const $ = (sel) => shell.root.querySelector(sel);
@@ -4363,7 +4409,17 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
   const shown = () => shell.board ? { board: shell.board.querySelector('.toast')?.textContent || '' }
     : { pills: shell.root.querySelectorAll('.topics button').map((b) => [b.dataset.topic, b.getAttribute('aria-pressed')]),
       questions: shell.root.querySelectorAll('section.q').map((s) => s.dataset.q), status: $('#qstatus').textContent, hash: page.win.location.hash };
-  return { settle, answer, send, shown, decisions, sent, gets, server, root: shell.root, page, idle, unmount: () => questionsView.unmount() };
+  // The shell mounting a fresh view of the page, as a return from the board does.
+  const remount = () => {
+    page.win.location.hash = '';
+    questionsView.unmount();
+    shell.root = page.win.document.body.appendChild(new Element('div'));
+    shell.root.innerHTML = page.win.AppViews.questions.markup(view);
+    questionsView = page.win.AppViews.questions.create(shell.root, base, { view, up });
+    questionsView.mount();
+    return shell.root;
+  };
+  return { settle, answer, send, shown, decisions, sent, gets, server, get root() { return shell.root; }, page, idle, remount, unmount: () => questionsView.unmount() };
 }
 
 // docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md: a push tap on a stale page

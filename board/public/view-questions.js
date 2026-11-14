@@ -25,6 +25,11 @@
 // Questions button does (docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md).
 // markup({embedded: true}) and ctx.embedded mount it in the board's desktop pane (app-pane.js): no header,
 // and the board's URL and scroll are left alone.
+// Returning to Waiting on you opens the topic it last showed for the app's life, while that topic has an open question
+// (lastTopic, by board route), and paints at once from the board's saved copy, then asks only for the changes since its
+// number (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md,
+// docs/adr/2026-11-14-1500-waiting-on-you-keeps-its-topic-and-paints-from-the-saved-copy.md).
+const lastTopic = new Map();
 (globalThis.AppViews ||= {}).questions = {
   className: 'view-questions',
   title: () => 'Waiting On You',
@@ -73,6 +78,7 @@
     const setTopic = (id) => {
       if (id !== topicId) for (const qid of topics.find((t) => t.id === topicId)?.questions || []) inPlace.delete(qid);
       topicId = id;
+      if (id) lastTopic.set(B.route, id);
     };
     const urgentOpen =() => all.find((q) => q.urgent && q.state === 'open');
     // A question's number on its card: its place in its topic, which keeps every question it has had.
@@ -232,7 +238,7 @@
       const u = urgentOpen();
       if (u && (!hash || hash === u.id)) { soloId = u.id; setTopic(topicOf(u.id)?.id ?? null); return; }
       soloId = null;
-      const t = (hash && topicOf(hash)) || topics.find((x) => x.open);
+      const t = (hash && topicOf(hash)) || topics.find((x) => x.id === lastTopic.get(B.route) && x.open) || topics.find((x) => x.open);
       setTopic(t ? t.id : null);
     }
 
@@ -487,7 +493,10 @@
       return true;
     };
 
-    load(true);
+    // The saved copy of this build paints first, and the load names its number; with none, the load is the whole board.
+    BoardUI.boardCopy(site.url(''), document.documentElement.dataset.build).then((c) => {
+      if (B.alive() && c && !board) { land(c.board, true); repaint(true); }
+    }, () => {}).then(() => { if (B.alive()) load(!board); });
     B.every(15000, () => { if (!document.hidden) load(false); });
     B.on(document, 'visibilitychange', () => { if (!document.hidden) load(false); });
     // A pick drafted on a standalone prototype page shows when this page returns from the browser cache.
