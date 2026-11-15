@@ -500,12 +500,15 @@ BoardView.part((B) => {
   // free (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md).
   async function confirmTap(b) {
     const { key, confirm: act } = b.dataset;
+    // Read before the confirm takes the focus: a Done tapped with the card's thread field focused keeps the card open,
+    // and the page follows it to Done (app-core.js steady anchors on the field).
+    const follow = act === 'finish' && document.activeElement?.matches?.('textarea') && document.activeElement.closest('form[data-reply]')?.dataset.reply === key;
     const it = state.board.items.find((i) => i.key === key);
     const inBox = Boolean(b.closest('form[data-reply]'));
     if (it && act === 'hold') { openHold(it, inBox); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
     if (inBox) {
-      B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done' }, reopen: { kind: 'card-reopen' } }[act]);
+      B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done', ...(follow ? { follow } : {}) }, reopen: { kind: 'card-reopen' } }[act]);
       return;
     }
     // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement, Done and Reopen
@@ -516,7 +519,7 @@ BoardView.part((B) => {
       finish: ['card-done', at], reopen: ['card-reopen', at] }[act];
     // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
     // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
-    const close = act === 'finish' ? () => closeCard(key) : null;
+    const close = act === 'finish' && !follow ? () => closeCard(key) : null;
     // Each spins until a board shows its change (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md):
     // Unhold the card unheld; Done and Reopen the card in another lane; Merge the card merging, which its markup draws
     // busy (docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md), or gone from In Review. Implement is T-234's.

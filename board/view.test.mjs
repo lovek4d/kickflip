@@ -4842,6 +4842,21 @@ test("Done closes the card and holds the card still on screen as the card moves 
   assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'an ingested task joining Todo takes the tint');
 });
 
+test("Done tapped with the card's thread field focused keeps the card open as it moves to Done, where the page follows it", async () => {
+  const board = boardOf([{ ...askCard('a1', 'review'), finishable: true }, workCard('C1')]);
+  const b = boardOnDom({ open: ['w/a1'], board, threads: {}, confirm: true });
+  await b.settle();
+  layOut(b);
+  const card = () => b.root.querySelector('details.item[data-key="w/a1"]');
+  const field = card().querySelector('form[data-reply="w/a1"] textarea');
+  b.page.win.document.activeElement = field;
+  board.items[0] = { ...board.items[0], lane: 'done', finishable: false };
+  b.page.fire(b.root, 'submit', { target: card().querySelector('form[data-reply="w/a1"]'), submitter: card().querySelector('form[data-reply="w/a1"] [data-confirm="finish"]') });
+  await b.settle();
+  await b.change({ board });
+  assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems')], ['done', true, '["w/a1"]']);
+});
+
 function questionsOnDom({ topics, questions, at, gate = null, items = [], embedded = false, queue = [], pushed = false, opened = null }) {
   const page = fakePage(memoryStorage().localStorage);
   // pushed: the entry came from a push tap (router.js); opened collects the hrefs the shell is asked to open.

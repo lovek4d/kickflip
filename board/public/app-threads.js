@@ -267,7 +267,7 @@ BoardView.part((B) => {
           repaint(key);
         }
         const was = patched.get(key);
-        const send = () => B.send(eventOf(m), bodyOf(m), m.kind === 'card-done' ? () => B.closeCard(key) : null);
+        const send = () => B.send(eventOf(m), bodyOf(m), m.kind === 'card-done' && !m.follow ? () => B.closeCard(key) : null);
         try { await (key ? B.sentHere(key, send) : send()); }
         catch (e) {
           // A tap the board refused because its card moved since it was drawn (409) changed nothing and would only be
@@ -297,9 +297,9 @@ BoardView.part((B) => {
   // A tap goes into the outbox and shows at once, and its button is free for the next. attached names a composer whose
   // files the tap takes into its own box, to send once they are all up.
   // A tap keeps the version of the card it was drawn on (domain.mjs version), which the board checks the card against.
-  function enqueue(key, { kind, text = '', files = [], intent, fields, attached } = {}) {
+  function enqueue(key, { kind, text = '', files = [], intent, fields, attached, follow } = {}) {
     const version = key && state.board?.items.find((i) => i.key === key)?.version;
-    const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, ...(kind ? { kind } : {}), text, files, ...(intent ? { intent } : {}), ...(fields ? { fields } : {}), ...(version ? { version } : {}), ts: new Date().toISOString() };
+    const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, ...(kind ? { kind } : {}), text, files, ...(intent ? { intent } : {}), ...(fields ? { fields } : {}), ...(follow ? { follow } : {}), ...(version ? { version } : {}), ts: new Date().toISOString() };
     if (attached) {
       BoardAttach.move(attached, sendBox(m), B.site.root);
       m.uploads = BoardAttach.saved(sendBox(m), B.site.root);
