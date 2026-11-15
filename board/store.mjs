@@ -162,10 +162,39 @@ export const cardTitleOf = async (site, key) => (await loadItem(site, key)).item
 // <eventId>~2.<ext>, <eventId>~3.<ext>, … ("~" can't appear in an event id).
 export const REPLY_EXTS = ['md', 'html', 'json'];
 
-// → [{name, ext, n}] of event eventId's reply files in dir, oldest first (n 1 for the first reply).
+// Every reply file in dir by event id, from one listing: Map<eventId, [{name, ext, n}]>, each event's replies oldest first
+// (n 1 for the first reply).
+export async function readReplyIndex(dir) {
+  const index = new Map();
+  for (const name of await fs.readdir(dir).catch(() => [])) {
+    const m = /^(.+?)(?:~(\d+))?\.(md|html|json)$/.exec(name);
+    if (!m) continue;
+    if (!index.has(m[1])) index.set(m[1], []);
+    index.get(m[1]).push({ name, ext: m[3], n: Number(m[2] || 1) });
+  }
+  for (const [id, files] of index) {
+    index.set(id, files.sort((a, b) => a.n - b.n || REPLY_EXTS.indexOf(a.ext) - REPLY_EXTS.indexOf(b.ext)).filter((f, i, all) => f.n !== all[i - 1]?.n));
+  }
+  return index;
+}
+
+// → [{name, ext, n}] of event eventId's reply files in dir, oldest first.
 export async function replyFilesOf(dir, eventId) {
-  const own = new RegExp(`^${eventId.replace(/[.]/g, '\\.')}(?:~(\\d+))?\\.(${REPLY_EXTS.join('|')})$`);
-  return (await fs.readdir(dir).catch(() => [])).flatMap((name) => { const m = own.exec(name); return m ? [{ name, ext: m[2], n: Number(m[1] || 1) }] : []; }).sort((a, b) => a.n - b.n || REPLY_EXTS.indexOf(a.ext) - REPLY_EXTS.indexOf(b.ext)).filter((f, i, all) => f.n !== all[i - 1]?.n);
+  return (await readReplyIndex(dir)).get(eventId) || [];
+}
+
+// {<item id>: {<agent>: record}} from dir's <id>.json (agent main) and <id>@<agent>.json (builderFile), without the ids in skip.
+export async function readAgents(dir, skip = new Set()) {
+  let files = [];
+  try { files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json') && !skip.has(path.basename(f, '.json').split('@')[0])); } catch {}
+  const records = await Promise.all(files.map(async (f) => { try { return JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')); } catch { return null; } }));
+  const out = Object.create(null);
+  files.forEach((f, i) => {
+    if (!records[i]) return;
+    const [id, agent = 'main'] = path.basename(f, '.json').split('@');
+    (out[id] ||= Object.create(null))[agent] = records[i];
+  });
+  return out;
 }
 
 export async function writeReply(site, eventId, md, title) {

@@ -357,7 +357,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -568,8 +568,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
 
   // e with its replies oldest first, and reply, the newest ({md|html|json, at}), or null.
-  async function withReply(e) {
-    const replied = await Promise.all((await replyFilesOf(replies, e.id)).map(async ({ name, ext }) => {
+  // index, when given, is readReplyIndex's of replies: a build lists the folder once for all its events.
+  async function withReply(e, index) {
+    const replied = await Promise.all((index ? index.get(e.id) || [] : await replyFilesOf(replies, e.id)).map(async ({ name, ext }) => {
       const f = path.join(replies, name);
       try {
         const [text, st] = await Promise.all([fs.readFile(f, 'utf8'), fs.stat(f)]);
@@ -607,20 +608,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return last ? new Date(last).toISOString() : null;
   }
 
-  // {<item id>: {<agent>: record}} from agents/<id>.json (agent main) and agents/<id>@<agent>.json (store.mjs builderFile).
-  async function readAgents(dir) {
-    let files = [];
-    try { files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json')); } catch {}
-    const records = await Promise.all(files.map((f) => readJSON(path.join(dir, f), null)));
-    const out = Object.create(null);
-    files.forEach((f, i) => {
-      if (!records[i]) return;
-      const [id, agent = 'main'] = path.basename(f, '.json').split('@');
-      (out[id] ||= Object.create(null))[agent] = records[i];
-    });
-    return out;
-  }
-
   // What the board reads from outside the folders the server watches: board.json, this board's entry in the hub's
   // manifest (its GitHub repo, git remote and branch) and the Slack bridge's topic items.
   async function outsideData() {
@@ -649,7 +636,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return (await Promise.all((await itemSources(here)).map(async (s) => {
       const itemFile = await readJSON(s.file, null);
       if (!itemFile || !Array.isArray(itemFile.items)) return null;
-      return { slug: s.slug, dir: s.dir, itemFile, agents: await readAgents(path.join(s.dir, 'agents')) };
+      // A Done card's builders are finished, so the board's build skips their records.
+      const done = new Set(itemFile.items.filter((it) => it.lane === 'done').map((it) => it.id));
+      return { slug: s.slug, dir: s.dir, itemFile, agents: await readAgents(path.join(s.dir, 'agents'), done) };
     }))).filter(Boolean);
   }
 
@@ -710,7 +699,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       }
     }
     const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'item-message', 'overnight-triage']);
-    const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null, replies: [] })));
+    const replyIndex = await readReplyIndex(replies);
+    const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e, replyIndex) : { ...e, reply: null, replies: [] })));
     await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
       const lines = await readLines(threadFile(`ask:${e.id}`));
       if (lines.length) threadLines[`ask:${e.id}`] = lines;
@@ -1007,7 +997,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const mine = (await shownEvents()).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind)) || (e.kind === 'owner-answer' && asked.has(e.data?.id))      || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
     const lines = (await Promise.all([...keys].map((k) => readLines(threadFile(k))))).flat();
     const clearedAt = item?.lane === 'done' ? String(item.closed_at || '') : '';
-    return threadOf(key, { lines, events: await Promise.all(mine.map(withReply)), owner, working: await readWorking(here), delivered: await readDelivered(here), actedAt: routeRecord(await readActedOn(here), key) || '', listening: !boardAt(here) || (listenState(boardAt(here)) === 'listening' && sessionBusy(boardAt(here))), clearedAt, fromAsk: askId,
+    return threadOf(key, { lines, events: await Promise.all(mine.map((e) => withReply(e))), owner, working: await readWorking(here), delivered: await readDelivered(here), actedAt: routeRecord(await readActedOn(here), key) || '', listening: !boardAt(here) || (listenState(boardAt(here)) === 'listening' && sessionBusy(boardAt(here))), clearedAt, fromAsk: askId,
       links: own ? await askLinksOf(askId) : [], agents, moved, cards: new Map((await sharedBoard()).items.map((i) => [i.key, { ref: i.ref }])) });
   }
 
