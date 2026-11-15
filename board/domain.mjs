@@ -1337,7 +1337,7 @@ export function buildBoard(snapshot) {
     const open = it.kind === 'work' && it.lane !== 'done';
     const depKeys = new Set(it.deps.map((d) => (String(d).includes('/') ? d : `${it.file}/${d}`)));
     it.blockedBy = !open ? [] : [...depKeys].map((k) => byKey.get(k))
-      .filter((d) => d && d.lane !== 'done' && !d.reopened).map(linkOf);
+      .filter((d) => d && d.lane !== 'done' && !d.reopened).sort(byAge).map(linkOf);
     it.blockedUntil = open ? it.blockedUntil ?? null : null;
     it.blockReason = open ? it.blockReason ?? null : null;
     it.blocked = it.blockedBy.length > 0 || Boolean(it.blockedUntil);
@@ -1457,7 +1457,9 @@ export function withHub(built, { listen, prompts } = {}) {
 // naming a card of its own item file, as deps do.
 const linkOf = (card) => ({ key: card.key, ref: card.ref, lane: card.lane });
 const linkKey = (slug, k) => (String(k).includes('/') ? String(k) : `${slug}/${k}`);
-const byRef = (a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true });
+// Links list oldest first: by the cards' creation time, a card with none after those with one, ties by ref.
+const byAge = (a, b) => (a.created ? (b.created ? Date.parse(a.created) - Date.parse(b.created) : -1) : b.created ? 1 : 0)
+  || a.ref.localeCompare(b.ref, undefined, { numeric: true });
 // Each work card's Parent (one card or none; a Parent no longer on the board reads as its stored id), its Children
 // (the cards whose Parent it is), its Related to (set on either card, shown on both) and what Waits on it (the cards
 // it blocks, the mirror of blockedBy). A card with a Parent is a follow-up.
@@ -1476,7 +1478,7 @@ function linkCards(items, byKey, stored) {
       d.lane = byKey.get(d.key).lane;
     }
   }
-  const cards = (keys = []) => [...new Set(keys)].map((k) => byKey.get(k)).filter(Boolean).map(linkOf).sort(byRef);
+  const cards = (keys = []) => [...new Set(keys)].map((k) => byKey.get(k)).filter(Boolean).sort(byAge).map(linkOf);
   for (const it of items) {
     const parent = stored.get(it.key)?.parent;
     it.parent = parent ? (byKey.has(parent) ? linkOf(byKey.get(parent)) : { key: parent, ref: parent.slice(parent.indexOf('/') + 1) }) : null;

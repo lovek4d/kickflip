@@ -118,7 +118,7 @@ button.chip { border: 0; }
 .grid dt { color: var(--muted); }
 .grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 /* A link row's labels open their cards, with room to tap (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md). */
-.grid dd a.card-link { display: inline-block; padding: 6px 4px; margin: -6px 0; text-decoration: underline; text-underline-offset: 2px; }
+.grid dd a.card-link { text-decoration: underline; text-underline-offset: 2px; }
 .external-links-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .grid .external-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 0; }
 .external-link { white-space: nowrap; }

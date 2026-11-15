@@ -1684,9 +1684,9 @@ test("item files are storage only: a board over ~/.claude/waves builds no band, 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test('a card links to its Parent, lists its Children and its Related to cards on both sides, and a blocker lists what Waits on it; a card whose Parent left the board still links to its stored id', () => {
   const itemFile = { items: [
-    { id: 'GH-53', title: 'Parent', ticket: '#53', related: ['w/GH-75'] },
-    { id: 'GH-93', title: 'Second child', ticket: '#93', parent: 'w/GH-53', deps: ['GH-80'] },
-    { id: 'GH-87', title: 'First child', ticket: '#87', parent: 'w/GH-53', lane: 'done' },
+    { id: 'GH-53', title: 'Parent', ticket: '#53', created: '2026-11-01T10:00:00Z', related: ['w/GH-75'] },
+    { id: 'GH-93', title: 'Second child', ticket: '#93', parent: 'w/GH-53', deps: ['GH-80'], created: '2026-11-02T10:00:00Z' },
+    { id: 'GH-87', title: 'First child', ticket: '#87', parent: 'w/GH-53', lane: 'done', created: '2026-11-02T11:00:00Z' },
     { id: 'GH-80', title: 'Blocker', ticket: '#80' },
     { id: 'GH-75', title: 'Similar', ticket: '#75', related: ['w/GH-93'] },
     { id: 'GH-9', title: 'Orphan', ticket: '#9', parent: 'w/GH-404' },
@@ -1695,7 +1695,8 @@ test('a card links to its Parent, lists its Children and its Related to cards on
   const card = (id) => b.items.find((i) => i.id === id);
   const refs = (list) => list.map((l) => l.ref);
   assert.deepEqual(card('GH-93').parent, { key: 'w/GH-53', ref: '#53', lane: 'todo' });
-  assert.deepEqual(refs(card('GH-53').children), ['#87', '#93']);
+  // Oldest first by creation, not by ref: #93 was made before #87.
+  assert.deepEqual(refs(card('GH-53').children), ['#93', '#87']);
   assert.deepEqual(refs(card('GH-53').related), ['#75']);
   assert.deepEqual(refs(card('GH-75').related), ['#53', '#93']);
   assert.deepEqual(refs(card('GH-93').related), ['#75']);

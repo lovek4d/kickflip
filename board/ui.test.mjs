@@ -1180,9 +1180,11 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
     parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  assert.deepEqual(rows(card), [['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
+  assert.deepEqual(rows(card), [['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 , #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
     [['#selectedCard=w%2FGH-53', '#53'], ['#selectedCard=w%2FGH-94', '#94'], ['#selectedCard=w%2FGH-95', '#95'], ['#selectedCard=w%2FGH-75', '#75'], ['#selectedCard=w%2FGH-80', '#80'], ['#selectedCard=w%2FGH-99', '#99']]);
+  // The links are text joined by a comma and a space, with nothing else between them.
+  assert.match(B.detail(card), /<\/a>, <a class="card-link" href="#selectedCard=w%2FGH-95"/);
   assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Status', 'to do']]);
   // The Status row reads the card's lane and agent, never the item file's stored lane
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).

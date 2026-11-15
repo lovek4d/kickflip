@@ -228,9 +228,9 @@ BoardView.part((B) => {
     }
     if (it.branch) rows.push(['Branch', `<code>${esc(it.branch)}</code>`]);
     rows.push(['Status', esc(BoardUI.statusWord(it))]);
-    // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md: each link row is a row of labels that open their cards.
+    // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md: each link row is comma-separated text links that open their cards, oldest first.
     for (const [label, list] of [['Parent', it.parent ? [it.parent] : []], ['Children', it.children], ['Related to', it.related], ['Blocked by', it.blockedBy], ['Waits on it', it.waitsOnIt]]) {
-      if (list?.length) rows.push([label, list.map(cardLink).join(' ')]);
+      if (list?.length) rows.push([label, list.map(cardLink).join(', ')]);
     }
     if (it.manualSteps.length) rows.push(['Manual steps', linkText(it.manualSteps.join('; '), ctx)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
