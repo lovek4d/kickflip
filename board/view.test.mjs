@@ -457,7 +457,7 @@ function settingsPage({ settings = {}, board = {}, routes = {} } = {}) {
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md, docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md,
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
-for (const [key, id] of [['auto_build', 'autoBuild'], ['auto_triage', 'autoTriage'], ['auto_review', 'autoReview'], ['idle_notification', 'idleNotification']]) {
+for (const [key, id] of [['auto_build', 'autoBuild'],['auto_review', 'autoReview'], ['idle_notification', 'idleNotification']]) {
   test(`Board Settings saves ${key} at once with no confirmation, waits on its toggle, and puts the toggle back on refusal`, async () => {
     const s = await settingsPage({ settings: { [key]: false } }).mount();
     const toggle = s.root.querySelector(`#${id}`), status = s.root.querySelector(`#${id}Status`);
@@ -5866,7 +5866,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
     ['maxImplementers', 'Maximum parallel implementers'], ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
-    ['autoTriage', 'Triage overnight'], ['idleNotification', 'Idle notification'],
+    ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);
   assert.doesNotMatch(html, /<h2>(Merging|Builds|Todo)<\/h2>/);

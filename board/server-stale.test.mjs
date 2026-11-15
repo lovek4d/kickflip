@@ -301,8 +301,10 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   const boardFile = path.join(siteDir, 'board.json');
   // A0 In Progress holds one slot (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md), the
   // day's pull takes the other.
-  const boardJSON = (on) => put(boardFile, JSON.stringify({ items: 'data/items.json', slug: 't', auto_triage: on, max_implementers: 2 }));
-  boardJSON(false);
+  put(boardFile, JSON.stringify({ items: 'data/items.json', slug: 't', max_implementers: 2 }));
+  // The hub's Triage overnight switch (docs/adr/2026-11-16-0100-one-hub-triage-overnight-switch-replaces-the-board-toggle.md): on unless settings.json stores it off.
+  const triageOn = (on) => put(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify(on ? {} : { overnight: { triage: false } }));
+  triageOn(false);
   const wave = { items: [
     { id: 'A0', title: 'feat: running', lane: 'progress' },
     { id: 'A1', title: 'feat: one', lane: 'todo', phase: 'ready' },
@@ -328,10 +330,10 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   ask('q2', 't/A3');
   await board.changed(ownerFile);
   await board.minute();
-  assert.deepEqual(triages(), [], 'off by default');
+  assert.deepEqual(triages(), [], 'off at the hub');
 
   clock.set(Date.parse('2026-11-02T16:00:00Z'));
-  boardJSON(true);
+  triageOn(true);
   await board.changed(boardFile);
   assert.deepEqual(pulls(), ['t/A1'], 'the day\'s pull');
   await board.minute();

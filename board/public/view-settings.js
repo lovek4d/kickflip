@@ -63,10 +63,6 @@
     <span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch.</span></span>
     <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
   <p class="muted small" id="autoMergeStatus" role="status"></p>
-  <label class="who" for="autoTriage"><span><span>Triage overnight</span>
-    <span class="muted small sub">Once a night, when two or more tasks wait on your answers, Claude merges their overlapping questions and duplicate tasks, and tidies Todo.</span></span>
-    <input type="checkbox" class="toggle" id="autoTriage" disabled></label>
-  <p class="muted small" id="autoTriageStatus" role="status"></p>
   <label class="who" for="idleNotification"><span><span>Idle notification</span>
     <span class="muted small sub">Pushes once when the board has been idle for 15 minutes, with what closed since the last one.</span></span>
     <input type="checkbox" class="toggle" id="idleNotification" disabled></label>
@@ -527,8 +523,6 @@
         $(`#${id}`).value = savedCaps[key] = String(d.settings?.[key]);
         $(`#${id}`).disabled = false;
       }
-      $('#autoTriage').checked = d.settings?.auto_triage === true;
-      $('#autoTriage').disabled = false;
       $('#autoReview').checked = d.settings?.auto_review === true;
       $('#autoReview').disabled = false;
       $('#idleNotification').checked = d.settings?.idle_notification === true;
@@ -661,7 +655,6 @@
     capInput('maxServes', 'max_serves', (n) => `Saved. Up to ${n === 1 ? '1 serve stays' : `${n} serves stay`} up at once.`);
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
-    autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a night, when tasks wait on your answers, Claude triages them.' : 'Saved. Questions and Todo are left as they are.'));
     for (const want of Object.keys(TOOL_USE)) B.on($(`[data-tool-use="${want}"]`), 'click', async () => {
       const button = $(`[data-tool-use="${want}"]`);
       if (want === toolUse) return;

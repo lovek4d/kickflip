@@ -474,7 +474,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false,
                                                          "max_implementers": 5,
-                                                         "max_serves": 10, "auto_triage": false,
+                                                         "max_serves": 10,
                                                          "auto_review": false, "idle_notification": false,
                                                          "skip_draft": false, "prs": true,
                                                          "github_login": "owner"}
@@ -518,14 +518,6 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          touches, asked} for one incoming PR at a time that touches
                                                          this board's tasks or asks the owner for review. Off by
                                                          default. Only on the owner's word
-  settings set auto-triage on|off                       on: once a night, from the middle of the hub's quiet hours
-                                                         to their end, when two or more tasks wait on open
-                                                         questions, nothing builds and something changed since the
-                                                         last triage, the board server declares topic
-                                                         overnight-triage-<date> ("Overnight triage <date>") and
-                                                         sends overnight-triage {date, topic, tasks}; the pull
-                                                         waits until you reply to it. Off by default. Only on the
-                                                         owner's word
   settings set tickets <json>                            the board's ticket source, as Board Settings' Tickets row
                                                          saves it: {"source":"internal","prefix":"OPS"},
                                                          {"source":"github","account":"<gh login>"} or

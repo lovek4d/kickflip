@@ -5,7 +5,7 @@
 // below through bin/board.mjs (store.mjs):
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build,max_implementers, max_serves, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // build_target names the script, .kickflip/build-<target>, else .kickflip/build.
 // auto_merge (false when absent) lets the session merge
@@ -214,7 +214,7 @@
 //                                tracked in data/pulled.json, its record dispatched: 'hub'. The helpers board.mjs agent
 //                                launch asked for (launchHelpers), the landers and the rebase runs take no slot.
 //                                Neither appends an event.
-//                                With auto_triage on, once a night from the middle of the hub's quiet hours to their
+//                                With the hub's Triage overnight on, once a night from the middle of the hub's quiet hours to their
 //                                end, an idle board with two or more cards waiting on open questions (domain.mjs
 //                                triageOf) gets overnight-triage {date, topic, cards} first, unless nothing changed
 //                                since the last triage, tracked in data/triaged.json; until Claude
@@ -253,13 +253,13 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build,max_implementers, max_serves, auto_triage, auto_review, idle_notification, skip_draft, prs, build_target?} (store.mjs readBoardSettings),
+//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, build_target?} (store.mjs readBoardSettings),
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets)
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (store.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99?: 1..99, max_serves?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   POST /api/share              {add: login} | {remove: login} | {login, level: view | full} → board.json's share, the
@@ -348,6 +348,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
+import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
@@ -1636,7 +1637,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       dataVersion++;
     }
     if (!heldByPause) await launchHelpers(helpers);
-    await checkTriage(settings, log, items, ready);
+    await checkTriage(log, items, ready);
     const held = pullable.filter((k) => hold.includes(k));
     if (held.length) logCall({ call: 'pull', result: 'held', reason: 'An overnight triage waits for the session\'s reply and names these tasks, so the pull leaves them until it is answered or quiet hours end.', inputs: { cards: held } });
     // Near the line the pull starts one card a pass, and none once another launch is waiting on its first reading.
@@ -2137,7 +2138,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // data/triaged.json {seen}: what the last triage saw (domain.mjs triageOf), kept current until that triage's reply so
   // its own merges and dedupes don't read as a change. The event log says when the last triage went out. No new triage
   // goes out while the last has no reply.
-  async function checkTriage(settings, log, items, ready) {
+  async function checkTriage(log, items, ready) {
     const file = path.join(data, 'triaged.json');
     const marker = await readJSON(file, {});
     const { waiting, seen } = triageOf(items);
@@ -2148,7 +2149,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     };
     const last = log.filter((e) => e.kind === 'overnight-triage').at(-1);
     if (last && !(await withReply(last)).reply) { if (marker.seen !== seen) await save(); return; }
-    if (!settings.auto_triage || !ready || waiting.length < 2 || seen === marker.seen) return;
+    if (!(await triageOn()) || !ready || waiting.length < 2 || seen === marker.seen) return;
     const date = await triageNight();
     if (!date || last?.data?.date === date) return;
     const topic = `overnight-triage-${date}`;
@@ -2172,9 +2173,15 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return last && quietAt(now(), quiet) ? last.data.cards || [] : [];
   }
 
-  // Whether the minute check runs the Auto jobs for an overnight triage: auto_triage is on, and tonight's hasn't gone out.
+  // The hub's Triage overnight switch (docs/adr/2026-11-16-0100-one-hub-triage-overnight-switch-replaces-the-board-toggle.md),
+  // read from settings.json each time, since the owner flips it there.
+  async function triageOn() {
+    return overnightOn('triage', await readJSON(path.join(home, '.claude', 'kickflip', 'settings.json'), {}));
+  }
+
+  // Whether the minute check runs the Auto jobs for an overnight triage: the hub's Triage overnight is on, and tonight's hasn't gone out.
   async function triageDue() {
-    if (!settingsOf(await config()).auto_triage) return false;
+    if (!(await triageOn())) return false;
     const date = await triageNight();
     return Boolean(date) && (await readLines(events)).filter((e) => e.kind === 'overnight-triage').at(-1)?.data?.date !== date;
   }

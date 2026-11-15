@@ -206,7 +206,7 @@ import { caffeinate, setKeepAwake, awakeOn, awakeUnsupported } from './awake.mjs
 import { endOf } from './duration.mjs';
 import { nodeBin } from '../bin/install.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
-import { overnightJobs, setOvernight } from './overnight.mjs';
+import { migrateTriage, overnightJobs, setOvernight } from './overnight.mjs';
 import { checkIncoming } from './incoming.mjs';
 import { drainRoutes, routedRows } from './router.mjs';
 import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
@@ -321,6 +321,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   try { const routes = await migrateWaveNames(); if (routes.length) log(`boards: lineups renamed to waves and wave files to item files on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('wave name migration failed:', e.message); }
   try { const routes = await migrateDropWaves(); if (routes.length) log(`boards: waves dropped on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('drop waves migration failed:', e.message); }
   try { const { routes, loginItem } = await migrateCellarNode(); if (routes.length) log(`manifest: ${routes.map((r) => `/${r}`).join(', ')} spawn node by Homebrew's link`); if (loginItem) log("hub login item file: spawns node by Homebrew's link"); } catch (e) { log('Cellar node migration failed:', e.message); }
+  try { const moved = migrateTriage(); if (moved) log(`boards: auto_triage moved to the hub's Triage overnight switch, ${moved.on ? 'on' : 'off'}`); } catch (e) { log('triage migration failed:', e.message); }
   const repos = repoService();
   const readUsage = usageReader();
   awake.apply();
