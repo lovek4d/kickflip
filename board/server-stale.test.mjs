@@ -526,17 +526,14 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   assert.deepEqual(wakes()[1], { added: [], again: [again] });
   clock.advance(11);
   await board.minute();
-  assert.equal(pushes().length, 1, 'pushed 30 minutes on');
-  assert.equal(flag(pushes()[0], 'title'), 'A1 waits on the orchestrator');
-  assert.equal(flag(pushes()[0], 'body'), "One: Verify the builder's judgment calls");
-  assert.equal(flag(pushes()[0], 'tag'), 'wait-t/A1');
-  assert.equal(waits()[0].pushed, true, 'the push is kept');
-  assert.equal(wakes().length, 2, 'the push is no wake');
+  assert.equal(pushes().length, 0, 'no push 30 minutes on: the reminder is the re-wake');
+  assert.equal(waits()[0].pushed, undefined);
+  assert.equal(wakes().length, 2, 'nothing wakes at 30 minutes');
   await board.stop();
   await board.start();
   await board.minute();
   assert.equal(wakes().length, 2, 'no wake after a restart before its time');
-  assert.equal(pushes().length, 1, 'no second push after a restart');
+  assert.equal(pushes().length, 0, 'no push after a restart');
   clock.advance(4);
   await board.minute();
   assert.equal(wakes().length, 3, 'the restart kept the last wake: woken 15 minutes after it');
@@ -558,7 +555,7 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
 });
 
 // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md
-test('an event no task holds stays on the orchestrator list past its wake, wakes again 15 minutes on, pushes at 30, and leaves once its command records it', async (t) => {
+test('an event no task holds stays on the orchestrator list past its wake, wakes again 15 minutes on, never pushes, and leaves once its command records it', async (t) => {
   const { dir, siteDir, dataDir, clock } = scratch(t, 'event-waits', Date.parse('2026-11-15T10:00:00Z'));
   const eventsFile = path.join(dataDir, 'events.jsonl');
   const waitsFile = path.join(dataDir, 'orchestrator-waits.json');
@@ -598,12 +595,7 @@ test('an event no task holds stays on the orchestrator list past its wake, wakes
   assert.match(wakes().at(-1).again[0].next, /review post 12/);
   clock.advance(15);
   await board.minute();
-  assert.deepEqual(pushes().map((c) => [flag(c, 'title'), flag(c, 'url'), flag(c, 'tag')]).filter(([, , tag]) => ids.has(tag.slice(5))).sort(), [
-    ['A1 waits on the orchestrator', '/site/#selectedCard=t%2FA1&reply', 'wait-a1'],
-    ['PR #12 waits on the orchestrator', '/site/#review=12', 'wait-p1'],
-    ['PR #13 waits on the orchestrator', '/site/#review=13', 'wait-r1'],
-    ['Slack · Ann waits on the orchestrator', '/site/', 'wait-s1'],
-  ]);
+  assert.deepEqual(pushes(), [], 'no push 30 minutes on');
   // review post and review record write reviews.json; the audit task closes with no findings; slack answer appends
   // slack-handled.
   put(reviewsFile, JSON.stringify({ 12: { number: 12, head: 'aaa', state: 'posted', text: 'Fine', at: iso(clock.at + 1000) }, 13: { ...held[13], state: 'posted', at: iso(clock.at + 1000) } }));

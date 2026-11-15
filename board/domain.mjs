@@ -1870,11 +1870,11 @@ export const pushTag = (key) => (key.startsWith('ask:') ? `ask-${key.slice(4)}` 
 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // What waits on the owner in a built board, one entry per push tag: each card with Action needed (pushTag), each
-// Needs you line for a topic off the cards, tagged topic-<id>, and each held review, tagged review-<PR number>. questions are the open questions behind it, oldest
+// Needs you line for a topic off the cards, tagged topic-<id>, and each held review, tagged review-<PR number>; a card's Done tap is no action here. questions are the open questions behind it, oldest
 // first. url is relative to the site root. → [{tag, kind, title, body, url, questions: [{id, question}]}]
 export function ownerActions(built) {
   const open = (topic) => built.owner.filter((q) => q.topic === topic && q.state === 'open').map(({ id, question }) => ({ id, question }));
-  const cards = built.items.filter((it) => it.action).map((it) => {
+  const cards = built.items.filter((it) => it.action && it.action.kind !== ACTION_KIND.close).map((it) => {
     const questions = ASKING.has(it.action.kind) ? open(it.questions.topic) : [];
     return { tag: pushTag(it.key), kind: it.action.kind, title: `${it.ref}: ${it.action.label}`, body: questions[0]?.question || it.title,
       url: questions.length ? it.action.url : `#selectedCard=${encodeURIComponent(it.key)}`, questions };
@@ -1900,7 +1900,6 @@ const ROW_PARTS = [
   [[ACTION_KIND.script], (n) => `${plural(n, 'script')} to run`],
   [[ACTION_KIND.questions], (n) => plural(n, 'question'), (a) => a.questions.length],
   [['review'], (n) => `${plural(n, 'review')} held`],
-  [[ACTION_KIND.close], (n) => `${n} to close`],
 ];
 export function ownerRow(actions, { route, title }) {
   const tag = `board-${route}`;
@@ -2066,8 +2065,6 @@ export function orchestratorWaits(built) {
     .map((w) => ({ key: i.key, ref: i.ref, title: i.title, ...w, bumpedAt: i.bumpedAt || null })));
   return [...waits.filter((w) => w.bumpedAt).sort((a, b) => a.bumpedAt.localeCompare(b.bumpedAt)), ...waits.filter((w) => !w.bumpedAt)];
 }
-// How long a card waits on the orchestrator, not picked up, before the board pushes the owner about it once.
-export const ORCHESTRATOR_PUSH_AFTER = 30 * 60000;
 
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
 // How long a wait nobody picked up goes between wakes, and how long a picked-up one that stays open goes, from its pickup.
@@ -2099,7 +2096,7 @@ export function waitsStep(previous, current, now, lastAgain = null) {
     const due = now - Date.parse(last) >= (!w.picked ? REWAKE_AFTER : w.daily ? DAILY_REWAKE_AFTER : PICKED_REWAKE_AFTER);
     const wakes = due && clockOpen;
     if (wakes) again.push({ key: w.key, ref: w.ref, kind: w.kind, since: w.since, next: w.next });
-    return { ...w, bumped: wakes ? at : was.bumped || w.since, ...(was.pushed ? { pushed: true } : {}) };
+    return { ...w, bumped: wakes ? at : was.bumped || w.since };
   });
   return { waits, added, again, againAt: again.length ? at : lastAgain };
 }

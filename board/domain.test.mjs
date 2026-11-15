@@ -2747,10 +2747,9 @@ test('a wait still open re-wakes the session every 15 minutes until picked up, t
   // A new kind or since is a new wait: it joins, it doesn't re-wake.
   const anew = waitsStep(due.waits, [wait({ kind: 'ask', since: iso(40) })], at(41));
   assert.deepEqual([anew.added, anew.again], [['w/A1'], []]);
-  // Several due at once ride one batch; a stored entry from before re-wakes kept its push and counts from its since.
-  const two = waitsStep([{ ...wait(), pushed: true }, wait({ key: 'w/A2', ref: 'A2' })], [wait(), wait({ key: 'w/A2', ref: 'A2' })], at(20));
+  // Several due at once ride one batch; a stored entry from before re-wakes counts from its since.
+  const two = waitsStep([wait(), wait({ key: 'w/A2', ref: 'A2' })], [wait(), wait({ key: 'w/A2', ref: 'A2' })], at(20));
   assert.deepEqual([two.added, keys(two.again)], [[], ['w/A1', 'w/A2']]);
-  assert.equal(two.waits[0].pushed, true);
   // A wait that closes leaves the list.
   assert.deepEqual(waitsStep(due.waits, [], at(60)), { waits: [], added: [], again: [], againAt: null });
 });
@@ -3129,6 +3128,14 @@ test("ownerRow is the board's one live notification: nothing owed is none, one e
   const two = { ...question, questions: [{ id: 'q1', question: 'Keep?' }, { id: 'q2', question: 'Ship?' }] };
   assert.deepEqual(ownerRow([action('implement'), two, action('pick')], board),
     { tag: 'board-hub-orchestrator', title: 'Hub Orchestrator (3)', body: '2 builds wait on you · 2 questions', url: 'questions.html' });
-  const every = ['close', 'review', 'questions', 'script', 'ready', 'steps', 'merge', 'implement', 'stalled'].map((kind) => action(kind, kind === 'questions' ? { questions: [{ id: 'q', question: 'Q?' }] } : {}));
-  assert.equal(ownerRow(every, board).body, '1 stalled · 1 build waits on you · 2 merges wait on you · 1 draft to review · 1 script to run · 1 question · 1 review held · 1 to close');
+  const every = ['review', 'questions', 'script', 'ready', 'steps', 'merge', 'implement', 'stalled'].map((kind) => action(kind, kind === 'questions' ? { questions: [{ id: 'q', question: 'Q?' }] } : {}));
+  assert.equal(ownerRow(every, board).body, '1 stalled · 1 build waits on you · 2 merges wait on you · 1 draft to review · 1 script to run · 1 question · 1 review held');
+});
+
+// docs/adr/2026-11-15-1500-tap-done-and-orchestrator-wait-reminders-do-not-push.md
+test("a card's Tap Done is no owner action: it neither pushes nor counts in the board's row", () => {
+  const item = (key, kind) => ({ key, ref: key, title: 'The card', action: { kind, label: kind, url: `#${key}` } });
+  const built = { items: [item('w/A1', 'close'), item('w/A2', 'implement')], needs: [], owner: [], reviews: { cards: [] } };
+  assert.deepEqual(ownerActions(built).map((a) => a.kind), ['implement']);
+  assert.equal(ownerActions({ ...built, items: [item('w/A1', 'close')] }).length, 0);
 });

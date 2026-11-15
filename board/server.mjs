@@ -233,9 +233,8 @@
 //                                Each card that joins the list of cards idle on the orchestrator (domain.mjs
 //                                orchestratorWaits), kept in data/orchestrator-waits.json for the watcher, appends
 //                                orchestrator-waits {added: [key], again}, again naming each still waiting 15 minutes
-//                                on from its last wake, or an hour once picked up (domain.mjs waitsStep), and one left
-//                                30 minutes not picked up pushes the owner once (checkWaits), checked on every board
-//                                change and each minute
+//                                on from its last wake, or an hour once picked up (domain.mjs waitsStep); it never
+//                                pushes the owner (checkWaits), checked on every board change and each minute
 //                                Each minute it passes the owner a finished grill's questions left 15 minutes unscreened
 //                                by the orchestrator (store.mjs publishUnscreened)
 //                                With idle_notification on, a board strictly idle for 15 minutes (domain.mjs
@@ -351,7 +350,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, eventWaits, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, orchestratorWaits, triageWaitOf, eventWaits, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -2288,12 +2287,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
   // data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, picked, next, bumped, pushed?, link?}], againAt}: the cards idle on
   // the orchestrator (domain.mjs orchestratorWaits), lanes top-down, then an unanswered triage, the events no task
-  // holds (domain.mjs eventWaits, link the page hash their push opens) and other boards' questions, which bin/wait-events.mjs prints on every wake. Each
+  // holds (domain.mjs eventWaits) and other boards' questions, which bin/wait-events.mjs prints on every wake. Each
   // check appends at most one orchestrator-waits {added: [key], again: [{key, ref, kind, since, next}]} event once the file
   // is written: added names each card that joins it not picked up, or waits again with a new kind or since; again each
-  // one still waiting past its re-wake time (domain.mjs waitsStep), so reading the event lines alone misses no wait. One
-  // waiting ORCHESTRATOR_PUSH_AFTER, not picked up, pushes the owner once, and its entry keeps pushed while that wait
-  // lasts. Checked on every board change and each minute; a check asked for while one runs runs again after it.
+  // one still waiting past its re-wake time (domain.mjs waitsStep), so reading the event lines alone misses no wait.
+  // A wait never pushes the owner: the re-wake is the reminder. Checked on every board change and each minute; a check asked for while one runs runs again after it.
   let checkingWaits = null;
   let waitsAgain = false;
   function checkWaits() {
@@ -2314,27 +2312,17 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const triage = await unansweredTriage(log);
     const working = await readWorking(here);
     // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: each question another board
-    // asked, after the cards' waits, as a triage is; neither is a card, so neither pushes the owner.
+    // asked, after the cards' waits, as a triage is.
     const questions = boardAskWaits(log, working);
     const built = await sharedBoard();
     // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: each event no task
-    // holds, after the triage; each pushes the owner as a card's wait does, opening its link.
+    // holds, after the triage.
     const unhandled = eventWaits(log, { items: built.items, incoming: await readJSON(path.join(data, 'incoming.json'), null), reviews: await readJSON(path.join(data, 'reviews.json'), {}) });
     const current = [...orchestratorWaits(built), ...(triage ? [triageWaitOf(triage, routeRecord(working, triage.id))] : []), ...unhandled, ...questions];
-    const notCards = new Set([triage?.id, ...questions.map((q) => q.key)]);
-    const links = new Map(unhandled.map((w) => [w.key, w.link]));
     const step = waitsStep(previous, current, now(), stored?.againAt ?? null);
-    const waits = [];
-    for (const w of step.waits) {
-      if (!notCards.has(w.key) && !w.picked && !w.pushed && now().getTime() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
-        await sendOwnPush({ kind: 'reminder', title: `${w.ref} waits on the orchestrator`, body: `${w.title}: ${w.next}`, url: `/${route}/${links.has(w.key) ? links.get(w.key) : `#selectedCard=${encodeURIComponent(w.key)}`}`, tag: `wait-${w.key}`, now: true },
-          { key: w.key, reason: `It has waited on the orchestrator since ${w.since} and nobody picked it up.`, inputs: { kind: w.kind, since: w.since } });
-        waits.push({ ...w, pushed: true });
-      } else waits.push(w);
-    }
-    if (!stored || JSON.stringify(waits) !== JSON.stringify(previous) || step.againAt !== (stored.againAt ?? null)) {
+    if (!stored || JSON.stringify(step.waits) !== JSON.stringify(previous) || step.againAt !== (stored.againAt ?? null)) {
       await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify({ waits, againAt: step.againAt }) + '\n');
+      await fs.writeFile(file + '.tmp', JSON.stringify({ waits: step.waits, againAt: step.againAt }) + '\n');
       await fs.rename(file + '.tmp', file);
     }
     if (step.added.length || step.again.length) await appendEvent('orchestrator-waits', { added: step.added, again: step.again });
