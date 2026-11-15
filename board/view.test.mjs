@@ -6416,6 +6416,21 @@ test("a thread's Questions added line keeps its words, orange while a question o
   s.view.unmount();
 });
 
+test("a card's Questions button opens that topic's questions sheet in place, with only its questions, leaving the page's URL and scroll alone", async () => {
+  const base = questionsBoard([openQuestion('qa', 'item:w/A1'), openQuestion('qc', 'item:w/B1')], []);
+  const s = sheetOnDom({ board: { ...base, items: [workCard('A1', { lane: 'progress', actionButton: 'openQuestions', resolvedBy: 'openQuestions', questions: { topic: 'item:w/A1', first: 'qa', open: 1, state: 'open' } }), workCard('B1')] } });
+  await s.settle();
+  const button = s.root.querySelector('a.button[href="questions.html#qa"]');
+  assert.ok(button, 'the card has its Questions button');
+  s.page.win.scrollY = 700;
+  const hash = s.page.win.location.hash;
+  let prevented = false;
+  s.page.fire(s.root, 'click', { target: button, button: 0, preventDefault: () => { prevented = true; } });
+  assert.deepEqual([prevented, s.sheet().open, s.ids()], [true, true, ['qa']], "the tap is kept from navigating and opens only card A1's questions");
+  assert.deepEqual([s.page.win.scrollY, s.page.win.location.hash], [700, hash], 'the page under it did not move');
+  s.view.unmount();
+});
+
 test("the questions sheet's Send sends the answers as Waiting on you does, closes the sheet and leaves the page where it was", async () => {
   const s = sheetOnDom();
   await s.settle();
