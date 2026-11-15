@@ -162,7 +162,7 @@ test('a held card resumes itself within a minute of its pick-up time, once per t
 });
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-test('with auto implement on the board starts and launches the build of the top pullable Todo cards at start and on each change, filling free slots up to Maximum parallel implementers, once each across a restart, and never while paused', async (t) => {
+test('with auto implement on the board starts and launches the build of the top pullable Todo cards at start and on each change, filling free slots up to Maximum tasks in progress, once each across a restart, and never while paused', async (t) => {
   const { dir, siteDir, dataDir, clock } = scratch(t, 'auto-pull', Date.parse('2026-11-02T16:00:00Z'));
   const waveFile = path.join(dataDir, 'items.json');
   const eventsFile = path.join(dataDir, 'events.jsonl');

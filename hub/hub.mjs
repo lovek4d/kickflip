@@ -973,8 +973,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
       home: fs.realpathSync(os.homedir()),
       starting,
-      // The readings alone: the newest Claude run's start is the gate's (pause.near).
-      usage: (({ start: _, ...readings }) => readings)(readUsage({ codexShare: readCodexShare(readCodex()) })),
+      usage: readUsage({ codexShare: readCodexShare(readCodex()) }),
       pause: readUsageGate(),
       notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
       away: !owner.state().present,

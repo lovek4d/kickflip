@@ -928,13 +928,6 @@ const usageAt = (home, used) => {
   const resets = new Date(Date.now() + 3600_000).toISOString();
   fs.writeFileSync(file, JSON.stringify({ claude: { at: new Date(Date.now() - 600_000).toISOString(), five_hour: { used_percentage: used, resets_at: resets }, seven_day: { used_percentage: 20, resets_at: resets } } }));
 };
-// The newest run's log reports used, as a Claude run's rate_limit_event does.
-const reportUsage = (home, used) => {
-  const dir = path.join(home, '.claude', 'kickflip', 'logs');
-  const newest = fs.readdirSync(dir).filter((n) => n.endsWith('.log')).sort().at(-1);
-  const resetsAt = Math.round(Date.now() / 1000) + 3600;
-  fs.appendFileSync(path.join(dir, newest), JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: used / 100, resetsAt, status: 'allowed' }, seven_day: { utilization: 0.2, resetsAt, status: 'allowed' } } } }) + '\n');
-};
 
 test('a grill briefed during a pause waits on the card and launches when the pause lifts', async (t) => {
   const b = oneLaunchBoard(t, [{ id: 'G1', title: 'Grill me', phase: 'grilling' }]);
@@ -956,20 +949,13 @@ test('a grill briefed during a pause waits on the card and launches when the pau
   assert.equal(b.runs.length, 1, 'it launches once');
 });
 
-test('within twice the buffer of the line the board starts one agent, and the next once that one has reported its usage', async (t) => {
+test("within twice the buffer of the line the board launches every grill at once: only the pull's cap halves", async (t) => {
   const b = oneLaunchBoard(t, [{ id: 'A1', title: 'First', phase: 'grilling' }, { id: 'A2', title: 'Second', phase: 'grilling' }]);
   fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
   usageAt(b.home, 85);
-  const { board, brief } = await b.start();
+  const { brief } = await b.start();
   for (const id of ['A1', 'A2']) await brief(id, 'grill', `Grill ${id}.`);
-  assert.equal(b.runs.length, 1, 'the first grill launches');
-  board.minute();
-  await board.settled();
-  assert.equal(b.runs.length, 1, 'the second waits for the first run to report');
-  reportUsage(b.home, 86);
-  board.minute();
-  await board.settled();
-  assert.equal(b.runs.length, 2, 'the second grill launches once the first has reported');
+  assert.equal(b.runs.length, 2, 'near the line a launch waits on no usage reading');
 });
 
 test('a build whose builder fails to launch goes back to Todo with the reason, and wakes no session', async (t) => {

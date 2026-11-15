@@ -11,3 +11,5 @@ On 11/06 three Opus builds started together at 87% and all hit the 5-hour limit 
 - **Planners asked for during a hold wait.** A grill or prototype the owner asks for, or a gate's yes starts, while launches are held waits in `data/queued-planners.json` with a thread line, and launches first in the next pass once the hold lifts.
 
 Superseded in part by [a card pause stops its builder at its next stopping point](2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md): running work no longer finishes past the line; its build pauses at its next stopping point.
+
+Superseded in part by [near the usage line, tasks in progress drop to half the cap](2026-11-16-0300-near-the-usage-line-tasks-in-progress-drop-to-half-the-cap.md): Near the line, the wait on a first reading and the banner wording.

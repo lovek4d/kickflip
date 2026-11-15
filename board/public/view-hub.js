@@ -267,8 +267,8 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
           if (['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
             last = out; flash = null; paint();
             if (action.endsWith('/keep-going')) B.toast(out.pause.state === 'going' ? `Keep going: work runs past the buffer until ${BoardUI.usageClock(out.pause.resets_at)}.`
-              : out.pause.near?.going ? `Keep going: agents start in parallel until ${BoardUI.usageClock(out.pause.near.resets_at)}.`
-              : out.pause.near ? 'Stopped: agents start one at a time again.' : 'Stopped: new work waits again.');
+              : out.pause.near?.going ? `Keep going: tasks in progress back to the full cap until ${BoardUI.usageClock(out.pause.near.resets_at)}.`
+              : out.pause.near ? 'Stopped: parallel tasks in progress are reduced again.' : 'Stopped: new work waits again.');
           } else { flash = null; load(); settings.B.refreshSettings?.(); }
           ctx.sidebarChanged?.();
         },

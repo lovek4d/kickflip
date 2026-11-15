@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, launchHeld, pauseReasonFor, pauseReason, pausedLine } from './usage-gate.mjs';
+import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, tasksInProgressCap, pauseReasonFor, pauseReason, pausedLine } from './usage-gate.mjs';
 import { readClaudeModel, setClaudeModel } from '../hub/push.mjs';
 import { tempDir } from './temp-dir.mjs';
 
@@ -69,38 +69,30 @@ test('each kind of agent is held by its own usage: Claude by the pause, Codex pa
 });
 
 // docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
-test('within twice the buffer of the line the gate is near, and a Claude start waits for its first reading for up to ten minutes', () => {
-  const started = (ago, reported = false) => ({ at: new Date(now - ago).toISOString(), reported });
+test('within twice the buffer of the line the gate is near, and near the line the cap is half of it rounded up', () => {
   assert.equal(gate({ claude: reading(79, 20) }).near, null);
-  assert.deepEqual(gate({ claude: reading(80, 20) }).near, { window: 'five_hour', used: 80, resets_at: until, from: 80, going: false, waiting: false });
+  assert.deepEqual(gate({ claude: reading(80, 20) }).near, { window: 'five_hour', used: 80, resets_at: until, from: 80, going: false });
   assert.equal(gate({ claude: reading(40, 85) }).near.window, 'seven_day');
   assert.equal(gate({ pauseAt: 80, claude: reading(60, 20) }).near.from, 60);
   assert.equal(gate({ pauseAt: 100, claude: reading(99, 99) }).near, null, 'Off has no band');
   assert.equal(gate().near, null, 'past the line it is paused, not near');
   assert.equal(gate({ claude: { five_hour: win(85, until, 'stale') } }).near, null);
-  const near = (start, extra = {}) => gate({ claude: reading(85, 20), start, ...extra });
-  assert.equal(near(started(60_000)).near.waiting, true);
-  assert.equal(near(started(60_000, true)).near.waiting, false);
-  assert.equal(near(started(600_000)).near.waiting, false, 'a run that never reports holds the starts ten minutes at most');
-  assert.equal(near(null).near.waiting, false);
-  assert.equal(gate({ claude: reading(70, 20), start: started(60_000) }).near, null);
-  const waiting = near(started(60_000));
-  assert.equal(waiting.state, 'normal');
-  assert.deepEqual(['claude', 'grill', 'codex'].map((k) => launchHeld(waiting, k)), [true, true, false]);
-  assert.deepEqual([heldFor(waiting, 'claude'), holdsWork(waiting)], [false, false], 'only the board server waits: a start the owner or a session makes goes');
-  assert.equal(launchHeld(gate(), 'claude'), true);
-  assert.equal(launchHeld(gate({ claude: reading(20, 20) }), 'claude'), false);
-  assert.equal(pauseReasonFor(waiting, 'claude'), "Work is held: Claude's 5-hour usage is at 85%, near the 90% line, so agents start one at a time, each once the last one has reported its usage. The owner can tap Keep going on the Hub page.");
+  const near = gate({ claude: reading(85, 20) });
+  assert.deepEqual([1, 4, 5, 6, 10].map((cap) => tasksInProgressCap(near, cap)), [1, 2, 3, 3, 5]);
+  assert.deepEqual([1, 5].map((cap) => tasksInProgressCap(gate({ claude: reading(70, 20) }), cap)), [1, 5], 'under the band the cap is whole');
+  assert.equal(tasksInProgressCap(gate(), 5), 5, 'past the line the pause holds, not the cap');
+  assert.equal(near.state, 'normal');
+  assert.deepEqual(['claude', 'grill', 'codex'].map((k) => heldFor(near, k)), [false, false, false], 'near the line nothing is held, only the cap');
+  assert.equal(heldFor(gate(), 'claude'), true);
 });
 
-test("Keep going near the line lets agents start together until the window's reset, and never lifts the pause at the line", () => {
-  const start = { at: new Date(now - 60_000).toISOString(), reported: false };
+test("Keep going near the line restores the full cap until the window's reset, and never lifts the pause at the line", () => {
   const keepGoing = { window: 'five_hour', until, near: true };
-  const going = gate({ claude: reading(85, 20), start, keepGoing });
-  assert.deepEqual([going.near.going, going.near.waiting, launchHeld(going, 'claude')], [true, false, false]);
-  assert.equal(gate({ claude: reading(40, 85), start, keepGoing }).near.waiting, true, 'it covers only its own window');
+  const going = gate({ claude: reading(85, 20), keepGoing });
+  assert.deepEqual([going.near.going, tasksInProgressCap(going, 5)], [true, 5]);
+  assert.equal(tasksInProgressCap(gate({ claude: reading(40, 85), keepGoing }), 5), 3, 'it covers only its own window');
   assert.equal(gate({ keepGoing }).state, 'paused');
-  assert.equal(gate({ claude: reading(85, 20), start, keepGoing: { window: 'five_hour', until } }).near.waiting, true, "the line's Keep going isn't the band's");
+  assert.equal(tasksInProgressCap(gate({ claude: reading(85, 20), keepGoing: { window: 'five_hour', until } }), 5), 3, "the line's Keep going isn't the band's");
 });
 
 // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
@@ -190,7 +182,7 @@ test('the file reader follows setting changes and resets while writes preserve o
   setPauseAt('95', { home: f.home });
   assert.equal(readUsageGate({ home: f.home, now }).state, 'normal');
   setKeepGoing('on', { home: f.home, now });
-  assert.deepEqual(f.settings().keepGoing, { window: 'five_hour', until, near: true }, 'near the line, Keep going lifts the one-at-a-time starts');
+  assert.deepEqual(f.settings().keepGoing, { window: 'five_hour', until, near: true }, 'near the line, Keep going lifts the halved cap');
   assert.equal(readUsageGate({ home: f.home, now }).near.going, true);
   setKeepGoing('off', { home: f.home });
   setPauseAt('100', { home: f.home });

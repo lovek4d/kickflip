@@ -1683,12 +1683,12 @@ export function needsAnswer(b) {
 const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.blocked && !i.recheckAt;
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-// A board's Maximum parallel implementers when board.json sets none.
+// A board's Maximum tasks in progress when board.json sets none.
 export const MAX_IMPLEMENTERS = 5;
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
-// For built items in board order, cap the board's Maximum parallel implementers and pulled the cards the pull started
+// For built items in board order, cap the board's Maximum tasks in progress and pulled the cards the pull started
 // builds on: each open card In Progress takes one slot until it lands, whatever runs on it, building, in Orchestrator
 // review, landing, waiting on the owner, paused or stalled, and however many agents, unless a task blocks it
 // or an open owner question waits on (docs/adr/2026-11-16-0300-a-blocked-in-progress-card-takes-no-slot.md,

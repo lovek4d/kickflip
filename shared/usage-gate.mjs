@@ -33,10 +33,9 @@ export const pauseUntilWords = (end) => (end === FOREVER ? 'until the owner resu
 // machine is the Mac's state (machine-gate.mjs readMachineState), which the gate carries as it is: a busy Mac holds
 // all new work (holdsWork, heldFor) and leaves state, the usage pause's, alone.
 // near (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md): under the line, a live Claude
-// window within twice the buffer of it, {window, used, resets_at, from, going, waiting}, else null. start is the newest
-// Claude run's launch (hub/usage.mjs usageReader's); waiting while it hasn't reported its usage, for up to START_WAIT_MS,
-// unless a Keep going near the line (keepGoing.near) covers the window. launchHeld reads it.
-export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, boardPause, machine = MACHINE_NORMAL, start = null, now = Date.now() } = {}) {
+// window within twice the buffer of it, {window, used, resets_at, from, going}, else null; going while a Keep going near
+// the line (keepGoing.near) covers the window. tasksInProgressCap reads it.
+export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, boardPause, machine = MACHINE_NORMAL, now = Date.now() } = {}) {
   const line = validPauseAt(pauseAt) ? pauseAt : 90;
   const past = (reading) => line === 100 ? null : windows.find((key) => {
     const w = reading?.[key];
@@ -52,7 +51,6 @@ export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, bo
   const near = window ? null : nearOf(claude, line, now);
   if (near) {
     near.going = Boolean(keepGoing?.near) && covers(keepGoing, near.window, near.resets_at);
-    near.waiting = !near.going && Boolean(start) && !start.reported && timeOf(now) - Date.parse(start.at) < START_WAIT_MS;
   }
   const codexWindow = past(codex);
   const codexDetails = { past: Boolean(codexWindow), ...details(codex, codexWindow) };
@@ -61,9 +59,6 @@ export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, bo
   return { pause_at: line, state: window ? going ? 'going' : 'paused' : 'normal', manual: null, ...hit, near, codex: codexDetails, machine };
 }
 
-// How long a Claude start near the line holds the next one while it hasn't reported its usage: a run that dies before its
-// first turn never reports.
-const START_WAIT_MS = 10 * 60_000;
 // The near band starts twice the buffer below 100: at 80% for the 90% line. Off (100) has none.
 const nearFrom = (line) => 2 * line - 100;
 function nearOf(claude, line, now) {
@@ -113,7 +108,7 @@ export function setKeepGoing(value, { home = os.homedir(), now = Date.now() } = 
   const settings = readSettingsFile(home);
   if (value === 'on') {
     const gate = readUsageGate({ home, now });
-    // Near the line it lifts only the one-at-a-time starts, never the pause at the line.
+    // Near the line it lifts only the halved cap, never the pause at the line.
     if (gate.state === 'paused') settings.keepGoing = { window: gate.window, until: gate.resets_at };
     else if (gate.near) settings.keepGoing = { window: gate.near.window, until: gate.near.resets_at, near: true };
     else throw Object.assign(new Error('Nothing is paused.'), { status: 409 });
@@ -154,11 +149,10 @@ function claudePick(setting, card) {
 }
 
 const MANUAL_WORDS = { hub: ['the hub', 'Pause hub in Hub settings'], board: ['this board', 'Pause board in Board settings'] };
-// A pause is worded before a busy Mac, and a busy Mac before a start waiting near the line.
+// A pause is worded before a busy Mac.
 export const pauseReason = (gate) => (gate.manual
   ? `Work is paused: the owner paused ${MANUAL_WORDS[gate.manual][0]} ${pauseUntilWords(gate.resets_at)}. ${MANUAL_WORDS[gate.manual][1]} resumes it.`
-  : gate.state === 'paused' ? usagePauseReason(gate) : gate.machine.state === 'busy' || !gate.near?.waiting ? busyReason(gate) : nearReason(gate));
-const nearReason = (gate) => `Work is held: Claude's ${windowWord(gate.near.window)} usage is at ${Math.round(gate.near.used)}%, near the ${gate.pause_at}% line, so agents start one at a time, each once the last one has reported its usage. The owner can tap Keep going on the Hub page.`;
+  : gate.state === 'paused' ? usagePauseReason(gate) : busyReason(gate));
 // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md: the refusal of a launch it holds.
 const busyReason = (gate) => `Work is held: the host is busy (${gate.machine.reason}). It starts again when the host eases.`;
 // Whether gate holds all new work: a pause (usage or manual) or a busy Mac.
@@ -172,14 +166,15 @@ const usagePauseReason = (gate) => `Work is paused: Claude's ${windowWord(gate.w
 // as Claude) while Claude's work is paused; every kind while the owner paused it by hand or the Mac is busy, with no
 // override. pauseReasonFor words the hold.
 export const heldFor = (gate, kind) => Boolean(gate.manual) || gate.machine.state === 'busy' || (kind === 'codex' ? gate.codex.past : gate.state === 'paused');
-// docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
-// Whether the board server holds a launch of kind it makes itself: heldFor's holds, and for any kind but Codex a Claude
-// start near the line still waiting on its first reading. A start the owner or a session makes isn't held by that wait.
-export const launchHeld = (gate, kind) => heldFor(gate, kind) || (kind !== 'codex' && Boolean(gate.near?.waiting));
-// What holds the board server's launch of kind, in a card line's room: its pause, a busy host, the usage line, or a
-// start near the line waiting on its first reading. → the words, or null when launchHeld doesn't hold it.
-export const launchHeldWords = (gate, kind) => (!launchHeld(gate, kind) ? null : gate.manual ? `${gate.manual} paused`
-  : gate.machine.state === 'busy' ? 'host busy' : heldFor(gate, kind) ? 'usage paused' : 'waiting on a usage reading');
+// docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md,
+// docs/adr/2026-11-16-0300-near-the-usage-line-tasks-in-progress-drop-to-half-the-cap.md
+// The board's Maximum tasks in progress under gate: near the line, half of cap rounded up, until a Keep going near the
+// line covers the window. Cards already In Progress above it keep running; only new pulls wait.
+export const tasksInProgressCap = (gate, cap) => (gate.near && !gate.near.going ? Math.ceil(cap / 2) : cap);
+// What holds the board server's launch of kind, in a card line's room: its pause, a busy host or the usage line.
+// → the words, or null when heldFor doesn't hold it.
+export const launchHeldWords = (gate, kind) => (!heldFor(gate, kind) ? null : gate.manual ? `${gate.manual} paused`
+  : gate.machine.state === 'busy' ? 'host busy' : 'usage paused');
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
 // Whether gate pauses a running build of kind at its next stopping point: the pause line on its usage, Pause board or
 // Pause hub. A busy Mac holds only new work, and lets running work finish. pausedWords names it on the card.

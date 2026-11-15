@@ -36,9 +36,9 @@ function fixture(t) {
 }
 
 test('missing files hide Claude; Codex with share on but without rollouts has no reading', (t) => {
-  assert.deepEqual(usageReader({ now: () => NOW })(), { claude: null, codex: null, start: null });
+  assert.deepEqual(usageReader({ now: () => NOW })(), { claude: null, codex: null });
   const f = fixture(t);
-  assert.deepEqual(f.read({ codexShare: 'always' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null }, start: null });
+  assert.deepEqual(f.read({ codexShare: 'always' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null } });
 });
 
 test('Claude comes from usage.json without run logs, with window reset times and reading time', (t) => {
@@ -117,7 +117,7 @@ test('malformed JSON, missing limits and partial rollout lines leave no reading'
   write(f.file('.claude', 'kickflip', 'usage.json'), '{');
   const file = f.log('invalid');
   write(file, '{"payload":{"rate_limits":{"primary":{"used_percent":42}}}}\n{"rate_limits":\n');
-  assert.deepEqual(f.read({ codexShare: 'auto' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null }, start: null });
+  assert.deepEqual(f.read({ codexShare: 'auto' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null } });
   f.claude({ at: 'bad', five_hour: { used_percentage: 'bad' }, seven_day: null });
   assert.deepEqual(f.read().claude, { at: null, five_hour: null, seven_day: null });
 });
@@ -171,21 +171,6 @@ test('a run the limit rejected reads 100% for that window, and the run logs alon
   assert.equal(r.five_hour.used_percentage, 100);
   assert.equal(r.seven_day.used_percentage, 30);
   assert.equal(r.at, iso(NOW - 20 * 60_000));
-});
-
-test("the newest Claude run's start says whether it has reported its usage yet, its own log or a later status line counting", (t) => {
-  const f = fixture(t);
-  assert.equal(f.read().start, null);
-  runLog(f, 'builder', NOW - 5 * 60_000, { events: [{ five: 0.8 }] });
-  assert.deepEqual(f.read().start, { at: iso(NOW - 5 * 60_000), reported: true });
-  runLog(f, 'planner', NOW - 60_000);
-  assert.deepEqual(f.read().start, { at: iso(NOW - 60_000), reported: false });
-  runLog(f, 'builder', NOW - 30_000, { codex: true });
-  assert.deepEqual(f.read().start, { at: iso(NOW - 60_000), reported: false });
-  f.claude({ at: iso(NOW - 2 * 60_000) });
-  assert.equal(f.read().start.reported, false);
-  f.claude({ at: iso(NOW - 30_000) });
-  assert.equal(f.read().start.reported, true);
 });
 
 test("runLimit gives the reset of a run whose last usage event the limit rejected, while that reset is ahead", (t) => {

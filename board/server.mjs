@@ -368,7 +368,7 @@ import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { shareEntries } from '../hub/share.mjs';
-import { readUsageGate, launchHeld, launchHeldWords, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
+import { readUsageGate, heldFor, tasksInProgressCap, launchHeldWords, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { runLimit } from '../hub/usage.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
@@ -1218,7 +1218,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md
         if (kind === 'card-build') {
           const key = String(body.key || '');
-          const full = !pullOf((await sharedBoard()).items, { cap: settingsOf(await config()).max_implementers, pulled: await sentOf(PULL) }).free;
+          const full = !pullOf((await sharedBoard()).items, { cap: tasksInProgressCap(readUsageGate({ dir: here }), settingsOf(await config()).max_implementers), pulled: await sentOf(PULL) }).free;
           const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'tap', { full });
           return json(res, 200, { id: await handOff(started), board: await answerBoard(req, since) });
         }
@@ -1562,10 +1562,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // slots with Todo's top ready cards, bumped first (domain.mjs pullOf, docs/adr/2026-11-05-0802-todo-has-no-queue.md,
   // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).  // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
   // board. An unanswered triage holds only the cards it names, until quiet hours end, and a card pulled and not yet started holds the
-  // review. None goes out while usage is paused or the Mac is busy, nor, near the line, while the last Claude start hasn't
-  // reported its usage (shared/usage-gate.mjs launchHeld), each launch checking again (launchHeldNow), so near the line a
-  // pass starts one agent; the minute check runs the jobs again once the hold lifts, since it lives outside the board's
-  // data. A grill or prototype asked for during a hold launches first. A check asked for while one runs runs again after it.
+  // review. None goes out while usage is paused or the Mac is busy (shared/usage-gate.mjs heldFor), each launch checking
+  // again (launchHeldNow); the minute check runs the jobs again once the hold lifts, since it lives outside the board's
+  // data. Near the line the pull's cap is halved (tasksInProgressCap). A grill or prototype asked for during a hold launches first. A check asked for while one runs runs again after it.
   let checkingAuto = null;
   let autoAgain = false;
   let heldByPause = false;
@@ -1602,11 +1601,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const { items, reviews } = await sharedBoard();
     const hold = await triageHold(log);
     const pulled = await sentOf(PULL);
-    const cap = settings.max_implementers;
     const gate = readUsageGate({ dir: here });
+    const cap = tasksInProgressCap(gate, settings.max_implementers);
     if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
     boardPaused = gate.manual === 'board';
-    heldByPause = launchHeld(gate, 'claude');
+    heldByPause = heldFor(gate, 'claude');
     if (!heldByPause) await launchQueuedPlanners();
     if (!heldByPause) await launchBriefs(items);
     if (!heldByPause) await launchLanders(items, stoppedKeys(items));
@@ -1630,8 +1629,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     await checkTriage(log, items, ready);
     const held = pullable.filter((k) => hold.includes(k));
     if (held.length) logCall({ call: 'pull', result: 'held', reason: 'An overnight triage waits for the session\'s reply and names these tasks, so the pull leaves them until it is answered or quiet hours end.', inputs: { cards: held } });
-    // Near the line the pull starts one card a pass, and none once another launch is waiting on its first reading.
-    const pullNow = (gate) => (launchHeld(gate, 'claude') ? [] : gate.near && !gate.near.going ? pulls.slice(0, 1) : pulls);
     const startPull = async (key) => {
       const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub');
       logCall({ call: 'pull', key, result: startResult(started), reason: 'An implementer slot was free and it was the top ready task in Todo.', inputs: { cap, pullable, waiting } });
@@ -1639,7 +1636,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     };
     // A card that already has a builder, as a pass an instant earlier left it, is not started again.
     const unstarted = [];
-    for (const key of heldByPause ? [] : pullNow(readUsageGate({ dir: here }))) {
+    for (const key of heldByPause ? [] : pulls) {
       const tracked = (await readJSON(path.join(data, 'headless-builders.json'), {}))[key];
       if (!hasBuilder(await openRuns(here, key)) && !(tracked?.pid && pidAlive(tracked.pid))) { unstarted.push(key); continue; }
       logCall({ call: 'pull', key, result: 'skipped', reason: 'It already has a builder.', inputs: {} });
@@ -1652,10 +1649,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
   }
 
-  // Whether a launch of kind the board would make now is held (shared/usage-gate.mjs launchHeld). A hold found partway
+  // Whether a launch of kind the board would make now is held (shared/usage-gate.mjs heldFor). A hold found partway
   // through a pass marks the board held, so the minute check brings in the next pass once it lifts.
   function launchHeldNow(kind = 'claude') {
-    const held = launchHeld(readUsageGate({ dir: here }), kind);
+    const held = heldFor(readUsageGate({ dir: here }), kind);
     if (held) heldByPause = true;
     return held;
   }
@@ -1673,11 +1670,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (!started || started.bumped) return null;
     const entry = { kind: started.kind, model: started.model, relaunched: false };
     try {
-      // A pause on its kind, a busy host, or a start near the line waiting on its first reading, that began after the pull
+      // A pause on its kind or a busy host that began after the pull
       // or the tap, holds the launch; reviveHeadless launches it once the hold lifts. A busy Mac says so on the card
       // (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
       const gate = readUsageGate({ dir: here });
-      if (launchHeld(gate, started.kind)) {
+      if (heldFor(gate, started.kind)) {
         logCall({ call: 'launch-held', key: started.key, result: 'held', reason: pauseReasonFor(gate, started.kind), inputs: { kind: started.kind, model: started.model ?? null, gate } });
         if (gate.machine.state === 'busy') await appendStatus(here, started.key, 'host-busy');
         await trackLaunch(started.key, { ...entry, pid: null });
@@ -1748,7 +1745,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // A planner, kind grill or prototype, opens on the card from its written brief, or from kept, the briefs entry of the
   // run a Block stopped, and launches headless in the board's repo (store.mjs startPlanner), unless an agent already works
   // on it. One that can't start or launch leaves a thread line and its record closed. One due while the board's launches
-  // are held (launchHeld) waits in data/queued-planners.json {<key>: {kind, kept}}, with a thread line saying so, and
+  // are held (heldFor) waits in data/queued-planners.json {<key>: {kind, kept}}, with a thread line saying so, and
   // launches when the hold lifts (launchQueuedPlanners); another replaces it.
   // (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md)
   const queuedPlanners = path.join(data, 'queued-planners.json');
@@ -1759,7 +1756,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
   async function launchPlanner(key, kind, kept = null) {
     const gate = readUsageGate({ dir: here });
-    if (launchHeld(gate, 'claude')) {
+    if (heldFor(gate, 'claude')) {
       heldByPause = true;
       await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [key]: { kind, ...(kept ? { kept } : {}) } });
       logCall({ call: 'planner-queued', key, result: kind, reason: pauseReasonFor(gate, 'claude'), inputs: { kind, gate } });
@@ -1896,7 +1893,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   const LOST_GRACE_MS = 120000;
   async function launchLostBuilds(grace = LOST_GRACE_MS) {
     try {
-      if (launchHeld(readUsageGate({ dir: here }), 'claude')) return;
+      if (heldFor(readUsageGate({ dir: here }), 'claude')) return;
       const { items } = await sharedBoard();
       const blocked = new Set(items.filter((c) => c.blockedBy?.length).map((c) => c.key));
       for (const key of (await lostLaunches(here, new Date(Date.now() - grace).toISOString())).filter((k) => !blocked.has(k))) {
@@ -1930,7 +1927,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const relaunch = async (card) => {
         const was = tracked[card.key];
         const entry = { call: 'relaunch', key: card.key, inputs: was,
-          reason: was.pid === null ? 'Its launch was held by a pause, a busy host or a start near the line, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
+          reason: was.pid === null ? 'Its launch was held by a pause or a busy host, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
         try {
           const { pid, log } = await launchBuilder(here, card, { launch });
           logCall({ ...entry, result: was.pid === null ? 'launched' : 'relaunched' });
@@ -1950,7 +1947,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         dataVersion++;
       };
       const paused = new Set(items.filter((c) => c.builder?.pause?.paused).map((c) => c.key));
-      const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind) => launchHeld(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items), paused,
+      const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind) => heldFor(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items), paused,
         limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit });
       if (JSON.stringify(next) !== JSON.stringify(tracked)) {
         const tmp = `${file}.${crypto.randomUUID()}.tmp`;
@@ -2484,7 +2481,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     track(checkReadyExpiry());
     // A pause standing, or a usage pause or Pause board or hub starting, runs the pause pass (checkPauses).
     const gate = readUsageGate({ dir: here });
-    if ((heldByPause && !launchHeld(gate, 'claude')) || pausesLive || (!heldByPause && pausesRunning(gate, 'claude'))) track(checkAuto());
+    if ((heldByPause && !heldFor(gate, 'claude')) || pausesLive || (!heldByPause && pausesRunning(gate, 'claude'))) track(checkAuto());
     else track(triageDue().then((due) => { if (due) return checkAuto(); }, (err) => console.error('Triage check failed:', err.message)));
     track(checkActions());
     track(checkWaits());

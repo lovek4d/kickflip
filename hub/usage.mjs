@@ -120,14 +120,6 @@ function claudeReading(saved, logs) {
   return { at: ats.at(-1) ?? null, five_hour: window('five_hour'), seven_day: window('seven_day') };
 }
 
-// The newest Claude run's launch, {at, reported}: reported once its own log has a rate_limit_event or the status line saved
-// a reading after it. → null with no Claude run.
-function newestStart(logs, savedAt) {
-  const run = logs.filter((l) => l.claude).sort((a, b) => b.started.localeCompare(a.started))[0];
-  if (!run) return null;
-  return { at: run.started, reported: Boolean(run.windows) || Boolean(savedAt && Date.parse(savedAt) > Date.parse(run.started)) };
-}
-
 function newestRollouts(sessions) {
   const files = [];
   const kids = (d) => { try { return fs.readdirSync(d).sort().reverse(); } catch { return []; } };
@@ -177,8 +169,7 @@ function readingOf(reading, now) {
 }
 
 // codexShare: the setting in effect (push.mjs readCodexShare), which is Off while Codex isn't usable.
-// Claude's reading is the status line's usage.json and every headless run's log together; start is the newest Claude
-// run's launch (newestStart), which the gate's one-at-a-time starts near the line wait on.
+// Claude's reading is the status line's usage.json and every headless run's log together.
 export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_000 } = {}) {
   const sessions = path.join(home, '.codex', 'sessions');
   const logDir = path.join(home, '.claude', 'kickflip', 'logs');
@@ -190,13 +181,12 @@ export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_
     const saved = readJson(path.join(home, '.claude', 'kickflip', 'usage.json'))?.claude;
     const logs = runLogs(logDir, seen);
     const claude = readingOf(claudeReading(saved, logs), time);
-    const start = newestStart(logs, isoOf(saved?.at));
-    if (codexShare === 'off') return { claude, codex: null, start };
+    if (codexShare === 'off') return { claude, codex: null };
     if (time - checked >= cacheMs) {
       cached = scanCodex(sessions);
       checked = time;
     }
-    return { claude, codex: readingOf(cached || { at: null }, time), start };
+    return { claude, codex: readingOf(cached || { at: null }, time) };
   };
 }
 

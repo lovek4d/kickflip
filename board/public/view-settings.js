@@ -37,7 +37,7 @@
   <p class="muted small" id="landingStatus" role="status"></p>
   </div>
   <h2>Auto</h2>
-  <label class="who" for="maxImplementers"><span><span>Maximum parallel implementers</span>
+  <label class="who" for="maxImplementers"><span><span>Maximum tasks in progress</span>
     <span class="muted small sub">The number of tasks In Progress: each counts from its build starting until it lands, whatever it waits on. Tasks in Todo and In Review don’t.</span></span>
     <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxImplementersStatus" role="status"></p>
@@ -632,7 +632,7 @@
       }
     });
 
-    // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md: Maximum parallel implementers and
+    // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md: Maximum tasks in progress and
     // Maximum parallel serves (docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md), save on
     // change, waiting on the server like a toggle; a number outside 1 to 99 or a refusal puts the saved one back.
     const capInput = (id, key, saidOf) => B.on($(`#${id}`), 'change', async () => {
