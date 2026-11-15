@@ -3037,16 +3037,17 @@ test("the thread's eye and fire send their request at once: nothing typed sends 
 });
 
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("a Todo card's Implement is in its thread box, quiet while the card isn't ready and builder orange once it is, following each board load; its action row has none", async () => {
+test("a Todo card's Implement is in its thread box while the card owes it, gone once it is staged or ready, following each board load; its action row has none", async () => {
   const asking = { actionButton: 'openQuestions', buildable: false, questions: { first: 'q7', open: 1, state: 'open' }, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' } };
-  const cards = [workCard('Q1', asking), workCard('R1', { buildable: true, ready: true })];
-  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: { 'w/Q1': [], 'w/R1': [] }, confirm: true });
+  const cards = [workCard('Q1', asking), workCard('S1', { staging: true }), workCard('R1', { buildable: true, ready: true })];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: { 'w/Q1': [], 'w/S1': [], 'w/R1': [] }, confirm: true });
   await b.settle();
   const implement = (key) => b.root.querySelector(`form[data-reply="${key}"] button[data-intent="build"]`);
-  assert.deepEqual([implement('w/Q1').getAttribute('class'), implement('w/R1').getAttribute('class')], ['build', 'build ready']);
+  assert.deepEqual([implement('w/Q1').getAttribute('class'), implement('w/S1'), implement('w/R1')], ['build', null, null]);
+  assert.ok(b.root.querySelector('form[data-reply="w/R1"] button[data-intent="reply"]'));
   assert.equal(b.root.querySelector('.actions [data-confirm="card-build"]'), null);
-  await b.change({ board: boardOf([workCard('Q1', { buildable: true, ready: true }), cards[1]]) });
-  assert.equal(implement('w/Q1').getAttribute('class'), 'build ready');
+  await b.change({ board: boardOf([workCard('Q1', { buildable: true, ready: true }), cards[1], cards[2]]) });
+  assert.equal(implement('w/Q1'), null);
   b.view.unmount();
 });
 
@@ -3575,10 +3576,7 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   assert.deepEqual(sentNoIds(b), [
     ['item-message', { key: 'w/T1', text: 'Use the blue', intent: 'build' }], ['item-message', { key: 'w/T1', text: 'Just a reply', intent: 'reply' }], ['item-message', { key: 'w/P1', text: 'Later', intent: 'reply' }],
   ]);
-  // An empty box still sends Implement, bare, on a card ready or not: the board server readies it and builds at once.
-  await send('w/T1', '', 'build');
-  assert.deepEqual(sentNoIds(b).at(-1), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
-  await b.change({ board: boardOf([workCard('T1', { ready: true }), workCard('P1', { lane: 'progress' })]) });
+  // An empty box still sends Implement, bare: the board server readies the card and builds at once.
   await send('w/T1', '', 'build');
   assert.deepEqual(sentNoIds(b).at(-1), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
   const pressed = [];
