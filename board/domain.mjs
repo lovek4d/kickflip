@@ -442,6 +442,10 @@ function waitFactsOf(it, { agents, thread, events, refusedAt, replyAt }) {
     pages: thread.filter((m) => m.kind === VISUAL).map((m) => m.ts),
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, replyAt, unblockedAt: it.unblocked_at || null,
     unverified: unverifiedOf(agents),
+    // docs/adr/2026-11-15-1030-a-triaged-task-owes-an-investigate-wait-until-its-notes-are-written.md
+    triagedAt: it.triaged && !it.triaged.investigated_at && it.triaged.phase === it.phase
+      && !thread.some((m) => String(m.ts) > it.triaged.at && (m.who || 'claude') === 'claude' && !m.kind && !m.command && !m.line && !String(m.text ?? '').startsWith('Triaged:'))
+      ? it.triaged.at : null,
     writes: [...lines, ...agents.flatMap((a) => [a.verified?.at, a.started])].filter(Boolean).map(String).sort(),
   };
 }
@@ -1910,6 +1914,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     facts.ask && { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` },
     it.staging && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
     answeredAt && { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" },
+    facts.triagedAt && { kind: 'investigate', since: facts.triagedAt, next: `Investigate ${it.key}: write its notes (item notes), then reply` },
     facts.replyAt && { kind: 'reply', since: facts.replyAt, next: "Act on the owner's reply" },
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
     // prototype or visual agent until the orchestrator writes its brief, whatever else the card asks of the owner.

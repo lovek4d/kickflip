@@ -2327,6 +2327,11 @@ async function appendNotes(site, key, heading, body) {
     }
     const notes = existsSync(file) ? await fs.readFile(file, 'utf8') : `# ${item.title}\n`;
     await writeNotesFile(file, withSection(notes, notesHeading(heading), body));
+    // docs/adr/2026-11-15-1030-a-triaged-task-owes-an-investigate-wait-until-its-notes-are-written.md
+    if (item.triaged && !item.triaged.investigated_at) {
+      item.triaged.investigated_at = new Date().toISOString();
+      await writeJSON(source.file, itemFile);
+    }
     return item.plan;
   });
 }

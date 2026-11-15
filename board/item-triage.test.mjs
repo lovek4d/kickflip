@@ -123,3 +123,45 @@ test("a New task's intake wait asks for item triage first, then investigation, a
   assert.match(wait.next, /^Triage the new task first, from what you know of the board, reading no code: item triage w\/T-1 --title "<type>\(<scope>\): <summary>" --phase discussing\|grilling\|prototyping\|visual .*--fold-into <task> for a duplicate\. Then investigate/);
   assert.match(wait.next, /Likely related: w\/T-2 "feat\(board\): the header stays pinned on scroll"\.$/);
 });
+
+const investigate = (key = 'audit/T-1') => {
+  process.env.HOME = home;
+  const b = buildBoard({ now: Date.now(), events: [ask('a1')], files: [{ slug: 'audit', agents: {}, itemFile: read(audit('data', 'items.json')) }], threads: { 'audit/T-1': fs.existsSync(audit('data', 'threads', 'audit__T-1.jsonl')) ? lines(audit('data', 'threads', 'audit__T-1.jsonl')) : [] }, prs: {}, owner: {} });
+  return orchestratorWaits(b).find((w) => w.kind === 'investigate' && w.key === key);
+};
+const triage = async (phase = 'discussing') => {
+  auditEvents(ask('a1'));
+  const key = await fileAsk('a1');
+  assert.equal((await board('item', 'triage', key, '--title', 'fix(board): the header jumps on scroll', '--phase', phase, '--site', 'audit')).code, 0);
+  return key;
+};
+
+// docs/adr/2026-11-15-1030-a-triaged-task-owes-an-investigate-wait-until-its-notes-are-written.md
+test('a triaged task owes an investigate wait that item notes ends', async () => {
+  const key = await triage();
+  assert.match(investigate(key).next, /^Investigate audit\/T-1: write its notes \(item notes\), then reply$/);
+  const notes = path.join(home, 'n.md');
+  fs.writeFileSync(notes, 'The header is sticky.');
+  assert.equal((await board('item', 'notes', key, '--heading', 'Scope', '--file', notes, '--site', 'audit')).code, 0);
+  assert.equal(investigate(key), undefined);
+});
+
+test('a reply in the thread ends the investigate wait, the Triaged line does not', async () => {
+  const key = await triage();
+  assert.ok(investigate(key));
+  assert.equal((await board('reply', key, '--site', 'audit', '--text', 'It is the sticky header.')).code, 0);
+  assert.equal(investigate(key), undefined);
+});
+
+test('a fold owes no investigate wait, and a task sorted past its triage phase owes none', async () => {
+  auditEvents(ask('a1'));
+  const key = await fileAsk('a1');
+  assert.equal((await board('item', 'triage', key, '--fold-into', 'audit/A1', '--site', 'audit')).code, 0);
+  assert.equal(investigate(key), undefined);
+  auditEvents(ask('a2'));
+  const k2 = await fileAsk('a2');
+  assert.equal((await board('item', 'triage', k2, '--title', 'fix(board): x y', '--phase', 'discussing', '--site', 'audit')).code, 0);
+  assert.ok(investigate(k2));
+  assert.equal((await board('item', 'set', k2, '--phase', 'grilling', '--site', 'audit')).code, 0);
+  assert.equal(investigate(k2), undefined);
+});
