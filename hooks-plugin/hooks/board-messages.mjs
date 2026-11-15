@@ -2,7 +2,8 @@
 // A Claude Code PostToolUse hook that shows a board's session the owner's new words while it works, after its next tool
 // call, instead of only at its watcher's next wake: each thread message, ask and ask edit (OWNER_WORDS) past the
 // watcher's cursor that it hasn't shown yet, with its sent time and age, its plain line and its event line. It marks
-// the ones the watcher marks working (WORKING_KINDS), so they read thinking… on the board at once, moves the mark of an
+// the ones the watcher marks working (WORKING_KINDS), so they read thinking… on the board at once, stamps each delivered
+// as the watcher does (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md), moves the mark of an
 // ask whose edit it shows to now, as the watcher does, and records them in
 // the session's shown file, so the watcher's next wake prints them again tagged already shown. A subagent's tool call
 // carries agent_id and gets nothing. Any error shows nothing
@@ -23,7 +24,7 @@ function age(ts, now) {
 
 async function shownOn(board, session, now) {
   const { OWNER_WORDS, plainLine, shownFile } = await import('../../bin/event-lines.mjs');
-  const { editedAsks, markWorking, restampWorking, WORKING_KINDS } = await import('../../board/store.mjs');
+  const { editedAsks, markDelivered, markWorking, restampWorking, WORKING_KINDS } = await import('../../board/store.mjs');
   const cursor = readJSON(path.join(board.dir, 'data', `.watch-cursor-${session}.json`));
   if (!Number.isInteger(cursor?.[EVENTS])) return [];
   let lines = [];
@@ -35,6 +36,7 @@ async function shownOn(board, session, now) {
   const fresh = pending.filter(({ e }) => !before.includes(e.id));
   if (!fresh.length) return [];
   await markWorking(board.dir, fresh.filter(({ e }) => WORKING_KINDS.includes(e.kind)).map(({ e }) => e.id));
+  await markDelivered(board.dir, fresh.map(({ e }) => e.id));
   await restampWorking(board.dir, editedAsks(fresh.map(({ e }) => e)));
   fs.writeFileSync(file, JSON.stringify({ ids: [...before, ...fresh.map(({ e }) => e.id)] }));
   const out = [`The owner wrote on /${board.route} while you worked. Read it now: their words come before what you were doing. Your watcher prints each again on its next wake, tagged already shown.`];

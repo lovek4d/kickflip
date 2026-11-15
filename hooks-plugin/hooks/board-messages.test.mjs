@@ -57,6 +57,8 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
   assert.doesNotMatch(shown.additionalContext, /card-bump|Already woken for/);
   // They read thinking on the board at once: the watcher's working marks.
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events).sort(), ['e1', 'e3']);
+  // Each one it shows is stamped delivered, the edit too (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md).
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'delivered.json'), 'utf8')).events).sort(), ['e1', 'e3', 'e4']);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', '.shown-s1.json'), 'utf8')).ids, ['e1', 'e3', 'e4']);
 
   assert.equal(run(), null);

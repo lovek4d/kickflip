@@ -10,7 +10,8 @@
 //                             for one the PostToolUse hook showed mid-task (./event-lines.mjs shownFile,
 //                             docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md); on a board it marks each ask,
 //                             item-message and overnight-triage working in data/working.json, moves the mark of an ask
-//                             whose ask-edited it prints to now (the stamp sorting commands check), and answers a ping for the
+//                             whose ask-edited it prints to now (the stamp sorting commands check), stamps each event it
+//                             woke for delivered in data/delivered.json (board/store.mjs markDelivered), and answers a ping for the
 //                             session (board/store.mjs ackPing), then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
 //                             each wait on the orchestrator, a line for each of a card's waits, bumped cards first, then lanes top-down, from data/orchestrator-waits.json,
@@ -49,7 +50,7 @@ import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mjs';
 import { parentOf, sessionGone as sessionGoneFor } from '../hub/live.mjs';
-import { ackPing, editedAsks, markWorking, restampWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
+import { ackPing, editedAsks, markDelivered, markWorking, restampWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent, pausedLine } from '../shared/usage-gate.mjs';
 import { recordOnly, plainLine, shownFile } from './event-lines.mjs';
 
@@ -181,6 +182,7 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
       const held = Object.create(null);
       const started = [];
       const handed = [];
+      const delivered = [];
       const heard = new Set(Object.values(base.$quietHeld || {}).flat());
       const pings = [];
       let shown = [];
@@ -195,6 +197,7 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
           if (plain) log(shown.includes(e?.id) ? `already shown: ${plain}` : plain);
           if (e && WORKING_KINDS.includes(e.kind) && typeof e.id === 'string') started.push(e.id);
           handed.push(e);
+          if (!recordOnly(line) && typeof e?.id === 'string') delivered.push(e.id);
         }
       }
       const board = boardOf(s);
@@ -203,6 +206,10 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
       // An ask edit it prints hands the ask's new text over, so the ask's mark moves to now
       // (docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md).
       if (board) await markWorking(s.dir, started).then(() => restampWorking(s.dir, editedAsks(handed))).catch((e) => log(`working marks not written (${e.message})`));
+      // Each event it wakes the session for is stamped delivered, so its card reads thinking from now until the session
+      // writes on it; a record-only line asks nothing of the session, so it isn't
+      // (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md).
+      if (board) await markDelivered(s.dir, delivered).catch((e) => log(`delivery stamps not written (${e.message})`));
       if (board) await ackPings(s.dir, pings, log);
       if (board) for (const line of waitLines(s.dir)) log(line);
       if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) log(`rule ${line}`);

@@ -240,7 +240,10 @@
   const DOT = '<span class="working-dot" aria-hidden="true"></span>';
   // A card idle on the orchestrator (domain.mjs orchestratorWaitOf) reads waiting for orchestrator, then orchestrator
   // review with its dot once the session picks it up, each with how long ago.
+  // docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md: while the
+  // orchestrator holds an event of the card it hasn't written on yet, the card reads thinking, from that event's handover.
   function orchestratorStatus(it) {
+    if (it.working) return `<div class="line3 sub agent">${thinkingLine(it.workingSince)}</div>`;
     const { since, picked } = it.orchestrator;
     const words = picked ? `${DOT}${esc(withCount('orchestrator review', picked))}` : esc(withCount('waiting for orchestrator', since));
     return `<div class="line3 sub agent${tone(it)}${picked ? '' : ' waiting-gray'}">${words}</div>`;
@@ -445,7 +448,7 @@
       : it.builder ? builderStatus(it)
       : it.refusal ? `<div class="line3 sub refused">${escText(it.refusal)}</div>`
       : it.landStopped ? `<div class="line3 sub">${escText(withCount(it.landStopped.words, it.landStopped.at))}</div>`
-      : it.working ? `<div class="line3 sub agent">${thinkingLine()}</div>`
+      : it.working ? `<div class="line3 sub agent">${thinkingLine(it.workingSince)}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${escText(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${escText(etaLine(it.eta))}</div>` : '';
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).

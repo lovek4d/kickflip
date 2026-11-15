@@ -275,6 +275,10 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$quietHeld, undefined);
   // Only the event that woke the session reads Working on it.
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['w1']);
+  // docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md: the event
+  // that woke the session is stamped delivered at the wake, the board's first stamp; the record-only lines aren't.
+  const delivered = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'delivered.json'), 'utf8'));
+  assert.deepEqual(delivered.events, { w1: delivered.since });
   assert.ok(lines.findIndex((l) => l.includes('"id":"b8"')) < lines.findIndex((l) => l.includes('"id":"w1"')), 'the taps print ahead of the message');
 });
 

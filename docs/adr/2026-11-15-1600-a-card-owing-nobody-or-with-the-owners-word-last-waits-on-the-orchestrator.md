@@ -10,3 +10,5 @@ Two orchestrator waits now cover both (domain.mjs `orchestratorWaitsOf`):
 The limbo waits come last on the waits list, oldest first (`orchestratorWaits`), so the cards already in limbo surface once at deploy as one batch behind the real work. The header's waits chip never reads them red, which marks a wait past the old 30-minute push: they are the orchestrator's backlog, and 49 red rows at deploy would bury the rest.
 
 Each reply wait that ends appends `{key, ref, messageAt, endedAt, endedBy, minutes}` to `data/limbo-waits.jsonl` (domain.mjs `ownerWordEnds`, server.mjs `stepWaits`), `endedBy` the line that ended it or null when the card closed or left the board, so an audit (T-440) can find messages "answered" by a status line alone.
+
+Amended by [a card reads thinking from its event's delivery until the orchestrator writes](2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md): an orchestrator line ends the reply wait only once the message was handed to the session.

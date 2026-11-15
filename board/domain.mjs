@@ -422,11 +422,15 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
 // staged, readied, pulled) included, since an action that answers the owner always leaves one; never a builder's
 // progress line, agent line or ask.
 const answersOwner = (m) => (m.who || 'claude') === 'claude' && !['status', 'agent', BUILDER_ASK.ask].includes(m.kind);
-// When the owner's word became the newest on the card: the first of its messages since the card last closed (closed)
-// that no orchestrator line in thread, nor a reply to an event of the card, follows; null when the orchestrator spoke last.
-function ownerWordAt(said, thread, events, closed) {
+// The owner's word that became the newest on the card: the first of its messages since the card last closed (closed)
+// that no orchestrator line in thread, nor a reply to an event of the card, follows once it was handed over (threadOf's
+// handed), as {at, picked}, picked being its working mark; null when the orchestrator spoke last
+// (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md).
+function ownerWordOf(said, thread, events, closed) {
   const spoke = [...thread.filter(answersOwner).map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).map(String).sort().pop() || '';
-  return said.filter((m) => m.kind === 'item-message').map((m) => String(m.ts)).filter((t) => t > closed && t > spoke).sort()[0] || null;
+  const word = said.filter((m) => m.kind === 'item-message' && String(m.ts) > closed && !(m.handed && spoke > m.handed))
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
+  return word ? { at: String(word.ts), picked: word.since || null } : null;
 }
 
 // Whether any of a card's records holds a judgment call made since its verification, or with none.
@@ -435,7 +439,7 @@ const unverifiedOf = (agents) => agents.some((a) => a.calls.some((c) => !a.verif
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
 // What a card's wait on the orchestrator is read from (orchestratorWaitOf), kept on the item only until buildBoard places
 // it: when its build handed back and its stored Next, its oldest builder ask with no answer, its newest grill and
-// prototype requests, when the pull refused it, the owner's word it waits on (ownerAt), when the card last changed state
+// prototype requests, when the pull refused it, the owner's word it waits on (ownerWord), when the card last changed state
 // (limboFrom), whether its records hold unverified calls, and the session's writes on it: a thread line of Claude's
 // other than a status, agent, move, refusal or board command line (staged, related, followup: the board writes those,
 // not the session), a verify and a builder start. closed is when the card last closed, null on a Done card.
@@ -450,7 +454,7 @@ function waitFactsOf(it, { agents, thread, events, said, refusedAt, closed }) {
     unplaced: thread.filter((m) => m.line === 'visual-unplaced').map((m) => m.ts).sort().pop() || null,
     pages: thread.filter((m) => m.kind === VISUAL).map((m) => m.ts),
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, unblockedAt: it.unblocked_at || null,
-    ownerAt: closed === null ? null : ownerWordAt(said, thread, events, closed),
+    ownerWord: closed === null ? null : ownerWordOf(said, thread, events, closed),
     // A lapsed mark, a planner's end, a board or command line (a phase change, a question added) or an owner's answer
     // changes the card's state; chat doesn't.
     limboFrom: [it.created, it.sorted_at, it.waits_on_owner?.at, ...agents.map((a) => a.done),
@@ -1108,10 +1112,19 @@ function sectionOf(agentList, a) {
   if (a.label !== LANDER) return a.started;
   return agentList.filter((x) => builds(x) && x.label !== LANDER && x.started && String(x.started) < String(a.started)).pop()?.started ?? a.started;
 }
+// docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md
+// When event id, sent at ts, was handed to the session: its stamp in data/delivered.json (store.mjs markDelivered), else
+// its working mark. An event sent before the board kept stamps (delivered.since) counts as handed when sent; a later one
+// with neither is not handed yet (null).
+// The waking events whose plain line (bin/event-lines.mjs) asks the session to write nothing on the card: a bump with no
+// waits, and a script run, whose result follows as its own event.
+const WRITES_NOTHING = ['card-bump', 'script-run'];
+const handedAt = (delivered, working, id, ts) => routeRecord(delivered.events || {}, id) || routeRecord(working, id)
+  || (!delivered.since || String(ts) < delivered.since ? String(ts) : null);
 // On a tie in threadOf a message sorts above the status line it causes (the sort is stable, so an agent start still sorts above
 // the status line `builder start` writes).
 const isStatusLine = (m) => Boolean(m.request) || [MOVE, HUB, 'status', 'ask-link'].includes(m.kind);
-export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, listening = true, clearedAt = '', fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
+export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, delivered = {}, listening = true, actedAt = '', clearedAt = '', fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
   const asked = new Map((index.questions.get(`item:${key}`) || []).map((q) => [q.id, q]));
@@ -1155,9 +1168,11 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
         ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}), ...(BRIEF_KINDS.includes(e.data?.request) ? { status: COMMANDS[e.data.request] } : {}) },
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
-  // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: the orchestrator's last action on the card, or the card's
-  // close (clearedAt), ends the working of the messages before it, as a later Claude line does.
-  const lastClaude = [claudeAtOf(msgs), String(clearedAt || '')].sort().pop();
+  // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: the orchestrator's last action on the card
+  // (actedAt) ends the working of the messages before it, as a later Claude line does, and so does the card's close (clearedAt).
+  // docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md: a line or
+  // action of the orchestrator's answers a message only once the message was handed to it (handedAt).
+  const lastClaude = [claudeAtOf(msgs), String(actedAt || '')].sort().pop();
   const { edits, editFiles } = index;
   for (const m of msgs) {
     if (!m.eventId) continue;
@@ -1165,8 +1180,10 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       Object.assign(m, { text: edits.get(m.eventId), edited: true, files: [...m.files, ...(editFiles.get(m.eventId) || [])] });
     }
     const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved) || (sorted && m.eventId === fromAsk));
-    m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || lastClaude > String(m.ts) ? 'answered' : listening && routeRecord(working, m.eventId) ? 'working' : 'waiting';
-    if (m.state === 'working') m.since = routeRecord(working, m.eventId);
+    m.handed = handedAt(delivered, working, m.eventId, m.ts);
+    const mark = routeRecord(working, m.eventId) || routeRecord(delivered.events || {}, m.eventId);
+    m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || String(clearedAt || '') > String(m.ts) || (m.handed && lastClaude > m.handed) ? 'answered' : listening && mark ? 'working' : 'waiting';
+    if (m.state === 'working') m.since = mark;
   }
   return foldSubmits(msgs);
 }
@@ -1207,7 +1224,7 @@ export const stateEntries = (m) => (m.answers || [m]).filter((a) => a.eventId).m
 // moved maps ask:<event id> to the work item whose thread holds that ask.
 // An event marked working needs its reply loaded, or it counts as still working.
 export function buildBoard(snapshot) {
-  const { owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {}, actedOn = {} } = snapshot;
+  const { owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {}, delivered = {}, actedOn = {} } = snapshot;
   const now = snapshot.now ?? Date.now();
   const index = threadIndex(events, owner);
   const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn').map((e) => e.data?.id));
@@ -1252,8 +1269,8 @@ export function buildBoard(snapshot) {
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(itemFile, it, tickets), became: true }]);
-      const clearedAt = [routeRecord(actedOn, key), it.lane === 'done' ? it.closed_at : null, cardDones.get(key)].filter(Boolean).map(String).sort().pop() || '';
-      const thread = { lines, events, owner, working, clearedAt, fromAsk: it.from_ask || null, sorted: Boolean(it.phase), moved: folded, cards, index };
+      const clearedAt = [it.lane === 'done' ? it.closed_at : null, cardDones.get(key)].filter(Boolean).map(String).sort().pop() || '';
+      const thread = { lines, events, owner, working, delivered, actedAt: routeRecord(actedOn, key) || '', clearedAt, fromAsk: it.from_ask || null, sorted: Boolean(it.phase), moved: folded, cards, index };
       const msgs = threadOf(key, thread);
       threadViews[key] = threadOf(key, { ...thread, agents: routeRecord(records, it.id) || {} });
       for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
@@ -1437,18 +1454,30 @@ export function buildBoard(snapshot) {
   };
   const workingOn = events.filter((e) => routeRecord(working, e.id) && unanswered(e))
     .map((e) => ({ id: e.id, kind: e.kind, key: cardOf(e), data: e.data, since: routeRecord(working, e.id) }));
+  // docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md: a card also
+  // thinks from the first handover of any of its events (data/delivered.json) after the orchestrator's last write on it,
+  // a thread line or a command (actedOn), until its next one. A Done card thinks no more, and an event that asks for no
+  // write (WRITES_NOTHING) makes none think.
+  const lastWrite = (card) => [claudeAt.get(card), routeRecord(actedOn, card), closedAt(card)].filter(Boolean).map(String).sort().pop() || '';
+  const thinkingFrom = new Map();
+  for (const e of events) {
+    const at = !WRITES_NOTHING.includes(e.kind) && routeRecord(delivered.events || {}, e.id);
+    const card = at && cardOf(e);
+    if (!card || !byKey.has(card) || byKey.get(card).lane === 'done' || String(at) <= lastWrite(card)) continue;
+    if (!thinkingFrom.has(card) || String(at) < thinkingFrom.get(card)) thinkingFrom.set(card, String(at));
+  }
   for (const it of items) {
-    it.working = workingOn.some((w) => w.key === it.key);
+    it.workingSince = [...workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)), thinkingFrom.get(it.key)].filter(Boolean).sort()[0] || null;
+    it.working = Boolean(it.workingSince);
     if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking') it.next = NO_NEXT;
     it.sortAt = SORT_AT[it.lane](it) || (it.lane === 'review' ? null : it.updatedAt) || null;
   }
   for (const it of items) {
     if (it.kind !== 'work') continue;
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered' || (q.resolved === ANSWERED && q.state === 'resolved' && q.answers.length && !q.answers.at(-1).reply)).map((q) => q.answers.at(-1).ts).sort().pop();
-    const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
     // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
     // Review (laneOf, workItem); a card the orchestrator stalled waits on the owner alone.
-    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerAt))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince }) : [];
+    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince }) : [];
     // The card shows its first wait; the waits list (orchestratorWaits) names every one.
     it.orchestrator = waits[0] || null;
     it.moreWaits = waits.slice(1);
@@ -1965,7 +1994,8 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     facts.triagedAt && { kind: 'investigate', since: facts.triagedAt, next: `Investigate ${it.key}: write its notes (item notes), then reply` },
     // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: the
     // owner's word last on the card is owed, whatever else the card waits on, until the orchestrator's next line.
-    facts.ownerAt && { kind: 'reply', since: facts.ownerAt, next: "Act on the owner's reply" },
+    // It is picked up when the message was handed over, not at a line written before that.
+    facts.ownerWord && { kind: 'reply', since: facts.ownerWord.at, picked: facts.ownerWord.picked, next: "Act on the owner's reply" },
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
     // prototype or visual agent until the orchestrator writes its brief, whatever else the card asks of the owner.
     owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page' }[owed.kind]} should cover and the files that matter` },
@@ -2003,7 +2033,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   ];
   return waits.filter((wait) => wait?.since).map((wait) => {
     const since = String(wait.since);
-    const picked = [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
+    const picked = 'picked' in wait ? wait.picked : [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
     return { kind: wait.kind, since, picked, next: wait.next, ...(wait.daily ? { daily: true } : {}) };
   });
 }
@@ -2093,7 +2123,9 @@ export function ownerWordEnds(previous, current, built, now) {
   return previous.filter((w) => w.kind === 'reply' && !holds.has(`${w.key} ${w.since}`)).map((w) => {
     const thread = built.threadViews?.[w.key] || [];
     const replies = thread.filter((m) => m.reply?.at).map((m) => ({ ts: m.reply.at, who: 'claude', kind: 'reply', text: m.reply.text ?? '' }));
-    const line = [...thread.filter(answersOwner), ...replies].filter((m) => String(m.ts) > w.since)
+    // The line that ended it came after the message was handed over.
+    const handed = thread.find((m) => m.who === 'love' && String(m.ts) === w.since)?.handed || w.since;
+    const line = [...thread.filter(answersOwner), ...replies].filter((m) => String(m.ts) > handed)
       .sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
     const endedAt = line ? String(line.ts) : now.toISOString();
     const endedBy = line ? Object.fromEntries(['who', 'kind', 'line', 'command', 'text'].filter((k) => line[k] !== undefined).map((k) => [k, k === 'text' ? String(line.text).slice(0, 200) : line[k]])) : null;

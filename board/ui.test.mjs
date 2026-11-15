@@ -1620,6 +1620,21 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   assert.match(failed, /<div class="line3 sub">Rebase failed in 2 files · &lt;both sides&gt;<\/div><div class="line3 sub agent in-review waiting-gray">waiting for orchestrator \(14m\)<\/div>/);
 });
 
+// docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md
+test('a card waiting on the orchestrator reads thinking, counting from when its event reached the orchestrator, until the orchestrator writes on it', () => {
+  const minutes = (n) => new Date(NOW - n * 60000).toISOString();
+  const html = (it) => ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'todo', ...it });
+  const reply = { kind: 'reply', since: minutes(14), picked: minutes(3), next: 'x' };
+  assert.match(html({ orchestrator: reply, working: true, workingSince: minutes(3) }),
+    /<div class="line3 sub agent"><span class="thinking" data-since="[^"]+" data-word="thinking…"><span class="working-dot" aria-hidden="true"><\/span>thinking… \(3m\)<\/span><\/div>/);
+  // Not handed over yet: waiting for orchestrator, grey.
+  assert.match(html({ orchestrator: { ...reply, picked: null } }), /waiting-gray">waiting for orchestrator \(14m\)/);
+  // Handed over and written on, the wait still open: orchestrator review.
+  assert.match(html({ orchestrator: reply }), /orchestrator review \(3m\)/);
+  // A card with no wait reads thinking with its count too.
+  assert.match(html({ working: true, workingSince: minutes(3) }), /<div class="line3 sub agent"><span class="thinking" data-since="[^"]+" data-word="thinking…">.*thinking… \(3m\)/);
+});
+
 // docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md
 test("a run's line, dot and bar take its card's lane colour: grey in Todo, orange in In Progress, blue in In Review, where a rebase run is a line with no bar", () => {
   const at = new Date(NOW - 2 * 60000).toISOString();

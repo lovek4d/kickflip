@@ -207,6 +207,21 @@ export async function markWorking(site, eventIds) {
   await writeJSON(workingFile(site), { events: { ...events, ...Object.fromEntries(eventIds.map((id) => [id, routeRecord(events, id) || at])) } });
 }
 
+// docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md
+// data/delivered.json {since, events: {<event id>: ts}}: when bin/wait-events.mjs, or the PostToolUse hook, first handed
+// each event to the session, every kind it hands over; since is the board's first stamp, so an event sent before it
+// counts as handed when sent (domain.mjs handedAt).
+const deliveredFile = (site) => path.join(site, 'data', 'delivered.json');
+export async function readDelivered(site) {
+  return readJSON(deliveredFile(site), {});
+}
+export async function markDelivered(site, eventIds) {
+  if (!eventIds.length) return;
+  const at = new Date().toISOString();
+  const { since = at, events = {} } = await readDelivered(site);
+  await writeJSON(deliveredFile(site), { since, events: { ...events, ...Object.fromEntries(eventIds.map((id) => [id, routeRecord(events, id) || at])) } });
+}
+
 // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
 // data/acted-on.json {cards: {<file>/<id>: ts}}: when the orchestrator's last command on each card ran (bin/board.mjs
 // ACTS). It ends the working of the card's messages before it, as a later thread line of Claude's does (domain.mjs threadOf).
