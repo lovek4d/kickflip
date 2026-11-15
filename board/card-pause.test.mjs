@@ -194,3 +194,19 @@ test('a blocked build resumes once its blocker lands only while the cards holdin
   assert.deepEqual(pauseWork([card('w/A', {}), card('w/D', {}), ...resuming], { ...opts, cap: 2 }).resume, [], 'full: it waits');
   assert.deepEqual(pauseWork([card('w/A', {}), card('w/D', { blocked: true, blockedBy: [{ key: 'w/X' }] }), ...resuming], { ...opts, cap: 3 }).resume, ['w/B', 'w/C'], 'a blocked card holds none');
 });
+
+// docs/adr/2026-11-16-0400-a-card-waiting-on-the-owners-answer-takes-no-slot.md
+test('a card In Progress with an open owner question takes no slot, and counts again once answered', () => {
+  const todo = { key: 'w/T1', lane: 'todo', kind: 'work', title: 'feat: task', buildable: true, phase: 'ready', blocked: false, blockedBy: [], agents: [] };
+  const asked = (state, open) => card('w/Q', { questions: { topic: 'item:w/Q', state, open } });
+  const running = card('w/R', {});
+  assert.deepEqual(pullOf([asked('open', 1), running, todo], { cap: 2 }).pulls, ['w/T1'], 'the question frees the slot');
+  assert.deepEqual(pullOf([asked('answered', 0), running, todo], { cap: 2 }).pulls, [], 'answered, it holds its slot again, first in line');
+  assert.deepEqual(pullOf([asked('resolved', 1), running, todo], { cap: 2 }).pulls, [], 'a resolved topic is no open question');
+});
+
+test('a blocked build resumes past a card that waits on an owner question', () => {
+  const pause = { pause: { cause: 'blocked', at: '2026-11-09T11:00:00.000Z', paused: '2026-11-09T11:00:00.000Z' } };
+  const items = [card('w/A', {}), card('w/Q', { questions: { topic: 'item:w/Q', state: 'open', open: 1 } }), card('w/B', {}, pause)];
+  assert.deepEqual(pauseWork(items, { now: Date.parse('2026-11-09T12:00:00.000Z'), usageHeld: () => false, cap: 2 }).resume, ['w/B']);
+});

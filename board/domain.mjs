@@ -819,7 +819,7 @@ export function pauseWork(items, { now = Date.now(), usageHeld, cap = MAX_IMPLEM
     const run = it.lane === 'progress' && mainBuild(it);
     return Boolean(run?.pause?.paused) && run.pause.cause === 'blocked' && !stillPaused(it, run.pause, run.kind, { now, usageHeld });
   };
-  let held = items.filter((i) => i.kind === 'work' && i.lane === 'progress' && !i.blockedBy?.length && !waits(i)).length;
+  let held = items.filter((i) => i.kind === 'work' && i.lane === 'progress' && !i.blockedBy?.length && !asking(i) && !waits(i)).length;
   for (const it of items) {
     if (it.kind !== 'work' || it.lane !== 'progress') continue;
     const run = mainBuild(it);
@@ -1691,7 +1691,8 @@ export const MAX_IMPLEMENTERS = 5;
 // For built items in board order, cap the board's Maximum parallel implementers and pulled the cards the pull started
 // builds on: each open card In Progress takes one slot until it lands, whatever runs on it, building, in Orchestrator
 // review, landing, waiting on the owner, paused or stalled, and however many agents, unless a task blocks it
-// (docs/adr/2026-11-16-0300-a-blocked-in-progress-card-takes-no-slot.md). A card in any other lane takes none.
+// or an open owner question waits on (docs/adr/2026-11-16-0300-a-blocked-in-progress-card-takes-no-slot.md,
+// docs/adr/2026-11-16-0400-a-card-waiting-on-the-owners-answer-takes-no-slot.md). A card in any other lane takes none.
 // pullable lists the cards ready to build, in board order, so bumped first and the
 // rest newest first (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
 // waiting lists the pulled cards not yet started that still hold a slot: the pullable ones. free is the slots left, the cap less the cards In Progress and waiting. pulls lists the pullable
@@ -1707,7 +1708,9 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] }
   // slot, and its blockers are first in line for the slots.
   const blockedIn = open.filter((i) => i.lane === 'progress' && i.blockedBy?.length);
   const blockers = new Set(blockedIn.flatMap((i) => i.blockedBy.map((d) => d.key)));
-  const inProgress = open.filter((i) => i.lane === 'progress').length - blockedIn.length;
+  // docs/adr/2026-11-16-0400-a-card-waiting-on-the-owners-answer-takes-no-slot.md: nor does one with an open owner
+  // question; answered, it counts again and nothing new is pulled past it.
+  const inProgress = open.filter((i) => i.lane === 'progress' && !i.blockedBy?.length && !asking(i)).length;
   // A running implementer: no planner, no read-only helper, no paused build and none blocked on its own open helper
   // (agent wait's waits mark), on a card the orchestrator hasn't stalled.
   const running = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes) && !a.pause?.paused
