@@ -598,6 +598,8 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .pages-switch .q-badge { position: absolute; top: 0; right: -2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--color-notice); color: #1c1407;
   font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 1.5px var(--bg); }
 .pages-switch .q-badge[hidden] { display: none; }
+/* From 900px Waiting on you is on screen beside the lanes, so the ? that opens it is for phones only. */
+@media (min-width: 900px) { .top #questionsLink { display: none; } }
 /* The header's chip counting what waits on the orchestrator, short under the desktop width, and its sheet's list
    (docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md; ui-waits.js). */
 #waitsChip:empty { display: none; }
