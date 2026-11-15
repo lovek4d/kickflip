@@ -40,9 +40,9 @@ const taken = (manifest, route) => Object.hasOwn(manifest.sites || {}, route) ||
 const TAKEN = 'That board route already exists. Reopen it from Closed boards if it is closed.';
 
 // The new session runs these join flags through its shell, so each value must stay one quoted word. The board's name,
-// which gives its title and route, comes first in the prompt (sessions.mjs startArgv).
+// which gives its title and route, comes first in the prompt, after /kickflip board (sessions.mjs startArgv).
 const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
-const joinFlags = ({ purpose }) => `--template board --items data/items.json${purpose ? ` --description ${quote(purpose)}` : ''}`;
+const joinFlags = ({ purpose }) => (purpose ? `--description ${quote(purpose)}` : '');
 
 function errorLine(message) {
   const line = String(message).split('\n').map((l) => l.trim()).find(Boolean) || 'claude did not start';

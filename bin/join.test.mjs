@@ -250,7 +250,7 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   assert.equal(r.status, 0, r.stderr);
   const entry = manifest()['my-app'];
   const [call] = claudeCalls();
-  assert.deepEqual([call.cwd, call.argv[0], call.argv.at(-1)], [repo, '--bg', "/kickflip --name 'My app' --template board --items data/items.json"]);
+  assert.deepEqual([call.cwd, call.argv[0], call.argv.at(-1)], [repo, '--bg', "/kickflip board 'My app'"]);
   const [record] = fs.readdirSync(path.join(home, '.claude', 'sessions'));
   const { sessionId: session } = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'sessions', record), 'utf8'));
   assert.deepEqual(
@@ -321,7 +321,7 @@ test('kickflip join --hub in a repo with no origin makes the hub board with no G
   assert.deepEqual(calls.map((argv) => argv.slice(0, 6)), [['has-session', '-t', '=kickflip-second'], ['new-session', '-d', '-s', 'kickflip-second', '-c', repo], ['attach-session', '-t', '=kickflip-second']]);
   const argv = calls[1].slice(calls[1].indexOf(fakeClaude) + 1);
   assert.equal(argv.includes('--bg'), false);
-  assert.ok(argv.at(-1).startsWith("/kickflip --name 'Second' --hub\n"), argv.at(-1));
+  assert.ok(argv.at(-1).startsWith("/kickflip board 'Second' --hub\n"), argv.at(-1));
   assert.equal(claudeCalls().length, claudeBefore);
   assert.match(r.stdout, /It is the hub board, so its session runs in tmux, attached here\.\nattached =kickflip-second\n$/);
 });

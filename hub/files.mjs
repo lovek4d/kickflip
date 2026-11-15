@@ -1,4 +1,4 @@
-// A plain page joined with `kickflip join --name <name> --dir <folder>` and no server: the hub serves the folder's files
+// A plain page joined with `kickflip page <name> --dir <folder>` and no server: the hub serves the folder's files
 // itself, with the /<route> prefix already stripped (docs/adr/2026-11-01-1446-a-page-joins-without-a-session.md).
 import fs from 'node:fs/promises';
 import path from 'node:path';

@@ -84,7 +84,7 @@ export const HUB_LINES = {
   'handed-from': { tone: 'blue', mark: 'ask-link', text: ({ source }) => fit('Handed from ', source) },
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: drawn from a routed ask's own
   // event (domain.mjs threadOf), never written, above the ask; blue, as the owner reads it and may move the ask.
-  'ask-routed': { tone: 'blue', mark: 'ask-link', text: ({ via, reason }) => fit(`Routed here from ${via}: `, reason), longest: { via: 'Slack' } },
+  'ask-routed': { tone: 'blue', mark: 'ask-link', text: ({ via, reason }) => fit(`Routed here from ${via}: `, reason), longest: { via: 'a handoff' } },
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: on the ask's thread, the card it
   // became merged into another (store.mjs relateAsk), which hides the ask's own row and feeds the top banner.
   'card-merged': { tone: 'grey', mark: MOVE, text: ({ card }) => fit('Merged into ', card, '.') },

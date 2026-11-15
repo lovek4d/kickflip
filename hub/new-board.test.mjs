@@ -91,7 +91,7 @@ test('new repo requests clone before starting a session and store the board bran
   assert.equal(fs.statSync(claudeConfig).mode & 0o777, 0o640);
   assert.deepEqual(fs.readdirSync(process.env.CLAUDE_CONFIG_DIR), ['.claude.json']);
   assert.deepEqual(calls, [{ cwd: repo, argv: ['--bg', '--name', "Bob's audit", '--permission-mode', 'auto', '--settings', BG_SETTINGS,
-    `/kickflip --name 'Bob'\\''s audit' --template board --items data/items.json --description 'Review $HOME changes'`] }]);
+    `/kickflip board 'Bob'\\''s audit' --description 'Review $HOME changes'`] }]);
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
@@ -118,7 +118,7 @@ test('concurrent boards share one clone without switching its branch and need no
   await Promise.all(requests.map((r) => r.started));
   assert.equal(cloneCalls.length - before, 1);
   assert.deepEqual(calls.map((c) => c.cwd), [path.join(base, 'owner/shared'), path.join(base, 'owner/shared')]);
-  assert.equal(calls[0].argv.at(-1), "/kickflip --name 'Shared 0' --template board --items data/items.json");
+  assert.equal(calls[0].argv.at(-1), "/kickflip board 'Shared 0'");
   assert.deepEqual(Object.values(readManifest().starting).map((r) => r.branch), ['main', 'develop']);
   const another = await requestBoard(input('Shared again', 'owner/shared'), { run, live, repos });
   assert.ok((await another.started).session);
@@ -227,7 +227,7 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   assert.deepEqual(changes, ['retry-me']);
   assert.deepEqual(stops, []);
   assert.deepEqual(working.calls, [{ cwd: repo, argv: broken.calls[0].argv }]);
-  assert.equal(working.calls[0].argv.at(-1), "/kickflip --name 'Retry me' --template board --items data/items.json --description 'Try it again'");
+  assert.equal(working.calls[0].argv.at(-1), "/kickflip board 'Retry me' --description 'Try it again'");
   const started = readManifest().starting['retry-me'];
   assert.deepEqual([started.session, started.error], [session, undefined]);
 

@@ -1,5 +1,6 @@
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
-// The hub's router: an incoming request that names no board (a Slack @kickflip, T-228) goes to the board it fits. One
+// The hub's router: an incoming request that names no board (a Slack @kickflip, T-228, or a `kickflip handoff` with no
+// board) goes to the board it fits. One
 // `claude -p --model haiku` call per request, with no tools, reads each board's route, title, manifest description and
 // its 15 most recently changed open card titles, and answers {route, reason}. The request is filed there as an ask with
 // `routed {reason, via, by, link, at}`, which the board's thread draws as a status line above the ask (domain.mjs), and
@@ -129,11 +130,17 @@ export function drainRoutes({ manifest = readManifest(), ask = askHaiku, paused 
   return run;
 }
 
-// An incoming request {text, files?, from: {via, by, link?}}: queued, then routed at once unless usage is paused.
-// → drainRoutes' answer
-export async function routeRequest(request, opts = {}) {
+// An incoming request {text, files?, from: {via, by, link?}} on the queue, for the next drain: the hub's tick when
+// another process queued it, as `kickflip handoff` with no board does. → the queued request
+export async function queueRequest(request) {
   const req = { id: crypto.randomUUID(), at: new Date().toISOString(), text: String(request.text), ...(request.files?.length ? { files: request.files } : {}), from: request.from, tries: 0 };
   await changeQueue((queue) => [...queue, req]);
+  return req;
+}
+
+// An incoming request, queued, then routed at once unless usage is paused. → drainRoutes' answer
+export async function routeRequest(request, opts = {}) {
+  await queueRequest(request);
   return drainRoutes(opts);
 }
 

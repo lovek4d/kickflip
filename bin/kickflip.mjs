@@ -49,10 +49,26 @@
 //               A join that leaves out --label, --model or --repo keeps the owner record's, a --force takeover too.
 //               A new route's entry records when it joined, `created`, which a later join keeps; the sidebar's
 //               switch-mode letters go to sites in that order (../board/public/ui-sidebar.js switchKeys)
+//   The skill's entry points, /kickflip board, page and handoff, are these commands
+//   (docs/adr/2026-11-15-0014-kickflip-is-handoff-page-and-board.md); board and page take the name as their first word,
+//   which join reads as --name, and pass every other flag on to join.
+//   kickflip board <name> --session <id> [join's flags]
+//               join --template board --watch: makes or rejoins a board with this session as its orchestrator. A new
+//               board starts on data/items.json unless --items says otherwise; a rejoin keeps its board.json's items.
+//               Exit 2 for a route a page holds
+//   kickflip page <name> (--port <n> | --dir <folder> [--cmd …] | --session <id>) [join's flags]
+//               join for a site that isn't a board: a plain page with --port, --dir or --cmd, or with --session one this
+//               session answers, with --watch. Exit 2 for neither, for --template, and for a route a board holds
+//   kickflip handoff [<route>] (--text <objective> | --file <file>) [--label <name>]
+//               files a session's objective on the board at route as an ask, which becomes a New task, carrying
+//               routed {via: handoff, by: --label (default "a session"), reason "<label> named this board"} for its
+//               thread's line, and prints "handed to <link>". With no route it queues the objective for the hub's router
+//               (../hub/router.mjs queueRequest), which files it on the board it fits on its next 15-second tick.
+//               Exit 2 for a route with no board
 //   kickflip start <route> [--repo <dir>] [--model <m>] [--prompt <text>]
 //               starts a background session (`claude --bg`, auto mode, worktree isolation off) in --repo, else
 //               the route's recorded folder, else the cwd, named after the board, whose first prompt is
-//               `/kickflip --name '<board name>'` plus --prompt. Records it as the route's owner, or in `starting` until a
+//               `/kickflip board '<board name>'` plus --prompt. Records it as the route's owner, or in `starting` until a
 //               join takes it up when the route has no site yet. Prints {route, session, confirmed, repo, argv, output}
 //   kickflip resume <route>
 //               `claude --resume <id> --bg` for the route's recorded session in its folder, prompting it to rejoin
@@ -319,6 +335,12 @@ function named(existing = (route) => undefined) {
   if (!validRoute(route)) fail(`--name "${name}" needs a letter or digit for its route`, 2);
   return { route, title: (name === route && existing(route)?.title) || name };
 }
+// board and page take the name as their one word, which join reads as --name.
+function takeName(command) {
+  if (args.name !== undefined) fail(`${command} takes the name as its first word, not --name: kickflip ${command} <name>`, 2);
+  if (args._.length !== 1) fail(`${command} needs one name, which gives its route: kickflip ${command} <name>`, 2);
+  args.name = args._.shift();
+}
 
 // The board template's files in dir: board.json with its title, items ("waves" or an item file, made when
 // missing with the onboarding cards, board/onboarding.mjs) and, when given, tickets. repo and ref are where main's
@@ -377,8 +399,6 @@ function nameProblem(name) {
   if (!/^[A-Za-z0-9 ]+$/.test(name) || !validRoute(routeFromName(name))) return 'A board name takes letters, digits and spaces, up to 41 characters of route.';
   return taken(readManifest(), routeFromName(name)) ? `/${routeFromName(name)} is taken; pick another name.` : null;
 }
-// The board starts on its own cards, data/items.json, as a New board start does.
-const BOARD_FLAGS = '--template board --items data/items.json';
 
 // Bare `kickflip join` (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md): adds the git repo the
 // cwd is in as a local board, its session starting in the background, or with --hub in tmux, attached to this terminal.
@@ -426,7 +446,7 @@ async function joinFolder() {
     out('It is the hub board, so its session runs in tmux, attached here.');
     return openHub(folder);
   }
-  try { await startRecorded(route, { repo: folder, prompt: BOARD_FLAGS }); }
+  try { await startRecorded(route, { repo: folder }); }
   catch (e) { if (e instanceof Exit) fail(`${e.message}\nThe board is made; run kickflip join here again to start its session.`, e.code); throw e; }
   out('Its session is starting in the background, and joins the board shortly.');
 }
@@ -458,7 +478,7 @@ async function restartFolderBoard(route, site, branch) {
   if (answer && !'yes'.startsWith(answer)) return;
   if (!site.owner.session) {
     if (site.hub === true) return openHub(site.owner.repo);
-    await startRecorded(route, { repo: site.owner.repo, prompt: BOARD_FLAGS });
+    await startRecorded(route, { repo: site.owner.repo });
     return out('Its session is starting in the background.');
   }
   const r = await fetch(`http://127.0.0.1:${HUB_PORT}/_hub/restart-board`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route }), signal: AbortSignal.timeout(5 * 60_000) });
@@ -669,6 +689,54 @@ const commands = {
     });
   },
 
+  // docs/adr/2026-11-15-0014-kickflip-is-handoff-page-and-board.md: the skill's entry points, over join and the router.
+  async board() {
+    takeName('board');
+    if (!args.session) fail("board needs --session <id> (this session's id)", 2);
+    if (args.template !== undefined) fail('board takes no --template: it always joins a board', 2);
+    const { route } = named();
+    const site = routeRecord(readManifest().sites, route);
+    if (site && !isBoardSite(site)) fail(`/${route} is a page; kickflip page ${route} rejoins it`, 2);
+    args.template = 'board';
+    args.watch ??= true;
+    // A new board starts on its own cards, as New board does; a rejoin keeps its board.json's items.
+    if (!site) args.items ??= 'data/items.json';
+    return commands.join();
+  },
+
+  async page() {
+    takeName('page');
+    if (args.template !== undefined) fail('page takes no --template; kickflip board <name> joins a board', 2);
+    if (!args.session && !['port', 'dir', 'cmd'].some((k) => args[k] !== undefined)) {
+      fail('page needs --port <n> or --dir <folder> for a plain page, or --session <id> for a page this session answers', 2);
+    }
+    const { route } = named();
+    if (isBoardSite(routeRecord(readManifest().sites, route) || {})) fail(`/${route} is a board; kickflip board ${route} joins it`, 2);
+    if (args.session) args.watch ??= true;
+    return commands.join();
+  },
+
+  async handoff() {
+    if (args._.length > 1) fail('handoff takes at most one board: kickflip handoff [<route>] --text "<objective>"', 2);
+    const [route] = args._;
+    let text = String(args.text ?? '');
+    if (args.file !== undefined) {
+      try { text = fs.readFileSync(args.file, 'utf8'); } catch (e) { fail(`--file ${args.file}: ${e.message}`, 2); }
+    }
+    text = text.trim() || fail('handoff needs the objective, as --text "<objective>" or --file <file>', 2);
+    const by = String(args.label ?? '').trim() || 'a session';
+    if (!route) {
+      const { queueRequest } = await import(path.join(SKILL, 'hub', 'router.mjs'));
+      await queueRequest({ text, from: { via: 'handoff', by } });
+      return out("queued for the hub's router, which files it on the board it fits within 15 seconds; the Hub page's Routed section shows where");
+    }
+    const { listBoards, appendEvent } = await import(path.join(SKILL, 'hub', 'boards.mjs'));
+    const boards = listBoards(readManifest());
+    const board = boards.find((b) => b.route === route) || fail(`no board at /${route}; the boards are ${boards.map((b) => b.route).join(', ') || 'none'}`, 2);
+    const id = await appendEvent(board, 'ask', { text, routed: { reason: `${by} named this board`, via: 'handoff', by, at: new Date().toISOString() } });
+    out(`handed to /${route}/#selectedCard=${encodeURIComponent(`ask:${id}`)}`);
+  },
+
   async handshake() {
     const route = args._[0];
     if (!route) fail('handshake needs a route', 2);
@@ -783,7 +851,7 @@ const commands = {
       const { label, model } = bundle.owner || {};
       out({
         route, dir, port: site.port, settings: Object.keys(settings), hub: site.hub === true,
-        join: `kickflip join --name ${shellQuote(joinName(route, site.title))} --session <this session's id> --watch --template board${label ? ` --label ${shellQuote(label)}` : ''}${model ? ` --model ${shellQuote(model)}` : ''} --force`,
+        join: `kickflip board ${shellQuote(joinName(route, site.title))} --session <this session's id>${label ? ` --label ${shellQuote(label)}` : ''}${model ? ` --model ${shellQuote(model)}` : ''} --force`,
       });
     } finally { fs.rmSync(stage, { recursive: true, force: true }); }
   },

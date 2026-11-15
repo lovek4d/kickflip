@@ -864,6 +864,8 @@ test("a routed ask's thread opens with a blue status line naming where it came f
   ]);
   assert.equal(msgs[0].mark, 'ask-link');
   assert.equal(threadOf('w/T-1', { events: [askAt('b2', '2026-10-23T09:40:00Z')], fromAsk: 'b2' }).length, 1, 'an ask the router never saw has no routed line');
+  const handed = askAt('b3', '2026-10-23T09:41:00Z', { data: { text: 'Retry checkout', routed: { reason: 'checkout fix named this board', via: 'handoff', by: 'checkout fix', at: '2026-10-23T09:40:59Z' } } });
+  assert.equal(threadOf('w/T-2', { events: [handed], fromAsk: 'b3' })[0].text, 'Routed here from a handoff: checkout fix named this board');
 });
 
 test("the owner's reply on a Done ask's card, sent on the card or the ask's old key, waits and works like a work item's thread message, and reopens the card", () => {

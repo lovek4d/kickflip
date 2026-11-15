@@ -250,7 +250,7 @@ test('start runs claude --bg in the folder, in auto mode with isolation off, and
   const r = json(await cli(['start', 'shop', '--model', 'opus', '--prompt', 'Pick up INT-9']));
   const [call] = calls();
   const { id } = call;
-  assert.deepEqual(call.argv, ['--bg', '--name', 'Shop', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus', "/kickflip --name 'Shop' Pick up INT-9"]);
+  assert.deepEqual(call.argv, ['--bg', '--name', 'Shop', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus', "/kickflip board 'Shop' Pick up INT-9"]);
   const settings = JSON.parse(BG_SETTINGS);
   assert.deepEqual(Object.keys(settings), ['worktree', 'permissions', 'hooks']);
   assert.deepEqual([settings.worktree, settings.permissions, Object.keys(settings.hooks)], [{ bgIsolation: 'none' }, { deny: ['Workflow'] }, ['PermissionRequest', 'PermissionDenied']]);
@@ -274,7 +274,7 @@ test('start on a route with no site waits in starting until that session joins',
   write(web('manifest.json'), m);
   const r = json(await cli(['start', 'fresh', '--repo', otherRepo]));
   const call = calls()[before];
-  assert.deepEqual([call.argv.at(-1), call.cwd, call.argv.includes('--model')], ["/kickflip --name 'fresh'", otherRepo, false]);
+  assert.deepEqual([call.argv.at(-1), call.cwd, call.argv.includes('--model')], ["/kickflip board 'fresh'", otherRepo, false]);
   assert.deepEqual(manifest().starting.fresh, { ...manifest().starting.fresh, session: r.session, repo: otherRepo });
   assert.deepEqual([manifest().starting.fresh.title, manifest().starting.fresh.asked_at, call.argv[2]], [pending.title, pending.asked_at, pending.title]);
   assert.equal(manifest().sites.fresh, undefined);
@@ -312,7 +312,8 @@ test('resume runs claude --resume <id> --bg in the recorded folder, and start an
   const r = json(await cli(['resume', 'shop']));
   const call = calls()[before];
   assert.deepEqual(call.argv.slice(0, -1), ['--resume', session, '--bg', '--name', 'Shop', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus']);
-  assert.match(call.argv.at(-1), new RegExp(`join --name 'Shop' --session ${session}\``));
+  assert.ok(call.argv.at(-1).startsWith("/kickflip board 'Shop'\n"));
+  assert.match(call.argv.at(-1), new RegExp(`Rejoin the board as session ${session} `));
   assert.deepEqual([call.cwd, r.session, r.repo], [repo, session, repo]);
   liveRecord(session, repo);
   const refusals = [await cli(['resume', 'shop']), await cli(['start', 'shop'])];
@@ -348,7 +349,7 @@ test('resume wakes a background session in place with no flags, and records the 
   const r = json(await cli(['resume', 'audit']));
   const call = calls()[before];
   assert.deepEqual(call.argv.slice(0, -1), ['--resume', id, '--bg']);
-  assert.match(call.argv.at(-1), new RegExp(`join --name 'Audit' --session ${id}\``));
+  assert.match(call.argv.at(-1), new RegExp(`^/kickflip board 'Audit'\\n[^]*as session ${id} `));
   assert.deepEqual([r.session, r.previous, r.confirmed, manifest().sites.audit.owner.session], [id, id, true, id]);
   write(copyNext, '');
   const copy = json(await cli(['resume', 'audit']));
@@ -439,7 +440,7 @@ test('the wake resumes the session in place with a prompt naming its id, and win
   assert.deepEqual((await check()).resumed, ['wake']);
   const [call] = calls().slice(before);
   assert.deepEqual(call.argv.slice(0, -1), ['--resume', id, '--bg']);
-  assert.match(call.argv.at(-1), new RegExp(`join --name 'Wake' --session ${id}\``));
+  assert.match(call.argv.at(-1), new RegExp(`^/kickflip board 'Wake'\\n[^]*as session ${id} `));
   assert.deepEqual([read(cursor), manifest().sites.wake.owner.session], [{ 'data/events.jsonl': 1 }, id]);
   assert.deepEqual((await check()).resumed, []);
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
@@ -469,11 +470,14 @@ test('the wake gives a session with no watcher cursor the mark as its cursor, fo
 });
 
 
-test('a session is told to join by its board name: the title when it hyphenates to the route, else the route, quoted for its shell', async () => {
+test('the hub starts and resumes every board session with /kickflip board and its name: the title when it hyphenates to the route, else the route, quoted for its shell', async () => {
   const { startArgv, resumePrompt, hubArgv } = await import('./sessions.mjs');
-  assert.equal(startArgv({ route: 'bob-s-board', name: "Bob's board" }).at(-1), "/kickflip --name 'Bob'\\''s board'");
-  assert.ok(resumePrompt('ops', 'id-1', 'Operations').includes("join --name 'ops' --session id-1`"));
-  assert.ok(hubArgv({ route: 'dev-hub', title: 'Dev hub' }).at(-1).startsWith("/kickflip --name 'Dev hub' --hub\n"));
+  assert.equal(startArgv({ route: 'bob-s-board', name: "Bob's board" }).at(-1), "/kickflip board 'Bob'\\''s board'");
+  const resumed = resumePrompt('ops', 'id-1', 'Operations');
+  assert.ok(resumed.startsWith("/kickflip board 'ops'\n"), resumed);
+  assert.match(resumed, /Rejoin the board as session id-1 and relaunch its watcher/);
+  assert.ok(hubArgv({ route: 'dev-hub', title: 'Dev hub' }).at(-1).startsWith("/kickflip board 'Dev hub' --hub\n"));
+  assert.ok(hubArgv({ route: 'dev-hub', title: 'Dev hub', id: 's-hub' }).at(-1).startsWith("/kickflip board 'Dev hub'\n"));
 });
 
 // One route runs the CLI end to end; the route lookups test below covers each property name in-process.
@@ -601,7 +605,7 @@ test('hub starts the hub board owner in a tmux session in the foreground, in its
   assert.deepEqual(argv.slice(0, -1), ['--resume', 's-hub', '--name', 'Hub', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus']);
   assert.match(argv.at(-1), /You are the hub session/);
   assert.ok(argv.at(-1).includes(path.join(SKILL, 'docs', 'hub-session.md')));
-  assert.match(argv.at(-1), /rejoin \/dev-hub \(join --name 'dev-hub'\) and/);
+  assert.ok(argv.at(-1).startsWith("/kickflip board 'dev-hub'\n"), 'a resumed hub session rejoins with no --hub, which its entry keeps');
   assert.equal(calls().length, before[0]);
   assert.deepEqual(manifest(), m);
 });
@@ -633,7 +637,7 @@ test('hub starts fresh with no owner, in --repo or the cwd, with the join prompt
     assert.equal(started[5], options.dir);
     const argv = tmuxClaude(started);
     assert.equal(argv.includes('--resume'), false);
-    assert.ok(argv.at(-1).startsWith("/kickflip --name 'dev-hub' --hub\n"));
+    assert.ok(argv.at(-1).startsWith("/kickflip board 'dev-hub' --hub\n"));
     assert.match(argv.at(-1), /You are the hub session/);
     assert.ok(argv.at(-1).includes(path.join(SKILL, 'docs', 'hub-session.md')));
   }
@@ -812,7 +816,7 @@ test('join, start and resume keep clone paths under the installed link across a 
   assert.equal(hook.command, `"${nodeBin()}" "${path.join(link, 'hub', 'permission-hook.mjs')}"`);
   const resumed = json(await cli(['resume', 'linked'], { entry: link }));
   assert.equal(resumed.repo, link);
-  assert.ok(calls().at(-1).argv.at(-1).includes(`node ${path.join(link, 'bin', 'kickflip.mjs')} join --name 'linked'`));
+  assert.ok(calls().at(-1).argv.at(-1).startsWith("/kickflip board 'linked'\n"));
   const moved = clone + '-moved';
   fs.renameSync(clone, moved);
   fs.unlinkSync(link);
@@ -885,7 +889,7 @@ test('export bundles a board with its portable entry fields and the three hub se
   const imported = json(await cli(['import', file], { env: { HOME: other } }));
   const moved = otherWeb('sites', 'moving');
   const site = read(otherWeb('manifest.json')).sites.moving;
-  assert.deepEqual(imported, { route: 'moving', dir: moved, port: site.port, settings: ['notifications', 'quiet', 'codexShare'], hub: false, join: "kickflip join --name Moving --session <this session's id> --watch --template board --label 'Love'\\''s board' --model opus --force" });
+  assert.deepEqual(imported, { route: 'moving', dir: moved, port: site.port, settings: ['notifications', 'quiet', 'codexShare'], hub: false, join: "kickflip board Moving --session <this session's id> --label 'Love'\\''s board' --model opus --force" });
   const { hub, ...portable } = entry;
   assert.deepEqual(site, { ...portable, dir: moved, port: site.port, cmd: [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), moved], updated: site.updated });
   assert.notEqual(site.port, 4600);
