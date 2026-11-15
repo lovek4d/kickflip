@@ -98,20 +98,20 @@ test("group DMs, channels, a bare kickflip, our own signed-off posts and a board
   assert.deepEqual(queued().map((q) => q.from.by), ['Love']);
 });
 
-test("a token without search:read files nothing and puts a missing-scope line on the Slack row until a search works", async () => {
+test("a token without search:read files nothing and reads the Slack row degraded with search:read missing until a search works", async () => {
   const { world, slack, poll } = await started();
   world.unsearched = true;
   assert.deepEqual(await poll(), { filed: [], failed: [] });
   assert.equal(slackStatus().unsearched, true);
   const [row] = readinessRows({ slack: slackStatus() });
   assert.equal(row.ready, true);
-  assert.equal(row.note, "Can't find @kickflip in your DMs: add search:read to the Slack app, reinstall it and paste its new token.");
+  assert.deepEqual(row.permissions.missing, [{ scope: 'search:read', effect: "@kickflip in your DMs isn't found" }]);
   world.unsearched = false;
   await poll();
   slack.say({ channel: 'D2', user: 'U2', text: '@kickflip after the reinstall' });
   assert.equal((await poll()).filed.length, 1);
   assert.equal(slackStatus().unsearched, undefined);
-  assert.equal(readinessRows({ slack: slackStatus() })[0].note, undefined);
+  assert.equal(readinessRows({ slack: slackStatus() })[0].permissions, undefined);
 });
 
 test('without a saved token intake does nothing', async () => {

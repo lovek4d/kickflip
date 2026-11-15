@@ -41,6 +41,15 @@
     return groups.map((g) => `<h2 class="label">${esc(g.label)}</h2>\n<div class="group">${g.sites.map(site).join('')}</div>\n${g.label === 'Boards' ? routedHtml(routed) : ''}`).join('');
   }
 
+  // One helper for every integration's missing permissions (docs/adr/2026-11-15-0730-an-integration-missing-a-permission-reads-degraded.md):
+  // it takes the row's {id, name, permissions: {missing: [{scope, effect}], fix}, keyButton} and draws the amber degraded
+  // word on the row and the sheet the word opens: one line per missing permission naming what stops working, its scope in
+  // mono, then the one fix and the integration's key button.
+  const permissionsWord = (it) => `<button type="button" class="st wait" data-permissions="${esc(it.id)}" aria-haspopup="dialog">degraded</button>`;
+  const permissionsSheet = (it) => `<div class="sheet-body"><div class="sheet-head"><h2 id="permissionsTitle">${esc(it.name)} is missing permissions</h2><button type="button" class="ghost" data-sheet-close aria-label="Close sheet">✕</button></div>
+<ul class="mp-list">${it.permissions.missing.map((p) => `<li><span>${esc(p.effect)}</span> <code>${esc(p.scope)}</code></li>`).join('')}</ul>
+<p class="mp-fix">${esc(it.permissions.fix)}</p>${it.keyButton ? `<button type="button" class="btn" data-settings-open="${esc(it.id)}" aria-haspopup="dialog">${esc(it.keyButton)}</button>` : ''}</div>`;
+
   function integrationsHtml(integrations) {
     const { row, tile } = HubUI;
     const fixHtml = (fix) => fix.command ? `<code>${esc(fix.command)}</code>` : fix.settings
@@ -55,8 +64,10 @@
       ? `<span class="links">${it.fix ? `<span class="rd-fix">${fixHtml(it.fix)}</span>` : ''}${it.waits ? `<span class="rd-waits">${esc(it.waits)}</span>` : ''}</span>` : '';
     // GitHub's row while its rate limit holds is red, a fault, and says when it resets
     // (docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md).
-    const rows = integrations.map((it) => row({ icon: tile(it.id, it.ready ? 'var(--color-quiet)' : it.limited ? 'var(--color-danger)' : 'var(--color-notice)'), title: esc(it.name), wrap: true, trail: keyButton(it),
-      sub: it.ready ? `<span class="st ok">ready</span> · ${esc(it.detail)}${devices(it)}${it.note ? `<span class="links"><span class="rd-waits">${esc(it.note)}</span></span>` : ''}`
+    // A ready integration missing a permission reads amber degraded, the word opening its permissions sheet.
+    const tone = (it) => it.limited ? 'var(--color-danger)' : it.ready && !it.permissions ? 'var(--color-quiet)' : 'var(--color-notice)';
+    const rows = integrations.map((it) => row({ icon: tile(it.id, tone(it)), title: esc(it.name), wrap: true, trail: keyButton(it),
+      sub: it.ready ? `${it.permissions ? permissionsWord(it) : '<span class="st ok">ready</span>'} · ${esc(it.detail)}${devices(it)}`
         : `${it.limited ? '<span class="st down">rate limited</span>' : '<span class="st wait">not ready</span>'} · ${esc(it.missing)}${missingLinks(it)}` })).join('');
     return `<h2 class="label" id="integrations">Integrations</h2><div class="group">${rows}</div>
 <p class="note">A feature that needs an integration stays off until it’s ready, and says why.</p>
@@ -121,7 +132,8 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
     className: 'hub-view view-hub',
     title: () => 'Hub',
     markup: () => `${BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png' })}
-<main class="has-top"><div class="hub-status"></div><section class="hub-settings">${HubSettings.markup()}</section><div class="hub-foot"></div></main>`,
+<main class="has-top"><div class="hub-status"></div><section class="hub-settings">${HubSettings.markup()}</section><div class="hub-foot"></div></main>
+<dialog class="sheet permissions-sheet" aria-labelledby="permissionsTitle"></dialog>`,
 
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
       const main = B.$('.hub-status');
@@ -203,7 +215,19 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
         if (!out) { flash = { text: 'Could not remove that device. Is the host awake?', error: true }; paint(); return; }
         load();
       }
+      const sheet = B.$('.permissions-sheet');
+      B.on(sheet, 'click', (e) => {
+        const opener = e.target.closest?.('[data-settings-open]');
+        if (opener || e.target.closest?.('[data-sheet-close]') || BoardUI.onBackdrop(e, sheet)) sheet.close();
+        if (opener) B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener);
+      });
+      B.atUnmount(BoardUI.swipeToDismiss(sheet));
       B.on(main, 'click', (e) => {
+        const word = e.target.closest?.('[data-permissions]');
+        if (word) {
+          sheet.innerHTML = permissionsSheet(last.integrations.find((it) => it.id === word.dataset.permissions));
+          sheet.showModal();
+        }
         const forgetter = e.target.closest?.('[data-forget-device]');
         if (forgetter) forgetDevice(forgetter.dataset.forgetDevice);
         const opener = e.target.closest?.('[data-settings-open]');

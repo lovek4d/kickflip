@@ -23,13 +23,22 @@ const INTEGRATIONS = [
   ['tailscale', 'Tailscale', 'Try builds wait on this.'],
   ['notifications', 'Notifications', 'Pushes wait on this.'],
 ];
-// Slack's ready row while its token can't read the day threads: sends go on, and reviewers' messages wait unheard
-// (docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md).
-const UNHEARD = "Can't read replies in the review threads: add im:history to the Slack app, reinstall it and paste its new token.";
-// And while it can't search: @kickflip DMs wait unfiled
-// (docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md).
-const UNSEARCHED = "Can't find @kickflip in your DMs: add search:read to the Slack app, reinstall it and paste its new token.";
-const slackNote = (value) => [value.unheard && UNHEARD, value.unsearched && UNSEARCHED].filter(Boolean).join(' ');
+// A ready integration can still lack a permission a feature needs: its row carries permissions, {missing: [{scope, effect}], fix},
+// which the hub page draws as amber degraded with a sheet saying what stops working and the one fix
+// (docs/adr/2026-11-15-0730-an-integration-missing-a-permission-reads-degraded.md). Each entry maps a flag its status
+// sets to the scope and what stops working without it. Slack's token sends on without these: without im:history
+// reviewers' replies in the day threads wait unheard (docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md),
+// and without search:read @kickflip DMs wait unfiled (docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md).
+const PERMISSIONS = {
+  slack: {
+    scopes: [['unheard', 'im:history', "Review-thread replies aren't heard"], ['unsearched', 'search:read', "@kickflip in your DMs isn't found"]],
+    fix: 'Add these scopes to the Slack app, reinstall it, paste the new token',
+  },
+};
+function permissionsOf(id, value) {
+  const missing = (PERMISSIONS[id]?.scopes ?? []).filter(([flag]) => value[flag]).map(([, scope, effect]) => ({ scope, effect }));
+  return missing.length ? { permissions: { missing, fix: PERMISSIONS[id].fix } } : {};
+}
 const settingsFix =(settings, label, text) => ({ settings, label: `Hub settings › ${label}`, text });
 
 export function readinessRows(checks, { now = Date.now(), platform = process.platform } = {}) {
@@ -47,7 +56,7 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
         : { ready: true, detail: `Key set · ${value.workspace} workspace`, keyButton: 'Change key' };
       case 'slack': return !value.set ? { ready: false, missing: 'No Slack token set', keyButton: 'Add key' }
         : value.refused ? { ready: false, missing: 'Slack refused the token', keyButton: 'Change key' }
-        : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}`, keyButton: 'Change key', ...(slackNote(value) ? { note: slackNote(value) } : {}) };
+        : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}`, keyButton: 'Change key' };
       case 'tailscale': {
         let missing, command;
         if (!value.installed) { missing = "Tailscale isn't installed on the host"; command = tailscaleInstallCommand(platform); }
@@ -61,7 +70,10 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
         : { ready: false, missing: value.on ? 'No device has turned on notifications' : 'Pushes are off', fix: settingsFix('notifications', 'Notifications', 'Turn on notifications in') };
     }
   };
-  return INTEGRATIONS.filter(([id]) => Object.hasOwn(checks, id)).map(([id, name, waits]) => ({ id, name, ...row(id, checks[id]), waits }));
+  return INTEGRATIONS.filter(([id]) => Object.hasOwn(checks, id)).map(([id, name, waits]) => {
+    const r = row(id, checks[id]);
+    return { id, name, ...r, ...(r.ready ? permissionsOf(id, checks[id]) : {}), waits };
+  });
 }
 
 const asyncRun = (env) => (command, args) => new Promise((resolve) => {

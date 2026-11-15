@@ -603,11 +603,93 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.match(limited.textContent, /rate limited · resets at 3:12pm/);
   assert.equal(limited.querySelector('.rd-waits').textContent, integrations[0].waits);
   assert.match(limited.querySelector('.icon').getAttribute('style'), /var\(--color-danger\)/);
-  // Slack's ready row says when its token can't read the review threads.
-  live.paint({ ...data, version: '0.4.2', integrations: integrations.map((it) => (it.id === 'slack' ? { ...it, note: "Can't read replies <img>" } : it)) });
-  const slackRow = root.querySelectorAll('.label').find((el) => el.textContent === 'Integrations').nextSibling.querySelectorAll('.row')[3];
-  assert.equal(slackRow.querySelector('.st.ok').textContent, 'ready');
-  assert.equal(slackRow.querySelector('.rd-waits').textContent, "Can't read replies <img>");
+});
+
+// docs/adr/2026-11-15-0730-an-integration-missing-a-permission-reads-degraded.md
+test('an integration missing a permission reads amber degraded, and tapping the word opens a sheet with each missing permission and the one fix; none missing reads ready with no sheet', async () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  let live;
+  const listeners = [], opened = [];
+  const context = vm.createContext({
+    navigator: {}, localStorage: { getItem: () => null },
+    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    HubSettings: { markup: () => '', create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
+    BoardUI: { ...BOARD_UI, ago: () => '5m ago' },
+    PromptAnswers: { wire: () => ({ shows: () => true }) },
+    HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; return () => {}; } },
+  });
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  root.innerHTML = context.AppViews.hub.markup();
+  context.AppViews.hub.create(root, '/_hub', {});
+  const now = t(19);
+  const fix = 'Add these scopes to the Slack app, reinstall it, paste the new token';
+  const unheard = { scope: 'im:history', effect: "Review-thread replies aren't heard" };
+  const unsearched = { scope: 'search:read', effect: "@kickflip in your DMs isn't found" };
+  const slack = { id: 'slack', name: 'Slack', ready: true, detail: 'Token set · Acme workspace, sending as love', keyButton: 'Change key', waits: null };
+  const data = hubView({ now, st: status(now, DEFAULTS), integrations: [],
+    sidebar: { pause: CALM_GATE, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' }, notifications: {}, total: 0, usage: { claude: null, codex: null } }, rows: [] });
+  const paint = (...integrations) => live.paint({ ...data, version: '0.4.2', integrations });
+  const rows = () => root.querySelectorAll('.label').find((el) => el.textContent === 'Integrations').nextSibling.querySelectorAll('.row');
+  const click = (target) => listeners.filter((l) => l.type === 'click' && l.target?.contains?.(target)).forEach((l) => l.fn({ target }));
+  const sheet = root.querySelector('dialog.permissions-sheet');
+
+  // None missing: green ready, nothing to tap.
+  paint(slack);
+  assert.equal(rows()[0].querySelector('.st.ok').textContent, 'ready');
+  assert.equal(rows()[0].querySelector('[data-permissions]'), null);
+
+  // One missing: amber degraded on an amber tile, the detail after it, and no scope sentence on the row.
+  paint({ ...slack, permissions: { missing: [unheard], fix } });
+  let row = rows()[0];
+  const word = row.querySelector('button.st.wait[data-permissions="slack"]');
+  assert.deepEqual([word.textContent, word.getAttribute('aria-haspopup')], ['degraded', 'dialog']);
+  assert.equal(row.querySelector('.st.ok'), null);
+  assert.match(row.querySelector('.sub').textContent, /^degraded · Token set · Acme workspace, sending as love$/);
+  assert.match(row.querySelector('.icon').getAttribute('style'), /var\(--color-notice\)/);
+  assert.doesNotMatch(row.textContent, /im:history/);
+  assert.equal(row.querySelector('[data-settings-open="slack"]').textContent, 'Change key');
+  assert.equal(sheet.open, false);
+  click(word);
+  assert.equal(sheet.open, true);
+  assert.equal(sheet.querySelector('h2').textContent, 'Slack is missing permissions');
+  assert.deepEqual(sheet.querySelectorAll('.mp-list li').map((li) => [li.querySelector('span').textContent, li.querySelector('code').textContent]), [["Review-thread replies aren't heard", 'im:history']]);
+  assert.equal(sheet.querySelector('.mp-fix').textContent, fix);
+  // Change key closes the sheet and opens Slack's key modal.
+  const change = sheet.querySelector('[data-settings-open="slack"]');
+  assert.equal(change.textContent, 'Change key');
+  click(change);
+  assert.equal(sheet.open, false);
+  assert.deepEqual(plain(opened.at(-1)[0]), { hash: '#slack' });
+
+  // Both missing: one line each, in order, then the one fix; ✕ closes it.
+  paint({ ...slack, permissions: { missing: [unheard, unsearched], fix } });
+  click(rows()[0].querySelector('[data-permissions]'));
+  assert.deepEqual(sheet.querySelectorAll('.mp-list code').map((el) => el.textContent), ['im:history', 'search:read']);
+  assert.equal(sheet.querySelectorAll('.mp-fix').length, 1);
+  click(sheet.querySelector('[aria-label="Close sheet"]'));
+  assert.equal(sheet.open, false);
+
+  // Token refused stays red, with no degraded word.
+  paint({ id: 'slack', name: 'Slack', ready: false, missing: 'Slack refused the token', keyButton: 'Change key', waits: null });
+  assert.equal(rows()[0].querySelector('[data-permissions]'), null);
+
+  // The same helper draws GitHub's and Linear's rows and sheets, escaped, under their own names and buttons.
+  paint({ id: 'github', name: 'GitHub', ready: true, detail: 'gh logged in as love', permissions: { missing: [{ scope: 'read:org <img>', effect: 'Org repos <img> aren’t listed' }], fix: 'Run gh auth refresh' } },
+    { id: 'linear', name: 'Linear', ready: true, detail: 'Key set · Work workspace', keyButton: 'Change key', permissions: { missing: [{ scope: 'write', effect: 'Issues aren’t created' }], fix: 'Make a key with write access' } });
+  const [github, linear] = rows();
+  assert.equal(github.querySelector('button.st.wait').textContent, 'degraded');
+  click(github.querySelector('[data-permissions="github"]'));
+  assert.equal(sheet.querySelector('h2').textContent, 'GitHub is missing permissions');
+  assert.equal(sheet.querySelector('code').textContent, 'read:org <img>');
+  assert.equal(sheet.querySelector('img'), null);
+  assert.equal(sheet.querySelector('[data-settings-open]'), null);
+  click(sheet.querySelector('[aria-label="Close sheet"]'));
+  click(linear.querySelector('[data-permissions="linear"]'));
+  assert.equal(sheet.querySelector('h2').textContent, 'Linear is missing permissions');
+  assert.equal(sheet.querySelector('.mp-fix').textContent, 'Make a key with write access');
+  assert.equal(sheet.querySelector('[data-settings-open="linear"]').textContent, 'Change key');
 });
 
 // docs/adr/2026-11-03-1638-the-hub-restarts-itself-from-its-stale-code-notice.md

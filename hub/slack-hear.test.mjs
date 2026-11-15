@@ -84,7 +84,7 @@ test("each new message in an open day thread wakes its board once with a slack-q
   assert.equal(questions().length, 4);
 });
 
-test("until the token can read DMs (im:history), sends go on, the owner is pushed once and the Slack row says so; a read that works clears it", async () => {
+test("until the token can read DMs (im:history), sends go on, the owner is pushed once and the Slack row reads degraded with im:history missing; a read that works clears it", async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);
   saveToken(world);
@@ -96,12 +96,12 @@ test("until the token can read DMs (im:history), sends go on, the owner is pushe
   assert.equal(slackStatus().unheard, true);
   const [row] = readinessRows({ slack: slackStatus() });
   assert.equal(row.ready, true);
-  assert.equal(row.note, "Can't read replies in the review threads: add im:history to the Slack app, reinstall it and paste its new token.");
+  assert.deepEqual(row.permissions.missing, [{ scope: 'im:history', effect: "Review-thread replies aren't heard" }]);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
   world.unheard = false;
   await poll();
   assert.equal(slackStatus().unheard, undefined);
-  assert.equal(readinessRows({ slack: slackStatus() })[0].note, undefined);
+  assert.equal(readinessRows({ slack: slackStatus() })[0].permissions, undefined);
 });
 
 test('slack thread reads the thread, slack answer posts the answer signed off in it, and slack task files the request discussing with the message in its thread', async () => {

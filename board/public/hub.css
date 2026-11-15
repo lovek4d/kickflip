@@ -166,3 +166,8 @@
 /* A waiting button keeps its own look (style.css button[aria-busy="true"]), over .btn's and a step's disabled dimming. */
 .hub-view button[aria-busy="true"]:disabled { opacity:1; }
 .hub-view .ub-step button[aria-busy="true"]:disabled { color:var(--text); }
+/* An integration's missing-permissions sheet (view-hub.js permissionsSheet): a line per missing permission with its scope in mono, then the one fix. */
+.hub-view .permissions-sheet .mp-list { list-style:none; margin:0 0 10px; padding:0; }
+.hub-view .permissions-sheet .mp-list li { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; padding:6px 0; font-size:14px; }
+.hub-view .permissions-sheet .mp-list code { color:var(--text); background:var(--chip); padding:2px 6px; border-radius:6px; }
+.hub-view .permissions-sheet .mp-fix { margin:4px 0 10px; font-size:14px; color:var(--muted); }

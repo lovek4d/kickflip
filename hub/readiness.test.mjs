@@ -153,3 +153,23 @@ test("while GitHub's limit holds gh's account, the GitHub row reads rate limited
   assert.equal((await r.rows())[0].ready, true, 'the row is ready again once the limit resets');
   assert.equal(logins, 1, 'gh is asked only when the cache runs out, the gate on every read');
 });
+
+// docs/adr/2026-11-15-0730-an-integration-missing-a-permission-reads-degraded.md
+test('a ready integration missing a permission carries each missing scope with what stops working and one shared fix; none missing or refused carries none', async () => {
+  const row = (slack) => readinessRows({ slack: { set: true, team: 'Acme', user: 'love', ...slack } })[0];
+  const fix = 'Add these scopes to the Slack app, reinstall it, paste the new token';
+  const unheard = { scope: 'im:history', effect: "Review-thread replies aren't heard" };
+  const unsearched = { scope: 'search:read', effect: "@kickflip in your DMs isn't found" };
+  assert.equal(row({}).permissions, undefined);
+  assert.deepEqual(row({ unheard: true }).permissions, { missing: [unheard], fix });
+  assert.deepEqual(row({ unsearched: true }).permissions, { missing: [unsearched], fix });
+  assert.deepEqual(row({ unheard: true, unsearched: true }).permissions, { missing: [unheard, unsearched], fix });
+  assert.equal(row({ unheard: true }).ready, true);
+  assert.equal(row({ unheard: true }).note, undefined);
+  const refused = row({ refused: true, unheard: true, unsearched: true });
+  assert.deepEqual([refused.ready, refused.missing, refused.permissions], [false, 'Slack refused the token', undefined]);
+  // Sends go on while a permission is missing, so nothing waits on Slack.
+  const reader = readinessReader({ now: () => now, probes: probesOf({ ...ready(), slack: { set: true, team: 'Acme', user: 'love', unheard: true, unsearched: true } }) });
+  assert.equal(await reader.waiting('slack'), null);
+  for (const r of await reader.rows()) if (r.id !== 'slack') assert.equal(r.permissions, undefined);
+});
