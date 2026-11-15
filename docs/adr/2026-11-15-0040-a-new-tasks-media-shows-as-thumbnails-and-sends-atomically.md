@@ -1,0 +1,14 @@
+# A new task's media shows as thumbnails and sends atomically
+
+Extends [a new task shows at once in the New strip as sending…](2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md) and supersedes its bullet "A file still uploading holds the box".
+
+The owner (T-193) picked prototype `bubble-media` take A, the thumbnail row, and asked for the send to be atomic: "Can we make it atomic? Only send if everything went through? Else a single retry? But still allow deleting an attachment and show that it failed, to allow retrying without the attachment from the same item?" And: "Attachments should go in the thread as if they were uploaded in the reply."
+
+- **One renderer.** A New strip row draws its files with the thread's own `BoardUI.attachments`: a square thumbnail for an image, a file chip for anything else. The task's first thread message already carries the ask's `files` and draws them the same way, so the strip and the thread match.
+- **The rows keep their files.** A Ticket created row (`it.ingested.files`) and an Added to row (`merges[].files`) carry the ask's files, each edit's after the ask's own (domain.mjs).
+- **The send closes the box at once, files and all.** Implement or Discuss moves the box's files, uploads still running, out of the composer `ask` into a box of the task's own, `send:<sendId>` (attach.js `move`), and puts the ask in the outbox at once. Its strip row draws that box (`BoardUI.uploadTiles`): a file still uploading dimmed under its progress bar, one up as its thumbnail or chip.
+- **Atomic.** The ask goes only once every file in its box is up, with them as its `files` (app-threads.js `flush`). If any upload fails, nothing is sent: the row reads `not sent`, the failed file framed in red with why and an X to remove it. The row's one Retry uploads again each failed file a retry can change (attach.js `retryFailed`) and sends once they are up; removing the failed file first sends without it. A tile has no retry of its own. X on the row puts the text back in the New task box and moves the files back with it, a failed one still marked.
+- **A reload.** The outbox entry keeps its box as JSON (`uploads`, attach.js `saved`), updated on every change to the box. A reload puts the uploaded files back in the box; one that was still uploading is lost with the page, so it comes back failed, "Lost in a reload", which no retry can change, and the task reads not sent until that file is removed.
+- **Tap to expand.** A thumbnail tap opens the image full size over the board (app-lightbox.js `#lightbox`), with ‹ and › through the images of the same message, closed by ✕, the dim area, a swipe down (as every sheet) or Escape. The reader sheet reads logs and notes only and no image viewer existed, so this is its own small dialog. A modified or middle click still opens the file as a link.
+
+Thread replies, and the questions page, getting the same treatment are T-386.

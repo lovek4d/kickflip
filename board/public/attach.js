@@ -9,9 +9,17 @@
 //   BoardAttach.busy(id, site)   true while any upload is running
 //   BoardAttach.clear(id, site)  after sending
 //   BoardAttach.settled(id, site) a promise, once no upload runs, of whether every file is up (none failed)
-//   BoardAttach.restore(id, files, site) puts files sent before, each an uploaded file, back as chips
-//   BoardAttach.onChange(fn)     fn(id) after each change, such as to disable Send while busy; each composer
-//                                painted also gets a bubbling attach-change event with detail {id}
+//   BoardAttach.restore(id, files, site) puts files back as chips: each an uploaded file, or one of saved()'s
+//                                {name, type, lost} as failed, Lost in a reload, which no retry can change
+//   BoardAttach.onChange(fn)     fn(id) after each change, such as to repaint a New strip row; it returns the
+//                                unsubscribe. Each composer painted also gets a bubbling attach-change event with detail {id}
+// A New task's send takes its composer's files, uploads still running, into a box of its own, send:<send id>
+// (docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md):
+//   BoardAttach.move(from, to, site)  moves every file, its upload with it, from one id to another, after any already there
+//   BoardAttach.list(id, site)   the files as pendingFiles reads them, for a page that draws them itself
+//   BoardAttach.retryFailed(id, site) uploads again every failed file a retry can change
+//   BoardAttach.saved(id, site)  the files as JSON for a reload: an uploaded one as sent, another {name, type, lost: true}
+// A [data-uploads="<id>"] box's X removes its file as a composer's does.
 window.BoardAttach = (function () {
   const LIMIT = 20 * 1024 * 1024;
   const OVER = 'Over 20 MB';
@@ -42,39 +50,43 @@ window.BoardAttach = (function () {
   }
   const paintAll = () => { for (const c of document.querySelectorAll('[data-composer]')) paint(c.dataset.composer, siteOf(c)); };
 
+  // Each file knows the id it is under (box), which move changes, so an upload still running paints where it now is.
+  // A final error ("Over 20 MB", lost in a reload) is one a retry can't change.
   function upload(site, id, file) {
-    const p = { id: 'f' + ++seq, name: file.name || 'file', type: file.type || 'application/octet-stream', status: 'uploading', progress: 0, source: file };
+    const p = { id: 'f' + ++seq, box: id, name: file.name || 'file', type: file.type || 'application/octet-stream', status: 'uploading', progress: 0, source: file };
     if (/^image\//.test(p.type)) p.preview = URL.createObjectURL(file);
     state.set(keyOf(site, id), [...list(site, id), p]);
-    if (file.size > LIMIT) { p.status = 'error'; p.error = 'Over 20 MB'; paint(id, site); return; }
-    send(site, id, p);
+    if (file.size > LIMIT) { Object.assign(p, { status: 'error', error: OVER, final: true }); paint(id, site); return; }
+    send(site, p);
   }
 
   // Sends p's File and paints it uploading; a retry from an error chip runs it again.
-  function send(site, id, p) {
+  function send(site, p) {
     const file = p.source;
     p.status = 'uploading'; p.progress = 0; delete p.error;
-    paint(id, site);
+    paint(p.box, site);
     const xhr = new XMLHttpRequest();
     p.xhr = xhr;
     xhr.open('POST', `${site}/api/upload`);
     xhr.setRequestHeader('x-filename', encodeURIComponent(p.name));
     xhr.setRequestHeader('content-type', p.type);
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable) { p.progress = e.loaded / e.total; paint(id, site); } };
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) { p.progress = e.loaded / e.total; paint(p.box, site); } };
     xhr.onload = () => {
       let body = null;
       try { body = JSON.parse(xhr.responseText); } catch {}
       if (xhr.status === 200 && body) { p.status = 'done'; p.file = body; }
-      else { p.status = 'error'; p.error = xhr.status === 413 ? 'Over 20 MB' : (body && body.error) || 'Upload failed'; }
-      paint(id, site);
+      else if (xhr.status === 413) Object.assign(p, { status: 'error', error: OVER, final: true });
+      else { p.status = 'error'; p.error = (body && body.error) || 'Upload failed'; }
+      paint(p.box, site);
     };
-    xhr.onerror = () => { p.status = 'error'; p.error = 'Upload failed'; paint(id, site); };
+    xhr.onerror = () => { p.status = 'error'; p.error = 'Upload failed'; paint(p.box, site); };
     xhr.send(file);
   }
 
+  const retryable = (p) => p.status === 'error' && !p.final;
   function retry(site, id, fileId) {
     const p = list(site, id).find((x) => x.id === fileId);
-    if (p && p.status === 'error' && p.error !== OVER) send(site, id, p);
+    if (p && retryable(p)) send(site, p);
   }
 
   function remove(site, id, fileId) {
@@ -148,8 +160,8 @@ window.BoardAttach = (function () {
   });
   document.addEventListener('click', (ev) => {
     const b = ev.target.closest && ev.target.closest('[data-unattach]');
-    const c = b && b.closest('[data-composer]');
-    if (c) { ev.preventDefault(); remove(siteOf(c), c.dataset.composer, b.dataset.unattach); return; }
+    const c = b && b.closest('[data-composer], [data-uploads]');
+    if (c) { ev.preventDefault(); remove(siteOf(c), c.dataset.composer || c.dataset.uploads, b.dataset.unattach); return; }
     const r = ev.target.closest && ev.target.closest('[data-retry]');
     const rc = r && r.closest('[data-composer]');
     if (rc) { ev.preventDefault(); retry(siteOf(rc), rc.dataset.composer, r.dataset.retry); }
@@ -163,11 +175,27 @@ window.BoardAttach = (function () {
       return new Promise((resolve) => waiters.set(keyOf(site, id), [...(waiters.get(keyOf(site, id)) || []), resolve]));
     },
     restore(id, files, site = own()) {
-      state.set(keyOf(site, id), [...list(site, id), ...files.map((file) => ({ id: 'f' + ++seq, name: file.name || 'file', type: file.type || 'application/octet-stream', status: 'done', file }))]);
+      const back = files.map((f) => ({ id: 'f' + ++seq, box: id, name: f.name || 'file', type: f.type || 'application/octet-stream',
+        ...(f.lost ? { status: 'error', error: 'Lost in a reload', final: true } : { status: 'done', file: f }) }));
+      state.set(keyOf(site, id), [...list(site, id), ...back]);
       paint(id, site);
     },
     clear(id, site = own()) { for (const p of list(site, id)) if (p.preview) URL.revokeObjectURL(p.preview); state.delete(keyOf(site, id)); paint(id, site); },
-    onChange(fn) { listeners.push(fn); },
+    onChange(fn) {
+      listeners.push(fn);
+      return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); };
+    },
+    move(from, to, site = own()) {
+      const moving = list(site, from);
+      for (const p of moving) p.box = to;
+      state.delete(keyOf(site, from));
+      state.set(keyOf(site, to), [...list(site, to), ...moving]);
+      paint(from, site);
+      paint(to, site);
+    },
+    list: (id, site = own()) => list(site, id),
+    retryFailed(id, site = own()) { for (const p of list(site, id).filter(retryable)) send(site, p); },
+    saved: (id, site = own()) => list(site, id).map((p) => (p.status === 'done' ? p.file : { name: p.name, type: p.type, lost: true })),
     paint, paintAll,
   };
 })();

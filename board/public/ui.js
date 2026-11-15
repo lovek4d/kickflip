@@ -171,17 +171,32 @@
     const tag = button ? 'button' : href == null ? 'span' : 'a';
     return `<${tag} class="chip tone-${tone}"${extra}>${html}</${tag}>`;
   }
-  // A composer's files before sending: {id, name, type, preview, status: uploading|done|error, progress (0–1), error}.
-  // An errored chip retries on click, except "Over 20 MB", which a retry can't change.
+  // A composer's files before sending (attach.js): {id, name, type, preview, status: uploading|done|error, progress (0–1),
+  // error, final}. An errored chip retries on click, except a final one ("Over 20 MB", or lost in a reload), which a
+  // retry can't change.
+  const uploadBar = (p) => (p.status === 'uploading' ? `<span class="pbar" role="progressbar" aria-label="Uploading ${esc(p.name)}" aria-valuenow="${Math.round((p.progress || 0) * 100)}"><span style="width:${Math.max(4, Math.round((p.progress || 0) * 100))}%"></span></span>` : '');
+  const unattach = (p) => `<button type="button" class="unattach" data-unattach="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">✕</button>`;
   const pendingFiles = (list) => list.map((p) => {
-    const retry = p.status === 'error' && p.error !== 'Over 20 MB';
+    const retry = p.status === 'error' && !p.final;
     const title = retry ? `${p.name}: tap to retry` : p.status === 'error' ? `${p.name}: a retry can't succeed, remove it` : p.name;
     return `<span class="pfile ${esc(p.status)}${retry ? ' retry' : ''}" title="${esc(title)}"${retry ? ` data-retry="${esc(p.id)}"` : ''}>
       ${isImage(p) && p.preview ? `<img src="${esc(p.preview)}" alt="${esc(p.name)}">` : `<span class="pname">${esc(p.name)}</span>`}
-      ${p.status === 'uploading' ? `<span class="pbar" role="progressbar" aria-label="Uploading ${esc(p.name)}" aria-valuenow="${Math.round((p.progress || 0) * 100)}"><span style="width:${Math.max(4, Math.round((p.progress || 0) * 100))}%"></span></span>` : ''}
+      ${uploadBar(p)}
       ${p.status === 'error' ? `<span class="perr">${esc(p.error || 'Upload failed')}${retry ? ' · tap to retry' : ''}</span>` : ''}
-      <button type="button" class="unattach" data-unattach="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">✕</button></span>`;
+      ${unattach(p)}</span>`;
   }).join('');
+  // docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md
+  // A New task's files on its strip row while the page sends it (ui-cards.js newEntry), the same list as pendingFiles,
+  // drawn as attachments draws sent files: a thumbnail for an image, a chip for another file. One uploading is dimmed
+  // under its progress bar; one that failed is marked with why and an X to remove it. The row's one Retry re-uploads
+  // what failed (app-threads.js), so a tile has no retry of its own.
+  const uploadTiles = (list) => `<div class="files">${list.map((p) => {
+    const failed = p.status === 'error' ? `<span class="perr">${esc(p.error || 'Upload failed')}</span>${unattach(p)}` : '';
+    const title = p.status === 'error' ? `${p.name}: ${p.error || 'Upload failed'}` : p.name;
+    return isImage(p) && p.preview
+      ? `<span class="file-thumb ${esc(p.status)}" title="${esc(title)}"><img src="${esc(p.preview)}" alt="${esc(p.name)}">${uploadBar(p)}${failed}</span>`
+      : `<span class="file-link ${esc(p.status)}" title="${esc(title)}">${esc(p.name)}${uploadBar(p)}${failed}</span>`;
+  }).join('')}</div>`;
 
   // Replacing innerHTML would close every <details> inside, collapsing what the reader had open, and replace the field
   // being typed in, dropping its text, cursor and focus, and on iOS the keyboard. So setHTML patches el in place: a
@@ -530,6 +545,6 @@
   globalThis.BoardUI = {
     LINK_ARROW, escText, onBackdrop, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

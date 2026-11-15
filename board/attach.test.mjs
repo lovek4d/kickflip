@@ -198,3 +198,62 @@ test("restore puts a sent task's files back in its composer as uploaded chips, r
   const chips = p.composer.querySelectorAll('[data-files] .pfile');
   assert.deepEqual(chips.map((c) => [c.getAttribute('title'), c.classList.contains('done')]), [['shot.png', true]]);
 });
+
+// docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md
+// A box's files on board-a, in an array of this realm, so deepEqual compares by value.
+const listOf = (p, id) => [...p.win.BoardAttach.list(id, '/board-a')];
+test("move carries a composer's files to a send's box with its uploads still running: each lands there, the composer empties, and every change is told to onChange until it unsubscribes", async () => {
+  const p = attachPage();
+  const { BoardAttach } = p.win;
+  const told = [];
+  const off = BoardAttach.onChange((id) => told.push(id));
+  p.fire(p.box, 'paste', { clipboardData: { types: ['Files'], files: [p.file('a.png', 'image/png'), p.file('b.pdf', 'application/pdf')] } });
+  BoardAttach.move('ask', 'send:s1', '/board-a');
+  assert.deepEqual([listOf(p, 'ask').length, listOf(p, 'send:s1').map((f) => [f.name, f.status])], [0, [['a.png', 'uploading'], ['b.pdf', 'uploading']]]);
+  assert.equal(p.composer.querySelectorAll('[data-files] .pfile').length, 0, 'the composer is empty');
+  const outcome = [];
+  BoardAttach.settled('send:s1', '/board-a').then((ok) => outcome.push(ok));
+  told.length = 0;
+  const [a, b] = p.uploads.map((u) => u.xhr);
+  Object.assign(a, { status: 200, responseText: JSON.stringify({ name: 'a.png', url: 'uploads/1-a.png' }) });
+  a.onload();
+  Object.assign(b, { status: 200, responseText: JSON.stringify({ name: 'b.pdf', url: 'uploads/2-b.pdf' }) });
+  b.onload();
+  await null;
+  assert.deepEqual([outcome, told], [[true], ['send:s1', 'send:s1']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(BoardAttach.files('send:s1', '/board-a'))).map((f) => f.url), ['uploads/1-a.png', 'uploads/2-b.pdf']);
+  off();
+  BoardAttach.clear('send:s1', '/board-a');
+  assert.deepEqual(told, ['send:s1', 'send:s1']);
+});
+
+test("retryFailed re-uploads every failed file but a final one, and an X in a [data-uploads] box removes its file from that box", () => {
+  const p = attachPage();
+  const { BoardAttach } = p.win;
+  p.fire(p.box, 'paste', { clipboardData: { types: ['Files'], files: [p.file('a.png', 'image/png'), p.file('b.pdf', 'application/pdf'), { ...p.file('big.zip', 'application/zip'), size: 21 * 1024 * 1024 }] } });
+  BoardAttach.move('ask', 'send:s1', '/board-a');
+  for (const u of p.uploads) { Object.assign(u.xhr, { status: 500, responseText: '{}' }); u.xhr.onload(); }
+  assert.deepEqual(listOf(p, 'send:s1').map((f) => [f.status, Boolean(f.final)]), [['error', false], ['error', false], ['error', true]]);
+  BoardAttach.retryFailed('send:s1', '/board-a');
+  assert.deepEqual(p.uploads.slice(2).map((u) => u.file.name), ['a.png', 'b.pdf']);
+  const row = p.win.document.body.querySelector('[data-site]');
+  row.insertAdjacentHTML('beforeend', `<div data-uploads="send:s1">${p.win.BoardUI.uploadTiles(BoardAttach.list('send:s1', '/board-a'))}</div>`);
+  const big = BoardAttach.list('send:s1', '/board-a')[2];
+  p.fire(row.querySelector(`[data-uploads] [data-unattach="${big.id}"]`), 'click');
+  assert.deepEqual(listOf(p, 'send:s1').map((f) => f.name), ['a.png', 'b.pdf']);
+});
+
+test("saved keeps a box's files for a reload: uploaded ones as sent, the rest by name; restore puts the uploaded back up and the rest as Lost in a reload, which no retry can change", () => {
+  const p = attachPage();
+  const { BoardAttach } = p.win;
+  p.fire(p.box, 'paste', { clipboardData: { types: ['Files'], files: [p.file('a.png', 'image/png'), p.file('b.pdf', 'application/pdf')] } });
+  const [a] = p.uploads.map((u) => u.xhr);
+  Object.assign(a, { status: 200, responseText: JSON.stringify({ name: 'a.png', url: 'uploads/1-a.png', type: 'image/png' }) });
+  a.onload();
+  const kept = JSON.parse(JSON.stringify(BoardAttach.saved('ask', '/board-a')));
+  assert.deepEqual(kept, [{ name: 'a.png', url: 'uploads/1-a.png', type: 'image/png' }, { name: 'b.pdf', type: 'application/pdf', lost: true }]);
+  BoardAttach.restore('send:s2', kept, '/board-a');
+  assert.deepEqual(listOf(p, 'send:s2').map((f) => [f.name, f.status, f.error || '', Boolean(f.final)]), [['a.png', 'done', '', false], ['b.pdf', 'error', 'Lost in a reload', true]]);
+  BoardAttach.retryFailed('send:s2', '/board-a');
+  assert.equal(p.uploads.length, 2, 'a lost file has nothing to send again');
+});

@@ -206,6 +206,30 @@ code { overflow-wrap: anywhere; }
 .file-link { display: inline-flex; align-items: center; max-width: 100%; padding: 3px 8px; border-radius: 6px; background: var(--chip);
   font-size: 13px; overflow-wrap: anywhere; }
 .file-link::before { content: "📎"; margin-right: 6px; }
+/* A New task's files while its row sends (ui.js uploadTiles): dimmed under the composer chip's progress bar while
+   uploading; failed, a red frame with why and the chip's X. A file chip carries the bar and the words in its line. */
+.files .file-thumb.uploading img, .files .file-link.uploading { opacity: .55; }
+.files span.file-thumb, .files span.file-link { position: relative; }
+.files .file-thumb .pbar { position: absolute; left: 6px; right: 6px; bottom: 6px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.files .file-link .pbar { display: inline-block; width: 48px; height: 4px; margin-left: 8px; border-radius: 2px; background: var(--line); }
+.files .pbar span { display: block; height: 100%; border-radius: 2px; background: var(--color-info); transition: width .2s; }
+.files .file-thumb.error { border-color: var(--color-danger); }
+.files .file-link.error { box-shadow: inset 0 0 0 1px var(--color-danger); }
+.files .file-thumb .perr { position: absolute; left: 0; right: 0; bottom: 0; background: var(--color-danger); color: #fff; font-size: 10px; text-align: center; padding: 1px 2px; }
+.files .file-link .perr { margin-left: 8px; color: var(--color-danger); font-size: 12px; font-weight: 600; }
+.files .file-thumb .unattach { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 24px; }
+.files .file-link .unattach { margin-left: 6px; padding: 0 4px; border: 0; background: none; color: var(--muted); font-size: 12px; }
+/* The image viewer (app-lightbox.js): the image full size on a dark ground, its name and ✕ above, ‹ n of N › below. */
+.lightbox { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: rgba(0,0,0,.9); color: #fff; }
+.lightbox[open] { display: flex; flex-direction: column; }
+.lightbox::backdrop { background: transparent; }
+.lightbox-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); }
+.lightbox-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 14px; }
+.lightbox button { color: #fff; }
+.lightbox img { flex: 1; min-height: 0; width: 100%; object-fit: contain; pointer-events: none; }
+.lightbox-nav { display: flex; justify-content: center; align-items: center; gap: 16px; padding: 10px; padding-bottom: max(10px, env(safe-area-inset-bottom)); font-size: 13px; }
+.lightbox-nav[hidden] { display: none; }
 .msg .body:empty { display: none; }
 .note-tools { display: flex; align-items: flex-start; gap: 6px; }
 .note-tools .pending-files { flex: 1; margin-top: 4px; }

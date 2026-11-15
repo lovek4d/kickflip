@@ -21,7 +21,7 @@ function boardPatch(from, to, threads = { from: {}, to: {} }) {
 }
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-questions-sheet.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 // The time every test here builds its data from. A fake page's clock starts at it and moves only by its advance(ms)
@@ -99,7 +99,12 @@ function fakePage(localStorage) {
     setTimeout: (fn, ms) => { timeouts.set(++ids, { fn, ms }); return ids; },
     clearTimeout: (id) => timeouts.delete(id),
     BoardDialogs: { confirm: async () => false, notice: async () => {} },
-    BoardAttach: { files: () => [], busy: () => false, settled: async () => true, restore() {}, clear() {}, paint() {}, paintAll() {} },
+    // attach.js's surface, idle; boxesOn fakes its boxes for a test. onChange keeps its listeners, which tell calls.
+    BoardAttach: (() => {
+      const heard = [];
+      return { files: () => [], busy: () => false, settled: async () => true, restore() {}, clear() {}, paint() {}, paintAll() {}, list: () => [], move() {}, saved: () => [], retryFailed() {},
+        onChange(fn) { heard.push(fn); return () => heard.splice(heard.indexOf(fn), 1); }, tell: (id) => heard.forEach((fn) => fn(id)) };
+    })(),
     ClaudeSite: {
       site: (root) => ({
         root, url: (p) => new URL(`${root}/${p}`, 'https://mac.ts.net/').href, send: async () => ({}), events: async () => [], syncBadge() {},
@@ -3122,9 +3127,8 @@ test("a New task the board didn't take reads <time> · not sent with Retry and X
   const sends = heldSends();
   const b = boardOnDom({ board: boardOf([]), threads: {}, send: sends.send, confirm: true });
   const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
-  let attached = [shot];
-  const restored = [];
-  Object.assign(b.page.win.BoardAttach, { files: (id) => (id === 'ask' ? attached : []), clear: () => { attached = []; }, restore: (id, files) => restored.push([id, files]) });
+  const boxes = boxesOn(b.page.win);
+  boxes.put('ask', [boxes.up(shot)]);
   await b.settle();
   await askTap(b, 'Fix the header', 'quick');
   const { sendId } = b.sent[0][1];
@@ -3148,7 +3152,7 @@ test("a New task the board didn't take reads <time> · not sent with Retry and X
   await b.settle();
   assert.deepEqual([b.confirms.at(-1), askOut(b), JSON.parse(b.storage.get(OUTBOX))], ['Dismiss this task? Its text and files go back in the New task box.', [], []]);
   assert.deepEqual([b.root.querySelector('#sheet').open, b.root.querySelector('#askText').value, b.storage.get('site:board-a:draft:ask')], [true, 'Fix the header\n\nDraft', JSON.stringify('Fix the header\n\nDraft')]);
-  assert.deepEqual(JSON.parse(JSON.stringify(restored)), [['ask', [shot]]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.page.win.BoardAttach.files('ask'))), [shot]);
   b.view.unmount();
 });
 
@@ -3166,36 +3170,176 @@ test("a New task the board never recorded survives a reload: the strip shows it 
   b.view.unmount();
 });
 
-test("a file still uploading holds the New task box open, the tapped button spinning, until the upload finishes; then the box closes and the task joins the strip with the file. An upload that fails keeps the box open and sends nothing", async () => {
-  const b = boardOnDom({ board: boardOf([]), threads: {}, send: () => new Promise(() => {}) });
-  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
-  let busy = true;
-  let finish;
-  Object.assign(b.page.win.BoardAttach, {
-    files: (id) => (id === 'ask' && !busy ? [shot] : []), busy: (id) => id === 'ask' && busy,
-    settled: () => new Promise((resolve) => { finish = (ok) => { busy = false; resolve(ok); }; }),
+// attach.js's boxes, faked on the page's BoardAttach: each box id holds files as attach.js's list does, put sets one,
+// finish ends a file's upload, and every change is told to the page's onChange listeners. retried lists retryFailed's boxes.
+function boxesOn(win) {
+  const A = win.BoardAttach;
+  const boxes = new Map();
+  const waiters = [];
+  const retried = [];
+  let seq = 0;
+  const get = (id) => boxes.get(id) || [];
+  const settle = () => {
+    for (const w of waiters.splice(0)) {
+      if (A.busy(w.id)) waiters.push(w);
+      else w.resolve(!get(w.id).some((p) => p.status === 'error'));
+    }
+  };
+  const changed = (id) => { A.tell(id); settle(); };
+  const tile = (name, type, extra) => ({ id: `f${++seq}`, name, type, preview: `blob:${name}`, ...extra });
+  Object.assign(A, {
+    list: (id) => get(id),
+    files: (id) => get(id).filter((p) => p.status === 'done').map((p) => p.file),
+    busy: (id) => get(id).some((p) => p.status === 'uploading'),
+    settled: (id) => new Promise((resolve) => { waiters.push({ id, resolve }); settle(); }),
+    move(from, to) { boxes.set(to, [...get(to), ...get(from)]); boxes.delete(from); changed(from); changed(to); },
+    saved: (id) => get(id).map((p) => (p.status === 'done' ? p.file : { name: p.name, type: p.type, lost: true })),
+    restore(id, files) { boxes.set(id, [...get(id), ...files.map((f) => (f.lost ? tile(f.name, f.type, { status: 'error', error: 'Lost in a reload', final: true }) : tile(f.name, f.type, { status: 'done', file: f })))]); changed(id); },
+    retryFailed(id) { retried.push(id); for (const p of get(id)) if (p.status === 'error' && !p.final) p.status = 'uploading'; changed(id); },
+    clear(id) { boxes.delete(id); changed(id); },
   });
+  return {
+    boxes, retried,
+    up: (file) => tile(file.name, file.type, { status: 'done', file }),
+    uploading: (file) => tile(file.name, file.type, { status: 'uploading', progress: 0.4, sent: file }),
+    put(id, list) { boxes.set(id, list); changed(id); },
+    // Ends the named file's upload in whichever box holds it: up as its file, or failed.
+    finish(name, ok) {
+      const [id, p] = [...boxes].flatMap(([k, l]) => l.filter((x) => x.name === name).map((x) => [k, x]))[0];
+      Object.assign(p, ok ? { status: 'done', file: p.sent } : { status: 'error', error: 'Upload failed' });
+      changed(id);
+    },
+    remove(id, name) { boxes.set(id, get(id).filter((p) => p.name !== name)); changed(id); },
+  };
+}
+// docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md
+const tilesOf = (row) => row.querySelectorAll('[data-uploads] .file-thumb, [data-uploads] .file-link').map((el) => [el.getAttribute('title'), el.getAttribute('class').split(' ')[1]]);
+test("a New task with a file still uploading closes the box at once; its strip row shows the files as tiles under sending…, and the task goes once every file is up, with them as its files", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([]), threads: {}, send: sends.send });
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const log = { name: 'run.log', url: 'uploads/2-run.log', type: 'text/plain' };
+  const boxes = boxesOn(b.page.win);
+  boxes.put('ask', [boxes.up(shot), boxes.uploading(log)]);
   await b.settle();
-  const form = b.root.querySelector('#askForm');
-  b.page.fire(form, 'attach-change', { target: form, detail: { id: 'ask' } });
-  const implement = form.querySelector('button[data-intent="quick"]');
-  assert.equal(implement.disabled, false, 'its buttons stay free to tap while a file uploads');
-  await askTap(b, 'Look at this', 'quick');
-  assert.deepEqual([b.root.querySelector('#sheet').open, waitState(implement), b.sent, askOut(b)], [true, WAITING, [], []]);
-  finish(true);
+  const implement = await askTap(b, 'Look at this', 'quick');
+  assert.deepEqual([b.root.querySelector('#sheet').open, waitState(implement), b.sent, askOut(b), boxes.boxes.has('ask')], [false, IDLE, [], [['Look at this', 'sending…']], false]);
+  const [stored] = JSON.parse(b.storage.get(OUTBOX));
+  const row = () => b.root.querySelector(`#newStrip .new-entry[data-send="${stored.sendId}"]`);
+  assert.equal(row().querySelector('[data-uploads]').dataset.uploads, `send:${stored.sendId}`);
+  assert.deepEqual(tilesOf(row()), [['shot.png', 'done'], ['run.log', 'uploading']]);
+  assert.deepEqual(stored.uploads, [shot, { name: 'run.log', type: 'text/plain', lost: true }], 'kept for a reload');
+  boxes.finish('run.log', true);
   await b.settle();
-  b.page.runTimers(180);
-  await b.settle();
-  assert.deepEqual([b.root.querySelector('#sheet').open, waitState(implement), askOut(b)], [false, IDLE, [['Look at this', 'sending…']]]);
-  assert.deepEqual(sentNoIds(b), [['ask', { text: 'Look at this', files: [shot], quick: true }]]);
+  assert.deepEqual(sentNoIds(b), [['ask', { text: 'Look at this', files: [shot, log], quick: true }]]);
+  const [sending] = JSON.parse(b.storage.get(OUTBOX));
+  assert.deepEqual([sending.uploads, sending.files, boxes.boxes.has(`send:${stored.sendId}`)], [undefined, [shot, log], false]);
+  assert.deepEqual(row().querySelectorAll('.files a').map((a) => a.getAttribute('href')), ['uploads/1-shot.png', 'uploads/2-run.log'], 'the uploaded files, as the thread draws them');
+  b.view.unmount();
+});
 
-  busy = true;
-  await askTap(b, 'Another', 'discuss');
-  finish(false);
+test("an upload that fails sends nothing: the row reads not sent, the file marked with its X; Retry uploads it again and sends once it is up, and a failed file removed by its X lets Retry send without it", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([]), threads: {}, send: sends.send, confirm: true });
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const log = { name: 'run.log', url: 'uploads/2-run.log', type: 'text/plain' };
+  const boxes = boxesOn(b.page.win);
+  boxes.put('ask', [boxes.up(shot), boxes.uploading(log)]);
   await b.settle();
-  b.page.runTimers(180);
+  await askTap(b, 'Look at this', 'quick');
+  const [{ sendId }] = JSON.parse(b.storage.get(OUTBOX));
+  const row = () => b.root.querySelector(`#newStrip .new-entry[data-send="${sendId}"]`);
+  boxes.finish('run.log', false);
   await b.settle();
-  assert.deepEqual([b.root.querySelector('#sheet').open, waitState(form.querySelector('button[data-intent="discuss"]')), b.sent.length, b.root.querySelector('#askText').value], [true, IDLE, 1, 'Another']);
+  assert.deepEqual([b.sent, askOut(b), tilesOf(row())], [[], [['Look at this', 'not sent']], [['shot.png', 'done'], ['run.log: Upload failed', 'error']]]);
+  assert.ok(row().querySelector('[data-uploads] .file-link.error [data-unattach]'), 'the failed file has its X');
+  b.page.fire(b.root, 'click', { target: row().querySelector(`button[data-resend="${sendId}"]`) });
+  await b.settle();
+  assert.deepEqual([b.confirms.at(-1), boxes.retried, askOut(b), tilesOf(row())[1]], ['Send this task again?', [`send:${sendId}`], [['Look at this', 'sending…']], ['run.log', 'uploading']]);
+  boxes.finish('run.log', true);
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [['ask', { text: 'Look at this', files: [shot, log], quick: true }]]);
+  b.server.board = boardOf([recorded('e1', '2026-11-13T11:00:00.000Z', 'Look at this', sendId)]);
+  sends.answer();
+  await b.settle();
+
+  boxes.put('ask', [boxes.up(shot), boxes.uploading(log)]);
+  await askTap(b, 'Without the log', 'discuss');
+  const second = JSON.parse(b.storage.get(OUTBOX)).at(-1).sendId;
+  boxes.finish('run.log', false);
+  await b.settle();
+  boxes.remove(`send:${second}`, 'run.log');
+  await b.settle();
+  assert.deepEqual(JSON.parse(b.storage.get(OUTBOX)).at(-1).uploads, [shot], 'the X is kept for a reload');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector(`button[data-resend="${second}"]`) });
+  await b.settle();
+  assert.deepEqual(sentNoIds(b).at(-1), ['ask', { text: 'Without the log', files: [shot] }]);
+  b.view.unmount();
+});
+
+test("X on a New task whose upload failed reopens the New task box with its text and its files, the failed one still marked", async () => {
+  const b = boardOnDom({ board: boardOf([]), threads: {}, send: () => new Promise(() => {}), confirm: true });
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const log = { name: 'run.log', url: 'uploads/2-run.log', type: 'text/plain' };
+  const boxes = boxesOn(b.page.win);
+  boxes.put('ask', [boxes.up(shot), boxes.uploading(log)]);
+  await b.settle();
+  await askTap(b, 'Look at this', 'quick');
+  const [{ sendId }] = JSON.parse(b.storage.get(OUTBOX));
+  boxes.finish('run.log', false);
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: b.root.querySelector(`button[data-unsend="${sendId}"]`) });
+  await b.settle();
+  assert.deepEqual([askOut(b), b.root.querySelector('#sheet').open, b.root.querySelector('#askText').value], [[], true, 'Look at this']);
+  assert.deepEqual([...b.page.win.BoardAttach.list('ask')].map((p) => [p.name, p.status]), [['shot.png', 'done'], ['run.log', 'error']]);
+  assert.equal(boxes.boxes.has(`send:${sendId}`), false);
+  b.view.unmount();
+});
+
+test("after a reload a New task's kept files go back in its box: with every one up it sends with them, and with one lost mid-upload it reads not sent, the lost file marked", async () => {
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const whole = { sendId: 's-whole', kind: 'ask', text: 'Whole', files: [], uploads: [shot], ts: '2026-11-13T11:00:00.000Z' };
+  const cut = { sendId: 's-cut', kind: 'ask', text: 'Cut', files: [], uploads: [shot, { name: 'run.log', type: 'text/plain', lost: true }], ts: '2026-11-13T11:01:00.000Z', failed: true };
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([]), threads: {}, send: sends.send, stored: [[OUTBOX, JSON.stringify([whole, cut])]] });
+  const boxes = boxesOn(b.page.win);
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask', { text: 'Whole', files: [shot], sendId: 's-whole' }]]);
+  b.server.board = boardOf([recorded('e1', whole.ts, 'Whole', 's-whole')]);
+  sends.answer();
+  await b.settle();
+  assert.deepEqual([b.sent.length, askOut(b)], [1, [['Cut', 'not sent']]]);
+  assert.deepEqual(tilesOf(b.root.querySelector('#newStrip .new-entry[data-send="s-cut"]')), [['shot.png', 'done'], ['run.log: Lost in a reload', 'error']]);
+  assert.ok(boxes.boxes.has('send:s-cut'));
+  b.view.unmount();
+});
+
+test("a tap on a thumbnail opens the image full size over the board, ‹ and › or the arrow keys step through its message's images, and ✕ or the dim area closes it; a modified click opens the file as a link", async () => {
+  const a = { name: 'a.png', url: 'uploads/1-a.png', type: 'image/png' };
+  const c = { name: 'c.png', url: 'uploads/3-c.png', type: 'image/png' };
+  const pdf = { name: 'b.pdf', url: 'uploads/2-b.pdf', type: 'application/pdf' };
+  const ask = newAsk('a1', '2026-11-13T09:00:00.000Z');
+  const b = boardOnDom({ board: boardOf([{ ...ask, ask: { ...ask.ask, files: [a, pdf, c] } }]), threads: {} });
+  await b.settle();
+  const box = b.root.querySelector('#lightbox');
+  const thumbs = b.root.querySelectorAll('#newStrip a.file-thumb');
+  const shown = () => [box.open, box.querySelector('img').getAttribute('src'), box.querySelector('.lightbox-name').textContent, box.querySelector('.lightbox-at').textContent];
+  assert.equal(b.page.fire(b.root, 'click', { target: thumbs[0], metaKey: true }).defaultPrevented, false);
+  assert.equal(box.open, false);
+  assert.equal(b.page.fire(b.root, 'click', { target: thumbs[1] }).defaultPrevented, true);
+  assert.deepEqual(shown(), [true, 'uploads/3-c.png', 'c.png', '2 of 2']);
+  b.page.fire(b.root, 'click', { target: box.querySelector('[data-lightbox="next"]') });
+  assert.deepEqual(shown(), [true, 'uploads/1-a.png', 'a.png', '1 of 2']);
+  b.page.fire(box, 'keydown', { target: box, key: 'ArrowLeft' });
+  assert.deepEqual(shown().slice(1, 3), ['uploads/3-c.png', 'c.png']);
+  b.page.fire(b.root, 'click', { target: box.querySelector('[data-lightbox="close"]') });
+  assert.equal(box.open, false);
+  b.page.fire(b.root, 'click', { target: thumbs[0] });
+  assert.equal(box.open, true);
+  b.page.fire(b.root, 'click', { target: box });
+  assert.equal(box.open, false, 'the dim area closes it');
+  b.page.fire(b.root, 'click', { target: thumbs[0] });
+  assert.equal(box.querySelector('.lightbox-nav').hidden, false);
   b.view.unmount();
 });
 

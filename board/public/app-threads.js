@@ -82,7 +82,12 @@ BoardView.part((B) => {
   // The board records a sendId once (server.mjs), so a resend never doubles a tap.
   // docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md: the New task box's sends go
   // through it too, kind ask with no key, and queue apart from every card's; the New strip draws them (unsentAsks).
+  // docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md: a New task with files is
+  // atomic. Its files move, uploads still running, into its own box (sendBox, attach.js move), and uploads is that box
+  // kept for a reload (attach.js saved); the ask goes once every file is up, with them as its files, and an upload
+  // that fails leaves it not sent.
   const outbox = () => store.get('outbox', []);
+  const sendBox = (m) => `send:${m.sendId}`;
   const queuedFor = (key) => outbox().filter((m) => m.key === key);
   const setOutbox = (list) => store.set('outbox', list);
   const eventOf = (m) => m.kind || 'item-message';
@@ -95,8 +100,18 @@ BoardView.part((B) => {
   function unsentAsks(d) {
     const have = new Set(d.items.map((it) => it.ask?.sendId).filter(Boolean));
     return queuedFor(undefined).filter((m) => !have.has(m.sendId))
-      .map((m) => ({ id: m.sendId, sent: m.ts, text: m.text, files: m.files, unsent: { sendId: m.sendId, state: m.failed ? 'failed' : 'sending' } }));
+      .map((m) => ({ id: m.sendId, sent: m.ts, text: m.text, files: m.files, unsent: { sendId: m.sendId, state: m.failed ? 'failed' : 'sending' },
+        ...(m.uploads ? { uploads: { box: sendBox(m), list: BoardAttach.list(sendBox(m), B.site.root) } } : {}) }));
   }
+  // A New task's box changing, an upload's progress, its end or an X on a failed file, repaints its row and keeps the
+  // box for a reload.
+  B.atUnmount(BoardAttach.onChange((id) => {
+    const m = queuedFor(undefined).find((o) => o.uploads && sendBox(o) === id);
+    if (!m) return;
+    const uploads = BoardAttach.saved(id, B.site.root);
+    if (JSON.stringify(uploads) !== JSON.stringify(m.uploads)) setOutbox(outbox().map((o) => (o.sendId === m.sendId ? { ...o, uploads } : o)));
+    repaint(undefined);
+  }));
   // The line a tap draws until the board's own takes its place, in the board's words (domain.mjs COMMANDS, ACTION_LABELS,
   // INTENT_LABELS): with text or files the owner's message with the tap in its footer, else the tap's status line. waits:
   // whether a session picks the board's line up, so it reads waiting… once the board has it; the board applies a Hold,
@@ -239,6 +254,20 @@ BoardView.part((B) => {
     flushing.add(key);
     try {
       for (let m = queuedFor(key)[0]; m && !m.failed && B.alive(); m = queuedFor(key)[0]) {
+        if (m.uploads) {
+          const up = await BoardAttach.settled(sendBox(m), B.site.root);
+          if (!B.alive()) return;
+          if (!up) {
+            setOutbox(outbox().map((o) => (o.sendId === m.sendId ? { ...o, failed: true } : o)));
+            repaint(key);
+            continue;
+          }
+          const { uploads, ...rest } = m;
+          m = { ...rest, files: BoardAttach.files(sendBox(m), B.site.root) };
+          setOutbox(outbox().map((o) => (o.sendId === m.sendId ? m : o)));
+          BoardAttach.clear(sendBox(m), B.site.root);
+          repaint(key);
+        }
         const was = patched.get(key);
         const send = () => B.send(eventOf(m), bodyOf(m), m.kind === 'card-done' ? () => B.closeCard(key) : null);
         try { await (key ? B.sentHere(key, send) : send()); }
@@ -259,17 +288,25 @@ BoardView.part((B) => {
       }
     } finally { flushing.delete(key); }
   }
-  // A tap goes into the outbox and shows at once, and its button is free for the next.
-  function enqueue(key, { kind, text = '', files = [], intent, fields } = {}) {
+  // A tap goes into the outbox and shows at once, and its button is free for the next. attached names a composer whose
+  // files the tap takes into its own box, to send once they are all up.
+  function enqueue(key, { kind, text = '', files = [], intent, fields, attached } = {}) {
     const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, ...(kind ? { kind } : {}), text, files, ...(intent ? { intent } : {}), ...(fields ? { fields } : {}), ts: new Date().toISOString() };
+    if (attached) {
+      BoardAttach.move(attached, sendBox(m), B.site.root);
+      m.uploads = BoardAttach.saved(sendBox(m), B.site.root);
+    }
     setOutbox([...outbox(), m]);
     repaint(key);
     flush(key);
   }
   // Whatever a reload left in the outbox goes out again, a failed send included, once the board first lands (app.js land).
+  // A New task's files a reload left are put back in its box (attach.js restore): the uploaded ones go with it, and one
+  // still uploading was lost, so the task reads not sent until it is removed.
   function resendOutbox() {
     const left = outbox();
     if (left.some((m) => m.failed)) setOutbox(left.map(({ failed, ...m }) => m));
+    for (const m of left) if (m.uploads && !BoardAttach.list(sendBox(m), B.site.root).length) BoardAttach.restore(sendBox(m), m.uploads, B.site.root);
     for (const key of new Set(left.map((m) => m.key))) { repaint(key); flush(key); }
   }
 
@@ -288,8 +325,11 @@ BoardView.part((B) => {
     if (!(await B.confirm(ask)) || !B.alive()) return;
     const m = outbox().find((o) => o.sendId === sendId);
     if (!m) return;
-    if (retry) setOutbox(outbox().map((o) => (o.sendId === sendId ? { ...o, failed: false } : o)));
-    else {
+    // A New task's Retry first uploads again each of its files that failed, and sends once they are up.
+    if (retry) {
+      setOutbox(outbox().map((o) => (o.sendId === sendId ? { ...o, failed: false } : o)));
+      if (m.uploads) BoardAttach.retryFailed(sendBox(m), B.site.root);
+    } else {
       setOutbox(outbox().filter((o) => o.sendId !== sendId));
       if (!m.key) B.reopenAsk(m);
       else {
@@ -337,8 +377,8 @@ BoardView.part((B) => {
     if (ev.submitter?.dataset.confirm) { B.confirmTap(ev.submitter); return; }
     post(f, slashOf(f.querySelector('textarea').value).flag, ev.submitter);
   });
-  // A composer's send buttons wait while its files upload (attach.js attach-change). The New task box's stay free: a
-  // tap there spins until the upload finishes, then sends (new-task.js).
+  // A composer's send buttons wait while its files upload (attach.js attach-change). The New task box's stay free: its
+  // task takes the uploads with it and is sent once they are up (new-task.js, enqueue's attached).
   B.on(B.root, 'attach-change', (ev) => {
     if (ev.target.matches?.('#askForm')) return;
     for (const b of ev.target.querySelectorAll('button[type=submit]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
@@ -384,7 +424,7 @@ BoardView.part((B) => {
   });
 
   Object.assign(B, {
-    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, enqueue, unsentAsks,
+    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, enqueue, unsentAsks, sendBox,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
     syncSends: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncSends(el, key); },
   });

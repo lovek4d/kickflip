@@ -1394,6 +1394,46 @@ test('the New strip counts processing... up the same way', () => {
   assert.match(strip({}), /<span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing\.\.\.<\/span>/);
 });
 
+// docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md
+test("a New task's files show as the thread's thumbnails and file chips on its strip row while waiting, and still on its Ticket created and Added to rows", () => {
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const log = { name: 'run.log', url: 'uploads/2-run.log', type: 'text/plain' };
+  const sent = ago(1);
+  const waiting = { kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix', files: [shot, log], state: 'waiting' } };
+  const made = { kind: 'work', id: 'T-4', key: 'w/T-4', ref: 'T-4', fromAsk: 'a2', created: sent, ingested: { at: ago(0.5), text: 'Made', files: [shot] } };
+  const merge = { key: 'w/T-2', ref: 'T-2', at: ago(0.2), id: 'a3', askedAt: ago(0.8), message: 'Also', files: [log] };
+  const entries = ui.newEntries({ items: [waiting, made], merges: [merge] }, {});
+  const filesOf = (id) => {
+    const html = ui.newStrip(entries.filter((e) => e.id === id), new Map());
+    return [...html.matchAll(/<(a|span) class="(file-thumb|file-link)"/g)].map((m) => m[2]);
+  };
+  assert.deepEqual([filesOf('a1'), filesOf('a2'), filesOf('a3')], [['file-thumb', 'file-link'], ['file-thumb'], ['file-link']]);
+  // The thread's own renderer, so the row and the task's first thread message draw them alike.
+  assert.ok(ui.newStrip(entries.filter((e) => e.id === 'a2'), new Map()).includes(ui.attachments([shot])));
+  assert.ok(ui.threadMessages([{ ts: sent, who: 'love', via: 'ask', kind: 'ask', text: 'Fix', files: [shot, log], eventId: 'a1', state: 'waiting' }]).includes(ui.attachments([shot, log])));
+});
+
+test("an unsent New task's files still uploading show as dimmed thumbnails or chips with a progress bar; a failed one is marked with why and an X to remove it, and no per-file retry", () => {
+  const list = [
+    { id: 'f1', name: 'up.png', type: 'image/png', preview: 'blob:up', status: 'done', file: { name: 'up.png', url: 'uploads/1-up.png', type: 'image/png' } },
+    { id: 'f2', name: 'busy.png', type: 'image/png', preview: 'blob:busy', status: 'uploading', progress: 0.42 },
+    { id: 'f3', name: 'bad.png', type: 'image/png', preview: 'blob:bad', status: 'error', error: 'Upload failed' },
+    { id: 'f4', name: 'big.log', type: 'text/plain', status: 'error', error: 'Over 20 MB', final: true },
+  ];
+  const html = ui.uploadTiles(list);
+  const tiles = [...html.matchAll(/<span class="(file-thumb|file-link) (\w+)"/g)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(tiles, [['file-thumb', 'done'], ['file-thumb', 'uploading'], ['file-thumb', 'error'], ['file-link', 'error']]);
+  assert.match(html, /<img src="blob:busy" alt="busy\.png">/);
+  assert.match(html, /role="progressbar" aria-label="Uploading busy\.png" aria-valuenow="42"/);
+  assert.deepEqual([...html.matchAll(/data-unattach="(\w+)" aria-label="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['f3', 'Remove bad.png'], ['f4', 'Remove big.log']]);
+  assert.deepEqual([...html.matchAll(/<span class="perr">([^<]+)<\/span>/g)].map((m) => m[1]), ['Upload failed', 'Over 20 MB']);
+  assert.doesNotMatch(html, /data-retry/);
+  // The row draws them inside its uploads box, which attach.js's X reads, with the footer's sending… or not sent.
+  const row = ui.newStrip([{ id: 's1', sent: ago(1), text: 'Look', files: [], uploads: { box: 'send:s1', list }, unsent: { sendId: 's1', state: 'failed' } }], new Map());
+  assert.ok(row.includes(`<div data-uploads="send:s1">${html}</div>`));
+  assert.match(row, /not sent/);
+});
+
 // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
 test("an owner's message reads its time first in the footer, then sending… or waiting… in grey or thinking… with the working dot; a failed send reads not sent, bold red, with Retry then X; no message has Edit or Delete", () => {
   const sent = ago(3);

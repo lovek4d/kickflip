@@ -10,3 +10,5 @@ The New task box used to stay open, its button spinning, until the board recorde
 - **A reload resends** the outbox's asks, a failed one included, and the board server's `sendId` check already answers a repeat as recorded.
 - **A file still uploading holds the box.** The box's buttons stay free while a file uploads; a tap spins the button until the uploads finish (attach.js `settled`), then sends and closes as above. An upload that fails keeps the box open, its chip saying why, and sends nothing.
 - **T-147's sheet height** is moot, as the sheet closes at once, and its repeat case is covered by the `sendId`.
+
+Superseded in part by [a new task's media shows as thumbnails and sends atomically](2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md): a file still uploading no longer holds the box; the task takes it along and is sent once every file is up.

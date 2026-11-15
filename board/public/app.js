@@ -546,6 +546,11 @@ ${BoardNewTask.markup()}
   <div class="reader-head"><h2 id="questionsTitle">questions</h2><span class="reader-ref"></span><button type="button" class="ghost" data-qs="close" aria-label="Close">✕</button></div>
   <div class="reader-body" tabindex="0"></div>
 </dialog>
+<dialog id="lightbox" class="lightbox" aria-labelledby="lightboxName">
+  <div class="lightbox-head"><b id="lightboxName" class="lightbox-name"></b><button type="button" class="ghost" data-lightbox="close" aria-label="Close">✕</button></div>
+  <img alt="">
+  <div class="lightbox-nav"><button type="button" class="ghost" data-lightbox="prev" aria-label="Previous image">‹</button><span class="lightbox-at"></span><button type="button" class="ghost" data-lightbox="next" aria-label="Next image">›</button></div>
+</dialog>
 <dialog id="linksSheet" class="sheet" aria-labelledby="linksTitle">
   <div class="sheet-body">
     <div class="sheet-head"><h2 id="linksTitle">Hub links</h2><button type="button" class="ghost" id="linksClose" aria-label="Close">✕</button></div>

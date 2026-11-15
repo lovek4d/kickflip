@@ -59,13 +59,35 @@ test('a card merged into another has no row, its ask opens the other card, and t
   });
   assert.equal(b.items.some((i) => i.kind === 'ask'), false);
   assert.equal(b.moved['ask:a1'], 'hub/T-2');
-  assert.deepEqual(b.merges, [{ key: 'hub/T-2', ref: 'T-2', text: 'Fix the header', at: '2026-11-09T10:07:00Z', id: 'a1', askedAt: '2026-11-09T10:00:00Z', message: 'Fix the header\nIt jumps on scroll' }]);
+  assert.deepEqual(b.merges, [{ key: 'hub/T-2', ref: 'T-2', text: 'Fix the header', at: '2026-11-09T10:07:00Z', id: 'a1', askedAt: '2026-11-09T10:00:00Z', message: 'Fix the header\nIt jumps on scroll', files: [] }]);
+});
+
+// docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md: a Ticket created and an Added
+// to row keep the ask's files, each edit's after the ask's own.
+test("a merge and an ingest carry the ask's files, each edit's after the ask's own, for the New strip's Added to and Ticket created rows", async () => {
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const log = { name: 'run.log', url: 'uploads/2-run.log', type: 'text/plain' };
+  const withFiles = { ...ask, data: { ...ask.data, files: [shot] } };
+  const edited = { id: 'x1', ts: '2026-11-09T10:02:00Z', kind: 'ask-edited', data: { id: 'a1', text: 'Fix the footer', files: [log] } };
+  const threads = { 'ask:a1': [{ ts: '2026-11-09T10:07:00Z', who: 'claude', kind: 'hub', line: 'card-merged', text: 'Merged into T-2.', into: 'hub/T-2' }] };
+  const merged = buildBoard({
+    now: Date.parse('2026-11-09T12:00:00Z'), threads, askLinks: { a1: 'hub/T-2' },
+    files: [{ slug: 'hub', agents: {}, itemFile: { items: [{ id: 'T-2', title: 'Header polish', lane: 'todo', phase: 'grilling' }] } }],
+    prs: {}, owner: {}, events: [withFiles, edited],
+  });
+  assert.deepEqual(merged.merges[0].files, [shot, log]);
+  const made = buildBoard({
+    now: Date.parse('2026-11-09T12:00:00Z'), threads: {}, askLinks: {}, working: {},
+    files: [{ slug: 'hub', agents: {}, itemFile: { items: [{ id: 'T-1', title: 'Fix the header', created: '2026-11-09T10:00:01Z', lane: 'todo', from_ask: 'a1', phase: 'ready', sorted_at: '2026-11-09T10:04:00Z' }] } }],
+    prs: {}, owner: {}, events: [withFiles, edited],
+  });
+  assert.deepEqual(card(made).ingested.files, [shot, log]);
 });
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
 test('a card an ask became carries when it was ingested and the full message it came from; a New card and one sorted before the stamp carry none', async () => {
   const ingested = card(built({ item: { phase: 'discussing', sorted_at: '2026-11-09T10:04:00Z' } }));
-  assert.deepEqual(ingested.ingested, { at: '2026-11-09T10:04:00Z', text: 'Fix the header\nIt jumps on scroll' });
+  assert.deepEqual(ingested.ingested, { at: '2026-11-09T10:04:00Z', text: 'Fix the header\nIt jumps on scroll', files: [] });
   const edited = { id: 'x1', ts: '2026-11-09T10:02:00Z', kind: 'ask-edited', data: { id: 'a1', text: 'Fix the footer' } };
   assert.equal(card(built({ item: { phase: 'ready', sorted_at: '2026-11-09T10:04:00Z' }, events: [edited] })).ingested.text, 'Fix the footer');
   assert.equal(card(built()).ingested, null);
