@@ -17,7 +17,9 @@ export const shownFile = (dir, session) => path.join(dir, 'data', `.shown-${sess
 // itself (Hold, Resume, Done, Reopen, Unbump, a bare or worded Grill, Prototype or Visual) and an unblock wake nobody. A lifted
 // pause (usage-resumed) wakes nobody either: the watcher reads the gate itself, and the work it held wakes the session.
 export const RECORD_ONLY = ['main-pulled', 'settings', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello',
-  'card-hold', 'card-done', 'card-reopen', 'card-unbump', 'card-unblocked', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'usage-resumed'];
+  'card-hold', 'card-done', 'card-reopen', 'card-unbump', 'card-unblocked', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'usage-resumed',
+  // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: the orchestrator's own answer.
+  'board-ask-answered'];
 const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
 export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 
@@ -38,6 +40,9 @@ export const PLAIN = {
   'arch-review': (e) => `architecture review asked on ${e.data?.key}: review ${e.data?.repo} on ${e.data?.branch} and file the findings`,
   rules: (e) => `${e.data?.scope === 'hub' ? 'hub' : 'board'} rules changed: the rule lines below are the new ones; follow them from now`,
   'prototype-overdue': (e) => `prototype overdue on ${e.data?.key}: dispatch its prototype agent now`,
+  // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
+  'board-ask': (e) => `question ${e.id} from /${e.data?.from?.route}${e.data?.from?.ref ? ` · ${e.data.from.ref}` : ''}: ${e.data?.text} (answer it from what this board knows, links welcome: answer ${e.id} --text "<answer>")`,
+  'board-answer': (e) => `/${e.data?.from?.route} answered ${e.data?.key ? `on ${e.data.key}` : 'this board\'s'} question "${e.data?.question}": ${e.data?.text} (carry on from it${e.data?.key ? '; it is in that task\'s thread' : ''})`,
   // docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md
   'slack-question': (e) => (e.data?.answer
     ? `${e.data.from === 'owner' ? 'the owner' : e.data?.reviewer} wrote to the board in ${e.data?.reviewer}'s Slack review thread: slack thread ${e.id}, then, only if it asks something, answer about this board alone with slack answer ${e.id} --text (250 characters at most), or file a request for work with slack task ${e.id} <file>; a thanks gets no reply`

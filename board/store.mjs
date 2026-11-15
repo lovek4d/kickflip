@@ -10,8 +10,8 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
-import { githubStateFile, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf } from './domain.mjs';
+import { githubStateFile, appendEvent, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
@@ -199,7 +199,7 @@ export async function readWorking(site) {
 }
 
 // The kinds bin/wait-events.mjs marks working as it hands them to the session (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
-export const WORKING_KINDS = ['ask', 'item-message', 'overnight-triage'];
+export const WORKING_KINDS = ['ask', 'item-message', 'overnight-triage', 'board-ask'];
 export async function markWorking(site, eventIds) {
   if (!eventIds.length) return;
   const at = new Date().toISOString();
@@ -428,7 +428,8 @@ export async function readUpload(site, file) {
   return { path: full, name: meta.name || file, type: MIME.test(meta.type || '') ? meta.type : 'application/octet-stream', size: st.size };
 }
 
-const VIA = ['github', 'slack'];
+// board: an answer another board's orchestrator wrote (answerBoardAsk), who naming that board's route.
+const VIA = ['github', 'slack', 'board'];
 // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md
 // A thread takes two kinds of line: the board's status lines (appendStatus) and messages (appendMessage), which the
 // orchestrator writes in its own words, as do the reviewers it names and GitHub's and Slack's comments brought in.
@@ -849,14 +850,82 @@ export async function moveAsk(site, eventId, route, { note, command = 'ask move'
   }
   return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
 }
-// The board at route in the hub's manifest, other than this one, that command sends work to.
-function targetBoard(site, route, command) {
+// The board at route in the hub's manifest, other than this one, that command sends work to. named is how a refusal
+// names the route the command was given.
+function targetBoard(site, route, command, named = `--to ${route}`) {
   if (typeof route !== 'string' || !route.trim()) fail(`${command} needs --to <route>, the board to move it to`);
   const boards = listBoards();
   const target = boards.find((b) => b.route === route)
-    || fail(`--to ${route}: no board at /${route} in the hub's manifest; the boards are ${boards.map((b) => b.route).join(', ') || 'none'}`);
-  if (samePath(target.dir, site)) fail(`--to ${route}: that is this board`);
+    || fail(`${named}: no board at /${route} in the hub's manifest; the boards are ${boards.map((b) => b.route).join(', ') || 'none'}`);
+  if (samePath(target.dir, site)) fail(`${named}: that is this board`);
   return target;
+}
+
+// docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
+// A question this board put to another board in the hub, one line each in data/board-asks.jsonl {id, to, text, key?,
+// at}: id is the board-ask event's on the board at route `to`, key the card it was asked from. Its answer comes back as
+// a board-answer {id, from, key?, question, text} event in this board's log (answerBoardAsk).
+const boardAsksFile = (site) => path.join(site, 'data', 'board-asks.jsonl');
+// Asks the board at route a one-line question: there, a board-ask {text, from {route, title, key?, ref?}} event, which
+// wakes its orchestrator, shows in its New strip and waits on it until answered (domain.mjs boardAskWaits); while no
+// orchestrator listens there, the event waits in its log. Here, the record, and on card from, if given, the quiet
+// "Asked <route>: <question>" line.
+export async function askBoard(site, route, question, { from } = {}) {
+  needSite(site);
+  const words = text(question, 'ask');
+  if (/\n/.test(words)) fail('ask takes one line; ask each question on its own');
+  const target = targetBoard(site, route, 'ask', `ask ${route}`);
+  if (from !== undefined) await loadItem(site, from);
+  const asker = { route: path.basename(site), title: (await boardConfig(site)).title, ...(from !== undefined ? { key: from, ref: await cardName(site, from) } : {}) };
+  const id = await appendEvent(target, 'board-ask', { text: words, from: asker });
+  await appendLine(boardAsksFile(site), { id, to: route, text: words, ...(from !== undefined ? { key: from } : {}), at: new Date().toISOString() });
+  if (from !== undefined) await appendStatus(site, from, 'board-asked', { route, question: words });
+  return { id, lines: isListening(target) ? [] : [`queued: /${route}'s orchestrator isn't listening, so it answers once it is`] };
+}
+
+// The orchestrator's answer to question id another board asked this one: here, a board-ask-answered {id, text} event,
+// record-only, which ends its wait and its New strip entry; on the asking board, the answer as an ordinary message
+// on the card it was asked from, written as this board's route with via board, and a board-answer event, which wakes
+// that board's orchestrator. The record here goes last, so an answer that didn't reach the asking board still waits.
+export async function answerBoardAsk(site, id, answer) {
+  needSite(site);
+  const words = messageText(answer);
+  const ask = boardAsksOf(await readLines(path.join(site, 'data', 'events.jsonl'))).find((a) => a.id === id)
+    || fail(`no question "${id}" from another board on this board; the waits lines name each one`);
+  if (ask.answer) fail(`question ${id} is already answered`);
+  const asker = listBoards().find((b) => b.route === ask.from.route)
+    || fail(`/${ask.from.route}, which asked question ${id}, is no longer in the hub's manifest`);
+  const here = { route: path.basename(site), title: (await boardConfig(site)).title };
+  if (ask.from.key) await appendMessage(asker.dir, ask.from.key, { text: words, who: here.route, via: 'board' });
+  await appendEvent(asker, 'board-answer', { id, from: here, ...(ask.from.key ? { key: ask.from.key } : {}), question: ask.text, text: words });
+  await appendEvent(boardTarget(site), 'board-ask-answered', { id, text: words });
+  return { route: ask.from.route, lines: [] };
+}
+
+// → {lines}: each question this board asked, then its answer, or whether the other board's orchestrator is listening
+// for it. With wait it blocks until none waits, giving up after timeout minutes, polling every ms, as builder asks
+// --wait does (listAsks).
+export async function listBoardAsks(site, { wait = false, timeout = 9, every = 2000, now = Date.now } = {}) {
+  needSite(site);
+  const minutes = Number(timeout);
+  if (!(minutes > 0)) fail('--timeout takes minutes, a number above 0');
+  const deadline = now() + minutes * 60_000;
+  for (;;) {
+    const asks = await readLines(boardAsksFile(site));
+    if (!asks.length) return { lines: ['no asks yet'] };
+    const answers = new Map((await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'board-answer').map((e) => [e.data?.id, e.data?.text]));
+    const boards = listBoards();
+    const state = (a) => {
+      if (answers.has(a.id)) return `answered: ${answers.get(a.id)}`;
+      const board = boards.find((b) => b.route === a.to);
+      return board && isListening(board) ? `waiting on /${a.to}'s orchestrator` : `queued: /${a.to}'s orchestrator isn't listening`;
+    };
+    const lines = asks.flatMap((a) => [`${a.id} /${a.to}: ${a.text}`, `  ${state(a)}`]);
+    const waiting = asks.filter((a) => !answers.has(a.id));
+    if (!wait || !waiting.length) return { lines };
+    if (now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on ${[...new Set(waiting.map((a) => `/${a.to}`))].join(', ')} after ${minutes} minutes; run asks --wait again`);
+    await new Promise((resolve) => setTimeout(resolve, every));
+  }
 }
 const noteOf = (note) => (String(note ?? '').trim() ? { note: String(note).trim() } : {});
 

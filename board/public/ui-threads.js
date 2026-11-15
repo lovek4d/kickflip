@@ -7,7 +7,9 @@
   const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
   // The orchestrator's own messages are markdown in compact styles; the owner's, a shared person's and GitHub's or
   // Slack's stay as written (docs/adr/2026-11-09-1453-orchestrator-messages-replies-and-transcript-text-are-markdown.md).
-  const drawsMarkdown = (m) => m.who === 'claude' && !m.html;
+  // Another board's answer (via board, who its route) is its orchestrator's words, so markdown too
+  // (docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md).
+  const drawsMarkdown = (m) => (m.who === 'claude' || m.via === 'board') && !m.html;
   // A link to a card on this board (#selectedCard=<key>) or on another board (/<route>/#selectedCard=<key>, an ask's move), or ''.
   function cardLink(link) {
     if (!/^(?:\/[\w-]+\/)?#(?:selectedCard|item)=[^&]+/.test(link)) return '';
@@ -150,7 +152,7 @@
   const { isMessage } = globalThis.BoardUI;
   // Only Claude's and GitHub's messages and the board's fault lines are unread, as on the badge (domain.mjs othersAt,
   // ui-cards.js unreadCount); the orchestrator's answer to a builder's ask never is.
-  const unread = (m, seenAt) => Boolean(seenAt) && (m.fault || (isMessage(m) && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github'))) && String(m.ts) > seenAt;
+  const unread = (m, seenAt) => Boolean(seenAt) && (m.fault || (isMessage(m) && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github' || m.via === 'board'))) && String(m.ts) > seenAt;
   // The window opens from the oldest unread message, at most UNREAD_CAP messages back.
   function threadWindow(lines, { seenAt = null, more = 0, upto = null, from = null }) {
     const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));

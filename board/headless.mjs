@@ -34,6 +34,9 @@ const linkLines = (links) => (links.length ? [
   ...links.map((l) => `- ${l.ref} "${l.title}" (${l.relation}, ${l.lane}): ${l.notes ? `notes ${l.notes}` : 'no notes'}, thread ${l.thread}`),
   '',
 ] : []);
+// docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: any agent asks another board
+// when its own repo doesn't explain why.
+const askBoardLine = (b, key) => `When this repo doesn't explain why something is the way it is and another board in the hub owns that part, ask that board's orchestrator with \`${b} ask <route> "<question>" --from ${key}\` and carry on; \`${b} asks\` prints its answer, and \`${b} asks --wait\` waits for it.`;
 // docs/adr/2026-11-11-1100-every-agent-brief-names-the-cards-thread-file.md: the card's thread, by its exact file.
 const threadLine = (thread) => `The task's thread, which holds the owner's messages (who: love): ${thread}. Read it live.`;
 
@@ -73,6 +76,7 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     `${threadLine(thread)} Read it with the notes: a message of the owner's is an instruction, but where it contradicts the notes, the notes win; that contradiction counts as blocked (step 3), so ask with \`${b} builder ask ${key} "<question>"\` and wait as step 3 says. Read the thread again in checking, before you finish, for anything the owner wrote during the build.`,
     `In checking, list the deliverables the card asks for (the notes and the thread name them: a table, a before/after timing, a doc, a test) and tick each against evidence in your diff or output. A deliverable you could not produce, such as one that needs a local stack a headless run lacks, is a call "Missing: <deliverable>, <why>" (\`${b} builder call ${key} "<call>"\`), never a quiet gap.`,
     `A timing you measure while the host is busy (other builds, tests or lands running) is provisional: say so wherever you report it, and record the call as "Provisional: <timing>, taken while the host was busy".`,
+    askBoardLine(b, key),
     '',
     ...linkLines(links),
     ...ruleLines(rules),
@@ -169,7 +173,7 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
     '',
     ...orchestratorsBrief(brief, grill ? 'questions' : 'takes'),
     `1. Run \`${b} builder start ${key} --kind ${kind}\`. If it refuses, stop.`,
-    `2. Gather the context yourself: ${notes ? `the task's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the task has no notes file yet; '}its thread, ${thread}, the repo's docs/adr and CONTEXT.md, and the tasks its notes and thread link.`,
+    `2. Gather the context yourself: ${notes ? `the task's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the task has no notes file yet; '}its thread, ${thread}, the repo's docs/adr and CONTEXT.md, and the tasks its notes and thread link. ${askBoardLine(b, key)}`,
     `3. Report progress with \`${b} builder progress ${key} "<plain, 80 characters or fewer>"\` at least every 10 minutes.`,
     grill
       ? `4. Find every decision the task leaves open: read the code it touches and answer what the code answers yourself. Post each decision left as a question for the owner with \`${b} question add --file <json>\` on topic item:${key}, one per decision, your recommendation first. Once you finish, the orchestrator screens them before the owner sees them, settling the ones the board already answers and passing the owner the rest.`

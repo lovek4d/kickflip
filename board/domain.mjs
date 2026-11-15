@@ -231,7 +231,7 @@ const TAP_CLOSE = 'Tap Close';
 // docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
 // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md).
 const QUIET_KINDS = ['status', 'agent', 'ask-link', 'command', MOVE, BUILDER_ASK.answer];
-const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && (m.kind === HUB ? hubLineOf(m).fault : isMessage(m) && !QUIET_KINDS.includes(m.kind));
+const countsUnread = (m) => (m.who === 'claude' || m.via === 'github' || m.via === 'board') && (m.kind === HUB ? hubLineOf(m).fault : isMessage(m) && !QUIET_KINDS.includes(m.kind));
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
@@ -1433,7 +1433,7 @@ export function buildBoard(snapshot) {
     .sort((a, b) => b.at.localeCompare(a.at));
   merges.sort((a, b) => b.at.localeCompare(a.at));
   // unfiled: the asks with no card yet, for the board server to file (store.mjs fileAsks).
-  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, owner: questions, ownerTopics: topicList, reviews, needs, queue: queueOf(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews }, snapshot);
+  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, boardAsks: newBoardAsks(events, working), owner: questions, ownerTopics: topicList, reviews, needs, queue: queueOf(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews }, snapshot);
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
@@ -1448,7 +1448,8 @@ const ASK_WAITS = ({ since, ...ask }) => ({ ...ask, state: ask.state === 'workin
 export function withHub(built, { listen, prompts } = {}) {
   const needs = [...promptLines(prompts), ...built.needs];
   const items = notListening(listen) ? built.items.map((it) => (it.working || it.ask?.state === 'working' ? { ...it, working: false, ...(it.ask ? { ask: ASK_WAITS(it.ask) } : {}) } : it)) : built.items;
-  return { ...built, items, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped' } };
+  const boardAsks = notListening(listen) ? built.boardAsks.map(ASK_WAITS) : built.boardAsks;
+  return { ...built, items, boardAsks, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped' } };
 }
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
@@ -1925,6 +1926,31 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
 // An overnight triage the session hasn't replied to, as an orchestrator wait: key is the event id the reply names,
 // picked when the watcher marked the event working. Not tied to a card, so it sits after the cards' waits.
 export const triageWaitOf = (event, picked = null) => ({ key: event.id, ref: event.data.date, title: `Overnight triage ${event.data.date}`, kind: 'triage', since: event.ts, picked, next: `Run the overnight triage and reply: board.mjs reply ${event.id}` });
+
+// docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
+// The questions other boards in the hub asked this one (store.mjs askBoard), each from its board-ask event {text, from
+// {route, title, key?, ref?}}, with the answer its board-ask-answered event {id, text} holds (store.mjs answerBoardAsk).
+// → [{id, at, text, from, answer: {text, at} | null}], in asked order.
+export function boardAsksOf(events) {
+  const answers = new Map(events.filter((e) => e.kind === 'board-ask-answered').map((e) => [e.data?.id, { text: String(e.data?.text || ''), at: String(e.ts) }]));
+  return events.filter((e) => e.kind === 'board-ask').map((e) => ({ id: e.id, at: String(e.ts), text: String(e.data?.text || ''), from: e.data?.from || {}, answer: answers.get(e.id) || null }));
+}
+const askedFrom = (from) => `/${from.route}${from.ref ? ` · ${from.ref}` : ''}`;
+// Each unanswered question as an orchestrator wait, as an overnight triage is one: not tied to a card, key the event id
+// answer names, picked when the watcher marked the event working (working, data/working.json's events).
+export const boardAskWaits = (events, working = {}) => boardAsksOf(events).filter((a) => !a.answer).map((a) => ({
+  key: a.id, ref: askedFrom(a.from), title: a.text, kind: 'ask', since: a.at, picked: routeRecord(working, a.id) || null,
+  next: `Answer /${a.from.route}'s question: ${a.text}: answer ${a.id} --text "<the answer, with links>" from what this board knows`,
+}));
+// The New strip's entries for the unanswered questions (ui-cards.js newEntries): who asked, linking the asking card
+// when there is one, and waiting, or working once the watcher picked the event up, as a New task's ask reads.
+function newBoardAsks(events, working) {
+  return boardAsksOf(events).filter((a) => !a.answer).map((a) => {
+    const since = routeRecord(working, a.id);
+    const link = `/${a.from.route}/${a.from.key ? `#selectedCard=${encodeURIComponent(a.from.key)}` : ''}`;
+    return { id: a.id, sent: a.at, text: a.text, from: { words: askedFrom(a.from), link }, ...(since ? { state: 'working', since } : { state: 'waiting' }) };
+  });
+}
 
 // The cards idle on the orchestrator in a built board: the bumped ones first across lanes, the earliest bump first
 // (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), then the rest lanes top-down, each in

@@ -82,6 +82,10 @@ export const HUB_LINES = {
   // event (domain.mjs threadOf), never written, above the ask on the receiving board; blue, as created.
   'handed-to': { tone: 'grey', mark: MOVE, text: ({ route, ref }) => fit('Handed to ', `/${route} · ${ref}`) },
   'handed-from': { tone: 'blue', mark: 'ask-link', text: ({ source }) => fit('Handed from ', source) },
+  // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: on the asking card, grey and
+  // quiet, the question the card's agent put to another board (store.mjs askBoard); the answer follows as that board's
+  // message.
+  'board-asked': { tone: 'grey', mark: 'ask-link', text: ({ route, question }) => fit(`Asked ${route}: `, question), longest: { route: 'a-long-board-route-name' } },
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: drawn from a routed ask's own
   // event (domain.mjs threadOf), never written, above the ask; blue, as the owner reads it and may move the ask.
   'ask-routed': { tone: 'blue', mark: 'ask-link', text: ({ via, reason }) => fit(`Routed here from ${via}: `, reason), longest: { via: 'a handoff' } },

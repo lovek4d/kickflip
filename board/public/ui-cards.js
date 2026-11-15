@@ -360,6 +360,8 @@
   // The New strip above the lanes. Its entries: each ask the orchestrator has yet to ingest (a card still isNew, which
   // no lane draws), and each one ingested since its card was last read, into a card of its own (the card's ingested) or
   // added to another card (the board's merges). Oldest sent first. seen is each card's read mark (app-core.js).
+  // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: also each question another
+  // board asked this one until its orchestrator answers it (the board's boardAsks, domain.mjs newBoardAsks).
   const unreadSince = (seen, key, at) => String(at) > String(seen[key] || '');
   function newEntries(d, seen) {
     const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, sent: it.created, ask: it.ask, text: it.ask.text, note: it.ask.note, files: it.ask.files }));
@@ -367,7 +369,8 @@
       .map((it) => ({ id: it.fromAsk, key: it.key, sent: it.created, at: it.ingested.at, text: it.ingested.text, files: it.ingested.files, made: it, lane: it.lane }));
     const added = (d.merges || []).filter((m) => unreadSince(seen, m.key, m.at))
       .map((m) => ({ id: m.id, key: m.key, sent: m.askedAt, at: m.at, text: m.message, files: m.files, into: m, lane: d.items.find((it) => it.key === m.key)?.lane }));
-    return [...asks, ...made, ...added].sort((a, b) => String(a.sent).localeCompare(String(b.sent)));
+    const questions = (d.boardAsks || []).map((q) => ({ id: q.id, sent: q.sent, text: q.text, question: q }));
+    return [...asks, ...made, ...added, ...questions].sort((a, b) => String(a.sent).localeCompare(String(b.sent)));
   }
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: an ask reads a grey "waiting…", its dot still,
   // until the orchestrator picks it up (the watcher's or the PostToolUse hook's working mark), then an orange
@@ -396,6 +399,13 @@
   // draw as upload tiles in a [data-uploads] box, whose X attach.js reads
   // (docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md).
   function newEntry(e, edit) {
+    // Another board's question: who asked, linking the asking task, then waiting… or processing... as an ask reads; no
+    // edit or delete, as the orchestrator answers it.
+    if (e.question) {
+      const q = e.question;
+      const line = [`<a class="new-source" href="${esc(q.from.link)}">Asked from ${esc(q.from.words)}</a>`, q.state === 'working' ? processing(q.since) : PICKUP_WAIT].join(' · ');
+      return `<div class="new-entry new-question" data-new="${esc(e.id)}"><div class="new-msg">${esc(e.text)}</div><div class="new-line sub">${newTime(e.sent)} · ${line}</div></div>`;
+    }
     if (e.unsent) {
       const files = e.uploads ? `<div data-uploads="${esc(e.uploads.box)}">${globalThis.BoardUI.uploadTiles(e.uploads.list)}</div>` : globalThis.BoardUI.attachments(e.files);
       return `<div class="new-entry" data-new="${esc(e.id)}" data-send="${esc(e.id)}"><div class="new-msg">${esc(e.text)}</div>${files}<div class="new-line sub">${newTime(e.sent)} · ${globalThis.BoardUI.pickUp(e.unsent)}</div></div>`;

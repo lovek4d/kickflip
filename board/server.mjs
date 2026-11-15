@@ -343,7 +343,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -2256,12 +2256,18 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const file = path.join(data, 'orchestrator-waits.json');
     const stored = await readJSON(file, null);
     const previous = stored?.waits || [];
-    const triage = await unansweredTriage(await readLines(events));
-    const current = [...orchestratorWaits(await sharedBoard()), ...(triage ? [triageWaitOf(triage, routeRecord(await readWorking(here), triage.id))] : [])];
+    const log = await readLines(events);
+    const triage = await unansweredTriage(log);
+    const working = await readWorking(here);
+    // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: each question another board
+    // asked, after the cards' waits, as a triage is; neither is a card, so neither pushes the owner.
+    const questions = boardAskWaits(log, working);
+    const current = [...orchestratorWaits(await sharedBoard()), ...(triage ? [triageWaitOf(triage, routeRecord(working, triage.id))] : []), ...questions];
+    const notCards = new Set([triage?.id, ...questions.map((q) => q.key)]);
     const step = waitsStep(previous, current, now(), stored?.againAt ?? null);
     const waits = [];
     for (const w of step.waits) {
-      if (w.kind !== 'triage' && !w.picked && !w.pushed && now().getTime() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
+      if (!notCards.has(w.key) && !w.picked && !w.pushed && now().getTime() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
         await sendOwnPush({ kind: 'reminder', title: `${w.ref} waits on the orchestrator`, body: `${w.title}: ${w.next}`, url: `/${route}/#selectedCard=${encodeURIComponent(w.key)}`, tag: `wait-${w.key}`, now: true },
           { key: w.key, reason: `It has waited on the orchestrator since ${w.since} and nobody picked it up.`, inputs: { kind: w.kind, since: w.since } });
         waits.push({ ...w, pushed: true });

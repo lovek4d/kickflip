@@ -366,7 +366,23 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          stays open as a pointer; --done, only for a full
                                                          handoff, closes it as item set --done does. Prints
                                                          "handed to <link>"
-  reviewers set --file <json>                            the board's reviewers in board.json, replacing them:
+  ask <route> <question> [--from <file>/<id>]            asks another board in the hub's manifest a one-line
+                                                         question, when this repo doesn't explain why something is
+                                                         the way it is and that board owns it. There it shows in
+                                                         the New strip and waits on its orchestrator, which
+                                                         answers with answer; while none listens it stays queued.
+                                                         --from names the task asking: it gets a quiet "Asked
+                                                         <route>: <question>" line, then the answer as that
+                                                         board's message. Prints "asked /<route>: <id>"; carry on
+  asks [--wait] [--timeout <min>]                        prints each question this board asked, then its answer,
+                                                         "waiting on /<route>'s orchestrator" or "queued" while
+                                                         none listens there. --wait blocks until every one is
+                                                         answered, giving up after --timeout minutes (9)
+  answer <askId> --text <t>                              answers a question another board asked this one (its
+                                                         waits line names it), from what this board knows, links
+                                                         welcome: it ends the wait and its New strip entry, posts
+                                                         the answer on the asking task, and wakes that board
+  reviewers set --file <json>                           the board's reviewers in board.json, replacing them:
                                                          [{name, slack_user, dm, github}], as in an item file.
                                                          The settings page lists them; new item files copy them
   reviewers add --file <json>                            one reviewer or an array; replaces the same name
@@ -943,6 +959,10 @@ const COMMANDS = {
   }],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
+  // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
+  ask: [['route', '...question'], ['from'], (site, [route, ...words], f) => store.askBoard(needSite(site, 'ask'), route, words.join(' '), { from: f.from })],
+  asks: [[], ['wait', 'timeout'], (site, _, f) => store.listBoardAsks(needSite(site, 'asks'), f)],
+  answer: [['askId'], ['text'], (site, [id], f) => store.answerBoardAsk(needSite(site, 'answer'), id, f.text)],
   handoff: [['file/id|eventId'], ['to', 'note', 'done'], async (site, [ref], f) => {
     if (f.done && site && ref.includes('/')) await store.checkNotReopened(site, ref);
     return store.handoff(site, ref, { to: f.to, note: f.note, done: f.done });
@@ -1154,6 +1174,8 @@ const SAID = {
   'item relate-ask': async (site, [id, key]) => `ask ${id} folded into ${await card(site, key)}`,
   'ask unfold': (site, [id]) => `ask ${id} back on a task of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
+  ask: (site, [route], f, { id }) => `asked /${route}: ${id}`,
+  answer: (site, [id], f, { route }) => `answered /${route}'s question ${id}`,
   'review record': (site, [pr], f) => `review of PR #${pr} recorded: ${f.state === 'needs' ? 'needs you' : 'posted'}`,
   'reviewers set': () => 'reviewers replaced',
   'reviewers add': () => 'reviewers added',
