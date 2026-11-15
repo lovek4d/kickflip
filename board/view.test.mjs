@@ -6739,6 +6739,15 @@ test("on a desktop a prototype opens in the right pane under a top bar of ‹ Op
   assert.equal(narrow.view.B.openViewer('prototype-x2.html?q=q2'), false, 'a phone has no pane');
 });
 
+test("the board's foot, the bulb and the gear, stays hidden until the lanes first paint", async () => {
+  const b = boardOnDom({ board: boardOf([workCard('T1')]), threads: {} });
+  assert.equal(b.root.querySelector('main .board-foot').hidden, true, 'a board with no data yet has no visible foot');
+  await b.settle();
+  assert.ok(b.root.querySelector('.lane'));
+  assert.equal(b.root.querySelector('main .board-foot').hidden, false, 'the foot shows once the lanes have painted');
+  b.view.unmount();
+});
+
 // docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md
 test("at every width the board header's ? carries the queue's count as a badge, the rows the page lists (a topic with open questions, a tap), and opens Questions, whose ✓ goes back to the board; the bulb and gear sit at the foot of the board, never in the header", async () => {
   const queue = [{ kind: 'implement', key: 'w/T9', title: 'T9: Card', word: 'Implement', label: 'Tap Implement', fault: false, since: '2026-11-02T10:00:00.000Z', progress: false }];

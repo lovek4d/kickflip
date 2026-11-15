@@ -196,6 +196,7 @@ window.BoardView = (function () {
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
         const strips = B.captureStrips();
         setHTML($('#lanes'), B.lanesHtml(d, d.items), { keep: '[data-thread]' });
+        $('.board-foot').hidden = false;
         for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
         B.moveStrips(d.items, strips);
         B.renderPane(d);

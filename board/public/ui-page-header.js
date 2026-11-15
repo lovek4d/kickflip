@@ -70,8 +70,9 @@
   }
 
   // The foot of the board, under the lanes: the architecture review's bulb (app-arch.js) and the gear, Board Settings,
-  // which paints disabled until app-header.js turns it on with the header's controls.
-  const boardFoot = () => '<div class="board-foot">'
+  // which paints disabled until app-header.js turns it on with the header's controls. It starts hidden; the first render
+  // of the lanes shows it (app.js render).
+  const boardFoot = () => '<div class="board-foot" hidden>'
     + `<button class="ghost icon arch-bulb" id="archBulb" type="button" aria-label="Architecture review" title="Architecture review" aria-haspopup="dialog">${BULB}</button>`
     + `<a href="settings.html" id="settingsLink" class="ghost icon" aria-label="Settings" title="Settings" aria-disabled="true" tabindex="-1" aria-haspopup="dialog">${GEAR}</a>`
     + '</div>';

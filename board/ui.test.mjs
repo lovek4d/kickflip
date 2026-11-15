@@ -328,7 +328,7 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.doesNotMatch(logo, /settingsLink|archBulb|pages-switch/, 'the gear and bulb sit at the foot of the board, and only a board page has the switch');
   assert.equal(text(logo), 'iOS <Orchestrator> …');
   const foot = ui.boardFoot();
-  assert.match(foot, /^<div class="board-foot"><button class="ghost icon arch-bulb" id="archBulb" type="button"[^>]*>.*<\/button><a href="settings\.html" id="settingsLink" class="ghost icon"[^>]*aria-disabled="true" tabindex="-1" aria-haspopup="dialog">/);
+  assert.match(foot, /^<div class="board-foot" hidden><button class="ghost icon arch-bulb" id="archBulb" type="button"[^>]*>.*<\/button><a href="settings\.html" id="settingsLink" class="ghost icon"[^>]*aria-disabled="true" tabindex="-1" aria-haspopup="dialog">/);
 
   // docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md
   const board = ui.header({ lead: 'logo', title: 'Board', pages: 'questions' });
