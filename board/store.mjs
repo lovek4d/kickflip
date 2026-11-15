@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
 import { githubStateFile, appendEvent, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -479,6 +479,16 @@ export async function appendMessage(site, key, { text: body, link, log, who = 'c
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
 }
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: the words and the flag
+// agree. The orchestrator's reply or thread line asking the owner to tap Implement is refused without --implement, and
+// one asking them to tap Done or Close without --close: the flag marks the card, so the board owes the tap and pushes it.
+const TAP_WORDS = /\btap\s+(implement|done|close)\b/i;
+export function refuseUnflaggedTap(words, { implement, close }) {
+  const asked = TAP_WORDS.exec(String(words ?? ''))?.[1];
+  if (!asked) return;
+  const flag = asked.toLowerCase() === 'implement' ? 'implement' : 'close';
+  if (!(flag === 'implement' ? implement : close)) fail(`the text asks the owner to tap ${asked}: pass --${flag}, which marks the task so its card owes that tap, or reword it`);
+}
 function scriptOf(file) {
   const body = readFileSync(String(file), 'utf8');
   if (!body.trim()) fail(`--script ${file} is empty: offer the script the owner should run`);
@@ -709,7 +719,8 @@ export const dropAskCard = (site, eventId) => ticketWrite(site, async () => {
 // (reply <file>/<id>, or reply <ask event id>), which starts its discussion: md is a message in its thread unless the
 // reply file holds it, title retitles the card, and the card reads discussing in Todo. A discussing card answers again.
 const answerable = (item) => [undefined, 'discussing'].includes(item.phase) && !leftTodo(item) && !hasPR(item);
-async function markAnswered(site, card, title) {
+// waitsOn (implement | close) marks it waiting on the owner in the phase the answer leaves it in.
+async function markAnswered(site, card, title, waitsOn) {
   const { item, key } = card;
   if (!item.from_ask) fail(`${key} is not a task an ask became; write in its thread with thread ${key} --text`);
   if (!answerable(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so it is work: write in its thread with thread ${key} --text`);
@@ -719,6 +730,7 @@ async function markAnswered(site, card, title) {
   dropOwed(item);
   delete item.unfiled;
   delete item.filed_held;
+  if (waitsOn) item.waits_on_owner = ownerMark(item, waitsOn);
   await writeJSON(card.source.file, card.itemFile);
 }
 // Refuses filing ask eventId onto a card other than key when the board already filed it as its own.
@@ -732,8 +744,7 @@ export async function answerCard(site, key, md, title, { waitsOn } = {}) {
   const card = { source, itemFile, item, key };
   messageText(md);
   if (title !== undefined) cardTitle(title);
-  if (waitsOn) item.waits_on_owner = { on: waitsOn, at: new Date().toISOString() };
-  await markAnswered(site, card, title);
+  await markAnswered(site, card, title, waitsOn);
   return appendMessage(site, key, { text: md });
 }
 
@@ -2523,10 +2534,22 @@ export async function clearOwnerWait(site, key) {
   await writeJSON(source.file, itemFile);
 }
 // thread <card> --implement or --close: marks a card waiting on the owner's Implement, or (a work card) only on their Done (docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md).
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: the mark holds the phase
+// and lane it was set in, and the board reads it only while the card keeps both (domain.mjs ownerWaitOf). Implement is
+// refused on a card already staged, ready or past Todo, which has had it.
 async function markWaiting(site, key, on) {
   const { source, itemFile, item } = await loadItem(site, key);
-  item.waits_on_owner = { on, at: new Date().toISOString() };
+  if (on === 'implement') refuseImplementOwed(key, item);
+  item.waits_on_owner = ownerMark(item, on);
   await writeJSON(source.file, itemFile);
+}
+const ownerMark = (item, on) => ({ on, at: new Date().toISOString(), ...markedState(item) });
+// Where a card is that has had its Implement, in words: its phase in Todo, else its lane.
+export const HAD_IMPLEMENT = { staging: 'staged', ready: 'ready', progress: 'in progress', review: 'in review', done: 'done' };
+function refuseImplementOwed(key, item) {
+  const { phase, lane } = markedState(item);
+  const had = HAD_IMPLEMENT[lane === 'todo' ? phase : lane];
+  if (had) fail(`${key} is already ${had}, so it owes no Implement: write in its thread without --implement`);
 }
 // The readied line's words: "Marked as ready · " and the orchestrator's check whole, which item set refuses when the
 // line can't hold it (lineFault), for the orchestrator to rewrite; it is never cut.
@@ -2688,7 +2711,10 @@ export async function resolveQuestion(site, id, note, { waitsOn } = {}) {
   await clearWaitedNext(site, q.topic);
   // docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md: a question the orchestrator
   // closes counts as answered, so the grilling card it leaves with nothing open moves on.
-  if (key && (await loadItem(site, key).catch(() => null))?.item.phase === 'grilling') await moveOnAnswered(site, key);
+  const moved = key && (await loadItem(site, key).catch(() => null))?.item.phase === 'grilling' ? await moveOnAnswered(site, key) : null;
+  // The mark holds the phase it was set in, so a card the answer moved on is marked again where it still owes it: a
+  // close anywhere, an Implement only where it is owed.
+  if (waitsOn && moved && (waitsOn === 'close' || OWES_IMPLEMENT.includes(moved))) await markWaiting(site, key, waitsOn);
   return file;
 }
 

@@ -3509,6 +3509,22 @@ test("a message the board never recorded survives a reload: the page shows it as
   b.view.unmount();
 });
 
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
+test("a reply-box tap carries the version of the card it was drawn on, and one the board refuses as moved (409) leaves the outbox with the board's reason as a toast, never not sent", async () => {
+  const reason = '#9 is already ready, so nothing changed.';
+  const send = (kind, data) => (data.intent === 'build' ? Promise.reject(Object.assign(new Error('send failed: 409'), { status: 409, reason })) : null);
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1', { version: 'todo/ready' })]), threads: { 'w/T1': [] }, send });
+  await b.settle();
+  const form = () => b.root.querySelector('form[data-reply="w/T1"]');
+  b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-intent="build"]') });
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [['item-message', { key: 'w/T1', text: '', intent: 'build', version: 'todo/ready' }]]);
+  assert.deepEqual(JSON.parse(b.storage.get(OUTBOX)), []);
+  assert.equal(b.root.querySelectorAll('[data-thread="w/T1"] .msg[data-send]').length, 0, 'no not-sent line is left');
+  assert.ok(b.root.querySelectorAll('.toast').some((t) => t.textContent.includes(reason)));
+  b.view.unmount();
+});
+
 // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
 test("Implement shows its line at once and its button never waits: with text the message's footer reads Implement · sending…, an empty box's line reads Marked as staged · sending…, and the board's line, matched by sendId, takes each one's place", async () => {
   const sends = heldSends();

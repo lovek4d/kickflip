@@ -519,8 +519,10 @@ BoardView.part((B) => {
     }
     // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement, Done and Reopen
     // wait while the server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-    const sent = { resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
-      finish: ['card-done', { key }], reopen: ['card-reopen', { key }] }[act];
+    // Each carries the version of the card it was drawn on, which the board checks the card against.
+    const at = { key, ...(it.version ? { version: it.version } : {}) };
+    const sent = { resume: ['card-hold', { ...at, hold: false }], merge: ['card-merge', at], 'card-build': ['card-build', at],
+      finish: ['card-done', at], reopen: ['card-reopen', at] }[act];
     // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
     // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
     const close = act === 'finish' ? () => closeCard(key) : null;

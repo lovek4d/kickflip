@@ -59,10 +59,15 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--implement]                                   for a reply that ends at "tap Implement": marks the task
                                                          ready to implement, so its Implement goes orange and it
                                                          reads Action needed until the owner taps Implement or
-                                                         writes in its thread
+                                                         writes in its thread. The mark lasts while the task keeps
+                                                         its phase and lane. Text asking the owner to tap
+                                                         Implement is refused without --implement, and text
+                                                         asking them to tap Done or Close without --close
   thread <file>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--implement | --close]                         marks the task waiting on the owner's Implement or Done,
-                                                         as reply --implement or --close does, for any ticket
+                                                         as reply --implement or --close does, for any ticket;
+                                                         --implement is refused on a task already staged, ready
+                                                         or past Todo. The tap words need their flag, as for reply
          [--script <file>]                               offers the file's shell script on the task for the owner to
                                                          run: a card with the whole script, "Runs on <host> as <user>",
                                                          and Run (held) and Decline; --text says what it does and why
@@ -927,10 +932,14 @@ const COMMANDS = {
     if ((f.implement || f.close) && !id.includes('/')) throw new UsageError('reply --implement and --close mark a task: name it <file>/<id>');
     if (f.implement && f.close) throw new UsageError('reply takes --implement or --close, not both');
     const md = f.text ?? readInput(f.file);
+    store.refuseUnflaggedTap(md, f);
     await store.refuseUnreadEdit(site, id);
     return withQuestions(site, f, () => (id.includes('/') ? store.answerCard(site, id, md, f.title, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined }) : store.writeReply(site, id, md, f.title)));
   }],
-  thread: [['file/id'], ['text', 'link', 'who', 'via', 'close', 'implement', 'questions', 'script'], (site, [key], f) => withQuestions(site, f, () => store.appendMessage(site, key, f))],
+  thread: [['file/id'], ['text', 'link', 'who', 'via', 'close', 'implement', 'questions', 'script'], (site, [key], f) => {
+    if ((f.who ?? 'claude') === 'claude' && f.via === undefined) store.refuseUnflaggedTap(f.text, f);
+    return withQuestions(site, f, () => store.appendMessage(site, key, f));
+  }],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
   'item brief': [['file/id'], ['kind', 'file'], (site, [key], f) => store.writeBrief(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],

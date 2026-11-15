@@ -198,3 +198,20 @@ test('old polling windows migrate to quiet hours once, keeping the other setting
   assert.equal(read(settingsFile()).codexShare, 'auto');
   assert.throws(() => push.saveSettings({ quiet: { start: '22:30', end: '22:30' } }, home), /different times/);
 });
+
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
+test("withdrawing a gone push drops its queued copy on that board, and closes one already sent on every device, through quiet hours, never while notifications are off", async () => {
+  const mac = addDevice('mac');
+  write(pushFile('subs.json'), [device.subscription, mac.subscription]);
+  await deliver({ title: 'A1: Tap Implement', url: '/orch/#selectedCard=w%2FA1', tag: 'item-w/A1' }, { kind: 'action', at: NOON });
+  await deliver({ title: 'Other board', url: '/learn/', tag: 'item-w/A2' }, { kind: 'action', at: NOON });
+  const queued = await push.withdraw(['item-w/A1', 'item-w/A2'], 'orch', { home, fetch, at: NIGHT });
+  assert.deepEqual(queued, { dropped: ['item-w/A1'], closed: ['item-w/A2'] }, 'the queued one drops; the one not queued went out, so it is closed');
+  assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.title), ['Other board']);
+  for (const d of [device, mac]) assert.deepEqual(d.received.map(({ close, title }) => ({ close, title })), [{ close: 'item-w/A2', title: undefined }]);
+
+  await push.setNotifications({ on: false }, NOON, home);
+  const off = await push.withdraw(['item-w/A3'], 'orch', { home, fetch, at: NOON });
+  assert.deepEqual(off, { dropped: [], closed: [] });
+  assert.equal(device.received.length, 1);
+});

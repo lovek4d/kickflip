@@ -625,19 +625,23 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
       fs.writeFileSync(path.join(site, 'board.json'), cfg);
     }
 
-    // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: an empty Implement, on a ready
-    // card or one still grilling, writes its keyed status line and stages the card, with no
-    // event and no build.
+    // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: an empty Implement on a card
+    // still grilling writes its keyed status line and stages the card, with no event and no build.
     const events = log().length;
+    // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: on a ready card,
+    // which has had its Implement, it answers 409 and the card stays ready.
+    const ready = await post({ kind: 'item-message', key: 't/B11', text: '', intent: 'build' });
+    assert.equal(ready.status, 409);
+    assert.equal(wave().items.find((i) => i.id === 'B11').phase, 'ready');
     // docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md: it stages the card, with "Marked as
     // staging" after the request line, and starts no build.
-    for (const id of ['B11', 'B12']) {
+    for (const id of ['B12']) {
       await ok200(post({ kind: 'item-message', key: `t/${id}`, text: '', intent: 'build' }));
       const tapped = await card(id);
       assert.deepEqual([tapped.lane, tapped.storedLane, tapped.staging], ['todo', 'todo', true], id);
       assert.deepEqual([wave().items.find((i) => i.id === id).phase, 'unfiled' in wave().items.find((i) => i.id === id)], ['staging', false], id);
       assert.equal(fs.existsSync(path.join(site, 'data', 'agents', `${id}.json`)), false, id);
-      // B11's title keeps the pull off it, which posts its refusal once; the tap's own line is what this reads.
+      // A pull refused on it posts its refusal once; the tap's own line is what this reads.
       assert.deepEqual(thread(id).filter((m) => m.line !== 'build-refused').map((m) => [m.who, m.command, m.text]), [['claude', 'staged', 'Marked as staged']], id);
     }
     assert.deepEqual(log().slice(events).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
@@ -797,6 +801,54 @@ test("an exact repeat of a message within 30 seconds is skipped, and one later, 
   assert.notEqual(later.id, first.id);
   const ask = await post({ kind: 'ask', text: 'Release it' });
   assert.equal((await post({ kind: 'ask', text: 'Release it' })).id, ask.id);
+});
+
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
+test("an owner tap carries the card version it was drawn from: one whose card has moved since answers 409 with where the card is, and changes nothing", async () => {
+  await putWave(JSON.stringify({ items: [{ id: 'VT1', title: 'Readied', phase: 'ready', held: true }] }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const item = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'VT1');
+  const tapEvents = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.data?.key === 't/VT1');
+  const card = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/VT1');
+  assert.equal((await card()).version, 'todo/ready');
+  for (const body of [{ kind: 'item-message', key: 't/VT1', text: '', intent: 'build', version: 'todo/discussing', sendId: 'v-1' }, { kind: 'card-done', key: 't/VT1', version: 'todo/discussing' }, { kind: 'card-build', key: 't/VT1', version: 'todo/staging' }]) {
+    const r = await post(body);
+    assert.equal(r.status, 409, body.kind);
+    assert.match((await r.json()).error, /already ready.*nothing changed/, body.kind);
+  }
+  assert.deepEqual([item().phase, item().lane ?? 'todo', item().done, tapEvents().length], ['ready', 'todo', undefined, 0]);
+  // A tap drawn from where the card is goes through.
+  await ok200(post({ kind: 'card-hold', key: 't/VT1', hold: false, version: 'todo/ready' }));
+  assert.equal(item().held, undefined);
+  await putWave(JSON.stringify({ items: [{ id: 'VT1', title: 'Readied', phase: 'ready', held: true }] }));
+});
+
+// The original fault (#735): a ready card's bare Implement staged it again. Implement on a ready card changes nothing.
+test("a bare Implement on a ready card answers 409, already ready, and leaves it ready with no staged line", async () => {
+  await putWave(JSON.stringify({ items: [{ id: 'VT2', title: 'Ready', phase: 'ready', held: true }] }));
+  const item = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'VT2');
+  const r = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/VT2', text: '', intent: 'build', version: 'todo/ready', sendId: 'v-2' }) });
+  assert.equal(r.status, 409);
+  assert.match((await r.json()).error, /already ready/);
+  assert.deepEqual([item().phase, item().held], ['ready', true]);
+  const thread = path.join(site, 'data', 'threads', 't__VT2.jsonl');
+  assert.ok(!fs.existsSync(thread) || !/staged/.test(fs.readFileSync(thread, 'utf8')));
+});
+
+test("a Tap Implement push already sent is closed on the owner's devices once its card is staged", async (t) => {
+  const { startFakeDevice } = await import('../hub/fake-device.mjs');
+  const device = await startFakeDevice();
+  const subs = path.join(home, '.claude', 'kickflip', 'push', 'subs.json');
+  fs.mkdirSync(path.dirname(subs), { recursive: true });
+  fs.writeFileSync(subs, JSON.stringify([device.subscription]));
+  process.env.KICKFLIP_HUB_PORT = String(device.port);
+  t.after(async () => { fs.rmSync(subs, { force: true }); delete process.env.KICKFLIP_HUB_PORT; await device.close(); });
+  const mark = { on: 'implement', at: '2026-11-15T00:25:16Z', phase: 'discussing', lane: 'todo' };
+  await putWave(JSON.stringify({ items: [{ id: 'CL1', title: 'Closed', phase: 'discussing', waits_on_owner: mark }] }));
+  assert.equal(pushes().filter((c) => flag(c, 'tag') === 'item-t/CL1').length, 1, 'Tap Implement pushes');
+  await putWave(JSON.stringify({ items: [{ id: 'CL1', title: 'Closed', phase: 'staging', waits_on_owner: mark }] }));
+  assert.deepEqual(device.received.map((m) => m.close), ['item-t/CL1']);
+  await putWave(JSON.stringify({ items: [] }));
 });
 
 test("a hidden thread message leaves the item's thread", async () => {

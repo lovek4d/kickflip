@@ -140,3 +140,76 @@ test('item set --done is refused on an ask only a planner ran on, and goes throu
   const built = await board('item', 'set', 'audit/T-1', '--done', '--text', 'Built.', '--site', 'audit');
   assert.doesNotMatch(built.err, /no build ran on/);
 });
+
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
+// Rule A: what the owner owes comes only from the card's state. The mark holds the phase and lane it was set in and
+// stands only while both do; Implement is owed only from new or discussing.
+test('a mark stands only while the card keeps the phase and lane it was set in, and Implement is owed only from new or discussing', () => {
+  const mark = (on, phase, lane = 'todo') => ({ on, at: '2026-11-09T11:00:00Z', phase, lane });
+  assert.equal(card(built({ waits_on_owner: mark('implement', 'discussing') })).action.kind, 'implement');
+  assert.equal(card(built({ phase: undefined, waits_on_owner: mark('implement', 'new') })).action.kind, 'implement');
+  for (const phase of ['staging', 'ready']) {
+    const moved = card(built({ phase, waits_on_owner: mark('implement', 'discussing') }));
+    assert.deepEqual([moved.ownerWait, moved.action], [null, null], `a ${phase} card owes nothing from a discussing mark`);
+    const markedThere = card(built({ phase, waits_on_owner: mark('implement', phase) }));
+    assert.deepEqual([markedThere.ownerWait, markedThere.action], ['implement', null], `Implement is never owed on a ${phase} card`);
+  }
+  assert.equal(card(built({ phase: 'staging', waits_on_owner: mark('close', 'staging') })).action.kind, 'close');
+  assert.equal(card(built({ lane: 'review', phase: undefined, waits_on_owner: mark('close', 'new', 'todo') })).ownerWait, null, 'a lane change ends it too');
+  // A mark from before marks held their phase reads as it always did, Implement still only from new or discussing.
+  assert.equal(card(built({ waits_on_owner: { on: 'implement', at: '2026-11-09T11:00:00Z' } })).action.kind, 'implement');
+  assert.equal(card(built({ phase: 'ready', waits_on_owner: { on: 'implement', at: '2026-11-09T11:00:00Z' } })).action, null);
+});
+
+const setT1 = (fields) => {
+  const file = audit('data', 'items.json');
+  const f = read(file);
+  Object.assign(f.items.find((i) => i.id === 'T-1'), fields);
+  fs.writeFileSync(file, JSON.stringify(f));
+};
+
+test('reply and thread --implement mark the phase and lane they were set in; thread --implement on a staged, ready or started card is refused and marks nothing', async () => {
+  fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  await board('reply', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
+  assert.deepEqual([t1().waits_on_owner.phase, t1().waits_on_owner.lane], ['discussing', t1().lane]);
+  await s.clearOwnerWait(audit(), 'audit/T-1');
+  for (const [phase, words] of [['staging', 'already staged'], ['ready', 'already ready']]) {
+    setT1({ phase });
+    const r = await board('thread', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
+    assert.notEqual(r.code, 0);
+    assert.match(r.err, new RegExp(words));
+    assert.equal(t1().waits_on_owner, undefined);
+  }
+  setT1({ phase: undefined, lane: 'progress' });
+  const started = await board('thread', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
+  assert.notEqual(started.code, 0);
+  assert.match(started.err, /already in progress/);
+  const close = await board('thread', 'audit/T-1', '--text', 'Only Done is left.', '--close', '--site', 'audit');
+  assert.deepEqual([close.code, t1().waits_on_owner.on, t1().waits_on_owner.lane], [0, 'close', 'progress']);
+});
+
+// Rule D: the words and the flag agree. A reply or thread line that asks the owner to tap Implement needs --implement,
+// one that asks them to tap Done or Close needs --close; the flag with no such words is fine.
+test('a reply or thread line asking the owner to tap Implement, Done or Close is refused without its flag, and posts nothing', async () => {
+  fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  const file = audit('data', 'threads', 'audit__T-1.jsonl');
+  const lines = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0);
+  for (const [args, flag] of [[['reply', 'audit/T-1', '--text', 'Three parts. Tap Implement.'], '--implement'], [['thread', 'audit/T-1', '--text', 'Shipped; tap done.'], '--close'], [['thread', 'audit/T-1', '--text', 'Nothing to build, so Tap Close.'], '--close']]) {
+    const before = lines();
+    const r = await board(...args, '--site', 'audit');
+    assert.notEqual(r.code, 0, args.join(' '));
+    assert.match(r.err, new RegExp(flag));
+    assert.equal(lines(), before, 'nothing is posted');
+  }
+  const flagged = await board('reply', 'audit/T-1', '--text', 'Three parts. Tap Implement.', '--implement', '--site', 'audit');
+  assert.deepEqual([flagged.code, flagged.err], [0, '']);
+  await s.clearOwnerWait(audit(), 'audit/T-1');
+  const bare = await board('reply', 'audit/T-1', '--text', 'Three parts, ready when you are.', '--implement', '--site', 'audit');
+  assert.deepEqual([bare.code, bare.err], [0, '']);
+  const plain = await board('thread', 'audit/T-1', '--text', 'The tap target is the Done button in review.', '--site', 'audit');
+  assert.equal(plain.code, 0, 'naming a button without asking for a tap is fine');
+});

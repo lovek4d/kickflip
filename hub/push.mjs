@@ -348,19 +348,25 @@ export async function reviseQueued(tag, revise, url) {
   });
 }
 
-// Question ids are unique only within a site; the shared queue needs the route too.
-export async function dropQueued(tags, route) {
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
+// Withdraws the pushes with these tags on route's board, which no longer wait on the owner: a queued one is dropped
+// (question ids are unique only within a site, so the shared queue matches the route too), and for a tag with none
+// queued, one already went out, so {close: tag} goes to every subscription now and the service worker closes that
+// tag's notification. Quiet hours, a snooze and the weekend don't hold a close, which alerts nothing; while
+// notifications are off nothing is sent. → {dropped, closed}, the tags of each
+export async function withdraw(tags, route, { home = os.homedir(), fetch = globalThis.fetch, at = new Date() } = {}) {
   const wanted = new Set(tags);
   const matches = (item) => wanted.has(item.tag) && typeof item.url === 'string' && item.url.startsWith(`/${route}/`);
-  const home = os.homedir();
-  if (!readQueue(home).items.some(matches)) return 0;
-  return withQueueLock(home, () => {
+  const dropped = !readQueue(home).items.some(matches) ? [] : await withQueueLock(home, () => {
     const { items } = readQueue(home);
-    const kept = items.filter((item) => !matches(item));
-    const dropped = items.length - kept.length;
-    if (dropped) writePrivate(queueFile(home), { items: kept });
-    return dropped;
+    const gone = items.filter(matches);
+    if (gone.length) writePrivate(queueFile(home), { items: items.filter((item) => !matches(item)) });
+    return [...new Set(gone.map((item) => item.tag))];
   });
+  const sent = tags.filter((tag) => !dropped.includes(tag));
+  if (!sent.length || hold(at, readSettings(home))?.why === 'off' || !readSubs(home).length) return { dropped, closed: [] };
+  for (const tag of sent) await sendTo(readSubs(home), { close: tag }, undefined, { home, fetch });
+  return { dropped, closed: sent };
 }
 
 let flushing = null;

@@ -88,7 +88,7 @@ BoardView.part((B) => {
   const queuedFor = (key) => outbox().filter((m) => m.key === key);
   const setOutbox = (list) => store.set('outbox', list);
   const eventOf = (m) => m.kind || 'item-message';
-  const bodyOf = (m) => ({ ...(m.key ? { key: m.key } : {}), ...(m.text || !m.kind || m.kind === 'ask' ? { text: m.text } : {}), ...(m.files.length ? { files: m.files } : {}), ...(m.intent ? { intent: m.intent } : {}), ...m.fields, sendId: m.sendId });
+  const bodyOf = (m) => ({ ...(m.key ? { key: m.key } : {}), ...(m.text || !m.kind || m.kind === 'ask' ? { text: m.text } : {}), ...(m.files.length ? { files: m.files } : {}), ...(m.intent ? { intent: m.intent } : {}), ...m.fields, ...(m.version ? { version: m.version } : {}), sendId: m.sendId });
   // A card's sends draw in its thread, the New task box's in the New strip, which the board's first land draws when a
   // task is sent before it.
   const repaint = (key) => (key ? B.repaintThread(key) : state.board && B.renderNew(state.board));
@@ -242,8 +242,8 @@ BoardView.part((B) => {
   });
   // Sends key's outbox in order, one at a time: each leaves the outbox once the board has it, and the thread loads
   // with it in place while the next one goes. A failed one stays as not sent and holds the ones behind it until Retry
-  // or X, so the board gets them in the order they were written. A Done closes its card once the board answers
-  // (app-cards.js closeCard); a card tap's change of lane or hold changes the box's send buttons. The New task box's
+  // or X, so the board gets them in the order they were written; a tap refused for a card that moved leaves with a
+  // toast instead. A Done closes its card once the board answers (app-cards.js closeCard); a card tap's change of lane or hold changes the box's send buttons. The New task box's
   // asks (no key) go the same way; the board their answer lands holds each one's own New strip row.
   const flushing = new Set();
   async function flush(key) {
@@ -269,6 +269,14 @@ BoardView.part((B) => {
         const send = () => B.send(eventOf(m), bodyOf(m), m.kind === 'card-done' ? () => B.closeCard(key) : null);
         try { await (key ? B.sentHere(key, send) : send()); }
         catch (e) {
+          // A tap the board refused because its card moved since it was drawn (409) changed nothing and would only be
+          // refused again: it leaves the outbox, and the toast says where the card is.
+          if (e?.status === 409) {
+            setOutbox(outbox().filter((o) => o.sendId !== m.sendId));
+            repaint(key);
+            B.failed(e);
+            continue;
+          }
           setOutbox(outbox().map((o) => (o.sendId === m.sendId ? { ...o, failed: true } : o)));
           repaint(key);
           B.failed(e);
@@ -287,8 +295,10 @@ BoardView.part((B) => {
   }
   // A tap goes into the outbox and shows at once, and its button is free for the next. attached names a composer whose
   // files the tap takes into its own box, to send once they are all up.
+  // A tap keeps the version of the card it was drawn on (domain.mjs version), which the board checks the card against.
   function enqueue(key, { kind, text = '', files = [], intent, fields, attached } = {}) {
-    const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, ...(kind ? { kind } : {}), text, files, ...(intent ? { intent } : {}), ...(fields ? { fields } : {}), ts: new Date().toISOString() };
+    const version = key && state.board?.items.find((i) => i.key === key)?.version;
+    const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, ...(kind ? { kind } : {}), text, files, ...(intent ? { intent } : {}), ...(fields ? { fields } : {}), ...(version ? { version } : {}), ts: new Date().toISOString() };
     if (attached) {
       BoardAttach.move(attached, sendBox(m), B.site.root);
       m.uploads = BoardAttach.saved(sendBox(m), B.site.root);

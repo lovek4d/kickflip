@@ -29,6 +29,8 @@ function worker() {
     windows: [],
     opened: [],
     shown: [],
+    // The notifications on screen, each {title, tag}: a shown one replaces any with its tag, and close removes it.
+    showing: [],
     async advance(ms) {
       now += ms;
       for (const [id, t] of [...timers]) if (t.at <= now) { timers.delete(id); t.fn(); }
@@ -62,7 +64,15 @@ function worker() {
   }
   const self = {
     addEventListener: (type, fn) => { handlers[type] = fn; },
-    registration: { scope: SHELL, showNotification: async (title, opts) => { w.shown.push({ title, ...opts }); } },
+    registration: {
+      scope: SHELL,
+      showNotification: async (title, opts) => {
+        w.shown.push({ title, ...opts });
+        w.showing = [...w.showing.filter((n) => !opts?.tag || n.tag !== opts.tag), { title, tag: opts?.tag }];
+      },
+      getNotifications: async ({ tag } = {}) => w.showing.filter((n) => tag === undefined || n.tag === tag)
+        .map((n) => ({ ...n, close: () => { w.showing = w.showing.filter((s) => s.tag !== n.tag || s.title !== n.title); } })),
+    },
     location: new URL('/sw.js', ORIGIN),
     skipWaiting: () => { w.skipped++; return Promise.resolve(); },
     clients: {
@@ -314,4 +324,18 @@ test('a push under a tag replaces the notification with that tag and alerts agai
     ['A1 asks: Which colour?', 'item-w/A1', true],
     ["Orch isn't listening", undefined, false],
   ]);
+});
+
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
+test("a close push closes the notification with its tag, leaving the others; it shows a silent one under the tag first, which iOS needs of every push, and closes that too", async () => {
+  const w = worker();
+  const push = (msg) => w.dispatch('push', { data: { json: () => msg } });
+  await Promise.all((await push({ title: 'A1: Tap Implement', url: '/orch/#selectedCard=w%2FA1', tag: 'item-w/A1' })).waits);
+  await Promise.all((await push({ title: 'B2: Merge', url: '/orch/#selectedCard=w%2FB2', tag: 'item-w/B2' })).waits);
+  await Promise.all((await push({ close: 'item-w/A1' })).waits);
+  assert.deepEqual(w.showing.map((n) => n.tag), ['item-w/B2']);
+  const quiet = w.shown.at(-1);
+  assert.deepEqual([quiet.tag, quiet.silent, quiet.renotify], ['item-w/A1', true, false]);
+  await Promise.all((await push({ close: 'item-w/C3' })).waits);
+  assert.deepEqual(w.showing.map((n) => n.tag), ['item-w/B2'], 'a close with nothing under its tag leaves nothing behind');
 });

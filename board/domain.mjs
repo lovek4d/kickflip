@@ -394,7 +394,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     // stopped reads so until the next tap.
     // Stale is the board's own reading of no updates: a run silent or gone, or a review past seven days. Stalled is the
     // orchestrator's flag (item stall), its reason, until a message on the card.
-    stale: lane !== 'done' && (staleReview || Boolean(builder?.stale)), stalled: it.stalled?.reason || null, ownerWait: it.waits_on_owner?.on || null,
+    stale: lane !== 'done' && (staleReview || Boolean(builder?.stale)), stalled: it.stalled?.reason || null, ownerWait: ownerWaitOf(it),
     landStopped: lane === 'review' && mergeReady && it.merge_ready.stopped && String(it.merge_ready.stopped) > String(it.merge_ready.tapped || '')
       ? { words: stoppedWords('land'), at: it.merge_ready.stopped } : null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
@@ -472,6 +472,22 @@ export function mergeBlockers(pr, { needsApproval = true } = {}) {
 }
 const mergeable = (pr, needsApproval) => !mergeBlockers(pr, { needsApproval }).length;
 
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
+// The phases a Todo card owes the owner's Implement from; a staged or ready one has had it.
+export const OWES_IMPLEMENT = ['new', 'discussing'];
+// The orchestrator's mark on raw item it (implement or close), or null: a mark holds the phase and lane it was set in
+// (store.mjs ownerMark) and stands only while the card keeps both, so no stored mark owes what the card's state
+// contradicts. A mark from before marks held them stands as it was. An item with no phase or lane yet reads new in
+// Todo, as the board's settle pass writes it.
+export const markedState = (item) => ({ phase: item.phase || 'new', lane: item.lane || 'todo' });
+function ownerWaitOf(it) {
+  const mark = it.waits_on_owner;
+  if (!mark) return null;
+  const now = markedState(it);
+  if (mark.phase !== undefined && (mark.phase !== now.phase || mark.lane !== now.lane)) return null;
+  return mark.on;
+}
+
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype
 // question), questions, ready (a draft's review, then Ready on GitHub), done (an ask's Done in its thread), steps (manual
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
@@ -490,7 +506,7 @@ function actionOf(it, questionById, autoMerge) {
     if (PROTOTYPE_URL.test(q?.url || '')) return { kind: ACTION_KIND.pick, url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
     return { kind: ACTION_KIND.questions, url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
-  if (it.ownerWait === 'implement' && it.lane === 'todo') return { kind: ACTION_KIND.implement, url: `${thread}&reply`, label: 'Tap Implement' };
+  if (it.ownerWait === 'implement' && it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new')) return { kind: ACTION_KIND.implement, url: `${thread}&reply`, label: 'Tap Implement' };
   // docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md
   if (it.ownerWait === 'close') return { kind: ACTION_KIND.close, url: `${thread}&reply`, label: it.storedLane === 'review' ? TAP_DONE : TAP_CLOSE };
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: `Review draft PR #${it.pr.number}` };
@@ -1346,6 +1362,9 @@ export function buildBoard(snapshot) {
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it.storedLane, it.agents)) it.lane = 'progress';
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
     if (it.kind === 'work') it.phase = phaseOf(it);
+    // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: the card's version, its
+    // lane and stored phase, which an owner tap carries from the page that drew it (server.mjs refuses a moved card's).
+    it.version = `${it.lane}/${it.storedPhase || 'new'}`;
     if (it.unpicked && !it.action) it.next = PROTOTYPE_AGAIN;
     it.buildable = buildableOf(it);
     // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md: an unstarted card from an ask, or one an agent

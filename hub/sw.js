@@ -1,6 +1,6 @@
 // The hub's service worker, served at /sw.js with scope /. Push messages come
 // from push.mjs as {title, body, url, tag, badge}; url is a path on the hub, and badge, when
-// present, is the Home Screen app badge count.
+// present, is the Home Screen app badge count; a {close: tag} push closes that tag's notification (closeTagged).
 // It keeps the app shell and its files, network first, so the app opens from the last copy while the host is asleep
 // (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). Nothing else is cached: API calls, streams, uploads and frames always
 // go to the network.
@@ -107,6 +107,7 @@ self.addEventListener('push', (event) => {
     const nav = self.navigator;
     if (Number.isInteger(msg.badge) && nav && 'setAppBadge' in nav) badge = (msg.badge > 0 ? nav.setAppBadge(msg.badge) : nav.clearAppBadge()).catch(() => {});
   } catch {}
+  if (msg.close) { event.waitUntil(Promise.all([closeTagged(msg.close), badge])); return; }
   // renotify alerts again for a push that replaces one with its tag, such as a card's new question; browsers throw on
   // renotify without a tag.
   event.waitUntil(Promise.all([self.registration.showNotification(msg.title || 'Claude', {
@@ -117,6 +118,15 @@ self.addEventListener('push', (event) => {
     data: { url: new URL(msg.url || '/', self.registration.scope).href },
   }), badge]));
 });
+
+// docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
+// A {close: tag} push, for a push that no longer waits on the owner (push.mjs withdraw), closes the notification with
+// that tag. iOS revokes push from an app whose push shows nothing, so it first shows a silent one under the tag, which
+// replaces the one on screen without alerting, and then closes it.
+async function closeTagged(tag) {
+  await self.registration.showNotification('Claude', { tag, silent: true, renotify: false, icon: '/_hub/icon-192.png' });
+  for (const n of await self.registration.getNotifications({ tag })) n.close();
+}
 
 // The app shell (board/public/shell.js) answers {open: url} on the message's port with {routed: true} when it shows the
 // URL in place; a window that doesn't answer in time, such as an older page, is navigated, which reloads it.

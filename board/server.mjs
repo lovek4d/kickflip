@@ -200,7 +200,8 @@
 //                                card with nothing open stages it (store.mjs settleAnswers).
 //                                Each new or changed Action needed, and each topic's new open questions, push the
 //                                owner, one tag per card (domain.mjs ownerActions), tracked in data/action-pushes.json;
-//                                a gone one drops its queued push.
+//                                a gone one drops its queued push, or closes the one already on the owner's devices
+//                                (hub/push.mjs withdraw).
 //                                Within a minute of a held card's until or pick_up_at the server resumes it
 //                                (store.mjs pickUp), at most once per time even across a restart.
 //                                The Auto jobs below run on every board change and once at start, and on the minute
@@ -351,12 +352,12 @@ import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
-import { dropQueued } from '../hub/push.mjs';
+import { withdraw } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { readScriptOffer, restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -497,6 +498,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // the header's GitHub check stay the owner's, as does any kind not listed.
   const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', QUESTION_REOPEN, 'grill-more', 'visual-request', 'item-message',
     'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-bump', 'card-unbump']);
+  // The taps that move a card, which carry the card's version (docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md).
+  const CARD_TAPS = new Set(['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-merge']);
   const VIEW_ONLY = 'This board is shared with you to look at only.';
   const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
   // → null for the owner's request, {refused} for one a shared person can't make, else {by: {login, name}}
@@ -1162,6 +1165,20 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const sendId = body.sendId ? String(body.sendId) : null;
         const recorded = sendId && (await readLines(events)).find((e) => e.kind === kind && e.data?.sendId === sendId);
         if (recorded) return json(res, 200, { id: recorded.id, board: await answerBoard(req, since) });
+        // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: a tap that moves a
+        // card carries the version of the card the page drew it from (domain.mjs version); one whose card has moved since
+        // answers 409 with where the card is, and nothing changes. A bare Implement on a ready card has had its Implement,
+        // and the pull starts it, so it answers the same.
+        const drawn = body.version === undefined ? undefined : String(body.version);
+        delete body.version;
+        if (CARD_TAPS.has(kind) || (kind === 'item-message' && body.intent === 'build')) {
+          const card = (await sharedBoard()).items.find((i) => i.key === String(body.key || ''));
+          const bare = kind === 'item-message' && !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
+          if (card && ((drawn !== undefined && drawn !== card.version) || (bare && card.lane === 'todo' && card.storedPhase === 'ready'))) {
+            const had = HAD_IMPLEMENT[card.lane === 'todo' ? card.storedPhase : card.lane];
+            return json(res, 409, { error: `${card.ref || card.key} is ${had ? `already ${had}` : `${card.storedPhase || 'new'} now`}, so nothing changed.` });
+          }
+        }
         if (kind === 'card-hold' && body.hold && body.for !== undefined) {
           const end = durationEnd(now(), body.for);
           if (!end) return json(res, 400, { error: 'That hold ends in the past or more than 30 days on. Pick another time.' });
@@ -1212,8 +1229,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           // orchestrator stalled clears the stall, and reaches the orchestrator as any message does.
           if (card?.stalled) await clearStall(here, key);
           if (card?.ownerWait) await clearOwnerWait(here, key);
-          // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement readies the
-          // card as it is and starts its build, with no event.
+          // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement stages the
+          // card as it is, with no event; one on a ready card was refused above.
           if (bare && (card?.ready || card?.lane === 'todo')) {
             stopAgents(await implementAsIs(here, key, sendId));
             dataVersion++;
@@ -2200,7 +2217,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
   // data/action-pushes.json {<tag>: {kind, ids}}: what waited on the owner at the last check (domain.mjs ownerActions).
-  // A tag that is new, changes kind or gains an open question pushes; one that is gone drops its queued push. The first
+  // A tag that is new, changes kind or gains an open question pushes; one that is gone drops its queued push, or closes
+  // the one already sent (docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md). The first
   // check records what already waits without pushing it. A check asked for while one runs runs again after it.
   let checkingActions = null;
   let actionsAgain = false;
@@ -2230,7 +2248,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           { key: a.tag.startsWith('item-') ? a.tag.slice(5) : undefined, reason, inputs: { was: was ?? null, kind: a.kind, fresh: fresh.map((q) => q.id) } });
       }
       const gone = Object.keys(previous).filter((tag) => !routeRecord(current, tag));
-      if (gone.length) await dropQueued(gone, route);
+      if (gone.length) {
+        const { closed } = await withdraw(gone, route);
+        for (const tag of closed) logCall({ call: 'push', key: tag.startsWith('item-') ? tag.slice(5) : undefined, reason: 'It no longer waits on the owner, and its push already went out.', inputs: { tag }, result: 'closed' });
+      }
     }
     if (JSON.stringify(current) !== JSON.stringify(previous)) {
       await fs.mkdir(data, { recursive: true });

@@ -261,7 +261,9 @@ const lastTopic = new Map();
       if (!(await BoardDialogs.confirm(`${kind === 'implement' ? 'Implement' : 'Mark done'} ${ref}?`)) || !B.alive()) return;
       await BoardUI.waitOn(button, BoardUI.pending.within((async () => {
         let out;
-        try { out = await send(TAP_EVENT[kind], { key }); } catch (e) { B.toast(e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'); return; }
+        // The tap carries the version of the card it was drawn on, which the board checks the card against.
+        const version = items.find((i) => i.key === key)?.version;
+        try { out = await send(TAP_EVENT[kind], { key, ...(version ? { version } : {}) }); } catch (e) { B.toast(e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'); return; }
         if (!B.alive()) return;
         if (!ctx.embedded && !land(out.board, false)) await load(false);
         repaint(false);
