@@ -72,15 +72,20 @@ const claudeView = (model) => ({
 // (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; update: {latest: the newer version npm has or null, auto: the auto update box, clone: whether the hub is a clone, which never pulls}; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
 // codex: a shared/codex.mjs codexStatus; awake: {on: awake.mjs awakeOn, unsupported: awake.mjs awakeUnsupported}, which Health's Keep awake row shows.
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js). routed: router.mjs routedRows, the Routed
-// section under Boards (docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md).
+// section under Boards (docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md). restarts: auto-restarts.mjs
+// restartLines, the line a board's row adds for its last automatic restart.
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [] }) {
+export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [], restarts = new Map() }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const current = Boolean(code.running && code.running === code.onDisk);
   const codeLine = current ? ` · runs the code in its files (${code.onDisk})` : '';
-  const site = (r) => ({ route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...siteHealth(r, links.get(r.route)), remembered: remembered.get(r.route) || [],
-    restart: boards.has(r.route) && r.restart === true });
+  const site = (r) => {
+    const health = siteHealth(r, links.get(r.route));
+    const restarted = restarts.get(r.route);
+    return { route: r.route, title: r.title, icon: siteIcon(r.route, r), href: `/${encodeURIComponent(r.route)}/`, ...health, lines: restarted ? [...health.lines, restarted] : health.lines,
+      remembered: remembered.get(r.route) || [], restart: boards.has(r.route) && r.restart === true };
+  };
   const groups = [['Boards', rows.filter((r) => boards.has(r.route))], ['Pages', rows.filter((r) => !boards.has(r.route))]]
     .filter(([, list]) => list.length).map(([label, list]) => ({ label, sites: list.map(site) }));
   return {

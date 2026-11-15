@@ -163,7 +163,10 @@
 // Every 15 seconds it counts each board's watched lines, and resumes the recorded session of a board that got an event
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
 // docs/adr/2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md). A tap on an asleep board's page wakes it at once
-// through /_hub/wake (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
+// through /_hub/wake (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md). The same check
+// restarts a board's session that runs idle without listening, and reconcile a board server that is up but doesn't
+// answer, each logged to auto-restarts.jsonl
+// (docs/adr/2026-11-15-0123-the-hub-restarts-a-session-not-listening-and-a-server-not-answering.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // It runs caffeinate -s while Keep awake is on, and starts it again as it starts (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
@@ -176,7 +179,7 @@
 // card's board first and refreshes its Main at once (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
 // Try worktrees live in ~/.claude/kickflip/try/<route>-main; board data/try.json and data/try/*.log record runs.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
-// deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, prompts.json, secrets.json,
+// deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, auto-restarts.jsonl, prompts.json, secrets.json,
 // and the router's route-queue.json and routed.json: every 15 seconds the router files the requests still queued
 // (router.mjs drainRoutes; docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md), and
 // slack-intake.json, where each poll's @kickflip DM search starts (slack-intake.mjs).
@@ -207,7 +210,8 @@ import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds } from './home.mjs';
-import { checkSessions, compactFullContexts, startingBoards } from './sessions.mjs';
+import { checkSessions, compactFullContexts, sessionOf, startingBoards } from './sessions.mjs';
+import { logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
@@ -267,11 +271,22 @@ function tcpProbe(port) {
   });
 }
 
+// Whether a server on port answers HTTP: any response within PROBE_TIMEOUT. A server whose event loop is stuck still
+// accepts connections, which tcpProbe counts as up.
+function httpProbe(port) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/_claude/health', timeout: PROBE_TIMEOUT }, (res) => { res.destroy(); resolve(true); });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(false));
+  });
+}
+
 // Starts the hub on ~/.claude/kickflip of os.homedir(), listening on 127.0.0.1:port (0 picks a free one), and resolves
 // once it listens. Options stand in for what it reads of the host:
 //   now() → the time in ms the supervisor's restart waits, the poll schedule and the caches read;
 //   codeRestarts: false keeps a board server whose code changed running, and the hub from restarting for new code;
 //   probe(port) → whether a site's port answers (reconcile's probes);
+//   answers(port) → whether a board server that is up answers HTTP (reconcile's hung check);
 //   readMachine() → the Mac's {load, cores, pressure} for the busy gate (shared/machine-gate.mjs);
 //   gate: the owner gate every request passes (board/on-host.mjs ownerGate);
 //   awake: the Keep awake controller (awake.mjs caffeinate);
@@ -281,7 +296,7 @@ function tcpProbe(port) {
 // → {port, reconcile(), tick(), poll(options), endUnshared(), settled(), close()}: reconcile, tick and poll run one pass
 // and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a request, is
 // done; close() stops every site and the server, as the hub does on SIGTERM.
-export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, readMachine = readMac, gate = hubGate, awake = caffeinate({ log }), ticks = true } = {}) {
+export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, awake = caffeinate({ log }), ticks = true } = {}) {
   const HOME = path.join(os.homedir(), '.claude', 'kickflip');
   const MANIFEST = path.join(HOME, 'manifest.json');
   const LOGS = path.join(HOME, 'logs');
@@ -495,6 +510,55 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       p.up = p.child ? await probe(site.port) : false;
       if (p.child && p.up) Object.assign(p, { state: 'up' }, p.stopping ? {} : { why: undefined });
     }
+    await Promise.all([...procs].map(([route, p]) => {
+      const site = routeRecord(sites, route);
+      return site && isBoardSite(site) && !restarting.has(route) && !closingResponses.has(route) ? watchHung(route, site, p) : null;
+    }));
+  }
+
+  // docs/adr/2026-11-15-0123-the-hub-restarts-a-session-not-listening-and-a-server-not-answering.md
+  // A board server that is up but hasn't answered HTTP (answers) for HUNG_AFTER is restarted, once per outage, unless
+  // auto-restarts.mjs restartHeld holds it. p.hung {since, held?, restartedAt?, pushed?} lasts until the server answers again;
+  // one that hasn't SERVER_COMEBACK after its restart pushes the owner once. Each restart and whether it brought the
+  // server back go to auto-restarts.jsonl.
+  const HUNG_AFTER = 60_000;
+  const SERVER_COMEBACK = 2 * 60_000;
+  const HUNG = 'not answering';
+  async function watchHung(route, site, p) {
+    const asked = p.child && p.up && !p.stopping;
+    const answered = asked && await answers(site.port);
+    const restartedAt = p.hung?.restartedAt;
+    if (answered) {
+      if (restartedAt && !p.hung.pushed) logRestart({ board: route, what: 'server', why: HUNG, outcome: 'back' }, { now: new Date(clock()) });
+      p.hung = null;
+      return;
+    }
+    if (restartedAt) {
+      if (p.hung.pushed || clock() - restartedAt < SERVER_COMEBACK) return;
+      p.hung.pushed = true;
+      logRestart({ board: route, what: 'server', why: HUNG, outcome: 'not back' }, { now: new Date(clock()) });
+      log(`${route} still doesn't answer after the hub restarted it`);
+      const title = site.title || route;
+      try {
+        await deliver({ title: `${title}'s server didn't come back`, body: `The hub restarted it because it stopped answering, and it still doesn't. See kickflip logs ${route}.`, url: '/_hub/', tag: `server-${route}` }, { kind: 'fault', immediate: true, at: new Date(clock()) });
+      } catch (e) { log(`${route}: could not push that its server didn't come back (${e.message})`); }
+      return;
+    }
+    if (!asked) { p.hung = null; return; }
+    p.hung ||= { since: clock() };
+    if (clock() - p.hung.since < HUNG_AFTER) return;
+    const owner = sessionOf(loadManifest(), route);
+    const held = await restartHeld({ dir: site.dir, record: owner ? liveSessions()?.get(owner.session) : null });
+    if (held) {
+      if (p.hung.held !== held) log(`${route} hasn't answered for a minute; its restart waits, since ${held}`);
+      p.hung.held = held;
+      return;
+    }
+    log(`${route} hasn't answered for a minute; restarting it`);
+    logRestart({ board: route, what: 'server', why: HUNG, outcome: 'restarted' }, { now: new Date(clock()) });
+    stop(route);
+    Object.assign(p, { restarts: 0, nextStart: clock() + 1500 });
+    p.hung.restartedAt = clock();
   }
   // The hub restarts itself for new code once it is whole on disk (self-restart.mjs), and a board server whose code
   // changed between builders (reconcile above), unless codeRestarts is false (KICKFLIP_CODE_RESTARTS=off): a try run's
@@ -619,7 +683,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const asked = new Set(wakeAsks);
     wakeAsks.clear();
     sessionCheck.running = checkSessions({ manifest: loadManifest(), asked }).then((r) => {
-      if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
+      if (r.resumed.length || r.restarted.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; restarted ${r.restarted.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
     }).catch((e) => log('session check failed:', e.message))
       // docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md
       .then(() => compactFullContexts({ manifest: loadManifest() })).then((r) => {
@@ -980,7 +1044,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
         code, version: VERSION, update: { latest: upgrade.available(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
-        remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }),
+        remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pending().map(shown),
       remembered: rememberedFor(null),

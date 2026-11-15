@@ -355,7 +355,8 @@ export function oldestUnheard(board) {
 }
 
 // One push per board per outage when an event has waited DEAF_AFTER while the board is deaf (listenState); an asleep or
-// waking board waits for the hub's wake, which pushes on its own when it fails. Its listening again ends the outage (~/.claude/kickflip/deaf-state.json {<route>: {at, since}}). The hub runs it after each
+// waking board waits for the hub's wake or restart, which pushes on its own when it fails, and a running session the
+// hub hasn't restarted, since something held it (sessions.mjs checkSessions), gets this push. Its listening again ends the outage (~/.claude/kickflip/deaf-state.json {<route>: {at, since}}). The hub runs it after each
 // GitHub check. wakes is resume-state.json's records. → {pushed: [route], failed: [message]}
 export async function checkListening({ manifest, now = new Date(), running = liveSessions(), wakes = readJSON(resumeStateFile(), {}) } = {}) {
   // With ps giving no answer, no board's listen state is known, so the check waits for the next.
@@ -370,7 +371,8 @@ export async function checkListening({ manifest, now = new Date(), running = liv
       if (routeRecord(state, board.route)) { delete state[board.route]; dirty = true; }
       continue;
     }
-    if (listen === 'asleep' || listen === 'waking' || routeRecord(state, board.route)) continue;
+    // An outage whose wake or restart already pushed that it failed (sessions.mjs checkSessions) pushes nothing more.
+    if (listen === 'asleep' || listen === 'waking' || routeRecord(wakes, board.route)?.pushed_at || routeRecord(state, board.route)) continue;
     const since = oldestUnheard(board);
     if (!since || now - Date.parse(since) < DEAF_AFTER) continue;
     const minutes = Math.round((now - Date.parse(since)) / 60_000);

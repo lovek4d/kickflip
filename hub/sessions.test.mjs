@@ -390,7 +390,7 @@ test("the hub wakes a board's session as soon as an event lands while it isn't r
   await check(0);
   assert.deepEqual(resumed, []);
   for (const route of ['quiet', 'busy', 'bare', 'lost']) event(route, 0.2);
-  assert.deepEqual(await check(0.25), { resumed: ['quiet'], pushed: [], failed: ['lost: could not resume its session (no such session)'] });
+  assert.deepEqual(await check(0.25), { resumed: ['quiet'], restarted: [], pushed: [], failed: ['lost: could not resume its session (no such session)'] });
   assert.deepEqual(resumed, [[0.25, 'quiet', { 'data/events.jsonl': 0 }], [0.25, 'lost', { 'data/events.jsonl': 0 }]]);
   await check(0.5);
   assert.deepEqual(pushed.map((p) => p.slice(0, 3)), [[0.5, "Lost's session didn't come back", 'resume-lost']]);
@@ -525,7 +525,7 @@ test('resume state starts a fresh outage and resumes once for object property ro
   const at = Date.now();
   const check = (ms, listening = false) => checkSessions({ manifest: { sites }, now: new Date(at + ms), live: () => new Map(),
     listening: () => listening, resume: async (route) => { resumed.push(route); }, push: async (p) => { pushed.push(p.tag); } });
-  assert.deepEqual(await check(0), { resumed: [], pushed: [], failed: [] });
+  assert.deepEqual(await check(0), { resumed: [], restarted: [], pushed: [], failed: [] });
   const state = read(web('resume-state.json'));
   for (const route of routes) {
     assert.equal(state[route].down_since, new Date(at).toISOString());
@@ -713,7 +713,7 @@ test("a tap on an asleep board's page wakes its session at once with no event, o
   fs.rmSync(web('resume-state.json'), { force: true });
   await check([]);
   assert.deepEqual(resumed, []);
-  assert.deepEqual(await check(['tap']), { resumed: ['tap'], pushed: [], failed: [] });
+  assert.deepEqual(await check(['tap']), { resumed: ['tap'], restarted: [], pushed: [], failed: [] });
   assert.ok(read(web('resume-state.json')).tap.resumed_at);
   await check(['tap']);
   assert.deepEqual(resumed, ['tap']);
@@ -722,6 +722,87 @@ test("a tap on an asleep board's page wakes its session at once with no event, o
   await check(['tap']);
   assert.deepEqual(resumed, ['tap']);
   fs.rmSync(web('resume-state.json'), { force: true });
+});
+
+test("the hub restarts a running session that has idled without listening for 2 minutes, never while it is busy or something holds it, once per outage, logs each restart and whether it came back, and pushes only when it didn't", async () => {
+  const { RESTART_AFTER } = await import('./sessions.mjs');
+  const { readRestarts, autoRestartsFile } = await import('./auto-restarts.mjs');
+  const { readAudit, boardAudit } = await import('../shared/audit.mjs');
+  const sites = {};
+  for (const route of ['deaf', 'held', 'broken']) {
+    const dir = path.join(home, 'restart-boards', route);
+    write(path.join(dir, 'board.json'), { title: route[0].toUpperCase() + route.slice(1) });
+    write(path.join(dir, 'data', 'events.jsonl'), '');
+    sites[route] = { dir, port: 1, cmd: boardCmd(dir), owner: { session: `s-${route}`, repo } };
+  }
+  fs.rmSync(web('resume-state.json'), { force: true });
+  fs.rmSync(autoRestartsFile(), { force: true });
+  const t0 = Date.parse('2026-11-15T12:00:00Z');
+  const status = { deaf: 'busy', held: 'idle', broken: 'idle' };
+  const listeningNow = new Set();
+  const restarted = [];
+  const pushed = [];
+  let holds = 'a builder is open';
+  const check = (min) => checkSessions({
+    manifest: { sites }, now: new Date(t0 + min * 60_000),
+    live: () => new Map(Object.entries(status).map(([route, s]) => [`s-${route}`, { pid: 1, kind: 'bg', status: s }])),
+    listening: (b) => listeningNow.has(b.route),
+    resume: async () => assert.fail('a running session is restarted, never resumed'),
+    restart: async (route) => { restarted.push([min, route]); if (route === 'broken') throw new Error('claude stop failed'); },
+    held: async (board, record) => { assert.equal(record.status, 'idle', 'only an idle session gets as far as its hold'); return board.route === 'held' ? holds : null; },
+    push: async (msg) => { pushed.push([min, msg.title, msg.body]); },
+    gateOf: () => ({ state: 'normal' }),
+  });
+  const after = RESTART_AFTER / 60_000;
+  await check(0);
+  await check(after - 0.25);
+  assert.deepEqual(restarted, [], 'nothing restarts before 2 minutes');
+  const first = await check(after);
+  assert.deepEqual(restarted, [[after, 'broken']], 'a busy session waits, and a held one waits');
+  assert.deepEqual([first.restarted, first.failed], [[], ['broken: could not restart its session (claude stop failed)']]);
+  assert.deepEqual(readAudit(boardAudit(sites.held.dir)).map((e) => [e.call, e.result, e.reason]), [['session-restart', 'held', "Its session isn't listening, but a builder is open."]]);
+  await check(after + 0.25);
+  assert.equal(readAudit(boardAudit(sites.held.dir)).length, 1, 'a hold is logged once while its reason stays');
+  assert.deepEqual(pushed, [[after + 0.25, "Broken's session didn't come back", "The hub couldn't restart it: claude stop failed"]], 'a failed restart pushes at once');
+
+  status.deaf = 'idle';
+  holds = null;
+  assert.deepEqual((await check(after + 0.5)).restarted, ['deaf', 'held'], 'a busy session restarts once idle, a held one once nothing holds it');
+  await check(after + 1);
+  assert.equal(restarted.length, 3, 'one restart per outage');
+  listeningNow.add('deaf');
+  await check(after + 1.25);
+  await check(after + 0.5 + COMEBACK_WAIT / 60_000);
+  assert.deepEqual(pushed.slice(1), [[after + 0.5 + COMEBACK_WAIT / 60_000, "Held's session didn't come back", "The hub restarted it because it wasn't listening, and it still isn't."]]);
+  assert.deepEqual(readRestarts().map((e) => [e.board, e.what, e.why, e.outcome, e.error]), [
+    ['broken', 'session', 'not listening', 'failed', 'claude stop failed'],
+    ['deaf', 'session', 'not listening', 'restarted', undefined],
+    ['held', 'session', 'not listening', 'restarted', undefined],
+    ['deaf', 'session', 'not listening', 'back', undefined],
+    ['held', 'session', 'not listening', 'not back', undefined],
+  ]);
+  assert.equal(pushed.length, 2, 'a restart that worked pushes nothing');
+  fs.rmSync(web('resume-state.json'), { force: true });
+});
+
+test('a session restart stops the running session, then resumes it in its folder with the rejoin prompt', async () => {
+  const { restartSession } = await import('./sessions.mjs');
+  const dir = path.join(home, 'restart-one');
+  write(path.join(dir, 'board.json'), { title: 'Again' });
+  const m = { sites: { again: { dir, port: 1, cmd: boardCmd(dir), owner: { session: 's-again', repo } } } };
+  const steps = [];
+  let running = new Map([['s-again', { pid: 1, sessionId: 's-again', kind: 'bg', jobId: 's-again' }]]);
+  const r = await restartSession('again', {
+    manifest: m, live: () => running,
+    stop: async (record, { cwd }) => { steps.push(['stop', record.sessionId, cwd]); running = new Map(); },
+    run: async (argv, { cwd }) => {
+      if (argv[0] === 'agents') return { status: 0, stdout: JSON.stringify([{ sessionId: 's-again', kind: 'background' }]) };
+      steps.push(['run', argv.slice(0, 3), cwd]);
+      return { status: 0, stdout: '' };
+    },
+  });
+  assert.deepEqual(steps, [['stop', 's-again', repo], ['run', ['--resume', 's-again', '--bg'], repo]]);
+  assert.deepEqual([r.route, r.session, r.previous], ['again', 's-again', 's-again']);
 });
 
 test("while ps can't answer whether a session runs, the wake, the deaf push and the compact check wait for the next check, and start, resume, stop and hub refuse", async () => {
@@ -735,7 +816,7 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
   const outage = { unknown: { down_since: new Date(Date.now() - 3600_000).toISOString(), mark: { 'data/events.jsonl': 0 } } };
   write(web('resume-state.json'), outage);
   const nobody = { resume: async () => assert.fail('resumed'), push: async () => assert.fail('pushed') };
-  assert.deepEqual(await checkSessions({ manifest: m, live: () => null, asked: new Set(['unknown']), listening: () => false, ...nobody }), { resumed: [], pushed: [], failed: [] });
+  assert.deepEqual(await checkSessions({ manifest: m, live: () => null, asked: new Set(['unknown']), listening: () => false, ...nobody }), { resumed: [], restarted: [], pushed: [], failed: [] });
   assert.deepEqual(read(web('resume-state.json')), outage, 'the outage and its mark are kept');
   const unknown = Object.assign(new Error('unknown'), { reason: 'unknown' });
   const tried = await checkSessions({ manifest: m, live: () => new Map(), asked: new Set(['unknown']), listening: () => false, resume: async () => { throw unknown; }, push: nobody.push });

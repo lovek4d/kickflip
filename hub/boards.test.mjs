@@ -732,6 +732,8 @@ test('a board whose stopped session the hub can wake is asleep, then waking once
   const heard = (wakes) => linksOf(nap, { faults: {}, listen: listenState(nap, { running: none, wakes }) }).find((l) => l.link === 'events').ok;
   assert.deepEqual([heard(resumed), (await checkListening({ manifest: manifest(), running: none, wakes: resumed })).pushed], [true, []]);
   assert.equal(listenState(nap, { running: none, wakes: { nap: { ...resumed.nap, pushed_at: ago(0) } } }), 'deaf');
+  assert.deepEqual((await checkListening({ manifest: manifest(), running: napRuns, wakes: { nap: { ...resumed.nap, restarted: true, pushed_at: ago(0) } } })).pushed, [],
+    'an outage whose restart already pushed that it failed pushes nothing more');
   const failed = { nap: { down_since: ago(1), resumed_at: ago(1), error: 'claude --resume failed' } };
   assert.equal(listenState(nap, { running: none, wakes: failed }), 'deaf');
   assert.equal(heard(failed), false);

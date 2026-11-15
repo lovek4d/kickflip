@@ -9,8 +9,10 @@
 // attaches to it (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
 // checkSessions is the hub's wake (docs/adr/2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md): when an event lands
 // for a board whose owner session isn't running, or the owner taps its page (`asked`), the session is resumed at once; a board not listening for
-// RESUME_AFTER with an event its session hasn't heard is resumed as a fallback. Either happens once per outage, and if
-// the board still isn't listening COMEBACK_WAIT later, the owner gets one push.
+// RESUME_AFTER with an event its session hasn't heard is resumed as a fallback. A board whose session runs idle but
+// hasn't listened for RESTART_AFTER is restarted, stopped and resumed, unless auto-restarts.mjs restartHeld holds it
+// (docs/adr/2026-11-15-0123-the-hub-restarts-a-session-not-listening-and-a-server-not-answering.md). Any of these happens
+// once per outage, and if the board still isn't listening COMEBACK_WAIT later, the owner gets one push.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -29,10 +31,14 @@ import { isClone } from './repos.mjs';
 import { trustFolder } from './trust.mjs';
 import { contextFull, contextReading } from './usage.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
+import { logRestart, restartHeld } from './auto-restarts.mjs';
 
 const SKILL_DIR = storedPath(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
 export const RESUME_AFTER = 3 * 60_000;
 export const COMEBACK_WAIT = 5 * 60_000;
+export const RESTART_AFTER = 2 * 60_000;
+// Why a session restart happens, as auto-restarts.jsonl and the board's Hub row say it.
+const NOT_LISTENING = 'not listening';
 export const STARTING_WAIT = 15 * 60_000;
 const compactStateFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'compact-state.json');
 
@@ -362,6 +368,15 @@ export function resumeSession(route, options = {}) {
   return withSessionLock(route, ({ resume }) => resume(options));
 }
 
+// Under the route's session lock: stops its recorded session, then resumes it (resumeRecordedSession), whose first turn
+// relaunches its watcher. → resume's answer
+export function restartSession(route, { manifest = readManifest(), live = liveSessions, stop = runSessionStop, run = runClaude, tmux = runTmux } = {}) {
+  return withSessionLock(route, async ({ resume }) => {
+    await stopSession(sessionOf(manifest, route), { live, stop });
+    return resume({ manifest, live, run, tmux });
+  });
+}
+
 async function resumeRecordedSession(route, { manifest = readManifest(), run = runClaude, tmux = runTmux, live = liveSessions, mark = null } = {}) {
   if (routeRecord(readManifest().closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
@@ -384,62 +399,100 @@ async function resumeRecordedSession(route, { manifest = readManifest(), run = r
   return { route, session, previous: rec.session, confirmed, repo: rec.repo, argv: [claudeBin(), ...argv], output: r.stdout.trim() };
 }
 
-// One board's next wake step. entry is its resume-state.json record {down_since, mark?, resumed_at?, error?,
-// pushed_at?}, kept while the board isn't listening; mark is the watched line counts when its session was first seen
-// not running. counts: the watched line counts now. waiting: an event its session hasn't heard (boards.mjs
-// oldestUnheard). recorded: it has a session and folder to resume. asked: the owner tapped the board's page (hub.mjs
-// /_hub/wake), which wakes it at once like an event landing.
-// → {action: 'none' | 'resume' | 'push', entry: the record to keep, null once it listens}
-export function resumeStep(entry, { listening, live, recorded, counts, waiting, asked = false, now }) {
+// One board's next wake step. entry is its resume-state.json record {down_since, mark?, deaf_since?, resumed_at?,
+// restarted?, error?, pushed_at?}, kept while the board isn't listening; mark is the watched line counts when its
+// session was first seen not running, deaf_since when it was first seen running and not listening, and restarted marks
+// a wake that was a restart. counts: the watched line counts now. waiting: an event its session hasn't heard
+// (boards.mjs oldestUnheard). recorded: it has a session and folder to resume. asked: the owner tapped the board's page
+// (hub.mjs /_hub/wake), which wakes it at once like an event landing. idle: its running session's record says idle.
+// held(): whether something holds a restart (auto-restarts.mjs restartHeld), asked only once one is due.
+// → {action: 'none' | 'resume' | 'restart' | 'push', entry: the record to keep, null once it listens}
+export async function resumeStep(entry, { listening, live, recorded, counts, waiting, asked = false, idle = false, held = async () => false, now }) {
   if (listening) return { action: 'none', entry: null };
   const at = new Date(now).toISOString();
   const e = entry ? { ...entry } : { down_since: at };
-  if (live) delete e.mark;
-  else if (!e.mark && counts) e.mark = counts;
+  if (live) {
+    delete e.mark;
+    e.deaf_since ??= at;
+  } else {
+    delete e.deaf_since;
+    if (!e.mark && counts) e.mark = counts;
+  }
   if (e.pushed_at) return { action: 'none', entry: e };
   if (e.resumed_at) {
     return e.error || now - Date.parse(e.resumed_at) >= COMEBACK_WAIT ? { action: 'push', entry: { ...e, pushed_at: at } } : { action: 'none', entry: e };
   }
-  if (!recorded || live) return { action: 'none', entry: e };
+  if (!recorded) return { action: 'none', entry: e };
+  if (live) {
+    if (!idle || now - Date.parse(e.deaf_since) < RESTART_AFTER || await held()) return { action: 'none', entry: e };
+    return { action: 'restart', entry: { ...e, resumed_at: at, restarted: true } };
+  }
   const landed = Boolean(entry?.mark && counts && Object.entries(counts).some(([f, n]) => n > (routeRecord(entry.mark, f) ?? 0)));
   if (landed || asked || (waiting && now - Date.parse(e.down_since) >= RESUME_AFTER)) return { action: 'resume', entry: { ...e, resumed_at: at } };
   return { action: 'none', entry: e };
 }
 
 // The hub's wake over every board (resumeStep), keeping ~/.claude/kickflip/resume-state.json {<route>: entry}. asked
-// is the routes whose page asked for a wake since the last check.
-// → {resumed: [route], pushed: [route], failed: [message]}
+// is the routes whose page asked for a wake since the last check. restart(route) stops and resumes a running session
+// (restartSession), and held(board, record) says what holds its restart (auto-restarts.mjs restartHeld). Each restart
+// and whether it brought the board back go to auto-restarts.jsonl.
+// → {resumed: [route], restarted: [route], pushed: [route], failed: [message]}
 export async function checkSessions({
   manifest = readManifest(), now = new Date(), live = liveSessions, asked = new Set(),
   listening = (board, running) => isListening(board, { now: now.getTime(), running }),
   resume = (route, mark) => resumeSession(route, { manifest, live, mark }), push = deliver,
+  restart = (route) => restartSession(route, { manifest, live }),
+  held = (board, record) => restartHeld({ dir: board.dir, record }),
   gateOf = (board) => readUsageGate({ now, dir: board.dir }),
 } = {}) {
   const running = live();
   // With ps giving no answer, which sessions run is unknown, so nothing wakes or pushes and every outage is kept for
   // the next check.
-  if (!running) return { resumed: [], pushed: [], failed: [] };
+  if (!running) return { resumed: [], restarted: [], pushed: [], failed: [] };
   const state = readJSON(resumeStateFile(), {});
   const next = Object.create(null);
-  const out = { resumed: [], pushed: [], failed: [] };
+  const out = { resumed: [], restarted: [], pushed: [], failed: [] };
   for (const board of listBoards(manifest)) {
     const rec = sessionOf(manifest, board.route);
-    const isLive = Boolean(rec && running.has(rec.session));
+    const record = rec ? running.get(rec.session) : undefined;
+    const isLive = Boolean(record);
     const heard = listening(board, running);
-    let { action, entry } = resumeStep(routeRecord(state, board.route), {
+    const was = routeRecord(state, board.route);
+    const inputs = { listening: heard, live: isLive, asked: asked.has(board.route), downSince: was?.down_since ?? null, resumedAt: was?.resumed_at ?? null };
+    // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
+    const logged = (call, result, reason, options = {}) => audit(boardAudit(board.dir), { call, result, reason, inputs }, { now, ...options });
+    let { action, entry } = await resumeStep(was, {
       listening: heard, live: isLive, recorded: Boolean(rec?.repo), now: now.getTime(), asked: asked.has(board.route),
       counts: heard ? null : watchedCounts(board), waiting: !heard && !isLive && oldestUnheard(board) !== null,
+      idle: record?.status === 'idle',
+      held: async () => {
+        const why = gateOf(board).state === 'paused' ? 'its usage is paused' : await held(board, record);
+        if (why) logged('session-restart', 'held', `Its session isn't listening, but ${why}.`, { once: true });
+        return Boolean(why);
+      },
     });
+    if (heard && was?.restarted && !was.error && !was.pushed_at) logRestart({ board: board.route, what: 'session', why: NOT_LISTENING, outcome: 'back' }, { now });
     if (action === 'resume' && gateOf(board).state === 'paused') {
       const mark = routeRecord(state, board.route)?.mark || watcherCursor(board);
       const pending = Object.entries(watchedLines(board)).flatMap(([file, lines]) => lines.slice(routeRecord(mark, file) || 0));
       if (!pending.some((line) => !heldUsageEvent(line))) { action = 'none'; delete entry.resumed_at; }
     }
-    // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
-    const was = routeRecord(state, board.route);
-    const inputs = { listening: heard, live: isLive, asked: asked.has(board.route), downSince: was?.down_since ?? null, resumedAt: was?.resumed_at ?? null };
-    const logged = (call, result, reason) => audit(boardAudit(board.dir), { call, result, reason, inputs }, { now });
-    if (action === 'resume') {
+    if (action === 'restart') {
+      const why = `Its session ran idle without listening for ${RESTART_AFTER / 60_000} minutes.`;
+      try {
+        await restart(board.route);
+        out.restarted.push(board.route);
+        logged('session-restart', 'restarted', why);
+        logRestart({ board: board.route, what: 'session', why: NOT_LISTENING, outcome: 'restarted' }, { now });
+      } catch (e) {
+        if (e.reason === 'unknown') { delete entry.resumed_at; delete entry.restarted; } else {
+          entry = { ...entry, error: e.message };
+          logRestart({ board: board.route, what: 'session', why: NOT_LISTENING, outcome: 'failed', error: e.message }, { now });
+        }
+        out.failed.push(`${board.route}: could not restart its session (${e.message})`);
+        logged('session-restart', 'failed', `${why} ${e.message}`);
+      }
+    } else if (action === 'resume') {
       const why = asked.has(board.route) ? "The owner opened the board's page while its session wasn't listening." : "An event waited while the board's session wasn't listening.";
       try { await resume(board.route, entry.mark); out.resumed.push(board.route); logged('session-resume', 'resumed', why); } catch (e) {
         // A resume that couldn't tell whether the session runs is tried again on the next check.
@@ -449,12 +502,15 @@ export async function checkSessions({
         logged('session-resume', 'failed', `${why} ${e.message}`);
       }
     } else if (action === 'push') {
-      const body = entry.error ? `The hub couldn't resume it: ${entry.error}`
-        : isLive ? "Its session is running but hasn't relaunched its watcher."
-          : `It still isn't listening after the hub resumed it. Try kickflip resume ${board.route}, or claude agents.`;
-      const why = `Its session didn't come back after the hub resumed it: ${body}`;
+      const verb = entry.restarted ? 'restart' : 'resume';
+      const body = entry.error ? `The hub couldn't ${verb} it: ${entry.error}`
+        : entry.restarted ? "The hub restarted it because it wasn't listening, and it still isn't."
+          : isLive ? "Its session is running but hasn't relaunched its watcher."
+            : `It still isn't listening after the hub resumed it. Try kickflip resume ${board.route}, or claude agents.`;
+      const why = `Its session didn't come back after the hub ${verb}d it: ${body}`;
       try {
         await push({ title: `${board.title}'s session didn't come back`, body, url: `/${board.route}/`, tag: `resume-${board.route}` }, { kind: 'fault', immediate: true, at: now });
+        if (entry.restarted && !entry.error) logRestart({ board: board.route, what: 'session', why: NOT_LISTENING, outcome: 'not back' }, { now });
         out.pushed.push(board.route);
         logged('push', 'sent', why);
       } catch (e) {

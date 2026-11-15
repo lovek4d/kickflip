@@ -129,8 +129,12 @@ A board whose owner session isn't live but that the hub can wake on its next eve
 _Avoid_: idle, stopped, offline
 
 **Not listening**:
-A board that isn't listening, waking nor **asleep**: its session or watcher isn't running and the hub can't wake it, so events wait. It reads not listening in red in the board header, the sidebar and the hub page, "Not listening: …" in its events link and "X isn't listening" in its push ([status words are lowercase, and a board nothing will wake reads not listening](docs/adr/2026-11-03-1822-status-words-are-lowercase.md)).
+A board that isn't listening, waking nor **asleep**: its session or watcher isn't running and the hub can't wake it, so events wait. It reads not listening in red in the board header, the sidebar and the hub page, "Not listening: …" in its events link and "X isn't listening" in its push ([status words are lowercase, and a board nothing will wake reads not listening](docs/adr/2026-11-03-1822-status-words-are-lowercase.md)). A board whose session runs idle and stays not listening for 2 minutes gets an **automatic restart**.
 _Avoid_: deaf, stopped, not responding
+
+**Automatic restart**:
+A restart the hub makes by itself, once per outage: of a board's session that runs idle but hasn't been listening for 2 minutes (stopped and resumed), or of a board server that is up but hasn't answered for 1 minute. Neither runs while the board's session is busy, a builder of the board is open or a land is queued or landing. Each restart goes to `~/.claude/kickflip/auto-restarts.jsonl` with whether it brought the board back, and to the board's Hub row for a day ("restarted the session 2m ago: not listening"). The owner gets a push only when a restart fails ([the hub restarts a session not listening and a server not answering](docs/adr/2026-11-15-0123-the-hub-restarts-a-session-not-listening-and-a-server-not-answering.md)).
+_Avoid_: auto-heal, self-repair
 
 **Status word**:
 A word in a status slot: beside a status dot, in a hub page row's status, in the board header's time slot, in a running or failed build chip, or as a usage block's tag. It is lowercase (down, starting, working, implementing, paused, healthy, degraded, up, not listening…), while sentences, toasts, tooltips, pushes, titles and button labels keep their capital ([status words are lowercase, and a board nothing will wake reads not listening](docs/adr/2026-11-03-1822-status-words-are-lowercase.md)).

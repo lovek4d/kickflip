@@ -30,8 +30,8 @@ export const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recur
 export const idleMachine = () => ({ load: 0, cores: 8, pressure: 'normal' });
 
 // Starts a hub on port 0 with no timers of its own (the test runs each pass) and an idle Mac, closed after the test.
-// options go to startHub. → startHub's hub, with base, its URL, lines, what it has logged, and logged(pattern), which
-// resolves with the first line, logged so far or next, that matches.
+// options go to startHub. → startHub's hub, with base, its URL, lines, what it has logged, and logged(pattern, n = 1),
+// which resolves with the nth line, logged so far or next, that matches.
 export async function inProcessHub(t, options = {}) {
   const { startHub } = await import('./hub.mjs');
   const lines = [];
@@ -39,11 +39,11 @@ export async function inProcessHub(t, options = {}) {
   const log = (...parts) => {
     const line = parts.join(' ');
     lines.push(line);
-    for (const w of [...waiters]) if (w.pattern.test(line)) { waiters.delete(w); w.resolve(line); }
+    for (const w of [...waiters]) if (w.pattern.test(line) && --w.left === 0) { waiters.delete(w); w.resolve(line); }
   };
-  const logged = (pattern) => {
-    const seen = lines.find((line) => pattern.test(line));
-    return seen !== undefined ? Promise.resolve(seen) : new Promise((resolve) => waiters.add({ pattern, resolve }));
+  const logged = (pattern, n = 1) => {
+    const seen = lines.filter((line) => pattern.test(line));
+    return seen.length >= n ? Promise.resolve(seen[n - 1]) : new Promise((resolve) => waiters.add({ pattern, left: n - seen.length, resolve }));
   };
   const hub = await startHub({ ticks: false, readMachine: idleMachine, log, ...options });
   t.after(() => hub.close());
