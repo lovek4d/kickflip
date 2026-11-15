@@ -755,6 +755,43 @@ test("a restarted server launches the builder of an In Progress card whose recor
   assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/C1']?.relaunched, false, 'the launch is tracked');
 });
 
+// docs/adr/2026-11-15-1630-a-pulled-card-whose-launch-was-lost-launches-again.md
+test("a restarted server launches a card In Progress that has no agent record, and leaves one with a record, a held one and a Todo one alone", async (t) => {
+  const home = emptyHome();
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  fs.mkdirSync(path.join(data, 'threads'));
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  const origin = path.join(home, 'origin');
+  fs.mkdirSync(origin);
+  git(origin, 'init', '--quiet', '-b', 'main');
+  git(origin, 'config', 'user.name', 'Test');
+  git(origin, 'config', 'user.email', 'test@example.com');
+  fs.writeFileSync(path.join(origin, 'a.txt'), 'a\n');
+  git(origin, 'add', '-A');
+  git(origin, 'commit', '--quiet', '-m', 'base');
+  const wt = path.join(home, 'clone');
+  git(home, 'clone', '--quiet', origin, wt);
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  const at = '2026-11-15T22:25:56.000Z';
+  const card = (id, extra) => ({ id, title: `fix(board): ${id}`, lane: 'progress', lane_at: at, ...extra });
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [card('L1'), card('L2'), card('L3', { held: 'owner' }), card('L4', { lane: 'todo' })] }));
+  fs.writeFileSync(path.join(data, 'agents', 'L2.json'), JSON.stringify({ started: at, kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'x', repo: wt } }));
+  const { runs, launch } = launcher(t);
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 1, 'the lost launch starts, and only it');
+  assert.match(runs[0].prompt, /builder start t\/L1 --kind build/);
+  assert.ok(fs.existsSync(path.join(data, 'agents', 'L1.json')), 'its record is open');
+  assert.ok(JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/L1'], 'the launch is tracked');
+  const audit = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(audit.filter((e) => e.call === 'launch-lost' && e.key === 't/L1').length, 1);
+});
+
 // A board server holds its port before any startup side effect: of two started on one site at once, only the one that
 // binds launches the cut-off build, and the other rejects on EADDRINUSE having written nothing.
 test('of two board servers started on one site at once, one launches each cut-off build and the other fails on its port having done nothing', async (t) => {

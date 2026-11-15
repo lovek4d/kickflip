@@ -357,7 +357,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -1872,8 +1872,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const tracked = await readJSON(file, {});
     if (entry) tracked[key] = entry; else delete tracked[key];
     await fs.mkdir(data, { recursive: true });
-    await fs.writeFile(file + '.tmp', JSON.stringify(tracked) + '\n');
-    await fs.rename(file + '.tmp', file);
+    // A tmp name of its own: two writes at once (a pull's launch and the minute check) each rename their own file.
+    const tmp = `${file}.${crypto.randomUUID()}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(tracked) + '\n');
+    await fs.rename(tmp, file);
   }
   // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
   // At startup: a build the previous process started but died before launching (store.mjs cutOffBuilds) that
@@ -1886,6 +1888,23 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         await handOff(started);
       }
     } catch (e) { console.error('Cut-off launch check failed:', e.message); }
+  }
+  // docs/adr/2026-11-15-1630-a-pulled-card-whose-launch-was-lost-launches-again.md
+  // A card In Progress that has no agent record (store.mjs lostLaunches) had its pull cut off after the card moved and
+  // before its build started: it starts as the pull would have, at boot and each minute. A card moved within the last
+  // LOST_GRACE_MS may be a start still under way, so only boot, which has none, takes it at once.
+  const LOST_GRACE_MS = 120000;
+  async function launchLostBuilds(grace = LOST_GRACE_MS) {
+    try {
+      if (launchHeld(readUsageGate({ dir: here }), 'claude')) return;
+      const { items } = await sharedBoard();
+      const blocked = new Set(items.filter((c) => c.blockedBy?.length).map((c) => c.key));
+      for (const key of (await lostLaunches(here, new Date(Date.now() - grace).toISOString())).filter((k) => !blocked.has(k))) {
+        const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub');
+        logCall({ call: 'launch-lost', key, result: startResult(started), reason: 'It was In Progress with no agent record: its pull was cut off before its build started.', inputs: {} });
+        await handOff(started);
+      }
+    } catch (e) { console.error('Lost launch check failed:', e.message); }
   }
   // The cards whose run the orchestrator stopped (domain.mjs builderOf), which nothing relaunches.
   const stoppedKeys = (items) => new Set(items.filter((c) => c.builder?.stopped).map((c) => c.key));
@@ -1934,8 +1953,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind) => launchHeld(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items), paused,
         limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit });
       if (JSON.stringify(next) !== JSON.stringify(tracked)) {
-        await fs.writeFile(file + '.tmp', JSON.stringify(next) + '\n');
-        await fs.rename(file + '.tmp', file);
+        const tmp = `${file}.${crypto.randomUUID()}.tmp`;
+        await fs.writeFile(tmp, JSON.stringify(next) + '\n');
+        await fs.rename(tmp, file);
       }
     } catch (err) {
       console.error('Headless builder check failed:', err.message);
@@ -2428,6 +2448,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   try { for (const line of await splitSharedNotes(here)) console.log(line); } catch (e) { console.error('notes split:', e.message); }
   try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }
   await launchCutOffBuilds();
+  await launchLostBuilds(0);
   await fileNewAsks({ starting: true });
   await settleLanes();
   await checkArchive();
@@ -2456,6 +2477,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     track(signalMissedWrites());
     track(checkPrototypeWaits());
     track(reviveHeadless());
+    track(launchLostBuilds());
     // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
     track(publishUnscreened(here).then((keys) => { if (keys.length) dataVersion++; }, (err) => console.error('Screen publish failed:', err.message)));
     track(checkPickUps());

@@ -5188,6 +5188,23 @@ export async function cutOffBuilds(site) {
   return out;
 }
 
+// docs/adr/2026-11-15-1630-a-pulled-card-whose-launch-was-lost-launches-again.md
+// The cards In Progress that no build ever started on: open, in the lane since before `since` (ISO time), not held by
+// the owner, with no agent record of any kind in their folder. A pull that a restart cut off after it moved the card
+// and before it wrote the record leaves one. → [key]
+export async function lostLaunches(site, since) {
+  const out = [];
+  for (const source of await itemSources(site)) {
+    const itemFile = await readJSON(source.file, null);
+    for (const item of itemFile?.items || []) {
+      if (closed(item) || item.lane !== 'progress' || item.held || !(item.lane_at < since)) continue;
+      if ((await builderFiles(source.dir, item.id)).length) continue;
+      out.push(`${source.slug}/${item.id}`);
+    }
+  }
+  return out;
+}
+
 // A tapped build that failed to start puts back the hold the tap cleared.
 async function restoreHold(site, key, was) {
   const { source, itemFile, item } = await loadItem(site, key);
