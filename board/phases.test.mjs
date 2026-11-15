@@ -173,7 +173,8 @@ const phaseWord = (html) => [...html.matchAll(/<span class="card-phase ph-(\w+)"
 
 test("Todo, In Review and Done end a card's last line with its phase word, toned by who acts next; In Progress shows only its bar", async () => {
   const words = [
-    ['todo', 'grilling', 'grilling', 'info'], ['todo', 'prototyping', 'prototyping', 'info'],
+    ['todo', 'new', 'new', 'info'], ['todo', 'discussing', 'discussing', 'quiet'],
+    ['todo', 'grilling', 'grilling', 'quiet'], ['todo', 'prototyping', 'prototyping', 'quiet'],
     ['todo', 'staging', 'staged', 'notice'], ['todo', 'ready', 'ready', 'success'],
     ['review', 'draft', 'draft', 'quiet'], ['review', 'reviewers', 'pending review', 'notice'], ['review', 'merge', 'pending merge', 'notice'], ['review', 'stale', 'stale', 'quiet'],
     ['done', 'merged', 'merged', 'merged'], ['done', 'closed', 'closed', 'quiet'],
@@ -184,7 +185,7 @@ test("Todo, In Review and Done end a card's last line with its phase word, toned
     assert.doesNotMatch(html, /phase-bars/, `${lane} ${phase}`);
   }
   const progress = card({ lane: 'progress', phase: 'building', builder: { phase: 'building', progress: 'Writing it', at: '2020-01-01T10:00:00.000Z', alive: true } });
-  assert.deepEqual(phaseWord(card({ lane: 'todo', phase: 'new' })), [], 'a New task draws no phase pill');
+  for (const turn of ['owner', 'claude']) assert.deepEqual(phaseWord(card({ lane: 'todo', phase: 'discussing', turn })), [['discussing', 'quiet']], `discussing on ${turn}'s turn`);
   assert.deepEqual(phaseWord(progress), []);
   assert.match(progress, /phase-bars/);
 });
@@ -199,14 +200,22 @@ test('a stale review reads one stale; a blocked ready card shows ready, then its
   assert.match(footerWords(card({ lane: 'todo', phase: 'ready', ready: false, held: true })), / · ready · held/);
   assert.match(footerWords(card({ lane: 'todo', phase: 'staging', staging: true, blocked: true, blockedBy })), / · staged · blocked by #2$/);
   const grilling = card({ lane: 'todo', phase: 'grilling', builder: { planner: true, kind: 'grill', progress: 'Reading', at: '2020-01-01T10:00:00.000Z', alive: true } });
-  assert.deepEqual(phaseWord(grilling), [['grilling', 'info']]);
+  assert.deepEqual(phaseWord(grilling), [['grilling', 'quiet']]);
   assert.doesNotMatch(grilling, /phase-bars/);
 });
 
-test('new messages read bold blue in every lane; Action needed is the only orange', async () => {
+test('Open items carries the info tone, Action needed the notice tone', async () => {
+  const actionOf = (kind) => card({ lane: 'todo', phase: 'grilling', action: { kind, url: '#x', label: 'Answer' } }).match(/<a class="(card-action[^"]*)"[^>]*>([^<]+)<\/a>/).slice(1);
+  assert.deepEqual(actionOf('questions'), ['card-action card-open-items', 'Open items']);
+  assert.deepEqual(actionOf('pick'), ['card-action card-open-items', 'Open items']);
+  assert.deepEqual(actionOf('implement'), ['card-action', 'Action needed']);
+});
+
+test('new messages and Open items read bold blue in every lane; Action needed is the only orange', async () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.card-alert \{ font-weight: 600; \}/);
   assert.match(css, /\.card-alert \.card-action \{ color: var\(--color-notice\); \}/);
+  assert.match(css, /\.card-alert \.card-action\.card-open-items \{ color: var\(--color-info\); \}/);
   assert.match(css, /\.card-alert \.card-unread \{ color: var\(--color-info\); \}/);
   assert.doesNotMatch(css, /\.lane\[data-lane="done"\] \.card-alert/);
 });

@@ -748,7 +748,7 @@ test("from 900px, back from a prototype goes to the board, since Waiting on you 
 test('Action needed shows only while the card waits on the owner, as orange words that link to what they act on', () => {
   assert.equal(ui.actionWords({ questions: { open: 2, first: 'q1' }, action: null }), '');
   const pick = ui.actionWords({ action: { kind: 'pick', url: 'https://mac.ts.net/r/prototype-x.html?q=q1', label: 'Prototypes ready: pick a take' } });
-  assert.match(pick, /^<a class="card-action" href="https:\/\/mac\.ts\.net\/r\/prototype-x\.html\?q=q1"[^>]*>Open items<\/a>$/);
+  assert.match(pick, /^<a class="card-action card-open-items" href="https:\/\/mac\.ts\.net\/r\/prototype-x\.html\?q=q1"[^>]*>Open items<\/a>$/);
   assert.doesNotMatch(pick, /target=|chip/);
   assert.match(ui.actionWords({ action: { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Tap Ready on GitHub' } }), /href="https:\/\/github\.com\/o\/r\/pull\/7"[^>]*target="_blank"/);
 });
@@ -1875,12 +1875,12 @@ test('a paused build reads "pausing · <cause>" in orange, then "paused · <caus
 });
 
 // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md
-test("a discussing card's time line says whose turn it is: blue for the owner's, orange for Claude's", () => {
+test("a discussing card's time line reads discussing in grey on either turn", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, phase: 'discussing' };
   const yours = ui.workLines({ ...card, turn: 'owner' }, { unread: 1 });
   assert.deepEqual(lines(yours).slice(-2), [`${ui.cardTime(sortAt)} · discussing`, '1 new message']);
-  assert.match(yours, /<span class="card-phase ph-info">discussing<\/span>/);
+  assert.match(yours, /<span class="card-phase ph-quiet">discussing<\/span>/);
   assert.match(ui.workLines({ ...card, turn: 'claude' }), /<span class="card-phase ph-quiet">discussing<\/span>/);
 });
 

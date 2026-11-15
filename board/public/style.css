@@ -458,6 +458,7 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .card-alert { font-weight: 600; }
 .card-alert .sep { color: var(--muted); font-weight: 400; }
 .card-alert .card-action { color: var(--color-notice); }
+.card-alert .card-action.card-open-items { color: var(--color-info); }
 .card-alert .card-stalled { color: var(--color-danger); }
 .card-alert .card-unread { color: var(--color-info); }
 /* Lane headers: Linear-style group bands */

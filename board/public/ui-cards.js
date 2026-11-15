@@ -76,8 +76,9 @@
   function actionWords(it) {
     if (!it.action) return '';
     const external = it.action.kind === ACTION_KIND.ready ? Object.entries(EXTERNAL).map(([k, v]) => ` ${k}="${esc(v)}"`).join('') : '';
-    const word = it.action.kind === ACTION_KIND.pick || it.action.kind === ACTION_KIND.questions ? 'Open items' : 'Action needed';
-    return `<a class="card-action" href="${esc(it.action.url)}" title="${esc(it.action.label)}" aria-label="${esc(`${word}: ${it.action.label}`)}"${external}>${word}</a>`;
+    const open = it.action.kind === ACTION_KIND.pick || it.action.kind === ACTION_KIND.questions;
+    const word = open ? 'Open items' : 'Action needed';
+    return `<a class="card-action${open ? ' card-open-items' : ''}" href="${esc(it.action.url)}" title="${esc(it.action.label)}" aria-label="${esc(`${word}: ${it.action.label}`)}"${external}>${word}</a>`;
   }
   // Each unfinished dep, linking to its card: "blocked by #53, #54", bumped or not; then its condition, "blocked
   // until <condition>" ("and until <condition>" after deps), then ", <reason>"
@@ -284,21 +285,18 @@
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
   // docs/adr/2026-11-11-1200-every-lane-has-phases.md
-  // A Todo, In Review or Done card's phase as a word, toned by who acts next: grey while a machine waits, blue while
-  // Claude works, orange while it waits on the owner, green once it can go and purple once merged. In Progress shows its
-  // phase only as its progress bar, a New card has none (its footer line says it), and a card In Review for an owner wait other than the merge has none. The word shows
+  // A Todo, In Review or Done card's phase as a word: blue for a New card, grey while a planner or machine waits
+  // (discussing, grilling, prototyping), orange while it waits on the owner, green once it can go and purple once merged.
+  // In Progress shows its phase only as its progress bar, and a card In Review for an owner wait other than the merge has none. The word shows
   // whether the card is held or blocked; those words follow it.
   const PHASE_LOOK = {
-    new: ['new', 'quiet'], discussing: ['discussing', 'info'], grilling: ['grilling', 'info'], prototyping: ['prototyping', 'info'], staging: ['staged', 'notice'], ready: ['ready', 'success'],
+    new: ['new', 'info'], discussing: ['discussing', 'quiet'], grilling: ['grilling', 'quiet'], prototyping: ['prototyping', 'quiet'], staging: ['staged', 'notice'], ready: ['ready', 'success'],
     draft: ['draft', 'quiet'], reviewers: ['pending review', 'notice'], merge: ['pending merge', 'notice'], stale: ['stale', 'quiet'],
     merged: ['merged', 'merged'], closed: ['closed', 'quiet'],
   };
-  // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: a discussing card reads just "discussing", blue on the
-  // owner's turn and grey while the orchestrator owes the reply.
-  const TURN_LOOK = { owner: ['discussing', 'info'], claude: ['discussing', 'quiet'] };
   function phaseWord(it) {
-    if (it.kind !== 'work' || it.lane === 'progress' || !it.phase || it.phase === 'new') return '';
-    const [word, tone] = it.phase === 'discussing' ? TURN_LOOK[it.turn] : PHASE_LOOK[it.phase];
+    if (it.kind !== 'work' || it.lane === 'progress' || !it.phase) return '';
+    const [word, tone] = PHASE_LOOK[it.phase];
     return `<span class="card-phase ph-${tone}">${word}</span>`;
   }
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md

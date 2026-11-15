@@ -29,7 +29,7 @@ test('the review page lays out every bar and status line the board draws, in the
   assert.match(drawn.grill, /class="line3 sub agent planner in-todo"/);
   // docs/adr/2026-11-11-1200-every-lane-has-phases.md: a Todo planner draws no bar; its card reads its phase word.
   assert.doesNotMatch(drawn.grill, /phase-bars/);
-  assert.match(drawn.grill, /<span class="card-phase ph-info">grilling<\/span>/);
+  assert.match(drawn.grill, /<span class="card-phase ph-quiet">grilling<\/span>/);
   assert.match(drawn.build, /class="line3 sub agent in-progress"/);
   assert.match(drawn.check, /aria-label="Orchestrator review, step 3 of 4"/);
   assert.match(drawn.start, /class="sb-steps"><span class="phase-bars"/);
