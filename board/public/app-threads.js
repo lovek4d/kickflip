@@ -13,7 +13,7 @@ BoardView.part((B) => {
   // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
   // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
   // Every card's reply box sends with Reply (intent: 'reply'), the second button of its pair beside it on ⌥↵: a Todo
-  // card's Implement (intent: 'build'), its build action, drawn only while the card owes it (not once staged or ready); an In
+  // card's Implement (intent: 'build'), its build action, enabled while the card owes it, disabled and quiet once it is staged or ready; an In
   // Progress card's Hold, quiet, which opens the Hold sheet, or orange Resume while the owner's hold is on; an In Review
   // card's Done (ui-threads.js doneButton), in its tone; a Done card's Reopen, quiet. A card with no second button (one
   // not yet read from the board) has Reply alone. A pair wraps onto its own line under the row. Reply is orange while
@@ -29,8 +29,7 @@ BoardView.part((B) => {
   const sends = (kind, item) => {
     const reply = sendButton('Reply', 0, ' data-intent="reply"', replyTone(item));
     const card = (label, act, cls = '') => sendButton(label, 1, `${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${esc(item.key)}"`);
-    const second = kind.startsWith('todo-') ? ''
-      : kind.startsWith('todo') ? sendButton('Implement', 1, ` class="build${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"`)
+    const second = kind.startsWith('todo') ? sendButton('Implement', 1, ` class="build${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"${kind.startsWith('todo-') ? ' disabled' : ''}`)
       : kind.startsWith('review') ? doneButton(item)
       : kind.startsWith('progress-held') ? card('Resume', 'resume', 'unhold')
       : kind.startsWith('progress') ? card('Hold', 'hold')

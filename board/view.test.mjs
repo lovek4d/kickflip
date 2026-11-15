@@ -3050,17 +3050,18 @@ test("the thread's eye and fire send their request at once: nothing typed sends 
 });
 
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("a Todo card's Implement is in its thread box while the card owes it, gone once it is staged or ready, following each board load; its action row has none", async () => {
+test("a Todo card's Implement is in its thread box: enabled while the card owes it, disabled and quiet once it is staged or ready, following each board load; its action row has none", async () => {
   const asking = { actionButton: 'openQuestions', buildable: false, questions: { first: 'q7', open: 1, state: 'open' }, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' } };
   const cards = [workCard('Q1', asking), workCard('S1', { staging: true }), workCard('R1', { buildable: true, ready: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: { 'w/Q1': [], 'w/S1': [], 'w/R1': [] }, confirm: true });
   await b.settle();
   const implement = (key) => b.root.querySelector(`form[data-reply="${key}"] button[data-intent="build"]`);
-  assert.deepEqual([implement('w/Q1').getAttribute('class'), implement('w/S1'), implement('w/R1')], ['build', null, null]);
+  const shape = (key) => [implement(key).getAttribute('class'), implement(key).disabled];
+  assert.deepEqual([shape('w/Q1'), shape('w/S1'), shape('w/R1')], [['build', false], ['build', true], ['build', true]]);
   assert.ok(b.root.querySelector('form[data-reply="w/R1"] button[data-intent="reply"]'));
   assert.equal(b.root.querySelector('.actions [data-confirm="card-build"]'), null);
   await b.change({ board: boardOf([workCard('Q1', { buildable: true, ready: true }), cards[1], cards[2]]) });
-  assert.equal(implement('w/Q1'), null);
+  assert.deepEqual(shape('w/Q1'), ['build', true]);
   b.view.unmount();
 });
 
