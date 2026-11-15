@@ -65,7 +65,7 @@ export const HUB_LINES = {
   'split-moved': { tone: 'grey', mark: BLOCKED, text: ({ card, to }) => fit('Split: ', `${card} became ${to}`, ', so it waits on those now.') },
   'merge-blocked': { tone: 'grey', mark: BLOCKED, text: ({ blocked }) => fit('Not merged: blocked ', blocked, '.') },
   // Launches, requests and moves.
-  pulled: { tone: 'orange', mark: BUILD, text: () => 'Pulled in: an implementer slot was free.' },
+  pulled: { tone: 'orange', mark: BUILD, text: () => 'Moved to In Progress: slot available' },
   'helper-asked': { tone: 'orange', mark: BUILD, text: ({ agent, writes }) => fit('Asked for helper ', agent, writes ? ', which writes code' : ''), longest: { writes: true } },
   'arch-review': { tone: 'orange', mark: BUILD, text: ({ card }) => fit('Started an architecture review of ', card, '; its report becomes the notes') },
   'prototype-after': { tone: 'blue', mark: PROTOTYPE, text: () => 'Prototype round asked: it moves to prototyping once every question is answered.' },

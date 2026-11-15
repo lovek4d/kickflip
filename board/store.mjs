@@ -3480,7 +3480,12 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   if (done) moveTo('done', null);
   else if (handover && item.lane !== 'done') {
     moveTo('review', pr !== undefined ? `PR ${prNames([].concat(pr).map(parsePRRef), repo)} opened` : pushed !== undefined ? `${pushed} pushed for its merge` : 'verified, it waits for your Merge');
-  } else if (start && !closed(item)) moveTo('progress', 'a build started');
+  } else if (start && !closed(item)) {
+    // docs/adr/2026-11-15-1500-a-pull-and-its-build-start-are-one-status-line.md: a build the pull just started already
+    // has its line, the pull's own "Moved to In Progress: slot available".
+    const pulled = (await readLines(threadFile(site, key))).at(-1)?.line === 'pulled';
+    moveTo('progress', pulled ? null : 'a build started');
+  }
   // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a card going ready with no ticket gets one, on a board with a source.
   const madeAtReady = phase === 'ready' && !item.ticket && ticket === undefined && !newTicket && Boolean(site && await boardSource(site));
   if (madeAtReady) newTicket = true;

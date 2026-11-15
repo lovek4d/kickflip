@@ -211,7 +211,7 @@ test('with auto implement on the board starts and launches the build of the top 
   // At start the running build takes one of the two slots; the top pullable card takes the other.
   await board.start();
   assert.deepEqual(pulls(), ['t/A5']);
-  assert.deepEqual(thread('A5').slice(0, 2).map((t) => t.replace(/ in .*/, '')), ['Pulled in: an implementer slot was free.', 'Moved to In Progress: a build started']);
+  assert.deepEqual(thread('A5').slice(0, 2).map((t) => t.replace(/ in .*/, '')), ['Moved to In Progress: slot available']);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'A5.json'), 'utf8')).dispatched, 'hub');
   assert.ok(!fs.readFileSync(eventsFile, 'utf8').includes('card-pull'), 'no event wakes the session');
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: the pull and
