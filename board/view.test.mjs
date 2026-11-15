@@ -5504,6 +5504,24 @@ test("on a phone the board and Waiting on you stay mounted and switch in place: 
   assert.notEqual(doc.querySelector('.view-board'), board);
 });
 
+// docs/adr/2026-11-15-0830-the-phone-switch-slides-the-view-not-the-bottom-bar.md
+test("on a phone the switch between the board and Waiting on you slides only the view's content: the bottom bar is never animated, so it does not move or fade", async () => {
+  const { win, doc, tap } = await shellPage('/shop/');
+  const animated = [];
+  const board = doc.querySelector('.view-board');
+  Object.getPrototypeOf(board).animate = function () { animated.push(this); return { finished: Promise.resolve(), cancel() {} }; };
+  tap(board.querySelector('#questionsLink'));
+  await new Promise(setImmediate);
+  const questions = doc.querySelector('.view-questions');
+  win.AppShell.open('/shop/');
+  await new Promise(setImmediate);
+  assert.ok(animated.length >= 2, 'both switches slide a view');
+  for (const el of animated) {
+    assert.ok([board, questions].some((root) => root !== el && root.contains(el)), 'a slide moves content inside a view, never the view root');
+    assert.equal(el.closest('header.top'), null, 'the bottom bar is not slid');
+  }
+});
+
 test("on a phone an unsaved draft on the board or on Waiting on you asks nothing when the two switch, and asks when either is left for another view", async () => {
   const { win, doc, tap } = await shellPage('/shop/');
   const asked = [];

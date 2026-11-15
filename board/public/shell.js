@@ -194,9 +194,13 @@ window.AppShell = (function () {
     const paired = (view) => view.kind === 'board' || view.kind === 'questions';
     const together = (view) => Boolean(current) && !wide.matches && current.route === view.route && paired(current.view) && paired(view);
     const still = matchMedia('(prefers-reduced-motion: reduce)');
-    // A short slide: Waiting on you comes in from the right, the board from the left.
+    // A short slide: Waiting on you comes in from the right, the board from the left. Only the page's content slides:
+    // a transform on the root would carry the fixed bottom bar and the + with it, and fade them.
     const slide = (root, back) => {
-      if (!still.matches) root.animate?.([{ transform: `translateX(${back ? -24 : 24}px)`, opacity: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 180, easing: 'ease-out' });
+      if (still.matches) return;
+      for (const part of root.querySelectorAll(':scope > main, :scope > .split')) {
+        part.animate?.([{ transform: `translateX(${back ? -24 : 24}px)`, opacity: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 180, easing: 'ease-out' });
+      }
     };
     function drop(entry) {
       entry.v.unmount();
