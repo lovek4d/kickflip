@@ -97,6 +97,8 @@
 //                                with since: <n>, which isn't recorded, that board is a patch since n as ?since= gives;
 //                                ?board=0, as the hub posts, answers with no board, so the answer builds nothing after the line is written
 //                                ask, item-message and owner-answer may carry files: [upload]
+//                                ask may carry request: 'prototype', 'grill' or 'visual', the New task box's eye, fire
+//                                or image: its filed card owes that kind's brief, with the task's text and files.
 //                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
 //                                any kind may carry sendId, the page's id for a reply-box tap: one whose kind and sendId
 //                                are recorded answers with the recorded event's id and records nothing. So does an item-message or ask
@@ -115,16 +117,17 @@
 //                                line per answer, appended in one write with each answer's side effects → {ids, board};
 //                                an answer naming no question in owner.json, or none at all, → 400 {error} and nothing
 //                                recorded (docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md).
-//                                prototype-request {key?, text?, files?, question?, note?, choice?} and grill-more {key, text?, files?}
-//                                ask for prototypes or a grill of a card, with the owner's text, or prototypes of one
-//                                question, which reads requested until a question naming it in round_of resolves it
-//                                (domain.mjs ownerQuestion). The server appends prototype-overdue {key, request,
+//                                prototype-request {key?, text?, files?, question?, note?, choice?} and grill-more {key, text?, files?, question?, note?, choice?}
+//                                ask for prototypes or a grill of a card, with the owner's text, or of one question,
+//                                with its note and pick; a question's prototype request reads requested until a
+//                                question naming it in round_of resolves it (domain.mjs ownerQuestion), and its grill
+//                                leaves it open. The server appends prototype-overdue {key, request,
 //                                question?, since} once per request still waiting on its prototype after
 //                                PROTOTYPE_WAIT with no prototype agent running on the card (domain.mjs prototypeWaits).
 //                                Either one on a Todo card owes the orchestrator's brief for its planner, an
 //                                orchestrator wait, and on a discussing, ready or staging card first moves the card
 //                                to grilling or prototyping (store.mjs planAgain).
-//                                visual-request {key, text?, files?} asks for a visual: it owes the orchestrator's
+//                                visual-request {key, text?, files?, question?, note?, choice?} asks for a visual, of one question too: it owes the orchestrator's
 //                                visual brief, the card's phase as it is. Once the orchestrator writes a brief (item
 //                                brief), the server launches its agent, a planner while no other agent but a visual
 //                                one works on the card, a visual agent beside any other once no other visual runs
@@ -343,7 +346,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -1302,7 +1305,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a new task's card is filed
         // before its event is written, so the watcher's line names the card.
         const preset = kind === 'ask' ? newEventId() : undefined;
-        if (preset) await fileAsk(here, preset, { id: preset, ts: now().toISOString(), kind, data: body });
+        const filed = preset ? await fileAsk(here, preset, { id: preset, ts: now().toISOString(), kind, data: body }) : null;
+        // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: a new task sent with a request (its
+        // eye, fire or image) owes that kind's brief on its card, with the task's text and files, as the tap on a card does.
+        if (filed && BRIEF_KINDS.includes(body.request)) {
+          await planAgain(here, filed, body.request, { ...(body.text ? { text: String(body.text) } : {}), ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}) });
+        }
         const id = (await appendEvents([[kind, body, preset]]))[0];
         if (kind === 'ask-edited') await retitleAskCard(here, String(body.id || ''));
         // A deleted ask's New card goes with it.

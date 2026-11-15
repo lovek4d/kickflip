@@ -3075,6 +3075,37 @@ test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the
   b.view.unmount();
 });
 
+// docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
+test("the New task box has the thread's eye, fire, image and attach at the right under its text box, the attach out of the box; each sends the task at once with its request, as /prototype, /grill or /visual in the text does", async () => {
+  const b = boardOnDom({ board: boardOf([]), threads: {} });
+  await b.settle();
+  const form = b.root.querySelector('#askForm');
+  assert.deepEqual(form.querySelector('.note-tools').children.map((c) => c.getAttribute('class')), ['pending-files', 'icons']);
+  assert.deepEqual(form.querySelector('.note-tools .icons').children.map((c) => c.getAttribute('title')), ['Ask for prototypes', 'Ask for a grill', 'Ask for a visual', 'Attach files']);
+  assert.equal(form.querySelector('.dz .attach'), null);
+  const tap = async (text, sel) => {
+    b.page.fire(b.root.querySelector('#compose'), 'click');
+    b.root.querySelector('#askText').value = text;
+    b.page.fire(b.root, 'click', { target: form.querySelector(sel) });
+    await b.settle();
+    b.page.runTimers(180);
+    await b.settle();
+  };
+  await tap('Show the header', '[data-proto]');
+  assert.equal(b.root.querySelector('#sheet').open, false);
+  await tap('Ask me about the footer', '[data-grill]');
+  await tap('Draw the queue', '[data-visual]');
+  await tap('', '[data-visual]');
+  b.root.querySelector('#askText').value = 'Pick a colour /grill';
+  b.page.fire(form, 'submit', { target: form, submitter: form.querySelector('button[data-intent="discuss"]') });
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [
+    ['ask', { text: 'Show the header', request: 'prototype' }], ['ask', { text: 'Ask me about the footer', request: 'grill' }],
+    ['ask', { text: 'Draw the queue', request: 'visual' }], ['ask', { text: 'Pick a colour', request: 'grill' }],
+  ]);
+  b.view.unmount();
+});
+
 // docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md
 // The New strip's rows the page hasn't sent yet, as read: the task's text and what follows its time.
 const askOut = (b) => b.root.querySelectorAll('#newStrip .new-entry[data-send]').map((el) => [el.querySelector('.new-msg').textContent, dotted(el.querySelector('.new-line').textContent).slice(1).join(' · ')]);
@@ -4793,6 +4824,8 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
       topics.find((t) => t.id === q.topic).round = { n: (q.round || 0) + 1, state: 'making' };
       return { id: 'e1', board: structuredClone(boardBody()) };
     }
+    // A question's grill or visual request is recorded and leaves the question open, as board/server.mjs records it.
+    if (kind === 'grill-more' || kind === 'visual-request') return { id: 'g1', board: structuredClone(boardBody()) };
     // An Implement or Done tap is recorded and the card leaves the queue, as board/server.mjs records it.
     if (kind === 'card-build' || kind === 'card-done') {
       queue.splice(0, queue.length, ...queue.filter((e) => e.key !== data.key));
@@ -5165,7 +5198,7 @@ test("Waiting on you's last Send in the board's pane, with no topic or board to 
 });
 
 // docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
-test("Waiting on you's eye on each question, beside its box with the attach button inside, asks for a prototype of that question with its note and pick, waits for the server, then resolves it and moves on as Send does: to the topic's next open question, or back to the board", async () => {
+test("Waiting on you's eye on each question, in the row under its box with the fire, image and attach, asks for a prototype of that question with its note and pick, waits for the server, then resolves it and moves on as Send does: to the topic's next open question, or back to the board", async () => {
   const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   let release;
   const gate = { promise: new Promise((r) => { release = r; }) };
@@ -5173,8 +5206,10 @@ test("Waiting on you's eye on each question, beside its box with the attach butt
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
   const eye = (id) => $(`section.q[data-q="${id}"] .note-tools [data-proto]`);
-  assert.deepEqual($('section.q[data-q="q1"] .note-tools').children.map((c) => c.getAttribute('title') || c.getAttribute('class')), ['Ask for a prototype instead', 'pending-files']);
-  assert.ok($('section.q[data-q="q1"] .dz > .attach input[data-attach]'));
+  // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
+  assert.deepEqual($('section.q[data-q="q1"] .note-tools').children.map((c) => c.getAttribute('class')), ['pending-files', 'icons']);
+  assert.deepEqual($('section.q[data-q="q1"] .note-tools .icons').children.map((c) => c.getAttribute('title')), ['Ask for a prototype instead', 'Ask for a grill', 'Ask for a visual', 'Attach files']);
+  assert.equal($('section.q[data-q="q1"] .dz .attach'), null, 'the attach is out of the note box');
   assert.equal($('#qform .bar [data-proto]'), null);
   assert.equal(eye('q1').disabled, false);
   assert.equal($('.topichead .chip'), null);
@@ -5208,6 +5243,31 @@ test("Waiting on you's eye on each question, beside its box with the attach butt
   await v.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(v.sent[1])), ['prototype-request', { key: 'w/T1', question: 'q1', note: '', choice: null }]);
   assert.deepEqual(v.shown(), { board: 'Prototype requested for INT-1.' });
+});
+
+// docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
+test("Waiting on you's fire and image on a question ask for a grill or a visual of that question with its note and pick, and the question stays open with its draft", async () => {
+  const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1' });
+  await v.settle();
+  const $ = (sel) => v.root.querySelector(sel);
+  const note = $('section.q[data-q="q2"] textarea.note');
+  note.value = 'Deeper on No';
+  v.page.fire(v.root, 'input', { target: note });
+  const pickB = $('section.q[data-q="q2"] input[value="B"]');
+  pickB.type = 'radio';
+  pickB.checked = true;
+  v.page.fire(v.root, 'change', { target: pickB });
+  v.page.fire(v.root, 'click', { target: $('section.q[data-q="q2"] .note-tools [data-grill]') });
+  await v.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['grill-more', { key: 'w/T1', question: 'q2', note: 'Deeper on No', choice: 'B' }]]);
+  assert.deepEqual([v.shown().questions, v.shown().status], [['q1', 'q2'], 'Grill requested.']);
+  assert.deepEqual([$('section.q[data-q="q2"] textarea.note').value, $('section.q[data-q="q2"] input[value="B"]').checked], ['Deeper on No', true], 'the draft stays');
+  v.page.fire(v.root, 'click', { target: $('section.q[data-q="q1"] .note-tools [data-visual]') });
+  await v.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent[1])), ['visual-request', { key: 'w/T1', question: 'q1', note: '', choice: null }]);
+  assert.deepEqual([v.shown().questions, v.shown().status], [['q1', 'q2'], 'Visual requested.']);
+  v.unmount();
 });
 
 // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md

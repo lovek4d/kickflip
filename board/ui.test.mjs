@@ -978,6 +978,15 @@ test('an open question has its eye on and nothing locked, a resolved one has no 
   assert.match(ui.questionCard(question), /<button type="button" class="attach proto-ask" data-proto="q:q1" aria-label="Ask for a prototype instead" title="Ask for a prototype instead">/);
   assert.doesNotMatch(ui.questionCard(question), /disabled|pr-busy|try-spin/);
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved' }), /data-proto/);
+  // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: under the note box, right-aligned, the thread
+  // reply's row without What's left?: the eye, fire, image and attach, the attach out of the box.
+  const card = ui.questionCard(question);
+  assert.match(card, /<div class="dz bare"><textarea class="note"[^>]*><\/textarea><div class="dz-hint"/);
+  assert.ok(card.includes(`<div class="note-tools"><div class="pending-files" data-files></div>${ui.requestIcons('q:q1', { protoLabel: 'Ask for a prototype instead' })}</div>`));
+  assert.deepEqual([...ui.requestIcons('q:q1').matchAll(/data-(proto|grill|visual|attach)/g)].map((m) => m[1]), ['proto', 'grill', 'visual', 'attach']);
+  assert.match(ui.requestIcons('q:q1'), /^<span class="icons">/);
+  const sheet = ui.questionCard(question, { eye: false });
+  assert.deepEqual([...sheet.matchAll(/data-(proto|grill|visual|attach)\b/g)].map((m) => m[1]), ['attach'], 'the questions sheet keeps only the attach');
 
   const confirm = { ...question, id: 'c1', question: 'Is this it?', url: 'prototype-search.html?q=c1', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'q1' };
   const open = ui.questionCard(confirm);

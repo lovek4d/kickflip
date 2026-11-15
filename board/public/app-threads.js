@@ -2,12 +2,9 @@
 // (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). Needs app-core.js and ui-patch.js.
 BoardView.part((B) => {
   const { $, store, state, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, visualButton, attachButton, doneButton, doneTone, BUTTON } = BoardUI;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, requestIcons, requestOf, slashOf, doneButton, doneTone, BUTTON } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request' };
-  // A /prototype, /grill or /visual word in a message, the last one winning, and the message without it.
-  const SLASH = /(^|\s)\/(grill|prototype|visual)(?=\s|$)/g;
-  const slashOf = (value) => ({ flag: [...value.matchAll(SLASH)].pop()?.[2] ?? null, text: value.replace(SLASH, '$1').replace(/ {2,}/g, ' ').trim() });
 
   const thread = (key) => `<div class="thread" data-thread="${esc(key)}"><div class="muted small">Loading thread…</div></div>`;
 
@@ -156,7 +153,7 @@ BoardView.part((B) => {
       // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`, { attach: false })}
         <div class="pending-files" data-files></div>
-        <div class="row"><button class="chip quick" type="button" data-quick="What's left?">What's left?</button><span class="icons">${protoButton(key)}${grillButton(key)}${visualButton(key)}${attachButton()}</span>${sends('one')}</div></form>`;
+        <div class="row"><button class="chip quick" type="button" data-quick="What's left?">What's left?</button>${requestIcons(key)}${sends('one')}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncSends(el, key);
@@ -367,7 +364,7 @@ BoardView.part((B) => {
   }
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill], form[data-reply] button[data-visual]');
-    if (b) post(b.closest('form'), b.hasAttribute('data-proto') ? 'prototype' : b.hasAttribute('data-grill') ? 'grill' : 'visual', b);
+    if (b) post(b.closest('form'), requestOf(b), b);
   });
   B.on(B.root, 'submit', (ev) => {
     const f = ev.target.closest('form[data-reply]');

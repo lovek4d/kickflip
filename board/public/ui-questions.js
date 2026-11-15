@@ -1,6 +1,6 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
-  const { esc, escText, time, ago, replyBody, attachments, dropZone, protoButton, linkText, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, escText, time, ago, replyBody, attachments, dropZone, requestIcons, linkText, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
   // ui-markdown.js loads after this file, so markdown is looked up when a question draws.
   const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it.
@@ -79,11 +79,13 @@
   const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(q.suggested.reason ?? `you answered this on ${q.suggested.card}: "${q.suggested.answer}"`, links) : '';
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
-  // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone, which then reads
-  // requested until its prototype round arrives (view-questions.js).
-  const questionEye = (q) => protoButton('q:' + q.id, { label: 'Ask for a prototype instead' });
-  const noteComposer = (q, note, eye) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`)}
-      <div class="note-tools">${eye ? questionEye(q) : ''}<div class="pending-files" data-files></div></div></div>`;
+  // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
+  // Under the note box, the thread reply's row without What's left?: the files at the left, and at the right the eye,
+  // fire, image and attach (ui.js requestIcons). The eye sends `prototype-request {key?, question, note, choice}` for that
+  // question alone, which then reads requested until its prototype round arrives; the fire and image send `grill-more`
+  // and `visual-request` the same way, the question staying open (view-questions.js).
+  const noteComposer = (q, note, eye) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`, { attach: false })}
+      <div class="note-tools"><div class="pending-files" data-files></div>${requestIcons('q:' + q.id, { protoLabel: 'Ask for a prototype instead', requests: eye })}</div></div>`;
 
   const QUESTION_STATE = {
     open: { label: 'open', tone: 'normal' },
@@ -170,7 +172,8 @@
   // A question waiting on the prototype the owner asked for is locked at the pick and note the request sent until its
   // round arrives (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
   // A requested question takes the accent tint, as a sent one takes the green.
-  // eye: false leaves out the note's prototype eye, which only Waiting on you answers (the questions sheet has none).
+  // eye: false leaves out the note row's eye, fire and image, which only Waiting on you answers (the questions sheet
+  // keeps the attach alone).
   function questionCard(q, { n = 0, draft = {}, links = {}, eye = true } = {}) {
     if (isSent(q)) return resolvedCard(q, links, n);
     const locked = q.state === 'requested';

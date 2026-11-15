@@ -95,6 +95,16 @@
   // The thread's image, asking for a visual: a page an agent draws to answer in the thread (app-threads.js;
   // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
   const visualButton = (id) => `<button type="button" class="attach proto-ask" data-visual="${esc(id)}" aria-label="Ask for a visual" title="Ask for a visual">${icon(IMAGE_PATHS)}</button>`;
+  // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
+  // The request row's icons, one helper for a thread's reply box, each open question and the New task box: the eye,
+  // fire, image and attach, right-aligned by its row. requests: false leaves the attach alone (the questions sheet).
+  const requestIcons = (id, { protoLabel, requests = true } = {}) =>
+    `<span class="icons">${requests ? protoButton(id, protoLabel ? { label: protoLabel } : {}) + grillButton(id) + visualButton(id) : ''}${attachButton()}</span>`;
+  // The request a row's icon asks for: prototype, grill or visual.
+  const requestOf = (button) => (button.hasAttribute('data-proto') ? 'prototype' : button.hasAttribute('data-grill') ? 'grill' : 'visual');
+  // A /prototype, /grill or /visual word in a message, the last one winning, and the message without it: {flag, text}.
+  const SLASH = /(^|\s)\/(grill|prototype|visual)(?=\s|$)/g;
+  const slashOf = (value) => ({ flag: [...value.matchAll(SLASH)].pop()?.[2] ?? null, text: value.replace(SLASH, '$1').replace(/ {2,}/g, ' ').trim() });
   // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
   // A thread status line's leading mark, its icon or dot centred in one fixed box so every line's text starts at the
   // same place: a command line's icon by its words (domain.mjs COMMANDS: the request's eye, fire or image, Implement's
@@ -545,6 +555,6 @@
   globalThis.BoardUI = {
     LINK_ARROW, escText, onBackdrop, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, protoButton, grillButton, visualButton, requestIcons, requestOf, slashOf, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

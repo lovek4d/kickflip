@@ -6,8 +6,8 @@ globalThis.BoardNewTask = (function () {
 <dialog id="sheet" class="sheet" aria-labelledby="sheetTitle">
   <form id="askForm" data-composer="ask">
     <div class="sheet-head"><h2 id="sheetTitle">New task</h2><button type="button" class="ghost" id="sheetClose" aria-label="Close">✕</button></div>
-    ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>')}
-    <div class="pending-files" data-files></div>
+    ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>', { attach: false })}
+    <div class="note-tools"><div class="pending-files" data-files></div>${BoardUI.requestIcons('ask')}</div>
     <div class="send-actions">${BoardUI.sendButton('Implement', 1, ' data-intent="quick"')}${BoardUI.sendButton('Discuss', 0, ' data-intent="discuss"')}</div>
   </form>
 </dialog>`;
@@ -82,15 +82,28 @@ globalThis.BoardNewTask = (function () {
     // and the task goes through the outbox (app-threads.js enqueue), its New strip row reading sending… until the board
     // has it. docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md: the box's files go
     // with the task, uploads still running, and it is sent once every one is up; its row shows them meanwhile.
-    B.on($('#askForm'), 'submit', async (ev) => {
-      ev.preventDefault();
+    // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: the eye, fire and image under the box send
+    // the task at once with request prototype, grill or visual, as /prototype, /grill or /visual in its text does on
+    // either button; a request takes the place of Implement's quick, as a thread's request takes the place of its intent.
+    async function sendAsk(button, flag = null) {
       $('#askText').blur();
-      const quick = ev.submitter.dataset.intent === 'quick';
-      const text = $('#askText').value.trim();
+      const slash = BoardUI.slashOf($('#askText').value);
+      const request = flag || slash.flag;
+      const text = request ? slash.text : $('#askText').value.trim();
+      const quick = !request && button?.dataset.intent === 'quick';
       const attached = BoardAttach.list('ask', B.site.root).length > 0;
       if (!text && !attached) return;
-      await sendDraft('draft:ask', $('#askText'), () => $('#askText'), async () => B.enqueue(undefined, { kind: 'ask', text, ...(attached ? { attached: 'ask' } : {}), ...(quick ? { fields: { quick: true } } : {}) }));
+      const fields = request ? { request } : quick ? { quick: true } : null;
+      await sendDraft('draft:ask', $('#askText'), () => $('#askText'), async () => B.enqueue(undefined, { kind: 'ask', text, ...(attached ? { attached: 'ask' } : {}), ...(fields ? { fields } : {}) }));
       closeSheet();
+    }
+    B.on($('#askForm'), 'submit', (ev) => {
+      ev.preventDefault();
+      sendAsk(ev.submitter);
+    });
+    B.on(B.root, 'click', (ev) => {
+      const b = ev.target.closest('#askForm button[data-proto], #askForm button[data-grill], #askForm button[data-visual]');
+      if (b) sendAsk(null, BoardUI.requestOf(b));
     });
     // X on a New task the board didn't take (app-threads.js) puts its text back in the box, before whatever is typed
     // there, and its files with it, those still in its own box as they are, a failed one still marked, and opens the box.

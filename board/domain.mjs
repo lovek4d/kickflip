@@ -645,12 +645,12 @@ export const BRIEF_WORD = { grill: 'preheating', prototype: 'planning prototype'
 // "land stopped by orchestrator".
 export const orchestratorDid = (run, act) => `${run} ${act} by orchestrator`;
 export const stoppedWords = (run) => orchestratorDid(run, 'stopped');
-// The owner's request of a planner kind on a card: a Grill tap (grill-more) or a card's Prototype tap (prototype-request
-// with no question). Under way while a planner of that kind runs, or while the newest request has no reply, no
+// The owner's request of a planner kind on a card: a Grill tap (grill-more, on the card or one of its questions) or a
+// card's Prototype tap (prototype-request with no question: a question's reads requested instead). Under way while a planner of that kind runs, or while the newest request has no reply, no
 // question was posted after it and no planner of that kind that started with or after it has finished; the board
 // server opens the planner in the request's own millisecond.
 const REQUEST_KIND = { grill: 'grill-more', prototype: 'prototype-request' };
-const isRequest = (e, kind) => e.kind === REQUEST_KIND[kind] && !e.data?.question;
+const isRequest = (e, kind) => e.kind === REQUEST_KIND[kind] && !(kind === 'prototype' && e.data?.question);
 function planningOf(kind, events, agents, askedAt) {
   if (agents.some((a) => a.kind === kind && a.started && !a.done)) return true;
   const last = events.filter((e) => isRequest(e, kind)).pop();
@@ -931,8 +931,8 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // A Grill, Prototype or Visual tap with nothing typed, or a resolved question's re-ask, is such an entry from its event;
 // the session builds the planner's prompt from the event (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
 // A bare Implement, a Hold, Resume or Done, and a New task sent with Implement are such lines from the thread file or ask.
-// A request with text, a question's prototype request (its question, pick and note) and an answer are the owner's
-// messages, with the tap's words as their footer's status
+// A request with text, a question's prototype, grill or visual request (its question, pick and note), a New task sent
+// with a request and an answer are the owner's messages, with the tap's words as their footer's status
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 export const COMMANDS = {
   prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
@@ -958,7 +958,7 @@ export const ANSWERS_SUBMITTED = 'answers submitted';
 export const INTENT_LABELS = { build: 'Implement' };
 const intentLabel = (e) => INTENT_LABELS[e.data.intent];
 const actionText = (e, asked) => {
-  if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || (e.data.files?.length ? '' : routeRecord(ACTION_LABELS, e.kind)) || '';
+  if (!REQUESTS.includes(e.kind) || !asked.has(e.data.question)) return e.data.text || (e.data.files?.length ? '' : routeRecord(ACTION_LABELS, e.kind)) || '';
   const q = asked.get(e.data.question);
   const o = (q.options || []).find((x) => x.id === e.data.choice);
   return [numbered(asked, q), o && `${o.id}. ${o.label}`, e.data.note].filter(Boolean).join('\n→ ');
@@ -1117,7 +1117,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...(index.reopens.get(`item:${key}`) || []).map((e) => ({ ts: e.ts, who: 'love', kind: e.kind, request: true, mark: REOPENED, text: `Question ${numberOf(asked, e.data.question)} was reopened`, ...byOf(e) })),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       .flatMap((e) => [...routedLine(e), ...handedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
-        ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}) },
+        ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}), ...(BRIEF_KINDS.includes(e.data?.request) ? { status: COMMANDS[e.data.request] } : {}) },
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
   // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: the orchestrator's last action on the card, or the card's

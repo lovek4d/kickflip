@@ -481,6 +481,20 @@ test("a prototype request is its question's input until the round arrives: the q
   assert.deepEqual(leaning.map((m) => m.text), ['Question 1 · Where does search sit?\n→ B. Behind an icon\n→ show it on a phone']);
 });
 
+// docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
+test("a question's grill or visual request reads in its card's thread as the question, the pick and the note under Grill or Visual requested, leaves the question open, and a question's grill holds the card grilling until it is answered", () => {
+  const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Behind an icon' }], asked_at: '2026-10-23T09:00:00Z' };
+  const request = (kind, question, ts) => ({ id: `${kind}-${question}`, ts, kind, data: { key: 'w/A1', question, note: 'go deeper on the icon', choice: 'B' }, reply: null });
+  const thread = threadOf('w/A1', { events: [request('grill-more', 'plain', '2026-10-23T10:00:00Z'), request('visual-request', 'plain', '2026-10-23T10:01:00Z')], owner: { items: [plain] } });
+  const asked = 'Question 1 · Where does search sit?\n→ B. Behind an icon\n→ go deeper on the icon';
+  assert.deepEqual(thread.map((m) => [m.kind, m.text, m.status, Boolean(m.request)]), [['grill-more', asked, 'Grill requested', false], ['visual-request', asked, 'Visual requested', false]]);
+  const built = (events, items = [plain]) => board({ owner: { items }, events, item: { phase: 'ready' } });
+  const b = built([request('grill-more', 'plain', '2026-10-23T10:00:00Z'), request('visual-request', 'plain', '2026-10-23T10:01:00Z')]);
+  assert.deepEqual([b.owner.find((q) => q.id === 'plain').state, b.items.find((i) => i.key === 'w/A1').grilling, b.items.find((i) => i.key === 'w/A1').prototyping], ['open', true, false]);
+  const deeper = { ...plain, id: 'deeper', question: 'Which icon?', asked_at: '2026-10-23T10:05:00Z' };
+  assert.equal(built([request('grill-more', 'plain', '2026-10-23T10:00:00Z')], [plain, deeper]).items.find((i) => i.key === 'w/A1').grilling, false, 'the grill posted its questions');
+});
+
 // docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md
 test("a card's prototypes are its questions on prototype pages, oldest round first, open while one of them waits on the owner's pick", () => {
   const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }] };
