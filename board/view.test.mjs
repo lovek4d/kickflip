@@ -4817,7 +4817,7 @@ test("Done closes the card and holds the card still on screen as the card moves 
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-92]]);
+    ['done', false, '[]', [-80]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
@@ -4856,6 +4856,26 @@ test("Done tapped with the card's thread field focused keeps the card open as it
   await b.settle();
   await b.change({ board });
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems')], ['done', true, '["w/a1"]']);
+});
+
+// docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md
+test("a Done tapped in a card's thread closes the card and moves it to Done before the server answers, and a refusal (409) puts it back in its lane", async () => {
+  const pending = [];
+  const send = () => new Promise((resolve, reject) => pending.push({ resolve, reject }));
+  const board = boardOf([{ ...askCard('a1', 'review'), finishable: true }, workCard('C1')]);
+  const b = boardOnDom({ open: ['w/a1'], board, threads: {}, confirm: true, send });
+  await b.settle();
+  layOut(b);
+  const card = () => b.root.querySelector('details.item[data-key="w/a1"]');
+  const face = () => [card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems')];
+  b.page.fire(b.root, 'click', { target: card().querySelector('form[data-reply="w/a1"] [data-confirm="finish"]') });
+  await b.settle();
+  assert.equal(pending.length, 1, 'the server has not answered');
+  assert.deepEqual(face(), ['done', false, '[]']);
+  pending[0].reject(Object.assign(new Error('send failed: 409'), { status: 409, reason: 'moved' }));
+  await b.settle();
+  assert.equal(card().closest('details.lane').dataset.lane, 'review', 'a refused Done leaves the card where it was');
+  b.view.unmount();
 });
 
 function questionsOnDom({ topics, questions, at, gate = null, items = [], embedded = false, queue = [], pushed = false, opened = null }) {
@@ -6173,8 +6193,11 @@ test("a reply box's Hold, after its sheet, and Resume, Done and Reopen, after th
   b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
   await b.settle();
   for (const key of ['w/H1', 'w/R1', 'w/D1']) await tap(key);
-  assert.deepEqual(cards.map((c) => [threadLines(b, c.key), waitState(second(c.key))]), [
-    [['Held · sending…'], IDLE], [['Resumed · sending…'], IDLE], [['Marked done · sending…'], IDLE], [['Reopened · sending…'], IDLE],
+  // A Done closes its card at the tap and draws it in Done, so its thread isn't on screen (docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md).
+  const R1 = b.root.querySelector('details.item[data-key="w/R1"]');
+  assert.deepEqual([R1.closest('details.lane').dataset.lane, R1.open], ['done', false]);
+  assert.deepEqual(cards.filter((c) => c.key !== 'w/R1').map((c) => [threadLines(b, c.key), waitState(second(c.key))]), [
+    [['Held · sending…'], IDLE], [['Resumed · sending…'], IDLE], [['Reopened · sending…'], IDLE],
   ]);
   assert.deepEqual(sentNoIds(b), [['card-hold', { key: 'w/P1', hold: true, for: '1h' }], ['card-hold', { key: 'w/H1', hold: false }], ['card-done', { key: 'w/R1' }], ['card-reopen', { key: 'w/D1' }]]);
   b.server.threads['w/P1'] = [{ ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'command', command: 'hold', request: true, mark: 'Held', text: 'Held until 11:00 AM' }];

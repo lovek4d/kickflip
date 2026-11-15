@@ -184,6 +184,9 @@ window.BoardView = (function () {
     // Renders open threads from state.threadCache, which the board's sync fills (app-threads.js takeThreads, fillThreads).
     function render(load = null) {
       const d = state.board;
+      // The cards as the outbox's Done taps have them (ui-snapshot.js tapped), the lanes and strips drawing from these.
+      const items = BoardUI.tapped(d.items, store.get('outbox', []));
+      drawnDone = items.filter((i, n) => i !== d.items[n]).map((i) => i.key).join();
       const title = $(':scope > .top h1');
       if (d.title && title && title.textContent !== d.title) title.textContent = d.title;
       if (d.title && document.title !== d.title) document.title = d.title;
@@ -197,10 +200,10 @@ window.BoardView = (function () {
         for (const it of d.items) if (state.openItems.has(it.key)) markSeen(it);
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
         const strips = B.captureStrips();
-        setHTML($('#lanes'), B.lanesHtml(d, d.items), { keep: '[data-thread]' });
+        setHTML($('#lanes'), B.lanesHtml(d, items), { keep: '[data-thread]' });
         $('.board-foot').hidden = false;
         for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
-        B.moveStrips(d.items, strips);
+        B.moveStrips(items, strips);
         B.renderPane(d);
         B.renderBanner(d);
         B.renderNew(d);
@@ -209,6 +212,17 @@ window.BoardView = (function () {
       B.signCards(load);
       checkShown();
     }
+
+    // A Done entering or leaving the outbox redraws the lanes at once, the card in Done or, refused, back where it was.
+    const doneTaps = () => BoardUI.tapped(state.board.items, store.get('outbox', [])).filter((i, n) => i !== state.board.items[n]).map((i) => i.key).join();
+    let drawnDone = '';
+    B.atUnmount(BoardUI.onOutbox(() => {
+      if (!state.board) return;
+      const now = doneTaps();
+      if (now === drawnDone) return;
+      drawnDone = now;
+      render();
+    }));
 
     // #review=<PR number> opens that review in the Auto Review lane (app-lanes.js openReview), as a held review's push does.
     // #selectedCard=<file>/<id> (or the older #item=) opens that card, and &openItemsCard=<topic id> opens that pill in the pane; push notifications link here, with &reply to land in the thread's reply box

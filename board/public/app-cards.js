@@ -508,6 +508,9 @@ BoardView.part((B) => {
     if (it && act === 'hold') { openHold(it, inBox); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
     if (inBox) {
+      // A Done not followed closes its card at the tap, before the outbox draws the card in Done
+      // (docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md).
+      if (act === 'finish' && !follow) closeCard(key);
       B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done', ...(follow ? { follow } : {}) }, reopen: { kind: 'card-reopen' } }[act]);
       return;
     }

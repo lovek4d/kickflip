@@ -57,6 +57,14 @@
     return { open: keys.filter((k) => open.has(k)), rest: [...shut.filter((k) => !held.has(k)), ...shut.filter((k) => held.has(k))] };
   };
 
+  // The board's items as this browser's outbox has them drawn: a card whose Done is in the outbox, queued or in flight,
+  // sits in Done and no longer offers Done, as the board will show it once it answers. A Done tapped with the thread
+  // field focused (follow) stays where it is until then (app-core.js steady anchors on the field).
+  const tapped = (items, outbox) => {
+    const done = new Set(outbox.filter((m) => m.kind === 'card-done' && !m.follow).map((m) => m.key));
+    return done.size ? items.map((i) => (done.has(i.key) ? { ...i, lane: 'done', finishable: false } : i)) : items;
+  };
+
   // before and after map a line's id to its text; the ids of the lines that are new or read differently flash once.
   const changedLines = (before, after) => Object.keys(after).filter((id) => globalThis.BoardUI.record(before, id) !== after[id]);
 
@@ -65,5 +73,5 @@
   const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.lane ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
     it.next ?? null, it.ask?.state ?? null, ...(it.prs || []).map((pr) => [pr.state, pr.isDraft, pr.reviewDecision, pr.checks?.state ?? null])]);
 
-  Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, pageCopy, boardCopy, fillOrder, changedLines, updateSign });
+  Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, pageCopy, boardCopy, fillOrder, tapped, changedLines, updateSign });
 })();

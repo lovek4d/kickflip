@@ -243,7 +243,7 @@ BoardView.part((B) => {
   // Sends key's outbox in order, one at a time: each leaves the outbox once the board has it, and the thread loads
   // with it in place while the next one goes. A failed one stays as not sent and holds the ones behind it until Retry
   // or X, so the board gets them in the order they were written; a tap refused for a card that moved leaves with a
-  // toast instead. A Done closes its card once the board answers (app-cards.js closeCard); a card tap's change of lane or hold changes the box's send buttons. The New task box's
+  // toast instead. A Done closes its card and draws it in Done at the tap (app-cards.js confirmTap, ui-snapshot.js tapped), and a refusal puts it back in its lane; a card tap's change of lane or hold changes the box's send buttons. The New task box's
   // asks (no key) go the same way; the board their answer lands holds each one's own New strip row.
   const flushing = new Set();
   async function flush(key) {
@@ -266,7 +266,7 @@ BoardView.part((B) => {
           repaint(key);
         }
         const was = patched.get(key);
-        const send = () => B.send(eventOf(m), bodyOf(m), m.kind === 'card-done' && !m.follow ? () => B.closeCard(key) : null);
+        const send = () => B.send(eventOf(m), bodyOf(m));
         try { await (key ? B.sentHere(key, send) : send()); }
         catch (e) {
           // A tap the board refused because its card moved since it was drawn (409) changed nothing and would only be
