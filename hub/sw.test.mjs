@@ -68,7 +68,7 @@ function worker() {
       scope: SHELL,
       showNotification: async (title, opts) => {
         w.shown.push({ title, ...opts });
-        w.showing = [...w.showing.filter((n) => !opts?.tag || n.tag !== opts.tag), { title, tag: opts?.tag }];
+        w.showing = [...(w.stacks ? w.showing : w.showing.filter((n) => !opts?.tag || n.tag !== opts.tag)), { title, tag: opts?.tag }];
       },
       getNotifications: async ({ tag } = {}) => w.showing.filter((n) => tag === undefined || n.tag === tag)
         .map((n) => ({ ...n, close: () => { w.showing = w.showing.filter((s) => s.tag !== n.tag || s.title !== n.title); } })),
@@ -337,6 +337,18 @@ test('a silent push replaces the notification under its tag without alerting', a
     ['A1: Tap Implement', 'board-orch', true, false],
   ]);
   assert.deepEqual(w.showing.map((n) => n.title), ['A1: Tap Implement']);
+});
+
+// iOS home-screen apps show a same-tag notification beside the earlier one instead of replacing it (w.stacks).
+test('on a device that stacks same-tag notifications, a push leaves only its own showing under the tag, and the others stay', async () => {
+  const w = worker();
+  w.stacks = true;
+  const push = (msg) => w.dispatch('push', { data: { json: () => msg } });
+  await Promise.all((await push({ title: 'Orch (1)', tag: 'board-orch' })).waits);
+  await Promise.all((await push({ title: 'B2: Merge', tag: 'item-w/B2' })).waits);
+  await Promise.all((await push({ title: 'Orch (2)', tag: 'board-orch', silent: true })).waits);
+  await Promise.all((await push({ title: 'Orch (3)', tag: 'board-orch', silent: true })).waits);
+  assert.deepEqual(w.showing.map((n) => n.title), ['B2: Merge', 'Orch (3)']);
 });
 
 // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md

@@ -110,15 +110,23 @@ self.addEventListener('push', (event) => {
   if (msg.close) { event.waitUntil(Promise.all([closeTagged(msg.close), badge])); return; }
   // renotify alerts again for a push that replaces one with its tag; a silent push, a board's live notification updated
   // after its first alert (push.mjs deliver), replaces it without alerting. Browsers throw on renotify without a tag.
-  event.waitUntil(Promise.all([self.registration.showNotification(msg.title || 'Claude', {
+  // iOS home-screen apps don't replace a notification by tag, so the ones with the tag from before the push are closed
+  // once the new one shows (it must show first: iOS revokes push from an app whose push shows nothing).
+  event.waitUntil(Promise.all([showReplacing(msg), badge]));
+});
+
+async function showReplacing(msg) {
+  const older = msg.tag ? await self.registration.getNotifications({ tag: msg.tag }) : [];
+  await self.registration.showNotification(msg.title || 'Claude', {
     body: msg.body || '',
     tag: msg.tag || undefined,
     silent: Boolean(msg.silent),
     renotify: Boolean(msg.tag) && !msg.silent,
     icon: '/_hub/icon-192.png',
     data: { url: new URL(msg.url || '/', self.registration.scope).href },
-  }), badge]));
-});
+  });
+  for (const n of older) n.close();
+}
 
 // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
 // A {close: tag} push, for a push that no longer waits on the owner (push.mjs withdraw), closes the notification with
