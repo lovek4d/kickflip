@@ -84,20 +84,14 @@
   // fire, image and attach (ui.js requestIcons). The eye sends `prototype-request {key?, question, note, choice}` for that
   // question alone, which then reads requested until its prototype round arrives; the fire sends `grill-more` the same
   // way, which reads requested, Grilling deeper, until the grill's next questions resolve it, and the image `visual-request`,
-  // the question staying open (view-questions.js).
-  const noteComposer = (q, note, eye) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`, { attach: false })}
-      <div class="note-tools"><div class="pending-files" data-files></div>${requestIcons('q:' + q.id, { protoLabel: 'Ask for a prototype instead', requests: eye })}</div></div>`;
+  // the question staying open (app-questions-sheet.js).
+  const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`, { attach: false })}
+      <div class="note-tools"><div class="pending-files" data-files></div>${requestIcons('q:' + q.id, { protoLabel: 'Ask for a prototype instead' })}</div></div>`;
 
   const QUESTION_STATE = {
     open: { label: 'open', tone: 'normal' },
     requested: { label: `${SPIN}prototype requested`, tone: 'normal' },
   };
-  // docs/adr/2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md
-  // A topic's latest prototype round from /api/board ownerTopics: {n, state: making|back|closed, take}.
-  const roundChip = (r) => !r ? ''
-    : r.state === 'making' ? badge('normal', `${SPIN}Prototype round ${r.n}`)
-    : r.state === 'closed' ? badge('quiet', `Round ${r.n} closed · take ${esc(r.take)}`)
-    : badge('normal', `Prototype round ${r.n}`);
   const RULE_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
   // Each of an answer's replies, oldest first.
   const repliesOf = (a, links) => (a.replies?.length ? a.replies : a.reply ? [a.reply] : []).map((r) => `<div class="rep${r.md ? ' md' : ''}"><div class="muted small">Claude</div>${replyBody(r, links)}</div>`).join('');
@@ -173,9 +167,7 @@
   // A question waiting on the prototype the owner asked for is locked at the pick and note the request sent until its
   // round arrives (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
   // A requested question takes the accent tint, as a sent one takes the green.
-  // eye: false leaves out the note row's eye, fire and image, which only Waiting on you answers (the questions sheet
-  // keeps the attach alone).
-  function questionCard(q, { n = 0, draft = {}, links = {}, eye = true } = {}) {
+  function questionCard(q, { n = 0, draft = {}, links = {} } = {}) {
     if (isSent(q)) return resolvedCard(q, links, n);
     const locked = q.state === 'requested';
     const chosen = locked ? q.request.choice : choiceOf(q, draft);
@@ -186,12 +178,10 @@
       ${questionLink(q.confirm_of && isPrototype(q.url) ? withParam(q.url, 'variant', q.options[0].id) : q.url)}
       ${confirmLine(q)}
       ${drawn(q) ? takes(q, chosen, links, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links), links })).join('')}
-      ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, noteOf(q, draft), eye)}
+      ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, noteOf(q, draft))}
       ${answerHistory(q, links)}
     </section>`;
   }
-  // A pill reads its topic's title, a card's being its ref then its title, whichever tracker it comes from.
-  const topicName = (t) => t.title;
   // /api/board's ownerTopics, each card's topic named from its card, which the board sends in its place while the card
   // is on the board (board/server.mjs pageBoard). cards: the board's items.
   function cardTopics(topics, cards) {
@@ -201,14 +191,6 @@
       return c ? { ...t, title: `${c.ref}: ${c.title}` } : t;
     });
   }
-  // Topics from /api/board ownerTopics, in order. pills: unresolved topics with an open question, plus the
-  // current topic wherever it stands; waiting: the other unresolved topics, which wait only on Claude.
-  function topicRow(topics, current) {
-    const pills = topics.filter((t) => t.id === current || (t.state !== 'resolved' && t.open > 0));
-    const waiting = topics.filter((t) => t.id !== current && t.state !== 'resolved' && !(t.open > 0));
-    return { pills, waiting };
-  }
-
   // docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md
   // The ? page's rows and its count, which the header's badge reads too, so the two agree: the board's queue (what
   // waits on the owner, oldest first) with each question entry as its topic with an open question, {topic}, and each
@@ -222,39 +204,6 @@
     }
     return [...rows, ...open.filter((t) => !rows.some((r) => r.topic === t)).map((topic) => ({ topic }))];
   }
-  // A tap row: its card's ref and title, the word of what waits (orange; red on a fault), its age, and its one button,
-  // which does the tap in place for Implement and Done and opens the card for the rest. Tapping the row opens the card.
-  const TAP_BUTTON = { implement: 'Implement', done: 'Done' };
-  const tapRow = (tap, arrived = false) => `<div class="tap${tap.fault ? ' fault' : ''}${arrived ? ' arrived' : ''}" data-tap="${esc(tap.key)}" data-open-card="item:${esc(tap.key)}" role="group" aria-label="${esc(tap.title)}">
-      <span class="tap-body"><span class="tap-title">${esc(tap.title)}</span><span class="muted small">${esc(tap.label || tap.word)}${tap.since ? ` · ${esc(ago(tap.since))}` : ''}</span></span>
-      <button type="button" data-tap-do="${esc(tap.kind)}" data-key="${esc(tap.key)}">${esc(TAP_BUTTON[tap.kind] || 'Open')}</button></div>`;
-
-  // owner is in owner.json order; topics are the pills before the answer. A topic-wide Send omits answered.id.
-  function nextQuestion(owner, topics, answered) {
-    const at = owner.findIndex((q) => q.id === answered.id);
-    const open = (q) => q.state === 'open' && q.id !== answered.id;
-    const same = [...owner.slice(at + 1), ...owner.slice(0, Math.max(at, 0))].find((q) => q.topic === answered.topic && open(q));
-    if (same) return same;
-    const ids = topics.map((t) => t.id);
-    const ti = ids.indexOf(answered.topic);
-    const order = ti < 0 ? ids : [...ids.slice(0, ti).reverse(), ...ids.slice(ti + 1)];
-    for (const id of order) {
-      const q = owner.find((q) => q.topic === id && open(q));
-      if (q) return q;
-    }
-    return owner.find(open) || null;
-  }
-
-  // The line a Send or prototype pick leaves for the board it goes back to, read once by that board's view (app.js).
-  // Kept in sessionStorage, so a board opened later in another tab shows none.
-  const noticeKey = (route) => 'sent:' + route;
-  const sentNotice = {
-    put(route, text) { try { sessionStorage.setItem(noticeKey(route), text); } catch {} },
-    take(route) {
-      try { const t = sessionStorage.getItem(noticeKey(route)) || ''; sessionStorage.removeItem(noticeKey(route)); return t; } catch { return ''; }
-    },
-  };
-
   // A prototype viewer's Round pill and its sheet, on the full page (prototype-switcher.js) and in the board's right pane
   // (app-pane.js). rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds
   // lists them ({n, q, url, confirm, state}). The pill names the round qid is in, out of the newest round's number; a
@@ -270,5 +219,5 @@
     return `<div class="ps-sheet" role="dialog" aria-label="Rounds"><h3>Rounds on ${esc(ref)}</h3>${rows.join('')}</div>`;
   }
 
-  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundChip, roundPill, roundSheet, topicName, cardTopics, topicRow, queueRows, tapRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet, cardTopics, queueRows });
 })();

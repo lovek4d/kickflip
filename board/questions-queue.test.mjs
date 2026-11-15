@@ -38,3 +38,15 @@ test('a pending prompt counts at the hub but is not in the queue', () => {
   assert.deepEqual(b.needs.map((l) => l.kind), ['Prompt', 'Action needed']);
   assert.deepEqual(b.queue.map((e) => e.kind), ['implement']);
 });
+
+// docs/adr/2026-11-15-1200-waiting-on-you-is-one-list-of-rows-opening-the-questions-sheet.md
+test('a held review is in the queue after the cards, by its PR number and title', () => {
+  const b = buildBoard({
+    autoReview: true, files: [{ slug: 'w', itemFile: { repo: 'o/r', items: [card('A1', { waits_on_owner: { on: 'implement', at: '2026-11-03T11:00:00Z' } })] } }],
+    incoming: { at: '2026-11-03T11:56:00Z', repo: 'o/r', prs: [{ number: 437, title: 'One endpoint', author: 'quinn', url: 'u', head: 'h', touches: ['w/A1'], asked: false }] },
+    reviewRecords: { 437: { number: 437, title: 'One endpoint', author: 'quinn', url: 'u', head: 'h', touches: ['w/A1'], state: 'needs', text: 'Clashes with A1.', at: '2026-11-03T11:58:00Z' } },
+    now: Date.parse('2026-11-03T12:00:00Z'),
+  });
+  assert.deepEqual(b.queue.map((e) => e.kind), ['implement', 'review']);
+  assert.deepEqual(b.queue[1], { kind: 'review', review: 437, title: 'PR #437 One endpoint', progress: false });
+});

@@ -1577,13 +1577,16 @@ function needsOf(items, topics, questions) {
   return [...fromTopics, ...fromItems].sort(oldestFirst);
 }
 // The ? page's queue and its count, one list: each Needs you line that waits on the owner on that page, in Needs you's
-// order (oldest first), a prompt and a held review left out, which show on the hub page and in the Auto Review lane
-// (docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md). Every entry has kind and
-// since; a question is its topic's id, a tap its key, title, word (what the owner does) and label (its action's words).
+// order (oldest first), a held review after the cards and a prompt left out, which shows on the hub page
+// (docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md,
+// docs/adr/2026-11-15-1200-waiting-on-you-is-one-list-of-rows-opening-the-questions-sheet.md). Every entry has kind; a
+// question is its topic's id and since, a tap its key, title, since, word (what the owner does) and label (its action's
+// words), a review its PR number and title.
 const TAP_WORDS = { [ACTION_KIND.implement]: 'Implement', [ACTION_KIND.close]: 'Done', [ACTION_KIND.script]: 'Run' };
 function queueOf(needs) {
-  return needs.filter((line) => !line.prompt && !line.review).map((line) => {
+  return needs.filter((line) => !line.prompt).map((line) => {
     const { since, progress } = line;
+    if (line.review) return { kind: 'review', review: line.review, title: line.title, progress: false };
     if (line.questions) return { kind: 'question', id: line.topic || `item:${line.key}`, since, progress: Boolean(progress) };
     const kind = line.ready ? 'ready' : line.action.kind === ACTION_KIND.implement ? 'implement' : line.action.kind === ACTION_KIND.close ? 'done' : 'action';
     const word = line.ready ? 'Ready' : TAP_WORDS[line.action.kind] || 'Action';

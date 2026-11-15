@@ -1,5 +1,5 @@
-// Waiting on you's page and the desktop pane: the pane scrolls on its own, the Send bar ends either, a pill tap keeps
-// its scroll, and the board's ? shows at every width.
+// Waiting on you's page and the desktop pane: the pane scrolls on its own, the Send bar ends either, and the board's ?
+// shows at every width.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,14 +19,6 @@ test('the Send bar ends its page and its pane: no padding runs on below it', () 
   const page = css.match(/body \.view-questions\.view-questions main \{[^}]*\}/)[0];
   assert.match(page, /padding-bottom: var\(--app-bottom, 0px\)/);
   assert.ok(css.indexOf(page) > css.indexOf('body.has-sidebar > :not(.sidebar) > main {'), 'it comes after the phone rule it overrides');
-});
-
-test('a topic pill tap keeps the page scroll, and the move on after a Send still jumps to the top', () => {
-  const js = fs.readFileSync(new URL('./public/view-questions.js', import.meta.url), 'utf8');
-  const tap = js.match(/const b = ev\.target\.closest[^\n]*\[data-topic\][\s\S]*?\n      \}\n/)[0];
-  assert.match(tap, /const y = scrollY;[\s\S]*render\(\); scroll\(y\);/);
-  assert.doesNotMatch(tap, /scroll\(0\)/);
-  assert.match(js, /scroll\(0\);/);
 });
 
 // docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md

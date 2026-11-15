@@ -562,12 +562,10 @@ test("a board's fragment names the focused card and the selected open-items pill
   const routerContext = vm.createContext({ Date: PageDate, URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { fragmentOf, hashWith, viewOf } = routerContext.AppRouter;
-  const base = { review: null, questions: null, reply: false };
+  const base = { review: null, reply: false };
   assert.deepEqual(plain(fragmentOf('#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA2')), { selectedCard: 'w/A1', openItemsCard: 'item:w/A2', ...base });
-  assert.deepEqual(plain(fragmentOf('#item=w%2FA1&reply')), { selectedCard: 'w/A1', openItemsCard: null, review: null, questions: null, reply: true });
-  assert.deepEqual(plain(fragmentOf('#review=12')), { selectedCard: null, openItemsCard: null, review: 12, questions: null, reply: false });
-  assert.deepEqual(plain(fragmentOf('#selectedCard=w%2FA1&questions=q1')), { selectedCard: 'w/A1', openItemsCard: null, review: null, questions: 'q1', reply: false });
-  assert.equal(hashWith('#selectedCard=w%2FA1&questions=q1', {}), '#selectedCard=w%2FA1', 'a questions key is spent by the next write');
+  assert.deepEqual(plain(fragmentOf('#item=w%2FA1&reply')), { selectedCard: 'w/A1', openItemsCard: null, review: null, reply: true });
+  assert.deepEqual(plain(fragmentOf('#review=12')), { selectedCard: null, openItemsCard: null, review: 12, reply: false });
   assert.deepEqual(plain(fragmentOf('')), { selectedCard: null, openItemsCard: null, ...base });
   assert.equal(hashWith('#item=w%2FA1&reply', { openItemsCard: 'q-1' }), '#selectedCard=w%2FA1&openItemsCard=q-1');
   assert.equal(hashWith('#selectedCard=w%2FA1&openItemsCard=q-1', { selectedCard: 'w/B' }), '#selectedCard=w%2FB&openItemsCard=q-1');
@@ -989,8 +987,6 @@ test('an open question has its eye on and nothing locked, a resolved one has no 
   assert.ok(card.includes(`<div class="note-tools"><div class="pending-files" data-files></div>${ui.requestIcons('q:q1', { protoLabel: 'Ask for a prototype instead' })}</div>`));
   assert.deepEqual([...ui.requestIcons('q:q1').matchAll(/data-(proto|grill|visual|attach)/g)].map((m) => m[1]), ['proto', 'grill', 'visual', 'attach']);
   assert.match(ui.requestIcons('q:q1'), /^<span class="icons">/);
-  const sheet = ui.questionCard(question, { eye: false });
-  assert.deepEqual([...sheet.matchAll(/data-(proto|grill|visual|attach)\b/g)].map((m) => m[1]), ['attach'], 'the questions sheet keeps only the attach');
 
   const confirm = { ...question, id: 'c1', question: 'Is this it?', url: 'prototype-search.html?q=c1', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'q1' };
   const open = ui.questionCard(confirm);
@@ -1000,13 +996,6 @@ test('an open question has its eye on and nothing locked, a resolved one has no 
   assert.deepEqual(frames(open), []);
   assert.doesNotMatch(ui.questionCard({ ...confirm, state: 'answered', answers: [{ ts: ago(1), choice: 'B', note: '', reply: null }] }), /one-take confirm/);
   assert.doesNotMatch(ui.questionCard({ ...confirm, url: 'prototype-search.html?q=c1', confirm_of: undefined }), /pr-open|one-take confirm/);
-});
-
-test("a topic's prototype round chip is blue with a spinner while being made, blue while back, and grey once its confirm closes it", () => {
-  assert.equal(ui.roundChip(null), '');
-  assert.equal(ui.roundChip({ n: 2, state: 'making' }), '<span class="chip tone-normal"><span class="try-spin" aria-hidden="true"></span>Prototype round 2</span>');
-  assert.equal(ui.roundChip({ n: 2, state: 'back' }), '<span class="chip tone-normal">Prototype round 2</span>');
-  assert.equal(ui.roundChip({ n: 2, state: 'closed', take: 'B' }), '<span class="chip tone-quiet">Round 2 closed · take B</span>');
 });
 
 test('a resolved question is read-only: its pick checked and locked, no note box or eye, how it was resolved and when it was acted on, and the note said once', () => {
@@ -1032,53 +1021,11 @@ test("a resolved question keeps Claude's reply under the note, and one with no a
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it' }), /class="ans/);
 });
 
-test('a topic pill reads its whole title, a Linear and a GitHub card alike', () => {
-  const titles = ['INT-92: Hub home rows', 'B5: Lane chips', '#422: Open-items pills', 'Release plan'];
-  assert.deepEqual(titles.map((title) => ui.topicName({ title })), titles);
-});
-
 test("a card's topic, which the board sends with no title, takes its name from its card, and every other topic keeps its own", () => {
   const cards = [{ key: 'w/B5', kind: 'work', ref: 'B5', title: 'Lane chips' }, { key: 'w/T-3', kind: 'work', ref: 'T-3', title: 'Fix it', isNew: true, ask: { askedAt: ago(1) } }];
   const named = ui.cardTopics([{ id: 'item:w/B5', card: 'w/B5', open: 1 }, { id: 'item:w/T-3', card: 'w/T-3', open: 1 }, { id: 'plan', title: 'Release plan' }, { id: 'item:w/Z', card: 'w/Z', title: 'Z9: Archived' }], cards);
-  assert.deepEqual(plain(named.map((t) => [t.title, t.summary ?? null, ui.topicName(t)])),
-    [['B5: Lane chips', null, 'B5: Lane chips'], ['T-3: Fix it', null, 'T-3: Fix it'], ['Release plan', null, 'Release plan'], ['Z9: Archived', null, 'Z9: Archived']]);
-});
-
-test('the topic row shows only topics with an open question, the current one kept, and the rest wait on Claude', () => {
-  const t = (id, state, open, answered = 0, replied = 0) => ({ id, title: id, state, open, answered, replied });
-  const topics = [t('a', 'open', 0, 1), t('b', 'open', 2), t('c', 'open', 0, 0, 1), t('d', 'resolved', 0), t('e', 'open', 1), t('f', 'resolved', 0)];
-  const ids = (row) => ({ pills: row.pills.map((x) => x.id), waiting: row.waiting.map((x) => x.id) });
-  assert.deepEqual(ids(ui.topicRow(topics, 'b')), { pills: ['b', 'e'], waiting: ['a', 'c'] });
-  assert.deepEqual(ids(ui.topicRow(topics, 'c')), { pills: ['b', 'c', 'e'], waiting: ['a'] });
-  assert.deepEqual(ids(ui.topicRow(topics, 'f')), { pills: ['b', 'e', 'f'], waiting: ['a', 'c'] });
-  assert.deepEqual(ids(ui.topicRow(topics, null)), { pills: ['b', 'e'], waiting: ['a', 'c'] });
-});
-
-test('Send and prototype picks share one move-on rule: same topic next and wrap, left topic, right topic, any, none, including an urgent question shown alone', () => {
-  const q = (id, topic, state = 'open', urgent = false) => Object.freeze({ id, topic, state, urgent });
-  const owner = Object.freeze([q('a', 't1'), q('b', 't1', 'answered'), q('c', 't2'), q('d', 't1'), q('e', 't1'), q('f', 't3')]);
-  const topics = Object.freeze(['t2', 't3', 't1'].map((id) => Object.freeze({ id })));
-  const cases = [
-    ['same topic next', owner, topics, owner[3], 'e'],
-    ['same topic wrap', owner, topics, owner[4], 'a'],
-    ['left topic in pill order', owner, topics, owner[5], 'c'],
-    ['nearest left topic', [q('a', 't1'), q('b', 't2'), q('c', 't3', 'answered')], ['t1', 't2', 't3'].map((id) => ({ id })), { id: 'c', topic: 't3' }, 'b'],
-    ['right topic', owner, topics, owner[2], 'f'],
-    ['any unlisted topic', [q('a', 'other'), q('b', 't1', 'answered')], topics, { id: 'b', topic: 't1' }, 'a'],
-    ['no pills', owner, [], owner[5], 'a'],
-    ['none', [q('a', 't'), q('b', 't', 'resolved')], [], { id: 'a', topic: 't' }, null],
-    ['empty', [], [], { topic: 'gone' }, null],
-    ['topic-wide Send stays', owner, topics, { topic: 't1' }, 'a'],
-    ['urgent answered, same topic still open', [q('a', 't1', 'answered', true), q('b', 't1'), q('c', 't2')], topics, { topic: 't1' }, 'b'],
-    ['urgent answered, left topic', [q('a', 't1', 'answered', true), q('b', 't2'), q('c', 't3')], topics, { topic: 't1' }, 'c'],
-    ['another urgent question does not override pill order', [q('a', 't1', 'answered'), q('b', 't2', 'open', true), q('c', 't3')], topics, { topic: 't1' }, 'c'],
-    ['answered question removed', [q('a', 't2'), q('b', 't3')], topics, { id: 'gone', topic: 't1' }, 'b'],
-  ];
-  for (const [label, questions, pills, answered, expected] of cases) {
-    const before = JSON.stringify([questions, pills, answered]);
-    assert.equal(ui.nextQuestion(questions, pills, answered)?.id ?? null, expected, label);
-    assert.equal(JSON.stringify([questions, pills, answered]), before, label + ' is pure');
-  }
+  assert.deepEqual(plain(named.map((t) => [t.title, t.summary ?? null])),
+    [['B5: Lane chips', null], ['T-3: Fix it', null], ['Release plan', null], ['Z9: Archived', null]]);
 });
 
 const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png', size: 3 };

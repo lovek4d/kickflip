@@ -225,11 +225,10 @@ globalThis.AppRouter = (function () {
   }
 
   // A board's fragment is &-joined keys: selectedCard=<key> (the focused card), openItemsCard=<topic id> (the selected
-  // open-items pill), review=<PR number>, questions=<question id> (open that question's card with its questions sheet,
-  // which spends it) and a bare reply. The older #item=<key> reads as selectedCard.
-  // → {selectedCard, openItemsCard, review, questions, reply}, each null or false when absent.
+  // open-items pill), review=<PR number> and a bare reply. The older #item=<key> reads as selectedCard.
+  // → {selectedCard, openItemsCard, review, reply}, each null or false when absent.
   function fragmentOf(hash) {
-    const out = { selectedCard: null, openItemsCard: null, review: null, questions: null, reply: false };
+    const out = { selectedCard: null, openItemsCard: null, review: null, reply: false };
     const decode = (v) => { try { return decodeURIComponent(v); } catch { return v; } };
     for (const part of String(hash).replace(/^#/, '').split('&')) {
       const eq = part.indexOf('=');
@@ -237,7 +236,6 @@ globalThis.AppRouter = (function () {
       if (k === 'selectedCard' || k === 'item') out.selectedCard = decode(v) || null;
       else if (k === 'openItemsCard') out.openItemsCard = decode(v) || null;
       else if (k === 'review' && /^\d+$/.test(v)) out.review = Number(v);
-      else if (k === 'questions') out.questions = decode(v) || null;
       else if (k === 'reply') out.reply = true;
     }
     return out;

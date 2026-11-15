@@ -221,11 +221,8 @@ window.BoardView = (function () {
     // The pane's pill the fragment names opens once the pane has loaded (app-selection.js replayTopic); a phone has no
     // pane, its pill is the Waiting on you page (shell.js go). pill: false when the caller has just set the pill itself.
     function readHash({ pill = true } = {}) {
-      const { selectedCard, openItemsCard, review, questions, reply } = AppRouter.fragmentOf(location.hash);
+      const { selectedCard, openItemsCard, review, reply } = AppRouter.fragmentOf(location.hash);
       if (review && state.board) { B.openReview(review); return; }
-      // A question link from the phone's questions page (view-questions.js) opens its card's sheet once, then the fragment
-      // is the card alone.
-      if (questions && state.board) { B.openQuestionsSheet(questions); B.saveFragment({}); }
       if (pill) B.replayTopic(openItemsCard);
       if (!selectedCard) return;
       focusKey = BoardUI.record(state.board?.moved, selectedCard) || selectedCard;
@@ -489,8 +486,6 @@ window.BoardView = (function () {
     function checkShown() { for (const check of [...showing]) check(); }
     Object.assign(B, { render, focusOnBoard, loadBoard, send, failed, stillWaiting, spinUntil, checkShown, reload: signalled });
     B.headerWired();
-    const sent = BoardUI.sentNotice.take(B.route);
-    if (sent) B.toast(sent);
     B.on(document, 'visibilitychange', () => {
       if (document.hidden) return;
       if (signalMissed) { signalMissed = false; signalled(); } else loadBoard();

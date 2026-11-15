@@ -729,34 +729,24 @@ main > * { transition: opacity .25s ease; }
 .view-questions .rep { background: var(--claude); border-radius: 9px; padding: 7px 10px; margin-top: 6px; font-size: 13px; }
 .view-questions .q details { margin-top: 8px; }
 .view-questions .q details > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-.view-questions .topics { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 8px; margin-bottom: 4px; }
-.view-questions .topics button { min-width: 0; border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 13px;
-  background: var(--panel); color: var(--text); display: inline-flex; max-width: 100%; text-align: left; }
-.view-questions .topics .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.view-questions .topics button[aria-pressed="true"] { border-color: var(--sel-line); background: var(--sel-bg); }
-.view-questions .topics button.progress { border-color: var(--line); background: color-mix(in srgb, var(--color-notice) 12%, var(--panel)); }
-.view-questions .topics button.progress[aria-pressed="true"] { border-color: var(--sel-line); background: var(--sel-bg); }
-@keyframes pill-arrive { from { opacity: 0; transform: translateX(-12px); box-shadow: 0 0 0 3px var(--accent); } to { opacity: 1; transform: none; box-shadow: 0 0 0 0 transparent; } }
-@media (prefers-reduced-motion: no-preference) { .view-questions .topics button.arrived { animation: pill-arrive .6s ease-out; } }
-.view-questions .topics .n { color: var(--muted); margin-left: 4px; }
 .view-questions .q-count { margin: 0 0 4px; }
-/* A tap row in the queue: orange while an owner tap waits, red on a fault (AGENTS.md Colour priority). */
-.view-questions .topics .tap { flex: 1 1 100%; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 7px 11px; border: 1px solid color-mix(in srgb, var(--color-notice) 40%, var(--line)); border-radius: 12px;
-  background: color-mix(in srgb, var(--color-notice) 12%, var(--panel)); cursor: pointer; }
-.view-questions .topics .tap.fault { border-color: color-mix(in srgb, var(--color-danger) 50%, var(--line)); background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); }
-.view-questions .topics .tap .tap-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.view-questions .topics .tap .tap-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.view-questions .topics .tap button { flex: none; border: 1px solid var(--color-notice); background: var(--color-notice); color: #1c1407; border-radius: 999px; padding: 4px 14px; font-size: 13px; }
-.view-questions .topics .tap.fault button { border-color: var(--color-danger); background: var(--color-danger); color: #fff; }
-@media (prefers-reduced-motion: no-preference) { .view-questions .topics .tap.arrived { animation: pill-arrive .6s ease-out; } }
-.view-questions .topichead { margin: 2px 0 6px; }
-.view-questions .topichead .topic-title { background: none; border: 0; padding: 0; color: var(--text, inherit); font: inherit; font-size: 18px; font-weight: 600; text-align: left; cursor: pointer; }
-.view-questions .topichead .topic-title:hover { text-decoration: underline; }
-.view-questions details.done > summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: 16px 0 4px; }
-.view-questions details.resolved-group > summary { list-style: none; min-height: 44px; display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 12px 0; }
-.view-questions details.resolved-group > summary::-webkit-details-marker { display: none; }
-.view-questions details.resolved-group > summary .caret { transition: transform .15s; }
-.view-questions details.resolved-group[open] > summary .caret { transform: rotate(90deg); }
+/* docs/adr/2026-11-15-1200-waiting-on-you-is-one-list-of-rows-opening-the-questions-sheet.md
+   A row: the key in mono, the title wrapping within its column, the action owed at the right in its colour (AGENTS.md
+   Colour priority), key and action top-aligned with the title's first line. */
+.view-questions .wrow { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: start; gap: 8px; width: 100%; min-height: 44px; box-sizing: border-box;
+  padding: 11px 4px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px; line-height: 1.35; text-align: left; cursor: pointer; }
+.view-questions .wrow:last-child { border-bottom: 1px solid var(--line); }
+.view-questions .wrow:hover, .view-questions .wrow:active { background: color-mix(in srgb, var(--chip) 70%, transparent); }
+.view-questions .wrow[aria-current="true"] { background: var(--sel-bg); }
+.view-questions .wrow-key { font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
+.view-questions .wrow-title { min-width: 0; overflow-wrap: anywhere; }
+.view-questions .wrow-act { max-width: 40vw; font-weight: 600; font-size: 13px; line-height: 1.55; text-align: right; overflow-wrap: anywhere; }
+.view-questions.pane-questions .wrow-act { max-width: 180px; }
+.view-questions .wrow-act.tone-notice { color: var(--color-notice); }
+.view-questions .wrow-act.tone-danger { color: var(--color-danger); }
+.view-questions .wrow-act.tone-info { color: var(--color-info); }
+@keyframes row-arrive { from { opacity: 0; transform: translateX(-12px); box-shadow: inset 3px 0 0 var(--accent); } to { opacity: 1; transform: none; box-shadow: inset 0 0 0 transparent; } }
+@media (prefers-reduced-motion: no-preference) { .view-questions .wrow.arrived { animation: row-arrive .6s ease-out; } }
 .view-questions .q.resolved button.chip { cursor: pointer; font: inherit; font-size: 12px; min-height: 28px; }
 .view-questions .q.resolved button.chip:disabled { cursor: default; }
 .view-questions .q.resolved .resolved-line { margin: 8px 0; }
@@ -770,14 +760,12 @@ main > * { transition: opacity .25s ease; }
 /* The + rides above the sticky Send bar rather than over its Send. */
 .view-questions .bar #qstatus { min-width: 0; }
 .view-questions .bar #qstatus.sent { color: var(--color-success); font-weight: 600; }
-/* With no open question, the moon and its line sit at the centre of what the page or the desktop pane shows. */
-.view-questions .q-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); text-align: center;
+/* With nothing waiting, its two lines sit at the centre of what the page or the desktop pane shows. */
+.view-questions .q-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--muted); text-align: center;
   min-height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(16px, env(safe-area-inset-top))); }
-.view-questions .q-empty p { margin: 0; font-size: 15px; }
-.view-questions .solo { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0; }
+.view-questions .q-empty b { color: var(--color-success); font-size: 15px; }
+.view-questions .q-empty p { margin: 0; font-size: 14px; }
 /* docs/adr/2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md */
-.view-questions .topichead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.view-questions .topichead .try-spin { width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; }
 .view-questions .pr-rule { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 12.5px; color: var(--muted); }
 .view-questions .pr-rule svg { flex: none; }
 

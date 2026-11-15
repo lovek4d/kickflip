@@ -1,69 +1,76 @@
-// The questions sheet (docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md): a thread's
-// "N questions added" line opens a sheet over the board with only that card's open questions, drawn by the Waiting on
-// you page's own questionCard (ui-questions.js) and answered with the same Send (owner-answers). The questions group by
-// the batch that asked them, the newest batch first; a card with one batch shows no heading. Send closes the sheet and
-// leaves the page where it was, so a phone stays on the board. It is the reader sheet's shape (app-reader.js): modal
-// below 900px, over the pane and not modal from it, closed by its ✕, Escape, the dim area, a swipe down and Back.
-// A question link (shell.js, view-questions.js) opens it through B.openQuestionsSheet, in place of the questions page.
-// Needs app-core.js and app-pane.js.
-BoardView.part((B) => {
-  const { $, state } = B;
-  const { esc, time, questionCard, getDraft, linkContext } = BoardUI;
-  const sheet = $('#questionsSheet');
+// The questions sheet (docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md,
+// docs/adr/2026-11-15-1200-waiting-on-you-is-one-list-of-rows-opening-the-questions-sheet.md): every way into a topic's
+// questions opens this one sheet with only that topic's open questions, a card's or a page's, drawn by questionCard
+// (ui-questions.js) with each question's eye, fire, image and attach, and answered with one Send (owner-answers). A
+// prototype question shows its options and its View prototypes link. The questions group by the batch that asked them,
+// the newest batch first, where the thread is at hand; one batch shows no heading. Send closes the sheet and leaves the
+// page where it was. It is the reader sheet's shape (app-reader.js): modal below 900px, over the pane and not modal from
+// it, closed by its ✕, Escape, the dim area, a swipe down and Back.
+// BoardQuestionsSheet(dialog, deps) makes one: the board's (the part below), opened by a thread's "N questions added"
+// line, a question link (shell.js, app-pane.js) and a row in the desktop pane's Waiting on you; and the phone's Waiting
+// on you page's own (view-questions.js), opened by its rows and a link to a question.
+// deps: board() the board shown; threads(key) a card's thread held, or none; send(kind, data) the board's send, which
+// has landed the board it answers by the time it resolves; toast(text); siteRoot, where its attachments upload; on and atUnmount, the view's own.
+globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toast, on, atUnmount, siteRoot }) => {
+  const { esc, time, questionCard, getDraft, setDraft, noteOf, choiceOf, linkContext } = BoardUI;
   const body = sheet.querySelector('.reader-body');
-  let key = null;
+  let topic = null;
   let modal = true;
   let pushed = false;
 
-  // The card a question is asked on, when its topic is the card's, else null.
-  const cardOf = (qid) => {
-    const q = state.board?.owner.find((x) => x.id === qid);
-    return q?.topic?.startsWith('item:') ? q.topic.slice(5) : null;
-  };
-  // A question on a prototype page is answered in the prototype viewer from the questions page, so the sheet leaves it out.
-  const openOf = () => state.board.owner.filter((q) => q.topic === `item:${key}` && q.state === 'open' && !BoardUI.isPrototype(q.url));
-  // The card's batches, newest first: each its questions-added line's open questions; one a line doesn't name comes last.
+  const keyOf = (id) => (id?.startsWith('item:') ? id.slice(5) : null);
+  // The topic a question or topic id names on the board shown, else null.
+  const topicOf = (id) => board()?.owner.find((q) => q.id === id)?.topic ?? (board()?.ownerTopics.some((t) => t.id === id) ? id : null);
+  const openOf = () => board().owner.filter((q) => q.topic === topic && q.state === 'open');
+  // The topic's batches, newest first: each its questions-added line's open questions; one a line doesn't name comes last.
   function batches() {
     const open = openOf();
-    const lines = (state.threadCache.get(key) || []).filter((m) => m.line === 'questions-added').reverse();
+    const lines = (threads(keyOf(topic)) || []).filter((m) => m.line === 'questions-added').reverse();
     const groups = lines.map((m) => ({ line: m, qs: open.filter((q) => m.questions.includes(q.id)) }));
     const rest = open.filter((q) => !groups.some((g) => g.qs.includes(q)));
     return [...groups.filter((g) => g.qs.length), ...(rest.length ? [{ line: null, qs: rest }] : [])];
   }
-  const filesOf = (q) => BoardAttach.files('q:' + q.id, B.site.root);
-  const uploading = () => openOf().some((q) => BoardAttach.busy('q:' + q.id, B.site.root));
+  const filesOf = (q) => BoardAttach.files('q:' + q.id, siteRoot);
+  const uploading = () => openOf().some((q) => BoardAttach.busy('q:' + q.id, siteRoot));
   const pending = () => BoardUI.pendingAnswers(openOf(), filesOf);
-  const numberOf = (q) => (state.board.ownerTopics.find((t) => t.id === q.topic)?.questions.indexOf(q.id) ?? -1) + 1;
+  const numberOf = (q) => (board().ownerTopics.find((t) => t.id === q.topic)?.questions.indexOf(q.id) ?? -1) + 1;
+  const status = (text) => { const st = sheet.querySelector('#qstatus'); if (st) st.textContent = text; };
+  const refusal = (e) => (e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?');
 
   function draw() {
-    const it = state.board.items.find((i) => i.key === key);
-    sheet.querySelector('.reader-ref').textContent = it ? `${it.ref} · ${it.title}` : '';
-    const links = linkContext(state.board.items, key, { base: './' });
+    const d = board();
+    const key = keyOf(topic);
+    const it = key && d.items.find((i) => i.key === key);
+    sheet.querySelector('.reader-ref').textContent = it ? `${it.ref} · ${it.title}` : d.ownerTopics.find((t) => t.id === topic)?.title || '';
+    const links = linkContext(d.items, key, { base: './' });
     const groups = batches();
     body.innerHTML = `<div class="view-questions qs-body"><form data-qsform>
-      ${groups.map((g) => `${groups.length > 1 && g.line ? `<h3 class="qs-round">${esc(g.line.text)} <span class="muted">· ${esc(time(g.line.ts))}</span></h3>` : ''}${g.qs.map((q) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links, eye: false })).join('')}`).join('')}
+      ${groups.map((g) => `${groups.length > 1 && g.line ? `<h3 class="qs-round">${esc(g.line.text)} <span class="muted">· ${esc(time(g.line.ts))}</span></h3>` : ''}${g.qs.map((q) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links })).join('')}`).join('')}
       <div class="bar"><span class="muted small" id="qstatus" role="status"></span>${BoardUI.sendButton('Send', 0, ' id="send"')}</div>
     </form></div>`;
     BoardAttach.paintAll();
     updateBar();
   }
   function updateBar() {
-    const send = sheet.querySelector('#send');
-    if (!send) return;
-    send.disabled = !pending().length || uploading();
-    send.childNodes[0].textContent = uploading() ? 'Uploading…' : 'Send';
+    const button = sheet.querySelector('#send');
+    if (!button) return;
+    button.disabled = !pending().length || uploading();
+    button.childNodes[0].textContent = uploading() ? 'Uploading…' : 'Send';
   }
+  // After a recorded tap: the sheet draws the board it landed, or closes once the topic has no open question.
+  const redraw = () => { if (!sheet.open) return; if (openOf().length) draw(); else close(); };
 
-  // → false for a question that isn't on a card the board shows, or has none open.
-  function open(qid) {
-    const card = cardOf(qid);
-    if (!card || !state.board.items.some((i) => i.key === card)) return false;
-    key = card;
-    if (!openOf().length) { key = null; return false; }
+  // id: a question's or a topic's. → false for one the board doesn't have, or a topic with no open question.
+  function open(id) {
+    const t = topicOf(id);
+    if (!t) return false;
+    const was = topic;
+    topic = t;
+    if (!openOf().length) { topic = was; return false; }
     if (!sheet.open) {
       modal = !matchMedia('(min-width: 900px)').matches;
       if (modal) sheet.showModal(); else sheet.show();
-      history.pushState({ ...history.state, idx: history.state.idx + 1, questions: true }, '', location.href);
+      history.pushState({ ...history.state, idx: (history.state?.idx ?? 0) + 1, questions: true }, '', location.href);
       pushed = true;
     }
     draw();
@@ -72,46 +79,73 @@ BoardView.part((B) => {
   function close() {
     if (!sheet.open) return;
     sheet.close();
-    key = null;
+    topic = null;
     if (pushed) { pushed = false; history.back(); }
   }
 
-  B.on(sheet, 'submit', async (ev) => {
+  on(sheet, 'submit', async (ev) => {
     ev.preventDefault();
     const list = pending();
-    const status = sheet.querySelector('#qstatus');
     if (uploading()) return;
-    if (!list.length) { status.textContent = 'Pick an option or write a note first.'; return; }
-    status.textContent = '';
+    if (!list.length) { status('Pick an option or write a note first.'); return; }
+    status('');
     const answers = list.map((q) => BoardUI.answerOf(q, filesOf(q)));
-    try { await BoardUI.waitOn(sheet.querySelector('#send'), B.send('owner-answers', { answers })); } catch (e) {
-      status.textContent = e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?';
-      return;
-    }
+    try { await BoardUI.waitOn(sheet.querySelector('#send'), send('owner-answers', { answers })); } catch (e) { status(refusal(e)); return; }
     for (const q of list) {
-      BoardUI.setDraft(q.id, {});
-      BoardAttach.clear('q:' + q.id, B.site.root);
+      setDraft(q.id, {});
+      BoardAttach.clear('q:' + q.id, siteRoot);
     }
-    B.toast(`Sent ${list.length} answer${list.length === 1 ? '' : 's'}.`);
+    toast(`Sent ${list.length} answer${list.length === 1 ? '' : 's'}.`);
     close();
   });
-  BoardUI.wireAnswerForm(B.on, sheet, updateBar);
-  B.on(sheet, 'attach-change', updateBar);
-  B.on(sheet, 'click', (ev) => {
-    if (BoardUI.onBackdrop(ev, sheet) || ev.target.closest('[data-qs="close"]')) close();
+
+  // docs/adr/2026-11-02-1822-each-question-has-its-own-prototype-eye.md, docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
+  // A question's eye, fire or image sends `prototype-request`, `grill-more` or `visual-request {key?, question, note,
+  // choice}` for that question, its note box the note and its pick so far the choice. The prototype's question then
+  // reads prototype requested, locked, and leaves the sheet; the grill's reads Grilling deeper; the visual's stays open.
+  const REQUEST = { prototype: ['prototype-request', 'Prototype requested.'], grill: ['grill-more', 'Grill requested.'], visual: ['visual-request', 'Visual requested.'] };
+  async function ask(q, flag, button) {
+    const [kind, said] = REQUEST[flag];
+    const key = keyOf(q.topic);
+    const d = getDraft(q.id);
+    status('');
+    try { await BoardUI.waitOn(button, send(kind, { ...(key ? { key } : {}), question: q.id, note: noteOf(q, d).trim(), choice: choiceOf(q, d) })); } catch (e) { status(refusal(e)); return; }
+    if (flag === 'prototype') setDraft(q.id, {});
+    toast(said);
+    redraw();
+  }
+
+  BoardUI.wireAnswerForm(on, sheet, updateBar);
+  on(sheet, 'attach-change', updateBar);
+  on(sheet, 'click', (ev) => {
+    if (BoardUI.onBackdrop(ev, sheet) || ev.target.closest?.('[data-qs="close"]')) { close(); return; }
+    const request = ev.target.closest?.('section.q [data-proto], section.q [data-grill], section.q [data-visual]');
+    if (!request || request.disabled) return;
+    const q = board().owner.find((x) => x.id === request.closest('section.q').dataset.q);
+    if (q) ask(q, BoardUI.requestOf(request), request);
+  });
+  // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it.
+  on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal) close(); });
+  atUnmount(BoardUI.swipeToDismiss(sheet));
+  on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
+  // Back while it's open: the router keeps the view, as the entry under it holds the same URL.
+  on(window, 'popstate', () => { if (pushed) { pushed = false; sheet.close(); topic = null; } });
+
+  return { open, close, redraw, isOpen: () => sheet.open };
+};
+
+// The board's sheet, over the lanes and the pane. Needs app-core.js.
+BoardView.part((B) => {
+  const { $, state } = B;
+  const qs = BoardQuestionsSheet($('#questionsSheet'), {
+    board: () => state.board, threads: (key) => state.threadCache.get(key), send: (kind, data) => B.send(kind, data), toast: (text) => B.toast(text),
+    on: B.on, atUnmount: B.atUnmount, siteRoot: B.site.root,
   });
   // The thread line's tap opens it from the line's first question.
   B.on(B.root, 'click', (ev) => {
     const a = ev.target.closest?.('a[data-questions]');
     if (!a || ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
-    if (open(a.dataset.questions)) ev.preventDefault();
+    if (qs.open(a.dataset.questions)) ev.preventDefault();
   });
-  // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it.
-  B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal) close(); });
-  B.atUnmount(BoardUI.swipeToDismiss(sheet));
-  B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
-  // Back while it's open: the router has kept the board, as the entry under it holds the same URL.
-  B.on(window, 'popstate', () => { if (pushed) { pushed = false; sheet.close(); key = null; } });
-
-  Object.assign(B, { openQuestionsSheet: open, closeQuestionsSheet: close });
+  Object.assign(B, { openQuestionsSheet: qs.open, closeQuestionsSheet: qs.close });
 });

@@ -88,7 +88,7 @@ function fakePage(localStorage) {
   class MutationObserver { observe() { observers.add(this); } unobserve() {} disconnect() { observers.delete(this); } }
   const win = Object.assign(new Target(), {
     Date: fixedDate(() => NOW + now), URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
-    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState(_state, _title, url) { win.location.hash = url?.includes('#') ? url.slice(url.indexOf('#')) : ''; } }, innerHeight: 844,
+    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { state: null, replaceState(_state, _title, url) { win.location.hash = url?.includes('#') ? url.slice(url.indexOf('#')) : ''; }, pushState(state) { this.state = state; }, back() {} }, innerHeight: 844,
     scrollX: 0, scrollY: 0, scrollTo(x, y) { win.scrollX = x; win.scrollY = y; },
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
     matchMedia: (query) => Object.assign(new Target(), { matches: query === '(min-width: 900px)' && win.innerWidth >= 900 }), MutationObserver, ResizeObserver: MutationObserver,
@@ -1365,30 +1365,12 @@ test("out of reach, Waiting on you paints the board's copy with its sending butt
     const pageEl = root.querySelector('#page');
     await drain(() => pageEl.innerHTML !== '', 'the page paints');
     assert.equal(root.classList.contains('offline'), true);
-    if (saved) assert.match(pageEl.innerHTML, /<section class="q" id="q1"/);
+    if (saved) assert.match(pageEl.innerHTML, /data-row="topic:t1"/);
     else assert.match(pageEl.innerHTML, /down-landing.*Board offline/s);
     const send = { closest: (sel) => (sel === page.win.BoardUI.SENDS ? send : null) };
     assert.equal(page.fire(root, 'click', { target: send }).defaultPrevented, true, 'a sending tap is held');
     view.unmount();
   }
-});
-
-test('Waiting on you opens again on the topic it last showed while that topic has an open question, and the first open topic once it has none', async () => {
-  const topics = [1, 2].map((n) => ({ id: `item:w/T${n}`, title: `INT-${n}: Topic` }));
-  const question = (id, topic) => ({ id, topic, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }], answers: [], state: 'open' });
-  const v = questionsOnDom({ topics, questions: [question('q1', topics[0].id), question('q2', topics[1].id)], at: '' });
-  await v.settle();
-  assert.deepEqual(v.shown().questions, ['q1'], 'a first visit opens the first open topic');
-  v.page.fire(v.root, 'click', { target: v.root.querySelector(`button[data-topic="${topics[1].id}"]`) });
-  assert.deepEqual(v.shown().questions, ['q2']);
-  v.remount();
-  await v.settle();
-  assert.deepEqual(v.shown().questions, ['q2'], 'a return opens the topic last shown');
-  v.server.questions.find((q) => q.id === 'q2').state = 'resolved';
-  v.remount();
-  await v.settle();
-  assert.deepEqual(v.shown().questions, ['q1'], 'a topic with no open question is not kept');
-  v.unmount();
 });
 
 test("Waiting on you paints the board's saved copy at once, then asks only for the changes since its number", async () => {
@@ -1406,15 +1388,13 @@ test("Waiting on you paints the board's saved copy at once, then asks only for t
   const view = page.win.AppViews.questions.create(root, site, { view: { kind: 'questions', route: 'board-a' } });
   view.mount();
   const pageEl = root.querySelector('#page');
-  const arrived = [];
-  root.querySelector('#qform').querySelector('.bar').insertAdjacentHTML = (where, html) => arrived.push(html);
   await drain(() => asked.length > 0, 'the load asks');
-  assert.match(pageEl.innerHTML, /id="q1"/, 'the copy is drawn before the host answers');
+  assert.match(pageEl.innerHTML, />Answer 1</, 'the copy is drawn before the host answers');
   assert.equal(root.classList.contains('offline'), false);
   assert.match(asked[0], /\/api\/board\?since=7$/);
   const next = { ...saved, version: 8, owner: [q('q1', 'Saved one'), q('q2', 'Fresh two')], ownerTopics: [topic([q('q1', 'Saved one'), q('q2', 'Fresh two')])] };
   answer({ ok: true, status: 200, text: async () => JSON.stringify(next), json: async () => next });
-  await drain(() => arrived.some((html) => /Fresh two/.test(html)), 'the answer lands as a new card');
+  await drain(() => />Answer 2</.test(pageEl.innerHTML), "the answer lands in the topic's row");
   view.unmount();
 });
 
@@ -4486,11 +4466,12 @@ test("a question's note on Waiting on you takes attachments the same way as the 
   v.unmount();
 });
 
-test("Waiting on you names a card's topic from its card, since the board sends that topic with no title", async () => {
+test("Waiting on you names a card's topic from its card, since the board sends that topic with no title: its row and its sheet", async () => {
   const question = { id: 'q1', topic: 'item:w/T1', source: '', question: 'Question?', context: '', options: [{ id: 'A', label: 'Yes' }], answers: [], state: 'open' };
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', card: 'w/T1' }], items: [workCard('T1', { ref: 'INT-1', title: 'Search' })], questions: [question], at: 'q1' });
   await v.settle();
-  assert.match(v.root.querySelector('.topichead').textContent, /^INT-1: Search$/);
+  assert.deepEqual(v.shown().rows, [['topic:item:w/T1', 'INT-1', 'Search', 'Answer 1', 'tone-notice']]);
+  assert.equal(v.sheet().querySelector('.reader-ref').textContent, 'INT-1 · Search');
   v.unmount();
 });
 
@@ -4861,7 +4842,7 @@ test("Done closes the card and holds the card still on screen as the card moves 
   assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'an ingested task joining Todo takes the tint');
 });
 
-function questionsOnDom({ topics, questions, at, next, gate = null, items = [], embedded = false, queue = [], pushed = false, opened = null }) {
+function questionsOnDom({ topics, questions, at, gate = null, items = [], embedded = false, queue = [], pushed = false, opened = null }) {
   const page = fakePage(memoryStorage().localStorage);
   // pushed: the entry came from a push tap (router.js); opened collects the hrefs the shell is asked to open.
   if (opened) page.win.AppShell = { open: (href, opts) => { opened.push([href, opts]); return true; } };
@@ -4923,25 +4904,14 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
   Object.assign(page.win, { scrollTo() {}, scrollY: 0, sessionStorage: memoryStorage().localStorage });
   page.win.BoardAttach.paintAll = () => {};
   page.win.location.hash = `#${at}`;
-  page.win.history = { state: { idx: 1, up: 1, ...(pushed ? { pushed: true } : {}) }, replaceState: (state, _, url) => { page.win.location.hash = url; } };
-  const shell = { root: page.win.document.body.appendChild(new Element('div')), board: null };
+  // moves: the history entries the questions sheet pushes and spends.
+  const moves = [];
+  page.win.history = { state: { idx: 1, up: 1, ...(pushed ? { pushed: true } : {}) }, replaceState: (state, _, url) => { page.win.location.hash = url; },
+    pushState(state) { moves.push('push'); this.state = state; }, back() { moves.push('back'); } };
+  const shell = { root: page.win.document.body.appendChild(new Element('div')) };
   const view = { kind: 'questions', route: 'board-a', id: at };
-  const decisions = [];
-  const nextQuestion = page.win.BoardUI.nextQuestion;
-  page.win.BoardUI.nextQuestion = (...args) => {
-    decisions.push(JSON.parse(JSON.stringify(args)));
-    return next === undefined ? nextQuestion(...args) : next;
-  };
   shell.root.innerHTML = page.win.AppViews.questions.markup(view);
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
-  const up = () => {
-    questionsView.unmount();
-    const root = page.win.document.body.appendChild(new Element('div'));
-    root.innerHTML = page.win.BoardView.markup({ title: 'A' });
-    page.win.BoardView.create(root, base, {}).mount();
-    shell.board = root;
-    return true;
-  };
   // Embedded, the lanes' board stands in: held, sent for and reloaded by the host, and taken by the pane as it lands.
   let held = boardBody();
   const host = {
@@ -4949,30 +4919,27 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
     send: async (kind, data) => { const out = await page.win.ClaudeSite.site(base).send(kind, data); held = out.board; questionsView.B.take(held); return out; },
     reload: async () => { held = boardBody(); questionsView.B.take(held); return true; },
   };
-  let questionsView = page.win.AppViews.questions.create(shell.root, base, embedded ? { view, embedded: true, host } : { view, up });
+  const openSheet = [];
+  const questionsView = page.win.AppViews.questions.create(shell.root, base, embedded ? { view, embedded: true, host, openSheet: (id) => { openSheet.push(id); return true; }, openOnBoard: (id) => opened?.push(['board', id]) } : { view });
   const idle = page.left();
   questionsView.mount();
-  const $ = (sel) => shell.root.querySelector(sel);
+  const sheet = () => shell.root.querySelector('.questions-sheet');
+  const $ = (sel) => sheet().querySelector(sel);
   const answer = (id) => {
     const input = $(`section.q[data-q="${id}"] input[value="A"]`);
     input.type = 'radio';
-    page.fire(shell.root, 'change', { target: input });
+    page.fire(sheet(), 'change', { target: input });
   };
-  const send = async () => { page.fire(shell.root, 'submit', { target: $('#qform') }); await settle(); };
-  const shown = () => shell.board ? { board: shell.board.querySelector('.toast')?.textContent || '' }
-    : { pills: shell.root.querySelectorAll('.topics button').map((b) => [b.dataset.topic, b.getAttribute('aria-pressed')]),
-      questions: shell.root.querySelectorAll('section.q').map((s) => s.dataset.q), status: $('#qstatus').textContent, hash: page.win.location.hash };
-  // The shell mounting a fresh view of the page, as a return from the board does.
-  const remount = () => {
-    page.win.location.hash = '';
-    questionsView.unmount();
-    shell.root = page.win.document.body.appendChild(new Element('div'));
-    shell.root.innerHTML = page.win.AppViews.questions.markup(view);
-    questionsView = page.win.AppViews.questions.create(shell.root, base, { view, up });
-    questionsView.mount();
-    return shell.root;
-  };
-  return { settle, answer, send, shown, decisions, sent, gets, server, get root() { return shell.root; }, page, idle, remount, unmount: () => questionsView.unmount() };
+  const send = async () => { page.fire(sheet(), 'submit', { target: $('form') }); await settle(); };
+  const row = (id) => shell.root.querySelector(`[data-row="${id}"]`);
+  const tap = async (id) => { page.fire(shell.root, 'click', { target: row(id) }); await settle(); };
+  // rows: each row's [id, key, title, action, tone]; questions: the open sheet's, else none.
+  const shown = () => ({
+    rows: shell.root.querySelectorAll('.wrow').map((b) => [b.dataset.row, ...['key', 'title', 'act'].map((part) => b.querySelector(`.wrow-${part}`).textContent), b.querySelector('.wrow-act').getAttribute('class').replace('wrow-act ', '')]),
+    questions: sheet()?.open ? sheet().querySelectorAll('section.q').map((s) => s.dataset.q) : [], status: sheet()?.querySelector('#qstatus')?.textContent ?? '',
+  });
+  const toast = () => page.win.document.body.querySelectorAll('.toast').at(-1)?.textContent;
+  return { settle, answer, send, tap, row, shown, toast, sheet, moves, openSheet, sent, gets, server, get root() { return shell.root; }, page, idle, unmount: () => questionsView.unmount() };
 }
 
 // docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md: a push tap on a stale page
@@ -5003,9 +4970,9 @@ test('tapping the marked option again clears the pick: the suggestion stays clea
   const draft = () => JSON.parse(v.page.win.localStorage.getItem('qdraft:q1') ?? '{}');
   const tap = (input, was) => {
     input.checked = was; // the radio is already checked when the tap lands
-    v.page.fire(v.root, 'pointerdown', { target: input });
+    v.page.fire(v.sheet(), 'pointerdown', { target: input });
     input.checked = true; // a click leaves a radio checked
-    v.page.fire(v.root, 'click', { target: input });
+    v.page.fire(v.sheet(), 'click', { target: input });
   };
   assert.equal($('#send').disabled, false, 'the suggestion is pre-checked, so Send is on');
   tap(radio('A'), true);
@@ -5014,7 +4981,7 @@ test('tapping the marked option again clears the pick: the suggestion stays clea
 
   const note = $('section.q[data-q="q1"] textarea.note');
   note.value = 'Neither';
-  v.page.fire(v.root, 'input', { target: note });
+  v.page.fire(v.sheet(), 'input', { target: note });
   assert.equal($('#send').disabled, false, 'a note alone sends');
   await v.send();
   assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['owner-answers', { answers: [{ id: 'q1', question: 'Q?', choice: null, label: '', note: 'Neither' }] }]]);
@@ -5028,367 +4995,159 @@ test('a tap on an option that was not marked marks it, and Space on the marked o
   const radio = (id) => { const i = v.root.querySelector(`section.q[data-q="q1"] input[value="${id}"]`); i.type = 'radio'; return i; };
   const draft = () => JSON.parse(v.page.win.localStorage.getItem('qdraft:q1') ?? '{}');
   const a = radio('A');
-  v.page.fire(v.root, 'pointerdown', { target: a });
+  v.page.fire(v.sheet(), 'pointerdown', { target: a });
   a.checked = true;
-  v.page.fire(v.root, 'change', { target: a });
-  v.page.fire(v.root, 'click', { target: a });
+  v.page.fire(v.sheet(), 'change', { target: a });
+  v.page.fire(v.sheet(), 'click', { target: a });
   assert.deepEqual([a.checked, draft()], [true, { choice: 'A' }], 'the first tap marks');
-  v.page.fire(v.root, 'keydown', { target: a, key: ' ' });
-  v.page.fire(v.root, 'click', { target: a });
+  v.page.fire(v.sheet(), 'keydown', { target: a, key: ' ' });
+  v.page.fire(v.sheet(), 'click', { target: a });
   assert.deepEqual([a.checked, draft()], [false, { choice: null }], 'Space on the marked one clears it');
 });
 
-test("Waiting on you's Send follows the shared next question, leaving an urgent question's solo view, staying on the current topic or going to the board with its Sent toast", async () => {
-  const topic = (n) => ({ id: `item:w/T${n}`, title: `INT-${n}: Topic ${n}` });
-  const question = (id, n) => ({ id, topic: `item:w/T${n}`, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
-  const three = [question('q1', 1), question('q2', 2), question('q3', 3)];
-  const open = (...ids) => three.filter((q) => ids.includes(q.id)).concat(three.filter((q) => !ids.includes(q.id)).map((q) => ({ ...q, state: 'answered' })));
+// docs/adr/2026-11-15-1200-waiting-on-you-is-one-list-of-rows-opening-the-questions-sheet.md
+const rowQuestion = (id, topic, extra = {}) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open', ...extra });
+const rowTap = (kind, key, word, more = {}) => ({ kind, key, title: `${key.split('/')[1]}: Card ${key.split('/')[1]}`, word, label: `Tap ${word}`, fault: false, since: '2026-11-02T10:00:00.000Z', progress: false, ...more });
 
-  const middle = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three, at: 'q2', next: three[2] });
-  await middle.settle();
-  middle.answer('q2');
-  await middle.send();
-  assert.deepEqual(middle.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T3', 'true']], questions: ['q3'], status: 'sent 1 answer · 2 still open', hash: '#q3' });
-  assert.deepEqual(middle.decisions.map(([qs, pills, answered]) => [qs.map((q) => [q.id, q.state]), pills.map((t) => [t.id, t.open]), answered]),
-    [[[['q1', 'open'], ['q2', 'answered'], ['q3', 'open']], [['item:w/T1', 1], ['item:w/T2', 1], ['item:w/T3', 1]], { topic: 'item:w/T2' }]]);
-
-  const partial = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: [...three, question('q2b', 2)], at: 'q2', next: question('q2b', 2) });
-  await partial.settle();
-  partial.answer('q2');
-  await partial.send();
-  assert.deepEqual(partial.shown(), { pills: [['item:w/T1', 'false'], ['item:w/T2', 'true'], ['item:w/T3', 'false']], questions: ['q2', 'q2b'],
-    status: 'sent 1 answer · 3 still open', hash: '#q2' });
-
-  const last = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: open('q3'), at: 'q3', next: null });
-  await last.settle();
-  last.answer('q3');
-  await last.send();
-  assert.deepEqual(last.shown(), { board: 'Sent 1 answer to INT-3.' });
-
-  const urgent = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: three.map((q) => (q.id === 'q3' ? { ...q, urgent: true } : q)), at: '', next: three[0] });
-  await urgent.settle();
-  assert.deepEqual(urgent.shown().questions, ['q3']);
-  urgent.answer('q3');
-  await urgent.send();
-  assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'sent 1 answer · 2 still open', hash: '#q1' });
+test("Waiting on you is one list of rows in the board's order, an urgent question's first, each its key, its title and the action owed in its colour, under a count of the rows; no pills and no form", async () => {
+  const items = [workCard('T1', { title: 'Batch pushes flush through one summary' }), workCard('T3', { title: 'Orchestrator queue' }), workCard('T6', { title: 'Hot fix' })];
+  const queue = [rowTap('implement', 'w/T2', 'Implement'), { kind: 'question', id: 'item:w/T1', since: '2026-11-03T10:00:00.000Z' }, { kind: 'question', id: 'item:w/T3', since: '2026-11-03T11:00:00.000Z' },
+    rowTap('action', 'w/T5', 'Action', { label: 'stalled: tests fail', fault: true }), { kind: 'question', id: 'board', since: '2026-11-04T10:00:00.000Z' }, { kind: 'question', id: 'item:w/T6', since: '2026-11-05T10:00:00.000Z' }];
+  const topics = [{ id: 'item:w/T1', card: 'w/T1' }, { id: 'item:w/T3', card: 'w/T3' }, { id: 'board', title: 'Board settings' }, { id: 'item:w/T6', card: 'w/T6' }];
+  const questions = [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1'), rowQuestion('qp', 'item:w/T3', { url: 'prototype-x2.html?q=qp' }), rowQuestion('qb', 'board'), rowQuestion('qu', 'item:w/T6', { urgent: true })];
+  const v = questionsOnDom({ topics, questions, at: '', items, queue });
+  await v.settle();
+  assert.deepEqual(v.shown().rows, [
+    ['topic:item:w/T6', 'T6', 'Hot fix', 'Answer 1', 'tone-danger'],
+    ['tap:w/T2', 'T2', 'Card T2', 'Tap Implement', 'tone-notice'],
+    ['topic:item:w/T1', 'T1', 'Batch pushes flush through one summary', 'Answer 2', 'tone-notice'],
+    ['topic:item:w/T3', 'T3', 'Orchestrator queue', 'Pick a take', 'tone-notice'],
+    ['tap:w/T5', 'T5', 'Card T5', 'stalled: tests fail', 'tone-danger'],
+    ['topic:board', 'Q', 'Board settings', 'Answer 1', 'tone-notice'],
+  ]);
+  assert.equal(v.root.querySelector('.q-count').textContent, '6 need you', 'the count is the rows, as the badge counts them');
+  assert.deepEqual([v.root.querySelector('[data-topic]'), v.root.querySelector('#qform'), v.root.querySelector('.tap')], [null, null, null]);
+  assert.deepEqual(v.shown().questions, [], 'nothing opens by itself');
+  v.unmount();
 });
 
-test("a Send's move on is skipped when you switched topics while it was recorded: the page stays, with the Sent toast", async () => {
-  const topic = (n) => ({ id: `item:w/T${n}`, title: `INT-${n}: Topic ${n}` });
-  const question = (id, n) => ({ id, topic: `item:w/T${n}`, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
-  let release;
-  const gate = { promise: new Promise((r) => { release = r; }) };
-  const v = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: [question('q1', 1), question('q2', 2), question('q3', 3)], at: 'q1', gate });
+test("tapping a topic's row opens the questions sheet over the list with that topic's open questions; its Send answers and closes it, back to the list without the row, and ✕ closes it with nothing sent", async () => {
+  const items = [workCard('T1', { title: 'Search' }), workCard('T2', { title: 'Old' })];
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', card: 'w/T1' }, { id: 'item:w/T2', card: 'w/T2' }], questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1'), rowQuestion('q3', 'item:w/T2')], at: '', items });
   await v.settle();
+  await v.tap('topic:item:w/T1');
+  assert.deepEqual([v.sheet().open, v.sheet().modal, v.shown().questions, v.sheet().querySelector('.reader-ref').textContent], [true, true, ['q1', 'q2'], 'T1 · Search']);
+  assert.equal(v.sheet().querySelectorAll('section.q[data-q="q1"] [data-proto], section.q[data-q="q1"] [data-grill], section.q[data-q="q1"] [data-visual]').length, 3, "each question keeps the thread's eye, fire and image");
   v.answer('q1');
+  v.answer('q2');
   await v.send();
-  const pill = v.root.querySelector('.topics button[data-topic="item:w/T3"]');
-  v.page.fire(v.root, 'click', { target: pill });
-  release();
-  await v.settle();
-  assert.deepEqual([v.shown().pills, v.shown().questions, v.shown().hash],
-    [[['item:w/T1', 'false'], ['item:w/T2', 'false'], ['item:w/T3', 'true']], ['q3'], '#q3']);
-  assert.equal(v.page.win.document.body.querySelector('.toast')?.textContent, 'Sent 1 answer to INT-1.');
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['owner-answers', { answers: [{ id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '' }, { id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '' }] }]]);
+  assert.deepEqual([v.sheet().open, v.toast(), v.moves], [false, 'Sent 2 answers.', ['push', 'back']]);
+  assert.deepEqual(v.shown().rows.map(([id]) => id), ['topic:item:w/T2'], 'the answered topic leaves the list');
+  await v.tap('topic:item:w/T2');
+  v.page.fire(v.sheet(), 'click', { target: v.sheet().querySelector('[data-qs="close"]') });
+  assert.deepEqual([v.sheet().open, v.sent.length, v.shown().rows.length], [false, 1, 1]);
+  v.unmount();
 });
 
-// docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md
-test("on a phone a push tap on an open question of a card opens that card's board with its questions sheet in place of the page, while any other way to the same question shows the page", async () => {
-  const question = (id, topic, extra = {}) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open', ...extra });
-  const run = async (opts, id = 'q1', questions = [question('q1', 'item:w/T1'), question('q2', 'plain')]) => {
-    const opened = [];
-    const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'plain', title: 'Plain' }], questions, at: id, opened, ...opts });
-    await v.settle();
-    v.unmount();
-    return opened.map(([href, o]) => [new URL(href).hash, { ...o }]);
-  };
-  assert.deepEqual(await run({ pushed: true }), [['#selectedCard=w%2FT1&questions=q1', { replace: true }]]);
-  assert.deepEqual(await run({}), [], 'a link inside the app shows the page');
-  assert.deepEqual(await run({ pushed: true }, 'q2'), [], 'a question on a topic that is no card shows the page');
-  assert.deepEqual(await run({ pushed: true }, 'item:w/T1'), [], "a topic's link shows the page");
-  assert.deepEqual(await run({ pushed: true }, 'q1', [question('q1', 'item:w/T1', { url: 'prototype-x2.html?q=q1' })]), [], "a prototype's question stays on the page");
-});
-
-test('on a phone, a tap on a pill only picks the topic, the topic title opens its card on the board, and the pill reads the whole title', async () => {
-  const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: '#422: Open-items pills' }],
-    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T2')], at: 'q1' });
-  await v.settle();
+test("a held review is a blue PR row, Review held, that opens the review in the Auto Review lane", async () => {
   const opened = [];
-  v.page.win.AppShell = { open: (href) => { opened.push(href); return true; } };
-  const pill = (id) => v.root.querySelector(`button[data-topic="${id}"]`);
-  assert.deepEqual([pill('item:w/T1').querySelector('.name').textContent, pill('item:w/T2').querySelector('.name').textContent], ['INT-1: Search', '#422: Open-items pills']);
-  v.page.fire(v.root, 'click', { target: pill('item:w/T2') });
+  const queue = [{ kind: 'review', review: 437, title: 'PR #437 One endpoint', progress: false }];
+  const v = questionsOnDom({ topics: [], questions: [], at: '', queue, opened });
   await v.settle();
-  assert.deepEqual(opened, [], 'a tap only picks the topic');
-  v.page.fire(v.root, 'click', { target: pill('item:w/T2') });
-  await v.settle();
-  assert.deepEqual(opened, [], 'a second tap opens nothing either');
-  v.page.fire(v.root, 'click', { target: v.root.querySelector('.topichead .topic-title') });
-  assert.equal(opened.length, 1);
-  assert.match(opened[0], /\/#item=w%2FT2$/);
+  assert.deepEqual(v.shown().rows, [['review:437', 'PR', 'PR #437 One endpoint', 'Review held', 'tone-info']]);
+  await v.tap('review:437');
+  assert.deepEqual(opened.map(([href]) => new URL(href).pathname + new URL(href).hash), ['/#review=437']);
+  v.unmount();
+  const pane = [];
+  const embedded = questionsOnDom({ topics: [], questions: [], at: '', queue, embedded: true, opened: pane });
+  await embedded.settle();
+  await embedded.tap('review:437');
+  assert.deepEqual(pane, [['board', 'review:437']], 'in the pane it opens on the board beside it');
+  embedded.unmount();
 });
 
-// docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
-test("Waiting on you loads a topic's resolved questions only once the topic shows, and its Send draws from the POST's board with no reload of its own", async () => {
-  const question = (id, topic, state = 'open') => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Old' }],
-    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T1'), question('r1', 'item:w/T1', 'resolved'), question('q3', 'item:w/T2'), question('r2', 'item:w/T2', 'resolved')], at: 'q1' });
+test("a Pick a take row opens its prototype, a tap's row opens its card's thread, and a prototype question among others is answered in the sheet with its View prototypes link", async () => {
+  const opened = [];
+  const queue = [rowTap('implement', 'w/T2', 'Implement')];
+  const questions = [rowQuestion('qp', 'item:w/T3', { url: 'prototype-x2.html?q=qp' }), rowQuestion('qm', 'item:w/T4', { url: 'prototype-x3.html?q=qm' }), rowQuestion('q4', 'item:w/T4')];
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T3', title: 'T3: Look' }, { id: 'item:w/T4', title: 'T4: Mixed' }], questions, at: '', queue, opened });
   await v.settle();
-  const $ = (sel) => v.root.querySelector(sel);
-  const resolvedShown = () => v.root.querySelectorAll('details.done section.q').map((s) => s.dataset.q);
-  assert.deepEqual(v.gets, ['/board-a/api/board', '/board-a/api/questions?topic=item%3Aw%2FT1']);
-  assert.deepEqual([v.shown().questions, resolvedShown()], [['r1', 'q1', 'q2'], ['r1']]);
-  v.page.fire(v.root, 'click', { target: v.root.querySelector('.topics button[data-topic="item:w/T2"]') });
+  await v.tap('topic:item:w/T3');
+  await v.tap('tap:w/T2');
+  assert.deepEqual(opened.map(([href]) => new URL(href).pathname + new URL(href).search + new URL(href).hash), ['/prototype-x2.html?q=qp', '/#item=w%2FT2']);
+  assert.equal(v.sheet().open, false);
+  await v.tap('topic:item:w/T4');
+  assert.deepEqual(v.shown().questions, ['qm', 'q4']);
+  assert.ok(v.sheet().querySelector('section.q[data-q="qm"] a.proto-view'));
+  v.unmount();
+});
+
+test("the sheet's eye, fire and image ask for a prototype, a grill or a visual of that question with its note and pick; a refusal keeps the draft and says why", async () => {
+  const gate = { promise: Promise.resolve(), refuse: '' };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1')], at: 'q1', gate });
   await v.settle();
-  assert.deepEqual([v.gets.at(-1), resolvedShown()], ['/board-a/api/questions?topic=item%3Aw%2FT2', ['r2']]);
-  v.page.fire(v.root, 'click', { target: v.root.querySelector('button[data-topic="item:w/T1"]') });
-  await v.settle();
-  const loads = v.gets.length;
+  assert.deepEqual(v.shown().questions, ['q1', 'q2'], "a link to an open question opens its topic's sheet");
   v.answer('q1');
-  await v.send();
-  assert.deepEqual([v.shown().status, resolvedShown()], ['sent 1 answer · 2 still open', ['r1']]);
-  assert.deepEqual(v.gets.slice(loads), [], 'the Send downloads nothing beyond its own answer');
+  const ask = async (sel) => { v.page.fire(v.sheet(), 'click', { target: v.sheet().querySelector(`section.q[data-q="q1"] ${sel}`) }); await v.settle(); };
+  await ask('[data-grill]');
+  await ask('[data-visual]');
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['grill-more', { key: 'w/T1', question: 'q1', note: '', choice: 'A' }], ['visual-request', { key: 'w/T1', question: 'q1', note: '', choice: 'A' }]]);
+  assert.equal(v.toast(), 'Visual requested.');
+  gate.refuse = 'board busy';
+  await ask('[data-proto]');
+  assert.deepEqual([v.shown().status, v.shown().questions, JSON.parse(v.page.win.localStorage.getItem('qdraft:q1'))], ['Nothing was sent: board busy', ['q1', 'q2'], { choice: 'A' }]);
+  gate.refuse = '';
+  await ask('[data-proto]');
+  assert.deepEqual([v.sent.at(-1)[0], v.toast(), v.shown().questions], ['prototype-request', 'Prototype requested.', ['q2']], 'the requested question leaves the sheet');
   v.unmount();
 });
 
-// docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md
-test("Waiting on you with no open question shows only the hub's moon, centred, with 'no open questions' under it in muted text: no topic waiting on Claude and no resolved topic is listed", async () => {
-  const question = (id, topic, state) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state,
-    ...(state === 'resolved' ? { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null } : {}) });
-  const questions = [question('a1', 'item:w/T1', 'answered'), question('r1', 'item:w/T2', 'resolved')];
-  const topics = [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Old' }];
-  const v = questionsOnDom({ topics, questions, at: '' });
+test("a link to a topic marks its row and opens nothing, and with nothing waiting the page says so", async () => {
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }, { id: 'item:w/T2', title: 'T2: Old' }], questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T2')], at: 'item:w/T2' });
   await v.settle();
-  const page = v.root.querySelector('#page');
-  assert.deepEqual(page.children.map((c) => c.getAttribute('class')), ['q-empty']);
-  const empty = page.querySelector('.q-empty');
-  assert.equal(empty.querySelector('svg').getAttribute('width'), '72');
-  assert.equal(empty.querySelector('svg path').getAttribute('d'), 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z', "the hub's moon");
-  assert.deepEqual([empty.querySelector('p').textContent, empty.querySelector('p').getAttribute('class')], ['no open questions', 'muted']);
-  assert.equal(v.root.querySelector('[data-topic]'), null);
-  assert.equal(v.root.querySelector('#progress').textContent, '');
+  assert.deepEqual([v.row('topic:item:w/T2').getAttribute('aria-current'), v.row('topic:item:w/T1').getAttribute('aria-current'), v.sheet().open], ['true', null, false]);
   v.unmount();
-
-  const linked = questionsOnDom({ topics, questions, at: 'r1' });
-  await linked.settle();
-  assert.deepEqual(linked.root.querySelectorAll('details.resolved-group section.q').map((s) => s.dataset.q), ['r1'], "a link to a resolved question, as a work item's Questions button sends, still opens its topic");
-  assert.equal(linked.root.querySelector('details.resolved-group').hasAttribute('open'), true, 'a topic with only resolved questions opens its group expanded');
-  linked.unmount();
+  const none = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], questions: [rowQuestion('a1', 'item:w/T1', { state: 'answered' })], at: '' });
+  await none.settle();
+  const empty = none.root.querySelector('#page .q-empty');
+  assert.deepEqual([empty.querySelector('b').textContent, empty.querySelector('p').textContent, none.root.querySelector('.wrow')], ['Nothing is waiting on you', 'Answers, picks and taps land here.', null]);
+  none.unmount();
 });
 
-test("Waiting on you shows the shown topic's resolved questions above its open ones and ends at its Send bar, with no topic list under it", async () => {
-  const question = (id, topic, state = 'open') => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state,
-    ...(state === 'resolved' ? { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null } : {}) });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Waiting' }, { id: 'item:w/T3', title: 'INT-3: Old' }],
-    questions: [question('q1', 'item:w/T1'), question('r1', 'item:w/T1', 'resolved'), question('q2', 'item:w/T1'), question('a1', 'item:w/T2', 'answered'), question('r3', 'item:w/T3', 'resolved')], at: 'q1' });
+test("in the desktop pane a topic's row focuses its card on the board and opens the board's sheet, and a tap's row opens its card", async () => {
+  const opened = [];
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], questions: [rowQuestion('q1', 'item:w/T1')], at: '', embedded: true, opened, queue: [rowTap('done', 'w/T2', 'Done')] });
   await v.settle();
-  const form = v.root.querySelector('#qform');
-  assert.deepEqual(form.children.map((c) => c.dataset.q || c.getAttribute('class').split(' ').at(-1)), ['resolved-group', 'q1', 'q2', 'bar']);
-  assert.equal(v.root.querySelector('#page').children.at(-1), form, 'Send ends the page');
-  v.server.questions.push(question('q4', 'item:w/T1'));
-  v.page.fire(v.page.win.document, 'visibilitychange');
-  await v.settle();
-  assert.equal(v.root.querySelector('#qform'), form, 'an arrival draws in place');
-  assert.deepEqual(form.children.map((c) => c.dataset.q || c.getAttribute('class').split(' ').at(-1)), ['resolved-group', 'q1', 'q2', 'q4', 'bar'], 'a new question goes after the last open one');
-  assert.equal(v.root.querySelector('#page').children.at(-1), form);
+  await v.tap('topic:item:w/T1');
+  await v.tap('tap:w/T2');
+  assert.deepEqual([v.openSheet, opened], [['item:w/T1'], [['board', 'item:w/T1'], ['board', 'item:w/T2']]]);
+  assert.doesNotMatch(v.page.win.AppViews.questions.markup({ embedded: true }), /questions-sheet/, 'the pane has no sheet of its own');
   v.unmount();
 });
 
-test("Waiting on you puts the tapped topic pill's first question in the URL, so going back reopens the topic last shown", async () => {
-  const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Old' }],
-    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T2')], at: 'q1' });
-  await v.settle();
-  v.page.fire(v.root, 'click', { target: v.root.querySelector('button[data-topic="item:w/T2"]') });
-  await v.settle();
-  assert.equal(v.page.win.location.hash, '#q2');
-  v.unmount();
-});
-
-// docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
-test("Waiting on you folds a topic's sent and resolved questions under a collapsed 'resolved (N)' at load, read-only; tapping one's green Resolved badge confirms, reopens it in the form with its pick and note, and the reopened answer sends again", async () => {
-  const question = (id, state = 'open') => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state,
-    ...(state === 'resolved' ? { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null } : {}) });
-  const sent = { ...question('s1', 'answered'), answers: [{ ts: '2026-10-30T08:00:00.000Z', choice: 'B', note: 'Not yet', files: [], reply: null }] };
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('r1', 'resolved'), sent, question('r2', 'resolved')], at: 'q1' });
-  const confirms = [];
-  let agree = false;
-  v.page.win.BoardDialogs.confirm = async (message) => { confirms.push(message); return agree; };
-  await v.settle();
-  const $ = (sel) => v.root.querySelector(sel);
-  const group = $('details.done.resolved-group');
-  assert.equal(group.hasAttribute('open'), false, 'a topic with a live question keeps it closed');
-  assert.deepEqual(group.querySelector('summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (3)']);
-  assert.deepEqual(group.querySelectorAll('section.q').map((s) => s.dataset.q), ['r1', 's1', 'r2']);
-  assert.equal(group.querySelectorAll('textarea').length, 0);
-  assert.deepEqual(group.querySelectorAll('section.q .muted.small').filter((m) => /^\d\./.test(m.textContent)).map((m) => m.textContent), ['2. ', '3. ', '4. '], 'each keeps its number on the task');
-  const tap = () => $('section.q[data-q="s1"] [data-reopen]');
-  v.page.fire(v.root, 'click', { target: tap() });
-  await v.settle();
-  assert.deepEqual([confirms, v.sent], [['Reopen this question?'], []]);
-  agree = true;
-  v.page.fire(v.root, 'click', { target: tap() });
-  await v.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['question-reopen', { key: 'w/T1', question: 's1' }]]);
-  assert.deepEqual($('#qform').children.filter((c) => c.matches('section.q')).map((c) => c.dataset.q), ['q1', 's1'], 'the reopened question joins the form');
-  assert.equal($('section.q[data-q="s1"] textarea.note').value, 'Not yet');
-  assert.equal($('section.q[data-q="s1"] input[value="B"]').hasAttribute('checked'), true);
-  assert.equal($('#send').disabled, false, 'its pick is ready to send again');
-  await v.send();
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent.at(-1))), ['owner-answers', { answers: [{ id: 's1', question: 'Question s1?', choice: 'B', label: 'B. No', note: 'Not yet' }] }]);
-  assert.deepEqual($('#qform').children.filter((c) => c.matches('section.q.resolved')).map((c) => c.dataset.q), ['s1'], 'sent again, it stays in place, resolved');
-  v.unmount();
-});
-
-// docs/adr/2026-11-06-1100-resolved-questions-fold-away-once-you-leave-their-topic.md
-test("Waiting on you keeps a sent question in place only while its topic shows: a pill tap folds it, and coming back shows it already under 'resolved (N)'", async () => {
-  const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Old' }],
-    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T1'), question('q3', 'item:w/T2')], at: 'q1' });
-  await v.settle();
-  const folded = () => v.root.querySelectorAll('details.done section.q').map((s) => s.dataset.q);
-  v.answer('q1');
-  await v.send();
-  assert.deepEqual([v.shown().questions, folded()], [['q1', 'q2'], []], 'in place while its topic shows');
-  v.page.fire(v.root, 'click', { target: v.root.querySelector('button[data-topic="item:w/T2"]') });
-  await v.settle();
-  v.page.fire(v.root, 'click', { target: v.root.querySelector('button[data-topic="item:w/T1"]') });
-  await v.settle();
-  assert.deepEqual([v.shown().questions, folded()], [['q1', 'q2'], ['q1']]);
-  assert.deepEqual(v.root.querySelector('details.done summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (1)']);
-  v.unmount();
-});
-
-test("Waiting on you's last Send in the board's pane, with no topic or board to go on to, shows the moon and 'no open questions' with the Sent line as a toast", async () => {
-  const q = { id: 'q1', topic: 'item:w/T1', source: '', question: 'Question q1?', context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' };
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [q], at: 'q1', next: null, embedded: true });
-  await v.settle();
-  v.answer('q1');
-  await v.send();
-  assert.equal(v.root.querySelector('.q-empty p').textContent, 'no open questions');
-  assert.equal(v.root.querySelector('#qform'), null);
-  v.unmount();
-});
-
-// docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
-test("Waiting on you's eye on each question, in the row under its box with the fire, image and attach, asks for a prototype of that question with its note and pick, waits for the server, then resolves it and moves on as Send does: to the topic's next open question, or back to the board", async () => {
-  const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
-  let release;
-  const gate = { promise: new Promise((r) => { release = r; }) };
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1', gate });
-  await v.settle();
-  const $ = (sel) => v.root.querySelector(sel);
-  const eye = (id) => $(`section.q[data-q="${id}"] .note-tools [data-proto]`);
-  // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-  assert.deepEqual($('section.q[data-q="q1"] .note-tools').children.map((c) => c.getAttribute('class')), ['pending-files', 'icons']);
-  assert.deepEqual($('section.q[data-q="q1"] .note-tools .icons').children.map((c) => c.getAttribute('title')), ['Ask for a prototype instead', 'Ask for a grill', 'Ask for a visual', 'Attach files']);
-  assert.equal($('section.q[data-q="q1"] .dz .attach'), null, 'the attach is out of the note box');
-  assert.equal($('#qform .bar [data-proto]'), null);
-  assert.equal(eye('q1').disabled, false);
-  assert.equal($('.topichead .chip'), null);
-
-  const note = $('section.q[data-q="q2"] textarea.note');
-  note.value = 'Show it on a phone';
-  v.page.fire(v.root, 'input', { target: note });
-  const pickB = $('section.q[data-q="q2"] input[value="B"]');
-  pickB.type = 'radio';
-  v.page.fire(v.root, 'change', { target: pickB });
-  v.page.fire(v.root, 'click', { target: eye('q2') });
-  await v.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['prototype-request', { key: 'w/T1', question: 'q2', note: 'Show it on a phone', choice: 'B' }]]);
-  assert.deepEqual([$('#qstatus').textContent, eye('q2').disabled, eye('q2').getAttribute('aria-busy')], ['', true, 'true'], 'the eye waits in place of a Sending… line');
-  assert.deepEqual(v.shown().questions, ['q1', 'q2']);
-  assert.equal($('details.done'), null);
-  release();
-  await v.settle();
-  assert.deepEqual(v.shown(), { pills: [], questions: ['q1', 'q2'], status: 'prototype requested. 1 still open.', hash: '#q1' });
-  assert.ok($('#qstatus .try-spin'));
-  assert.equal($('details.done'), null, 'the requested question stays in place');
-  assert.equal($('section.q[data-q="q2"] [data-proto]'), null);
-  assert.deepEqual(v.root.querySelectorAll('.pr-busy').map((s) => s.dataset.q), ['q2'], 'in the blue tint');
-  assert.equal($('.topichead .chip').textContent, 'Prototype round 1');
-  assert.ok($('.topichead .chip.tone-normal .try-spin'));
-  assert.equal($('#send').disabled, true);
-  assert.equal($('#send .key-hint').textContent, '⌘↵', 'Send is the shared send button, its key inside it');
-  assert.equal($('.send-hint'), null);
-
-  v.page.fire(v.root, 'click', { target: eye('q1') });
-  await v.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent[1])), ['prototype-request', { key: 'w/T1', question: 'q1', note: '', choice: null }]);
-  assert.deepEqual(v.shown(), { board: 'Prototype requested for INT-1.' });
-});
-
-// docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-test("Waiting on you's fire and image on a question ask for a grill or a visual of that question with its note and pick, and the question stays open with its draft", async () => {
-  const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1' });
-  await v.settle();
-  const $ = (sel) => v.root.querySelector(sel);
-  const note = $('section.q[data-q="q2"] textarea.note');
-  note.value = 'Deeper on No';
-  v.page.fire(v.root, 'input', { target: note });
-  const pickB = $('section.q[data-q="q2"] input[value="B"]');
-  pickB.type = 'radio';
-  pickB.checked = true;
-  v.page.fire(v.root, 'change', { target: pickB });
-  v.page.fire(v.root, 'click', { target: $('section.q[data-q="q2"] .note-tools [data-grill]') });
-  await v.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['grill-more', { key: 'w/T1', question: 'q2', note: 'Deeper on No', choice: 'B' }]]);
-  assert.deepEqual([v.shown().questions, v.shown().status], [['q1', 'q2'], 'Grill requested.']);
-  assert.deepEqual([$('section.q[data-q="q2"] textarea.note').value, $('section.q[data-q="q2"] input[value="B"]').checked], ['Deeper on No', true], 'the draft stays');
-  v.page.fire(v.root, 'click', { target: $('section.q[data-q="q1"] .note-tools [data-visual]') });
-  await v.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent[1])), ['visual-request', { key: 'w/T1', question: 'q1', note: '', choice: null }]);
-  assert.deepEqual([v.shown().questions, v.shown().status], [['q1', 'q2'], 'Visual requested.']);
-  v.unmount();
-});
 
 // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
-test("Waiting on you's Send sends a suggested option pre-checked, saying so on its bar until the owner picks another", async () => {
+test("the questions sheet's Send sends a suggested option pre-checked, and a picked one in its place", async () => {
   const question = (id, extra = {}) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open', ...extra });
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1', { suggested: { option: 'B', card: '#186', answer: 'No.' } }), question('q2')], at: 'q1' });
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
-  assert.deepEqual([$('#qstatus').textContent, $('#send').disabled], ['suggested options are selected', false]);
+  assert.equal($('#send').disabled, false);
   assert.equal($('section.q[data-q="q1"] input[value="B"]').hasAttribute('checked'), true);
-  v.answer('q1');
-  assert.deepEqual([$('#qstatus').textContent, $('#send').disabled], ['', false]);
-  const pickB = $('section.q[data-q="q1"] input[value="B"]');
-  pickB.type = 'radio';
-  v.page.fire(v.root, 'change', { target: pickB });
-  assert.equal($('#qstatus').textContent, 'suggested options are selected');
   await v.send();
   assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['owner-answers', { answers: [{ id: 'q1', question: 'Question q1?', choice: 'B', label: 'B. No', note: '' }] }]]);
-  assert.equal(v.shown().status, 'sent 1 answer · 1 still open');
   v.unmount();
 });
 
-test("Waiting on you's eye on a refused request keeps the question open with its draft and says why", async () => {
-  const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1')], at: 'q1', gate: { promise: Promise.resolve(), refuse: 'q1 is no longer asked here.' } });
-  await v.settle();
-  const $ = (sel) => v.root.querySelector(sel);
-  const note = $('section.q textarea.note');
-  note.value = 'Bigger';
-  v.page.fire(v.root, 'input', { target: note });
-  v.page.fire(v.root, 'click', { target: $('section.q .note-tools [data-proto]') });
-  await v.settle();
-  assert.equal($('#qstatus').textContent, 'Nothing was sent: q1 is no longer asked here.');
-  assert.deepEqual(v.shown().questions, ['q1']);
-  assert.equal($('section.q textarea.note').value, 'Bigger');
-  v.unmount();
-});
-
-test("Waiting on you's Send carries every ready answer in one request, waits disabled with its spinner until the server answers, then shows them all sent at once, or on a refusal keeps every draft and says why", async () => {
+test("the questions sheet's Send carries every ready answer in one request and waits disabled with its spinner until the server answers, then closes; on a refusal it keeps every draft and says why", async () => {
   const question = (id) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   let release;
   const gate = { promise: new Promise((r) => { release = r; }) };
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2'), question('q3')], at: 'q1', next: question('q3'), gate });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2'), question('q3')], at: 'q1', gate });
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
   const draft = (page, id) => JSON.parse(page.win.localStorage.getItem(`qdraft:${id}`) || '{}');
-  // Sent questions stay in place in the form, resolved, until the page loads again.
-  const waiting = () => $('#qform').children.filter((c) => c.matches('section.q.resolved')).map((s) => s.dataset.q);
   v.answer('q1');
   v.answer('q2');
   await v.send();
@@ -5396,14 +5155,12 @@ test("Waiting on you's Send carries every ready answer in one request, waits dis
     { id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '' },
     { id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '' }] }]]);
   assert.deepEqual([$('#qstatus').textContent, $('#send').disabled, $('#send').getAttribute('aria-busy')], ['', true, 'true']);
-  assert.deepEqual(waiting(), []);
   assert.deepEqual([draft(v.page, 'q1'), draft(v.page, 'q2')], [{ choice: 'A' }, { choice: 'A' }]);
   release();
   await v.settle();
-  assert.equal(v.sent.length, 1);
-  assert.deepEqual(waiting(), ['q1', 'q2']);
+  assert.deepEqual([v.sent.length, v.sheet().open, v.toast()], [1, false, 'Sent 2 answers.']);
   assert.deepEqual([draft(v.page, 'q1'), draft(v.page, 'q2')], [{}, {}]);
-  assert.equal($('#qstatus').textContent, 'sent 2 answers · 1 still open');
+  assert.deepEqual(v.shown().rows.map(([, , , action]) => action), ['Answer 1']);
 
   const refused = { promise: Promise.resolve(), refuse: 'Question q2 is no longer asked here. Reload to see what is.' };
   const r = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1', gate: refused });
@@ -6462,43 +6219,6 @@ test("a tap whose POST board cannot land because a reload won the race keeps its
   b.view.unmount();
 });
 
-test("Waiting on you's Send, Prototype and Reopen stay busy until the page has moved on, not until their POST answers", async () => {
-  const question = (id, state = 'open', extra = {}) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state, ...extra });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2'), question('q3'), question('r1', 'resolved', { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null })], at: 'q1' });
-  v.page.win.BoardDialogs.confirm = async () => true;
-  await v.settle();
-  const $ = (sel) => v.root.querySelector(sel);
-  const fetched = v.page.win.fetch;
-  let hold = null;
-  v.page.win.fetch = async (url, opts) => { if (hold && /\/api\/(board|questions)/.test(String(url))) await hold; return fetched(url, opts); };
-  // A poll's load is out when the tap's POST answers: the page moves on only once it has landed.
-  const slowLoad = () => { let release; hold = new Promise((resolve) => { release = () => { hold = null; resolve(); }; }); v.page.fire(v.page.win.document, 'visibilitychange', {}); return release; };
-
-  let release = slowLoad();
-  v.answer('q1');
-  await v.send();
-  assert.deepEqual([$('#send').disabled, $('#send').getAttribute('aria-busy'), v.sent.length], [true, 'true', 1], 'the POST answered, the page has not moved on');
-  release();
-  await v.settle();
-  assert.deepEqual([$('#send').getAttribute('aria-busy'), v.shown().status], [null, 'sent 1 answer · 2 still open']);
-
-  release = slowLoad();
-  v.page.fire(v.root, 'click', { target: $('section.q[data-q="q2"] [data-proto]') });
-  await v.settle();
-  const eye = () => $('section.q[data-q="q2"] [data-proto]');
-  assert.equal(v.sent.at(-1)[0], 'prototype-request');
-  assert.deepEqual([eye().disabled, eye().getAttribute('aria-busy')], [true, 'true']);
-  release();
-  await v.settle();
-  assert.match(v.shown().status, /^prototype requested/);
-
-  v.page.fire(v.root, 'click', { target: $('section.q[data-q="r1"] [data-reopen]') });
-  await v.settle();
-  assert.equal(v.sent.at(-1)[0], 'question-reopen');
-  assert.ok($('section.q[data-q="r1"] textarea.note'), 'the badge rests only once the page shows the question open');
-  v.unmount();
-});
-
 test("a Permissions switch keeps its spinner past the server's answer until the new face is drawn", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
@@ -6547,7 +6267,7 @@ test("from 900px Waiting on you sits in a pane beside the lanes with a drag seam
   await wide.settle();
   const pane = wide.root.querySelector('#boardPane');
   assert.equal(pane.getAttribute('aria-label'), 'Waiting on you');
-  assert.deepEqual(pane.querySelectorAll('.pane-questions section.q').map((s) => s.dataset.q), ['q1']);
+  assert.deepEqual(pane.querySelectorAll('.pane-questions .wrow').map((s) => s.dataset.row), ['topic:t1']);
   assert.equal(pane.querySelector('.pane-questions header'), null, 'the pane has no header of its own');
   assert.ok(wide.root.querySelector('.split > .col-handle[data-col="pane"]'), 'the seam between the lanes and the pane drags');
   const narrow = boardOnDom({ board, threads: {} });
@@ -6567,40 +6287,35 @@ test("the desktop Waiting on you pane shows the board the lanes hold, with no /a
   const wide = boardOnDom({ board, threads: {}, width: 1280 });
   await wide.settle();
   const pane = wide.root.querySelector('#boardPane');
-  const asked = () => pane.querySelectorAll('.pane-questions section.q').map((s) => s.dataset.q);
+  const asked = () => pane.querySelectorAll('.pane-questions .wrow-act').map((s) => s.textContent);
   const fetches = () => wide.gets.filter((g) => g.endsWith('/api/board')).length;
-  assert.deepEqual([asked(), fetches()], [['q1'], 1], 'one board fetch paints the lanes and the pane');
+  assert.deepEqual([asked(), fetches()], [['Answer 1'], 1], 'one board fetch paints the lanes and the pane');
   await wide.change({ board: { ...questionsBoard([openQuestion('q1', 't1'), openQuestion('q2', 't1')], []), version: 'v2' } });
-  assert.deepEqual([asked(), fetches()], [['q1', 'q2'], 2], "the lanes' next load repaints the pane, which asks for nothing");
+  assert.deepEqual([asked(), fetches()], [['Answer 2'], 2], "the lanes' next load repaints the pane, which asks for nothing");
   wide.view.unmount();
 });
 
 // docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md
-test("on a desktop, focusQuestion opens a question's or topic's topic in the pane and focuses its pill, a resolved topic or no topic included, once the pane has loaded; a phone has no pane", async () => {
+test("on a desktop, focusQuestion marks a question's or topic's row in the pane and focuses it, and an open question opens its sheet, once the pane has loaded; a phone has no pane", async () => {
   const board = questionsBoard([openQuestion('q1', 't1'), openQuestion('q2', 't2')], []);
   board.ownerTopics.push({ id: 't0', title: 'Topic t0', state: 'resolved', questions: ['q0'], open: 0, answered: 0, resolved: 1 });
   const wide = boardOnDom({ board, threads: {}, width: 1280 });
   assert.equal(wide.view.B.focusQuestion('q2'), false, 'before the pane loads there is nothing to open, so the shell waits');
   await wide.settle();
-  const pill = (id) => wide.root.querySelector(`#boardPane button[data-topic="${id}"]`);
+  const row = (id) => wide.root.querySelector(`#boardPane [data-row="topic:${id}"]`);
+  const marked = () => wide.root.querySelectorAll('#boardPane .wrow[aria-current="true"]').map((b) => b.dataset.row);
+  const sheet = () => wide.root.querySelector('#questionsSheet');
   const scrolled = [];
-  wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.topic); };
-  assert.equal(pill('t1').getAttribute('aria-pressed'), 'true');
+  wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.row); };
+  assert.deepEqual(marked(), []);
   assert.equal(wide.view.B.focusQuestion('q2'), true);
-  assert.deepEqual([pill('t2').getAttribute('aria-pressed'), wide.doc.activeElement, scrolled], ['true', pill('t2'), ['t2']], 'a question opens its topic');
+  assert.deepEqual([marked(), wide.doc.activeElement, scrolled, sheet().open], [['topic:t2'], row('t2'), ['topic:t2'], true], 'a question marks its row and opens its sheet');
   assert.equal(wide.view.B.focusQuestion('t1'), true);
-  assert.deepEqual([pill('t1').getAttribute('aria-pressed'), wide.doc.activeElement], ['true', pill('t1')], 'a topic id opens that topic');
-  const fetch = wide.page.win.fetch;
-  wide.page.win.fetch = async (url, opts) => (String(url).includes('/api/questions')
-    ? { ok: true, status: 200, text: async () => JSON.stringify({ questions: [openQuestion('q0', 't0', { state: 'resolved', resolved: 'Done' })] }) } : fetch(url, opts));
+  assert.deepEqual([marked(), wide.doc.activeElement, sheet().open], [['topic:t1'], row('t1'), false], 'a topic id marks its row and opens no sheet');
   assert.equal(wide.view.B.focusQuestion('q0'), true);
-  await wide.settle();
-  assert.deepEqual([pill('t0').getAttribute('aria-pressed'), wide.root.querySelector('#boardPane section.q.resolved').dataset.q], ['true', 'q0'], 'a resolved topic opens in the pane too');
-  assert.match(pill('t0').textContent, /resolved/);
+  assert.deepEqual([marked(), sheet().open], [[], false], 'a resolved topic has no row to mark');
   assert.equal(wide.view.B.focusQuestion(null), true);
-  assert.equal(pill('t1').getAttribute('aria-pressed'), 'true', 'no topic opens the first with an open question');
-  assert.equal(wide.view.B.focusQuestion('gone'), true);
-  assert.equal(pill('t1').getAttribute('aria-pressed'), 'true', 'a topic that is gone does the same');
+  assert.deepEqual(marked(), [], 'no topic marks none');
   const narrow = boardOnDom({ board, threads: {} });
   await narrow.settle();
   assert.equal(narrow.view.B.focusQuestion('q2'), false, 'a phone has no pane');
@@ -6613,38 +6328,38 @@ test("Questions on card B after card A's sets the board's selected card and the 
   const wide = boardOnDom({ board, threads: {}, width: 1280 });
   await wide.settle();
   const win = vm.runInContext('window', wide.page.win);
-  const pill = (id) => wide.root.querySelector(`#boardPane button[data-topic="${id}"]`);
+  const row = (id) => wide.root.querySelector(`#boardPane [data-row="topic:${id}"]`);
   assert.equal(wide.view.B.focusQuestion('qa'), true);
   assert.equal(wide.page.win.location.hash, '#selectedCard=w%2FA&openItemsCard=item%3Aw%2FA');
   assert.equal(wide.view.B.focusQuestion('qb'), true);
   assert.equal(wide.page.win.location.hash, '#selectedCard=w%2FB&openItemsCard=item%3Aw%2FB', 'both keys are written together');
-  assert.deepEqual([pill('item:w/B').getAttribute('aria-pressed'), wide.root.querySelector('details.item[data-key="w/B"]').open], ['true', true]);
+  assert.deepEqual([row('item:w/B').getAttribute('aria-current'), wide.root.querySelector('details.item[data-key="w/B"]').open], ['true', true]);
   wide.page.fire(win, 'hashchange');
   await wide.settle();
-  assert.equal(pill('item:w/B').getAttribute('aria-pressed'), 'true', 'a replay of the URL stays on B');
+  assert.equal(row('item:w/B').getAttribute('aria-current'), 'true', 'a replay of the URL stays on B');
   assert.equal(wide.root.querySelector('#questionsLink').getAttribute('href'), 'questions.html#item%3Aw%2FB', "the ? opens the selected card's topic");
   wide.view.unmount();
 });
 
 // docs/adr/2026-11-12-2359-a-topic-in-the-questions-pane-closes-the-overlays-over-it.md
-test('a topic picked in the questions pane, by a pill or a questions URL, closes the reader sheet and the prototype viewer over the pane', async () => {
+test('a topic picked in the questions pane, by a row or a questions URL, closes the reader sheet and the prototype viewer over the pane', async () => {
   const r = readerOnDom('plain log text', { width: 1280, topics: [openQuestion('q1', 'item:w/T1'), openQuestion('q2', 'item:w/P1')] });
   await r.settle();
   const link = r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]');
-  const pill = (id) => r.root.querySelector(`#boardPane button[data-topic="${id}"]`);
-  const pick = async (id) => { r.page.fire(r.root.querySelector('#boardPane .pane-questions'), 'click', { target: pill(id) }); await r.settle(); };
+  const row = (id) => r.root.querySelector(`#boardPane [data-row="topic:${id}"]`);
+  const pick = async (id) => { r.page.fire(r.root.querySelector('#boardPane .pane-questions'), 'click', { target: row(id) }); await r.settle(); };
   r.tap(link);
   await r.settle();
   assert.equal(r.sheet().open, true);
   await pick('item:w/P1');
-  assert.equal(r.sheet().open, false, 'a pill tap closes the reader');
+  assert.deepEqual([r.sheet().open, r.root.querySelector('#questionsSheet').open], [false, true], "a row's tap closes the reader for the questions sheet");
   r.tap(link);
   await r.settle();
   r.view.B.focusQuestion('q1');
   assert.equal(r.sheet().open, false, 'a questions URL closes the reader');
   r.view.B.openViewer('prototype-x2.html?q=q2');
   await pick('item:w/P1');
-  assert.equal(r.root.querySelector('#boardPane .pane-viewer'), null, 'a pill tap closes the prototype viewer');
+  assert.equal(r.root.querySelector('#boardPane .pane-viewer'), null, "a row's tap closes the prototype viewer");
   r.view.unmount();
 });
 
@@ -6681,7 +6396,7 @@ test("a thread's Questions added line keeps its words, orange while a question o
   assert.deepEqual(s.ids(), ['qb', 'qa'], "only card A1's open questions, the newest batch first");
   assert.equal(s.sheet().querySelectorAll('h3.qs-round').length, 2, 'two batches each get a heading');
   assert.equal(s.sheet().querySelector('#readerTitle'), null);
-  assert.equal(s.sheet().querySelectorAll('[data-proto]').length, 0, 'the sheet has no prototype eye');
+  assert.equal(s.sheet().querySelectorAll('[data-proto]').length, 2, 'each question has its prototype eye');
   assert.deepEqual(s.moves.map(([kind]) => kind), ['push'], 'Back has an entry to close it with');
   s.view.unmount();
 });
@@ -6703,40 +6418,32 @@ test("the questions sheet's Send sends the answers as Waiting on you does, close
   s.view.unmount();
 });
 
-test('a line whose card has no open question outside a prototype opens nothing, and from 900px the sheet is not modal and closes when the pane picks a topic', async () => {
-  const none = sheetOnDom({ board: { ...questionsBoard([openQuestion('qp', 'item:w/A1', { url: 'prototype-x2.html?q=qp' })], []), items: [workCard('A1', { lane: 'progress' })] } });
-  await none.settle();
-  assert.equal(none.view.B.openQuestionsSheet('qp'), false, 'a prototype question is answered from the questions page');
-  none.view.unmount();
+test('a prototype question opens in the sheet with its View prototypes link, and from 900px the sheet is not modal and a row in the pane opens its topic in it', async () => {
+  const proto = sheetOnDom({ board: { ...questionsBoard([openQuestion('qp', 'item:w/A1', { url: 'prototype-x2.html?q=qp' })], []), items: [workCard('A1', { lane: 'progress' })] } });
+  await proto.settle();
+  assert.equal(proto.view.B.openQuestionsSheet('qp'), true);
+  assert.ok(proto.sheet().querySelector('section.q[data-q="qp"] a.proto-view'));
+  proto.view.unmount();
   const wide = sheetOnDom({ width: 1280 });
   await wide.settle();
   wide.page.fire(wide.root, 'click', { target: wide.line(), button: 0 });
   assert.deepEqual([wide.sheet().open, wide.sheet().modal], [true, false]);
-  wide.page.fire(wide.root.querySelector('#boardPane .pane-questions'), 'click', { target: wide.root.querySelector('#boardPane button[data-topic="item:w/B1"]') });
+  wide.page.fire(wide.root.querySelector('#boardPane .pane-questions'), 'click', { target: wide.root.querySelector('#boardPane [data-row="topic:item:w/B1"]') });
   await wide.settle();
-  assert.equal(wide.sheet().open, false, "a pane topic's pick closes it");
+  assert.deepEqual([wide.sheet().open, wide.ids(), wide.root.querySelector('details.item[data-key="w/B1"]')?.open], [true, ['qc'], true], "a pane row's tap opens its topic in the sheet and its card on the board");
   wide.view.unmount();
 });
 
-test("a push tap on a question of a card opens the card with its questions sheet open, and a question the board has no card for only shows the pane's topic", async () => {
+test("a questions URL or push on an open question of a card opens the card with its questions sheet open, unless it asks for none", async () => {
   const s = sheetOnDom({ width: 1280 });
   await s.settle();
-  assert.equal(s.view.B.focusQuestion('qb', { sheet: true }), true);
+  assert.equal(s.view.B.focusQuestion('qb'), true);
   assert.deepEqual([s.sheet().open, s.ids(), s.page.win.location.hash], [true, ['qb', 'qa'], '#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA1']);
   s.view.B.focusQuestion('qc');
+  assert.deepEqual([s.sheet().open, s.ids()], [true, ['qc']]);
+  s.view.B.focusQuestion('qa', { sheet: false });
   assert.equal(s.sheet().open, false, 'a pick that asks for no sheet closes it');
   assert.equal(s.view.B.openQuestionsSheet('nope'), false);
-  s.view.unmount();
-});
-
-test("a questions fragment on the phone's board opens the card's sheet once and leaves only the card in the URL", async () => {
-  const board = (() => { const base = questionsBoard([openQuestion('qa', 'item:w/A1')], []); return { ...base, items: [workCard('A1', { lane: 'progress' })] }; })();
-  const s = sheetOnDom({ board });
-  await s.settle();
-  s.page.win.location.hash = '#selectedCard=w%2FA1&questions=qa';
-  s.page.fire(vm.runInContext('window', s.page.win), 'hashchange');
-  await s.settle();
-  assert.deepEqual([s.sheet().open, s.page.win.location.hash], [true, '#selectedCard=w%2FA1']);
   s.view.unmount();
 });
 
@@ -6768,12 +6475,13 @@ test("on a desktop a prototype opens in the right pane under a top bar of ‹ Op
   await tap(viewer().querySelector('[data-ps-top="rounds"]'));
   await tap(viewer().querySelector('[data-ps-round="prototype-x2.html?q=q2"]'));
   await tap(viewer().querySelector('[data-pv="back"]'));
-  const pill = (id) => pane.querySelector(`.pane-questions button[data-topic="${id}"]`);
-  assert.deepEqual([viewer(), pane.classList.contains('viewing'), pill('item:w/P1').getAttribute('aria-pressed')], [null, false, 'true'], "‹ returns to Waiting on you with the round's question focused");
+  const row = (id) => pane.querySelector(`.pane-questions [data-row="topic:${id}"]`);
+  assert.deepEqual([viewer(), pane.classList.contains('viewing'), row('item:w/P1').getAttribute('aria-current'), wide.root.querySelector('#questionsSheet').open], [null, false, 'true', false],
+    "‹ returns to Waiting on you with the round's row marked, and opens no sheet");
   wide.view.B.openViewer('prototype-x2.html?q=q2');
   await tap(widen());
   assert.equal(wide.view.B.focusQuestion('q1'), true);
-  assert.deepEqual([viewer(), pane.classList.contains('viewing'), pane.classList.contains('widened'), pill('item:w/T1').getAttribute('aria-pressed')], [null, false, false, 'true'], 'Choose this, through the shell, does the same');
+  assert.deepEqual([viewer(), pane.classList.contains('viewing'), pane.classList.contains('widened'), row('item:w/T1').getAttribute('aria-current')], [null, false, false, 'true'], 'Choose this, through the shell, does the same');
   const hashTo = async (hash) => { wide.page.win.location.hash = hash; wide.page.fire(vm.runInContext('window', wide.page.win), 'hashchange'); await wide.settle(); };
   wide.view.B.openViewer('prototype-x2.html?q=q2');
   await hashTo('#item=w%2FT1');
@@ -6823,13 +6531,13 @@ test("at every width the board header's ? carries the queue's count as a badge, 
   }
 });
 
-test("on a desktop, one click on a pill in the pane opens that topic's card on the board and scrolls to it, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
+test("on a desktop, one click on a row in the pane opens that topic's card on the board and scrolls to it, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
   const board = { ...questionsBoard([openQuestion('q1', 'item:w/T1'), openQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')] };
   const wide = boardOnDom({ board, threads: {}, width: 1280 });
   await wide.settle();
   const scrolled = [];
-  wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key || this.dataset.topic); };
-  const dbl = async (id) => { const target = wide.root.querySelector(`#boardPane button[data-topic="${id}"]`); const slot = wide.root.querySelector('#boardPane .pane-questions'); wide.page.fire(slot, 'click', { target }); await wide.settle(); };
+  wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { if (this.dataset.key) scrolled.push(this.dataset.key); };
+  const dbl = async (id) => { const target = wide.root.querySelector(`#boardPane [data-row="topic:${id}"]`); const slot = wide.root.querySelector('#boardPane .pane-questions'); wide.page.fire(slot, 'click', { target }); await wide.settle(); };
   await dbl('item:w/T1');
   assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#selectedCard=w%2FT1&openItemsCard=item%3Aw%2FT1', true, 'w/T1'], 'a task topic opens its task');
   scrolled.length = 0;
@@ -6837,32 +6545,27 @@ test("on a desktop, one click on a pill in the pane opens that topic's card on t
   assert.deepEqual([scrolled, wide.page.win.location.hash], [[], '#selectedCard=w%2FT1&openItemsCard=item%3Aw%2FT9'], 'a topic with nothing on the board leaves the card as it was');
   const narrow = boardOnDom({ board, threads: {} });
   await narrow.settle();
-  assert.equal(narrow.root.querySelector('#boardPane button[data-topic]'), null, 'a phone has no pane to double-click');
+  assert.equal(narrow.root.querySelector('#boardPane [data-row]'), null, 'a phone has no pane to click');
 });
 
-test("a topic or question arriving on Waiting on you inserts its pill or card in place, leaving the open topic's cards and the note being typed as they were", async () => {
+test("a topic arriving on Waiting on you slides its row in with a glow, and a question arriving on a topic shown changes its row's action", async () => {
   const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   const topics = [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T3', title: 'INT-3: Sort' }];
-  const v = questionsOnDom({ topics, questions: [question('q1', 'item:w/T1'), question('q3', 'item:w/T3')], at: 'q1' });
+  const v = questionsOnDom({ topics, questions: [question('q1', 'item:w/T1'), question('q3', 'item:w/T3')] });
   await v.settle();
-  const card = v.root.querySelector('section.q[data-q="q1"]');
   const reload = async () => { v.page.fire(v.page.win.document, 'visibilitychange'); await v.settle(); };
-  card.querySelector('textarea').value = 'half typed';
+  const arrived = () => v.root.querySelectorAll('.wrow').map((b) => [b.dataset.row, b.classList.contains('arrived')]);
+  assert.deepEqual(arrived(), [['topic:item:w/T1', false], ['topic:item:w/T3', false]], 'the first paint slides nothing in');
 
   topics.splice(1, 0, { id: 'item:w/T2', title: 'INT-2: Filter' });
   v.server.questions.push(question('q2', 'item:w/T2'));
   await reload();
-  assert.deepEqual(v.shown().pills, [['item:w/T1', 'true'], ['item:w/T2', 'false'], ['item:w/T3', 'false']]);
-  assert.equal(v.root.querySelector('section.q[data-q="q1"]'), card, 'the open topic did not repaint');
-  assert.deepEqual(v.root.querySelectorAll('.topics button').map((b) => b.classList.contains('arrived')), [false, true, false], 'only the new pill slides in, then settles');
-  assert.equal(v.root.querySelector('textarea').value, 'half typed', 'the note being typed stays');
+  assert.deepEqual(arrived().filter(([, a]) => a), [['topic:item:w/T2', true]], 'only the new row slides in');
+  assert.equal(arrived().length, 3);
 
   v.server.questions.push(question('q1b', 'item:w/T1'));
   await reload();
-  assert.deepEqual(v.shown().questions, ['q1', 'q1b']);
-  assert.equal(v.root.querySelector('section.q[data-q="q1"]'), card);
-  assert.equal(v.root.querySelector('button[data-topic="item:w/T1"] .n').textContent, '2');
-  assert.deepEqual(v.root.querySelector('#qform').children.map((c) => c.dataset.q || c.getAttribute('class')), ['q1', 'q1b', 'bar'], 'the new task goes after the last open one');
+  assert.equal(v.root.querySelector('[data-row="topic:item:w/T1"] .wrow-act').textContent, 'Answer 2');
   v.unmount();
 });
 
@@ -7068,17 +6771,15 @@ test("a card the reader closes stays closed through a repaint that changed its s
 });
 
 // docs/adr/2026-11-11-1400-one-selected-look-no-yellow-fill.md
-test('an In Progress pill is a faint orange tint, and every selected option and pill draws the one blue selected look', async () => {
+test('a selected option and a marked row draw the one blue selected look', async () => {
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const lines = css.split('\n');
   const rule = (sel) => lines.find((l) => l.startsWith(`${sel} {`));
-  assert.match(rule('.view-questions .topics button.progress'), /border-color: var\(--line\); background: color-mix\(in srgb, var\(--color-notice\) 12%, var\(--panel\)\)/);
   assert.match(css, /--sel-bg: var\(--accent-soft\); --sel-line: var\(--accent\)/);
-  for (const sel of ['.view-questions .opt:has(input:checked)', '.view-questions .topics button[aria-pressed="true"]', '.view-questions .topics button.progress[aria-pressed="true"]']) {
-    assert.match(rule(sel), /border-color: var\(--sel-line\); background: var\(--sel-bg\)/, sel);
-    assert.doesNotMatch(rule(sel), /color-notice|color: #000/, sel);
-  }
+  assert.match(rule('.view-questions .opt:has(input:checked)'), /border-color: var\(--sel-line\); background: var\(--sel-bg\)/);
+  assert.match(rule('.view-questions .wrow[aria-current="true"]'), /background: var\(--sel-bg\)/);
+  for (const sel of ['.view-questions .opt:has(input:checked)', '.view-questions .wrow[aria-current="true"]']) assert.doesNotMatch(rule(sel), /color-notice|color: #000/, sel);
 });
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
@@ -7178,42 +6879,3 @@ test('a project made with New project… lands A–Z among the team’s projects
   control.destroy();
 });
 
-// docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md
-test("Waiting on you is one queue: question pills and tap rows in the board's order, a count that is the rows, Implement and Done tapped in place, the rest opening the card", async () => {
-  const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }], answers: [], state: 'open' });
-  const tap = (kind, key, word, more = {}) => ({ kind, key, title: `${key.split('/')[1]}: Card`, word, label: `Tap ${word}`, fault: false, since: '2026-11-02T10:00:00.000Z', progress: false, ...more });
-  const queue = [tap('implement', 'w/T2', 'Implement'), { kind: 'question', id: 'item:w/T1', since: '2026-11-03T10:00:00.000Z' }, tap('done', 'w/T4', 'Done'),
-    tap('action', 'w/T5', 'Action', { label: 'stalled: tests fail', fault: true })];
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], questions: [question('q1', 'item:w/T1')], at: 'q1', queue });
-  const confirms = [];
-  v.page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return true; };
-  await v.settle();
-  const order = () => v.root.querySelectorAll('.topics > *').map((n) => n.dataset.tap || n.dataset.topic);
-  assert.deepEqual(order(), ['w/T2', 'item:w/T1', 'w/T4', 'w/T5'], 'questions and taps interleave in the board order');
-  assert.equal(v.root.querySelector('.q-count').textContent, `${queue.length} need you`, 'the count is the rows');
-  assert.equal(v.root.querySelector('.tap[data-tap="w/T5"]').classList.contains('fault'), true);
-  assert.deepEqual(v.root.querySelectorAll('.tap button').map((b) => b.textContent), ['Implement', 'Done', 'Open']);
-
-  v.page.fire(v.root, 'click', { target: v.root.querySelector('.tap[data-tap="w/T2"] button') });
-  await v.settle();
-  assert.deepEqual([confirms, JSON.parse(JSON.stringify(v.sent))], [['Implement T2?'], [['card-build', { key: 'w/T2' }]]]);
-  assert.deepEqual(order(), ['item:w/T1', 'w/T4', 'w/T5'], 'the recorded tap leaves the queue');
-  assert.equal(v.root.querySelector('.q-count').textContent, '3 need you');
-
-  v.page.fire(v.root, 'click', { target: v.root.querySelector('.tap[data-tap="w/T4"] button') });
-  await v.settle();
-  assert.deepEqual([confirms.at(-1), v.sent.at(-1)[0]], ['Mark done T4?', 'card-done']);
-  v.unmount();
-});
-
-test('Waiting on you with only taps shows the queue and no form, and with nothing the moon', async () => {
-  const queue = [{ kind: 'implement', key: 'w/T2', title: 'T2: Card', word: 'Implement', label: 'Tap Implement', fault: false, since: '2026-11-02T10:00:00.000Z', progress: false }];
-  const v = questionsOnDom({ topics: [], questions: [], at: '', queue });
-  await v.settle();
-  assert.deepEqual([v.root.querySelectorAll('.tap').length, v.root.querySelector('#qform'), v.root.querySelector('.q-empty')], [1, null, null]);
-  v.unmount();
-  const none = questionsOnDom({ topics: [], questions: [], at: '' });
-  await none.settle();
-  assert.ok(none.root.querySelector('.q-empty'));
-  none.unmount();
-});

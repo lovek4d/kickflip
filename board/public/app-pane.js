@@ -1,7 +1,7 @@
 // The board view's pane: from 900px, Waiting on you (view-questions.js, embedded) beside the lanes, mounted while the
 // width lasts (docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md). Every questions URL lands
-// here at that width (shell.js go, focusQuestion), and a click on a pill focuses its card on the board
-// (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md). A prototype opens in the pane too, in place of
+// here at that width (shell.js go, focusQuestion), and a click on a topic's row focuses its card on the board under the
+// questions sheet (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md). A prototype opens in the pane too, in place of
 // Waiting on you until its ‹ Open questions (openViewer). Below 900px there is no pane: the header's ? opens Waiting on
 // you as its own page. Needs app-core.js.
 BoardView.part((B) => {
@@ -17,14 +17,15 @@ BoardView.part((B) => {
   }
 
   let questions = null;
-  // A click on a pane pill, or on the topic's title, focuses its topic on the board: item:<key> is a card (an ask is one, ask:<id>);
-  // any other topic, or one the board doesn't show, does nothing.
+  // A click on a pane row focuses its place on the board: item:<key> is a card (an ask is one, ask:<id>), review:<PR
+  // number> a held review in the Auto Review lane; any other topic, or one the board doesn't show, does nothing.
   function openOnBoard(id) {
     if (id.startsWith('item:')) B.select({ card: id.slice(5) }, { pane: false });
+    if (id.startsWith('review:')) B.openReview(Number(id.slice(7)));
   }
   // What can cover the pane: each closes itself.
   const paneOverlays = [() => B.closeReader?.(), () => B.closeQuestionsSheet?.(), () => closeViewer()];
-  // The pane shows its topic: a pill tap or a questions URL (focusQuestion) both land here.
+  // The pane marks its topic: a questions URL (focusQuestion) lands here.
   function showTopic(id) {
     for (const close of paneOverlays) close();
     B.saveFragment({ openItemsCard: id });
@@ -36,25 +37,27 @@ BoardView.part((B) => {
     const slot = $('#boardPane .pane-questions');
     // The lanes' board is the pane's: the pane holds none of its own, and renderPane hands it each board that lands.
     const host = { board: () => state.board, send: (kind, data) => B.send(kind, data), reload: () => B.loadBoard({ via: 'signal' }) };
-    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, host, openOnBoard, onTopic: showTopic }), { slot });
+    // A row's questions sheet takes the place of the reader and the viewer.
+    const openSheet = (id) => { B.closeReader?.(); closeViewer(); return B.openQuestionsSheet(id); };
+    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, host, openOnBoard, onTopic: showTopic, openSheet }), { slot });
     questions.mount();
   }
   // The shell's one rule for a questions URL from 900px (shell.js go): it shows the board and asks here for the question
   // or topic id, or null for none. The selection sets the topic in the pane and its card on the board (app-selection.js)
   // → false while there is no pane or it hasn't loaded, so the shell asks again.
-  // sheet: a question link or a push (shell.js) also opens the questions sheet on a question of a card, in place of the
-  // questions page (docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md).
-  function focusQuestion(id, { sheet = false } = {}) {
+  // An open question's id also opens its questions sheet, unless sheet is false
+  // (docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md).
+  function focusQuestion(id, { sheet = true } = {}) {
     const shown = B.select({ question: id });
-    if (shown && sheet) B.openQuestionsSheet(id);
+    if (shown && sheet && state.board.owner.some((q) => q.id === id && q.state === 'open')) B.openQuestionsSheet(id);
     return shown;
   }
-  // The pane opens the topic id, resolved or not, and focuses its pill → false while there is no pane or it hasn't loaded.
+  // The pane marks the topic id's row, resolved or not, and focuses it → false while there is no pane or it hasn't loaded.
   function openPaneTopic(id) {
     if (!questions?.B.openTopic(id)) return false;
-    const pill = questions.slot.querySelector('.topics button[aria-pressed="true"]');
-    pill?.focus();
-    pill?.scrollIntoView({ block: 'nearest' });
+    const row = questions.slot.querySelector('.wrow[aria-current="true"]');
+    row?.focus();
+    row?.scrollIntoView({ block: 'nearest' });
     return true;
   }
 
@@ -101,7 +104,7 @@ BoardView.part((B) => {
     if (round) { openViewer(round); return; }
     const act = ev.target.closest('[data-pv], [data-ps-top]');
     if (!act) return;
-    if (act.dataset.pv === 'back') { focusQuestion(viewer.q); return; }
+    if (act.dataset.pv === 'back') { focusQuestion(viewer.q, { sheet: false }); return; }
     if (act.dataset.pv === 'widen') viewer.widened = !viewer.widened;
     else viewer.sheet = !viewer.sheet;
     paintViewer();
