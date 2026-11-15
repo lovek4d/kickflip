@@ -295,6 +295,13 @@ export function listenState(board, { now = Date.now(), running = liveSessions(),
   return running?.has(session) ? 'deaf' : 'asleep';
 }
 
+// Whether the board's owner session is working now: its record (records(), live.mjs sessionRecords) says busy. An owner's
+// unanswered message reads thinking only while this holds, and waiting while the session is idle
+// (docs/adr/2026-11-15-1500-a-new-tasks-thread-starts-with-the-owners-message-alone.md).
+export function sessionBusy(board, { records = sessionRecords } = {}) {
+  return records().some((r) => r.sessionId === board.owner?.session && r.status === 'busy');
+}
+
 const cursorPath = (board, session) => path.join(board.dir, 'data', `.watch-cursor-${session}.json`);
 const cursorFile = (board) => cursorPath(board, board.owner.session);
 export function watcherCursor(board) {

@@ -10,3 +10,5 @@ The owner on hub/T-401: "I see some new tasks process for quite some time, wonde
 - **A New strip entry waiting for pick-up reads a grey "triaging"**, its dot still, counting up from when it was asked through the shared duration (`ui-progress-bar.js` `liveFor`), so it reads "triaging" for its first minute and "triaging (1m)" after. Picked up, it reads "processing...", as before.
 
 Considered: the haiku router writing the title and phase at intake (the owner wants the orchestrator to triage, since only it knows the board); a live "Sorting (40s)" line with no change to the flow (it shows the wait without shortening it). When the orchestrator is mid-way through a land or a verify, the intake still queues behind it; that latency is T-299's and T-394's.
+
+Amended by [a new task's thread starts with the owner's message alone](2026-11-15-1500-a-new-tasks-thread-starts-with-the-owners-message-alone.md): item triage posts no "Triaged:" line (a fold still does, on the target), and `--text` goes only with `--fold-into`.

@@ -362,7 +362,7 @@ import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
 import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
-import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
+import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { nodeBin } from '../bin/install.mjs';
@@ -872,7 +872,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const { title, reviewers } = await config();
     const self = boardAt(here);
     const listen = self ? listenState(self) : 'deaf';
-    const built = withHub(await sharedBoard(), { listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
+    const built = withHub(await sharedBoard(), { listen, busy: self ? sessionBusy(self) : true, prompts: self ? pendingFor(self.route).map(shown) : [] });
     built.items = built.items.map((it) => (it.worktree && !existsSync(it.worktree) ? { ...it, worktree: null } : it));
     const links = self ? linksOf(self, { listen }) : null;
     return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), reviewerGithub: Object.fromEntries((reviewers || []).filter((r) => typeof r?.name === 'string').map((r) => [r.name, r.github])), ...built, links, setup: await setupOf(links),
@@ -1018,7 +1018,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
     const lines = (await Promise.all([...keys].map((k) => readLines(threadFile(k))))).flat();
     const clearedAt = [routeRecord(await readActedOn(here), key), item?.lane === 'done' ? item.closed_at : null].filter(Boolean).map(String).sort().pop() || '';
-    return threadOf(key, { lines, events: await Promise.all(mine.map(withReply)), owner, working: await readWorking(here), listening: !boardAt(here) || listenState(boardAt(here)) === 'listening', clearedAt, fromAsk: askId,
+    return threadOf(key, { lines, events: await Promise.all(mine.map(withReply)), owner, working: await readWorking(here), listening: !boardAt(here) || (listenState(boardAt(here)) === 'listening' && sessionBusy(boardAt(here))), clearedAt, fromAsk: askId,
       links: own ? await askLinksOf(askId) : [], agents, moved, cards: new Map((await sharedBoard()).items.map((i) => [i.key, { ref: i.ref }])) });
   }
 

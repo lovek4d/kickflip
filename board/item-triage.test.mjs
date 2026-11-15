@@ -17,18 +17,19 @@ async function fileAsk(id) {
   return store.fileAsk(audit(), id);
 }
 const item = (id) => read(audit('data', 'items.json')).items.find((i) => i.id === id);
-const messages = (id) => lines(audit('data', 'threads', `audit__${id}.jsonl`)).filter((m) => !m.kind && !m.command).map((m) => m.text);
+const messages = (id) => (!fs.existsSync(audit('data', 'threads', `audit__${id}.jsonl`)) ? [] : lines(audit('data', 'threads', `audit__${id}.jsonl`))).filter((m) => !m.kind && !m.command).map((m) => m.text);
 
-test('item triage sorts a New task in one call: its title, phase, links and ticket, and one Triaged line in its thread', async () => {
+test('item triage sorts a New task in one call: its title, phase, links and ticket, and and nothing in its thread', async () => {
   auditEvents(ask('a1'));
   const key = await fileAsk('a1');
-  const r = await board('item', 'triage', key, '--title', 'fix(board): the header jumps on scroll', '--phase', 'discussing', '--relate', 'A1', '--deps', 'ENG-1', '--text', 'looking at the code next', '--site', 'audit');
+  const r = await board('item', 'triage', key, '--title', 'fix(board): the header jumps on scroll', '--phase', 'discussing', '--relate', 'A1', '--deps', 'ENG-1', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.match(r.out, /T-1: triaged discussing/);
   const t = item('T-1');
   assert.deepEqual([t.title, t.phase, t.related, t.deps, t.triaged.phase], ['fix(board): the header jumps on scroll', 'discussing', ['audit/A1'], ['ENG-1'], 'discussing']);
   assert.ok(t.sorted_at, 'the New strip reads it ingested');
-  assert.deepEqual(messages('T-1'), ['Triaged: discussing, relates to A1, after ENG-1; looking at the code next']);
+  assert.deepEqual(messages('T-1'), [], 'the owner\'s message is alone in the thread');
+  assert.match((await board('item', 'triage', key, '--title', 'fix: x', '--phase', 'grilling', '--text', 'hello', '--site', 'audit')).err, /sorted/);
   // Sorted, it reads as a task, and nothing waits on its intake.
   const b = buildBoard({ now: Date.parse('2026-11-15T07:01:00Z'), events: [ask('a1')], files: [{ slug: 'audit', agents: {}, itemFile: read(audit('data', 'items.json')) }], prs: {}, owner: {} });
   const card = b.items.find((i) => i.key === key);
@@ -53,9 +54,9 @@ test('item triage --phase visual sorts the task discussing for the visual\'s bri
   const k1 = await fileAsk('a1');
   const k2 = await fileAsk('a2');
   assert.equal((await board('item', 'triage', k1, '--title', 'feat(board): sketch the header', '--phase', 'visual', '--site', 'audit')).code, 0);
-  assert.deepEqual([item('T-1').phase, messages('T-1')], ['discussing', ['Triaged: visual']]);
+  assert.deepEqual([item('T-1').phase, messages('T-1')], ['discussing', []]);
   assert.equal((await board('item', 'triage', k2, '--title', 'feat(board): a darker header', '--phase', 'grilling', '--site', 'audit')).code, 0);
-  assert.deepEqual([item('T-2').phase, messages('T-2')], ['grilling', ['Triaged: grilling']]);
+  assert.deepEqual([item('T-2').phase, messages('T-2')], ['grilling', []]);
 });
 
 test('item triage --split-of sets the Parent and copies its gates', async () => {
@@ -66,7 +67,7 @@ test('item triage --split-of sets the Parent and copies its gates', async () => 
   const key = await fileAsk('a1');
   assert.equal((await board('item', 'triage', key, '--title', 'feat(board): the header half', '--phase', 'discussing', '--split-of', 'A1', '--site', 'audit')).code, 0);
   assert.deepEqual([item('T-1').parent, item('T-1').gates], ['audit/A1', { prototype: 'Take B' }]);
-  assert.deepEqual(messages('T-1'), ['Triaged: discussing, split from A1']);
+  assert.deepEqual(messages('T-1'), []);
 });
 
 test('item triage --fold-into merges a duplicate New task into the other task, with a line on both', async () => {
@@ -164,4 +165,11 @@ test('a fold owes no investigate wait, and a task sorted past its triage phase o
   assert.ok(investigate(k2));
   assert.equal((await board('item', 'set', k2, '--phase', 'grilling', '--site', 'audit')).code, 0);
   assert.equal(investigate(k2), undefined);
+});
+
+test('item triage --text is refused unless it folds, and the refusal writes nothing', async () => {
+  auditEvents(ask('a1'));
+  const key = await fileAsk('a1');
+  assert.match((await board('item', 'triage', key, '--title', 'fix: x', '--phase', 'grilling', '--text', 'hello', '--site', 'audit')).err, /--text goes only with --fold-into/);
+  assert.deepEqual([item('T-1').phase, fs.existsSync(audit('data', 'threads', 'audit__T-1.jsonl'))], [undefined, false]);
 });

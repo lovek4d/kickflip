@@ -345,10 +345,11 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   item triage <file>/<id> --title <t> --phase <p>        the first move on a new task, from what you know of the
          [--relate <id>,<file>/<id>] [--split-of <key>]  board, reading no code: one call sets the title (Conventional),
          [--deps <id>,<file>/<id>] [--ticket <id>]       the phase (discussing, grilling, prototyping, or visual,
-         [--text <t>]                                    which reads discussing for the visual's brief) and the
-                                                         links as item set's and item add's, and posts "Triaged:
-                                                         <phase>[, relates to …, split from …, after …]; <text>",
-                                                         which sorts the New task and ends its intake wait.
+                                                         which reads discussing for the visual's brief) and the
+                                                         links as item set's and item add's, which sorts the New
+                                                         task and ends its intake wait. Posts nothing in its
+                                                         thread: the owner's message reads thinking until your
+                                                         first reply.
                                                          Investigate after: notes, questions, a reply, ready.
                                                          Refuses a task already sorted, and an ask edited after
                                                          you read it, as reply does

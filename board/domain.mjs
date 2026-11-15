@@ -443,6 +443,7 @@ function waitFactsOf(it, { agents, thread, events, refusedAt, replyAt }) {
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, replyAt, unblockedAt: it.unblocked_at || null,
     unverified: unverifiedOf(agents),
     // docs/adr/2026-11-15-1030-a-triaged-task-owes-an-investigate-wait-until-its-notes-are-written.md
+    // A "Triaged:" line is no reply: item triage no longer writes one, but a thread from before still holds it.
     triagedAt: it.triaged && !it.triaged.investigated_at && it.triaged.phase === it.phase
       && !thread.some((m) => String(m.ts) > it.triaged.at && (m.who || 'claude') === 'claude' && !m.kind && !m.command && !m.line && !String(m.text ?? '').startsWith('Triaged:'))
       ? it.triaged.at : null,
@@ -1481,13 +1482,14 @@ export function buildBoard(snapshot) {
 // adds them to the build it shares, so the hub's state, which changes outside the board's data, is read each time.
 // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: a listen state that isn't listening
 // reads each card and New ask waiting, not working, as the thread does (threadOf's listening); the shared build, which
-// pulls and waits read, keeps its working marks. A listen the caller didn't name leaves the build as built.
-const notListening = (listen) => Boolean(listen) && listen !== 'listening';
+// pulls and waits read, keeps its working marks. So does a session that is idle (busy false): the owner's message reads
+// thinking only while the session works. A listen the caller didn't name leaves the build as built.
+const notListening = (listen, busy) => (Boolean(listen) && listen !== 'listening') || busy === false;
 const ASK_WAITS = ({ since, ...ask }) => ({ ...ask, state: ask.state === 'working' ? 'waiting' : ask.state });
-export function withHub(built, { listen, prompts } = {}) {
+export function withHub(built, { listen, busy, prompts } = {}) {
   const needs = [...promptLines(prompts), ...built.needs];
-  const items = notListening(listen) ? built.items.map((it) => (it.working || it.ask?.state === 'working' ? { ...it, working: false, ...(it.ask ? { ask: ASK_WAITS(it.ask) } : {}) } : it)) : built.items;
-  const boardAsks = notListening(listen) ? built.boardAsks.map(ASK_WAITS) : built.boardAsks;
+  const items = notListening(listen, busy) ? built.items.map((it) => (it.working || it.ask?.state === 'working' ? { ...it, working: false, ...(it.ask ? { ask: ASK_WAITS(it.ask) } : {}) } : it)) : built.items;
+  const boardAsks = notListening(listen, busy) ? built.boardAsks.map(ASK_WAITS) : built.boardAsks;
   return { ...built, items, boardAsks, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped' } };
 }
 

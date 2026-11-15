@@ -778,9 +778,10 @@ export async function relateAsk(site, eventId, key, summary) {
 
 // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
 // The orchestrator's first move on a card still in intake (a New card an ask became, or one an agent added unfiled),
-// from what it knows of the board: one call sets its title, phase and links and posts "Triaged: <phase>[, relates to
-// …]; <text>" in its thread, which sorts it and ends its intake wait. visual sorts it discussing, for the visual's
-// brief. foldInto, for a duplicate, merges the New card into that task as item relate-ask does, a line on both.
+// from what it knows of the board: one call sets its title, phase and links, which sorts it and ends its intake wait,
+// and posts nothing in its thread: the owner's message stays alone there, reading thinking until the first real reply.
+// visual sorts it discussing, for the visual's brief. foldInto, for a duplicate, merges the New card into that task as
+// item relate-ask does, a line on both.
 export const TRIAGE_PHASES = ['discussing', 'grilling', 'prototyping', 'visual'];
 const inIntake = (item) => (item.from_ask ? stillNew(item) : Boolean(item.unfiled) && !item.phase);
 export async function triageItem(site, key, { title, phase, relate, splitOf, deps, ticket, text: said, foldInto }, options) {
@@ -788,25 +789,17 @@ export async function triageItem(site, key, { title, phase, relate, splitOf, dep
   const { item } = await loadItem(site, key);
   if (!inIntake(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so item triage has nothing to do; change it with item set ${key}`);
   if (said !== undefined) messageText(said);
-  const rest = said === undefined ? '' : `; ${said}`;
   if (foldInto !== undefined) {
     if ([title, phase, relate, splitOf, deps, ticket].some((v) => v !== undefined)) fail('--fold-into closes the task into another; it takes only --text');
     if (!item.from_ask) fail(`${key} is no New task an ask became, so there is nothing to fold; file it with item triage ${key} --title --phase, then close it with item set ${key} --done`);
-    const summary = `Triaged: folded in ${await cardName(site, key)} "${item.title}"${rest}`;
+    const summary = `Triaged: folded in ${await cardName(site, key)} "${item.title}"${said === undefined ? '' : `; ${said}`}`;
     await relateAsk(site, item.from_ask, foldInto, summary);
     return { lines: [] };
   }
   if (title === undefined || phase === undefined) fail(`item triage needs --title "<type>(<scope>): <summary>" and --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task> for a duplicate`);
   if (!TRIAGE_PHASES.includes(phase)) fail(`item triage --phase takes ${TRIAGE_PHASES.join(', ')}; ready follows the investigation, with item set ${key} --phase ready`);
-  const names = async (list) => (await Promise.all(String(list).split(',').filter(Boolean).map((k) => cardName(site, depKey(parseKey(key).file, k))))).join(', ');
-  const links = [
-    relate !== undefined && `relates to ${await names(relate)}`,
-    splitOf !== undefined && `split from ${await names(splitOf)}`,
-    deps !== undefined && `after ${await names(deps)}`,
-  ].filter(Boolean);
-  const set = await setItem(site, key, { title, phase: phase === 'visual' ? 'discussing' : phase, relate, splitOf, deps, ticket, triaged: true }, options);
-  const posted = await appendMessage(site, key, { text: `Triaged: ${[phase, ...links].join(', ')}${rest}` });
-  return { lines: [...set.lines, ...posted.lines] };
+  if (said !== undefined) fail('item triage --text goes only with --fold-into, whose line it joins; a triaged task shows no Triaged line, so put what you know in its notes (item notes)');
+  return setItem(site, key, { title, phase: phase === 'visual' ? 'discussing' : phase, relate, splitOf, deps, ticket, triaged: true }, options);
 }
 
 // Moves a folded ask back out of the card it was folded into, to a card of its own.

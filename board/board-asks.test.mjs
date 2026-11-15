@@ -153,3 +153,11 @@ test("the asking card draws the answer as an ordinary message named for the answ
   assert.match(html, /<div class="msg other">\s*<div class="who">audit<\/div>/);
   assert.match(html, /<a [^>]*href="https:\/\/example.com\/adr"[^>]*>the ADR<\/a>/);
 });
+
+// docs/adr/2026-11-15-1500-a-new-tasks-thread-starts-with-the-owners-message-alone.md
+test('an owner\'s unanswered message reads thinking only while the session is busy, and waiting while it is idle', () => {
+  const built = buildBoard({ files: [], events: [{ id: 'q1', ts: '2026-11-15T00:30:00Z', kind: 'board-ask', data: { text: QUESTION, from: { route: 'orch', title: 'Orch', key: 'w/A1', ref: 'A1' } } }], working: { q1: '2026-11-15T00:40:00.000Z' } });
+  assert.equal(withHub(built, { listen: 'listening', busy: true }).boardAsks[0].state, 'working');
+  assert.equal(withHub(built, { listen: 'listening', busy: false }).boardAsks[0].state, 'waiting');
+  assert.equal(withHub(built, { listen: 'listening' }).boardAsks[0].state, 'working', 'a build that names no busy is left as built');
+});

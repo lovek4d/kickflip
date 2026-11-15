@@ -25,7 +25,7 @@ process.env.KICKFLIP_HUB_PORT = '1';
 const START = 'Thu Nov  5 00:00:00 2026';
 const ps = stallingPs(home, { lstart: START, ppid: process.pid });
 process.env.PATH = `${ps.bin}:${process.env.PATH}`;
-const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, hubCodeFile, listenState, checkListening, withManifestLock, saveJSON } = await import('./boards.mjs');
+const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, hubCodeFile, listenState, sessionBusy, checkListening, withManifestLock, saveJSON } = await import('./boards.mjs');
 
 const claude = (...p) => path.join(home, '.claude', ...p);
 const site = (route, ...p) => claude('kickflip', 'sites', route, ...p);
@@ -1095,4 +1095,13 @@ test('stopping the hub stops every site it started, one that ignores SIGTERM and
     assert.deepEqual(pidFiles(), []);
     for (const pid of pids) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, `pid ${pid} still runs`);
   } finally { for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch {} } }
+});
+
+test("sessionBusy reads the owner session's record: busy is true, idle, another session's or none is false", () => {
+  const board = { owner: { session: 's-shop' } };
+  const records = (...rs) => () => rs;
+  assert.equal(sessionBusy(board, { records: records({ sessionId: 's-shop', status: 'busy' }) }), true);
+  assert.equal(sessionBusy(board, { records: records({ sessionId: 's-shop', status: 'idle' }) }), false);
+  assert.equal(sessionBusy(board, { records: records({ sessionId: 's-other', status: 'busy' }) }), false);
+  assert.equal(sessionBusy(board, { records: records() }), false);
 });
