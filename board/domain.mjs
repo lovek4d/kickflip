@@ -1023,6 +1023,10 @@ function handedLine(e) {
 }
 // A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
+// docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md: a reply the hub copied
+// from a task's Slack thread as a message (hub/slack-intake.mjs followSlackAsks), its slack {by?, link}: under its
+// sender's name (the owner's own without one), via Slack, linking to the reply.
+const slackOf = (e) => (e.data?.slack ? { via: 'slack', link: e.data.slack.link, ...(e.data.slack.by ? { by: e.data.slack.by } : {}) } : {});
 // docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
 // A line that names a card carries its key (card) and the words before it (words); board/public/ui-links.js cardRef
 // draws the reference when the line shows, at the ref the card has then, linked, with its lane ring. Its text reads the
@@ -1134,7 +1138,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.
       .map((e) => ({ ts: e.ts, who: e.data.who === 'claude' ? 'claude' : 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies,
-        ...(e.data.sendId ? { sendId: e.data.sendId } : {}), ...requestOf(e, asked), ...byOf(e) })),
+        ...(e.data.sendId ? { sendId: e.data.sendId } : {}), ...requestOf(e, asked), ...byOf(e), ...slackOf(e) })),
     ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
       return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${numbered(asked, asked.get(e.data.id))}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies, status: ANSWERS_SUBMITTED, ...byOf(e) };

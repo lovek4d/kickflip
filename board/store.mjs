@@ -1345,6 +1345,29 @@ export async function boardPosts(site) {
   out.delete(undefined);
   return out;
 }
+// docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
+// data/slack-threads.json {threads: {"<channel>:<thread_ts>": ts}}: the newest reply the hub has read in each Slack
+// thread a task was filed from.
+const slackThreadsFile = (site) => path.join(site, 'data', 'slack-threads.json');
+const slackThreadId = (t) => `${t.channel}:${t.thread_ts}`;
+// The Slack threads this board's tasks follow: each ask routed from a Slack @kickflip whose card is not Done, as
+// {key, channel, thread_ts, ts, by, link, heard}: routed.slack, the @kickflip's sender and permalink, and heard, the
+// newest reply read, else the @kickflip's ts, since the replies up to it were its words.
+export async function followedSlackThreads(site) {
+  const asks = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'ask' && e.data?.routed?.via === 'slack' && e.data.routed.slack);
+  if (!asks.length) return [];
+  const heard = (await readJSON(slackThreadsFile(site), {})).threads || {};
+  const out = [];
+  for (const e of asks) {
+    const card = await askCardOf(site, e.id);
+    if (!card || card.item.lane === 'done') continue;
+    const { slack, by, link } = e.data.routed;
+    out.push({ key: card.key, ...slack, by, link, heard: heard[slackThreadId(slack)] || slack.ts });
+  }
+  return out;
+}
+// Records ts as the newest reply the hub has read in thread, one of followedSlackThreads.
+export const markSlackThreadHeard = (site, thread, ts) => editJSON(slackThreadsFile(site), (all) => { all.threads = { ...all.threads, [slackThreadId(thread)]: ts }; });
 // What the orchestrator posts in a day thread: its words, at most WORDS_LIMIT characters; the Slack client signs them off.
 const WORDS_LIMIT = 250;
 function orchestratorWords(words) {

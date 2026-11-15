@@ -118,3 +118,63 @@ test('without a saved token intake does nothing', async () => {
   assert.deepEqual(await fileSlackAsks({ boards }), { filed: [], failed: [] });
   assert.equal(read(INTAKE_FILE), undefined);
 });
+
+// docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
+const { followSlackAsks } = await import('./slack-intake.mjs');
+const jsonLines = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+const messageEvents = () => jsonLines(path.join(site, 'data', 'events.jsonl')).filter((e) => e.kind === 'item-message');
+const threadLines = () => jsonLines(path.join(site, 'data', 'threads', 'items__T-1.jsonl'));
+const follow = (slack) => followSlackAsks({ boards, fetch: slack.fetch });
+// A board holding task items/T-1, which an @kickflip at ts in DM D2's thread thread_ts became, sent by `by`, in lane.
+function slackFiled(world, { thread_ts, ts = thread_ts, by = 'Bob', lane = 'todo' }) {
+  write(path.join(site, 'board.json'), { title: 'Orch', items: 'items.json', reviewers: [] });
+  write(path.join(site, 'items.json'), { items: [{ id: 'T-1', title: 'fix: export 500s', from_ask: 'ea', lane }] });
+  const routed = { reason: 'the only board', via: 'slack', by, link: link(world, 'D2', ts, ts === thread_ts ? undefined : thread_ts), slack: { channel: 'D2', thread_ts, ts }, at: '2026-11-15T09:00:00Z' };
+  fs.mkdirSync(path.join(site, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'ea', ts: '2026-11-15T09:00:00Z', kind: 'ask', data: { text: `${by}: @kickflip the export button 500s`, routed } }) + '\n');
+}
+
+test("each later reply in a Slack-filed task's thread lands on the task once: the asker's and the owner's @kickflip ones as messages that wake the orchestrator, the rest copied silently", async () => {
+  const { world, slack } = await started();
+  const asked = slack.say({ channel: 'D2', user: 'U2', text: '@kickflip the export button 500s' });
+  slackFiled(world, { thread_ts: asked });
+  const theirs = slack.say({ channel: 'D2', user: 'U2', text: 'Still 500s for <@U0> after the deploy', thread_ts: asked });
+  const plain = slack.say({ channel: 'D2', user: 'U0', text: 'Seen, thanks', thread_ts: asked });
+  slack.say({ channel: 'D2', user: 'U0', text: 'Looking into it\n- :claude_kickflip:', thread_ts: asked });
+  const named = slack.say({ channel: 'D2', user: 'U0', text: '@kickflip check the logs too', thread_ts: asked });
+  const shot = `${1792800000 + 9000}.000100`;
+  world.messages.push({ channel: 'D2', user: 'U2', text: 'Here', thread_ts: asked, ts: shot, files: [{ name: 'trace.png', permalink: 'https://acme.slack.com/files/U2/F1/trace.png' }] });
+  assert.deepEqual(await follow(slack), { copied: ['orch items/T-1: Bob', 'orch items/T-1: Love', 'orch items/T-1: Love', 'orch items/T-1: Bob'], failed: [] });
+  assert.deepEqual(messageEvents().map((e) => e.data), [
+    { key: 'items/T-1', text: 'Still 500s for @Love after the deploy', sendId: `slack:D2:${theirs}`, slack: { by: 'Bob', link: link(world, 'D2', theirs, asked) } },
+    { key: 'items/T-1', text: '@kickflip check the logs too', sendId: `slack:D2:${named}`, slack: { link: link(world, 'D2', named, asked) } },
+    { key: 'items/T-1', text: 'Here\ntrace.png: https://acme.slack.com/files/U2/F1/trace.png', sendId: `slack:D2:${shot}`, slack: { by: 'Bob', link: link(world, 'D2', shot, asked) } },
+  ]);
+  assert.deepEqual(threadLines().map((m) => [m.who, m.via, m.text, m.link]), [['love', 'slack', 'Seen, thanks', link(world, 'D2', plain, asked)]]);
+  slack.calls.length = 0;
+  assert.deepEqual(await follow(slack), { copied: [], failed: [] });
+  assert.deepEqual(slack.calls.map((c) => [c.method, c.body.oldest]), [['conversations.replies', shot]]);
+  assert.equal(messageEvents().length, 3);
+});
+
+test("only replies after the @kickflip land, those before it being its words; when the owner asked, the other person's reply is copied silently", async () => {
+  const { world, slack } = await started();
+  const opener = slack.say({ channel: 'D2', user: 'U2', text: 'The export button 500s' });
+  const asked = slack.say({ channel: 'D2', user: 'U0', text: '@kickflip can you look?', thread_ts: opener });
+  slackFiled(world, { thread_ts: opener, ts: asked, by: 'Love' });
+  const theirs = slack.say({ channel: 'D2', user: 'U2', text: 'Thanks!', thread_ts: opener });
+  assert.deepEqual(await follow(slack), { copied: ['orch items/T-1: Bob'], failed: [] });
+  assert.deepEqual(messageEvents(), []);
+  assert.deepEqual(threadLines().map((m) => [m.who, m.via, m.text, m.link]), [['Bob', 'slack', 'Thanks!', link(world, 'D2', theirs, opener)]]);
+});
+
+test('a Done task reads its Slack thread no more', async () => {
+  const { world, slack } = await started();
+  const asked = slack.say({ channel: 'D2', user: 'U2', text: '@kickflip the export button 500s' });
+  slackFiled(world, { thread_ts: asked, lane: 'done' });
+  slack.say({ channel: 'D2', user: 'U2', text: 'Works now', thread_ts: asked });
+  slack.calls.length = 0;
+  assert.deepEqual(await follow(slack), { copied: [], failed: [] });
+  assert.deepEqual(slack.calls, []);
+  assert.deepEqual(threadLines(), []);
+});

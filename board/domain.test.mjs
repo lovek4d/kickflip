@@ -122,6 +122,17 @@ test("a builder's ask and the orchestrator's answer leave the card quiet, and th
   assert.deepEqual([both.waitsOn, both.action?.kind, both.questions.askedAt], ['checking', 'questions', ['2026-10-23T11:00:00Z', '2026-10-23T11:05:00Z']]);
 });
 
+// docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
+test("a message the hub copied from a task's Slack thread draws under its sender's name, with Slack and the reply's link, and waits on the orchestrator", () => {
+  const link = 'https://acme.slack.com/archives/D2/p1792801002000100?thread_ts=1792801001.000100&cid=D2';
+  const events = [
+    { id: 'e1', ts: '2026-10-23T10:01:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Still 500s', sendId: 'slack:D2:1792801002.000100', slack: { by: 'Bob', link } } },
+    { id: 'e2', ts: '2026-10-23T10:02:00Z', kind: 'item-message', data: { key: 'w/A1', text: '@kickflip check the logs', sendId: 'slack:D2:1792801003.000100', slack: { link } } },
+  ];
+  assert.deepEqual(threadOf('w/A1', { events }).map((m) => [m.who, m.by ?? null, m.via, m.link, m.state]), [
+    ['love', 'Bob', 'slack', link, 'waiting'], ['love', null, 'slack', link, 'waiting']]);
+});
+
 test('manifest github selects PR state and card links ahead of wave repo with a wave fallback', () => {
   const files = [{ slug: 'w', itemFile: { repo: 'old/project', items: [{ id: 'A1', pr: 7 }, { id: 'F1', parent: 'A1' }] } }];
   const prs = { 'new/project#7': { ...greenDraft, title: 'selected' }, 'old/project#7': { state: 'CLOSED', title: 'legacy' } };

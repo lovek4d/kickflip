@@ -237,7 +237,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
 import { SlackError, slackStatus, removeSlackToken, saveSlackToken } from './slack.mjs';
 import { sendReviews } from './review-send.mjs';
-import { fileSlackAsks } from './slack-intake.mjs';
+import { fileSlackAsks, followSlackAsks } from './slack-intake.mjs';
 import { createAnswering } from './answering.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -513,7 +513,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   const ERROR_LOG_MS = 60 * 60_000;
   // running: the poll in progress; startedAt: when the last one began; last: its result; remaining: GitHub's points left
   // after its query, null when it made none.
-  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0, slackErrorLoggedAt: 0, slackIntakeErrorLoggedAt: 0 };
+  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0, slackErrorLoggedAt: 0, slackIntakeErrorLoggedAt: 0, slackFollowErrorLoggedAt: 0 };
   const owner = ownerTracker();
 
   const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
@@ -576,6 +576,14 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       if (result.slackIntake.failed.length && clock() - polls.slackIntakeErrorLoggedAt > ERROR_LOG_MS) {
         polls.slackIntakeErrorLoggedAt = clock();
         log(`slack intake: ${result.slackIntake.failed.length} failed, first: ${result.slackIntake.failed[0]} (logged at most hourly)`);
+      }
+      // docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
+      try { result.slackFollow = await followSlackAsks({ boards: listBoards(loadManifest()) }); }
+      catch (e) { result.slackFollow = { copied: [], failed: [e.message] }; }
+      for (const line of result.slackFollow.copied) log(`slack: copied a reply onto ${line}`);
+      if (result.slackFollow.failed.length && clock() - polls.slackFollowErrorLoggedAt > ERROR_LOG_MS) {
+        polls.slackFollowErrorLoggedAt = clock();
+        log(`slack follow: ${result.slackFollow.failed.length} failed, first: ${result.slackFollow.failed[0]} (logged at most hourly)`);
       }
       try { result.deaf = await checkListening({ manifest: loadManifest() }); }
       catch (e) { result.deaf = { pushed: [], failed: [e.message] }; }

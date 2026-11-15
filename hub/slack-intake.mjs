@@ -11,10 +11,10 @@
 // and keeps a thread for KEEP_DAYS, reading no match older.
 import os from 'node:os';
 import path from 'node:path';
-import { listBoards, readJSON, saveJSON } from './boards.mjs';
-import { savedSlack, slackStatus, missingScope, setSearching, isSignedOff } from './slack.mjs';
+import { appendEvent, listBoards, readJSON, saveJSON } from './boards.mjs';
+import { savedSlack, slackStatus, missingScope, setSearching, isSignedOff, slackUserId } from './slack.mjs';
 import { queueRequest } from './router.mjs';
-import { boardPosts } from '../board/store.mjs';
+import { appendMessage, boardPosts, followedSlackThreads, markSlackThreadHeard } from '../board/store.mjs';
 
 export const INTAKE_FILE = path.join(os.homedir(), '.claude', 'kickflip', 'slack-intake.json');
 const NAMED = /@kickflip\b/i;
@@ -22,6 +22,16 @@ const KEEP_DAYS = 30;
 
 // A match's thread: the thread_ts its permalink names when it is a reply, else its own ts.
 const threadOf = (m) => new URL(m.permalink).searchParams.get('thread_ts') || m.ts;
+
+// Each Slack person's name by id, from one users.list; a failure is pushed onto failed and names no one.
+async function slackNames(slack, failed) {
+  try { return new Map((await slack.people()).map((p) => [p.id, p.name])); } catch (e) {
+    failed.push(`naming Slack people: ${e.message}`);
+    return new Map();
+  }
+}
+// A message's text with each Slack mention written as @<name>.
+const mentionsNamed = (text, name) => String(text || '').replace(/<@(U[A-Z0-9]+)(\|[^>]*)?>/g, (_, id) => `@${name(id)}`);
 
 // Files each new @kickflip DM as a queued request, which the hub's tick routes. → {filed: ['<name> in <channel>:
 // <link>'], failed: [why]}, both empty without a saved working token, or while it lacks search:read, which the Slack
@@ -55,10 +65,9 @@ export async function fileSlackAsks({ boards = listBoards(), fetch, now = new Da
     for (const board of boards) {
       try { for (const ts of await boardPosts(board.dir)) ours.add(ts); } catch (e) { failed.push(`${board.route}: reading its Slack posts: ${e.message}`); }
     }
-    let names = new Map();
-    try { names = new Map((await slack.people()).map((p) => [p.id, p.name])); } catch (e) { failed.push(`naming Slack people: ${e.message}`); }
+    const names = await slackNames(slack, failed);
     const name = (id) => names.get(id) || id;
-    const words = (m) => `${name(m.user)}: ${String(m.text || '').replace(/<@(U[A-Z0-9]+)(\|[^>]*)?>/g, (_, id) => `@${name(id)}`)}`;
+    const words = (m) => `${name(m.user)}: ${mentionsNamed(m.text, name)}`;
     for (const m of fresh) {
       const thread = threadOf(m);
       if (state.threads[key(m)] || ours.has(thread)) continue;
@@ -73,4 +82,56 @@ export async function fileSlackAsks({ boards = listBoards(), fetch, now = new Da
   }
   saveJSON(INTAKE_FILE, state);
   return { filed, failed };
+}
+
+// docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
+// Each new reply in the Slack thread an open task was filed from lands on the task, until the task is Done: one
+// conversations.replies read per thread a poll, from the newest reply read. The @kickflip's sender's replies and the
+// owner's naming @kickflip are item-message events, which wake the orchestrator as the owner's own message does, drawn
+// under the sender's name with Slack and the reply's permalink; every other reply is a thread line under its writer's
+// name, which wakes no one. A file in a reply is its name and permalink, since a Slack file opens only with a token.
+// Not copied: the boards' own posts, the owner's signed-off ones (the orchestrator's), Slack's bot and event messages,
+// and an empty one. Each reply is marked read once it is in, so a failure part way copies none twice.
+// → {copied: ['<route> <key>: <name>'], failed: [why]}, both empty without a saved working token.
+const COPIED_SUBTYPES = ['file_share', 'thread_broadcast'];
+export async function followSlackAsks({ boards = listBoards(), fetch } = {}) {
+  const slack = savedSlack({ fetch });
+  const copied = [];
+  const failed = [];
+  if (!slack || slackStatus().refused) return { copied, failed };
+  const owner = slackUserId();
+  let names;
+  for (const board of boards) {
+    let threads, ours;
+    try {
+      threads = await followedSlackThreads(board.dir);
+      if (threads.length) ours = await boardPosts(board.dir);
+    } catch (e) { failed.push(`${board.route}: reading its Slack-filed tasks: ${e.message}`); continue; }
+    for (const thread of threads) {
+      try {
+        const fresh = (await slack.replies({ channel: thread.channel, ts: thread.thread_ts, oldest: thread.heard })).filter((m) => Number(m.ts) > Number(thread.heard));
+        for (const m of fresh) {
+          if (!m.bot_id && (!m.subtype || COPIED_SUBTYPES.includes(m.subtype)) && !ours.has(m.ts) && !(m.user === owner && isSignedOff(m.text, m.attachments))) {
+            names ??= await slackNames(slack, failed);
+            const name = (id) => names.get(id) || id;
+            const text = [mentionsNamed(m.text, name), ...(m.files || []).map((f) => `${f.name || f.title}: ${f.permalink}`)].filter((t) => t.trim()).join('\n');
+            if (text) {
+              const link = `${new URL(thread.link).origin}/archives/${thread.channel}/p${m.ts.replace('.', '')}?thread_ts=${thread.thread_ts}&cid=${thread.channel}`;
+              const theirs = m.user === owner ? null : name(m.user);
+              if (name(m.user) === thread.by || (!theirs && NAMED.test(m.text || ''))) {
+                await appendEvent(board, 'item-message', { key: thread.key, text, sendId: `slack:${thread.channel}:${m.ts}`, slack: { ...(theirs ? { by: theirs } : {}), link } });
+              } else await appendMessage(board.dir, thread.key, { text, who: theirs || 'love', via: 'slack', link });
+              copied.push(`${board.route} ${thread.key}: ${name(m.user)}`);
+            }
+          }
+          await markSlackThreadHeard(board.dir, thread, m.ts);
+        }
+      } catch (e) {
+        // A token without im:history reads no thread; hearing the day threads pushes that (review-send.mjs hear).
+        if (missingScope(e)) return { copied, failed };
+        failed.push(`${board.route}: following ${thread.key}'s Slack thread: ${e.message}`);
+      }
+    }
+  }
+  return { copied, failed };
 }
