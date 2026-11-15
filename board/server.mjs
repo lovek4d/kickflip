@@ -1611,7 +1611,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (!heldByPause) await launchBriefs(items);
     if (!heldByPause) await launchLanders(items, stoppedKeys(items));
     if (!heldByPause) await launchRebases(items, stoppedKeys(items));
-    const resumes = await checkPauses(items, gate);
+    const resumes = await checkPauses(items, gate, cap);
     if (!heldByPause) for (const key of resumes) await resumeBuild(key);
     const { idle, pullable, retitle, waiting, pulls, helpers } = pullOf(items, { cap, pulled, hold });
     const ready = idle && !heldByPause;
@@ -1798,8 +1798,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // board-launched process stopped. pausesLive keeps the minute check running the pass while any pause stands.
   // → the keys of the paused builds due to resume, oldest pause first.
   let pausesLive = false;
-  async function checkPauses(items, gate) {
-    const opts = { usageHeld: (kind) => pausesRunning(gate, kind) };
+  async function checkPauses(items, gate, cap) {
+    const opts = { cap, usageHeld: (kind) => pausesRunning(gate, kind) };
     const work = pauseWork(items, opts);
     // docs/adr/2026-11-10-1400-the-auto-pass-re-reads-a-pause-before-dropping-it.md
     if (work.drop.length) { dataVersion++; work.drop = confirmedDrops(work.drop, (await sharedBoard()).items, opts); }

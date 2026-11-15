@@ -810,9 +810,16 @@ const stillPaused = (it, pause, kind, { now, usageHeld }) => it.blocked || usage
 // running builds a usage pause on their kind (usageHeld(kind)) now holds, neither pausing already nor landing; drop
 // the pauses whose cause cleared before their builder stopped; stop the builds still running PAUSE_HARD_STOP after
 // they were asked; resume the paused builds nothing pauses any more, oldest pause first, each on its card's own slot.
-export function pauseWork(items, { now = Date.now(), usageHeld }) {
+export function pauseWork(items, { now = Date.now(), usageHeld, cap = MAX_IMPLEMENTERS }) {
   const out = { ask: [], drop: [], stop: [], resume: [] };
   const resumes = [];
+  // docs/adr/2026-11-16-0300-a-blocked-in-progress-card-takes-no-slot.md: a build a block paused resumes only while the
+  // cards holding a slot, the ones waiting to resume apart, are fewer than the cap.
+  const waits = (it) => {
+    const run = it.lane === 'progress' && mainBuild(it);
+    return Boolean(run?.pause?.paused) && run.pause.cause === 'blocked' && !stillPaused(it, run.pause, run.kind, { now, usageHeld });
+  };
+  let held = items.filter((i) => i.kind === 'work' && i.lane === 'progress' && !i.blockedBy?.length && !waits(i)).length;
   for (const it of items) {
     if (it.kind !== 'work' || it.lane !== 'progress') continue;
     const run = mainBuild(it);
@@ -827,7 +834,10 @@ export function pauseWork(items, { now = Date.now(), usageHeld }) {
     if (!still) out.drop.push(it.key);
     else if (now - Date.parse(pause.at) >= PAUSE_HARD_STOP) out.stop.push(it.key);
   }
-  out.resume = resumes.sort((a, b) => String(a.at).localeCompare(String(b.at))).map((r) => r.key);
+  for (const { key } of resumes.sort((a, b) => String(a.at).localeCompare(String(b.at)))) {
+    if (!waits(items.find((i) => i.key === key))) out.resume.push(key);
+    else if (held < cap) { held++; out.resume.push(key); }
+  }
   return out;
 }
 
@@ -1680,7 +1690,8 @@ export const MAX_IMPLEMENTERS = 5;
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
 // For built items in board order, cap the board's Maximum parallel implementers and pulled the cards the pull started
 // builds on: each open card In Progress takes one slot until it lands, whatever runs on it, building, in Orchestrator
-// review, landing, waiting on the owner, paused or stalled, and however many agents. A card in any other lane takes none.
+// review, landing, waiting on the owner, paused or stalled, and however many agents, unless a task blocks it
+// (docs/adr/2026-11-16-0300-a-blocked-in-progress-card-takes-no-slot.md). A card in any other lane takes none.
 // pullable lists the cards ready to build, in board order, so bumped first and the
 // rest newest first (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
 // waiting lists the pulled cards not yet started that still hold a slot: the pullable ones. free is the slots left, the cap less the cards In Progress and waiting. pulls lists the pullable
@@ -1692,7 +1703,11 @@ export const MAX_IMPLEMENTERS = 5;
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
 export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] } = {}) {
   const open = items.filter((i) => !closedLane(i));
-  const inProgress = open.filter((i) => i.lane === 'progress').length;
+  // docs/adr/2026-11-16-0300-a-blocked-in-progress-card-takes-no-slot.md: a card In Progress blocked by any task takes no
+  // slot, and its blockers are first in line for the slots.
+  const blockedIn = open.filter((i) => i.lane === 'progress' && i.blockedBy?.length);
+  const blockers = new Set(blockedIn.flatMap((i) => i.blockedBy.map((d) => d.key)));
+  const inProgress = open.filter((i) => i.lane === 'progress').length - blockedIn.length;
   // A running implementer: no planner, no read-only helper, no paused build and none blocked on its own open helper
   // (agent wait's waits mark), on a card the orchestrator hasn't stalled.
   const running = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes) && !a.pause?.paused
@@ -1708,7 +1723,8 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] }
   const free = Math.max(0, cap - inProgress - waiting.length);
   const bumped = new Set(open.filter((i) => i.bumpedAt).map((i) => i.key));
   const fresh = pullable.filter((k) => !waiting.includes(k) && !hold.includes(k));
-  const pulls = [...fresh.filter((k) => bumped.has(k)), ...fresh.filter((k) => !bumped.has(k))].slice(0, free);
+  const ordered = (ks) => [...ks.filter((k) => bumped.has(k)), ...ks.filter((k) => !bumped.has(k))];
+  const pulls = [...ordered(fresh.filter((k) => blockers.has(k))), ...ordered(fresh.filter((k) => !blockers.has(k)))].slice(0, free);
   return { idle: !busy && !open.some((i) => i.waitsOn === 'checking'), pullable, retitle, waiting, pulls, helpers, free };
 }
 

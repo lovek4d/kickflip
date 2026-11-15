@@ -147,9 +147,9 @@ test('pauseWork asks every running build to pause while usage holds its kind, an
     card('w/L', { builder: { phase: 'landing' } }),
     card('w/P', {}, { kind: 'grill' }),
   ];
-  assert.deepEqual(pauseWork(items, { now: at, usageHeld: () => false }), { ask: [], drop: ['w/E'], stop: ['w/F'], resume: ['w/G', 'w/C'] });
+  assert.deepEqual(pauseWork(items, { now: at, cap: 20, usageHeld: () => false }), { ask: [], drop: ['w/E'], stop: ['w/F'], resume: ['w/G', 'w/C'] });
   assert.deepEqual(pauseWork(items, { now: at, usageHeld: () => true }).ask, ['w/A'], 'a build already pausing, a landing one and a planner are left');
-  assert.deepEqual(pauseWork(items, { now: Date.parse('2026-11-09T13:00:00.000Z'), usageHeld: () => false }).resume, ['w/G', 'w/H', 'w/C'], 'oldest pause first');
+  assert.deepEqual(pauseWork(items, { now: Date.parse('2026-11-09T13:00:00.000Z'), cap: 20, usageHeld: () => false }).resume, ['w/G', 'w/H', 'w/C'], 'oldest pause first');
 });
 
 // docs/adr/2026-11-10-1400-the-auto-pass-re-reads-a-pause-before-dropping-it.md
@@ -172,4 +172,25 @@ test('a paused build keeps its card\'s implementer slot, since the card stays In
 test('a bump-out pause from before slots counted cards drops once nothing else pauses it', () => {
   const pausing = card('w/B', {}, { pause: { cause: 'bumped', at: '2026-11-09T11:59:00.000Z' } });
   assert.deepEqual(pauseWork([pausing], { now: Date.parse('2026-11-09T12:00:00.000Z'), usageHeld: () => false }).drop, ['w/B']);
+});
+
+// docs/adr/2026-11-16-0300-a-blocked-in-progress-card-takes-no-slot.md
+test('a card In Progress blocked by any task takes no slot; its ready blockers pull first, and with none ready the others flow', () => {
+  const todo = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', title: 'feat: task', buildable: true, phase: 'ready', blocked: false, blockedBy: [], agents: [], ...more });
+  const blocked = card('w/B', { blocked: true, blockedBy: [{ key: 'w/T2' }] });
+  const running = card('w/R', {});
+  const out = pullOf([blocked, running, todo('w/T1'), todo('w/T2')], { cap: 2 });
+  assert.deepEqual([out.free, out.pulls], [1, ['w/T2']], 'the blocker is first in line though w/T1 comes before it');
+  assert.deepEqual(pullOf([blocked, running, todo('w/T1'), todo('w/T2', { phase: 'staging' })], { cap: 2 }).pulls, ['w/T1'], 'a blocker not ready lets another card flow');
+  assert.equal(pullOf([blocked, card('w/T2', {}), todo('w/T1')], { cap: 2 }).free, 1, 'a blocker In Progress changes nothing: the blocked card holds no slot');
+  assert.deepEqual(pullOf([{ ...blocked, blockedBy: [] }, running, todo('w/T1')], { cap: 2 }).pulls, [], 'unblocked it holds its slot again');
+});
+
+test('a blocked build resumes once its blocker lands only while the cards holding a slot are fewer than the cap, the oldest pause first', () => {
+  const pause = (paused) => ({ pause: { cause: 'blocked', at: paused, paused } });
+  const resuming = [card('w/B', {}, pause('2026-11-09T11:00:00.000Z')), card('w/C', {}, pause('2026-11-09T11:05:00.000Z'))];
+  const opts = { now: Date.parse('2026-11-09T12:00:00.000Z'), usageHeld: () => false };
+  assert.deepEqual(pauseWork([card('w/A', {}), ...resuming], { ...opts, cap: 2 }).resume, ['w/B'], 'one slot left: the oldest pause resumes');
+  assert.deepEqual(pauseWork([card('w/A', {}), card('w/D', {}), ...resuming], { ...opts, cap: 2 }).resume, [], 'full: it waits');
+  assert.deepEqual(pauseWork([card('w/A', {}), card('w/D', { blocked: true, blockedBy: [{ key: 'w/X' }] }), ...resuming], { ...opts, cap: 3 }).resume, ['w/B', 'w/C'], 'a blocked card holds none');
 });
