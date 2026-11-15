@@ -172,6 +172,10 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.deepEqual(broken({ listen: 'deaf' }), ['events']);
   assert.deepEqual(broken({ listen: 'asleep' }), []);
   assert.deepEqual(broken({ wakes: { last: { due: ['08:00'], failed: ['orch'] } } }), ['wakes']);
+  const wakesDetail = (ctx) => linksOf(orch, { ...ok, ...ctx }).find((l) => l.link === 'wakes').detail;
+  assert.equal(wakesDetail({}), 'Daily at 08:00, when quiet hours end.');
+  assert.equal(wakesDetail({ wakeOn: false }), 'Off: Daily wake is off in Overnight work.');
+  assert.deepEqual(broken({ wakeOn: false, wakes: { last: { due: ['08:00'], failed: ['orch'] } } }), []);
   assert.deepEqual(linksOf(orch, { ...ok, fetches: { orch: { at: 'T', ok: true } } }).map((l) => l.link), ['github', 'repo-fetch', 'events', 'wakes', 'slack']);
   assert.deepEqual(broken({ fetches: { orch: { at: 'T', ok: false, error: 'fatal: unable to access origin', hint: 'run git fetch' } } }), ['repo-fetch']);
   assert.equal(hubLink({ running: 'h1', onDisk: 'h1' }).ok, true);

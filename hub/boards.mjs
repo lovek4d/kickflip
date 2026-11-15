@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { routeRecord } from './routes.mjs';
 import { validBuildTarget } from '../board/build-script.mjs';
 import { deliver, readSettings } from './push.mjs';
+import { overnightOn } from './overnight.mjs';
 import { SLOWEST_CHECK_MINUTES } from './schedule.mjs';
 import { liveSessions, ps, sessionRecords } from './live.mjs';
 import { withFileLock } from './locks.mjs';
@@ -429,7 +430,8 @@ const EVENTS = {
 };
 const eventsLink = (listen) => ({ link: 'events', listen, ...EVENTS[listen] });
 
-function wakesLink(board, settings, wakeState) {
+function wakesLink(board, settings, wakeState, wakeOn) {
+  if (!wakeOn) return { link: 'wakes', ok: true, detail: 'Off: Daily wake is off in Overnight work.' };
   if ((wakeState?.last?.failed || []).includes(board.route)) return { link: 'wakes', ok: false, detail: `The last wake (${wakeState.last.due.join(', ')}) couldn't reach this board.` };
   return { link: 'wakes', ok: true, detail: `Daily at ${settings.quiet.end}, when quiet hours end.` };
 }
@@ -535,10 +537,10 @@ function settle(route, links, { now, faults }) {
 //               another git remote has none
 //   repo-fetch  the hub's last git fetch of the board's repo worked; only a board the hub fetches has it
 //   events      the board is listening, waking or asleep (listenState, as the link's listen), so its events reach the session
-//   wakes       the last daily wake, at the end of quiet hours, reached the board
+//   wakes       the last daily wake, at the end of quiet hours, reached the board; off when Daily wake is off
 //   slack       every open, non-draft PR has a Slack link for each of the board's and its item file's reviewers
 // ctx overrides what is read from disk: github (github-state.json), fetches (repo-fetch.json), settings (quiet hours),
-// wakes (wake-state.json), listen (listenState), topics (slack-bridge topic items),
+// wakes (wake-state.json), wakeOn (Daily wake in Overnight work), listen (listenState), topics (slack-bridge topic items),
 // faults (as settle takes them; given, nothing is written) and now (ms).
 export function linksOf(board, ctx = {}) {
   const state = ctx.github ?? readJSON(githubStateFile(), {});
@@ -547,7 +549,7 @@ export function linksOf(board, ctx = {}) {
     githubLink(board, state),
     repoFetchLink(routeRecord(ctx.fetches ?? readJSON(repoFetchFile(), {}), board.route)),
     eventsLink(ctx.listen ?? listenState(board)),
-    wakesLink(board, settings, ctx.wakes ?? readJSON(wakeStateFile(), {})),
+    wakesLink(board, settings, ctx.wakes ?? readJSON(wakeStateFile(), {}), ctx.wakeOn ?? overnightOn('wake')),
     slackLink(board, state, ctx.topics ?? topicItems()),
   ].filter(Boolean);
   return settle(board.route, links, { now: ctx.now ?? Date.now(), faults: ctx.faults });
