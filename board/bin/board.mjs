@@ -851,6 +851,11 @@ function checkInputs(allowed, opts) {
   }
 }
 
+// The commands whose text reaches the owner, and the flags that hold it: they refuse a question's id (store.refuseQuestionIds).
+const TO_OWNER = {
+  thread: ['text'], reply: ['text'], 'item set': ['text'], 'item add': ['text'], 'item triage': ['text'],
+  'builder answer': ['text'], push: ['title', 'body'],
+};
 const readInput = (file) => fs.readFileSync(file === '-' ? 0 : file, 'utf8');
 const renderCheck = () => (process.env.KICKFLIP_RENDER_CHECK === 'off' ? undefined : checkTakesRender);
 
@@ -926,6 +931,7 @@ const COMMANDS = {
     if ((f.implement || f.close) && !id.includes('/')) throw new UsageError('reply --implement and --close mark a task: name it <file>/<id>');
     if (f.implement && f.close) throw new UsageError('reply takes --implement or --close, not both');
     const md = f.text ?? readInput(f.file);
+    if (f.file !== undefined) await store.refuseQuestionIds(site, [md]);
     store.refuseUnflaggedTap(md, f);
     await store.refuseUnreadEdit(site, id);
     return withQuestions(site, f, () => (id.includes('/') ? store.answerCard(site, id, md, f.title, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined }) : store.writeReply(site, id, md, f.title)));
@@ -1257,6 +1263,7 @@ export async function main(argv, options = {}) {
     const opts = flagsOf(name, allowed, given);
     checkInputs(allowed, opts);
     const site = route === undefined ? null : await store.siteDir(route);
+    if (site && TO_OWNER[name] && (name !== 'thread' || (opts.who ?? 'claude') === 'claude')) await store.refuseQuestionIds(site, TO_OWNER[name].map((flag) => opts[flag]));
     const result = await run(site, args, opts, options);
     const acts = routeRecord(ACTS, name);
     if (site && acts) await store.markActedOn(site, await acts(site, args, opts, result));

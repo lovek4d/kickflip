@@ -263,6 +263,21 @@ export async function markActedOn(site, keys) {
   const at = new Date().toISOString();
   await writeJSON(actedOnFile(site), { cards: { ...await readActedOn(site), ...Object.fromEntries(keys.map((key) => [key, at])) } });
 }
+// docs/adr/2026-11-15-2350-text-to-the-owner-names-a-questions-task-not-its-id.md: a question's id is internal, the owner
+// sees a question by its words on its task's thread. Text that names the id of any question owner.json or the done
+// archive holds is refused, with the task to name instead.
+export async function refuseQuestionIds(site, texts) {
+  const said = texts.filter((t) => typeof t === 'string' && t);
+  if (!said.length) return;
+  const owner = await readJSON(ownerFile(site), { items: [] });
+  const known = [...(owner.items || []), ...(await readArchive(site)).flatMap((a) => a.questions || [])];
+  for (const q of known) {
+    const named = new RegExp(`(?<![\\w-])${q.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`);
+    if (!said.some((t) => named.test(t))) continue;
+    const task = String(q.topic || '').startsWith('item:') ? q.topic.slice(5) : 'its task';
+    fail(`the text names the question "${q.id}"; name its task instead, e.g. "the question on ${task}", and quote its words if needed: the owner sees a question by its words, never its id`);
+  }
+}
 // The cards owner.json's questions ids are asked on, for the question commands' ACTS entries.
 export async function questionCards(site, ids) {
   const owner = await readJSON(ownerFile(site), { items: [] });
