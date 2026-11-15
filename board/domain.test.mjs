@@ -384,7 +384,7 @@ test('a review gone stale waits on the orchestrator from the day it crossed seve
   const sentAt = '2026-10-24T00:00:00.000Z';
   const staleAt = '2026-10-31T00:00:00.000Z';
   const at = (days) => Date.parse(sentAt) + days * 86400000;
-  const waits = (days, threads = {}) => orchestratorWaits(board({ pr: ready, topicItems: sent, now: at(days), threads }));
+  const waits = (days, threads = {}) => orchestratorWaits(board({ pr: ready, topicItems: sent, now: at(days), threads })).filter((w) => w.key === 'w/A1');
   assert.deepEqual(waits(6), [], 'still in Review');
   const [wait] = waits(8);
   assert.deepEqual([wait.key, wait.kind, wait.since, wait.picked], ['w/A1', 'stale', staleAt, null]);
@@ -2489,7 +2489,8 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const later = '2026-11-04T10:20:00Z';
   const built = ({ items, agents = {}, events = [], threads = {}, owner = {}, working = {} }) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), owner, events, threads, working,
     files: [{ slug: 'w', agents, itemFile: { internal: true, items } }] });
-  const one = (item, rest = {}) => orchestratorWaits(built({ items: [{ id: 'A1', title: 'One', ...item }], ...rest }));
+  // A bare Todo card here also owes nobody anything; its limbo wait has its own tests (owner-word-waits.test.mjs).
+  const one = (item, rest = {}) => orchestratorWaits(built({ items: [{ id: 'A1', title: 'One', ...item }], ...rest })).filter((w) => w.kind !== 'limbo');
   const shape = (list) => list.map(({ key, kind, since, picked }) => [key, kind, since, picked]);
 
   // A hand-back with unverified calls waits from when it reached checking; the session's verify picks it up.
@@ -2595,7 +2596,7 @@ test("a card whose PR a rebase run fixes stays in In Review with the run's line,
   assert.equal(card.orchestrator, null);
   // A run gone silent past the stale limit waits on the orchestrator, the card still In Review.
   const silent = board({ pr: conflicting, now: Date.parse('2026-11-05T10:30:00Z'), item: { lane: 'progress', rebase_run: run }, agents: { A1: { main: rebasing } }, threads: { 'w/A1': [line] } });
-  assert.deepEqual(orchestratorWaits(silent).map((w) => [w.key, w.kind]), [['w/A1', 'stale']]);
+  assert.deepEqual(orchestratorWaits(silent).filter((w) => w.key === 'w/A1').map((w) => [w.key, w.kind]), [['w/A1', 'stale']]);
   assert.equal(silent.items.find((i) => i.key === 'w/A1').lane, 'review');
 
   // Failed: its call hands the card back, still In Review, waiting on the orchestrator with the run's own line.
@@ -2603,7 +2604,7 @@ test("a card whose PR a rebase run fixes stays in In Review with the run's line,
   const failed = board({ pr: conflicting, item: { lane: 'progress', next: "Verify the builder's judgment calls", rebase_run: run }, agents: { A1: { main: handed } } });
   const stuck = failed.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([stuck.lane, stuck.waitsOn, stuck.rebaseFailed, stuck.orchestrator?.kind], ['review', 'checking', 'Rebase failed in 2 files · both sides rewrote the send bar', 'calls']);
-  assert.deepEqual(orchestratorWaits(failed).map((w) => w.key), ['w/A1']);
+  assert.deepEqual(orchestratorWaits(failed).filter((w) => w.kind !== 'limbo').map((w) => w.key), ['w/A1']);
   assert.equal(running.items.find((i) => i.key === 'w/A1').rebaseFailed, null);
 
   // Done: while the PR's head is the run's push, Next says so, and that the PR is clean once GitHub reads it so.

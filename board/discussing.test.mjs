@@ -25,7 +25,9 @@ test("discussing is Todo's phase after new, before grilling", async () => {
 test("a discussing card stays in Todo, never goes to In Review, and reads the owner's turn after the orchestrator's reply", async () => {
   const b = built({ item: { phase: 'discussing' }, threads: { 'hub/T-1': [reply] } });
   const c = card(b);
-  assert.deepEqual([c.lane, c.phase, c.turn, Boolean(c.isNew), c.awaitsDone, c.orchestrator], ['todo', 'discussing', 'owner', false, false, null]);
+  // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: with no
+  // Implement mark or question after the reply, it owes nobody anything, so it waits on the orchestrator as limbo.
+  assert.deepEqual([c.lane, c.phase, c.turn, Boolean(c.isNew), c.awaitsDone, c.orchestrator?.kind], ['todo', 'discussing', 'owner', false, false, 'limbo']);
   assert.deepEqual(b.answers, []);
 });
 

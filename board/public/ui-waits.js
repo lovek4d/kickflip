@@ -15,14 +15,16 @@
     prototype: 'draw the prototype', unasked: "post the planner's question", visual: "place the visual's page", recheck: 'recheck the ready card',
     refused: 'sort out the refused build', unowned: 'set what happens next', unblocked: 'act on the ended block', triage: 'run the overnight triage',
     'pr-review': 'review the pull request', 'review-answer': "act on the held review's answer", 'arch-review': 'run the architecture review',
-    'slack-question': 'answer the Slack message',
+    'slack-question': 'answer the Slack message', limbo: 'ask Implement, ask questions or close it',
   });
-  const toneOf = (since, now) => {
-    const age = now - Date.parse(since);
-    return age >= PUSH_AFTER ? 'red' : age >= REWAKE_AFTER ? 'orange' : 'grey';
+  // A limbo wait is the orchestrator's backlog, so it never reads red
+  // (docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md).
+  const toneOf = (w, now) => {
+    const age = now - Date.parse(w.since);
+    return age >= PUSH_AFTER && w.kind !== 'limbo' ? 'red' : age >= REWAKE_AFTER ? 'orange' : 'grey';
   };
   const TONES = ['red', 'orange', 'grey'];
-  const waitsTone = (waits, now = Date.now()) => TONES.find((t) => waits.some((w) => toneOf(w.since, now) === t)) || 'grey';
+  const waitsTone = (waits, now = Date.now()) => TONES.find((t) => waits.some((w) => toneOf(w, now) === t)) || 'grey';
   const waitsTitle = (count) => `Waiting on the orchestrator · ${count}`;
   function waitsChip(waits, now = Date.now()) {
     if (!waits.length) return '';
@@ -37,7 +39,7 @@
     const cards = new Set(items.map((i) => i.key));
     return `<ul class="waits-list">${waits.map((w) => {
       const inner = `<span class="waits-ref">${esc(w.ref)}</span><span class="waits-main"><span class="waits-title">${esc(w.title)}</span>`
-        + `<span class="waits-sub"><span>${esc(WAIT_WORDS[w.kind])}</span>${iconText('dot', toneOf(w.since, now), liveFor(w.since, now))}</span></span>`;
+        + `<span class="waits-sub"><span>${esc(WAIT_WORDS[w.kind])}</span>${iconText('dot', toneOf(w, now), liveFor(w.since, now))}</span></span>`;
       return `<li class="waits-row">${cards.has(w.key) ? `<button type="button" class="waits-open" data-wait-open="${esc(w.key)}">${inner}</button>` : `<div class="waits-open">${inner}</div>`}</li>`;
     }).join('')}</ul>`;
   }

@@ -19,6 +19,11 @@ test('the count is grey while every wait is under the re-wake, orange once one i
   assert.equal(waitsTone([wait('T-1', 'intake', 2), wait('T-2', 'calls', 14)]), 'grey');
   assert.equal(waitsTone([wait('T-1', 'intake', 2), wait('T-2', 'calls', 15)]), 'orange');
   assert.equal(waitsTone([wait('T-1', 'intake', 29), wait('T-2', 'calls', 30)]), 'red');
+  // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: a limbo
+  // wait is the orchestrator's backlog, so it goes no further than orange, its row too.
+  assert.equal(waitsTone([wait('T-1', 'limbo', 3000)]), 'orange');
+  assert.match(waitsList([wait('T-1', 'limbo', 3000)], []), /it-orange/);
+  assert.equal(waitsTone([wait('T-1', 'limbo', 10)]), 'grey');
 });
 
 test('the chip is gone at 0, and otherwise counts the waits, short on a phone, in full from the desktop width, in the oldest wait\'s colour', () => {

@@ -346,7 +346,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, orchestratorWaits, triageWaitOf, eventWaits, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -2275,7 +2275,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // check appends at most one orchestrator-waits {added: [key], again: [{key, ref, kind, since, next}]} event once the file
   // is written: added names each card that joins it not picked up, or waits again with a new kind or since; again each
   // one still waiting past its re-wake time (domain.mjs waitsStep), so reading the event lines alone misses no wait.
-  // A wait never pushes the owner: the re-wake is the reminder. Checked on every board change and each minute; a check asked for while one runs runs again after it.
+  // A wait never pushes the owner: the re-wake is the reminder. Each owner's-last-word wait that ends appends a line to
+  // data/limbo-waits.jsonl (domain.mjs ownerWordEnds). Checked on every board change and each minute; a check asked for while one runs runs again after it.
   let checkingWaits = null;
   let waitsAgain = false;
   function checkWaits() {
@@ -2304,6 +2305,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const unhandled = eventWaits(log, { items: built.items, incoming: await readJSON(path.join(data, 'incoming.json'), null), reviews: await readJSON(path.join(data, 'reviews.json'), {}) });
     const current = [...orchestratorWaits(built), ...(triage ? [triageWaitOf(triage, routeRecord(working, triage.id))] : []), ...unhandled, ...questions];
     const step = waitsStep(previous, current, now(), stored?.againAt ?? null);
+    // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: each
+    // owner's-last-word wait that ended, for the audit of what ended it.
+    const ended = ownerWordEnds(previous, current, built, now());
+    if (ended.length) await fs.appendFile(path.join(data, 'limbo-waits.jsonl'), ended.map((e) => JSON.stringify(e) + '\n').join(''));
     if (!stored || JSON.stringify(step.waits) !== JSON.stringify(previous) || step.againAt !== (stored.againAt ?? null)) {
       await fs.mkdir(data, { recursive: true });
       await fs.writeFile(file + '.tmp', JSON.stringify({ waits: step.waits, againAt: step.againAt }) + '\n');
