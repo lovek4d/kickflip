@@ -32,4 +32,6 @@ Considered:
 - a "saving…" word after the spinner (take C): it is the status line again;
 - a separate long-wait form of `waitOn` that holds until a done signal: the page already redraws from the state that says when the work ends, so drawing `BUSY` from that state needs nothing more (a tap whose change shows only in a later board uses `BoardUI.pending`, [a tap spins until the board shows its change](2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md)), and it survives the hub page's `innerHTML` repaints, which `waitOn` doesn't see.
 
+**Amended 2026-11-15.** A busy `.thread-more` (a lane's or a thread's Show more) draws its spinner at the left, where "Show more" starts, with no underline: the button's hover underline (a tap leaves `:hover` stuck on a phone) was still drawn in the text colour under the hidden text. Done also fetches its next archive page before the tap, once its shown cards come within one step of the cards held, so Show more seldom waits at all.
+
 Not changed: Check GitHub stays `aria-disabled` while it spins. It sits in a lane's `<summary>`, and a disabled button there would let the tap fold the lane (`ui-header.js` `githubRefresh`).

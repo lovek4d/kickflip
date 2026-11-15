@@ -921,6 +921,8 @@ button[aria-busy="true"], button[aria-busy="true"]:disabled, .ask-actions .icon[
 :is(button[aria-busy="true"]:not([data-card-bump], .sb-update-row, .gh-refresh), .sb-update-row[aria-busy="true"] .sb-go) > * { visibility: hidden; }
 :is(button[aria-busy="true"]:not([data-card-bump], .sb-update-row, .gh-refresh), .sb-update-row[aria-busy="true"] .sb-go)::after { content: ''; position: absolute; inset: 0; margin: auto;
   width: 12px; height: 12px; box-sizing: border-box; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: try-spin .8s linear infinite; }
+.thread-more[aria-busy="true"] { text-decoration: none; }
+button.thread-more[aria-busy="true"]::after { inset: 0 auto 0 12px; margin: auto 0; }
 @keyframes wait-orange { 50% { color: var(--color-notice); opacity: 1; } }
 button[aria-busy="true"]:is([data-card-bump]) { color: var(--muted); animation: wait-orange 1s ease-in-out infinite; }
 button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }

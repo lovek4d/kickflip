@@ -5752,6 +5752,49 @@ test("a finished wave's cards sit in Done's one newest-first list, and Done draw
 });
 
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
+test('Done preloads its next archive page once its shown cards come within one step of the cards held, so the tap that reaches it fetches nothing', async () => {
+  const day = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
+  const card = (n) => workCard(`D${n}`, { lane: 'done', sortAt: day(n) });
+  const archive = Array.from({ length: 130 }, (_, n) => card(100 + n));
+  const b = boardOnDom({ stored: [['site:board-a:lanes', JSON.stringify({ done: true })]], board: { ...boardOf(Array.from({ length: 100 }, (_, n) => card(n))), doneArchived: 130 } });
+  const asked = [];
+  b.server.done = (params) => {
+    asked.push(params.get('before'));
+    return { cards: archive.slice(0, 100), left: 30 };
+  };
+  await b.settle();
+  const lane = () => b.root.querySelector('#lanes details.lane[data-lane="done"]');
+  const more = () => lane().querySelector('[data-lane-more]');
+  const tap = async (n = 1) => { for (let i = 0; i < n; i++) { b.page.fire(b.root, 'click', { target: more() }); await b.settle(); } };
+  await tap(8);
+  assert.deepEqual([lane().querySelectorAll('details.item').length, asked], [90, [null]], 'at 90 shown of 100 held the next page is already fetched');
+  assert.equal(more().hasAttribute('data-fetch'), false);
+  await tap(2);
+  assert.deepEqual([lane().querySelectorAll('details.item').length, more().textContent, asked.length], [110, 'Show more · 120 older tasks', 1]);
+  b.view.unmount();
+});
+
+test('a closed Done does not preload, and a failed preload leaves the tap to fetch with its toast', async () => {
+  const day = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
+  const card = (n) => workCard(`D${n}`, { lane: 'done', sortAt: day(n) });
+  const b = boardOnDom({ board: { ...boardOf(Array.from({ length: 100 }, (_, n) => card(n))), doneArchived: 130 } });
+  let asked = 0;
+  b.server.done = () => { asked++; return { cards: [], left: 0 }; };
+  await b.settle();
+  const lane = () => b.root.querySelector('#lanes details.lane[data-lane="done"]');
+  const more = () => lane().querySelector('[data-lane-more]');
+  for (let i = 0; i < 9; i++) { b.page.fire(b.root, 'click', { target: more() }); await b.settle(); }
+  assert.deepEqual([lane().querySelectorAll('details.item').length, asked], [100, 0]);
+  assert.equal(more().hasAttribute('data-fetch'), true);
+  b.view.unmount();
+});
+
+test("a busy Show more has no underline and draws its spinner at the left, where its text starts", () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.thread-more\[aria-busy="true"\] \{[^}]*text-decoration: none/);
+  assert.match(css, /\.thread-more\[aria-busy="true"\]::after \{[^}]*inset: 0 auto 0 12px/);
+});
+
 test('past the 100 Done cards the board carries, Show more fetches the next 100 from the archive, 10 shown per tap, and an archived card opens', async () => {
   const day = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
   const card = (n) => workCard(`D${n}`, { lane: 'done', sortAt: day(n) });

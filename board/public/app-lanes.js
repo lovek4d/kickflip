@@ -18,9 +18,12 @@ BoardView.part((B) => {
   // older is how many cards wait past `cards` in the archive; the tap that would show past `cards` fetches them first.
   const STEP = 10;
   const moreTaps = new Map();
-  function cappedRows(laneId, cards, older = 0) {
+  function shownCount(laneId, cards) {
     const lastOpen = cards.findLastIndex((it) => state.openItems.has(it.key) && !state.restored.has(it.key));
-    const shown = Math.max(STEP * (1 + (moreTaps.get(laneId) || 0)), lastOpen + 1);
+    return Math.max(STEP * (1 + (moreTaps.get(laneId) || 0)), lastOpen + 1);
+  }
+  function cappedRows(laneId, cards, older = 0) {
+    const shown = shownCount(laneId, cards);
     const left = Math.max(0, cards.length - shown);
     const n = left + (older || 0);
     const words = `${n} older task${n === 1 ? '' : 's'}`;
@@ -37,19 +40,33 @@ BoardView.part((B) => {
   function doneRows(d, open) {
     const onBoard = new Set(d.items.map((i) => i.key));
     const cards = [...open, ...archived.cards.filter((c) => !onBoard.has(c.key))].sort((a, b) => String(b.sortAt || '').localeCompare(String(a.sortAt || '')));
-    return cappedRows('done', cards, olderThanBoard(d));
+    const older = olderThanBoard(d);
+    if (older > 0 && store.get('lanes', {}).done && shownCount('done', cards) + STEP >= cards.length) preloadOlder();
+    return cappedRows('done', cards, older);
   }
   function doneCount(d, items) {
     const onBoard = new Set(d.items.map((i) => i.key));
     const older = olderThanBoard(d);
     return `${items.length + archived.cards.filter((c) => !onBoard.has(c.key)).length + older}`;
   }
-  async function fetchOlder() {
-    const last = archived.cards.at(-1);
-    const r = await fetch(B.site.url(`api/done${last ? `?before=${encodeURIComponent(`${last.sortAt}|${last.key}`)}` : ''}`), { cache: 'no-store' });
-    if (!r.ok) throw new Error(`done ${r.status}`);
-    const page = await r.json();
-    archived.cards.push(...page.cards);
+  // One page fetch runs at a time: a tap that lands while a preload is out waits on that fetch instead of starting another.
+  let fetching = null;
+  function fetchOlder() {
+    fetching ||= (async () => {
+      const last = archived.cards.at(-1);
+      const r = await fetch(B.site.url(`api/done${last ? `?before=${encodeURIComponent(`${last.sortAt}|${last.key}`)}` : ''}`), { cache: 'no-store' });
+      if (!r.ok) throw new Error(`done ${r.status}`);
+      const page = await r.json();
+      archived.cards.push(...page.cards);
+      return page.cards.length;
+    })().finally(() => { fetching = null; });
+    return fetching;
+  }
+  // Open Done fetches its next page as its shown cards come within one STEP of the cards held. A failure shows nothing: the
+  // tap that reaches the edge fetches again, with its toast.
+  function preloadOlder() {
+    if (fetching) return;
+    fetchOlder().then((added) => { if (added && B.alive()) B.render(); }, () => {});
   }
 
   // A fold's open state lives in storage, not in setHTML's summary-text match, because its row's count changes.
