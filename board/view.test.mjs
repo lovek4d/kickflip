@@ -3660,7 +3660,7 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
   await b.settle();
   b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T1"] .workflow [data-confirm="finish"]') });
   await b.settle();
-  assert.deepEqual(b.confirms.slice(-2), ['Close R1? It moves to Done and Claude stops work on it.', 'Close T1? It moves to Done and Claude stops work on it.']);
+  assert.deepEqual(b.confirms.slice(-2), ['Done R1? It moves to Done and Claude stops work on it.', 'Done T1? It moves to Done and Claude stops work on it.']);
   assert.deepEqual(sentNoIds(b), [['item-message', { key: 'w/R1', text: 'Looks good', intent: 'reply' }], ['card-done', { key: 'w/R1' }], ['card-done', { key: 'w/T1' }]]);
   // The box follows the card's lane.
   await b.change({ board: boardOf([{ ...cards[1], lane: 'review' }, ...cards.slice(2)]) });
