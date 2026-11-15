@@ -68,6 +68,16 @@ BoardView.part((B) => {
       return;
     }
   }
+  // Runs change, which grows or shrinks a thread above its reply form, and scrolls the page by the form's move so the
+  // form, and every message below the change, stays where it was on screen: the page above takes the height
+  // (docs/adr/2026-11-15-1600-expanding-in-a-thread-grows-it-upward.md).
+  function holdBelow(thread, change) {
+    const form = thread.querySelector('form[data-reply]');
+    const top = topOf(form);
+    change();
+    const after = topOf(form);
+    if (after !== top) scrollBy(0, after - top);
+  }
   // Where the owner left the board, kept for its next mount in this page: the page's scroll and the box they were typing
   // in, as it unmounts or at their last press outside the board, such as on a sidebar row, which takes the focus first.
   // The header's logo, which opens the sidebar, counts as outside.
@@ -137,5 +147,5 @@ BoardView.part((B) => {
   const confirm = (message, labels) => dialogs.confirm(message, { ...labels, signal: controller.signal });
   const notice = dialogs.notice;
 
-  Object.assign(B, { steady, restorePlace, plural, seen, seenBefore, takeMarks, markRead, markSeen, links, svg, confirm, notice });
+  Object.assign(B, { steady, holdBelow, restorePlace, plural, seen, seenBefore, takeMarks, markRead, markSeen, links, svg, confirm, notice });
 });

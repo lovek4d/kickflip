@@ -68,7 +68,14 @@ BoardView.part((B) => {
     const key = ev.target.closest('[data-thread-more]')?.closest('[data-thread]')?.dataset.thread;
     if (key == null) return;
     moreTaps.set(key, (moreTaps.get(key) || 0) + 1);
-    B.repaintThread(key);
+    B.holdBelow($(`[data-thread="${CSS.escape(key)}"]`), () => B.repaintThread(key));
+  });
+  // A fold in a thread, a run of status lines or a long output, opens and closes upward, whether tapped or keyed.
+  B.on(B.root, 'click', (ev) => {
+    const fold = ev.target.closest('[data-thread] .msgs summary')?.parentElement;
+    if (!fold || ev.target.closest('a')) return;
+    ev.preventDefault();
+    B.holdBelow(fold.closest('[data-thread]'), () => { fold.open = !fold.open; });
   });
 
   // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md,

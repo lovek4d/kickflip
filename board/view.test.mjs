@@ -6980,3 +6980,38 @@ test('a project made with New project… lands A–Z among the team’s projects
   control.destroy();
 });
 
+
+test("opening or closing a fold in a thread, and tapping Show more, grow and shrink it upward: the reply box keeps its place on screen and the page scrolls by the added height", async () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const said = (n, text) => ({ ts: at(n), who: 'claude', text });
+  const run = (n, extra) => ({ ts: at(n), who: 'claude', kind: 'status', run: 'r1', agent: 'Builder', text: `Step ${n}`, ...extra });
+  const msgs = [said(0, 'One'), said(1, 'Two'), said(2, 'Three'), said(3, 'Four'), said(4, 'Five'), run(5), run(6), run(7), said(8, 'Six'), said(9, 'Seven')];
+  const b = boardOnDom({ open: ['w/A1'], seen: { 'w/A1': at(7) }, board: boardOf([workCard('A1', { lane: 'progress', othersAt: [at(8), at(9)] })]), threads: { 'w/A1': msgs } });
+  await b.settle();
+  // A closed fold draws only its summary; an open one draws its lines too.
+  const view = { scrollY: 0, scrolls: [] };
+  const drawn = (el) => {
+    const out = [];
+    const walk = (n) => { for (const c of n.children) { out.push(c); if (c.matches('details') && !c.open) out.push(...c.children.filter((k) => k.matches('summary'))); else walk(c); } };
+    walk(b.doc.body);
+    return out;
+  };
+  Object.getPrototypeOf(b.root).getBoundingClientRect = function () { return { top: drawn().indexOf(this) * 2 - view.scrollY }; };
+  b.page.win.scrollBy = (x, y) => { view.scrolls.push(y); view.scrollY += y; };
+  const box = () => b.root.querySelector('form[data-reply="w/A1"] textarea');
+  const boxTop = () => box().getBoundingClientRect().top;
+  const fold = () => b.root.querySelector('[data-thread="w/A1"] details.status-fold');
+  const start = boxTop();
+
+  b.page.fire(b.root, 'click', { target: fold().querySelector('summary') });
+  assert.deepEqual([fold().open, boxTop()], [true, start]);
+  assert.deepEqual(view.scrolls.map((y) => y > 0), [true]);
+
+  b.page.fire(b.root, 'click', { target: fold().querySelector('summary') });
+  assert.deepEqual([fold().open, boxTop()], [false, start]);
+
+  const before = b.root.querySelectorAll('[data-thread="w/A1"] .msg').length;
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-thread="w/A1"] [data-thread-more]') });
+  assert.ok(b.root.querySelectorAll('[data-thread="w/A1"] .msg').length > before);
+  assert.equal(boxTop(), start);
+});
