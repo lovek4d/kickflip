@@ -4764,7 +4764,24 @@ test("a lane repaint while the owner types in a card's reply box moves the other
   assert.deepEqual([lane('e1'), top(TITLE)], ['review', titleTop]);
 });
 
-test("Done closes the card and leaves the page where it is as the card moves to Done, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves flashes once, and a card another hand updates takes the tint in its place", async () => {
+test("with nothing open and no box focused, a card leaving a lane above the screen leaves the cards on screen where they were, skipping a card that moved itself", async () => {
+  const b = boardOnDom({ board: boardOf([askCard('r1', 'review'), askCard('r2', 'review'), askCard('p1', 'progress'), askCard('p2', 'progress'), askCard('t1', 'todo')]), threads: {} });
+  await b.settle();
+  const view = layOut(b);
+  const top = (id) => b.root.querySelector(`details.item[data-key="w/${id}"]`).getBoundingClientRect().top;
+  view.scrollY = top('p1');
+  const [p1, p2] = [top('p1'), top('p2')];
+  await b.change({ board: boardOf([askCard('r2', 'review'), askCard('p1', 'progress'), askCard('p2', 'progress'), askCard('t1', 'todo'), askCard('r1', 'todo')]) });
+  assert.deepEqual([top('p1'), top('p2')], [p1, p2]);
+  assert.equal(view.scrolls.length, 1);
+
+  // The first card on screen moves itself, so the next one anchors.
+  const t1 = top('t1');
+  await b.change({ board: boardOf([askCard('r2', 'review'), askCard('p2', 'progress'), askCard('t1', 'todo'), askCard('r1', 'todo'), askCard('p1', 'done')]) });
+  assert.equal(top('t1'), t1);
+});
+
+test("Done closes the card and holds the card still on screen as the card moves to Done, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves flashes once, and a card another hand updates takes the tint in its place", async () => {
   const board = boardOf([askCard('b1', 'progress'), { ...askCard('a1', 'review'), finishable: true }, workCard('C1')]);
   const b = boardOnDom({ open: ['w/a1'], board, threads: {}, confirm: true });
   await b.settle();
@@ -4790,7 +4807,7 @@ test("Done closes the card and leaves the page where it is as the card moves to 
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', []]);
+    ['done', false, '[]', [-96]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };

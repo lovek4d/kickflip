@@ -37,22 +37,36 @@ BoardView.part((B) => {
 
   // Runs paint through keepFocus and keeps the anchor where it was on screen, scrolling the page by however far it
   // moved, in the same task so nothing visibly jumps (docs/adr/2026-10-30-1637-an-open-card-moves-at-once-and-the-page-follows-it.md).
-  // The anchor is the field being typed in, else the title row of the open card on screen, else there is none. A field
-  // in a dialog doesn't move with the page, so the card anchors then.
-  function anchorOf() {
+  // The anchor is the field being typed in, else the title row of the open card on screen, else the first card on screen
+  // that is still in its lane after the paint, since a card that changed lane is the one leaving
+  // (docs/adr/2026-11-15-1030-a-card-moving-off-screen-leaves-the-visible-cards-where-they-were.md). A field in a
+  // dialog doesn't move with the page, so the card anchors then.
+  const topOf = (el) => el.getBoundingClientRect().top;
+  // → the anchors in order of preference, each its place on screen and a function finding it again after a repaint.
+  function anchorsOf() {
     const field = focusedField();
-    if (field && !field.closest('dialog')) return finder(field);
-    const card = [...B.$$('details.item[open]')].find((d) => { const r = d.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
-    if (!card) return null;
-    const title = `details.item[data-key="${CSS.escape(card.dataset.key)}"] > summary`;
-    return () => $(title);
+    if (field && !field.closest('dialog')) { const find = finder(field); return [{ find, top: topOf(find()) }]; }
+    const open = [...B.$$('details.item[open]')].find((d) => { const r = d.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+    if (open) {
+      const title = `details.item[data-key="${CSS.escape(open.dataset.key)}"] > summary`;
+      return [{ find: () => $(title), top: topOf($(title)) }];
+    }
+    return [...B.$$('details.item')].filter((d) => topOf(d) >= 0 && topOf(d) < innerHeight).map((d) => {
+      const card = `details.item[data-key="${CSS.escape(d.dataset.key)}"]`;
+      const lane = d.closest('details.lane')?.dataset.lane;
+      return { find: () => { const again = $(card); return again?.closest('details.lane')?.dataset.lane === lane ? again : null; }, top: topOf(d) };
+    });
   }
   function steady(paint) {
-    const find = anchorOf();
-    const before = find?.()?.getBoundingClientRect().top;
+    const anchors = anchorsOf();
     keepFocus(paint);
-    const after = before == null ? null : find()?.getBoundingClientRect().top;
-    if (after != null && after !== before) scrollBy(0, after - before);
+    for (const { find, top } of anchors) {
+      const el = find();
+      if (!el) continue;
+      const after = topOf(el);
+      if (after !== top) scrollBy(0, after - top);
+      return;
+    }
   }
   // Where the owner left the board, kept for its next mount in this page: the page's scroll and the box they were typing
   // in, as it unmounts or at their last press outside the board, such as on a sidebar row, which takes the focus first.
