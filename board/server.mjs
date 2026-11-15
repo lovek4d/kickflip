@@ -12,7 +12,7 @@
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
 // github}] (board.mjs reviewers), which the settings page lists and new item files copy. items is "waves" (every
-// ~/.claude/waves/*/wave.json, which wave-build writes, the default) or an item file (data/items.json format) relative to the site dir; slug names a file's items
+// ~/.claude/waves/*/wave.json, the default) or an item file (data/items.json format) relative to the site dir; slug names a file's items
 // (its keys are <slug>/<id>), defaulting to the file's basename. Reviewer links live per PR in
 // data/pr-slack.json (store.mjs); review.mjs also reads an item's older review_link_ts. from_ask names the ask event that created the item,
 // and next is Claude's next step for it. install {url, label?, built_at, sha?} is a device build the card's Install
