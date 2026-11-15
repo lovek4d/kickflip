@@ -163,6 +163,33 @@ test('a link posted top-level before the day threads, and a bump sent before bum
   assert.deepEqual(world.reactions.map((r) => [r.channel, r.timestamp, r.name]).sort(), [['D1', '1792700000.000100', 'git_approved'], ['D1', '1792700000.000200', 'git_approved']]);
 });
 
+test('a reply recorded without an id, or sharing one, is marked on its own message and not due again', async () => {
+  const world = slackWorld();
+  const slack = fakeSlack(world);
+  saveToken(world);
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Old', pr: 1 }] });
+  setPRs({ 'o/r#1': pr({ state: 'MERGED' }) });
+  const sent = (ts) => ({ ts, reactions: [] });
+  write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { head: 'aaa0000000', links: { Ann: { channel: 'D1', ts: '1792700000.000100', reactions: [] } }, replies: [{ text: 'a', to: { Ann: sent('1792700000.000200') } }, { id: 'x', text: 'b', to: { Ann: sent('1792700000.000300') } }, { id: 'x', text: 'c', to: { Ann: sent('1792700000.000400') } }] } });
+  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  assert.equal(world.reactions.length, 4);
+  const record = prSlack()['o/r#1'];
+  assert.deepEqual([record.links.Ann, ...record.replies.map((r) => r.to.Ann)].map((m) => m.reactions), [['git_merged'], ['git_merged'], ['git_merged'], ['git_merged']]);
+  assert.deepEqual((await reviewDue(site, { now: sunday })).reactions, []);
+});
+
+test('no reaction is owed to someone who is no longer a reviewer', async () => {
+  const world = slackWorld();
+  const slack = fakeSlack(world);
+  saveToken(world);
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Old', pr: 1 }] });
+  setPRs({ 'o/r#1': pr({ state: 'MERGED' }) });
+  write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { head: 'aaa0000000', links: { Ann: { channel: 'D1', ts: '1792700000.000100', reactions: [] }, Bob: { channel: 'D2', ts: '1792700000.000500', reactions: [] } }, replies: [{ id: 'push-1', text: 'p', to: { Bob: { ts: '1792700000.000600', reactions: [] } } }] } });
+  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  assert.deepEqual(world.reactions.map((r) => r.timestamp), ['1792700000.000100']);
+  assert.deepEqual((await reviewDue(site, { now: sunday })).reactions, []);
+});
+
 test("a link before 09:00 opens the day's thread with the digest, and the weekday morning sends no second one", async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);

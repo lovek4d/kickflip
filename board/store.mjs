@@ -1118,10 +1118,12 @@ export const postLink = (site, due, thread, post) => postOnce(prSlackFile(site),
   const rec = all[due.pr] ||= { links: {}, replies: [] };
   return Object.assign(rec.links[due.reviewer] ||= { reactions: [] }, { channel: thread.channel, thread_ts: thread.ts });
 }, post);
-// due: one of review due's reactions, once Slack has it.
+// due: one of review due's reactions, once Slack has it. due.reply is the reply's index in the PR's replies, and absent
+// for the reviewer's link; a due whose message isn't there is a bug.
 export const recordReaction = (site, due) => editJSON(prSlackFile(site), (all) => {
   const rec = all[due.pr];
-  const message = due.reply ? rec.replies.find((r) => r.id === due.reply).to[due.reviewer] : rec.links[due.reviewer];
+  const message = due.reply === undefined ? rec?.links[due.reviewer] : rec?.replies[due.reply]?.to[due.reviewer];
+  if (!message) fail(`no recorded Slack message for ${due.reviewer} on ${due.pr}${due.reply === undefined ? '' : ` reply ${due.reply}`}`);
   message.reactions = [...new Set([...(message.reactions || []), due.emoji])];
 });
 
@@ -1167,13 +1169,16 @@ export async function reviewDue(site, options) {
   const cache = await readJSON(githubStateFile(), {});
   const record = await readPRSlack(site);
   const links = [];
+  const reviewersByPR = new Map();
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, {});
     const people = reviewersOf(itemFile, cfg.reviewers);
     for (const item of itemFile.items || []) {
-      if (item.lane === 'done') continue;
       for (const p of cardPRs(item, boardRepoOf(site, itemFile))) {
         const pr = prKeyOf(p);
+        if (!reviewersByPR.has(pr)) reviewersByPR.set(pr, new Set());
+        for (const r of people) reviewersByPR.get(pr).add(r.name);
+        if (item.lane === 'done') continue;
         const gh = routeRecord(cache.prs, pr);
         for (const r of people) {
           if (!linkOwed(gh, record, pr, r.name) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;
@@ -1187,11 +1192,11 @@ export async function reviewDue(site, options) {
     const gh = routeRecord(cache.prs, pr);
     const wanted = [reviewApproved(gh) && 'git_approved', gh?.state === 'MERGED' ? 'git_merged' : gh?.state === 'CLOSED' && 'x'].filter(Boolean);
     const react = (name, message, reply) => {
-      if (!message.ts) return;
-      for (const emoji of wanted) if (!message.reactions?.includes(emoji)) reactions.push({ pr, reviewer: name, ...(reply ? { reply } : {}), channel: message.channel || rec.links[name].channel, ts: message.ts, emoji });
+      if (!message.ts || !reviewersByPR.get(pr)?.has(name)) return;
+      for (const emoji of wanted) if (!message.reactions?.includes(emoji)) reactions.push({ pr, reviewer: name, ...(reply === undefined ? {} : { reply }), channel: message.channel || rec.links[name].channel, ts: message.ts, emoji });
     };
     for (const [name, link] of Object.entries(rec.links)) react(name, link);
-    for (const reply of rec.replies) for (const [name, sent] of Object.entries(reply.to)) react(name, sent, reply.id);
+    rec.replies.forEach((reply, at) => { for (const [name, sent] of Object.entries(reply.to)) react(name, sent, at); });
   }
   // headers: each posted digest header whose count of PRs still pending that reviewer differs from the count it shows,
   // with the header's text at the new count.
