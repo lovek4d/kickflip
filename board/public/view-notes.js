@@ -19,19 +19,26 @@
       document.title = $('#ref').textContent;
       el.innerHTML = note + markdown(body.markdown, linkContext(items, key, { base: './' }));
     };
-    // While the board can't be reached, the notes' last answer here shows under its copy line, or with none the landing
-    // for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+    // The board's saved copy holds every card's notes (docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md), so they
+    // paint from it at once, and the live answer takes their place. While the board can't be reached, that copy, else
+    // the notes' last answer here, shows under its copy line, or with neither the landing for why
+    // (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
     const url = site.url(`api/notes?item=${encodeURIComponent(key)}`);
+    const saved = BoardUI.boardCopy(site.url(''), document.documentElement.dataset.build).then((c) => {
+      if (typeof c?.notes[key] !== 'string') return null;
+      return { savedAt: c.savedAt, items: c.board.items, body: { ref: c.board.items.find((i) => i.key === key)?.ref ?? key, markdown: c.notes[key] } };
+    });
     let copy = null;
     let live = false;
     let copied = false;
+    saved.then((c) => { if (c && B.alive() && !live && !copied) paint(c.body, c.items); });
     const waiting = (down) => {
-      copy ||= pageCopy.read(url);
+      copy ||= saved.then((c) => c || pageCopy.read(url));
       copy.then((c) => {
         if (!B.alive() || live || copied) return;
         if (!c) { el.innerHTML = downLanding(down); return; }
         copied = true;
-        paint(c.body, [], copyNote('the notes', c.savedAt));
+        paint(c.body, c.items || [], copyNote('the notes', c.savedAt));
       });
     };
     try {

@@ -59,10 +59,12 @@
 //                                a request whose If-None-Match names it answers 304 with no body
 //                                (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md)
 //                                ?since=<n>: the answer is a patch of what changed after n, {since, version, generatedAt,
-//                                set, unset, lists, threads?, onHost} (sync.mjs patchSince, public/ui-patch.js), threads
-//                                the lines each card's thread gained after n, or the whole thread
-//                                (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md); the whole board, with no
-//                                threads, when n is older than the oldest removal kept, or no number this board counted. A card's question
+//                                set, unset, lists, threads?, notes?, onHost} (sync.mjs patchSince, public/ui-patch.js),
+//                                threads the lines each card's thread gained after n, or the whole thread
+//                                (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md), notes each card's notes
+//                                that changed after n, whole, null for none
+//                                (docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md); the whole board, with no
+//                                threads or notes, when n is older than the oldest removal kept, or no number this board counted. A card's question
 //                                topic names its card as card and leaves its title to it
 //                                (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md)
 //                                Done cards come slim (domain.mjs slimDone), the newest 100 and the ones the Done
@@ -90,6 +92,9 @@
 //   GET  /api/notes?item=w/id    {key, ref, title, markdown}: the item's notes file, only a .md inside its item file's
 //                                folder, or with no file its short notes text (store.mjs readNotes); otherwise 404
 //                                {error}. /api/plan is the same, for pages loaded before the rename
+//   GET  /api/notes?all=1        {notes: {<key>: markdown}}: the notes the board's sync carries for every card on it that
+//                                has them, which a page loads after a whole board, since that carries none
+//                                (docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md)
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude. → {id, board}: the
 //                                event's id and /api/board's answer as the tap left it, version included, so the page draws the tap from
@@ -355,7 +360,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -653,8 +658,19 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return (await Promise.all((await itemSources(here)).map(async (s) => {
       const itemFile = await readJSON(s.file, null);
       if (!itemFile || !Array.isArray(itemFile.items)) return null;
-      return { slug: s.slug, itemFile, agents: await readAgents(path.join(s.dir, 'agents')) };
+      return { slug: s.slug, dir: s.dir, itemFile, agents: await readAgents(path.join(s.dir, 'agents')) };
     }))).filter(Boolean);
+  }
+
+  // The notes of every card in the item files, files liveFiles', by key: its markdown (store.mjs itemNotes), or null with
+  // none or a notes file it can't read, which GET /api/notes answers 404.
+  async function cardNotesOf(files) {
+    return Object.fromEntries(await Promise.all(files.flatMap(({ slug, dir, itemFile }) => itemFile.items.map(async (it) => {
+      try { return [`${slug}/${it.id}`, await itemNotes(dir, it)]; } catch (e) {
+        if (e instanceof BoardError || e.code === 'ENOENT') return [`${slug}/${it.id}`, null];
+        throw e;
+      }
+    }))));
   }
 
   // The item files with archive entries' items (store.mjs readArchive) back among their cards, so an archived card links
@@ -740,8 +756,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       else delete alive[key];
     }
 
+    const tries = await readJSON(path.join(data, 'try.json'), null);
     return {
-      ...items, moved, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here),
+      // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: main's log tail rides the board while its build is failing.
+      mainLog: tries?.main?.state === 'failed' ? await tryLogTail(here, 'main') : null,
+      ...items, moved, alive, try: tries, main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here),
       checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
       owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
       topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
@@ -776,11 +795,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // listens, is board()'s to add (withHub).
   let dataVersion = 0;
   let shared = null;
+  // The build carries cardNotes, each card's notes by key (null for none), which the board's sync carries beside it
+  // (docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md).
   async function sharedBoard() {
     const outside = await outsideData();
     const key = JSON.stringify([dataVersion, outside]);
     if (shared?.key !== key) {
-      const built = snapshot(outside).then(buildBoard);
+      const built = snapshot(outside).then(async (s) => ({ ...buildBoard(s), cardNotes: await cardNotesOf(s.files) }));
       shared = { key, built };
       built.catch(() => { if (shared?.built === built) shared = null; });
     }
@@ -864,24 +885,25 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md). A card's question topic leaves its title,
   // summary and askedAt to its card while the card is on the board: the page names the topic from the card
   // (view-questions.js), so a card's change patches the card alone (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md).
-  // It holds nothing of the request's, so every page reads the same board at the same change number. → {board, threads}:
-  // threads maps each card on it to its thread (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md), which the
-  // board's sync carries beside it.
+  // It holds nothing of the request's, so every page reads the same board at the same change number. → {board, threads,
+  // notes}: threads maps each card on it to its thread (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md), and
+  // notes to its notes or null (docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md), which the board's sync carries
+  // beside it.
   async function buildPageBoard(req) {
     if (!['GET', 'HEAD'].includes(req.method)) dataVersion++;
-    const { threadViews, ...built } = await board();
+    const { threadViews, cardNotes, ...built } = await board();
     const b = { ...built, doneArchived: await archiveCount(here) };
     b.owner = b.owner.filter((q) => q.state !== 'resolved');
     const marks = await readMarks(here);
     b.items = b.items.map((i) => ({ ...(i.lane === 'done' ? slimDone(i) : i), readAt: marks[i.key] || null }));
     const shown = new Set(b.items.map((i) => i.key));
     b.ownerTopics = b.ownerTopics.map(({ title, summary, askedAt, ...t }) => (shown.has(t.card) ? t : { ...t, title, summary, ...(askedAt ? { askedAt } : {}) }));
-    return { board: b, threads: new Map(b.items.map((i) => [i.key, threadViews[i.key]])) };
+    return { board: b, threads: new Map(b.items.map((i) => [i.key, threadViews[i.key]])), notes: new Map(b.items.map((i) => [i.key, cardNotes[i.key] ?? null])) };
   }
 
   // docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md: the change numbers (sync.mjs), kept in data/sync.json,
-  // and latest, the newest page board stamped with them, with latestThreads, its cards' threads stamped beside it. A
-  // board built before latest leaves all three as they are, so a slow build can't undo a newer one. No answer names a
+  // and latest, the newest page board stamped with them, with latestThreads and latestNotes, its cards' threads and notes
+  // stamped beside it. A board built before latest leaves them all as they are, so a slow build can't undo a newer one. No answer names a
   // number before data/sync.json holds it, so a restart never counts a number twice. data/sync.json's writes send no
   // change signal (quiet).
   const syncFile = path.join(data, 'sync.json');
@@ -890,6 +912,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   let syncWrites = Promise.resolve();
   let latest = null;
   let latestThreads = new Map();
+  let latestNotes = new Map();
   function saveSync() {
     syncWrites = syncWrites.then(async () => {
       const s = sync;
@@ -900,15 +923,16 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     });
     return syncWrites;
   }
-  // → {sync, board, threads}: latest, its threads and the state that stamped them, taken together.
+  // → {sync, board, threads, notes}: latest, its threads and notes and the state that stamped them, taken together.
   async function pageBoard(req) {
-    const { board: b, threads } = await buildPageBoard(req);
+    const { board: b, threads, notes } = await buildPageBoard(req);
     if (!latest || b.generatedAt >= latest.generatedAt) {
-      ({ sync, board: latest } = stamp(sync, b, threads));
+      ({ sync, board: latest } = stamp(sync, b, threads, notes));
       latestThreads = threads;
+      latestNotes = notes;
     }
     while (syncSaved < sync.n) await saveSync();
-    return { sync, board: latest, threads: latestThreads };
+    return { sync, board: latest, threads: latestThreads, notes: latestNotes };
   }
 
   // → undefined for a POST /_claude/events?board=0, so its answer carries no board key. since is the change number the
@@ -918,9 +942,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   async function answerBoard(req, since) {
     if (new URL(req.url, 'http://site').searchParams.get('board') === '0') return undefined;
     const onHost = await fromHost(req);
-    const { sync: at, board: b, threads } = await pageBoard(req);
+    const { sync: at, board: b, threads, notes } = await pageBoard(req);
     req.boardRead = true;
-    const patch = /^\d+$/.test(since) ? patchSince(at, b, Number(since), threads) : null;
+    const patch = /^\d+$/.test(since) ? patchSince(at, b, Number(since), threads, notes) : null;
     return { ...(patch || b), onHost };
   }
 
@@ -1137,6 +1161,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         return json(res, 200, { working: built.workingOn.map((w) => ({ id: w.id, kind: w.kind, card: refs.get(w.key) || null, since: w.since })) });
       }
       if (p === '/api/thread') return json(res, 200, await thread(String(url.searchParams.get('key') || '')));
+      if (p === '/api/notes' && url.searchParams.has('all')) {
+        const { notes } = await pageBoard(req);
+        return json(res, 200, { notes: Object.fromEntries([...notes].filter(([, markdown]) => markdown !== null)) });
+      }
       if (p === '/api/notes' || p === '/api/plan') {
         const key = String(url.searchParams.get('item') || '');
         try {

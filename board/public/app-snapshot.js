@@ -1,6 +1,6 @@
 // The board view's saved copy: reading it from IndexedDB and saving it there with its change number and every card's
-// thread (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md,
-// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md), flashing the lines the catch-up changed, and the sign
+// thread and notes (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md,
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md, docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md), flashing the lines the catch-up changed, and the sign
 // on a card that changed lanes or was updated (docs/adr/2026-11-02-2354-an-updated-card-takes-a-brief-tint.md).
 // Needs app-core.js and ui-snapshot.js; app.js paints it.
 BoardView.part((B) => {
@@ -12,7 +12,7 @@ BoardView.part((B) => {
 
   const copies = (mode, fn) => copyStore('boards', mode, fn);
 
-  // → {savedAt, board, threads} or null. anyBuild reads a copy another build saved too, which only a board out of reach
+  // → {savedAt, board, threads, notes} or null. anyBuild reads a copy another build saved too, which only a board out of reach
   // paints, guarded (app.js showDown).
   const readCopy = ({ anyBuild = false } = {}) => boardCopy(KEY, anyBuild ? null : BUILD);
 
@@ -23,7 +23,7 @@ BoardView.part((B) => {
     saveTimer?.();
     saveTimer = null;
     if (state.view !== 'fresh' || !state.board) return;
-    const copy = copyOf(state.board, state.threadCache, { build: BUILD, savedAt: state.board.generatedAt || new Date().toISOString() });
+    const copy = copyOf(state.board, state.threadCache, state.notesCache, { build: BUILD, savedAt: state.board.generatedAt || new Date().toISOString() });
     try {
       await copies('readwrite', (store) => store.put(copy, KEY));
       B.store.set('copyVersion', { build: BUILD, version: copy.board.version });

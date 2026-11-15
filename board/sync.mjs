@@ -7,6 +7,7 @@
 // docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md: each card's thread rides the same counter beside the board.
 // A whole board carries no threads; a patch carries, for each thread changed since, the lines added since, or the whole
 // thread when a line already sent was edited or removed since.
+// docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: each card's notes ride it too, sent whole when they changed.
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 
@@ -36,7 +37,7 @@ function hashes(board) {
 
 // The state of a sync file that doesn't exist yet. It counts from start, the time in ms it begins, so a number a page
 // holds from an earlier file is below its floor and gets the whole board. floor is the lowest since it can answer.
-export const freshSync = (start) => ({ n: start, floor: start, stamps: {}, hashes: {}, tombstones: [], threads: {} });
+export const freshSync = (start) => ({ n: start, floor: start, stamps: {}, hashes: {}, tombstones: [], threads: {}, notes: {} });
 
 // The thread records of the cards in threads (key → its messages), each {n, cut, len, h, appends}: n the number of its
 // last change, h the hash of its len messages, and appends [[n, from], …] each append since cut, the lines from index
@@ -58,16 +59,31 @@ function threadRecords(was = {}, threads, n) {
   return changed ? out : null;
 }
 
-// → {sync, board}: sync moved on by board and threads, the messages of each card on it by key (n stepped once when
-// anything in them changed or went), and board with n as its version and each record's changed. Leaves sync and board
-// as they were.
-export function stamp(sync, board, threads = new Map()) {
+// The notes records of the cards in notes (key → its markdown, or null for none), each {n, h}: n the number of its last
+// change and h the hash of its markdown. → the records, or null when none changed or went.
+function noteRecords(was = {}, notes, n) {
+  let changed = Object.keys(was).some((key) => !notes.has(key));
+  const out = {};
+  for (const [key, markdown] of notes) {
+    const h = hash(markdown);
+    if (was[key]?.h === h) { out[key] = was[key]; continue; }
+    changed = true;
+    out[key] = { n, h };
+  }
+  return changed ? out : null;
+}
+
+// → {sync, board}: sync moved on by board, threads, the messages of each card on it by key, and notes, the markdown of
+// each card on it by key or null for none (n stepped once when anything in them changed or went), and board with n as
+// its version and each record's changed. Leaves sync and board as they were.
+export function stamp(sync, board, threads = new Map(), notes = new Map()) {
   const now = hashes(board);
   const changed = [...now].filter(([id, h]) => sync.hashes[id] !== h);
   const gone = Object.keys(sync.hashes).filter((id) => !now.has(id));
   const threadsNext = threadRecords(sync.threads, threads, sync.n + 1);
+  const notesNext = noteRecords(sync.notes, notes, sync.n + 1);
   let next = sync;
-  if (changed.length || gone.length || threadsNext) {
+  if (changed.length || gone.length || threadsNext || notesNext) {
     const n = sync.n + 1;
     const stamps = { ...sync.stamps };
     const kept = { ...sync.hashes };
@@ -75,7 +91,7 @@ export function stamp(sync, board, threads = new Map()) {
     for (const id of gone) { delete stamps[id]; delete kept[id]; }
     const tombstones = [...sync.tombstones.filter((t) => !now.has(t.id)), ...gone.map((id) => ({ id, n }))];
     const dropped = tombstones.splice(0, Math.max(0, tombstones.length - TOMBSTONES_KEPT));
-    next = { n, floor: Math.max(sync.floor, dropped.at(-1)?.n ?? sync.floor), stamps, hashes: kept, tombstones, threads: threadsNext || sync.threads || {} };
+    next = { n, floor: Math.max(sync.floor, dropped.at(-1)?.n ?? sync.floor), stamps, hashes: kept, tombstones, threads: threadsNext || sync.threads || {}, notes: notesNext || sync.notes || {} };
   }
   const out = { ...board, version: next.n };
   for (const [name, id] of Object.entries(LISTS)) {
@@ -84,11 +100,11 @@ export function stamp(sync, board, threads = new Map()) {
   return { sync: next, board: out };
 }
 
-// board is the one sync last stamped, and threads the messages it stamped beside it. → {since, version, generatedAt, set,
-// unset, lists: {<list>: {set, drop, order?}}, threads?: {<key>: {from, lines}}} with what changed after since, or null
-// when since is no number this sync can answer from. A thread's lines take the place of its messages from index from
-// on: from 0 is the whole thread.
-export function patchSince(sync, board, since, threads = new Map()) {
+// board is the one sync last stamped, and threads and notes what it stamped beside it. → {since, version, generatedAt,
+// set, unset, lists: {<list>: {set, drop, order?}}, threads?: {<key>: {from, lines}}, notes?: {<key>: markdown or null}}
+// with what changed after since, or null when since is no number this sync can answer from. A thread's lines take the
+// place of its messages from index from on: from 0 is the whole thread.
+export function patchSince(sync, board, since, threads = new Map(), notes = new Map()) {
   if (!Number.isInteger(since) || since < sync.floor || since > sync.n) return null;
   const after = (id) => sync.stamps[id] > since;
   const gone = sync.tombstones.filter((t) => t.n > since).map((t) => t.id);
@@ -110,7 +126,10 @@ export function patchSince(sync, board, since, threads = new Map()) {
     const from = since < t.cut ? 0 : t.appends.find(([n]) => n > since)[1];
     sent[key] = { from, lines: threads.get(key).slice(from) };
   }
-  return { since, version: sync.n, generatedAt: board.generatedAt, set, unset, lists, ...(Object.keys(sent).length ? { threads: sent } : {}) };
+  const notesSent = {};
+  for (const [key, t] of Object.entries(sync.notes || {})) if (t.n > since) notesSent[key] = notes.get(key);
+  return { since, version: sync.n, generatedAt: board.generatedAt, set, unset, lists, ...(Object.keys(sent).length ? { threads: sent } : {}),
+    ...(Object.keys(notesSent).length ? { notes: notesSent } : {}) };
 }
 
 // data/sync.json → the state it holds, or a fresh one starting now when there is none.

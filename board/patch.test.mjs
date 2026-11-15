@@ -176,3 +176,38 @@ test("the page appends a thread's new lines to the copy it holds, takes a whole 
   assert.deepEqual(applied(cache({ 'w/A': [line('a1'), line('a2')] }), p).stale, ['w/A', 'w/C'], 'a thread already fetched past the patch is fetched again rather than doubled');
   assert.deepEqual(held.get('w/A'), [line('a1')], 'the cache it was given stays as it was');
 });
+
+// docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md
+const notesOf = (map) => new Map(Object.entries(map));
+const withNotes = (s, notes) => stamp(s, board(), new Map(), notesOf(notes));
+const notesSince = (s, notes, n) => plain(patchSince(s, board(), n, new Map(), notesOf(notes))).notes;
+
+test("each card's notes are stamped beside the board: notes that changed alone step the number, unchanged ones move nothing, and a whole board carries none", () => {
+  const one = withNotes(freshSync(START), { 'w/A': '# A', 'w/B': null });
+  assert.equal(one.sync.n, START + 1);
+  assert.deepEqual(Object.keys(one.sync.notes), ['w/A', 'w/B']);
+  assert.equal(one.board.notes, undefined, 'the board itself carries no notes; a whole board has none');
+  assert.equal(withNotes(one.sync, { 'w/A': '# A', 'w/B': null }).sync.n, one.sync.n);
+  const two = withNotes(one.sync, { 'w/A': '# A\n\n## Build notes', 'w/B': null });
+  assert.equal(two.sync.n, one.sync.n + 1);
+  assert.deepEqual(notesSince(two.sync, { 'w/A': '# A\n\n## Build notes', 'w/B': null }, one.board.version), { 'w/A': '# A\n\n## Build notes' }, 'changed notes come whole');
+  assert.equal(notesSince(two.sync, { 'w/A': '# A\n\n## Build notes', 'w/B': null }, two.board.version), undefined, 'a patch with no notes changes carries no notes');
+});
+
+test('notes a card gains or loses since come in the patch, null for none, and a card that leaves the board drops its notes from the sync', () => {
+  const one = withNotes(freshSync(START), { 'w/A': '# A', 'w/B': null });
+  const two = withNotes(one.sync, { 'w/A': null, 'w/B': '# B' });
+  assert.deepEqual(notesSince(two.sync, { 'w/A': null, 'w/B': '# B' }, one.board.version), { 'w/A': null, 'w/B': '# B' });
+  const three = withNotes(two.sync, { 'w/B': '# B' });
+  assert.equal(three.sync.n, two.sync.n + 1);
+  assert.deepEqual(Object.keys(three.sync.notes), ['w/B']);
+  assert.deepEqual(notesSince(three.sync, { 'w/B': '# B' }, one.board.version), { 'w/B': '# B' });
+});
+
+test('a sync file from before notes were stamped stamps every card\'s notes once, so its first patch carries them all', () => {
+  const { sync: old } = stamp(freshSync(START), board());
+  delete old.notes;
+  const next = withNotes(old, { 'w/A': '# A' });
+  assert.equal(next.sync.n, old.n + 1);
+  assert.deepEqual(notesSince(next.sync, { 'w/A': '# A' }, old.n), { 'w/A': '# A' });
+});

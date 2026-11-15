@@ -131,6 +131,8 @@ window.BoardView = (function () {
       // The cards open when the page loaded: Done hides those past their cap until the owner opens one this visit.
       restored: new Set(store.get('openItems', [])),
       threadCache: new Map(),
+      // Each card's notes by key, which the board's sync keeps (app-reader.js takeNotes, fillNotes).
+      notesCache: new Map(),
       edits: new Map(),
       githubPending: null,
       // Main's refresh icon (ui-cards.js mainPull): a tap waiting on the server, and the failed pull's reason open on touch.
@@ -288,6 +290,7 @@ window.BoardView = (function () {
       state.oldCopy = old;
       state.board = copy.board;
       for (const [key, msgs] of Object.entries(copy.threads)) state.threadCache.set(key, msgs);
+      for (const [key, notes] of Object.entries(copy.notes)) state.notesCache.set(key, notes);
       state.fresh = { at: copy.savedAt, sig: null };
       B.setView('fresh');
       readHash();
@@ -391,9 +394,10 @@ window.BoardView = (function () {
 
     // A board from the server, a load's or an events POST's, or a patch from the board on screen (ui-patch.js). One built
     // before the board on screen leaves it as it is, so a slow load can't undo a newer one; a newer patch from a board
-    // no longer on screen, which another answer replaced meanwhile, reloads instead. A patch's threads go into the cache
-    // before the board draws; then the threads the cache lacks load, or after a whole board every card's
-    // (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). → whether it landed
+    // no longer on screen, which another answer replaced meanwhile, reloads instead. A patch's threads and notes go into
+    // their caches before the board draws; then the threads the cache lacks load, or after a whole board every card's
+    // thread and notes (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md,
+    // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md). → whether it landed
     function land(answer, load) {
       if (state.view === 'fresh' && state.board && answer.generatedAt < state.board.generatedAt) return false;
       const board = answer.since === undefined ? answer : BoardUI.applyPatch(state.view === 'fresh' ? state.board : null, answer);
@@ -401,7 +405,10 @@ window.BoardView = (function () {
       const first = state.view !== 'fresh';
       state.board = board;
       state.oldCopy = false;
-      if (answer.since !== undefined) B.takeThreads(answer.threads || {});
+      if (answer.since !== undefined) {
+        B.takeThreads(answer.threads || {});
+        B.takeNotes(answer.notes || {});
+      }
       if (state.down) {
         state.down = null;
         $('#downLanding').hidden = true;
@@ -413,6 +420,7 @@ window.BoardView = (function () {
       try { render(load); } catch (e) { drawFailed(e); return true; }
       if (first) B.resendOutbox();
       filling = B.fillThreads({ whole: answer.since === undefined });
+      if (answer.since === undefined) B.fillNotes();
       scrollToFocus();
       returnToPlace();
       B.site.syncBadge();

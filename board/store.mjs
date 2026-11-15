@@ -3164,9 +3164,16 @@ async function planPath(dir, rel, { missingOk = false } = {}) {
 // its short `notes` text, so notes written before the page existed still show; otherwise a BoardError.
 export async function readNotes(site, key) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (item.plan) return { itemFile, item, markdown: await fs.readFile(await planPath(source.dir, item.plan), 'utf8') };
-  if (typeof item.notes === 'string' && item.notes.trim()) return { itemFile, item, markdown: item.notes };
-  fail(`${key} has no notes`);
+  const markdown = await itemNotes(source.dir, item);
+  if (markdown === null) fail(`${key} has no notes`);
+  return { itemFile, item, markdown };
+}
+
+// → the notes of item in the item file at dir, as readNotes reads them, or null for none; a notes file that fails
+// planPath's checks is a BoardError.
+export async function itemNotes(dir, item) {
+  if (item.plan) return fs.readFile(await planPath(dir, item.plan), 'utf8');
+  return typeof item.notes === 'string' && item.notes.trim() ? item.notes : null;
 }
 
 // docs/adr/2026-10-29-1729-a-device-app-card-carries-an-install-link.md

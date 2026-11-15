@@ -11,37 +11,33 @@ BoardView.part((B) => {
   let postingMain = false;
   let followMainAfter = null;
   let mainState = null;
-  let logRequest = 0;
+  // The log lines the sheet shows, as JSON, so a board that brings the same lines leaves the sheet's scroll alone.
+  let shownLog = null;
   function mainReason(text = '') {
     $('#mainLogReason').textContent = text;
     $('#mainLogReason').hidden = !text;
   }
   function closeMainLog() {
     if (!mainSheet.open || mainSheet.classList.contains('closing')) return;
-    logRequest++;
     if (reduceMotion.matches) { mainSheet.close(); return; }
     mainSheet.classList.add('closing');
     B.later(180, () => { mainSheet.classList.remove('closing'); mainSheet.close(); });
   }
-  async function loadMainLog() {
-    const request = ++logRequest;
+  // A failing main's log lines ride the board (main.log; docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md), so the
+  // sheet draws them from each board that carries them; while main rebuilds it keeps the last ones.
+  function paintMainLog(lines) {
+    if (JSON.stringify(lines) === shownLog) return;
+    shownLog = JSON.stringify(lines);
     const pre = $('#mainLogLines');
-    try {
-      const response = await fetch(B.site.url('api/try/main/log'), { cache: 'no-store' });
-      const out = await response.json();
-      if (!response.ok) throw new Error(out.error || 'Could not read main’s log.');
-      if (!B.alive() || request !== logRequest || !mainSheet.open) return;
-      pre.innerHTML = out.lines.length ? out.lines.map((line) => esc(line)).join('\n') : 'No log was written.';
-      pre.scrollTop = pre.scrollHeight;
-    } catch (error) {
-      if (B.alive() && request === logRequest && mainSheet.open) mainReason(error.message || 'Could not read main’s log.');
-    }
+    pre.innerHTML = lines.length ? lines.map((line) => esc(line)).join('\n') : 'No log was written.';
+    pre.scrollTop = pre.scrollHeight;
   }
   function renderMainLog(main, load = null) {
     if (!mainSheet.open || mainSheet.classList.contains('closing') || !main) return;
     const words = tryWords(main.kind);
     $('#mainLogTitle').textContent = `Main’s ${words.failed.toLowerCase()}`;
     $('#mainLogSource').innerHTML = `<code>${esc(main.script)}</code> stopped at main@<code>${esc(main.sha)}</code> · last lines of <code>data/try/main.log</code>`;
+    if (main.log) paintMainLog(main.log);
     // Only a load begun after the POST resolved can settle this retry.
     const fresh = !postingMain && load !== null && (followMainAfter === null || load >= followMainAfter);
     if (fresh) {
@@ -53,7 +49,6 @@ BoardView.part((B) => {
       } else if (main.state === 'failed' && followed) {
         followMainAfter = null;
         mainReason();
-        loadMainLog();
       }
       mainState = main.state;
     }
@@ -71,9 +66,8 @@ BoardView.part((B) => {
     mainState = state.board.main.state;
     mainSheet.classList.remove('closing');
     mainSheet.showModal();
-    $('#mainLogLines').textContent = 'Loading…';
+    shownLog = null;
     renderMainLog(state.board.main);
-    loadMainLog();
   });
   B.on($('#mainLogClose'), 'click', closeMainLog);
   B.on(mainSheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, mainSheet)) closeMainLog(); });

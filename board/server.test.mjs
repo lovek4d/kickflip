@@ -1926,6 +1926,51 @@ test("a whole board carries no threads; a patch carries the lines added to each 
   assert.deepEqual(JSON.parse(JSON.stringify(new Map(set).get('t/H1'))), await get('/api/thread?key=t%2FH1'));
 });
 
+// docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md
+test("a whole board carries no notes, /api/notes?all=1 answers every card's on it, and a patch carries a card's notes whole once they change", async () => {
+  const get = async (q) => (await fetch(`${base}${q}`)).json();
+  const items = path.join(site, 'data', 'items.json');
+  const asked = fs.existsSync(items) ? JSON.parse(fs.readFileSync(items, 'utf8')).items.filter((i) => i.from_ask) : [];
+  const file = path.join(site, 'data', 'N1-notes.md');
+  fs.writeFileSync(file, '# N1\n');
+  await putWave(JSON.stringify({ items: [...asked, { id: 'N1', title: 'Noted', lane: 'todo', phase: 'discussing', plan: 'N1-notes.md' },
+    { id: 'N2', title: 'Short', lane: 'todo', phase: 'discussing', notes: 'Short text' }, { id: 'N3', title: 'Bare', lane: 'todo', phase: 'discussing' },
+    { id: 'N4', title: 'Missing file', lane: 'todo', phase: 'discussing', plan: 'N4-gone.md' }] }));
+  const first = await get('/api/board');
+  assert.equal(first.notes, undefined);
+  assert.equal(first.cardNotes, undefined);
+  assert.deepEqual((await get('/api/notes?all=1')).notes, { 't/N1': '# N1\n', 't/N2': 'Short text' }, 'a card with no notes, or a notes file that is gone, has none');
+  fs.writeFileSync(file, '# N1\n\n## Build notes\n');
+  await heard(file);
+  const patch = await get(`/api/board?since=${first.version}`);
+  assert.deepEqual(patch.notes, { 't/N1': '# N1\n\n## Build notes\n' });
+  assert.equal((await get(`/api/board?since=${patch.version}`)).notes, undefined, 'unchanged notes ride no patch');
+});
+
+test("while main's build is failing, the last 40 lines of its log ride the board's main; once it isn't, main carries none", async () => {
+  const tryFile = path.join(site, 'data', 'try.json');
+  const tryBefore = fs.existsSync(tryFile) ? fs.readFileSync(tryFile, 'utf8') : null;
+  const logFile = path.join(site, 'data', 'try', 'main.log');
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  const lines = Array.from({ length: 80 }, (_, i) => `line ${i}`);
+  fs.writeFileSync(logFile, 'x'.repeat(100_000) + '\n' + lines.join('\n') + '\n');
+  const main = (state) => ({ kind: 'web', cards: {}, main: { script: true, sha: 'abcdef1234', slug: 'w', at: '2026-11-15T10:00:00.000Z', state, target: 'web' } });
+  try {
+    fs.writeFileSync(tryFile, JSON.stringify(main('failed')));
+    await heard(tryFile);
+    const failed = await (await fetch(`${base}/api/board`)).json();
+    assert.deepEqual(failed.main.log, lines.slice(-40));
+    fs.writeFileSync(tryFile, JSON.stringify(main('running')));
+    await heard(tryFile);
+    const patch = await (await fetch(`${base}/api/board?since=${failed.version}`)).json();
+    assert.equal(patch.set.main.log, null);
+  } finally {
+    if (tryBefore === null) fs.rmSync(tryFile); else fs.writeFileSync(tryFile, tryBefore);
+    fs.rmSync(logFile);
+    await heard(tryFile);
+  }
+});
+
 test('an event posted with board=0, as the hub posts, is answered with its id alone, building no board', async () => {
   const r = await fetch(`${base}/_claude/events?board=0`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ping', title: 'Hub' }) });
   const answer = await r.json();

@@ -289,24 +289,28 @@ test('header controls turn on together once the first board load lands, refresh 
 });
 
 // docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md
-test("the saved copy keeps the board whole, its change number included, and the threads of the cards still on it", () => {
+// docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: and the notes of the cards still on it.
+test("the saved copy keeps the board whole, its change number included, and the threads and notes of the cards still on it", () => {
   const savedAt = '2026-10-23T08:00:00.000Z';
   const board = { version: 1762400000123, generatedAt: savedAt, items: [{ key: 'w/A', lane: 'todo', changed: 1762400000120 }, { key: 'w/B', lane: 'done', changed: 1762400000123 }] };
   const threads = new Map([['w/B', [{ text: 'b' }]], ['w/A', [{ text: 'a' }]], ['w/gone', [{ text: 'x' }]]]);
-  const copy = ui.copyOf(board, threads, { build: 'b1', savedAt });
-  assert.deepEqual(plain(copy), { build: 'b1', savedAt, board, threads: { 'w/B': [{ text: 'b' }], 'w/A': [{ text: 'a' }] } });
+  const notes = new Map([['w/A', '# A'], ['w/gone', '# Gone']]);
+  const copy = ui.copyOf(board, threads, notes, { build: 'b1', savedAt });
+  assert.deepEqual(plain(copy), { build: 'b1', savedAt, board, threads: { 'w/B': [{ text: 'b' }], 'w/A': [{ text: 'a' }] }, notes: { 'w/A': '# A' } });
   const back = plain(ui.readCopy(plain(copy), 'b1'));
-  assert.deepEqual([back.savedAt, back.board, Object.keys(back.threads)], [savedAt, board, ['w/B', 'w/A']]);
+  assert.deepEqual([back.savedAt, back.board, Object.keys(back.threads), back.notes], [savedAt, board, ['w/B', 'w/A'], { 'w/A': '# A' }]);
 });
 
 test('a stored copy that is damaged, saved under another build, undated or holding no change number reads as none', () => {
-  const good = plain(ui.copyOf({ version: 7, items: [{ key: 'w/A', lane: 'todo' }] }, new Map(), { build: 'b1', savedAt: '2026-10-23T08:00:00.000Z' }));
+  const good = plain(ui.copyOf({ version: 7, items: [{ key: 'w/A', lane: 'todo' }] }, new Map(), new Map(), { build: 'b1', savedAt: '2026-10-23T08:00:00.000Z' }));
   assert.ok(ui.readCopy(good, 'b1'));
   assert.equal(ui.readCopy(good, 'b2'), null);
   for (const odd of [null, undefined, 'text', { ...good, build: undefined }, { ...good, board: { ...good.board, items: undefined } }, { ...good, savedAt: 'soon' }, { ...good, board: { ...good.board, version: 'v1' } }]) {
     assert.equal(ui.readCopy(odd, 'b1'), null, JSON.stringify(odd));
   }
   assert.deepEqual(Object.keys(ui.readCopy({ ...good, threads: { 'w/A': 'text', 'w/B': [{ text: 'b' }] } }, 'b1').threads), ['w/B']);
+  assert.deepEqual(plain(ui.readCopy({ ...good, notes: { 'w/A': ['x'], 'w/B': '# B' } }, 'b1').notes), { 'w/B': '# B' });
+  assert.deepEqual(plain(ui.readCopy({ ...good, notes: undefined }, 'b1').notes), {}, 'a copy saved before notes rode the sync reads as holding none');
 });
 
 // docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md

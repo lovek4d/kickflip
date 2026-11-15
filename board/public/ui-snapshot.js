@@ -1,21 +1,23 @@
-// The board this device last held, saved in IndexedDB with its change number and every card's thread, which the board
-// page paints live on open and catches up from (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md,
-// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). Needs ui.js.
+// The board this device last held, saved in IndexedDB with its change number and every card's thread and notes, which
+// the board page paints live on open and catches up from (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md,
+// docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md, docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md).
+// Needs ui.js.
 (function () {
-  // threads maps item keys to thread messages (app.js state.threadCache), which the board's sync keeps for every card on
-  // it. → {build, savedAt, board, threads} with the threads of the cards on the board; build is the saving page's
-  // (app.html data-build).
-  const copyOf = (board, threads, { build, savedAt }) => {
+  // threads maps item keys to thread messages (app.js state.threadCache) and notes to their markdown (state.notesCache),
+  // which the board's sync keeps for every card on it. → {build, savedAt, board, threads, notes} with those of the cards
+  // on the board; build is the saving page's (app.html data-build).
+  const copyOf = (board, threads, notes, { build, savedAt }) => {
     const onBoard = new Set(board.items.map((i) => i.key));
-    return { build, savedAt, board, threads: Object.fromEntries([...threads].filter(([key]) => onBoard.has(key))) };
+    const kept = (map) => Object.fromEntries([...map].filter(([key]) => onBoard.has(key)));
+    return { build, savedAt, board, threads: kept(threads), notes: kept(notes) };
   };
 
-  // → {savedAt, board, threads}, or null for anything copyOf didn't write under this build: code from another build may
-  // read the board's shape differently, and a paint that throws stops the live load.
+  // → {savedAt, board, threads, notes}, or null for anything copyOf didn't write under this build: code from another
+  // build may read the board's shape differently, and a paint that throws stops the live load.
   function readCopy(s, build) {
     if (!s || s.build !== build || !Array.isArray(s.board?.items) || !Number.isInteger(s.board.version) || typeof s.savedAt !== 'string' || !Number.isFinite(Date.parse(s.savedAt))) return null;
-    const threads = Object.fromEntries(Object.entries(s.threads && typeof s.threads === 'object' ? s.threads : {}).filter(([, m]) => Array.isArray(m)));
-    return { savedAt: s.savedAt, board: s.board, threads };
+    const entries = (v, ok) => Object.fromEntries(Object.entries(v && typeof v === 'object' ? v : {}).filter(([, x]) => ok(x)));
+    return { savedAt: s.savedAt, board: s.board, threads: entries(s.threads, Array.isArray), notes: entries(s.notes, (x) => typeof x === 'string') };
   }
 
   // One transaction on a store of the copies' database: 'boards', each board's copy, or 'pages', a side page's answers

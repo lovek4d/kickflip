@@ -21,6 +21,8 @@ BoardView.part((B) => {
   let pending = null;
   let log = null;
   let stopReading = null;
+  // The card whose notes the sheet shows, else null.
+  let notesKey = null;
 
   // A row of the transcript (transcript.mjs); a call with its output opens it on a tap of its line. What Claude says,
   // its text rows and its result, is markdown in compact styles, linking the board's refs
@@ -105,6 +107,7 @@ BoardView.part((B) => {
     opened++;
     stopReading?.();
     log = null;
+    notesKey = null;
     sheet.querySelector('#readerTitle').textContent = title;
     sheet.querySelector('.reader-ref').textContent = ref;
     tools.innerHTML = '';
@@ -121,18 +124,59 @@ BoardView.part((B) => {
     log = { file, read: false, next: 0, rows: [], calls: new Map(), opened: new Set(), stream: false, finished: false, raw: false, text: null, following: true, unseen: 0 };
     readLog(n);
   }
+  // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: a card's notes draw from state.notesCache, which the board's
+  // sync keeps, at once and again whenever it brings them changed; a card the cache lacks (a Done page loaded later, a
+  // first load still filling) loads its own.
+  function paintNotes(key, md, ref) {
+    sheet.querySelector('.reader-ref').textContent = `${ref} notes`;
+    body.innerHTML = `<article class="plan reader-md">${markdown(md, linkContext(state.board?.items || [], key))}</article>`;
+  }
+  const refOf = (key) => state.board?.items.find((i) => i.key === key)?.ref ?? key;
   async function openNotes(search) {
     const n = show('notes', '');
-    let html;
+    const key = new URLSearchParams(search).get('item');
+    notesKey = key;
+    if (state.notesCache.has(key)) { paintNotes(key, state.notesCache.get(key), refOf(key)); return; }
+    let answer;
     try {
       const r = await fetch(B.site.url(`api/notes${search}`), { cache: 'no-store' });
-      const answer = await r.json();
+      answer = await r.json();
       if (!r.ok) throw new Error(answer.error || `notes ${r.status}`);
-      if (n !== opened) return;
-      sheet.querySelector('.reader-ref').textContent = `${answer.ref} notes`;
-      html = `<article class="plan reader-md">${markdown(answer.markdown, linkContext(state.board?.items || [], answer.key ?? null))}</article>`;
-    } catch (e) { html = `<p class="muted">Could not load these notes: ${esc(e.message)}</p>`; }
-    if (n === opened) body.innerHTML = html;
+    } catch (e) {
+      if (n === opened) body.innerHTML = `<p class="muted">Could not load these notes: ${esc(e.message)}</p>`;
+      return;
+    }
+    if (n === opened) paintNotes(answer.key ?? key, answer.markdown, answer.ref);
+  }
+  // The open sheet's notes again, when the cache holds them changed.
+  function repaintNotes(keys) {
+    if (sheet.open && notesKey !== null && keys.includes(notesKey) && state.notesCache.has(notesKey)) paintNotes(notesKey, state.notesCache.get(notesKey), refOf(notesKey));
+  }
+
+  // A board patch's notes ({<key>: markdown, or null for none}) into the cache. Each fill running keeps the keys, so its
+  // answer, which may be older, leaves them as the patch did.
+  const fills = new Set();
+  function takeNotes(notes) {
+    const keys = Object.keys(notes);
+    for (const key of keys) {
+      if (notes[key] === null) state.notesCache.delete(key); else state.notesCache.set(key, notes[key]);
+      for (const patched of fills) patched.add(key);
+    }
+    if (keys.length) repaintNotes(keys);
+  }
+  // After a whole board, which carries no notes, every card's load at once (GET /api/notes?all=1) in place of the cache's.
+  async function fillNotes() {
+    const patched = new Set();
+    fills.add(patched);
+    try {
+      const r = await fetch(B.site.url('api/notes?all=1'), { cache: 'no-store' });
+      if (!r.ok || !B.alive()) return;
+      const { notes } = await r.json();
+      for (const key of state.notesCache.keys()) if (!(key in notes) && !patched.has(key)) state.notesCache.delete(key);
+      for (const [key, md] of Object.entries(notes)) if (!patched.has(key)) state.notesCache.set(key, md);
+      repaintNotes(Object.keys(notes));
+      B.saveCopySoon?.();
+    } catch {} finally { fills.delete(patched); }
   }
   function close() {
     if (!sheet.open) return;
@@ -142,7 +186,7 @@ BoardView.part((B) => {
     if (pushed) { pushed = false; history.back(); }
   }
 
-  B.closeReader = close;
+  Object.assign(B, { closeReader: close, takeNotes, fillNotes });
 
   const plainTap = (ev) => !ev.defaultPrevented && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey;
   B.on(B.root, 'click', (ev) => {

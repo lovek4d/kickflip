@@ -13,11 +13,13 @@ import { transcriptChunk } from './transcript.mjs';
 
 // The patch the server sends a page holding from once the board reads to, as board/sync.mjs makes it, between the
 // versions the two boards name. threads, {from, to}, are the cards' threads beside each board.
-function boardPatch(from, to, threads = { from: {}, to: {} }) {
+function boardPatch(from, to, threads = { from: {}, to: {} }, notes = { from: {}, to: {} }) {
   const map = (t) => new Map(Object.entries(t));
-  const held = stamp(freshSync(0), from, map(threads.from));
-  const now = stamp(held.sync, to, map(threads.to));
-  return { ...patchSince(now.sync, now.board, held.sync.n, map(threads.to)), since: from.version, version: to.version };
+  // Every card's notes, null for none, as board/server.mjs buildPageBoard stamps them.
+  const notesOf = (board, n) => new Map(board.items.map((i) => [i.key, n[i.key] ?? null]));
+  const held = stamp(freshSync(0), from, map(threads.from), notesOf(from, notes.from));
+  const now = stamp(held.sync, to, map(threads.to), notesOf(to, notes.to));
+  return { ...patchSince(now.sync, now.board, held.sync.n, map(threads.to), notesOf(to, notes.to)), since: from.version, version: to.version };
 }
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
@@ -1317,6 +1319,31 @@ test("out of reach, Notes show their last answer here under its copy line, or wi
   await drain(() => /down-landing/.test(none.plan.innerHTML), 'the landing shows');
   assert.match(none.plan.innerHTML, /Board offline/);
   none.view.unmount();
+});
+
+// docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md
+test("Notes paint at once from the board's saved copy, which holds every card's notes, then take the live answer", async () => {
+  const site = 'https://mac.ts.net/board-a';
+  const page = fakePage(memoryStorage().localStorage);
+  page.win.indexedDB = memoryIndexedDB();
+  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A1', ref: 'INT-1', lane: 'todo' }], owner: [], ownerTopics: [] };
+  await page.win.BoardUI.copyStore('boards', 'readwrite', (store) => store.put({ build: 'build-1', savedAt: board.generatedAt, board, threads: {}, notes: { 'w/A1': '# Saved\n\nFrom the copy.' } }, `${site}/`));
+  let answer;
+  const answered = new Promise((resolve) => { answer = resolve; });
+  page.win.fetch = async (url) => {
+    const body = url.includes('/api/notes') ? await answered : { items: board.items };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  const root = new page.El();
+  const view = page.win.AppViews.notes.create(root, site, { view: { kind: 'notes', route: 'board-a', item: 'w/A1' } });
+  view.mount();
+  const plan = root.querySelector('#plan');
+  await drain(() => /From the copy/.test(plan.innerHTML), 'the copy paints before the answer');
+  assert.doesNotMatch(plan.innerHTML, /Loading the notes|copy-note/);
+  assert.equal(root.querySelector('#ref').textContent, 'INT-1 notes');
+  answer({ key: 'w/A1', ref: 'INT-1', title: 'One', markdown: '# Live\n\nFrom the board.' });
+  await drain(() => /From the board/.test(plan.innerHTML), 'the live answer takes its place');
+  view.unmount();
 });
 
 test("out of reach, Waiting on you paints the board's copy with its sending buttons held, or with none the landing", async () => {
@@ -2834,12 +2861,12 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
 });
 
 // seen: card key → its readAt on the board, the read mark board/server.mjs keeps for every device.
-function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm = false, realDialogs = false, send = null, width = 390 }) {
+function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, confirm = false, realDialogs = false, send = null, width = 390 }) {
   const { storage, localStorage } = memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ...stored]);
   const page = fakePage(localStorage);
   page.win.innerWidth = width;
   const { Element } = miniDom(page.Target, page.win.document);
-  const server = { board: { ...board, items: board.items.map((it) => (seen[it.key] ? { ...it, readAt: seen[it.key] } : it)) }, threads };
+  const server = { board: { ...board, items: board.items.map((it) => (seen[it.key] ? { ...it, readAt: seen[it.key] } : it)) }, threads, notes };
   const sent = [];
   const confirms = [];
   const confirmLabels = [];
@@ -2862,8 +2889,14 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm
     if (u.pathname.endsWith('/api/board') && server.board.version && opts.headers?.['if-none-match'] === `"${server.board.version}"`) return { ok: false, status: 304, json: async () => { throw new Error('a 304 has no body'); } };
     // A reload naming a version the server holds gets a patch from it, as board/server.mjs answerBoard does.
     const since = u.pathname.endsWith('/api/board') && server.held?.[u.searchParams.get('since')];
-    if (since) { patched.push(u.searchParams.get('since')); const patch = boardPatch(since, server.board, { from: server.heldThreads?.[u.searchParams.get('since')] || {}, to: server.threads || {} }); return { ok: true, status: 200, json: async () => structuredClone(patch), text: async () => JSON.stringify(patch) }; }
+    if (since) {
+      const at = u.searchParams.get('since');
+      patched.push(at);
+      const patch = boardPatch(since, server.board, { from: server.heldThreads?.[at] || {}, to: server.threads || {} }, { from: server.heldNotes?.[at] || {}, to: server.notes || {} });
+      return { ok: true, status: 200, json: async () => structuredClone(patch), text: async () => JSON.stringify(patch) };
+    }
     if (u.pathname.endsWith('/api/board')) downloads.push(server.board.version);
+    if (u.pathname.endsWith('/api/notes') && u.searchParams.has('all')) return { ok: true, status: 200, json: async () => structuredClone({ notes: server.notes || {} }) };
     if (u.pathname.endsWith('/api/done')) return { ok: true, status: 200, json: async () => structuredClone(server.done(u.searchParams)) };
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
     return { ok: true, status: 200, json: async () => structuredClone(body), text: async () => JSON.stringify(body) };
@@ -3785,21 +3818,19 @@ test('main paints above the lanes, card failures scroll to their thread and main
   assert.equal(event.defaultPrevented, true);
   assert.deepEqual(scrolled, ['thread']);
 
-  const failed = { ...data, main: { ...data.main, state: 'failed' } };
+  // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: a failing main's log lines ride the board, so the sheet
+  // paints them at once and asks for nothing.
+  const failed = { ...data, main: { ...data.main, state: 'failed', log: ['<script>bad & worse</script>', 'stopped'] } };
   await b.change({ board: failed });
   const original = b.page.win.fetch;
   const posts = [];
-  let lines = ['<script>bad & worse</script>', 'stopped'];
   let refusal = 'Try builds wait on Tailscale: Tailscale isn’t signed in';
   let resolvePost;
   let logReads = 0;
   let holdBoard = false;
   let releaseBoard;
   b.page.win.fetch = async (url, opts = {}) => {
-    if (url.endsWith('/api/try/main/log')) {
-      logReads++;
-      return { ok: true, json: async () => ({ lines }) };
-    }
+    if (url.endsWith('/api/try/main/log')) logReads++;
     if (url.endsWith('/api/try')) {
       posts.push([url, JSON.parse(opts.body)]);
       if (!refusal) await new Promise((resolve) => { resolvePost = resolve; });
@@ -3814,10 +3845,11 @@ test('main paints above the lanes, card failures scroll to their thread and main
     return original(url, opts);
   };
   b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-main-log]') });
-  await b.settle();
   const sheet = b.root.querySelector('#mainLogSheet');
   const retry = b.root.querySelector('#mainLogRetry');
   assert.equal(sheet.open, true);
+  assert.match(b.root.querySelector('#mainLogLines').innerHTML, /&lt;script&gt;bad &amp; worse&lt;\/script&gt;/, 'drawn in the same tick as the tap');
+  await b.settle();
   assert.equal(b.root.querySelector('#mainLogTitle').textContent, 'Main’s serve failed');
   assert.match(b.root.querySelector('#mainLogSource').textContent, /^\.kickflip\/build-web stopped at main@abcdef1/);
   assert.match(b.root.querySelector('#mainLogLines').innerHTML, /&lt;script&gt;bad &amp; worse&lt;\/script&gt;/);
@@ -3834,9 +3866,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   await b.settle();
   assert.deepEqual([retry.disabled, retry.getAttribute('aria-busy'), retry.textContent], [true, 'true', 'Retry'], 'Retry waits, its label kept behind the spinner, until main is up or fails');
   await b.change({ board: failed });
-  assert.equal(logReads, 1);
   assert.equal(retry.disabled, true);
-  const readsBeforeReload = logReads;
   holdBoard = true;
   const staleLoad = b.view.B.loadBoard();
   await b.settle();
@@ -3845,12 +3875,11 @@ test('main paints above the lanes, card failures scroll to their thread and main
   await b.settle();
   releaseBoard();
   await staleLoad;
-  assert.equal(logReads, readsBeforeReload);
   assert.equal(retry.disabled, true);
-  lines = ['new failure'];
-  await b.change({ board: failed });
+  await b.change({ board: { ...failed, main: { ...failed.main, log: ['new failure'] } } });
   assert.equal(b.root.querySelector('#mainLogLines').textContent, 'new failure');
   assert.deepEqual([retry.disabled, retry.getAttribute('aria-busy')], [false, null]);
+  assert.equal(logReads, 0, 'the sheet never asks for the log');
 
   b.page.fire(retry, 'click');
   await b.settle();
@@ -3861,8 +3890,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   b.page.runTimers(180);
   assert.equal(sheet.open, false);
   assert.match(b.root.textContent, /Main is up again at abcdef1/);
-  await b.change({ board: { ...failed, main: { ...failed.main, kind: 'app' } } });
-  lines = [];
+  await b.change({ board: { ...failed, main: { ...failed.main, kind: 'app', log: [] } } });
   b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-main-log]') });
   await b.settle();
   assert.equal(b.root.querySelector('#mainLogTitle').textContent, 'Main’s serve failed');
@@ -6103,10 +6131,10 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
 });
 
 // docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md
-function readerOnDom(logText, { width = 390, topics = null } = {}) {
+function readerOnDom(logText, { width = 390, topics = null, notes } = {}) {
   const launch = { ts: '2026-10-30T09:00:00.000Z', who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Sonnet implementer', text: 'Claude Sonnet implementer started', finished: false, log: 'builder-A1-1.log' };
   const card = workCard('A1', { lane: 'progress', hasNotes: true });
-  const b = boardOnDom({ open: ['w/A1'], width, board: topics ? { ...questionsBoard(topics, []), items: [card] } : boardOf([card]), threads: { 'w/A1': [launch] } });
+  const b = boardOnDom({ open: ['w/A1'], width, board: topics ? { ...questionsBoard(topics, []), items: [card] } : boardOf([card]), threads: { 'w/A1': [launch] }, notes });
   const log = { text: logText };
   const moves = [];
   b.page.win.history = { state: { idx: 3 }, pushState(state, _, url) { moves.push(['push', state, url]); this.state = state; }, replaceState() {}, back() { moves.push(['back']); } };
@@ -6120,7 +6148,7 @@ function readerOnDom(logText, { width = 390, topics = null } = {}) {
       return { ok: true, status: 200, json: async () => ({ ...transcriptChunk(bytes.subarray(from), from), size: bytes.length }) };
     }
     if (u.pathname.endsWith('/api/log')) { b.gets.push(`${u.pathname}?${u.searchParams}`); return { ok: true, status: 200, json: async () => ({ text: log.text, truncated: false, size: log.text.length }) }; }
-    if (u.pathname.endsWith('/api/notes')) { b.gets.push(`${u.pathname}?${u.searchParams}`); return { ok: true, status: 200, json: async () => ({ key: 'w/A1', ref: 'A1', title: 'Work A1', markdown: '# The plan\n\nBuild it, then see [the prototype](prototype-reader.html).' }) }; }
+    if (u.pathname.endsWith('/api/notes') && !u.searchParams.has('all')) { b.gets.push(`${u.pathname}?${u.searchParams}`); return { ok: true, status: 200, json: async () => ({ key: 'w/A1', ref: 'A1', title: 'Work A1', markdown: '# The plan\n\nBuild it, then see [the prototype](prototype-reader.html).' }) }; }
     return boardFetch(url, opts);
   };
   const tap = (el) => b.page.fire(b.root, 'click', { target: el, button: 0 });
@@ -6290,6 +6318,29 @@ test("a card's Notes open, rendered, in the same sheet, and a link in them close
   r.page.fire(vm.runInContext('window', r.page.win), 'popstate', { state: { idx: 3 } });
   assert.deepEqual(shown, ['https://mac.ts.net/prototype-reader.html'], 'then the link opens through the shell');
   r.view.unmount();
+});
+
+// docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md
+test("a card's notes the board's sync carried open in the sheet at once with no request, and a patch that changes them redraws the open sheet", async () => {
+  const card = workCard('A1', { lane: 'progress', hasNotes: true });
+  const v1 = { ...boardOf([card]), version: 'v1' };
+  const v2 = { ...v1, generatedAt: '2026-10-30T10:00:01.000Z', version: 'v2' };
+  const b = boardOnDom({ open: ['w/A1'], board: v1, threads: { 'w/A1': [] }, notes: { 'w/A1': '# Synced\n\nFirst.' } });
+  b.server.held = { v1 };
+  b.server.heldNotes = { v1: { 'w/A1': '# Synced\n\nFirst.' } };
+  b.page.win.history = { state: { idx: 3 }, pushState(state) { this.state = state; }, replaceState() {}, back() {} };
+  await drain(() => b.view.B.state.notesCache.size === 1, 'the whole board loads every card\'s notes');
+  const notesGets = () => b.gets.filter((p) => p.endsWith('/api/notes')).length;
+  assert.equal(notesGets(), 1, 'one request after the whole board, for every card at once');
+  const sheet = b.root.querySelector('#readerSheet');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('a[href="notes.html?item=w%2FA1"]'), button: 0 });
+  assert.equal(sheet.open, true);
+  assert.deepEqual([sheet.querySelector('.reader-ref').textContent, sheet.querySelector('.reader-md h1')?.textContent], ['A1 notes', 'Synced'], 'drawn in the same tick as the tap');
+  await b.change({ board: v2, notes: { 'w/A1': '# Synced\n\nFirst.\n\n## Build notes' } });
+  assert.deepEqual([b.patched, b.view.B.state.board.version], [['v1'], 'v2']);
+  assert.equal(sheet.querySelector('.reader-md h2')?.textContent, 'Build notes');
+  assert.equal(notesGets(), 1, 'the patch carried the notes; nothing asked for them');
+  b.view.unmount();
 });
 
 test("the reader sheet wraps long lines in monospace and never scrolls sideways", () => {
