@@ -20,6 +20,20 @@ test('merge3 lets mine win a field both changed, and drops a card mine removed',
   assert.deepEqual(merge3(base, { items: [{ id: 'A', n: 2 }] }, { items: [{ id: 'A', n: 3 }, { id: 'B' }] }), { items: [{ id: 'A', n: 2 }] });
 });
 
+test('merge3 matches records with no id by key: waits, done archive cards', () => {
+  const base = { waits: [{ key: 'a', next: 1 }, { key: 'b' }] };
+  const mine = { waits: [{ key: 'a', next: 2 }, { key: 'b' }, { key: 'm' }] };
+  const theirs = { waits: [{ key: 'a', next: 1 }, { key: 'b', bumped: true }, { key: 't' }] };
+  assert.deepEqual(merge3(base, mine, theirs), { waits: [{ key: 'a', next: 2 }, { key: 'b', bumped: true }, { key: 't' }, { key: 'm' }] });
+  const archive = { cards: [{ key: 'x', closed_at: 1 }] };
+  assert.deepEqual(merge3(archive, { cards: [{ key: 'y' }, { key: 'x', closed_at: 1 }] }, { cards: [{ key: 'x', closed_at: 1 }, { key: 'z' }] }), { cards: [{ key: 'x', closed_at: 1 }, { key: 'z' }, { key: 'y' }] });
+});
+
+test('merge3 keeps last writer for a list whose keys repeat, as try groups of one card may', () => {
+  const g = (pgid) => ({ pgid, key: 'main' });
+  assert.deepEqual(merge3({ groups: [g(1)] }, { groups: [g(1), g(2)] }, { groups: [g(3)] }), { groups: [g(1), g(2)] });
+});
+
 // The processes contend for the item file's lock with no deadline: load decides how long each waits, not whether it
 // fails.
 test('many processes running item set on different cards lose none', async () => {

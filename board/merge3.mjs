@@ -1,10 +1,11 @@
 import { isDeepStrictEqual } from 'node:util';
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-const byId = (list) => Array.isArray(list) && list.every((e) => isObject(e) && typeof e.id === 'string') && new Set(list.map((e) => e.id)).size === list.length;
+// The field that names each record of a list: id, else key, when every record has it and none repeats.
+const identityOf = (list) => ['id', 'key'].find((f) => Array.isArray(list) && list.every((e) => isObject(e) && typeof e[f] === 'string') && new Set(list.map((e) => e[f])).size === list.length);
 
 // Three-way merge of JSON: base is what a writer read, mine is what it wants written, theirs is what the file holds now.
-// Each side's changes to base are kept; where both changed the same value, mine wins. Arrays of {id} objects merge per id,
+// Each side's changes to base are kept; where both changed the same value, mine wins. Arrays of objects with a unique id, else a unique key, merge per that field,
 // keeping theirs' order with mine's additions last; any other array is one value.
 export function merge3(base, mine, theirs) {
   if (isDeepStrictEqual(mine, base)) return theirs;
@@ -18,16 +19,17 @@ export function merge3(base, mine, theirs) {
     }
     return out;
   }
-  if (byId(base) && byId(mine) && byId(theirs)) {
-    const find = (list, id) => list.find((e) => e.id === id);
+  const field = identityOf(mine);
+  if (field && identityOf(base) === field && identityOf(theirs) === field) {
+    const find = (list, id) => list.find((e) => e[field] === id);
     const merged = [];
     for (const t of theirs) {
-      const b = find(base, t.id);
-      const m = find(mine, t.id);
+      const b = find(base, t[field]);
+      const m = find(mine, t[field]);
       if (!m) { if (!b || !isDeepStrictEqual(b, t)) merged.push(t); continue; }
       merged.push(b ? merge3(b, m, t) : m);
     }
-    return [...merged, ...mine.filter((m) => !find(theirs, m.id) && !find(base, m.id))];
+    return [...merged, ...mine.filter((m) => !find(theirs, m[field]) && !find(base, m[field]))];
   }
   return mine;
 }
