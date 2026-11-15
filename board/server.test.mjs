@@ -189,23 +189,22 @@ test("an owner answer opens no confirm: a pick settles its round, with a note or
   const board = async () => (await fetch(`${base}/api/board`)).json();
   const round = async () => (await board()).ownerTopics.find((t) => t.questions.includes('pick')).round;
   try {
-    const untouched = fs.readFileSync(ownerFile, 'utf8');
     await ok200(answer('pick', 'B'));
-    assert.equal(fs.readFileSync(ownerFile, 'utf8'), untouched);
+    const untouched = fs.readFileSync(ownerFile, 'utf8');
     assert.deepEqual(await round(), { n: 2, state: 'closed', take: 'B' });
     await ok200(answer('pick', 'B', 'Bigger'));
     assert.equal(fs.readFileSync(ownerFile, 'utf8'), untouched);
     assert.deepEqual(await round(), { n: 2, state: 'closed', take: 'B' });
     const b = await board();
-    assert.equal(b.owner.find((q) => q.id === 'pick').state, 'answered');
-    assert.equal(b.needsSummary, '1 question');
+    assert.equal(b.owner.find((q) => q.id === 'pick'), undefined, 'Send folds the answered pick');
+    assert.equal(items().find((q) => q.id === 'pick').resolved, 'Answered');
     await ok200(answer('plain', null, 'Keep it, but rename it'));
     assert.equal(items().find((q) => q.id === 'plain').resolved, 'Answered with a note');
     const after = await board();
     assert.equal(after.owner.find((q) => q.id === 'plain'), undefined);
     const topic = after.ownerTopics.find((t) => t.questions.includes('plain')).id;
     const resolved = (await (await fetch(`${base}/api/questions?topic=${encodeURIComponent(topic)}`)).json()).questions;
-    assert.deepEqual(resolved.map((q) => [q.id, q.state]), [['plain', 'resolved']]);
+    assert.deepEqual(resolved.map((q) => [q.id, q.state]), [['pick', 'resolved'], ['plain', 'resolved']]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
@@ -402,7 +401,8 @@ test("one owner-answers request records every answer as one-by-one answers would
       ['owner-answer', { id: 'b1b', question: 'b1b?', choice: null, label: '', note: 'Rename it' }]]);
     assert.deepEqual(out.ids, added.map((e) => e.id));
     assert.equal(out.board.items.find((i) => i.id === 'B1').staging, true, 'a note-only answer stages the task too');
-    assert.deepEqual(out.board.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [['b1a', 'answered']]);
+    assert.deepEqual(out.board.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [], 'Send folds both answers');
+    assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items.find((q) => q.id === 'b1a').resolved, 'Answered');
     assert.deepEqual(out.board.ownerTopics.find((t) => t.id === 'item:t/B1').questions, ['b1a', 'b1b']);
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items.find((q) => q.id === 'b1b').resolved, 'Answered with a note');
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }

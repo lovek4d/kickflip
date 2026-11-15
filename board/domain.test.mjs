@@ -2509,6 +2509,11 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const answer = { id: 'e1', ts: at, kind: 'owner-answer', data: { id: 'q1', note: 'this' }, reply: null };
   assert.deepEqual(shape(one({}, { owner: { items: [q] }, events: [answer] })), [['w/A1', 'answer', at, null]]);
   assert.deepEqual(one({}, { owner: { items: [q] }, events: [{ ...answer, reply: { at: later } }] }), [], 'replied');
+  // Send resolves the question "Answered" and leaves the wait; the session's next thread line ends it.
+  const folded = { items: [{ ...q, resolved: 'Answered', resolved_at: at }] };
+  assert.deepEqual(shape(one({}, { owner: folded, events: [answer] })), [['w/A1', 'answer', at, null]], 'a folded answer still waits');
+  assert.deepEqual(one({}, { owner: folded, events: [answer], threads: { 'w/A1': [{ ts: later, who: 'claude', text: 'Acting on it.' }] } }), [], 'a thread line ends it');
+  assert.deepEqual(one({}, { owner: { items: [{ ...q, resolved: 'Acted on: replied', resolved_at: at }] }, events: [answer] }), [], 'another resolution is no wait');
 
   // A grill or prototype asked for with no planner running.
   const grill = { id: 'g1', ts: at, kind: 'grill-more', data: { key: 'w/A1' }, reply: null };

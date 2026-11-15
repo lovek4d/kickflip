@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
 import { githubStateFile, appendEvent, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -2702,7 +2702,8 @@ export async function resolveQuestion(site, id, note, { waitsOn } = {}) {
   if (!q) fail(`no question "${id}" in owner.json`);
   const { answers, requests, reopens } = await ownerEvents(site);
   const view = ownerQuestion(q, answers, requests, [], reopens);
-  if (view.state === 'resolved') return ownerFile(site);
+  // A question Send already resolved ANSWERED still takes --close or --implement, which mark its card waiting.
+  if (view.state === 'resolved' && !(waitsOn && q.resolved === ANSWERED)) return ownerFile(site);
   // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
   if (view.state === 'requested' && view.request.kind === 'grill-more') fail(`${id} waits on the grill the owner sent it to; the grill's next question add resolves it`);
   if (view.state === 'requested') fail(`${id} waits on the prototype the owner asked for; question add with round_of ${id} resolves it`);
@@ -2762,6 +2763,16 @@ export async function resolveNoteAnswers(site, answers) {
   if (!owner?.items?.some((q) => ids.includes(q.id))) return;
   setResolved(owner, ids, 'Answered with a note');
   await writeJSON(ownerFile(site), owner);
+}
+
+// docs/adr/2026-11-15-1200-an-answered-question-folds-on-send.md
+// Each owner answer to a card's question that Send leaves unresolved (a gate's is resolved by settleAnswers) resolves
+// its question, noting ANSWERED, so it folds at once; the orchestrator's answer wait ends at its next thread line.
+export async function resolveSentAnswers(site, answers) {
+  const { owner, asked } = await topicQuestionsAll(site);
+  const sent = new Set(answers.map((a) => String(a.id)));
+  const ids = asked.filter((q) => sent.has(q.id) && q.state === 'answered' && cardOfTopic(q.topic) && !Object.keys(GATES).some((f) => q[f])).map((q) => q.id);
+  if (ids.length) await markResolved(site, owner, ids, ANSWERED);
 }
 
 // docs/adr/2026-11-03-0504-a-prototype-pick-is-the-builds-go.md

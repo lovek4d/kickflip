@@ -843,6 +843,9 @@ function agentName(a) {
 
 // docs/adr/2026-11-03-1313-an-answer-stops-waiting-once-its-acted-on.md
 // Whether an owner answer at ts is acted on by its question's resolution: resolved, at or after ts when it records when.
+// The note Send resolves an answered question with (store.mjs resolveSentAnswers): the answer waits on the orchestrator
+// until its next thread line, not on a resolution (docs/adr/2026-11-15-1200-an-answered-question-folds-on-send.md).
+export const ANSWERED = 'Answered';
 const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || String(q.resolved_at) >= String(ts));
 // A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), requested (a
 // prototype was asked for it), resolved (owner.json sets `resolved` and `resolved_at`). An answer newer than
@@ -1426,7 +1429,7 @@ export function buildBoard(snapshot) {
   }
   for (const it of items) {
     if (it.kind !== 'work') continue;
-    const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered').map((q) => q.answers.at(-1).ts).sort().pop();
+    const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered' || (q.resolved === ANSWERED && q.state === 'resolved' && q.answers.length && !q.answers.at(-1).reply)).map((q) => q.answers.at(-1).ts).sort().pop();
     const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
     // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
     // Review (laneOf, workItem); a card the orchestrator stalled waits on the owner alone.
@@ -1913,7 +1916,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const waits = [
     facts.ask && { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` },
     it.staging && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
-    answeredAt && { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" },
+    answeredAt && !facts.writes.some((t) => t > String(answeredAt)) && { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" },
     facts.triagedAt && { kind: 'investigate', since: facts.triagedAt, next: `Investigate ${it.key}: write its notes (item notes), then reply` },
     facts.replyAt && { kind: 'reply', since: facts.replyAt, next: "Act on the owner's reply" },
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
