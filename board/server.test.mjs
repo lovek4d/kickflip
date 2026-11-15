@@ -248,7 +248,6 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
     await heard(path.join(site, 'data', 'items.json'));
     const record = path.join(site, 'data', 'agents', 'P1.json');
     assert.deepEqual(JSON.parse(fs.readFileSync(record, 'utf8')).brief.asks, asks);
-    await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'question-reopen', question: 'moon' }) });
     await ok200(answer('moon', 'B', ''));
     assert.equal(last().data.prototype_again, undefined);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
@@ -350,34 +349,6 @@ test("a re-ask request on a resolved question is recorded, marks it pending in t
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
-// docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
-test("a reopen of a sent question is recorded and opens it on the board, with 'Question N was reopened' in the card's thread; one on a question with no answer sent records nothing", async () => {
-  const ownerFile = path.join(site, 'data', 'owner.json');
-  const eventsFile = path.join(site, 'data', 'events.jsonl');
-  await putWave(JSON.stringify({ items: [{ id: 'K7', title: 'Reopen' }] }));
-  const ask = (id, extra = {}) => ({ id, topic: 'item:t/K7', question: `${id}?`, options: [{ id: 'A', label: 'This' }], ...extra });
-  fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('live'), ask('sent')] }));
-  const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  // The server's own orchestrator-waits pass appends meanwhile; the reopen's writes are what this compares.
-  const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind !== 'orchestrator-waits');
-  try {
-    await ok200(send({ kind: 'owner-answer', id: 'sent', choice: 'A', label: 'A. This' }));
-    const before = lines().length;
-    for (const question of ['live', 'gone']) {
-      const r = await send({ kind: 'question-reopen', key: 't/K7', question });
-      assert.equal(r.status, 400);
-      assert.match((await r.json()).error, /no answer sent|no longer asked here/);
-    }
-    assert.equal(lines().length, before);
-    const r = await send({ kind: 'question-reopen', key: 't/K7', question: 'sent' });
-    await ok200(r);
-    assert.deepEqual([lines().at(-1).kind, lines().at(-1).data], ['question-reopen', { key: 't/K7', question: 'sent' }]);
-    const b = (await r.json()).board;
-    assert.deepEqual(b.owner.map((q) => [q.id, q.state, q.reopened]), [['live', 'open', false], ['sent', 'open', true]]);
-    const thread = (await (await fetch(`${base}/api/thread?key=t%2FK7`)).json()).map((m) => [m.text, Boolean(m.request)]);
-    assert.deepEqual(thread, [['Question 2 · sent?\n→ A. This', false], ['Question 2 was reopened', true]]);
-  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
-});
 
 test("one owner-answers request records every answer as one-by-one answers would, in one write, returning the board once, or on any it can't record records none and says why", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
@@ -414,7 +385,7 @@ test("one owner-answers request records every answer as one-by-one answers would
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
-test('a Send of answers already recorded adds nothing and answers as sent, until the question is reopened', async () => {
+test('a Send of answers already recorded adds nothing and answers as sent', async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
   const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind === 'owner-answer' && e.data.id === 'once');
@@ -429,9 +400,6 @@ test('a Send of answers already recorded adds nothing and answers as sent, until
     assert.deepEqual((await again.json()).ids, []);
     await ok200(post({ kind: 'owner-answer', id: 'once', choice: 'A' }));
     assert.equal(lines().length, 1);
-    await ok200(post({ kind: 'question-reopen', question: 'once' }));
-    await send();
-    assert.equal(lines().length, 2, 'a reopened question takes a new answer');
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 

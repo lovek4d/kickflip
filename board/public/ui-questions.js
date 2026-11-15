@@ -13,19 +13,18 @@
   // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
   // suggested, pre-checked so the topic's Send sends it.
   const choiceOf = (q, draft) => 'choice' in draft ? draft.choice : (q.answers.length ? q.answers[q.answers.length - 1].choice : q.suggested?.option ?? null);
-  // A question's unsent note: its draft, else on a reopened question the note its last answer sent, so a changed pick
-  // sends it again.
-  const noteOf = (q, draft) => draft.note ?? (q.reopened ? q.answers.at(-1)?.note || '' : '');
+  // A question's unsent note: its draft.
+  const noteOf = (q, draft) => draft.note ?? '';
   // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
   // Whether the owner has resolved a question: an answer is sent, whatever Claude has done with it since, or Claude
-  // resolved it. A sent question draws as resolvedCard, locked, until its badge reopens it.
+  // resolved it. A sent question draws as resolvedCard, locked.
   const isSent = (q) => q.state === 'answered' || q.state === 'replied' || q.state === 'resolved';
   // A question's unsent {choice, note} on this device, in localStorage under qdraft:<id>. view-questions.js and the
   // prototype viewer's Choose this (prototype-switcher.js) write it.
   const getDraft = (id) => { try { return JSON.parse(localStorage.getItem('qdraft:' + id) || '{}'); } catch { return {}; } };
   const setDraft = (id, v) => { try { localStorage.setItem('qdraft:' + id, JSON.stringify(v)); } catch {} };
   // docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md
-  // The open questions among qs the owner has changed since their last answer, with files attached, reopened with a pick,
+  // The open questions among qs the owner has changed since their last answer, with files attached,
   // or with a suggested option pre-checked and never answered: the ones a Send sends. A sent one is read-only.
   function pendingAnswers(qs, filesOf) {
     return qs.filter((q) => q.state === 'open').filter((q) => {
@@ -35,7 +34,6 @@
       // A cleared pick sends only with a note.
       if ('choice' in d && d.choice === null) return Boolean(d.note);
       if (!last && q.suggested) return true;
-      if (q.reopened && choiceOf(q, d) !== null) return true;
       if (!('choice' in d) && !d.note) return false;
       return !last || (d.choice ?? last.choice) !== last.choice || (d.note || '') !== (last.note || '');
     });
@@ -141,9 +139,8 @@
   // A confirm says why it is asked; its View prototypes opens the viewer on its one take (?variant=).
   const confirmLine = (q) => q.confirm_of && q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A pick with a note gets a one-take confirm once Claude has updated the take.</div>` : '';
   // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
-  // A sent or resolved question, read-only in a green tint: its Resolved badge reopens it (view-questions.js sends
-  // `question-reopen` once the owner confirms), how Claude resolved it and when (resolved_at), its last pick checked
-  // among locked options, and its last note and Claude's reply. reask is a re-ask under way
+  // A sent or resolved question, read-only in a green tint: a plain Resolved badge, how Claude resolved it and when
+  // (resolved_at), its last pick checked among locked options, and its last note and Claude's reply. reask is a re-ask under way
   // (docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md).
   function resolvedCard(q, links, n) {
     const last = q.answers[q.answers.length - 1];
@@ -152,9 +149,9 @@
     const said = last && (last.note || last.reply || last.files?.length) ? `<div class="ans"><div class="muted small">You · ${esc(time(last.ts))}</div>${last.note ? `<div>${linkText(last.note, links)}</div>` : ''}${attachments(last.files)}</div>
       ${repliesOf(last, links)}` : '';
     return `<section class="q resolved" id="${esc(q.id)}" data-q="${esc(q.id)}">
-      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge('ready', '✓ Resolved', { button: true, title: 'Reopen this question', attrs: { type: 'button', 'data-reopen': q.id } })}</div>
+      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge('ready', '✓ Resolved')}</div>
       <h3>${linkText(q.question, links)}</h3>
-      ${q.answers.length ? '<div class="sent-line">Sent. Tap Resolved to reopen it.</div>' : ''}
+      ${q.answers.length ? '<div class="sent-line">Sent.</div>' : ''}
       ${q.context ? `<div class="ctx">${markdown(q.context, links)}</div>` : ''}
       ${questionLink(q.url)}
       ${outcome || acted ? `<div class="small muted resolved-line">${outcome}${acted}</div>` : ''}

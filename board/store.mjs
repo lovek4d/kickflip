@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
 import { githubStateFile, appendEvent, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -2116,7 +2116,7 @@ export async function publishUnscreened(site, now = new Date()) {
 
 async function publishQuestions(site, owner, items, questions, lines) {
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
-  const { answers, requests, reopens } = await ownerEvents(site);
+  const { answers, requests } = await ownerEvents(site);
   const at = new Date().toISOString();
   const replaced = [];
   const resolved = [];
@@ -2133,7 +2133,7 @@ async function publishQuestions(site, owner, items, questions, lines) {
   }
   for (const q of questions) {
     const topic = pageTopic(q.url);
-    const views = items.filter((old) => old.topic === q.topic).map((old) => ownerQuestion(old, answers, requests, [], reopens));
+    const views = items.filter((old) => old.topic === q.topic).map((old) => ownerQuestion(old, answers, requests));
     const followed = q.topic.startsWith('item:') ? answeredOnClaude(views) : [];
     for (const old of views) {
       if (followed.includes(old.id)) {
@@ -2730,8 +2730,8 @@ export async function resolveQuestion(site, id, note, { waitsOn } = {}) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id);
   if (!q) fail(`no question "${id}" in owner.json`);
-  const { answers, requests, reopens } = await ownerEvents(site);
-  const view = ownerQuestion(q, answers, requests, [], reopens);
+  const { answers, requests } = await ownerEvents(site);
+  const view = ownerQuestion(q, answers, requests);
   // A question Send already resolved ANSWERED still takes --close or --implement, which mark its card waiting.
   if (view.state === 'resolved' && !(waitsOn && q.resolved === ANSWERED)) return ownerFile(site);
   // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
@@ -2767,10 +2767,10 @@ export async function moveQuestions(site, ids, to, block = []) {
   if (new Set(chain).size !== chain.length) fail('question move names a task twice');
   for (const key of block) await loadItem(site, key);
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const { answers, requests, reopens } = await ownerEvents(site);
+  const { answers, requests } = await ownerEvents(site);
   for (const id of [kept, ...others]) {
     const q = (owner.items || []).find((x) => x.id === id) || fail(`no question "${id}" in owner.json`);
-    const { state } = ownerQuestion(q, answers, requests, [], reopens);
+    const { state } = ownerQuestion(q, answers, requests);
     if (state !== 'open') fail(`${id} is ${state}; question move takes open questions`);
   }
   for (const [i, key] of block.entries()) {
@@ -2813,14 +2813,14 @@ function roundSettled(owner, q, answers) {
   if (!roundSettledBy(round, n)) fail(`${q.id} is in prototype round ${n}, which no pick has settled yet; a pick settles it`);
 }
 
-// The owner's answers, each with whether it has a reply, prototype requests and reopens, from the event log: what
-// domain.mjs ownerQuestion reads a question's state from. → {answers, requests, reopens}
+// The owner's answers, each with whether it has a reply, and prototype requests, from the event log: what
+// domain.mjs ownerQuestion reads a question's state from. → {answers, requests}
 async function ownerEvents(site) {
   const events = await readLines(path.join(site, 'data', 'events.jsonl'));
   const answers = await Promise.all(events.filter((e) => e.kind === 'owner-answer').map(async (e) => {
     return { ...e, reply: e.reply || (await replyFilesOf(path.join(site, 'data', 'replies'), e.id)).length > 0 };
   }));
-  return { answers, requests: events.filter((e) => e.kind === 'prototype-request' || e.kind === 'grill-more'), reopens: events.filter((e) => e.kind === QUESTION_REOPEN) };
+  return { answers, requests: events.filter((e) => e.kind === 'prototype-request' || e.kind === 'grill-more') };
 }
 
 // docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
@@ -2840,14 +2840,14 @@ export async function handedOver(site, answers) {
 }
 async function topicQuestionsAll(site) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const { answers, requests, reopens } = await ownerEvents(site);
-  return { owner, asked: (owner.items || []).map((q) => ownerQuestion(q, answers, requests, [], reopens)) };
+  const { answers, requests } = await ownerEvents(site);
+  return { owner, asked: (owner.items || []).map((q) => ownerQuestion(q, answers, requests)) };
 }
 
 export async function topicQuestions(site, topic) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const { answers, requests, reopens } = await ownerEvents(site);
-  const asked = (owner.items || []).filter((q) => q.topic === topic).map((q) => ownerQuestion(q, answers, requests, [], reopens));
+  const { answers, requests } = await ownerEvents(site);
+  const asked = (owner.items || []).filter((q) => q.topic === topic).map((q) => ownerQuestion(q, answers, requests));
   return { owner, asked };
 }
 const cardQuestions = (site, key) => topicQuestions(site, `item:${key}`);
@@ -2925,8 +2925,8 @@ export async function checkClose(site, key, said, ownerStep, check) {
 // The card's noTakePicked, from owner.json and the owner's answers. → {id, note}, or null.
 async function unpickedPrototype(site, key) {
   const owner = await readJSON(ownerFile(site), { items: [] });
-  const { answers, requests, reopens } = await ownerEvents(site);
-  return noTakePicked((owner.items || []).map((q) => ownerQuestion(q, answers, requests, [], reopens)), key);
+  const { answers, requests } = await ownerEvents(site);
+  return noTakePicked((owner.items || []).map((q) => ownerQuestion(q, answers, requests)), key);
 }
 const clip = (s) => (s.length > 120 ? `${s.slice(0, 119)}…` : s);
 

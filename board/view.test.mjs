@@ -4921,18 +4921,12 @@ function questionsOnDom({ topics, questions, at, gate = null, items = [], embedd
       queue.splice(0, queue.length, ...queue.filter((e) => e.key !== data.key));
       return { id: 'c1', board: structuredClone(boardBody()) };
     }
-    // A reopen opens its sent question again, as board/server.mjs's ownerQuestion reads it.
-    if (kind === 'question-reopen') {
-      Object.assign(q, { state: 'open', reopened: true });
-      delete q.resolved;
-      return { id: 'o1', board: structuredClone(boardBody()) };
-    }
     // An owner-answers batch is recorded all or none, as board/server.mjs records it, once gate (if any) settles.
     await gate?.promise;
     if (gate?.refuse) throw Object.assign(new Error('send failed: 400'), { status: 400, reason: gate.refuse });
     for (const a of data.answers) {
       const q = server.questions.find((x) => x.id === a.id);
-      Object.assign(q, { state: 'answered', reopened: false });
+      Object.assign(q, { state: 'answered' });
       q.answers.push({ ts: '2026-10-30T10:00:00.000Z', choice: a.choice, note: a.note, files: [], reply: null });
     }
     return { ids: data.answers.map((_, n) => `e${n}`), board: structuredClone(boardBody()) };

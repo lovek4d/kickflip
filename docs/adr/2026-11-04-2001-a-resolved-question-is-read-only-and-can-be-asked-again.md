@@ -11,3 +11,5 @@ The re-ask is under way while the event is newer than the question's `resolved_a
 `reask_of` is its own field rather than `round_of`, because `round_of` starts a prototype round: it needs a prototype url and numbers the round, which a re-ask of a plain question has neither of.
 
 `resolved_at` stays in owner.json for this, and because an answer newer than it reopens the question.
+
+Superseded in part by docs/adr/2026-11-15-1300-a-sent-questions-resolved-badge-is-plain.md: the badge is no longer a button.

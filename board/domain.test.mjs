@@ -2658,34 +2658,6 @@ test("a visual agent is a planner beside the card's work: its card shows the bui
   assert.deepEqual(thread.map((m) => [m.text, m.planner]), [['Claude Sonnet visual started', true]]);
 });
 
-// docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
-test("a sent question's reopen opens it again until a new answer, a prototype request or a later resolve, and its card's thread reads 'Question N was reopened' with its mark", () => {
-  const q = { id: 'q2', topic: 'item:w/A1', question: 'Two?', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }] };
-  const answer = (ts, choice = 'A') => ({ id: `a-${ts}`, ts, kind: 'owner-answer', data: { id: 'q2', choice, label: choice }, reply: null });
-  const reopen = (ts, question = 'q2') => ({ id: `o-${ts}`, ts, kind: 'question-reopen', data: { key: 'w/A1', question }, reply: null });
-  const request = (ts) => ({ id: `r-${ts}`, ts, kind: 'prototype-request', data: { key: 'w/A1', question: 'q2', note: '', choice: 'A' }, reply: null });
-  const state = (extra, answers, reopens, requests = []) => (({ state, reopened }) => [state, reopened])(ownerQuestion({ ...q, ...extra }, answers, requests, [], reopens));
-  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z')], []), ['answered', false]);
-  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z')]), ['open', true]);
-  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z'), answer('2026-10-23T12:00:00Z', 'B')], [reopen('2026-10-23T11:00:00Z')]), ['answered', false], 'a new answer sends it again');
-  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z')], [request('2026-10-23T12:00:00Z')]), ['requested', false]);
-  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z', 'other')]), ['answered', false]);
-  const resolved = { resolved: 'Kept it', resolved_at: '2026-10-23T10:30:00Z' };
-  assert.deepEqual(state(resolved, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z')]), ['open', true], 'a resolved question reopens');
-  assert.deepEqual(state({ ...resolved, resolved_at: '2026-10-23T12:00:00Z' }, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z')]), ['resolved', false], 'resolved again after the reopen');
-  assert.deepEqual(state({ resolved: 'Replaced' }, [], [reopen('2026-10-23T11:00:00Z')]), ['open', true]);
-
-  const owner = { items: [{ ...q, id: 'q1', question: 'One?' }, q] };
-  const msgs = threadOf('w/A1', { events: [answer('2026-10-23T10:00:00Z'), reopen('2026-10-23T11:00:00Z'), answer('2026-10-23T12:00:00Z', 'B')], owner });
-  assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request), m.mark || null]), [
-    ['owner-answer', 'Question 2 · Two?\n→ A', false, null],
-    ['question-reopen', 'Question 2 was reopened', true, 'question reopened'],
-    ['owner-answer', 'Question 2 · Two?\n→ B', false, null],
-  ]);
-  const card = board({ owner, events: [answer('2026-10-23T10:00:00Z'), reopen('2026-10-23T11:00:00Z')] }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual([card.questions.open, card.action?.kind, card.actionButton, card.resolvedBy], [2, 'questions', 'openQuestions', 'openQuestions'], 'a reopened question turns the Questions button orange again');
-});
-
 test("a card's questions keep their numbers in its thread: a later round's questions number on after the earlier ones", () => {
   const q = (id, n) => ({ id, topic: 'item:w/A1', question: `Q${n}?`, options: [{ id: 'A', label: 'Yes' }] });
   const owner = { items: [q('a', 1), { id: 'x', topic: 'item:w/OTHER', question: 'Elsewhere?' }, q('b', 2), q('c', 3), q('d', 4), q('e', 5)] };

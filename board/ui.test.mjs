@@ -874,7 +874,7 @@ test('a question card pre-checks its suggested option, with a blue Orchestrator 
   assert.match(options(ui.questionCard(reasoned))[0], /<div class="suggested-why">Orchestrator choice: It is the same trade-off as &lt;b&gt;#186&lt;\/b&gt;\.<\/div>/);
   assert.deepEqual(checked(ui.questionCard(suggested)), [true, false]);
   assert.deepEqual(checked(ui.questionCard(suggested, { draft: { choice: 'B' } })), [false, true]);
-  const answered = { ...suggested, state: 'open', reopened: true, answers: [{ ts: ago(1), choice: 'B', note: '', reply: null }] };
+  const answered = { ...suggested, state: 'open', answers: [{ ts: ago(1), choice: 'B', note: '', reply: null }] };
   assert.deepEqual(checked(ui.questionCard(answered)), [false, true]);
   assert.equal(ui.choiceOf(suggested, {}), 'A');
   assert.equal(ui.choiceOf(answered, {}), 'B');
@@ -883,26 +883,14 @@ test('a question card pre-checks its suggested option, with a blue Orchestrator 
   assert.equal(ui.choiceOf(answered, { choice: null }), null);
 });
 
-// docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
-test("a reopened question checks this device's draft over the last answer and fills its note box with the note it sent, with no waiting line", () => {
-  const reopened = { ...question, state: 'open', reopened: true, answers: [{ ts: ago(1), choice: 'A', note: 'Keep the badge', reply: null }] };
-  const checked = (html) => options(html).map((o) => /\bchecked>/.test(o));
-  assert.deepEqual(checked(ui.questionCard(reopened)), [true, false]);
-  assert.deepEqual(checked(ui.questionCard(reopened, { draft: { choice: 'B' } })), [false, true]);
-  assert.match(ui.questionCard(reopened), /<textarea class="note" rows="2" placeholder="Note \(optional\)">Keep the badge<\/textarea>/);
-  assert.match(ui.questionCard(reopened, { draft: { note: 'Drop it' } }), />Drop it<\/textarea>/);
-  assert.equal(ui.noteOf(reopened, {}), 'Keep the badge');
-  assert.equal(ui.noteOf({ ...reopened, reopened: false }, {}), '');
-  assert.doesNotMatch(text(ui.questionCard(reopened)), /waiting…/);
-});
-
-test("a sent question, waiting on Claude, replied to or resolved, draws as the green Resolved card, numbered, locked at its pick, saying how to reopen it", () => {
+test("a sent question, waiting on Claude, replied to or resolved, draws as the green Resolved card, numbered, locked at its pick, with a plain Resolved badge and no reopen", () => {
   const sent = (state) => ui.questionCard({ ...question, state, answers: [{ ts: ago(1), choice: 'B', note: '', reply: null }] }, { n: 3 });
   for (const state of ['answered', 'replied', 'resolved']) {
     const html = sent(state);
     assert.match(html, /^<section class="q resolved" id="q1"/);
-    assert.match(html, /<span class="muted small">3\. Triage<\/span><button class="chip tone-ready" title="Reopen this question" type="button" data-reopen="q1">✓ Resolved<\/button>/);
-    assert.match(html, /<div class="sent-line">Sent\. Tap Resolved to reopen it\.<\/div>/);
+    assert.match(html, /<span class="muted small">3\. Triage<\/span><span class="chip tone-ready">✓ Resolved<\/span>/);
+    assert.match(html, /<div class="sent-line">Sent\.<\/div>/);
+    assert.doesNotMatch(html, /<button|data-reopen|reopen/i);
     assert.doesNotMatch(html, /<textarea|data-proto|waiting…/);
     assert.match(html, /value="B" checked disabled/);
   }
@@ -1007,7 +995,7 @@ test('a resolved question is read-only: its pick checked and locked, no note box
   assert.deepEqual([...html.matchAll(/<input [^>]*>/g)].map((m) => [/value="(\w)"/.exec(m[0])[1], /\bchecked\b/.test(m[0]), /\bdisabled\b/.test(m[0])]), [['A', false, true], ['B', true, true]]);
   assert.equal(html.split('Drop it, it is noise').length, 2, 'the note shows once');
   assert.doesNotMatch(text(html), /You · [^]*B\. Drop/, 'the pick is the checked option, not said again');
-  assert.match(html, /<button class="chip tone-ready" title="Reopen this question" type="button" data-reopen="q1">✓ Resolved<\/button>/);
+  assert.match(html, /<span class="chip tone-ready">✓ Resolved<\/span>/);
   assert.doesNotMatch(html, /re-ask requested/);
   const pending = ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it', resolved_at: at, answers: [answer], reask: { id: 'r1', ts: new Date(NOW).toISOString() } });
   assert.match(text(pending), /re-ask requested/);
@@ -2067,11 +2055,6 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   ]);
   assert.match(requests, new RegExp(`^<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Grill requested']}</span>Grill requested <span class="muted">· [^<]+ · <span>waiting…</span></span></div><div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>Prototype requested <span class="muted">`));
   assert.ok(requests.includes(`<div class="msg status-line request tone-orange"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staged']}</span>Marked as staged <span class="muted">· Dana Reyes · `));
-  // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md: a reopened question's line
-  // varies with its number, so it names its mark.
-  const reopened = ui.threadMessages([{ ts: ago(0.2), who: 'love', kind: 'question-reopen', request: true, mark: 'question reopened', text: 'Question 2 was reopened' }]);
-  assert.ok(ui.MARK_ICONS['question reopened']);
-  assert.ok(reopened.startsWith(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['question reopened']}</span>Question 2 was reopened <span class="muted">`));
   assert.doesNotMatch(requests, /class="who"|data-event/);
   assert.match(requests, /Marked as staged <span class="muted">· Dana Reyes · [^<]+<\/span><\/div>$/);
 });

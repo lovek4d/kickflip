@@ -52,9 +52,6 @@ export function scriptStateOf(offer, events, live) {
   if (mine.some((e) => e.kind === SCRIPT_EVENTS.run)) return { state: 'running', log: scriptLogName(offer.id) };
   return { state: offer.id === live ? 'waiting' : 'replaced' };
 }
-// The owner's tap on a sent question's Resolved badge, {key?, question}: the question opens again (ownerQuestion), and
-// its card's thread reads "Question N was reopened". A record-only event, which wakes no session.
-export const QUESTION_REOPEN = 'question-reopen';
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // The lanes a card is stored in (its item file entry's `lane`, which store.mjs placeIn alone writes), and their names in a
 // move's thread line.
@@ -858,21 +855,16 @@ const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || Strin
 // requestEvents prototype-request and grill-more events, oldest first; store.mjs reads their states to close a card's questions.
 // reask is the owner's newest reask-request for a resolved question while it is newer than `resolved_at`: question add
 // with reask_of resolves the question again once the session asks it again.
-// reopenEvents are question-reopen events, the owner's tap on a sent question's Resolved badge: the newest one, while
-// it is newer than the last answer, the last prototype request and `resolved_at`, opens the question again for a new
-// answer, and `reopened` is set (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md).
-export function ownerQuestion(q, answerEvents, requestEvents = [], reaskEvents = [], reopenEvents = []) {
+export function ownerQuestion(q, answerEvents, requestEvents = [], reaskEvents = []) {
   const answers = answerEvents.filter((e) => e.data?.id === q.id);
   const last = answers[answers.length - 1] || null;
-  const reopen = reopenEvents.filter((e) => e.data?.question === q.id).at(-1);
   const after = (e, ...times) => Boolean(e) && times.every((t) => String(e.ts) > String(t || ''));
   const answeredAgain = Boolean(q.resolved && q.resolved_at && last && String(last.ts) > q.resolved_at);
-  const req = requestEvents.filter((e) => e.data?.question === q.id && after(e, last?.ts, reopen?.ts)).at(-1);
-  const reopened = after(reopen, last?.ts, req?.ts, q.resolved_at);
-  const resolved = q.resolved && !answeredAgain && !reopened;
+  const req = requestEvents.filter((e) => e.data?.question === q.id && after(e, last?.ts)).at(-1);
+  const resolved = q.resolved && !answeredAgain;
   const reask = resolved ? reaskEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(q.resolved_at || '')).at(-1) : null;
-  const state = reopened ? 'open' : resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
-  return { ...q, state, reopened, request: req ? { id: req.id, kind: req.kind, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null, reask: reask ? { id: reask.id, ts: reask.ts } : null,
+  const state = resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
+  return { ...q, state, request: req ? { id: req.id, kind: req.kind, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null, reask: reask ? { id: reask.id, ts: reask.ts } : null,
     answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, replies: e.replies, acted: resolvedSince(q, e.ts) })) };
 }
 
@@ -993,8 +985,6 @@ const actionText = (e, asked) => {
 // round's questions number on after the earlier ones. asked: the card's questions by id, in owner.json order.
 const numberOf = (asked, id) => [...asked.keys()].indexOf(id) + 1;
 const numbered = (asked, q) => `Question ${numberOf(asked, q.id)} · ${q.question}`;
-// The reopened line's mark (board/public/ui.js MARK_ICONS).
-const REOPENED = 'question reopened';
 // A Grill or Prototype request: bare (the request line) or carrying the owner's text, files or question (a message with
 // its status); a thread message has its button's label as its status (intentLabel).
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: a routed ask's status line, at its
@@ -1058,20 +1048,19 @@ export function threadIndex(events, owner = {}) {
   const questions = new Map();
   const topicOf = new Map();
   for (const q of owner.items || []) { add(questions, q.topic, q); topicOf.set(q.id, q.topic); }
-  const byKey = new Map(), answers = new Map(), reopens = new Map(), asks = new Map(), edits = new Map(), editFiles = new Map(), order = new Map(), scripts = new Map();
+  const byKey = new Map(), answers = new Map(), asks = new Map(), edits = new Map(), editFiles = new Map(), order = new Map(), scripts = new Map();
   events.forEach((e, i) => {
     order.set(e, i);
     if (e.data?.key && ITEM_EVENTS.includes(e.kind)) add(byKey, e.data.key, e);
     if (e.data?.key && SCRIPT_VALUES.includes(e.kind)) add(scripts, e.data.key, e);
     if (e.kind === 'owner-answer' && topicOf.has(e.data?.id)) add(answers, topicOf.get(e.data.id), e);
-    if (e.kind === QUESTION_REOPEN && topicOf.has(e.data?.question)) add(reopens, topicOf.get(e.data.question), e);
     if (e.kind === 'ask') asks.set(e.id, e);
   });
   for (const e of events.filter((x) => x.kind === 'ask-edited').sort((a, b) => String(a.ts).localeCompare(String(b.ts)))) {
     edits.set(e.data?.id, e.data?.text);
     for (const f of e.data?.files || []) add(editFiles, e.data?.id, f);
   }
-  return { byKey, answers, reopens, asks, edits, editFiles, questions, order, scripts };
+  return { byKey, answers, asks, edits, editFiles, questions, order, scripts };
 }
 // The events of several of an index's lists in the log's order.
 const inLogOrder = (index, lists) => {
@@ -1117,8 +1106,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   const agentList = agentsOf(agents, true);
   // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: a questions-added line is
   // open while any question it holds is.
-  const reopens = index.reopens.get(`item:${key}`) || [];
-  const isOpen = (id) => asked.has(id) && ownerQuestion(asked.get(id), answers, [], [], reopens).state === 'open';
+  const isOpen = (id) => asked.has(id) && ownerQuestion(asked.get(id), answers).state === 'open';
   // A script offer carries its state (scriptStateOf); the card's newest offer is the one that can still wait.
   const scriptEvents = index.scripts.get(key) || [];
   const liveScript = lines.filter((m) => m.script).at(-1)?.script.id;
@@ -1143,7 +1131,6 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
       return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${numbered(asked, asked.get(e.data.id))}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies, status: ANSWERS_SUBMITTED, ...byOf(e) };
     }),
-    ...(index.reopens.get(`item:${key}`) || []).map((e) => ({ ts: e.ts, who: 'love', kind: e.kind, request: true, mark: REOPENED, text: `Question ${numberOf(asked, e.data.question)} was reopened`, ...byOf(e) })),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       .flatMap((e) => [...routedLine(e), ...handedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}), ...(BRIEF_KINDS.includes(e.data?.request) ? { status: COMMANDS[e.data.request] } : {}) },
@@ -1316,8 +1303,7 @@ export function buildBoard(snapshot) {
   const answerEvents = groupBy(events.filter((e) => e.kind === 'owner-answer'), (e) => e.data?.id);
   const requestEvents = groupBy(events.filter((e) => e.kind === 'prototype-request' || e.kind === 'grill-more'), (e) => e.data?.question);
   const reaskEvents = groupBy(events.filter((e) => e.kind === 'reask-request'), (e) => e.data?.question);
-  const reopenEvents = groupBy(events.filter((e) => e.kind === QUESTION_REOPEN), (e) => e.data?.question);
-  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents.get(q.id) || [], requestEvents.get(q.id) || [], reaskEvents.get(q.id) || [], reopenEvents.get(q.id) || []));
+  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents.get(q.id) || [], requestEvents.get(q.id) || [], reaskEvents.get(q.id) || []));
   const questionById = new Map(questions.map((q) => [q.id, q]));
   const questionsOn = groupBy(questions, (q) => q.topic);
   // docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md: every ask is a card and has

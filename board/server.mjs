@@ -142,10 +142,6 @@
 //                                reask-request {key?, question} asks the session to ask a resolved question again from the
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
-//                                question-reopen {key?, question} is a sent question's Resolved badge: the question opens
-//                                again for a new answer and its card's thread reads "Question N was reopened"; one naming
-//                                a question with no answer sent → 400 {error}. Record-only: it wakes no session
-//                                (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md)
 //                                item set appends card-unblocked {key} when a blocked card's last dep finishes,
 //                                including held cards, a record that wakes no session: the pull takes the card.
 //                                reviewers {add?: [{name, slack_user, github}], remove?: [name]} is Board settings' reviewers
@@ -350,7 +346,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, orchestratorWaits, triageWaitOf, eventWaits, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, orchestratorWaits, triageWaitOf, eventWaits, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -499,7 +495,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // never carries it. board.json is read again here, so a level changed since the hub's check holds. Full takes answers,
   // thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
   // the header's GitHub check stay the owner's, as does any kind not listed.
-  const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', QUESTION_REOPEN, 'grill-more', 'visual-request', 'item-message',
+  const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request','grill-more', 'visual-request', 'item-message',
     'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-bump', 'card-unbump']);
   // The taps that move a card, which carry the card's version (docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md).
   const CARD_TAPS = new Set(['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-merge']);
@@ -537,7 +533,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md,
   // docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md). A note with no take resolves its
   // question, and the Send is acted on in code: gates settled, answers in the notes, cards left with nothing open staged.
-  // An answer to a question that already has one recorded, and wasn't reopened since, is skipped
+  // An answer to a question that already has one recorded is skipped
   // (docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md).
   async function recordAnswers(sent) {
     const answers = await unrecorded(here, sent);
@@ -562,12 +558,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const asked = new Set(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => q.id));
     const gone = answers.filter((a) => !asked.has(String(a?.id)));
     return gone.length ? `${gone.map((a) => String(a?.id)).join(', ')} ${gone.length === 1 ? 'is' : 'are'} no longer asked here. Reload to see what is, then send again.` : null;
-  }
-
-  // A reopen names a question the owner has sent an answer to, or that is resolved; any other is refused with why.
-  async function reopenRefused(id) {
-    const q = (await sharedBoard()).owner.find((x) => x.id === id);
-    return !q ? `${id} is no longer asked here. Reload to see what is.` : ['open', 'requested'].includes(q.state) ? `${id} has no answer sent, so there is nothing to reopen.` : null;
   }
 
   // A re-ask names a question the owner sees resolved; any other is refused with why.
@@ -1013,9 +1003,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const moved = own ? [] : Object.entries(await readAskLinks(here)).filter(([, k]) => k === key).map(([id]) => id);
     const askIds = [askId, ...moved].filter(Boolean);
     const keys = new Set([key, ...askIds.map((id) => `ask:${id}`)]);
-    const mine = (await shownEvents()).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind)) || (e.kind === 'owner-answer' && asked.has(e.data?.id))
-      || (e.kind === QUESTION_REOPEN && asked.has(e.data?.question))
-      || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
+    const mine = (await shownEvents()).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind)) || (e.kind === 'owner-answer' && asked.has(e.data?.id))      || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
     const lines = (await Promise.all([...keys].map((k) => readLines(threadFile(k))))).flat();
     const clearedAt = [routeRecord(await readActedOn(here), key), item?.lane === 'done' ? item.closed_at : null].filter(Boolean).map(String).sort().pop() || '';
     return threadOf(key, { lines, events: await Promise.all(mine.map(withReply)), owner, working: await readWorking(here), listening: !boardAt(here) || (listenState(boardAt(here)) === 'listening' && sessionBusy(boardAt(here))), clearedAt, fromAsk: askId,
@@ -1351,10 +1339,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         }
         if (kind === 'reask-request') {
           const refused = await reaskRefused(String(body.question || ''));
-          if (refused) return json(res, 400, { error: refused });
-        }
-        if (kind === QUESTION_REOPEN) {
-          const refused = await reopenRefused(String(body.question || ''));
           if (refused) return json(res, 400, { error: refused });
         }
         // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a new task's card is filed

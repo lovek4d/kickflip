@@ -10,3 +10,5 @@ Card #307. On Waiting on you, sending an answer is the owner resolving that ques
 - **The Questions button stays.** domain.mjs `actionButtonOf` gives `openQuestions` to any card that has had questions (`it.questions` set), Done cards included. `resolvedBy` keeps it orange only while the card's questions action stands, which a reopen restores. Otherwise it is quiet. A card that never had questions has no button.
 
 The resolved badge used to send `reask-request` (docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md). No page sends that now. The server still takes one, and the session still acts on it.
+
+Superseded in part by docs/adr/2026-11-15-1300-a-sent-questions-resolved-badge-is-plain.md: the Reopen bullet and the line "Sent. Tap Resolved to reopen it." are gone; the badge is plain and the line reads "Sent."
