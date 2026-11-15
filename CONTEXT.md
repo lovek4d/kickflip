@@ -165,7 +165,7 @@ A start and end time, 10:00pm to 8:00am by default. With its hold on, pushes que
 _Avoid_: overnight window, wake times
 
 **Overnight work**:
-The jobs the hub runs at night, a group in the Quiet hours modal under Starts, Ends and Hold pushes: a line saying it starts at the middle of quiet hours (3:00am by default), then a row per job with its line, its last run (Last run <time> · ok in green, · failed in red linking its card or log, Never run and Off in grey) and a toggle, on by default; an off row greys. Daily wake and Triage overnight are rows today ([quiet hours list the overnight work, each job on by default](docs/adr/2026-11-15-0700-quiet-hours-list-the-overnight-work-each-job-on-by-default.md)).
+The jobs the hub runs at night, a group in the Quiet hours modal under Starts, Ends and Hold pushes: a line saying it starts at the middle of quiet hours (3:00am by default), then a row per job with its line, its last run (Last run <time> · ok in green, · failed in red linking its card or log, Never run and Off in grey) and a toggle, on by default; an off row greys. Daily wake and Triage overnight are rows ([quiet hours list the overnight work, each job on by default](docs/adr/2026-11-15-0700-quiet-hours-list-the-overnight-work-each-job-on-by-default.md)), and so is Nightly full suite: once a night from that middle, every board's tests in full on its main, one board at a time, each a New task on its board when its main fails, which the row's red result links ([the nightly full suite runs every board's main and files a task on failure](docs/adr/2026-11-15-2300-the-nightly-full-suite-runs-every-boards-main-and-files-a-task-on-failure.md)).
 _Avoid_: nightly jobs, cron
 
 **Hub settings**:

@@ -34,6 +34,7 @@ export const wavesDir = () => path.join(os.homedir(), '.claude', 'waves');
 const manifestFile = () => path.join(webDir(), 'manifest.json');
 export const githubStateFile = () => path.join(webDir(), 'github-state.json');
 export const wakeStateFile = () => path.join(webDir(), 'wake-state.json');
+export const suiteStateFile = () => path.join(webDir(), 'suite-state.json');
 export const incomingFilesFile = () => path.join(webDir(), 'incoming-files.json');
 const deafStateFile = () => path.join(webDir(), 'deaf-state.json');
 export const resumeStateFile = () => path.join(webDir(), 'resume-state.json');

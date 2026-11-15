@@ -154,7 +154,8 @@
 // checkListening, listenState), then sends the queued pushes unless schedule.mjs heldUntil holds them;
 // one poll never overlaps another, and coming back from away runs one at once. At the end of quiet hours it wakes each
 // board's session once a day (github.mjs sendWakes) unless Daily wake is off in Overnight work (overnight.mjs)
-// (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). Every feature that serves
+// (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). From their middle it
+// runs every board's tests on its main once a night, unless Nightly full suite is off (nightly-suite.mjs). Every feature that serves
 // boards takes them from boards.mjs listBoards, the one board registry
 // (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). The host's service manager keeps the
 // hub itself running (../shared/service.mjs, `kickflip init`).
@@ -207,6 +208,7 @@ import { endOf } from './duration.mjs';
 import { nodeBin } from '../bin/install.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { migrateTriage, overnightJobs, setOvernight } from './overnight.mjs';
+import { runNightlySuite } from './nightly-suite.mjs';
 import { checkIncoming } from './incoming.mjs';
 import { drainRoutes, routedRows } from './router.mjs';
 import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
@@ -296,7 +298,7 @@ function httpProbe(port) {
 //   gate: the owner gate every request passes (board/on-host.mjs ownerGate);
 //   awake: the Keep awake controller (awake.mjs caffeinate);
 //   log(...parts): each line the hub logs, stamped on stdout by default;
-//   ticks: false runs no timer of its own, no 2 s reconcile, 15 s tick or 2 s endUnshared, and no poll it wasn't asked
+//   ticks: false runs no timer of its own, no 2 s reconcile, 15 s tick, minute nightly suite or 2 s endUnshared, and no poll it wasn't asked
 //   for: the caller runs each pass.
 // → {port, reconcile(), tick(), poll(options), endUnshared(), settled(), close()}: reconcile, tick and poll run one pass
 // and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a request, is
@@ -705,6 +707,16 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       if (r.due.length) log(`wake ${r.due.join(', ')}: check-github → ${r.events.map((e) => e.route).join(', ') || 'no board'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
     }).catch((e) => log('wake failed:', e.message)).finally(() => { waking = null; });
     return track(waking);
+  }
+
+  // The nightly full suite (nightly-suite.mjs), on a minute timer of its own: a run takes minutes per board, and a pass
+  // calling tick() never starts one.
+  let suiting = null;
+  function runSuite() {
+    suiting ||= runNightlySuite({ now: new Date(clock()), settings: readSettings(), manifest: loadManifest() }).then((r) => {
+      if (r) log(`nightly suite ${r.night}: ${r.runs.map((x) => `${x.route} ${x.ok ? 'ok' : x.error ? `couldn't run (${x.error})` : 'failed, filed a task'}`).join('; ') || 'no board'}`);
+    }).catch((e) => log('nightly suite failed:', e.message)).finally(() => { suiting = null; });
+    return track(suiting);
   }
 
   // Routes whose page asked for a wake (/_hub/wake) that no session check has taken up yet.
@@ -1759,7 +1771,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   log(`hub on http://127.0.0.1:${PORT}/ (manifest ${MANIFEST})`);
   reconcileLogged();
   if (ticks) {
-    timers.push(setInterval(reconcileLogged, 2000), setInterval(tick, 15_000), setInterval(endUnshared, 2000));
+    timers.push(setInterval(reconcileLogged, 2000), setInterval(tick, 15_000), setInterval(runSuite, 60_000), setInterval(endUnshared, 2000));
     timers.at(-1).unref();
   }
   return { port: PORT, reconcile, tick, poll: runPoll, endUnshared, settled, close };

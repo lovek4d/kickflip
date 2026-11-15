@@ -6,7 +6,7 @@
 import { readSettingsFile, writeSettingsFile } from './push.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { listBoards, readJSON, wakeStateFile } from './boards.mjs';
+import { listBoards, readJSON, suiteStateFile, wakeStateFile } from './boards.mjs';
 
 // Each job: id; title; icon, a ui-hub.js tile; does({middle, end}), its line, given the start and end of the window as
 // words; and last(boards), its last run, {at: ISO time, failed: what failed or '', href?: the card or log a failure
@@ -26,6 +26,19 @@ export const JOBS = [
     last() {
       const last = readJSON(wakeStateFile(), {}).last;
       return last ? { at: last.at, failed: last.failed?.length ? `failed on ${last.failed.join(', ')}` : '' } : null;
+    },
+  },
+  {
+    // nightly-suite.mjs runNightlySuite; a failure links the first task it filed.
+    id: 'suite', title: 'Nightly full suite', icon: 'tests',
+    does: (w) => `Runs every board's tests on its main at ${w.middle}, one board at a time, and files a task on a board whose main fails.`,
+    last() {
+      const last = readJSON(suiteStateFile(), {}).last;
+      if (!last) return null;
+      const routes = (pick) => last.runs.filter(pick).map((r) => r.route).join(', ');
+      const failed = [routes((r) => !r.ok && !r.error) && `failed on ${routes((r) => !r.ok && !r.error)}`, routes((r) => r.error) && `couldn't run on ${routes((r) => r.error)}`].filter(Boolean).join('; ');
+      const href = last.runs.find((r) => r.href)?.href;
+      return { at: last.at, failed, ...(href ? { href } : {}) };
     },
   },
 ];

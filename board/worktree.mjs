@@ -522,15 +522,22 @@ export const affectedRun = (base, say = console.log) => (dir, { report } = {}) =
   return nodeTests(dir, { files, report }).then((tests) => ({ ...tests, touched }));
 };
 // docs/adr/2026-11-14-1530-a-land-reruns-an-untouched-failing-test-on-main.md
-// Runs test files on base's commit in a worktree of its own beside the repo, removed after. → the files among them that
-// fail there too.
-export async function failingOnBase(repo, base, files) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-base-'));
-  const added = git(repo, 'worktree', 'add', '--quiet', '--detach', dir, base);
-  if (!added.ok) { fs.rmSync(dir, { recursive: true, force: true }); fail(`could not check out ${base} to rerun ${files.join(', ')}: ${added.err}`); }
-  try {
+// Runs test files on base's commit in a checkout of its own (onCheckout). → the files among them that fail there too.
+export function failingOnBase(repo, base, files) {
+  return onCheckout(repo, base, `to rerun ${files.join(', ')}`, async (dir) => {
     const rerun = await nodeTests(dir, { files: files.filter((f) => fs.existsSync(path.join(dir, f))) });
     return rerun.ok ? [] : rerun.failedFiles;
+  });
+}
+
+// fn(dir) on a detached checkout of ref in repo, in a temp folder removed once fn settles; refuses when ref can't be
+// checked out, naming why it was wanted ("to rerun …"). → fn's answer
+export async function onCheckout(repo, ref, why, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-base-'));
+  const added = git(repo, 'worktree', 'add', '--quiet', '--detach', dir, ref);
+  if (!added.ok) { fs.rmSync(dir, { recursive: true, force: true }); fail(`could not check out ${ref} ${why}: ${added.err}`); }
+  try {
+    return await fn(dir);
   } finally {
     git(repo, 'worktree', 'remove', '--force', dir);
     fs.rmSync(dir, { recursive: true, force: true });
