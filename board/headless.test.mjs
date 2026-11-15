@@ -8,7 +8,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { freePorts, startBoard } from '../shared/test-helpers.mjs';
-import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI } from './headless.mjs';
+import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI, CONTEXT_CAP, handoffLines, landByBuilder, resumeChoice, sessionState } from './headless.mjs';
 import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, verifyCalls, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
@@ -992,6 +992,111 @@ test("the owner's Hold pauses the card's running builder at its next progress re
   assert.equal(again.cwd, b.record('H1').worktree.path);
   assert.deepEqual([b.record('H1').pause, b.record('H1').done], [undefined, undefined]);
   assert.ok(b.thread('H1').some((m) => m.text === 'Resumed: unheld.'));
+});
+
+// docs/adr/2026-11-15-0040-a-cold-resume-past-150k-starts-a-fresh-agent-with-a-handoff.md
+test('a session resumes while under the cap or warm, and past the cap and an hour old goes fresh: a land on Sonnet, a build on its own model', () => {
+  const now = Date.parse('2026-11-14T12:00:00.000Z');
+  const ago = (minutes) => new Date(now - minutes * 60_000).toISOString();
+  const cases = [
+    // [context, minutes since its last turn, land, model] → choice
+    [[149_999, 600, true, 'opus'], { resume: true }],
+    [[150_000, 59, true, 'opus'], { resume: true }],
+    [[150_000, 60, true, 'opus'], { resume: false, model: 'sonnet' }],
+    [[400_000, 600, true, 'sonnet'], { resume: false, model: 'sonnet' }],
+    [[150_000, 60, false, 'opus'], { resume: false, model: 'opus' }],
+    [[212_000, 600, false, 'sonnet'], { resume: false, model: 'sonnet' }],
+    [[20_000, 600, false, 'opus'], { resume: true }],
+  ];
+  for (const [[context, minutes, land, model], choice] of cases) {
+    assert.deepEqual(resumeChoice({ context, at: ago(minutes) }, { now, land, model }), choice, `${context} tokens, ${minutes} minutes, land ${land}`);
+  }
+  assert.deepEqual(resumeChoice(null, { now, land: true, model: 'opus' }), { resume: true }, 'a session with no readable turn resumes, as before');
+  assert.equal(CONTEXT_CAP, 150_000);
+});
+
+// A Claude run's stream-json log as the board keeps it: assistant turns with their usage and time, a sub-agent's among
+// them, and the result.
+const turn = (at, [input, read, write], { text, parent = null } = {}) => JSON.stringify({ type: 'assistant', timestamp: at, parent_tool_use_id: parent, message: { content: text ? [{ type: 'text', text }] : [{ type: 'tool_use', name: 'Bash' }], usage: { input_tokens: input, cache_read_input_tokens: read, cache_creation_input_tokens: write, output_tokens: 9 } } });
+
+test("a session's state is its last top-level turn's context and time, and its last message the run's result", () => {
+  const dir = tempDir('session-state-');
+  const file = path.join(dir, 'builder.log');
+  fs.writeFileSync(file, [
+    JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }),
+    turn('2026-11-14T10:00:00.000Z', [2, 90_000, 1000], { text: 'Reading the code' }),
+    turn('2026-11-14T10:05:00.000Z', [3, 151_000, 2000], { text: 'Committed and handed back.' }),
+    turn('2026-11-14T10:06:00.000Z', [1, 5_000, 0], { parent: 'toolu_1' }),
+    JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'The build is committed and handed back.' }),
+  ].join('\n') + '\n');
+  assert.deepEqual(sessionState(file), { context: 153_003, at: '2026-11-14T10:05:00.000Z', last: 'The build is committed and handed back.' }, "a sub-agent's turn isn't the session's context");
+  fs.writeFileSync(file, [turn('2026-11-14T10:00:00.000Z', [2, 90_000, 1000], { text: 'Rebasing onto main' }), turn('2026-11-14T10:01:00.000Z', [2, 91_000, 0])].join('\n') + '\n');
+  assert.deepEqual(sessionState(file), { context: 91_002, at: '2026-11-14T10:01:00.000Z', last: 'Rebasing onto main' }, 'a run with no result: its last top-level text');
+  fs.writeFileSync(file, JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }) + '\n');
+  assert.equal(sessionState(file), null, 'no turn yet');
+  assert.equal(sessionState(path.join(dir, 'gone.log')), null, 'no log');
+});
+
+test("a fresh agent's handoff holds why it carries on, the branch's commits and diff stat, and the old session's last message", () => {
+  const words = handoffLines({ why: 'The land hit this: tests failed in a.test.mjs.', commits: 'abc1234 feat(board): a thing', stat: ' a.mjs | 4 ++--\n 1 file changed', last: 'Handed back with one call.' }).join('\n');
+  assert.match(words, /builder session ran past 150k tokens of context, so you carry on in its place/);
+  assert.match(words, /The land hit this: tests failed in a\.test\.mjs\./);
+  assert.match(words, /Commits on the branch:\nabc1234 feat\(board\): a thing/);
+  assert.match(words, /Diff stat against the base:\n a\.mjs \| 4 \+\+--\n 1 file changed/);
+  assert.match(words, /The old session's last message:\nHanded back with one call\./);
+  assert.doesNotMatch(handoffLines({ commits: '', stat: '', last: null }).join('\n'), /undefined|null/, 'a handoff with nothing to hand says none');
+});
+
+// The board's launch writes the builder's log; a test makes the session cold and over the cap by adding a turn to it.
+const coldTurn = (b, id, context) => {
+  const log = path.join(b.home, '.claude', 'kickflip', 'logs', b.record(id).session.log);
+  fs.appendFileSync(log, turn(new Date(Date.now() - 2 * 3600_000).toISOString(), [2, context - 2, 0], { text: 'Paused here; committed the parser.' }) + '\n');
+};
+
+test('Resume of a held build whose session is cold and past the cap starts a fresh builder on its model, with the handoff, and says so', async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'H2', title: 'feat: hold me', phase: 'ready', size: 'large' }]);
+  const { send } = await b.start();
+  const { pid } = b.record('H2').session;
+  await send('card-hold', { key: 't/H2', hold: true });
+  await builderProgress(b.site, 't/H2', 'Writing the test', { phase: 'building' });
+  await b.gone(pid);
+  coldTurn(b, 'H2', 212_000);
+  await send('card-hold', { key: 't/H2', hold: false });
+  assert.equal(b.runs.length, 2, 'the resume launches an agent');
+  const [first, fresh] = b.runs;
+  assert.equal(fresh.resume, undefined, 'a fresh agent, not the session resumed');
+  assert.equal(fresh.model, first.model, "a build's carry-on keeps its model");
+  assert.match(fresh.prompt, /^You are the headless builder for task H2/);
+  assert.match(fresh.prompt, /Why it carries on: The board paused this build, and the pause has cleared: unheld\./);
+  assert.match(fresh.prompt, /The old session's last message:\nPaused here; committed the parser\./);
+  assert.ok(b.thread('H2').some((m) => m.text === 'Fresh builder: its session was over 150k.'), 'the thread says so, with no session id');
+});
+
+test("a land past the cap on a cold session goes to a fresh lander on Sonnet with what the land hit and the branch's commits; a warm one resumes", async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'L1', title: 'feat: land me', phase: 'ready', size: 'large' }]);
+  await b.start();
+  const { worktree } = b.record('L1');
+  fs.writeFileSync(path.join(worktree.path, 'b.txt'), 'b\n');
+  execFileSync('git', ['-C', worktree.path, 'add', '-A']);
+  execFileSync('git', ['-C', worktree.path, '-c', 'user.name=T', '-c', 'user.email=t@example.com', 'commit', '--quiet', '-m', 'feat(board): add b']);
+  await b.gone(b.runs[0].pid);
+  const key = 't/L1';
+  const log = path.join(b.home, '.claude', 'kickflip', 'logs', b.record('L1').session.log);
+  fs.appendFileSync(log, turn(new Date(Date.now() - 5 * 60_000).toISOString(), [2, 300_000, 0], { text: 'Handed back.' }) + '\n');
+  const warm = await landByBuilder(b.site, { key, model: 'opus' }, { why: 'tests failed in a.test.mjs', launch: b.launch });
+  assert.equal(warm.resumed, true, 'minutes after its last turn the cache is warm, so it resumes whatever its size');
+  assert.equal(b.runs[1].resume, b.runs[0].sessionId);
+  await b.gone(b.runs[1].pid);
+  coldTurn(b, 'L1', 300_000);
+  const cold = await landByBuilder(b.site, { key, model: 'opus' }, { why: 'tests failed in a.test.mjs', launch: b.launch });
+  assert.equal(cold.resumed, false);
+  const lander = b.runs[2];
+  assert.deepEqual([lander.resume, lander.model], [undefined, 'sonnet']);
+  assert.match(lander.prompt, /^You are the headless lander for task L1/);
+  assert.match(lander.prompt, /Why it carries on: The land hit this: tests failed in a\.test\.mjs\./);
+  assert.match(lander.prompt, /Commits on the branch:\n[0-9a-f]+ feat\(board\): add b/);
+  assert.match(lander.prompt, /Diff stat against the base:\nb\.txt \| 1 \+/);
+  assert.equal(b.thread('L1').filter((m) => m.line === 'fresh-builder').length, 1);
 });
 
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md

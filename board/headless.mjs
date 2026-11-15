@@ -15,9 +15,9 @@ import { launchAgent } from './agents.mjs';
 import { processStarts, ps } from '../hub/live.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
-import { builderRepo } from './worktree.mjs';
+import { builderRepo, git } from './worktree.mjs';
 import { standardWords } from './commit-message.mjs';
-import { appendBuilderResumed, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
+import { appendBuilderResumed, appendStatus, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
 import { HELPER, plans, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
@@ -350,17 +350,20 @@ export async function reviveBuilders(tracked, open, { launch, handBack, alive = 
   return next;
 }
 
-const logFile = (id, role) => path.join(os.homedir(), '.claude', 'kickflip', 'logs', `${role}-${id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+const logsDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'logs');
+const logFile = (id, role) => path.join(logsDir(), `${role}-${id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
 
 // Launches the agent of a build startTappedBuild started ({key, kind, model}), the rebase run when the card has one
 // open (store.mjs startRebase's rebase_run, so a relaunch after a restart briefs it the same), with lander the lander of
 // a verified card, or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, a grill's text? and
 // files?, a prototype's asks [{text?, files?, question?, note?, choice?}]}) or the visual agent startVisual opened ({key, kind: visual, model, agent, text?, files?}), through the
 // adapter, launch (agents.mjs launchAgent's arguments and answer; launchAgent itself unless a test passes its own): a
-// build or lander as its record's kind, a planner as Claude. The session id it names goes on the agent's builder record
+// build or lander as its record's kind, a planner as Claude. handoff ({why, last}), for a build or lander that carries
+// on from a session past the cap (resumeBuilder), adds handoffLines to its brief, read with the branch's commits and diff
+// stat against the base. The session id it names goes on the agent's builder record
 // and, with the log, in a thread line saying so.
 // → {pid, sessionId, log}; rejects when the agent can't start.
-export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, asks, task, writes, worktree }, { lander = false, launch = launchAgent } = {}) {
+export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, asks, task, writes, worktree }, { lander = false, handoff, launch = launchAgent } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
@@ -372,7 +375,10 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const cwd = planner ? repo : helper ? worktree ?? facts.worktree ?? repo : facts.worktree;
   const card = { ...facts, route, base, repo, rules, kind, agent, brief, text, files, asks, task, writes, cwd, pr: facts.rebasePR };
   const role = visual ? 'Visual agent' : helper ? `Helper ${agent}` : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
-  const prompt = visual ? visualBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
+  const roleBrief = visual ? visualBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
+  const prompt = handoff
+    ? [roleBrief, ...handoffLines({ ...handoff, commits: git(cwd, 'log', '--oneline', `${base}..HEAD`).out, stat: git(cwd, 'diff', '--stat', `${base}...HEAD`).out })].join('\n')
+    : roleBrief;
   const launched = await launch({ kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
   await recordSession(site, key, launched.sessionId, launched.pid, agent, path.basename(launched.log));
   return launched;
@@ -399,15 +405,73 @@ export function runFailure(file) {
 // The words a paused builder's own session is resumed with, once its pause cleared ("nothing blocks it").
 export const resumeBrief = ({ ref, worktree, cleared }) => `The board paused your build of task ${ref}, and the pause has cleared: ${cleared}. Carry on where you stopped, in ${worktree}, following your brief as before. Your builder record is still open, so don't run builder start again.`;
 
+// docs/adr/2026-11-15-0040-a-cold-resume-past-150k-starts-a-fresh-agent-with-a-handoff.md
+// A resume reads the session's whole context again, and once the prompt cache (an hour) has gone cold it pays for all of
+// it, so a session past CONTEXT_CAP tokens whose last turn is WARM or older goes to a fresh agent instead.
+export const CONTEXT_CAP = 150_000;
+const WARM = 60 * 60_000;
+
+// A Claude session's state from its newest run's stream-json log: context, the tokens its last top-level turn (not a
+// sub-agent's) read, input, cache read and cache write; at, that turn's time; and last, the run's last message, its
+// result's text, else its last top-level text. null when the log can't be read or holds no top-level turn.
+export function sessionState(file) {
+  let lines;
+  try { lines = fs.readFileSync(file, 'utf8').split('\n'); } catch { return null; }
+  let state = null;
+  let result = null;
+  for (const line of lines) {
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    if (e.type === 'result') result = typeof e.result === 'string' ? e.result.trim() : null;
+    if (e.type !== 'assistant' || e.parent_tool_use_id || !e.message?.usage) continue;
+    const u = e.message.usage;
+    const text = (e.message.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim();
+    state = { context: (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), at: e.timestamp, last: text || state?.last || null };
+  }
+  return state && { ...state, last: result || state.last };
+}
+
+// Whether a card's builder session resumes, from its sessionState (null: its size is unknown, so it resumes, as before
+// the cap): under CONTEXT_CAP, or with its last turn under WARM old, it does. Otherwise a fresh agent carries on: a land
+// (a lander or rebase run) on Sonnet, and a build's carry-on on the build's own model.
+// → {resume: true} or {resume: false, model}.
+export function resumeChoice(state, { now = Date.now(), land, model }) {
+  if (!state || state.context < CONTEXT_CAP || now - Date.parse(state.at) < WARM) return { resume: true };
+  return { resume: false, model: land ? 'sonnet' : model };
+}
+
+// The handoff a fresh agent past the cap reads after its brief: why it carries on (a sentence, when the caller has one),
+// the branch's commits and diff stat against the base, and the old session's last message.
+export function handoffLines({ why, commits, stat, last }) {
+  return [
+    '',
+    `Handoff: this task's builder session ran past ${CONTEXT_CAP / 1000}k tokens of context, so you carry on in its place. Its work so far is on the branch in the worktree; read it before you change anything.`,
+    ...(why ? [`Why it carries on: ${why}`] : []),
+    'Commits on the branch:', commits || '(none)',
+    'Diff stat against the base:', stat || '(none)',
+    "The old session's last message:", last || '(none)',
+  ];
+}
+
 // The one seam where the board puts a card's builder session back to work: every resume (a cleared pause, a verified
 // land, a Merge tap's conflict, a PR rebase run) goes through here, and none of them knows how. card is {key, kind,
 // model}; brief(facts) the words the session is resumed with, facts as store.mjs briefFacts'. A Claude build whose
-// record keeps a session id resumes it in the card's worktree; a Codex build, one with no session (a session's own
-// build, which the board never launched), or one the caller says to take fresh (fresh) is launched anew, with
-// freshLaunch its launchBuilder options. launch starts the agent either way, as launchBuilder's does.
+// record keeps a session id resumes it in the card's worktree, unless resumeChoice, reading the session's log
+// (session.log, the basename recordSession keeps), sends it to a fresh agent: launched with the handoff, why the
+// sentence saying why it carries on, land whether it lands (a lander or rebase run), and a "Fresh builder" thread line.
+// A Codex build, one with no session (a session's own build, which the board never launched), or one the caller says
+// to take fresh (fresh) is launched anew. freshLaunch is a fresh launch's launchBuilder options. launch starts the agent
+// either way, as launchBuilder's does.
 // → {pid, sessionId, log, resumed}, resumed whether the session continued.
-export async function resumeBuilder(site, { key, kind = 'claude', model, session, brief, fresh = false, freshLaunch = {}, launch = launchAgent }) {
+export async function resumeBuilder(site, { key, kind = 'claude', model, session, brief, why, land = false, fresh = false, freshLaunch = {}, launch = launchAgent }) {
   if (kind !== 'claude' || !session || fresh) return { ...await launchBuilder(site, { key, kind, model }, { ...freshLaunch, launch }), resumed: false };
+  const state = session.log ? sessionState(path.join(logsDir(), session.log)) : null;
+  const choice = resumeChoice(state, { land, model });
+  if (!choice.resume) {
+    const launched = await launchBuilder(site, { key, kind, model: choice.model }, { ...freshLaunch, handoff: { why, last: state.last }, launch });
+    await appendStatus(site, key, 'fresh-builder', { cap: CONTEXT_CAP / 1000 });
+    return { ...launched, resumed: false };
+  }
   const facts = await briefFacts(site, key);
   const launched = await launch({ kind, model, cwd: session.worktree ?? facts.worktree, site, prompt: brief(facts), resume: session.id, log: logFile(key.split('/')[1], 'builder') });
   await recordSession(site, key, launched.sessionId ?? session.id, launched.pid, 'main', path.basename(launched.log));
@@ -429,7 +493,7 @@ export async function landByBuilder(site, { key, kind = 'claude', model }, { why
   const freshLaunch = { lander: !rebase };
   let launched;
   try {
-    launched = await resumeBuilder(site, { key, kind, model, session, brief, fresh, freshLaunch, launch });
+    launched = await resumeBuilder(site, { key, kind, model, session, brief, why: why && `The land hit this: ${why}.`, land: true, fresh, freshLaunch, launch });
   } catch (e) {
     if (!session) throw e;
     launched = await resumeBuilder(site, { key, kind, model, session: null, brief, freshLaunch, launch });

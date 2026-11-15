@@ -1,0 +1,12 @@
+# A cold resume past 150k starts a fresh agent with a handoff
+
+A resume of a builder's session, whatever sends it (a cleared pause, a usage-limit pause, a verified land, a Merge tap's conflict or failing test, a PR rebase run), keeps resuming unless the session is both big and cold. Then a fresh agent carries on with a handoff instead. The seam stays the one `headless.mjs resumeBuilder` from [a builder resumes to land its own conflict](2026-11-09-1500-a-builder-resumes-to-land-its-own-conflict.md) and [a card pause stops its builder](2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md); no caller changed how it asks.
+
+- **Why.** Builder logs for the week to 11/14: 164 resumes cost $43 against $483 for fresh builds. Warm land resumes, minutes after the hand-back, cost a median $0.08, about what a fresh lander costs even past 150k. The money went on cold resumes of big Opus sessions (pause, usage limit, restart): four at 186-257k cost $2.8-5.1 each, $15 of the $24 that resumes over 150k cost, because a cold cache reads the whole context at full price.
+- **The rule** (`resumeChoice`). A session resumes when its last top-level turn's context (input + cache read + cache write) is under `CONTEXT_CAP`, 150k tokens for both models, or when that turn is under an hour old, since the prompt cache is still warm. Otherwise it goes fresh. A session whose log has no readable turn resumes, as before the cap.
+- **Reading the session** (`sessionState`). The size and time come from the newest run's stream-json log, which `recordSession` names on the builder record (`session.log`). No model call is needed. A sub-agent's turns don't count.
+- **The handoff** (`handoffLines`). The fresh agent gets the brief it would get anyway (builder, lander or rebase run), then why it carries on (what the land hit, or the pause that cleared), the branch's commits and diff stat against the base, and the old session's last message.
+- **Model.** A fresh lander or rebase run runs on Sonnet. A build's carry-on keeps the build's model.
+- **Words.** The thread line reads "Fresh builder: its session was over 150k.", with no session id (owner, gh456-words).
+
+Not taken: `/compact` before resuming, since a compact on a cold cache reads the whole context once and costs about as much as the cold resume; always fresh, since warm resumes are as cheap as a fresh lander and keep the builder's context; a sub-orchestrator for all implementation, which would be its own card.

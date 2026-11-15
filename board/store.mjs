@@ -4913,7 +4913,7 @@ export async function recordedSession(site, key) {
   const { source } = await loadItem(site, key);
   const records = (await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)))).filter((r) => r?.session?.id && r.worktree?.path && r.kind !== HELPER);
   const newest = records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
-  return newest ? { id: newest.session.id, worktree: newest.worktree.path } : null;
+  return newest ? { id: newest.session.id, worktree: newest.worktree.path, log: newest.session.log ?? null } : null;
 }
 
 export async function builderProgress(site, key, progress, { phase, dir, agent = 'main', eta, clearEta }) {

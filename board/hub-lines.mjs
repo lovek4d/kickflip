@@ -104,6 +104,8 @@ export const HUB_LINES = {
   // A land a lander takes over: the card still reads merging (domain.mjs workItem).
   'lander-handoff': { tone: 'orange', mark: BUILD, text: ({ why }) => fit('Not merged yet: ', why, '. Its builder resumes to fix it and land it.') },
   'builder-resumed': { tone: 'orange', mark: BUILD, text: () => 'Builder resumed' },
+  // docs/adr/2026-11-15-0040-a-cold-resume-past-150k-starts-a-fresh-agent-with-a-handoff.md: cap, in thousands of tokens.
+  'fresh-builder': { tone: 'orange', mark: BUILD, text: ({ cap }) => `Fresh builder: its session was over ${cap}k.`, longest: { cap: 1000 } },
   // Faults.
   // brief, when the refusal has one, is its reason in a line's room (commit-message.mjs startTitleBrief); why is whole.
   'build-refused': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why, brief }) => fit("Couldn't start implementing: ", brief ?? why) },

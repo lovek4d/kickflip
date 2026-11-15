@@ -1818,9 +1818,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }
     const kind = providerOf(record.kind) ?? 'claude';
     try {
-      const { pid, log } = await resumeBuilder(here, { key, kind, model: record.model, session: { id: record.session.id }, brief: (facts) => resumeBrief({ ...facts, cleared }), launch });
+      const why = `The board paused this build, and the pause has cleared: ${cleared}.`;
+      const { pid, log, resumed } = await resumeBuilder(here, { key, kind, model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => resumeBrief({ ...facts, cleared }), why, launch });
       await trackLaunch(key, { kind, model: record.model, pid, log, relaunched: false });
-      logCall({ ...entry, result: 'resumed' });
+      logCall({ ...entry, result: resumed ? 'resumed' : 'fresh builder' });
     } catch (e) {
       logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
       await appendStatus(here, key, 'resume-failed', { error: e.message });
