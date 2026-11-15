@@ -1221,6 +1221,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           if (repeat) return json(res, 200, { id: repeat.id, board: await answerBoard(req, since) });
         }
         // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md, docs/adr/2026-11-07-0700-staging-then-ready.md
+        // The message's thread line is written before the lines its tap causes ("Resumed", "Marked as staging").
+        let tapEffects;
         if (kind === 'item-message') {
           const key = String(body.key || '');
           const card = (await sharedBoard()).items.find((i) => i.key === key && i.kind === 'work');
@@ -1236,8 +1238,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
             dataVersion++;
             return json(res, 200, { id: null, board: await answerBoard(req, since) });
           }
-          if (card?.lane === 'todo' && body.intent === 'build') stopAgents(await stageImplement(here, key, body));
-          else if (card?.lane === 'todo' && card.phase === 'ready') await stageReply(here, key, body);
+          if (card?.lane === 'todo' && body.intent === 'build') tapEffects = async () => stopAgents(await stageImplement(here, key, body));
+          else if (card?.lane === 'todo' && card.phase === 'ready') tapEffects = () => stageReply(here, key, body);
           dataVersion++;
         }
         if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0] ?? null, board: await answerBoard(req, since) });
@@ -1329,6 +1331,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           await planAgain(here, filed, body.request, { ...(body.text ? { text: String(body.text) } : {}), ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}) });
         }
         const id = (await appendEvents([[kind, body, preset]]))[0];
+        await tapEffects?.();
         if (kind === 'ask-edited') await retitleAskCard(here, String(body.id || ''));
         // A deleted ask's New card goes with it.
         if (kind === 'ask-withdrawn') await dropAskCard(here, String(body.id || ''));

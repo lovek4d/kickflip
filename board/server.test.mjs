@@ -672,6 +672,10 @@ test("an Implement message stages a Todo card where it is, its words in the note
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items[0].resolved, 'Skipped: you tapped Implement');
     assert.deepEqual(log().filter((e) => e.kind === 'item-message').at(-1).data, { key: 't/IMP1', text: 'Use the blue', intent: 'build' });
     assert.deepEqual(await footer('t/IMP1'), [['Use the blue', 'Implement']]);
+    // The message comes first in the thread; the lines its tap caused follow it.
+    const order = (await (await fetch(`${base}/api/thread?key=t%2FIMP1`)).json()).map((m) => m.text);
+    assert.equal(order[0], 'Use the blue');
+    assert.ok(order.length > 1);
     // A second Implement while it is staging keeps the first time, and adds its words.
     await post({ kind: 'item-message', key: 't/IMP1', text: 'And the red', intent: 'build' });
     assert.equal(item('IMP1').staged_at, staged);
