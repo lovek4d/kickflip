@@ -448,8 +448,7 @@
   function workLines(it, { unread = 0 } = {}) {
     const ids = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
     // A card shows its ticket, or Task when it has none.
-    // The builder's risk (builder done --risk), coloured as its PR's Slack bar.
-    const chips = `${prChips(it)}${commitChip(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${it.risk ? badge(RISK_TONES[it.risk], `${it.risk} risk`) : ''}${installChip(it)}`;
+    const chips = `${prChips(it)}${commitChip(it)}${reviewChips(it)}${installChip(it)}`;
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: preheating, planning prototype
     // or planning visual while the orchestrator writes the brief, generating visual while a visual agent draws, in blue.
     const status = it.planning && !it.builder ?`<div class="line3 sub agent planner">${DOT}${esc(it.planning)}</div>`
@@ -509,5 +508,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, newEntries, newStrip, askLine, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane });
 })();

@@ -243,7 +243,7 @@ A work item about the sites themselves rather than the product. Its legacy ref `
 _Avoid_: meta task, chore
 
 **Badge**:
-A chip on a task or page that shows a status, such as Install or a PR's state. It may link to what it is about: on a closed task, Install goes straight to the thing to act on (owner, question `badge-tap`). A task's badges are its ticket ID, risky, New on an unsorted ask, and PR and try-build state; held, blocked by and Action needed are orange words on its time line instead, and ready a green one, and a bump shows only as the filled bump icon ([Build on a blocked card queues it, and blocked, bumped and Action needed leave the badges](docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md)). A badge never acts on the board; a **button** does.
+A chip on a task or page that shows a status, such as Install or a PR's state. It may link to what it is about: on a closed task, Install goes straight to the thing to act on (owner, question `badge-tap`). A task's badges are its ticket ID, New on an unsorted ask, and PR and try-build state; held, blocked by and Action needed are orange words on its time line instead, and ready a green one, and a bump shows only as the filled bump icon ([Build on a blocked card queues it, and blocked, bumped and Action needed leave the badges](docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md)). A badge never acts on the board; a **button** does.
 _Avoid_: chip (in what the owner reads), tag, label
 
 **Button**:

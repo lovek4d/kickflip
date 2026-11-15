@@ -233,6 +233,8 @@ BoardView.part((B) => {
     for (const [label, list] of [['Parent', it.parent ? [it.parent] : []], ['Children', it.children], ['Related to', it.related], ['Blocked by', it.blockedBy], ['Waits on it', it.waitsOnIt]]) {
       if (list?.length) rows.push([label, list.map(cardLink).join(', ')]);
     }
+    // The builder's risk (builder done --risk), its word coloured as its PR's Slack bar.
+    if (it.risk) rows.push(['Risk', `<span class="risk tone-${BoardUI.RISK_TONES[it.risk]}">${esc(it.risk)}</span>`]);
     if (it.manualSteps.length) rows.push(['Manual steps', linkText(it.manualSteps.join('; '), ctx)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
     const external = [

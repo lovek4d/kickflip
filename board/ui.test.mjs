@@ -1190,6 +1190,11 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
     parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   assert.deepEqual(rows(card), [['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 , #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
+  // The builder's risk is a Risk row under the card links, its word in the colour the PR's Slack bar has.
+  for (const [risk, tone] of [['low', 'ready'], ['medium', 'notice'], ['high', 'danger']]) {
+    assert.deepEqual(rows({ ...card, risk }).slice(-2), [['Waits on it', '#99'], ['Risk', risk]]);
+    assert.match(B.detail({ ...card, risk }), new RegExp(`<dt>Risk</dt><dd><span class="risk tone-${tone}">${risk}</span></dd>`));
+  }
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
     [['#selectedCard=w%2FGH-53', '#53'], ['#selectedCard=w%2FGH-94', '#94'], ['#selectedCard=w%2FGH-95', '#95'], ['#selectedCard=w%2FGH-75', '#75'], ['#selectedCard=w%2FGH-80', '#80'], ['#selectedCard=w%2FGH-99', '#99']]);
   // The links are text joined by a comma and a space, with nothing else between them.
@@ -1750,7 +1755,7 @@ test("the hub's Routed section is the New strip under its own head: each row lin
 });
 
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
-const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, held: false, risky: false, threadCount: 4,
+const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, held: false, threadCount: 4,
   linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, prs: [{ ...openPR, isDraft: true, status: 'draft' }], reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
@@ -1780,12 +1785,12 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, prs: [], reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new message']);
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread|new/);
-  const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
-  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● Jamie ● risky', 'held']);
-  // The builder's risk is a chip coloured as the PR's Slack bar: green low, orange medium, red high.
-  for (const [risk, tone] of [['low', 'ready'], ['medium', 'notice'], ['high', 'danger']]) {
-    assert.deepEqual(lines(ui.workLines({ ...workCard, risk })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', `repo#7 ● Jamie ● ${risk} risk`]);
-    assert.match(ui.workLines({ ...workCard, risk }), new RegExp(`chip tone-${tone}">${risk} risk<`));
+  const busy = { ...workCard, held: true, builder: { progress: 'Running tests', at: null } };
+  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● Jamie ●', 'held']);
+  // The builder's risk is a Risk row on the open card, not a chip on the face.
+  for (const risk of ['low', 'medium', 'high']) {
+    assert.deepEqual(lines(ui.workLines({ ...workCard, risk })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●']);
+    assert.doesNotMatch(ui.workLines({ ...workCard, risk }), /risk/);
   }
   const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, prs: [], linear: [{ id: 'ENG-9', url: 'u' }], next: null };
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
