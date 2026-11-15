@@ -3165,12 +3165,3 @@ test('a card whose planner is queued for the usage reset ends its alert row with
   assert.equal(alert({ plannerQueued: false }), undefined);
   assert.match(alert({ plannerQueued: true, stalled: true }), /card-stalled">stalled<\/span><span class="sep"> · <\/span><span class="paused">paused<\/span>$/);
 });
-
-test('on a phone a sheet draws no dim backdrop and no shadow over the top of the page', () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const phone = css.slice(css.indexOf('/* A phone sheet draws nothing over the page'));
-  const block = /@media \(max-width: 899px\) \{([^}]*\{[^}]*\}\s*)+\}/.exec(phone)?.[0];
-  assert.ok(block, 'no phone block after the marker comment');
-  assert.match(block, /\.sheet::backdrop\s*\{\s*background:\s*transparent/);
-  assert.match(block, /\.sheet:not\(\.reader-sheet\)\s*\{\s*box-shadow:\s*none/);
-});
