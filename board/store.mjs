@@ -481,8 +481,8 @@ export async function appendMessage(site, key, { text: body, link, log, who = 'c
 }
 // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: the words and the flag
 // agree. The orchestrator's reply or thread line asking the owner to tap Implement is refused without --implement, and
-// one asking them to tap Done or Close without --close: the flag marks the card, so the board owes the tap and pushes it.
-const TAP_WORDS = /\btap\s+(implement|done|close)\b/i;
+// one asking them to tap Done without --close: the flag marks the card, so the board owes the tap and pushes it.
+const TAP_WORDS = /\btap\s+(implement|done)\b/i;
 export function refuseUnflaggedTap(words, { implement, close }) {
   const asked = TAP_WORDS.exec(String(words ?? ''))?.[1];
   if (!asked) return;
@@ -3328,10 +3328,10 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   if (spec === '' || !item.owner_step) delete item.owner_check;
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
   // docs/adr/2026-11-12-2300-a-finished-ask-waits-in-todo-with-an-orange-close.md: nothing landed for an ask no build
-  // ran on, so the orchestrator's --done on it is refused; it waits in Todo for the owner's Close (reply --close).
+  // ran on, so the orchestrator's --done on it is refused; it waits in Todo for the owner's Done (reply --close).
   if (finishAsk && done && item.from_ask && !merged && !landed && !ownerDone && !closing && !split && !wasFinished
     && !records.some((r) => r && builds(r)) && !item.branch && !hasPR(item) && !item.pushed && !item.merge_ready) {
-    fail(`${key} is an ask no build ran on, so nothing landed to mark Done; post the answer with reply ${key} --text "<answer>" --close (or thread ${key} --close) and it waits in Todo for the owner's Close`);
+    fail(`${key} is an ask no build ran on, so nothing landed to mark Done; post the answer with reply ${key} --text "<answer>" --close (or thread ${key} --close) and it waits in Todo for the owner's Done`);
   }
   const owedBefore = owesNext(item, records);
   if (title !== undefined) item.title = cardTitle(title);

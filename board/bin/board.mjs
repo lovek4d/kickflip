@@ -62,7 +62,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          writes in its thread. The mark lasts while the task keeps
                                                          its phase and lane. Text asking the owner to tap
                                                          Implement is refused without --implement, and text
-                                                         asking them to tap Done or Close without --close
+                                                         asking them to tap Done without --close
   thread <file>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--implement | --close]                         marks the task waiting on the owner's Implement or Done,
                                                          as reply --implement or --close does, for any ticket;

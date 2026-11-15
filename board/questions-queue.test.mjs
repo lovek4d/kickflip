@@ -25,7 +25,7 @@ test('the queue lists questions and taps together, oldest first by card, each ta
   ]);
   const [implement, , done, action] = b.queue;
   assert.deepEqual([implement.title, implement.label, implement.fault], ['T-2: Card T-2', 'Tap Implement', false]);
-  assert.deepEqual([done.label, action.fault], ['Tap Close', true]);
+  assert.deepEqual([done.label, action.fault], ['Tap Done', true]);
 });
 
 test("the hub's summary names the actions needed", () => {

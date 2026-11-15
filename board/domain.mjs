@@ -223,7 +223,6 @@ const heldNext = (base) => `Verified: tap Merge to land it on ${base}`;
 const FIX_CI = 'Fix the failing CI';
 const REPLY_WAITS = 'Your reply waits on the orchestrator';
 const TAP_DONE = 'Tap Done';
-const TAP_CLOSE = 'Tap Close';
 
 // Only Claude's and GitHub's messages are ever unread, and replies, which are Claude's, and the board's fault lines; never
 // the owner's lines, their answers included, nor status, agent or ask-link lines, nor the board's other status lines,
@@ -513,7 +512,7 @@ function actionOf(it, questionById, autoMerge) {
   }
   if (it.ownerWait === 'implement' && it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new')) return { kind: ACTION_KIND.implement, url: `${thread}&reply`, label: 'Tap Implement' };
   // docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md
-  if (it.ownerWait === 'close') return { kind: ACTION_KIND.close, url: `${thread}&reply`, label: it.storedLane === 'review' ? TAP_DONE : TAP_CLOSE };
+  if (it.ownerWait === 'close') return { kind: ACTION_KIND.close, url: `${thread}&reply`, label: TAP_DONE };
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: `Review draft PR #${it.pr.number}` };
   if (it.waitsOn === 'merge' && it.manualSteps.length && !it.mergeReady) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md

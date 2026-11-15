@@ -3622,7 +3622,7 @@ test("a thread box's row has What's left? at the left and the eye, fire, image a
 });
 
 // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵) in its thread box; a Todo card has Close right of Hold in its actions, and an In Progress card neither", async () => {
+test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵) in its thread box; a Todo card has Done right of Hold in its actions, and an In Progress card neither", async () => {
   const cards = [
     workCard('T1', { finishable: true, holdable: true, hasNotes: true }),
     workCard('P1', { lane: 'progress', finishable: true, holdable: true }),
@@ -3644,7 +3644,7 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
   assert.equal(form('w/R1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
   assert.equal(form('w/a1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
   for (const key of ['w/T1', 'w/P1']) assert.equal(form(key).querySelector('[data-confirm="finish"]'), null);
-  assert.deepEqual(actions('w/T1'), ['Hold', 'Close', 'Notes']);
+  assert.deepEqual(actions('w/T1'), ['Hold', 'Done', 'Notes']);
   assert.deepEqual(actions('w/P1'), ['Hold']);
   assert.deepEqual(actions('w/a1'), []);
   // Reply sends the message; Done, tapped or on ⌥↵, confirms and closes the card.

@@ -291,9 +291,9 @@ BoardView.part((B) => {
     const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}">${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : it.held ? ask('resume', 'Unhold', 'unhold') : ask('hold', 'Hold');
-    // A Todo card's Close, right of Hold; an In Review card's Done is in its thread box
+    // A Todo card's Done, right of Hold; an In Review card's Done is in its thread box
     // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
-    const close = it.lane === 'todo' && it.finishable ? ask('finish', 'Close', it.resolvedBy === BUTTON.done ? 'resolves' : '') : '';
+    const close = it.lane === 'todo' && it.finishable ? ask('finish', 'Done', it.resolvedBy === BUTTON.done ? 'resolves' : '') : '';
     // A Todo card's Implement is in its thread box (app-threads.js; docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
     return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${hold}${close}${notesButton(it)}${tryButton(it)}${actionButton(it)}${mergeButton(it)}`)}</div>`;
   }

@@ -26,12 +26,12 @@ test('a card marked ready to implement reads Action needed in Todo, with the thr
   assert.equal(card(built()).ownerWait, null);
 });
 
-test('a card marked waiting to be closed reads Action needed, Close or Done is its orange resolving button, and a closed card shows none', async () => {
+test('a card marked waiting to be closed reads Action needed, Done is its orange resolving button, and a closed card shows none', async () => {
   const mark = { on: 'close', at: '2026-11-09T11:00:00Z' };
   const c = card(built({ lane: 'todo', waits_on_owner: mark }));
   assert.deepEqual([c.lane, c.ownerWait, c.resolvedBy, c.awaitsDone], ['todo', 'close', 'done', false]);
-  assert.deepEqual(c.action, { kind: 'close', url: '#selectedCard=hub%2FT-1&reply', label: 'Tap Close' });
-  assert.equal(c.next, 'Tap Close');
+  assert.deepEqual(c.action, { kind: 'close', url: '#selectedCard=hub%2FT-1&reply', label: 'Tap Done' });
+  assert.equal(c.next, 'Tap Done');
   assert.equal(card(built({ lane: 'done', phase: undefined, done: '2026-11-09T11:30:00Z', waits_on_owner: mark })).action, null);
 });
 
@@ -191,14 +191,14 @@ test('reply and thread --implement mark the phase and lane they were set in; thr
 });
 
 // Rule D: the words and the flag agree. A reply or thread line that asks the owner to tap Implement needs --implement,
-// one that asks them to tap Done or Close needs --close; the flag with no such words is fine.
-test('a reply or thread line asking the owner to tap Implement, Done or Close is refused without its flag, and posts nothing', async () => {
+// one that asks them to tap Done needs --close; the flag with no such words is fine.
+test('a reply or thread line asking the owner to tap Implement or Done is refused without its flag, and posts nothing', async () => {
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
   const file = audit('data', 'threads', 'audit__T-1.jsonl');
   const lines = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0);
-  for (const [args, flag] of [[['reply', 'audit/T-1', '--text', 'Three parts. Tap Implement.'], '--implement'], [['thread', 'audit/T-1', '--text', 'Shipped; tap done.'], '--close'], [['thread', 'audit/T-1', '--text', 'Nothing to build, so Tap Close.'], '--close']]) {
+  for (const [args, flag] of [[['reply', 'audit/T-1', '--text', 'Three parts. Tap Implement.'], '--implement'], [['thread', 'audit/T-1', '--text', 'Shipped; tap done.'], '--close'], [['thread', 'audit/T-1', '--text', 'Nothing to build, so Tap Done.'], '--close']]) {
     const before = lines();
     const r = await board(...args, '--site', 'audit');
     assert.notEqual(r.code, 0, args.join(' '));
