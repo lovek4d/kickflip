@@ -3123,7 +3123,7 @@ async function askTap(b, text, intent) {
   return button;
 }
 const recorded = (id, at, text, sendId) => { const it = newAsk(id, at, 'waiting', text); return { ...it, ask: { ...it.ask, askedAt: at, sendId } }; };
-test("Implement or Discuss in the New task box closes it at once, its button never waiting, and the task joins the end of the New strip reading <time> · sending…; tasks go one at a time in order under send ids, and the board's own row, matched by its send id, takes each one's place reading <time> · waiting…", async () => {
+test("Implement or Discuss in the New task box closes it at once, its button never waiting, and the task joins the end of the New strip reading <time> · sending…; tasks go one at a time in order under send ids, and the board's own row, matched by its send id, takes each one's place reading <time> · triaging", async () => {
   const sends = heldSends();
   const older = newAsk('a0', '2026-11-13T09:00:00.000Z');
   const b = boardOnDom({ board: boardOf([older]), threads: {}, send: sends.send });
@@ -3148,7 +3148,7 @@ test("Implement or Discuss in the New task box closes it at once, its button nev
   sends.answer();
   await b.settle();
   assert.deepEqual(askOut(b), [['Dark mode', 'sending…']]);
-  assert.deepEqual(askFoot(b.root.querySelector('#newStrip .new-entry[data-new="e1"]')), [b.page.win.BoardUI.time(stored.ts), 'waiting…']);
+  assert.deepEqual(askFoot(b.root.querySelector('#newStrip .new-entry[data-new="e1"]')), [b.page.win.BoardUI.time(stored.ts), 'triaging']);
   assert.deepEqual(sentNoIds(b), [['ask', { text: 'Fix the header', quick: true }], ['ask', { text: 'Dark mode' }]]);
   assert.notEqual(b.sent[1][1].sendId, first.sendId);
   b.view.unmount();
@@ -4103,7 +4103,7 @@ test("a bump or unbump waits for the server: its icon pulses, disabled, and the 
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
 const newAsk = (id, at, state = 'waiting', text = `Task ${id}`) => ({ ...askCard(id, 'todo'), isNew: true, created: at, sortAt: at, ask: { eventId: id, state, text, canEdit: true } });
-test("a sent ask sits in the New strip above the lanes, never in Todo, reading waiting… then processing...; once ingested it links to its ticket or the card it was added to, with Dismiss in place of Edit and Delete, until it is dismissed or that card is read", async () => {
+test("a sent ask sits in the New strip above the lanes, never in Todo, reading triaging then processing...; once ingested it links to its ticket or the card it was added to, with Dismiss in place of Edit and Delete, until it is dismissed or that card is read", async () => {
   const waiting = newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header\nIt jumps on scroll');
   const working = newAsk('a2', '2026-10-30T09:10:00.000Z', 'working', 'Dark mode');
   const made = { ...askCard('a3', 'todo'), id: 'T-7', key: 'w/T-7', ref: 'T-7', title: 'feat: rate limits', phase: 'discussing', turn: 'owner', created: '2026-10-30T08:00:00.000Z', ingested: { at: '2026-10-30T09:20:00.000Z', text: 'Rate limits per API key' } };
@@ -4124,7 +4124,8 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
   assert.deepEqual([strip().querySelector('.new-head .lane-name').textContent, strip().querySelector('.new-head .count').textContent], ['New', '4']);
   assert.deepEqual(entries().map((el) => el.dataset.new), ['a3', 'a1', 'a2', 'a4']);
   assert.deepEqual(entries().map((el) => el.querySelector('.new-msg').textContent), ['Rate limits per API key', 'Fix the header\nIt jumps on scroll', 'Dark mode', 'Also the footer\nand the nav']);
-  assert.deepEqual(entries().map((el) => el.querySelector('.new-line').textContent.trim().replace(/^.*?\d{1,2}:\d{2}\s?[AP]M · /i, '')), ['Ticket created: T-7', 'waiting…', 'processing...', 'Added to T-2']);
+  assert.deepEqual(entries().map((el) => el.querySelector('.new-line').textContent.trim().replace(/^.*?\d{1,2}:\d{2}\s?[AP]M · /i, '')), ['Ticket created: T-7', 'triaging', 'processing...', 'Added to T-2']);
+  assert.equal(entry('a1').querySelector('.new-line .pickup-wait').dataset.word, 'triaging', 'grey, its dot still, counting up in place');
   assert.equal(b.root.querySelector('#lanes [data-key="w/a1"], #lanes [data-key="w/a2"]'), null);
   assert.deepEqual(b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/T-7', 'w/T-8', 'w/T-2']);
   // Waiting and processing entries edit and delete their ask; ingested ones link to the card and dismiss.
@@ -4143,6 +4144,19 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
   // With nothing in it, the strip hides.
   await b.change({ board: { ...boardOf([made, into]), merges } });
   assert.equal(strip().hidden, true);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
+test('a New task waiting for pick-up counts its triaging up from when it was asked, through the shared duration', async () => {
+  const askedAt = new Date(NOW - 12 * 60000 - 5000).toISOString();
+  const waiting = newAsk('a1', askedAt);
+  waiting.ask.askedAt = askedAt;
+  const b = boardOnDom({ board: boardOf([waiting]), seen: {}, threads: {}, width: 1280 });
+  await b.settle();
+  const status = b.root.querySelector('#newStrip .new-entry[data-new="a1"] .pickup-wait');
+  assert.equal(status.textContent.trim(), 'triaging (12m)');
+  assert.equal(status.dataset.since, askedAt);
   b.view.unmount();
 });
 

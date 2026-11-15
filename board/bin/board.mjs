@@ -337,6 +337,20 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          Resolves answered questions still waiting on Claude,
                                                          noting "Recorded in the task's notes", and prints
                                                          "resolved: <id>" for each
+  item triage <file>/<id> --title <t> --phase <p>        the first move on a new task, from what you know of the
+         [--relate <id>,<file>/<id>] [--split-of <key>]  board, reading no code: one call sets the title (Conventional),
+         [--deps <id>,<file>/<id>] [--ticket <id>]       the phase (discussing, grilling, prototyping, or visual,
+         [--text <t>]                                    which reads discussing for the visual's brief) and the
+                                                         links as item set's and item add's, and posts "Triaged:
+                                                         <phase>[, relates to …, split from …, after …]; <text>",
+                                                         which sorts the New task and ends its intake wait.
+                                                         Investigate after: notes, questions, a reply, ready.
+                                                         Refuses a task already sorted, and an ask edited after
+                                                         you read it, as reply does
+         [--fold-into <file>/<id> [--text <t>]]          for a duplicate, in place of the rest: merges the New
+                                                         task into that one as item relate-ask does, the ask's
+                                                         thread naming it and its thread reading "Triaged:
+                                                         folded in <ref> "<title>"; <text>"
   item relate-ask <eventId> <file>/<id> --summary <t>   folds an ask about an existing item into it: the New task
                                                          the ask became goes, its message and thread show in the
                                                          item's thread marked Moved, then the summary line, and the
@@ -953,6 +967,11 @@ const COMMANDS = {
     if ((f.file === undefined) === (f.from === undefined)) throw new UsageError('item notes takes --file <draft.md> or --from <file>/<id>');
     return store.addNotes(site, key, f);
   }],
+  // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
+  'item triage': [['file/id'], ['title', 'phase', 'relate', 'split-of', 'deps', 'ticket', 'text', 'fold-into'], async (site, [key], f, options) => {
+    await store.refuseUnreadEdit(needSite(site, 'item triage'), key);
+    return store.triageItem(site, key, { title: f.title, phase: f.phase, relate: f.relate, splitOf: f['split-of'], deps: f.deps, ticket: f.ticket, text: f.text, foldInto: f['fold-into'] }, options);
+  }],
   'item relate-ask': [['eventId', 'file/id'], ['summary'], async (site, [id, key], f) => {
     await store.refuseUnreadEdit(site, id);
     return store.relateAsk(site, id, key, f.summary);
@@ -1171,6 +1190,7 @@ const SAID = {
   'item set': async (site, [key], f) => `${await card(site, key)}: ${itemChanges(f)}`,
   'item add': async (site, _, f, { key }) => `${await card(site, key)} added as ${key}`,
   'item notes': async (site, [key], f, { file, heading }) => `${await card(site, key)}: notes section "${heading}" added to ${file}`,
+  'item triage': async (site, [key], f) => (f['fold-into'] !== undefined ? `${key} folded into ${await card(site, f['fold-into'])}` : `${await card(site, key)}: triaged ${f.phase}`),
   'item relate-ask': async (site, [id, key]) => `ask ${id} folded into ${await card(site, key)}`,
   'ask unfold': (site, [id]) => `ask ${id} back on a task of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
@@ -1206,6 +1226,7 @@ const onCard = (site, [key]) => [key];
 const ACTS = {
   'item set': onCard, 'item notes': onCard, 'item brief': onCard, 'item stall': onCard, 'item bump': onCard, 'item unbump': onCard,
   'item relate-ask': (site, [, key]) => [key],
+  'item triage': (site, [key], f) => (f['fold-into'] !== undefined ? [f['fold-into']] : [key]),
   reply: (site, [id]) => (id.includes('/') ? [id] : []),
   thread: (site, [key], f) => ((f.who ?? 'claude') === 'claude' ? [key] : []),
   'question add': (site, _, f, { asked }) => asked.map((q) => String(q.topic || '')).filter((t) => t.startsWith('item:') && !t.startsWith('item:ask:')).map((t) => t.slice(5)),

@@ -14,3 +14,5 @@ The owner (11/06): "i think we should actually drop the triage agent entirely. j
 - #404 is moot: its intake fold goes with the run.
 
 Rejected: keep the run and let it file Quick builds ready (the owner wants one sorter); wake the session without an intake wait (a busy session would lose the task); skip staging for every card the orchestrator files (agents' follow-ups still get their grill).
+
+Superseded in part by [a new task is triaged in one command before it is investigated](2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md): the intake wait asks for item triage first, and a waiting New strip entry reads a grey "triaging" in place of "waiting…".

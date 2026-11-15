@@ -1704,9 +1704,33 @@ function unsorted(items, e, key) {
   if (!it) return false;
   return e.kind === 'ask' ? Boolean(it.isNew) : it.unfiled;
 }
+// docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
+// The open work cards a card's title suggests it relates to, for its triage: each sharing two or more significant
+// words with its title, or the scope of a Conventional title when both have one, most shared words first, at most
+// CANDIDATES_SHOWN. A significant word is four letters or more, not a STOP word, with a plural or verb ending dropped.
+const CANDIDATES_SHOWN = 5;
+const STOP = new Set(['about', 'also', 'board', 'boards', 'card', 'cards', 'could', 'does', 'each', 'every', 'from', 'have', 'into', 'just',
+  'like', 'make', 'more', 'only', 'over', 'should', 'some', 'task', 'tasks', 'than', 'that', 'them', 'then', 'there', 'their', 'they',
+  'this', 'what', 'when', 'which', 'with', 'would']);
+const scopeOf = (title) => /^[a-z]+\(([^)]+)\)!?:/i.exec(title)?.[1]?.toLowerCase() ?? null;
+const stem = (w) => w.replace(/(?:ing|ed|es|s)$/, (end) => (w.length - end.length >= 4 ? '' : end));
+const wordsOf = (title) => new Set(String(title).replace(/^[a-z]+(\([^)]*\))?!?:/i, '').toLowerCase().split(/[^a-z0-9]+/)
+  .filter((w) => w.length >= 4 && !STOP.has(w)).map(stem));
+export function relatedCandidates(items, it) {
+  const words = wordsOf(it.title);
+  const scope = scopeOf(it.title);
+  return items.filter((o) => o.kind === 'work' && o.key !== it.key && !closedLane(o) && !o.unsorted)
+    .map((o) => ({ o, shared: [...wordsOf(o.title)].filter((w) => words.has(w)).length, scoped: Boolean(scope) && scopeOf(o.title) === scope }))
+    .filter(({ shared, scoped }) => shared >= 2 || scoped)
+    .sort((a, b) => b.shared - a.shared)
+    .slice(0, CANDIDATES_SHOWN)
+    .map(({ o }) => o);
+}
+const TRIAGE = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--deps <keys>] [--split-of <key>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
+const candidatesLine = (cards) => (cards.length ? ` Likely related: ${cards.map((c) => `${c.key} "${c.title}"`).join(', ')}.` : '');
 const INTAKE_NEXT = {
-  ask: (key, e) => `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or, when the ask's words ask for a grill, prototype or visual, item brief ${key} --kind grill|prototype|visual then --phase grilling or prototyping (a visual needs no phase); or merge it into a task with item relate-ask ${e.id} <task> --summary`,
-  'card-added': () => 'Link and file the task an agent added: item notes, then item set --relate and --phase',
+  ask: (key, cards) => `Triage the new task first, from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask item set ${key} --phase ready with --size.${candidatesLine(cards)}`,
+  'card-added': (key, cards) => `Triage the task an agent added, from what you know of the board: ${TRIAGE(key)}. Then investigate: item notes.${candidatesLine(cards)}`,
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
 // its oldest such event, picked up once the watcher marked that event working (working, data/working.json).
@@ -1717,7 +1741,8 @@ function intakeWaits(items, events, working, moved) {
     const key = intakeKeyOf(e, moved);
     if (!key || waited.has(key) || !unsorted(byKey, e, key)) continue;
     waited.add(key);
-    waitFirst(byKey.get(key), { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, e) });
+    const it = byKey.get(key);
+    waitFirst(it, { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, relatedCandidates(items, it)) });
   }
 }
 // Puts wait on the card ahead of the waits it already has, which stay on its list.

@@ -374,15 +374,19 @@
     const questions = (d.boardAsks || []).map((q) => ({ id: q.id, sent: q.sent, text: q.text, question: q }));
     return [...asks, ...made, ...added, ...questions].sort((a, b) => String(a.sent).localeCompare(String(b.sent)));
   }
-  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: an ask reads a grey "waiting…", its dot still,
-  // until the orchestrator picks it up (the watcher's or the PostToolUse hook's working mark), then an orange
-  // "processing...", the owner's word, while the orchestrator ingests it.
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: an ask reads a grey "triaging" (below), its
+  // dot still, until the orchestrator picks it up (the watcher's or the PostToolUse hook's working mark), then
+  // "processing...", the owner's word, while the orchestrator triages it. Another board's question reads a grey
+  // "waiting…" until then.
   const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting…</span>';
   const PROCESSING = `<span class="processing">${DOT}processing...</span>`;
   const processing = (since) => (since ? globalThis.BoardUI.counted('processing', 'processing...', since) : PROCESSING);
+  // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: a New task waiting for
+  // pick-up reads a grey "triaging", its dot still, counting up from when it was asked through the shared duration.
+  const triaging = (askedAt) => globalThis.BoardUI.counted('pickup-wait', 'triaging', askedAt);
   // A handed ask's source line links the card it came from
   // (docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md).
-  const askLine = (ask) => [ask.from && `<a class="new-source" href="${esc(ask.from.link)}">From ${esc(ask.from.words)}</a>`, ask.edited && 'Edited', ask.state === 'working' ? processing(ask.since) : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
+  const askLine = (ask) => [ask.from && `<a class="new-source" href="${esc(ask.from.link)}">From ${esc(ask.from.words)}</a>`, ask.edited && 'Edited', ask.state === 'working' ? processing(ask.since) : ask.state === 'waiting' && triaging(ask.askedAt)].filter(Boolean).join(' · ');
   // An entry waiting or processing edits and deletes its ask, its edit box in place of its text (edit, from
   // app-asks.js's state.edits); an ingested one links to its card, in blue, and dismisses with no confirm. The link and
   // Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the entry too.

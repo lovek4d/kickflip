@@ -88,8 +88,8 @@ test('a new task, a message in an ask thread and an agent-added card wake the se
   assert.equal(wakes({ id: 'a1', kind: 'ask', data: { text: 'Fix it' } }), true);
   assert.equal(wakes(event('card-added', { key: 'w/A2' })), true);
   assert.equal(wakes(event('item-message', { key: 'ask:a1', text: 'More' })), true);
-  assert.equal(ON_CARD.ask('T-4', { id: 'a1' }), 'new task a1 received as T-4: sort that New task: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask a1 <task> --summary');
-  assert.equal(ON_CARD['card-added']('#7'), '#7 added by an agent: link it and file it: item notes, then item set --relate and --phase');
+  assert.equal(ON_CARD.ask('T-4', { id: 'a1' }), 'new task a1 received as T-4: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate');
+  assert.equal(ON_CARD['card-added']('#7'), '#7 added by an agent: triage it first with item triage <its key> --title --phase and its links, then item notes');
   assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1' })), "message received from the ask's thread: reply in its thread; ask open points with reply --questions <json>, not in prose");
   assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1', text: '', intent: 'build' })), 'Implement asked on the ask: file it with item add --from-ask --phase ready, with its --size and notes');
   assert.equal(Object.hasOwn(ON_CARD, 'intake-handoff'), false);

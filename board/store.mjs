@@ -765,6 +765,39 @@ export async function relateAsk(site, eventId, key, summary) {
   return askLinksFile(site);
 }
 
+// docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
+// The orchestrator's first move on a card still in intake (a New card an ask became, or one an agent added unfiled),
+// from what it knows of the board: one call sets its title, phase and links and posts "Triaged: <phase>[, relates to
+// …]; <text>" in its thread, which sorts it and ends its intake wait. visual sorts it discussing, for the visual's
+// brief. foldInto, for a duplicate, merges the New card into that task as item relate-ask does, a line on both.
+export const TRIAGE_PHASES = ['discussing', 'grilling', 'prototyping', 'visual'];
+const inIntake = (item) => (item.from_ask ? stillNew(item) : Boolean(item.unfiled) && !item.phase);
+export async function triageItem(site, key, { title, phase, relate, splitOf, deps, ticket, text: said, foldInto }, options) {
+  needSite(site);
+  const { item } = await loadItem(site, key);
+  if (!inIntake(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so item triage has nothing to do; change it with item set ${key}`);
+  if (said !== undefined) messageText(said);
+  const rest = said === undefined ? '' : `; ${said}`;
+  if (foldInto !== undefined) {
+    if ([title, phase, relate, splitOf, deps, ticket].some((v) => v !== undefined)) fail('--fold-into closes the task into another; it takes only --text');
+    if (!item.from_ask) fail(`${key} is no New task an ask became, so there is nothing to fold; file it with item triage ${key} --title --phase, then close it with item set ${key} --done`);
+    const summary = `Triaged: folded in ${await cardName(site, key)} "${item.title}"${rest}`;
+    await relateAsk(site, item.from_ask, foldInto, summary);
+    return { lines: [] };
+  }
+  if (title === undefined || phase === undefined) fail(`item triage needs --title "<type>(<scope>): <summary>" and --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task> for a duplicate`);
+  if (!TRIAGE_PHASES.includes(phase)) fail(`item triage --phase takes ${TRIAGE_PHASES.join(', ')}; ready follows the investigation, with item set ${key} --phase ready`);
+  const names = async (list) => (await Promise.all(String(list).split(',').filter(Boolean).map((k) => cardName(site, depKey(parseKey(key).file, k))))).join(', ');
+  const links = [
+    relate !== undefined && `relates to ${await names(relate)}`,
+    splitOf !== undefined && `split from ${await names(splitOf)}`,
+    deps !== undefined && `after ${await names(deps)}`,
+  ].filter(Boolean);
+  const set = await setItem(site, key, { title, phase: phase === 'visual' ? 'discussing' : phase, relate, splitOf, deps, ticket, triaged: true }, options);
+  const posted = await appendMessage(site, key, { text: `Triaged: ${[phase, ...links].join(', ')}${rest}` });
+  return { lines: [...set.lines, ...posted.lines] };
+}
+
 // Moves a folded ask back out of the card it was folded into, to a card of its own.
 export async function unfoldAsk(site, eventId) {
   await checkAsk(site, eventId, 'the ask');
@@ -3150,7 +3183,7 @@ function markMerged(item, merged, repo) {
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
 // change, low, medium or high, which builder done records and the PR's Slack link shows (prLink).
-async function changeItem(site, key, { risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk }, options) {
+async function changeItem(site, key, { risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, splitOf, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -3179,7 +3212,9 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: filing a Quick build ask is the orchestrator's
   // judgment, so it goes ready from any phase, as does sorting the New card one became
   // (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
-  const askOf = ask ?? (item.phase ? undefined : item.from_ask);
+  // A card item triage sorted is still its filing while it keeps the phase triage gave it
+  // (docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md).
+  const askOf = ask ?? (!item.phase || item.triaged?.phase === item.phase ? item.from_ask : undefined);
   const quick = askOf !== undefined && await quickAsk(site, askOf);
   // An answered card the orchestrator sorts after all is work: it goes back to Todo in that phase.
   if (phase !== undefined && item.answered_at && !item.closed_at) {
@@ -3235,7 +3270,13 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
     const to = await parentKey(site, parseKey(key).file, key, parent);
     if (to) item.parent = to; else delete item.parent;
   }
-  const linked = parent !== undefined || related !== undefined || relate !== undefined || unrelate !== undefined ? await linksOf(site, key) : null;
+  // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a split child keeps the answers its parent's grill got.
+  if (splitOf !== undefined) {
+    item.parent = await parentKey(site, parseKey(key).file, key, splitOf) || fail('--split-of takes a task, such as <file>/<id>');
+    const { gates } = (await loadItem(site, item.parent)).item;
+    if (gates) item.gates = { ...gates };
+  }
+  const linked = parent !== undefined || splitOf !== undefined || related !== undefined || relate !== undefined || unrelate !== undefined ? await linksOf(site, key) : null;
   let unlink = related === undefined ? null : await setRelated(site, key, item, related);
   if (relate !== undefined) item.related = [...new Set([...(item.related || []).map((r) => depKey(parseKey(key).file, r)), ...await relatedKeys(site, key, relate, '--relate')])];
   if (unrelate !== undefined) unlink = await unrelateCards(site, key, item, await relatedKeys(site, key, unrelate, '--unrelate'));
@@ -3326,6 +3367,7 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
     delete item.filed_held;
     delete item.ready_main;
     if (phase === 'ready') item.ready_at = new Date().toISOString(); else delete item.ready_at;
+    if (triaged) item.triaged = { at: new Date().toISOString(), phase };
   }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the phase the card is in.
   if (item.phase === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the phase it is already in; pass --next with what happens next, or --clear-next`);

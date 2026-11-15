@@ -75,11 +75,12 @@ export const ON_CARD = {
   'script-run': (c) => `the owner ran the script you offered on ${c}: its script-result event follows when it ends; nothing to do until then`,
   'script-result': (c, e) => `the script you offered on ${c} ${e.data?.exit === 0 ? 'finished' : 'failed'}: exit ${e.data?.exit}${e.data?.timedOut ? ', stopped at its time limit' : ''}; output tail: ${outputTail(e.data?.output)}; the whole output is in log ${e.data?.log}; carry on from it in its thread`,
   'script-decline': (c) => `the owner declined the script you offered on ${c}: don't run it another way; ask in its thread what they want instead`,
-  'card-added': (c) => `${c} added by an agent: link it and file it: item notes, then item set --relate and --phase`,
+  'card-added': (c) => `${c} added by an agent: triage it first with item triage <its key> --title --phase and its links, then item notes`,
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md,
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: c is the New card the board filed
-  // for the ask; its waits line carries its key.
-  ask: (c, e) => `new task ${e.id} received as ${c}: sort that New task: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask ${e.id} <task> --summary`,
+  // for the ask; its waits line carries its key and the cards it likely relates to.
+  // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
+  ask: (c, e) => `new task ${e.id} received as ${c}: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate`,
 };
 
 // One plain line per event line, from its kind and card (data.key, data.id for an ask-* event, or an ask's own id), or null for a

@@ -288,7 +288,7 @@ test('on a board a new task wakes the session with its sort line and reads Worki
   fs.appendFileSync(events, JSON.stringify({ id: 'a1', kind: 'ask', ts: new Date().toISOString(), data: { text: 'New task' } }) + '\n');
   assert.equal(await w.run(), 0);
   const stdout = w.out();
-  assert.ok(stdout.split('\n').includes('new task a1 received as task a1: sort that New task: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask a1 <task> --summary'), stdout);
+  assert.ok(stdout.split('\n').includes('new task a1 received as task a1: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate'), stdout);
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['a1']);
 });
 

@@ -47,13 +47,14 @@ test('a discussing card is not an arrival: the board launches it no grill', asyn
   assert.deepEqual(arrivalsOf(built({ item: { phase: 'grilling' } }).items), ['hub/T-1']);
 });
 
-test("a New task's intake wait says to discuss it by reply, file an Implement ask ready, send a grill, prototype or visual straight to it on its words, and link a ticket it names", async () => {
+// docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
+test("a New task's intake wait says to triage it first into discussing, a grill, a prototype or a visual, linking a ticket it names, then to discuss it by reply and file an Implement ask ready", async () => {
   const next = card(built()).orchestrator.next;
-  assert.match(next, /reply hub\/T-1/);
-  assert.match(next, /discussing/);
-  assert.match(next, /--phase ready, with --size, for an Implement ask/);
-  assert.match(next, /when the ask's words ask for a grill, prototype or visual, item brief hub\/T-1 --kind grill\|prototype\|visual then --phase grilling or prototyping \(a visual needs no phase\)/);
+  assert.match(next, /^Triage the new task first/);
+  assert.match(next, /item triage hub\/T-1 .*--phase discussing\|grilling\|prototyping\|visual/);
   assert.match(next, /--ticket/);
+  assert.match(next, /reply hub\/T-1/);
+  assert.match(next, /for an Implement ask item set hub\/T-1 --phase ready with --size/);
 });
 
 // The CLI, on the audit board (data/items.json).

@@ -2476,8 +2476,9 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
   const waits = (events, options) => orchestratorWaits(built(events, options)).map(({ key, kind, since, picked, next }) => [key, kind, since, picked, next]);
   const sort = (id) => {
     const key = `w/T-${id.slice(1)}`;
-    return `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or, when the ask's words ask for a grill, prototype or visual, item brief ${key} --kind grill|prototype|visual then --phase grilling or prototyping (a visual needs no phase); or merge it into a task with item relate-ask ${id} <task> --summary`;
+    return `Triage the new task first, from what you know of the board, reading no code: ${triage(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask item set ${key} --phase ready with --size.`;
   };
+  const triage = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--deps <keys>] [--split-of <key>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
   const cards = [asked('e1'), asked('e2')];
 
   // An ask with no card yet waits on no one: it is unfiled, for the board server to file.
@@ -2487,7 +2488,7 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
   assert.deepEqual(waits([ask('e1', 1)], { waveItems: cards, working: { e1: at(4) } }), [['w/T-1', 'intake', at(1), at(4), sort('e1')]], 'picked up when the watcher marks it working');
   assert.deepEqual(waits([ask('e1', 1)], { waveItems: [asked('e1', { phase: 'grilling' })] }), [], 'a sorted task is sorted');
   assert.deepEqual(waits([ask('e1', 1, { reply: { at: at(2) } })], { waveItems: [asked('e1', { answered_at: at(2) })] }).filter((w) => w[1] === 'intake'), [], 'an answered task is sorted');
-  assert.deepEqual(waits([added]), [['w/A2', 'intake', at(3), null, 'Link and file the task an agent added: item notes, then item set --relate and --phase']]);
+  assert.deepEqual(waits([added]), [['w/A2', 'intake', at(3), null, `Triage the task an agent added, from what you know of the board: ${triage('w/A2')}. Then investigate: item notes.`]]);
   assert.deepEqual(waits([added], { waveItems: [{ id: 'A2', title: 'Follow-up', phase: 'grilling' }] }), [], 'a filed task is sorted');
   // A message on a work card's thread is no intake.
   const message = { id: 'm1', ts: at(4), kind: 'item-message', data: { key: 'w/A1', text: 'x' }, reply: null };

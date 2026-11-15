@@ -23,9 +23,9 @@ test('a card an ask became reads New with its ask state until it is sorted, and 
   assert.deepEqual([c.lane, c.isNew, c.unsorted, c.ask.eventId, c.ask.state, c.ask.canEdit], ['todo', true, true, 'a1', 'waiting', true]);
   assert.equal(b.items.some((i) => i.kind === 'ask'), false);
   assert.equal(b.moved['ask:a1'], 'hub/T-1');
-  // The intake wait is on the card, naming how to sort it.
+  // The intake wait is on the card, naming how to triage it, then investigate.
   assert.equal(c.orchestrator.kind, 'intake');
-  assert.match(c.orchestrator.next, /item set hub\/T-1 --phase/);
+  assert.match(c.orchestrator.next, /item triage hub\/T-1 --title/);
   assert.match(c.orchestrator.next, /reply hub\/T-1/);
   // Picked up, it reads working; sorted, it reads as a task.
   assert.equal(card(built({ working: { a1: '2026-11-09T10:01:00Z' } })).ask.state, 'working');
@@ -214,6 +214,7 @@ test('every sorting command refuses an ask edited after its working mark, printi
     ['item set --phase prototyping', (key) => ['item', 'set', key, '--phase', 'prototyping'], (item) => item.phase === 'prototyping'],
     ['item set --title', (key) => ['item', 'set', key, '--title', 'fix(board): header jumps'], (item) => item.title === 'fix(board): header jumps'],
     ['item relate-ask', (key, id) => ['item', 'relate-ask', id, 'audit/A1', '--summary', 'Same as the header work'], (item) => item === undefined],
+    ['item triage', (key) => ['item', 'triage', key, '--title', 'fix(board): header jumps', '--phase', 'discussing'], (item) => item.phase === 'discussing'],
   ];
   for (const [n, [name, args, sorted]] of commands.entries()) {
     const id = `r${n}`;
