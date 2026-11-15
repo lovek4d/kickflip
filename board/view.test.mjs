@@ -749,15 +749,15 @@ test('a Landing tap saves prs and skip_draft together with no confirmation, Merg
   view.unmount();
 });
 
-// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md,
+// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
-const CAPS = [['max_implementers', 'maxImplementers'], ['max_planners', 'maxPlanners'], ['max_serves', 'maxServes']];
+const CAPS = [['max_implementers', 'maxImplementers'], ['max_serves', 'maxServes']];
 for (const [key, id] of CAPS) {
   test(`Board Settings saves ${key} as a whole number from 1 to 99 on change, and puts the saved one back on a bad number or a refusal`, async () => {
-    const s = await settingsPage({ settings: { max_implementers: 10, max_planners: 3, max_serves: 6 } }).mount();
+    const s = await settingsPage({ settings: { max_implementers: 10, max_serves: 6 } }).mount();
     const input = s.root.querySelector(`#${id}`), status = s.root.querySelector(`#${id}Status`);
     const values = () => CAPS.map(([, other]) => s.root.querySelector(`#${other}`).value);
-    assert.deepEqual([input.disabled, values()], [false, ['10', '3', '6']]);
+    assert.deepEqual([input.disabled, values()], [false, ['10', '6']]);
     await s.set(input, '4');
     assert.deepEqual([s.posts, input.value], [[{ [key]: 4 }], '4']);
     assert.match(status.textContent, /\b4\b/, 'the status names the number saved');
@@ -770,7 +770,7 @@ for (const [key, id] of CAPS) {
     s.refuse = 'Cannot save';
     await s.set(input, '7');
     assert.deepEqual([input.value, status.textContent], ['4', 'Cannot save']);
-    assert.deepEqual(values().filter((v, i) => CAPS[i][0] !== key), ['10', '3', '6'].filter((v, i) => CAPS[i][0] !== key), 'the other caps stay as saved');
+    assert.deepEqual(values().filter((v, i) => CAPS[i][0] !== key), ['10', '6'].filter((v, i) => CAPS[i][0] !== key), 'the other caps stay as saved');
     s.view.unmount();
   });
 }
@@ -6007,7 +6007,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['maxImplementers', 'Maximum parallel implementers'], ['maxPlanners', 'Maximum parallel planners'], ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
+    ['maxImplementers', 'Maximum parallel implementers'], ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
     ['autoTriage', 'Triage overnight'], ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);

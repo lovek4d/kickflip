@@ -1668,8 +1668,6 @@ export function rebasesDue(items, sent, base) {
   });
 }
 
-// How many grills and prototypes a board runs at once, unless its max_planners setting says otherwise.
-export const MAX_PLANNERS = 3;
 // docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
 // How many card serves a board keeps up at once, unless its max_serves setting says otherwise.
 export const MAX_SERVES = 10;

@@ -41,10 +41,6 @@
     <span class="muted small sub">The number of tasks In Progress: each counts from its build starting until it lands, whatever it waits on. Tasks in Todo and In Review don’t.</span></span>
     <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxImplementersStatus" role="status"></p>
-  <label class="who" for="maxPlanners"><span><span>Maximum parallel planners</span>
-    <span class="muted small sub">Grills and prototypes running at once. A task that lands in Todo past it waits its turn.</span></span>
-    <input type="number" class="count" id="maxPlanners" min="1" max="99" step="1" inputmode="numeric" disabled></label>
-  <p class="muted small" id="maxPlannersStatus" role="status"></p>
   <label class="who" for="maxServes"><span><span>Maximum parallel serves</span>
     <span class="muted small sub">Each open task worktree keeps one serve up. Installs aren’t counted. A busy host asks before it starts another.</span></span>
     <input type="number" class="count" id="maxServes" min="1" max="99" step="1" inputmode="numeric" disabled></label>
@@ -527,7 +523,7 @@
       $('#autoBuild').disabled = false;
       buildTarget = d.settings?.build_target || '';
       showBuildTargets();
-      for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxPlanners', 'max_planners'], ['maxServes', 'max_serves']]) {
+      for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxServes', 'max_serves']]) {
         $(`#${id}`).value = savedCaps[key] = String(d.settings?.[key]);
         $(`#${id}`).disabled = false;
       }
@@ -642,8 +638,7 @@
       }
     });
 
-    // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md: Maximum parallel implementers,
-    // Maximum parallel planners (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) and
+    // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md: Maximum parallel implementers and
     // Maximum parallel serves (docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md), save on
     // change, waiting on the server like a toggle; a number outside 1 to 99 or a refusal puts the saved one back.
     const capInput = (id, key, saidOf) => B.on($(`#${id}`), 'change', async () => {
@@ -663,7 +658,6 @@
       }
     });
     capInput('maxImplementers', 'max_implementers', (n) => `Saved. Up to ${n === 1 ? '1 card' : `${n} cards`} In Progress at once.`);
-    capInput('maxPlanners', 'max_planners', (n) => `Saved. Up to ${n === 1 ? '1 grill or prototype runs' : `${n} grills or prototypes run`} at once.`);
     capInput('maxServes', 'max_serves', (n) => `Saved. Up to ${n === 1 ? '1 serve stays' : `${n} serves stay`} up at once.`);
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));

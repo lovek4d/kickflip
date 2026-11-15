@@ -921,7 +921,7 @@ test('a grill briefed during a pause waits on the card and launches when the pau
 
 test('within twice the buffer of the line the board starts one agent, and the next once that one has reported its usage', async (t) => {
   const b = oneLaunchBoard(t, [{ id: 'A1', title: 'First', phase: 'grilling' }, { id: 'A2', title: 'Second', phase: 'grilling' }]);
-  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', max_planners: 2 }));
+  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
   usageAt(b.home, 85);
   const { board, brief } = await b.start();
   for (const id of ['A1', 'A2']) await brief(id, 'grill', `Grill ${id}.`);
