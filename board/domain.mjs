@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import { ticketBadge, ticketIn } from './tickets.mjs';
 import { prLinks, reviewLinks, reviewTime, reviewersOf } from './review.mjs';
 import { remoteFromInput } from '../hub/repos.mjs';
-import { reviewsOf, reviewNeeds, reviewActions } from './auto-review.mjs';
+import { reviewsOf, reviewNeeds, reviewActions, pendingReviewAsks } from './auto-review.mjs';
 import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.mjs';
 import vm from 'node:vm';
 import { checkWords, parseCheck } from '../shared/owner-check.mjs';
@@ -1997,6 +1997,40 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
 // An overnight triage the session hasn't replied to, as an orchestrator wait: key is the event id the reply names,
 // picked when the watcher marked the event working. Not tied to a card, so it sits after the cards' waits.
 export const triageWaitOf = (event, picked = null) => ({ key: event.id, ref: event.data.date, title: `Overnight triage ${event.data.date}`, kind: 'triage', since: event.ts, picked, next: `Run the overnight triage and reply: board.mjs reply ${event.id}` });
+
+// docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md
+// The events no task holds that wait on the orchestrator until the command that acts on each runs, as orchestrator
+// waits in event order, each keyed by its event id, with link, the board page's hash the owner's push opens. None is
+// picked: the watcher marks none of these working, since a mark on an event no task holds reads working until a reply
+// (buildBoard workingOn), and these clear by their own commands instead:
+//   pr-review and review-answer, until review post or review record records the PR again (auto-review.mjs
+//   pendingReviewAsks, from incoming, data/incoming.json, and reviews, data/reviews.json);
+//   arch-review, until its audit task in items (the built board's) asks a question or closes;
+//   slack-question, until slack thread (a message that expects no reply), slack answer, slack task or slack skip
+//   appends slack-handled {id, by} for it (store.mjs).
+// → [{key, ref, title, kind, since, picked, next, link}]
+export function eventWaits(events, { items = [], incoming = null, reviews = {} } = {}) {
+  const reviewing = new Set(pendingReviewAsks({ incoming, records: reviews, events }).map((e) => e.id));
+  const handled = new Set(events.filter((e) => e.kind === 'slack-handled').map((e) => e.data?.id));
+  const byKey = new Map(items.map((i) => [i.key, i]));
+  const waitOf = {
+    'pr-review': (e) => reviewing.has(e.id) && { ref: `PR #${e.data.pr}`, title: `Review asked on PR #${e.data.pr}${e.data.title ? ` ${e.data.title}` : ''}`, link: `#review=${e.data.pr}`,
+      next: `Review PR #${e.data.pr} at its head: review post ${e.data.pr} --file <review.md> --read-at <time>, or review record ${e.data.pr} --state posted|needs` },
+    'review-answer': (e) => reviewing.has(e.id) && { ref: `PR #${e.data.pr}`, title: `${e.data.answer === 'skip' ? 'Skip' : 'Post'} answered on the held review of PR #${e.data.pr}`, link: `#review=${e.data.pr}`,
+      next: e.data.answer === 'skip' ? `Record it posted, posting nothing: review record ${e.data.pr} --state posted --text <why>` : `Post the held review: review post ${e.data.pr} --file <review.md> --read-at <time>` },
+    'arch-review': (e) => {
+      const audit = byKey.get(e.data?.key);
+      return audit && audit.lane !== 'done' && !audit.questions && { ref: audit.ref, title: `Architecture review of ${e.data.repo}`, link: `#selectedCard=${encodeURIComponent(audit.key)}`,
+        next: `Review ${e.data.repo} on ${e.data.branch}: the report as ${audit.ref}'s notes, each finding a question on topic item:${audit.key} in one question add, then builder done ${audit.key}; with no findings, close it` };
+    },
+    'slack-question': (e) => !handled.has(e.id) && { ref: `Slack · ${e.data?.reviewer}`, title: `${e.data?.from === 'owner' ? 'You' : e.data?.reviewer} wrote in ${e.data?.reviewer}'s Slack review thread`, link: '',
+      next: e.data?.answer ? `Read slack thread ${e.id}, then slack answer ${e.id} --text <answer>, slack task ${e.id} <file>, or slack skip ${e.id} for a thanks` : `Read slack thread ${e.id} for context; no reply` },
+  };
+  return events.flatMap((e) => {
+    const wait = routeRecord(waitOf, e.kind)?.(e);
+    return wait ? [{ key: e.id, ref: wait.ref, title: wait.title, kind: e.kind, since: String(e.ts), picked: null, next: wait.next, link: wait.link }] : [];
+  });
+}
 
 // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
 // The questions other boards in the hub asked this one (store.mjs askBoard), each from its board-ask event {text, from

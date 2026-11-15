@@ -10,6 +10,20 @@ const DAY = 86400000;
 const ORDER = { needs: 0, reviewing: 1, posted: 2 };
 const newest = (events, kind, pr) => events.filter((e) => e.kind === kind && e.data?.pr === pr).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
 
+// The pr-review or review-answer event a listed PR p's review is under way for, given its record rec: a review-answer
+// newer than a held review's record, else a pr-review at p's head with no review recorded at that head since; or null.
+function pendingAsk(p, rec, events) {
+  const ask = newest(events, 'pr-review', p.number);
+  const answer = rec?.state === 'needs' && newest(events, 'review-answer', p.number);
+  if (answer && String(answer.ts) > String(rec.at)) return answer;
+  if (ask && ask.data.head === p.head && !(rec?.head === p.head && String(rec.at) > String(ask.ts))) return ask;
+  return null;
+}
+// docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md
+// The pr-review and review-answer events a review is under way for, one per listed PR: each stays until review post
+// or review record records that PR again (reviewsOf's reviewing). → [event]
+export const pendingReviewAsks = ({ incoming, records = {}, events = [] }) => (incoming?.prs || []).map((p) => pendingAsk(p, records[p.number], events)).filter(Boolean);
+
 // → {on, shown, at, repo, cards, earlier, waiting, due}. cards are the live PRs, needs you then reviewing then posted;
 // earlier the posted reviews whose PR left the list or that are over a day old, newest first, each with open saying
 // whether its PR is still listed. waiting counts the listed PRs owed a review; due is the one the server sends next,
@@ -25,10 +39,8 @@ export function reviewsOf({ on, incoming, records = {}, events = [], refs = new 
   const owed = [];
   for (const p of listed.values()) {
     const rec = records[p.number];
-    const ask = newest(events, 'pr-review', p.number);
-    const answer = rec?.state === 'needs' && newest(events, 'review-answer', p.number);
-    if (answer && String(answer.ts) > String(rec.at)) cards.push(card(p, rec, 'reviewing', answer.ts));
-    else if (ask && ask.data.head === p.head && !(rec?.head === p.head && String(rec.at) > String(ask.ts))) cards.push(card(p, rec, 'reviewing', ask.ts));
+    const pending = pendingAsk(p, rec, events);
+    if (pending) cards.push(card(p, rec, 'reviewing', pending.ts));
     else {
       if (rec) cards.push(card(p, rec, rec.state, rec.at));
       if (!rec || (rec.state === 'posted' && rec.head !== p.head)) owed.push(p);

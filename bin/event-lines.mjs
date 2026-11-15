@@ -19,7 +19,9 @@ export const shownFile = (dir, session) => path.join(dir, 'data', `.shown-${sess
 export const RECORD_ONLY = ['main-pulled', 'settings', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello',
   'card-hold', 'card-done', 'card-reopen', 'card-unbump', 'card-unblocked', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'usage-resumed',
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: the orchestrator's own answer.
-  'board-ask-answered'];
+  'board-ask-answered',
+  // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: a slack command's record.
+  'slack-handled'];
 const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
 export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 
@@ -29,7 +31,9 @@ export const PLAIN = {
   ping: (e) => `ping ${e.id} from the hub answered`,
   hello: (e) => `ping ${e.id} from the hub answered`,
   'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${e.data?.cards?.length} tasks wait on open questions; run the triage, then board.mjs reply ${e.id}`,
-  'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle; read its diff and review post it`,
+  // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: pr-review, review-answer,
+  // arch-review and slack-question each wait on the orchestrator until the command its line names runs.
+  'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle; read its diff and review post it, or review record it`,
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
   'orchestrator-waits': (e) => [e.data?.added?.length && `waiting on you now: ${e.data.added.join(', ')}`,
     e.data?.again?.length && waitsAgainLine(e.data.again, Date.parse(e.ts))].filter(Boolean).join(' · '),
@@ -45,7 +49,7 @@ export const PLAIN = {
   'board-answer': (e) => `/${e.data?.from?.route} answered ${e.data?.key ? `on ${e.data.key}` : 'this board\'s'} question "${e.data?.question}": ${e.data?.text} (carry on from it${e.data?.key ? '; it is in that task\'s thread' : ''})`,
   // docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md
   'slack-question': (e) => (e.data?.answer
-    ? `${e.data.from === 'owner' ? 'the owner' : e.data?.reviewer} wrote to the board in ${e.data?.reviewer}'s Slack review thread: slack thread ${e.id}, then, only if it asks something, answer about this board alone with slack answer ${e.id} --text (250 characters at most), or file a request for work with slack task ${e.id} <file>; a thanks gets no reply`
+    ? `${e.data.from === 'owner' ? 'the owner' : e.data?.reviewer} wrote to the board in ${e.data?.reviewer}'s Slack review thread: slack thread ${e.id}, then, only if it asks something, answer about this board alone with slack answer ${e.id} --text (250 characters at most), or file a request for work with slack task ${e.id} <file>; a thanks gets no reply: slack skip ${e.id}`
     : `the owner wrote in ${e.data?.reviewer}'s Slack review thread without @kickflip: slack thread ${e.id} for context; no reply`),
 };
 // A script result's output as one line: its last 500 characters, its line breaks as " | ".

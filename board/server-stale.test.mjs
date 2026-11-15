@@ -557,6 +557,67 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   assert.equal(wakes().length, 4, 'one wake per due time');
 });
 
+// docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md
+test('an event no task holds stays on the orchestrator list past its wake, wakes again 15 minutes on, pushes at 30, and leaves once its command records it', async (t) => {
+  const { dir, siteDir, dataDir, clock } = scratch(t, 'event-waits', Date.parse('2026-11-15T10:00:00Z'));
+  const eventsFile = path.join(dataDir, 'events.jsonl');
+  const waitsFile = path.join(dataDir, 'orchestrator-waits.json');
+  const reviewsFile = path.join(dataDir, 'reviews.json');
+  const calls = path.join(dir, 'push-calls.jsonl');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
+  const itemsFile = path.join(dataDir, 'items.json');
+  fs.writeFileSync(itemsFile, JSON.stringify({ items: [{ id: 'A1', title: 'Architecture review of r', phase: 'discussing' }] }));
+  fs.writeFileSync(path.join(dataDir, 'incoming.json'), JSON.stringify({ repo: 'o/r', prs: [{ number: 12, title: 'Fix limiter', head: 'aaa' }, { number: 13, title: 'Held', head: 'bbb' }] }));
+  const held = { 13: { number: 13, head: 'bbb', state: 'needs', text: 'Held', at: iso(clock.at - 60000) } };
+  fs.writeFileSync(reviewsFile, JSON.stringify(held));
+  fs.writeFileSync(eventsFile, '');
+  fs.writeFileSync(path.join(dir, 'push-stub.mjs'), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(3)) + '\\n'); console.log('sent');");
+  Object.assign(process.env, { KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls });
+  const wakes = () => lines(eventsFile).filter((e) => e.kind === 'orchestrator-waits').map((e) => e.data);
+  const pushes = () => lines(calls);
+  const flag = (call, name) => call[call.indexOf(`--${name}`) + 1];
+  const ids = new Set(['p1', 'r1', 'a1', 's1']);
+  const waits = () => JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits.filter((w) => ids.has(w.key)).map((w) => [w.key, w.kind, w.ref, w.picked]);
+  const append = (e) => fs.appendFileSync(eventsFile, JSON.stringify({ ts: iso(clock.at), ...e }) + '\n');
+  const board = server(t, siteDir);
+  await board.start();
+  append({ id: 'p1', kind: 'pr-review', data: { pr: 12, head: 'aaa', title: 'Fix limiter' } });
+  append({ id: 'r1', kind: 'review-answer', data: { pr: 13, answer: 'post' } });
+  append({ id: 'a1', kind: 'arch-review', data: { key: 't/A1', repo: '/code/r', branch: 'main' } });
+  append({ id: 's1', kind: 'slack-question', data: { reviewer: 'Ann', from: 'reviewer', answer: true } });
+  await board.changed(eventsFile);
+  assert.deepEqual(wakes().at(-1), { added: ['p1', 'r1', 'a1', 's1'], again: [] });
+  assert.deepEqual(waits(), [['p1', 'pr-review', 'PR #12', null], ['r1', 'review-answer', 'PR #13', null], ['a1', 'arch-review', 'A1', null], ['s1', 'slack-question', 'Slack · Ann', null]]);
+  // The watcher printing the events changes nothing: each stays until its own command runs.
+  const woken = wakes().length;
+  clock.advance(15);
+  await board.minute();
+  assert.equal(wakes().length, woken + 1);
+  assert.deepEqual(wakes().at(-1).again.filter((w) => ids.has(w.key)).map((w) => [w.key, w.kind]), [['p1', 'pr-review'], ['r1', 'review-answer'], ['a1', 'arch-review'], ['s1', 'slack-question']], 'a re-wake repeats each');
+  assert.match(wakes().at(-1).again[0].next, /review post 12/);
+  clock.advance(15);
+  await board.minute();
+  assert.deepEqual(pushes().map((c) => [flag(c, 'title'), flag(c, 'url'), flag(c, 'tag')]).filter(([, , tag]) => ids.has(tag.slice(5))).sort(), [
+    ['A1 waits on the orchestrator', '/site/#selectedCard=t%2FA1&reply', 'wait-a1'],
+    ['PR #12 waits on the orchestrator', '/site/#review=12', 'wait-p1'],
+    ['PR #13 waits on the orchestrator', '/site/#review=13', 'wait-r1'],
+    ['Slack · Ann waits on the orchestrator', '/site/', 'wait-s1'],
+  ]);
+  // review post and review record write reviews.json; the audit task closes with no findings; slack answer appends
+  // slack-handled.
+  put(reviewsFile, JSON.stringify({ 12: { number: 12, head: 'aaa', state: 'posted', text: 'Fine', at: iso(clock.at + 1000) }, 13: { ...held[13], state: 'posted', at: iso(clock.at + 1000) } }));
+  await board.changed(reviewsFile);
+  await board.minute();
+  assert.deepEqual(waits().map(([key]) => key), ['a1', 's1']);
+  put(itemsFile, JSON.stringify({ items: [{ id: 'A1', title: 'Architecture review of r', lane: 'done' }] }));
+  await board.changed(itemsFile);
+  assert.deepEqual(waits().map(([key]) => key), ['s1']);
+  append({ id: 'h1', kind: 'slack-handled', data: { id: 's1', by: 'answer' } });
+  await board.changed(eventsFile);
+  assert.deepEqual(waits(), []);
+});
+
 // docs/adr/2026-11-15-0010-the-minute-pass-signals-a-write-the-file-watch-dropped.md
 test('a write the file watch never reports is signalled to pages at the next minute pass, once', async (t) => {
   const { siteDir, dataDir, clock } = scratch(t, 'dropped-write', Date.parse('2026-11-14T10:00:00Z'));

@@ -13,7 +13,7 @@ process.env.HOME = home;
 const { sendReviews } = await import('./review-send.mjs');
 const { slackStatus, slackClient } = await import('./slack.mjs');
 const { readinessRows } = await import('./readiness.mjs');
-const { slackThread, slackAnswer, slackSay, slackTask, slackLink } =await import('../board/store.mjs');
+const { slackThread, slackAnswer, slackSay, slackTask, slackLink, slackSkip } =await import('../board/store.mjs');
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
@@ -124,7 +124,17 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
     'you: fyi',
   ]);
 
+  // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: each command that acts
+  // on a message records it handled; reading one that expects a reply does not.
+  const handled = () => events().filter((e) => e.kind === 'slack-handled').map((e) => e.data);
+  assert.deepEqual(handled(), []);
+  await slackThread(site, quiet.id, client);
+  assert.deepEqual(handled(), [{ id: quiet.id, by: 'thread' }]);
   await slackAnswer(site, question.id, 'Drafts never reach it; filed a task for the owner.', client);
+  assert.deepEqual(handled().at(-1), { id: question.id, by: 'answer' });
+  assert.deepEqual((await slackSkip(site, question.id)).lines, ["no reply to Ann's day thread"]);
+  assert.deepEqual(handled().at(-1), { id: question.id, by: 'skip' });
+  await assert.rejects(slackSkip(site, 'enope'), /no slack-question "enope"/);
   assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: 'Drafts never reach it; filed a task for the owner.\n- :claude_kickflip:', thread_ts: day, ts: world.messages.at(-1).ts });
   await assert.rejects(slackAnswer(site, quiet.id, 'ok', client), /names no @kickflip, so it expects no reply/);
   await slackAnswer(site, question.id, 'x'.repeat(250), client);
@@ -133,6 +143,7 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
 
   const filed = await slackTask(site, question.id, 'w', { title: 'feat(digest): skip drafts', notes: 'Ann asks the digest to skip drafts.' }, client);
   assert.equal(filed.key, 'w/T-1');
+  assert.deepEqual(handled().at(-1), { id: question.id, by: 'task' });
   const card = read(waveFile).items.find((i) => i.id === 'T-1');
   assert.equal(card.phase, 'discussing');
   const thread = lines(path.join(site, 'data', 'threads', 'w__T-1.jsonl'));

@@ -411,10 +411,14 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
             [--domain x] [--timezone Area/City]
   slack thread <eventId>                                a slack-question event's day thread, read from Slack through
                                                          Hub's token: one message a line, named board, you or the
-                                                         reviewer; → marks the event's message
+                                                         reviewer; → marks the event's message. On a message that
+                                                         expects no reply, ends the orchestrator's wait on it
   slack answer <eventId> --text <t>                     posts "🤖 " and the answer, at most 250 characters, as a reply
-                                                         in that thread. Refuses an owner's message that names no
-                                                         @kickflip, which expects no reply
+                                                         in that thread, ending the orchestrator's wait on it.
+                                                         Refuses an owner's message that names no @kickflip, which
+                                                         expects no reply
+  slack skip <eventId>                                  ends the orchestrator's wait on a slack-question that needs
+                                                         no answer, such as a thanks, posting nothing
   slack say <reviewer> --text <t>                       posts "🤖 " and the words, at most 250 characters, in the
                                                          reviewer's day thread for today, opening it with the
                                                          day's digest when none is open; only on the owner's
@@ -426,7 +430,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          the reviewer's name or Slack user
   slack task <eventId> <file> --title <t>            a request for work in that thread: a new task in item file
          (--notes <md> | --notes-from <draft.md>)       <file>, filed discussing for the owner's review, never ready;
-                                                         the Slack message is its first thread line, by its writer
+                                                         the Slack message is its first thread line, by its writer;
+                                                         ends the orchestrator's wait on the message
   integrations                                          readiness rows as one JSON line
   review due                                            one JSON line of the Slack sends the hub owes, from local state
                                                          and data/pr-slack.json: {date, links: [{pr, key, reviewer,
@@ -1000,6 +1005,7 @@ const COMMANDS = {
   }],
   'slack thread': [['eventId'], [], (site, [id]) => store.slackThread(needSite(site, 'slack thread'), id)],
   'slack answer': [['eventId'], ['text'], (site, [id], f) => store.slackAnswer(needSite(site, 'slack answer'), id, f.text)],
+  'slack skip': [['eventId'], [], (site, [id]) => store.slackSkip(needSite(site, 'slack skip'), id)],
   'slack say': [['reviewer'], ['text'], (site, [name], f) => store.slackSay(needSite(site, 'slack say'), name, f.text)],
   'slack link': [['pr'], ['to'], (site, [pr], f) => {
     if (f.to === undefined) throw new UsageError('slack link needs --to <reviewer>');

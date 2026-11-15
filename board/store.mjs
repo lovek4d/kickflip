@@ -1382,6 +1382,9 @@ async function slackQuestion(site, eventId) {
   const e = (await readLines(path.join(needSite(site), 'data', 'events.jsonl'))).find((x) => x.id === eventId && x.kind === 'slack-question');
   return e?.data || fail(`no slack-question "${eventId}" in this site's data/events.jsonl`);
 }
+// docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: a slack-handled {id, by}
+// event, record-only, ends the orchestrator's wait on slack-question id (domain.mjs eventWaits); by is the command.
+const slackHandled = (site, id, by) => appendEvent(boardTarget(site), 'slack-handled', { id, by });
 const throughSlack = (slack) => slack || fail(SLACK_NEEDS_TOKEN);
 const slackCall = (call) => call.catch((e) => (e instanceof SlackError ? fail(e.message) : Promise.reject(e)));
 
@@ -1398,7 +1401,16 @@ export async function slackThread(site, eventId, slack = savedSlack()) {
     const [first = '', ...rest] = [...(m.text ? m.text.split('\n') : []), ...(m.attachments || []).map((a) => a.fallback)];
     return [`${m.ts === q.ts ? '→ ' : ''}${who}: ${first}`, ...rest.map((l) => `    ${l}`)];
   });
+  // A message that expects no reply is acted on once read.
+  if (!q.answer) await slackHandled(site, eventId, 'thread');
   return { lines };
+}
+
+// `slack skip`: a slack-question that needs no answer, such as a thanks, recorded handled with nothing posted.
+export async function slackSkip(site, eventId) {
+  const q = await slackQuestion(site, eventId);
+  await slackHandled(site, eventId, 'skip');
+  return { lines: [`no reply to ${q.reviewer}'s day thread`] };
 }
 
 // `slack answer`: the answer, signed off, posted as a reply in the event's day thread. Refuses an owner's message that
@@ -1408,6 +1420,7 @@ export async function slackAnswer(site, eventId, words, slack = savedSlack()) {
   if (!q.answer) fail("that message is the owner's and names no @kickflip, so it expects no reply");
   const message = orchestratorWords(words);
   await slackCall(throughSlack(slack).post({ channel: q.channel, thread_ts: q.thread_ts, text: message }));
+  await slackHandled(site, eventId, 'answer');
   return { lines: [`answered in ${q.reviewer}'s day thread`] };
 }
 
@@ -1481,6 +1494,7 @@ export async function slackTask(site, eventId, file, { title, notes, notesFrom }
   const domain = readSlack().slack_domain;
   const link = domain ? `https://${domain}.slack.com/archives/${q.channel}/p${q.ts.replace('.', '')}?thread_ts=${q.thread_ts}&cid=${q.channel}` : undefined;
   await appendMessage(site, filed.key, { text: message.text, who: q.from === 'owner' ? 'love' : q.reviewer, via: 'slack', link });
+  await slackHandled(site, eventId, 'task');
   return { ...filed, lines: [`filed ${filed.key} discussing, for the owner's review`] };
 }
 
