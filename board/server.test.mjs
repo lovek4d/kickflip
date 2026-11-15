@@ -1506,16 +1506,7 @@ test('try forwards only the board route and key over loopback, returning hub sta
     assert.equal(seen[0][2]['x-forwarded-host'], undefined);
     assert.equal((await post({ key: 'main' })).status, 202);
     assert.deepEqual(seen[1].slice(0, 2), ['/_hub/build', { route: 'own-route', key: 'main' }]);
-    const logURL = `http://127.0.0.1:${boardPort}/api/try/main/log`;
-    const absent = await fetch(logURL);
-    assert.equal(absent.status, 200);
-    assert.deepEqual(await absent.json(), { lines: [] });
     fs.mkdirSync(path.join(site, 'data/try'), { recursive: true });
-    const lines = Array.from({ length: 80 }, (_, i) => `line ${i}`);
-    fs.writeFileSync(path.join(site, 'data/try/main.log'), 'x'.repeat(100_000) + '\n' + lines.join('\n') + '\n');
-    const tail = await fetch(logURL);
-    assert.equal(tail.status, 200);
-    assert.deepEqual(await tail.json(), { lines: lines.slice(-40) });
     // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md: the served viewer's poll.
     const baseURL = `http://127.0.0.1:${boardPort}/api/try/prototypes`;
     const none = { step: null, stepAt: null, steps: [], last: null, error: null };

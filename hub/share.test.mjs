@@ -44,7 +44,7 @@ test('a shared person reads the shell and their boards, and nothing else; a writ
   const reach = (pathname, method = 'GET') => shareReach({ method, pathname, routes });
   for (const p of ['/', '/sw.js', '/manifest.webmanifest', '/favicon.ico', '/_hub/app/app.js', '/_hub/colors.css', '/_hub/kickflip.png', '/_hub/icon-180.png',
     '/_hub/sidebar.json', '/_hub/stream', '/orch', '/orch/', '/orch/api/board', '/orch/api/thread', '/orch/notes.html', '/orch/questions.html', '/orch/uploads/x.png',
-    '/orch/style.css', '/orch/prototype-kit.js', '/orch/prototype-nav.html', '/orch/prototypes/nav/GH-1.js', '/orch/api/try/main/log', '/orch/api/done']) {
+    '/orch/style.css', '/orch/prototype-kit.js', '/orch/prototype-nav.html', '/orch/prototypes/nav/GH-1.js', '/orch/api/done']) {
     assert.equal(reach(p), 'pass', p);
   }
   assert.equal(reach('/orch/api/board', 'HEAD'), 'pass');
@@ -53,7 +53,7 @@ test('a shared person reads the shell and their boards, and nothing else; a writ
     assert.equal(reach(p), 'other', p);
   }
   // Only what a shared view reads passes: the owner's reads, anything unlisted, and a path naming the route again don't.
-  for (const p of ['/orch/settings.html', '/orch/api/settings', '/orch/api/permissions', '/orch/api/rules', '/orch/api/reviewer-people', '/orch/api/log', '/orch/api/transcript',
+  for (const p of ['/orch/settings.html', '/orch/api/settings', '/orch/api/permissions', '/orch/api/rules', '/orch/api/reviewer-people', '/orch/api/log', '/orch/api/transcript', '/orch/api/try/main/log',
     '/orch/log.html', '/orch/api/stream', '/orch/_claude/events', '/orch/_claude/needs', '/orch/socket', '/orch//api/log', '/orch/orch/api/board', '/orch/orch',
     '/orch/api%2flog', '/orch/%2e%2e/api/log', '/orch/api/board/x']) {
     assert.equal(reach(p), 'view-only', p);

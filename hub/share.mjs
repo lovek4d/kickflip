@@ -42,14 +42,14 @@ const HUB_FILES = /^\/_hub\/(?:app\/[\w.-]+|colors\.css|kickflip\.png|hub\.css|i
 // The hub's own pages, which send a shared person to `/`, their first shared board.
 const HUB_PAGES = new Set(['/_hub', '/_hub/', '/_hub/settings', '/_hub/settings/polling']);
 // What a shared board view reads, the path after the route: the board's pages and the files they load, its prototypes
-// and uploads, and its data, threads, notes and Main's build log. Everything else stays the owner's, such as Board
+// and uploads, and its data, threads and notes. Everything else stays the owner's, such as Board
 // settings and the reads behind it that reach past the board (any of the host's logs by name, the Slack members and
 // GitHub logins Board settings picks reviewers from, the hub's rules), the event log, the board's own stream (the shell
 // follows /_hub/stream) and upgrades.
 const BOARD_READS = new RegExp('^/(?:' + [
   '', 'questions\\.html', 'notes\\.html', 'plan\\.html', 'index\\.html', 'prototype-[a-z0-9-]+\\.html',
   '[\\w-][\\w.-]*\\.(?:js|mjs|css|png|svg|ico|webp|jpe?g|gif|woff2?)', 'prototypes/[a-z0-9-]+/[\\w-][\\w.-]*\\.js', 'uploads/[^/]+',
-  'api/(?:board|questions|done|links|working|thread|notes|plan|try/main/log)',
+  'api/(?:board|questions|done|links|working|thread|notes|plan)',
 ].join('|') + ')$');
 // What a Full person writes, the path after the route: events, whose kind the board server checks, and attachments.
 const FULL_WRITES = new Set(['/_claude/events', '/api/upload']);

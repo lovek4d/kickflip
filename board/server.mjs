@@ -284,7 +284,6 @@
 //   GET  /api/transcript?file=<name>.log&from=<byte> {rows, next, size, stream, finished}: that log, whole, as transcript
 //                                rows from byte `from` to its last whole line (transcript.mjs readRunTranscript); the reader
 //                                sheet's View transcript reads it on from `next` while it grows
-//   GET  /api/try/main/log      {lines}: last 40 lines of main's log, from at most its last 64 KiB
 //   GET  /api/try/prototypes    {state, https, since, lines, step, stepAt, steps, last, error}: the hub's serve of the
 //                                board's base prototype worktree, which a served round's viewer frames, since when its
 //                                ready run started, and its log's last 40 lines and error once it failed
@@ -1419,7 +1418,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           return json(res, 200, await permissionsView(folder, here));
         } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
       }
-      if (p === '/api/try/main/log' && req.method === 'GET') return json(res, 200, { lines: await tryLogTail(here, 'main') });
       if (p === '/api/try/prototypes' && req.method === 'GET') {
         const run = (await readJSON(path.join(here, 'data', 'try.json'), {}))?.prototypes || {};
         const starting = run.state === 'running' || run.state === 'failed';
