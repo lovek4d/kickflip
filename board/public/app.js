@@ -193,6 +193,7 @@ window.BoardView = (function () {
       steady(() => {
         B.renderHeader(d);
         B.renderArch(d);
+        B.renderWaits(d);
         BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main, state.mainPull));
         B.renderMainLog(d.main, load);
         for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
@@ -518,7 +519,7 @@ window.BoardView = (function () {
   }
   function markup({ title = '', shared = null } = {}) {
     const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
-    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true })}
+    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true, navStart: '<span id="waitsChip"></span>' })}
 <div class="split">
 <main>
 ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
@@ -548,6 +549,12 @@ ${BoardNewTask.markup()}
     <div class="sheet-head"><h2 id="holdTitle" tabindex="-1"></h2><button type="button" class="ghost" id="holdClose" aria-label="Close">✕</button></div>
     <p id="holdLede" class="hold-lede muted"></p>
     <div id="holdPicker"></div>
+  </div>
+</dialog>
+<dialog id="waitsSheet" class="sheet waits-sheet" aria-labelledby="waitsTitle">
+  <div class="sheet-body">
+    <div class="sheet-head"><h2 id="waitsTitle"></h2><button type="button" class="ghost" id="waitsClose" aria-label="Close sheet">✕</button></div>
+    <div id="waitsBody"></div>
   </div>
 </dialog>
 <dialog id="archSheet" class="sheet arch-sheet" aria-labelledby="archTitle">

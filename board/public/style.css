@@ -598,6 +598,21 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .pages-switch .q-badge { position: absolute; top: 0; right: -2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--color-notice); color: #1c1407;
   font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 1.5px var(--bg); }
 .pages-switch .q-badge[hidden] { display: none; }
+/* The header's chip counting what waits on the orchestrator, short under the desktop width, and its sheet's list
+   (docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md; ui-waits.js). */
+#waitsChip:empty { display: none; }
+.top .nav .waits-chip { display: inline-flex; align-items: center; gap: 4px; margin: 0 6px 0 0; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; line-height: 1.2; white-space: nowrap; }
+.waits-chip .full { display: none; }
+@media (min-width: 900px) { .waits-chip .short { display: none; } .waits-chip .full { display: inline; } }
+.waits-list { list-style: none; margin: 0; padding: 0 0 6px; }
+.waits-row + .waits-row { border-top: 1px solid var(--line); }
+.waits-open { display: flex; gap: 10px; width: 100%; margin: 0; padding: 9px 0; border: 0; border-radius: 0; background: none; color: inherit; font: inherit; text-align: left; }
+button.waits-open:hover .waits-title { text-decoration: underline; }
+.waits-ref { flex: none; min-width: 58px; padding-top: 1px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.waits-main { display: grid; min-width: 0; }
+.waits-title { font-size: 14px; overflow-wrap: anywhere; }
+.waits-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; margin-top: 1px; color: var(--muted); font-size: 12px; }
 .arch-bulb.running svg { filter: drop-shadow(0 0 4px currentColor); }
 @media (prefers-reduced-motion: no-preference) { .arch-bulb.running svg { animation: arch-glow 1.4s ease-in-out infinite; } }
 @keyframes arch-glow { 50% { filter: drop-shadow(0 0 1px currentColor); opacity: .55; } }

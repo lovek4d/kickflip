@@ -47,19 +47,19 @@
   // lead is 'logo' (the kickflip, which toggles the sidebar, sidebar.js; logoHref, the hub's page, without it)
   // or 'back' (the arrow, which follows backStep, with backHref the work item or the board, after the logo). The controls (time and refresh) paint disabled with refresh spinning until the
   // page's script turns them on (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md). With controls
-  // false, trail (HTML) takes their place. pages is the switch between a board's two pages
+  // false, trail (HTML) takes their place; navStart (HTML) goes before the controls. pages is the switch between a board's two pages
   // (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md): 'questions' puts the ? after the controls, with
   // the open-question count in its badge (app-header.js), and 'board' puts the check, back up to the board, after trail. leadAttrs adds to or replaces the lead link's attributes, and level is the
   // title's heading level, for a header that isn't the page's own, such as the sidebar's (ui-sidebar.js). moon puts the
   // away moon right of the title, hidden until app-header.js renderStatus shows it (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md).
   function header({ lead = 'logo', title = '', titleId, backHref = './', backLabel = 'Back to the board', backId, logoSrc = 'kickflip.png',
-    controls = true, trail = '', time = '…', pages = null, moon = false, logoHref = '/_hub/', leadAttrs = {}, level = 1 } = {}) {
+    controls = true, trail = '', time = '…', pages = null, moon = false, logoHref = '/_hub/', leadAttrs = {}, level = 1, navStart = '' } = {}) {
     const attrs = (base) => Object.entries({ ...base, ...leadAttrs }).map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
     const logo = (cls = 'hub') => `<a class="${cls}" href="${esc(logoHref)}"${attrs({ 'aria-label': 'Boards' })}><img src="${esc(logoSrc)}" alt=""></a>`;
     const first = lead === 'back'
       ? `${logo('hub')}<a class="back" href="${esc(backHref)}"${id(backId)}${attrs({ 'aria-label': backLabel })}>${ARROW}</a>`
       : logo();
-    const nav = controls ? `<nav class="nav">`
+    const nav = controls ? `<nav class="nav">${navStart}`
       + `<span class="refresh"><button class="ghost spinning" id="refresh" type="button" disabled aria-label="Refresh" title="Refresh">${REFRESH}</button><span class="muted" id="status">${esc(time)}</span></span>`
       + (pages === 'questions' ? `<a href="questions.html" id="questionsLink" class="ghost icon pages-switch" aria-label="Open questions" title="Open questions">${QUESTION}<span class="q-badge" hidden></span></a>` : '')
       + `</nav>` : trail + (pages === 'board' ? `<a class="ghost icon pages-switch back" href="./" aria-label="Back to the board" title="Back to the board">${CHECK}</a>` : '');

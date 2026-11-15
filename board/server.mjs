@@ -50,6 +50,8 @@
 //                                (../hub/boards.mjs linksOf), null when the manifest has no board here; setup:
 //                                {events, github} while the join handshake's checklist shows, else null
 //                                arch: the header bulb's {repo, waits, last} (arch-review.mjs archOf), null off the manifest
+//                                orchestratorWaits: data/orchestrator-waits.json's waits in its order, each {key, ref,
+//                                title, kind, since}, for the header's waiting-on-orchestrator chip (waitsShown)
 //                                onHost: whether this request's browser runs on the hub's machine (on-host.mjs fromHost),
 //                                beside the board, so it moves no change number;
 //                                a work card's worktree is its builder's worktree path while that folder exists, else null.
@@ -875,8 +877,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     built.items = built.items.map((it) => (it.worktree && !existsSync(it.worktree) ? { ...it, worktree: null } : it));
     const links = self ? linksOf(self, { listen }) : null;
     return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), reviewerGithub: Object.fromEntries((reviewers || []).filter((r) => typeof r?.name === 'string').map((r) => [r.name, r.github])), ...built, links, setup: await setupOf(links),
-      holdChoices: HOLD_CHOICES, arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
+      holdChoices: HOLD_CHOICES, orchestratorWaits: await waitsShown(), arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
   }
+  // docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md
+  // What waits on the orchestrator as the board header's chip lists it: data/orchestrator-waits.json's waits in its
+  // order, each {key, ref, title, kind, since}, leaving out the wake bookkeeping that moves while the wait stays.
+  const waitsShown = async () => ((await readJSON(path.join(data, 'orchestrator-waits.json'), null))?.waits || [])
+    .map(({ key, ref, title, kind, since }) => ({ key, ref, title, kind, since }));
 
   // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
   // The board a page reads, from /api/board or an events POST's answer: board(), leaving out the resolved questions

@@ -22,8 +22,8 @@ function boardPatch(from, to, threads = { from: {}, to: {} }, notes = { from: {}
   return { ...patchSince(now.sync, now.board, held.sync.n, map(threads.to), notesOf(to, notes.to)), since: from.version, version: to.version };
 }
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-waits.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 // The time every test here builds its data from. A fake page's clock starts at it and moves only by its advance(ms)
@@ -6583,6 +6583,31 @@ test("at every width the board header's ? carries the queue's count as a badge, 
     assert.doesNotMatch(b.page.win.AppViews.questions.markup({ embedded: true }), /pages-switch/);
     b.view.unmount();
   }
+});
+
+// docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md
+test("the board header's chip counts what waits on the orchestrator, its tap opens the list in the file's order, a card's row opens the card, and at 0 the chip is gone", async () => {
+  const ago = (m) => new Date(NOW - m * 60000).toISOString();
+  const orchestratorWaits = [
+    { key: 'w/T2', ref: 'T2', title: 'Work T2', kind: 'calls', since: ago(34) },
+    { key: 'w/T1', ref: 'T1', title: 'Work T1', kind: 'intake', since: ago(4) },
+    { key: 'ev-9', ref: '2026-11-12', title: 'Overnight triage 2026-11-12', kind: 'triage', since: ago(2) },
+  ];
+  const b = boardOnDom({ board: { ...boardOf([workCard('T1'), workCard('T2')]), orchestratorWaits }, threads: {} });
+  await b.settle();
+  const chip = () => b.root.querySelector('.top .nav #waitsChip [data-waits]');
+  const sheet = b.root.querySelector('#waitsSheet');
+  assert.equal(chip().getAttribute('aria-label'), '3 waiting on the orchestrator');
+  assert.ok(chip().querySelector('.it-red'), 'one wait is past the 30-minute push');
+  b.page.fire(b.root.querySelector('#waitsChip'), 'click', { target: chip() });
+  assert.equal(sheet.open, true);
+  assert.equal(b.root.querySelector('#waitsTitle').textContent, 'Waiting on the orchestrator · 3');
+  assert.deepEqual(sheet.querySelectorAll('.waits-ref').map((r) => r.textContent), ['T2', 'T1', '2026-11-12']);
+  b.page.fire(sheet, 'click', { target: sheet.querySelector('[data-wait-open="w/T1"]') });
+  assert.deepEqual([sheet.open, b.page.win.location.hash], [false, '#selectedCard=w%2FT1']);
+  await b.change({ board: { ...b.server.board, orchestratorWaits: [], version: undefined } });
+  assert.equal(chip(), null);
+  b.view.unmount();
 });
 
 // docs/adr/2026-11-15-1400-waiting-on-you-follows-the-tap-not-the-board.md
