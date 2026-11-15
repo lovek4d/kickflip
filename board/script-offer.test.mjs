@@ -65,7 +65,7 @@ test('a waiting script is Action needed on its card and pushes at once; Run is t
   const waiting = await card(base);
   assert.equal(waiting.action.kind, ACTION_KIND.script);
   const push = ownerActions({ items: [waiting], needs: [], owner: [], reviews: { cards: [] } }).find((a) => a.tag === 'item-t/A1');
-  assert.equal(push.now, true);
+  assert.equal(push.kind, ACTION_KIND.script);
   assert.deepEqual((await threadOf(base)).map((m) => m.script.state), ['waiting']);
 
   // A shared person, even one with Full, sees it read-only.

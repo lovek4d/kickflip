@@ -215,3 +215,25 @@ test("withdrawing a gone push drops its queued copy on that board, and closes on
   assert.deepEqual(off, { dropped: [], closed: [] });
   assert.equal(device.received.length, 1);
 });
+
+// docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
+test("a silent push updates its notification at once, through quiet hours; while its tag's alert is held it rewrites that alert instead, which goes out alerting once the hold ends", async () => {
+  await deliver({ title: 'Orch (2)', body: '2 builds wait on you', url: '/orch/questions.html', tag: 'board-orch' }, { kind: 'action', silent: true, at: NIGHT });
+  assert.deepEqual(device.received.map(({ title, tag, silent }) => [title, tag, silent]), [['Orch (2)', 'board-orch', true]], 'a silent update alerts nothing, so quiet hours do not hold it');
+  assert.equal(fs.existsSync(pushFile('queue.json')), false);
+
+  const held = await deliver({ title: 'A1: Answer 1 question', body: 'Keep?', url: '/learn/questions.html#q1', tag: 'board-learn' }, { kind: 'action', immediate: true, at: NIGHT });
+  assert.equal(held.queued.held, true, 'the first alert waits out quiet hours');
+  const rewritten = await deliver({ title: 'Learn (2)', body: '1 build waits on you · 1 question', url: '/learn/questions.html', tag: 'board-learn' }, { kind: 'action', silent: true, at: NIGHT });
+  assert.equal(rewritten.queued.replaced, true);
+  assert.equal(device.received.length, 1, 'the held alert is rewritten, not sent');
+  assert.deepEqual(read(pushFile('queue.json')).items.map(({ title, tag, silent }) => [title, tag, silent]), [['Learn (2)', 'board-learn', undefined]]);
+
+  device.needs = orchWaits(0, '');
+  await flushQueue();
+  assert.deepEqual(device.received.slice(1).map(({ title, url, tag, silent }) => [title, url, tag, silent]), [['Learn (2)', '/learn/questions.html', 'board-learn', undefined]],
+    'the live row goes as itself, alerting, though it opens Waiting on you');
+
+  await push.setNotifications({ on: false }, NOON, home);
+  assert.deepEqual(await deliver({ title: 'Orch (1)', url: '/orch/', tag: 'board-orch' }, { kind: 'action', silent: true, at: NOON }), { dropped: true });
+});

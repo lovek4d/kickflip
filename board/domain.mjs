@@ -1867,21 +1867,45 @@ export const pushTag = (key) => (key.startsWith('ask:') ? `ask-${key.slice(4)}` 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // What waits on the owner in a built board, one entry per push tag: each card with Action needed (pushTag), each
 // Needs you line for a topic off the cards, tagged topic-<id>, and each held review, tagged review-<PR number>. questions are the open questions behind it, oldest
-// first. now: questions, picks, manual steps and a Done push at once; Ready and Merge queue for the tick's end.
-// url is relative to the site root. → [{tag, kind, title, body, url, now, questions: [{id, question}]}]
+// first. url is relative to the site root. → [{tag, kind, title, body, url, questions: [{id, question}]}]
 export function ownerActions(built) {
   const open = (topic) => built.owner.filter((q) => q.topic === topic && q.state === 'open').map(({ id, question }) => ({ id, question }));
-  const queued = [ACTION_KIND.ready, ACTION_KIND.merge];
   const cards = built.items.filter((it) => it.action).map((it) => {
     const questions = ASKING.has(it.action.kind) ? open(it.questions.topic) : [];
     return { tag: pushTag(it.key), kind: it.action.kind, title: `${it.ref}: ${it.action.label}`, body: questions[0]?.question || it.title,
-      url: questions.length ? it.action.url : `#selectedCard=${encodeURIComponent(it.key)}`, now: !queued.includes(it.action.kind), questions };
+      url: questions.length ? it.action.url : `#selectedCard=${encodeURIComponent(it.key)}`, questions };
   });
   const topics = built.needs.filter((line) => line.topic).map((line) => {
     const questions = open(line.topic);
-    return { tag: `topic-${line.topic}`, kind: ACTION_KIND.questions, title: line.text, body: questions[0]?.question || line.title, url: line.url, now: true, questions };
+    return { tag: `topic-${line.topic}`, kind: ACTION_KIND.questions, title: line.text, body: questions[0]?.question || line.title, url: line.url, questions };
   });
   return [...cards, ...topics, ...reviewActions(built.reviews)];
+}
+
+// docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
+// The board's one live notification, tagged board-<route>, for actions (ownerActions), or null when nothing waits on
+// the owner. One action reads as itself; several are titled "<board title> (N)", with a body of what the owner's taps
+// unblock, in ROW_PARTS' order, and open Waiting on you (questions.html). url is relative to the site root.
+// → {tag, title, body, url} | null
+const waits = (n) => (n === 1 ? 'waits' : 'wait');
+const ROW_PARTS = [
+  [[ACTION_KIND.stalled], (n) => `${n} stalled`],
+  [[ACTION_KIND.implement, ACTION_KIND.pick], (n) => `${plural(n, 'build')} ${waits(n)} on you`],
+  [[ACTION_KIND.merge, ACTION_KIND.steps], (n) => `${plural(n, 'merge')} ${waits(n)} on you`],
+  [[ACTION_KIND.ready], (n) => `${plural(n, 'draft')} to review`],
+  [[ACTION_KIND.script], (n) => `${plural(n, 'script')} to run`],
+  [[ACTION_KIND.questions], (n) => plural(n, 'question'), (a) => a.questions.length],
+  [['review'], (n) => `${plural(n, 'review')} held`],
+  [[ACTION_KIND.close], (n) => `${n} to close`],
+];
+export function ownerRow(actions, { route, title }) {
+  const tag = `board-${route}`;
+  if (actions.length <= 1) return actions.length ? { tag, title: actions[0].title, body: actions[0].body, url: actions[0].url } : null;
+  const body = ROW_PARTS.map(([kinds, words, count = () => 1]) => {
+    const n = actions.filter((a) => kinds.includes(a.kind)).reduce((sum, a) => sum + count(a), 0);
+    return n && words(n);
+  }).filter(Boolean).join(' · ');
+  return { tag, title: `${title} (${actions.length})`, body, url: 'questions.html' };
 }
 
 // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md

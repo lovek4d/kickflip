@@ -135,7 +135,7 @@
 //               --no-restart leaves the hub running on its old code (the hub pulls this way, then restarts itself).
 //               A clone refuses (exit 2); update it with git pull
 //   kickflip push --kind action|prompt|fault|reminder --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
-//               [--now | --urgent]
+//               [--now | --urgent | --silent]
 //               notify every device that turned on notifications on the Hub page; a tap opens --url.
 //               --kind says what waits on the owner (../hub/push.mjs PUSH_KINDS): action, a card's Action needed
 //               appearing or changing; prompt, a background session's prompt; fault, something only the owner
@@ -147,7 +147,10 @@
 //               several queued pushes go as one summary. --now sends at once unless pushes are held
 //               (quiet hours, snoozed or the weekend), and queues if no device takes it; it is for questions,
 //               steps only the owner can run and prototypes. --urgent sends at once through
-//               those holds, for a production fault. While notifications are off every push is dropped, urgent ones too.
+//               those holds, for a production fault. --silent (needs --tag) updates the notification under
+//               --tag without alerting, at once through those holds; while that tag's push is queued it rewrites
+//               the queued one, which still alerts when it goes. While notifications are off every push is dropped,
+//               urgent ones too.
 //               Prints "sent", "queued" with the next send time, or "dropped". Exit 3 when no device has turned them on.
 //   kickflip quiet
 //               prints {quiet, held, held_until, held_why, notifications}: quiet hours {start, end, hold}, whether
@@ -210,7 +213,7 @@ for (let i = 0; i < rest.length; i++) {
   const a = rest[i];
   if (a.startsWith('--')) {
     const k = a.slice(2);
-    if (k === 'fix' || k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'keep-queue' || k === 'hub' || k === 'no-hub' || k === 'dry-run' || k === 'no-restart') args[k] = true;
+    if (k === 'fix' || k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'silent' || k === 'keep-queue' || k === 'hub' || k === 'no-hub' || k === 'dry-run' || k === 'no-restart') args[k] = true;
     else if (k === 'watch' && (i + 1 >= rest.length || rest[i + 1].startsWith('--'))) args[k] = true;
     else args[k] = rest[++i];
   } else args._.push(a);
@@ -959,8 +962,9 @@ const commands = {
     if (!args.title) fail('push needs --title', 2);
     if (args.url && !args.url.startsWith('/')) fail('--url is a path on the hub, such as /<route>/page.html', 2);
     const { sendWords, holdLine } = await import(path.join(SKILL, 'hub', 'schedule.mjs'));
-    if (args.now && args.urgent) fail('pass --now or --urgent, not both', 2);
-    const r = await deliver({ title: args.title, body: args.body || '', url: args.url || '/', tag: args.tag }, { kind: args.kind, urgent: !!args.urgent, immediate: !!args.now });
+    if ([args.now, args.urgent, args.silent].filter(Boolean).length > 1) fail('pass one of --now, --urgent or --silent', 2);
+    if (args.silent && !args.tag) fail('--silent updates the notification under --tag, so it needs one', 2);
+    const r = await deliver({ title: args.title, body: args.body || '', url: args.url || '/', tag: args.tag }, { kind: args.kind, urgent: !!args.urgent, immediate: !!args.now, silent: !!args.silent });
     if (r.noDevice) fail('no device has turned on notifications; open Hub → Notifications (/_hub/#notifications) in the Home Screen app and tap Turn on', 3);
     if (r.dropped) return out('dropped (notifications are off on the Hub page)');
     if (r.queued) {
@@ -972,7 +976,7 @@ const commands = {
     }
     out(r.sent);
     if (!r.sent.some((x) => x.status >= 200 && x.status < 300)) fail('every push was refused', 1);
-    out(args.urgent ? 'sent (urgent)' : 'sent');
+    out(args.urgent ? 'sent (urgent)' : args.silent ? 'sent (silent)' : 'sent');
   },
 
   async quiet() {

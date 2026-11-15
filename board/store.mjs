@@ -282,7 +282,7 @@ function pushCommand() {
   throw new BoardError('KICKFLIP_PUSH_CMD must be a JSON array of strings');
 }
 
-// Runs kickflip push with {kind, title, body?, url?, tag?, urgent?, now?}, adding "· and N replies" to the body for the
+// Runs kickflip push with {kind, title, body?, url?, tag?, urgent?, now?, silent?}, adding "· and N replies" to the body for the
 // replies written since the site's last push, and records the push when kickflip push succeeds. → {lines}: what
 // kickflip push said. A failure throws a BoardError with its exit code, naming why on its last line.
 export async function sendPush(site, f) {
@@ -293,7 +293,7 @@ export async function sendPush(site, f) {
   const body = withReplies(f.body, await repliesSincePush(site, at));
   const flags = { kind: f.kind, title: f.title, body: body || undefined, url: pushUrl(f.url), tag: f.tag };
   const [cmd, ...pre] = pushCommand();
-  const args = [...pre, ...Object.entries(flags).flatMap(([k, v]) => (v === undefined ? [] : [`--${k}`, v])), ...(f.urgent ? ['--urgent'] : []), ...(f.now ? ['--now'] : [])];
+  const args = [...pre, ...Object.entries(flags).flatMap(([k, v]) => (v === undefined ? [] : [`--${k}`, v])), ...(f.urgent ? ['--urgent'] : []), ...(f.now ? ['--now'] : []), ...(f.silent ? ['--silent'] : [])];
   const r = await new Promise((resolve) => {
     execFile(cmd, args, { encoding: 'utf8' }, (error, stdout, stderr) => resolve({ error, said: `${stdout || ''}${stderr || ''}`.split('\n').filter((l) => l.trim()) }));
   });

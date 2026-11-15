@@ -60,5 +60,5 @@ test('cards run needs you, reviewing, posted; a posted review over a day old or 
 test('a held review is a Needs you line and an owner action that pushes', () => {
   const r = of({ incoming: incoming(pr(437, { title: 'One endpoint' })), records: { 437: record(437, { state: 'needs', text: 'Clashes with #47.\n\nMore.' }) } });
   assert.deepEqual(reviewNeeds(r), [{ kind: 'Review', title: 'PR #437 One endpoint', text: 'PR #437 One endpoint · review held for you', url: '#review=437', review: 437 }]);
-  assert.deepEqual(reviewActions(r), [{ tag: 'review-437', kind: 'review', title: 'PR #437: review held for you', body: 'Clashes with #47.', url: '#review=437', now: true, questions: [] }]);
+  assert.deepEqual(reviewActions(r), [{ tag: 'review-437', kind: 'review', title: 'PR #437: review held for you', body: 'Clashes with #47.', url: '#review=437', questions: [] }]);
 });

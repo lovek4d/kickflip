@@ -203,10 +203,10 @@
 //                                (docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md).
 //                                An owner-answer goes into its card's notes verbatim, and one that leaves an unstarted
 //                                card with nothing open stages it (store.mjs settleAnswers).
-//                                Each new or changed Action needed, and each topic's new open questions, push the
-//                                owner, one tag per card (domain.mjs ownerActions), tracked in data/action-pushes.json;
-//                                a gone one drops its queued push, or closes the one already on the owner's devices
-//                                (hub/push.mjs withdraw).
+//                                What waits on the owner (domain.mjs ownerActions) is one live notification per board,
+//                                tagged board-<route> (domain.mjs ownerRow), tracked in data/action-pushes.json: its
+//                                first push alerts, each change re-pushes it silently, and once nothing waits it drops
+//                                its queued push, or closes the one already on the owner's devices (hub/push.mjs withdraw).
 //                                Within a minute of a held card's until or pick_up_at the server resumes it
 //                                (store.mjs pickUp), at most once per time even across a restart.
 //                                The Auto jobs below run on every board change and once at start, and on the minute
@@ -350,7 +350,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -2233,10 +2233,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
 
   // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
-  // data/action-pushes.json {<tag>: {kind, ids}}: what waited on the owner at the last check (domain.mjs ownerActions).
-  // A tag that is new, changes kind or gains an open question pushes; one that is gone drops its queued push, or closes
-  // the one already sent (docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md). The first
-  // check records what already waits without pushing it. A check asked for while one runs runs again after it.
+  // docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
+  // data/action-pushes.json {row: {title, body, url} | null}: the board's live notification at the last check
+  // (domain.mjs ownerRow). A row where there was none pushes and alerts; a changed row pushes silently, so only its first
+  // push alerts until it closes; a row gone drops its queued push, or closes the one already sent (hub/push.mjs
+  // withdraw). The first check records the row without pushing it. A file from before the live row, {<tag>: {kind, ids}}
+  // with a tag per card, counts as a row open when it held any, and its card tags are withdrawn. A check asked for while
+  // one runs runs again after it.
   let checkingActions = null;
   let actionsAgain = false;
   function checkActions() {
@@ -2253,22 +2256,21 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const file = path.join(data, 'action-pushes.json');
     const previous = await readJSON(file, null);
     const actions = ownerActions(await sharedBoard());
-    const current = Object.fromEntries(actions.map((a) => [a.tag, { kind: a.kind, ids: a.questions.map((q) => q.id) }]));
-    if (previous) {
-      for (const a of actions) {
-        const was = routeRecord(previous, a.tag);
-        const fresh = a.questions.filter((q) => !was?.ids?.includes(q.id));
-        if (was?.kind === a.kind && !fresh.length) continue;
-        const url = fresh.length ? `questions.html#${encodeURIComponent(fresh[0].id)}` : a.url;
-        const reason = !was ? 'Something new waits on the owner.' : was.kind !== a.kind ? `What waits on the owner changed from ${was.kind} to ${a.kind}.` : 'A new question waits on the owner.';
-        await sendOwnPush({ kind: 'action', title: a.title, body: fresh[0]?.question || a.body, url: `/${route}/${url}`, tag: a.tag, now: a.now },
-          { key: a.tag.startsWith('item-') ? a.tag.slice(5) : undefined, reason, inputs: { was: was ?? null, kind: a.kind, fresh: fresh.map((q) => q.id) } });
-      }
-      const gone = Object.keys(previous).filter((tag) => !routeRecord(current, tag));
-      if (gone.length) {
-        const { closed } = await withdraw(gone, route);
-        for (const tag of closed) logCall({ call: 'push', key: tag.startsWith('item-') ? tag.slice(5) : undefined, reason: 'It no longer waits on the owner, and its push already went out.', inputs: { tag }, result: 'closed' });
-      }
+    const row = ownerRow(actions, { route, title: (await config()).title || route });
+    const current = { row: row && { title: row.title, body: row.body, url: row.url } };
+    const legacy = previous && !('row' in previous) ? Object.keys(previous) : [];
+    const wasOpen = Boolean(previous?.row) || legacy.length > 0;
+    const tag = `board-${route}`;
+    const key = actions.length === 1 && actions[0].tag.startsWith('item-') ? actions[0].tag.slice(5) : undefined;
+    if (legacy.length) await withdraw(legacy, route);
+    if (previous && row && JSON.stringify(current.row) !== JSON.stringify(previous.row)) {
+      const reason = wasOpen ? 'What waits on the owner changed, and the board\'s notification is open.' : 'Something waits on the owner, and the board had no notification open.';
+      await sendOwnPush({ kind: 'action', title: row.title, body: row.body, url: `/${route}/${row.url}`, tag, now: !wasOpen, silent: wasOpen },
+        { key, reason, inputs: { was: previous.row ?? null, count: actions.length, silent: wasOpen } });
+    }
+    if (previous && !row && wasOpen) {
+      const { closed } = await withdraw([tag], route);
+      if (closed.length) logCall({ call: 'push', reason: 'Nothing waits on the owner, and the board\'s notification already went out.', inputs: { tag }, result: 'closed' });
     }
     if (JSON.stringify(current) !== JSON.stringify(previous)) {
       await fs.mkdir(data, { recursive: true });

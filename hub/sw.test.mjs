@@ -326,6 +326,19 @@ test('a push under a tag replaces the notification with that tag and alerts agai
   ]);
 });
 
+// docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
+test('a silent push replaces the notification under its tag without alerting', async () => {
+  const w = worker();
+  const push = (msg) => w.dispatch('push', { data: { json: () => msg } });
+  await Promise.all((await push({ title: 'Orch (2)', body: '2 builds wait on you', url: '/orch/questions.html', tag: 'board-orch' })).waits);
+  await Promise.all((await push({ title: 'A1: Tap Implement', body: 'One', url: '/orch/#selectedCard=w%2FA1', tag: 'board-orch', silent: true })).waits);
+  assert.deepEqual(w.shown.map(({ title, tag, silent, renotify }) => [title, tag, silent, renotify]), [
+    ['Orch (2)', 'board-orch', false, true],
+    ['A1: Tap Implement', 'board-orch', true, false],
+  ]);
+  assert.deepEqual(w.showing.map((n) => n.title), ['A1: Tap Implement']);
+});
+
 // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
 test("a close push closes the notification with its tag, leaving the others; it shows a silent one under the tag first, which iOS needs of every push, and closes that too", async () => {
   const w = worker();

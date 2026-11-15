@@ -1,5 +1,5 @@
 // The hub's service worker, served at /sw.js with scope /. Push messages come
-// from push.mjs as {title, body, url, tag, badge}; url is a path on the hub, and badge, when
+// from push.mjs as {title, body, url, tag, silent, badge}; url is a path on the hub, and badge, when
 // present, is the Home Screen app badge count; a {close: tag} push closes that tag's notification (closeTagged).
 // It keeps the app shell and its files, network first, so the app opens from the last copy while the host is asleep
 // (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). Nothing else is cached: API calls, streams, uploads and frames always
@@ -108,12 +108,13 @@ self.addEventListener('push', (event) => {
     if (Number.isInteger(msg.badge) && nav && 'setAppBadge' in nav) badge = (msg.badge > 0 ? nav.setAppBadge(msg.badge) : nav.clearAppBadge()).catch(() => {});
   } catch {}
   if (msg.close) { event.waitUntil(Promise.all([closeTagged(msg.close), badge])); return; }
-  // renotify alerts again for a push that replaces one with its tag, such as a card's new question; browsers throw on
-  // renotify without a tag.
+  // renotify alerts again for a push that replaces one with its tag; a silent push, a board's live notification updated
+  // after its first alert (push.mjs deliver), replaces it without alerting. Browsers throw on renotify without a tag.
   event.waitUntil(Promise.all([self.registration.showNotification(msg.title || 'Claude', {
     body: msg.body || '',
     tag: msg.tag || undefined,
-    renotify: Boolean(msg.tag),
+    silent: Boolean(msg.silent),
+    renotify: Boolean(msg.tag) && !msg.silent,
     icon: '/_hub/icon-192.png',
     data: { url: new URL(msg.url || '/', self.registration.scope).href },
   }), badge]));

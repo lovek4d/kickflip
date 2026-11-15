@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -2847,7 +2847,7 @@ test("a run gone silent reads stale and waits on the orchestrator; one the orche
   assert.deepEqual(orchestratorWaits(stalled), []);
   assert.deepEqual(pullOf(stalled.items, { cap: 1 }).pulls, [], 'a stalled task In Progress keeps its slot');
   const [push] = ownerActions(stalled).filter((a) => a.tag === 'item-w/A1');
-  assert.deepEqual([push.kind, push.title.endsWith(': stalled: Crashed twice on the same test'), push.now], ['stalled', true, true]);
+  assert.deepEqual([push.kind, push.title.endsWith(': stalled: Crashed twice on the same test')], ['stalled', true]);
   assert.ok(stalled.needs.some((line) => line.key === 'w/A1' && line.text.endsWith('stalled: Crashed twice on the same test')));
 
   // A stalled review stays In Review; stalled wins over its stale age.
@@ -3106,4 +3106,18 @@ test("a Done card with a landed sha has a commit, linking its repo's GitHub comm
   assert.deepEqual(view(undefined, { lane: 'done', landed_sha: sha }), { sha: 'abcdef0', url: null });
   assert.equal(view('o/r', { lane: 'done' }), null);
   assert.equal(view('o/r', { lane: 'progress', landed_sha: sha }), null);
+});
+
+// docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
+test("ownerRow is the board's one live notification: nothing owed is none, one entry reads as itself, several are '<Board> (N)' with what each tap unblocks and open Waiting on you", () => {
+  const board = { route: 'hub-orchestrator', title: 'Hub Orchestrator' };
+  const action = (kind, more = {}) => ({ tag: `item-w/${kind}`, kind, title: `T-1: ${kind}`, body: 'The card', url: '#selectedCard=w%2FT-1', questions: [], ...more });
+  assert.equal(ownerRow([], board), null);
+  const question = action('questions', { title: 'T-190: Answer 1 question', body: 'Keep the badge?', url: 'questions.html#q1', questions: [{ id: 'q1', question: 'Keep the badge?' }] });
+  assert.deepEqual(ownerRow([question], board), { tag: 'board-hub-orchestrator', title: 'T-190: Answer 1 question', body: 'Keep the badge?', url: 'questions.html#q1' });
+  const two = { ...question, questions: [{ id: 'q1', question: 'Keep?' }, { id: 'q2', question: 'Ship?' }] };
+  assert.deepEqual(ownerRow([action('implement'), two, action('pick')], board),
+    { tag: 'board-hub-orchestrator', title: 'Hub Orchestrator (3)', body: '2 builds wait on you · 2 questions', url: 'questions.html' });
+  const every = ['close', 'review', 'questions', 'script', 'ready', 'steps', 'merge', 'implement', 'stalled'].map((kind) => action(kind, kind === 'questions' ? { questions: [{ id: 'q', question: 'Q?' }] } : {}));
+  assert.equal(ownerRow(every, board).body, '1 stalled · 1 build waits on you · 2 merges wait on you · 1 draft to review · 1 script to run · 1 question · 1 review held · 1 to close');
 });

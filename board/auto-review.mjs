@@ -54,5 +54,5 @@ export const reviewNeeds = (reviews) => held(reviews).map((c) => ({
 // One push per held review (domain.mjs ownerActions' shape).
 export const reviewActions = (reviews) => held(reviews).map((c) => ({
   tag: `review-${c.number}`, kind: 'review', title: `PR #${c.number}: review held for you`, body: String(c.text || c.title).split('\n')[0],
-  url: `#review=${c.number}`, now: true, questions: [],
+  url: `#review=${c.number}`, questions: [],
 }));

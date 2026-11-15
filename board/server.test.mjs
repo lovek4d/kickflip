@@ -125,33 +125,39 @@ const upload = (body, name, type) => fetch(`${base}/api/upload`, { method: 'POST
 const pushes = () => (fs.existsSync(path.join(home, 'push-calls.jsonl')) ? fs.readFileSync(path.join(home, 'push-calls.jsonl'), 'utf8').split('\n').slice(0, -1).map((l) => JSON.parse(l)) : []);
 const flag = (call, name) => (call.includes(`--${name}`) ? call[call.indexOf(`--${name}`) + 1] : undefined);
 
-test("the board pushes each new Action needed once under its card's tag, again only for a new question, and drops its queued push once it is gone", async () => {
+// docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
+test("what waits on the owner is one live notification for the board: its first push alerts, each change updates it silently, and once nothing waits it drops its queued push", async () => {
   const queue = path.join(home, '.claude', 'kickflip', 'push', 'queue.json');
   const ownerFile = path.join(site, 'data', 'owner.json');
   const ask = (id, topic, question) => ({ id, topic, question, options: [{ id: 'A', label: 'Keep' }] });
   const answer = (id) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice: 'A' }) });
-  const tagged = (tag) => pushes().filter((c) => flag(c, 'tag') === tag);
+  const before = pushes().length;
+  const row = () => pushes().slice(before).filter((c) => flag(c, 'tag') === 'board-site').map((c) => [flag(c, 'title'), flag(c, 'body'), flag(c, 'url'), c.includes('--silent')]);
   await putWave(JSON.stringify({ items: [{ id: 'P1', title: 'Pushed', lane: 'progress' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ topics: [{ id: 'plan', title: 'Plan' }], items: [ask('p1', 'item:t/P1', 'Keep the badge?')] }));
   try {
     await heard(ownerFile);
-    assert.equal(tagged('item-t/P1').length, 1, 'the new question pushes');
-    const [first] = tagged('item-t/P1');
-    assert.deepEqual([flag(first, 'kind'), flag(first, 'title'), flag(first, 'body'), flag(first, 'url'), first.includes('--now')],
-      ['action', 'P1: Answer 1 question', 'Keep the badge?', '/site/questions.html?from=push#p1', true]);
+    const [first] = pushes().slice(before);
+    assert.deepEqual([flag(first, 'kind'), flag(first, 'tag'), first.includes('--now')], ['action', 'board-site', true]);
+    assert.deepEqual(row(), [['P1: Answer 1 question', 'Keep the badge?', '/site/questions.html?from=push#p1', false]], 'one item reads as itself, and the first push alerts');
     fs.writeFileSync(ownerFile, JSON.stringify({ topics: [{ id: 'plan', title: 'Plan' }], items: [ask('p1', 'item:t/P1', 'Keep the badge?'), ask('p2', 'item:t/P1', 'Keep the dot?'), ask('p3', 'plan', 'Ship it?')] }));
     await heard(ownerFile);
-    assert.deepEqual([tagged('item-t/P1').length, tagged('topic-plan').length], [2, 1], 'a second question and a topic push');
-    assert.deepEqual([flag(tagged('item-t/P1')[1], 'body'), flag(tagged('topic-plan')[0], 'title')], ['Keep the dot?', 'Plan · 1 question']);
+    assert.deepEqual(row().slice(1), [['T (2)', '3 questions', '/site/questions.html?from=push', true]], 'several are counted and open Waiting on you, silently');
     await ok200(answer('p1'));
-    fs.mkdirSync(path.dirname(queue), { recursive: true });
-    const keep = [{ tag: 'item-t/P1', url: '/site-other/' }, { tag: 'unrelated', url: '/site/' }];
-    fs.writeFileSync(queue, JSON.stringify({ items: [{ tag: 'item-t/P1', url: '/site/questions.html?from=push#p2' }, ...keep] }));
-    // The answer resolves p2 in owner.json, a write the server's checks run on once its watch reports it.
+    await heard(ownerFile);
     await ok200(answer('p2'));
     await heard(ownerFile);
+    assert.deepEqual(row().slice(2), [['T (2)', '2 questions', '/site/questions.html?from=push', true], ['Plan · 1 question', 'Ship it?', '/site/questions.html?from=push#p3', true]]);
+    fs.mkdirSync(path.dirname(queue), { recursive: true });
+    const keep = [{ tag: 'board-site', url: '/site-other/' }, { tag: 'unrelated', url: '/site/' }];
+    fs.writeFileSync(queue, JSON.stringify({ items: [{ tag: 'board-site', url: '/site/questions.html?from=push' }, ...keep] }));
+    // The answer resolves p3 in owner.json, a write the server's checks run on once its watch reports it.
+    await ok200(answer('p3'));
+    await heard(ownerFile);
     assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), { items: keep });
-    assert.equal(tagged('item-t/P1').length, 2);
+    assert.equal(row().length, 4);
+    assert.equal(pushes().length - before, 4, 'no push but the live row');
+    assert.deepEqual(pushes().slice(before).map((c) => [c.includes('--now'), c.includes('--silent')]), [[true, false], [false, true], [false, true], [false, true]], 'kickflip push takes --now or --silent, not both');
   } finally {
     fs.writeFileSync(ownerFile, '{"items":[]}');
     fs.rmSync(queue, { force: true });
@@ -877,9 +883,9 @@ test("a Tap Implement push already sent is closed on the owner's devices once it
   t.after(async () => { fs.rmSync(subs, { force: true }); delete process.env.KICKFLIP_HUB_PORT; await device.close(); });
   const mark = { on: 'implement', at: '2026-11-15T00:25:16Z', phase: 'discussing', lane: 'todo' };
   await putWave(JSON.stringify({ items: [{ id: 'CL1', title: 'Closed', phase: 'discussing', waits_on_owner: mark }] }));
-  assert.equal(pushes().filter((c) => flag(c, 'tag') === 'item-t/CL1').length, 1, 'Tap Implement pushes');
+  assert.equal(pushes().filter((c) => flag(c, 'tag') === 'board-site' && flag(c, 'title') === 'CL1: Tap Implement').length, 1, 'Tap Implement pushes');
   await putWave(JSON.stringify({ items: [{ id: 'CL1', title: 'Closed', phase: 'staging', waits_on_owner: mark }] }));
-  assert.deepEqual(device.received.map((m) => m.close), ['item-t/CL1']);
+  assert.deepEqual(device.received.map((m) => m.close), ['board-site']);
   await putWave(JSON.stringify({ items: [] }));
 });
 

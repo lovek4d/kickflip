@@ -301,7 +301,11 @@ export const pushKindError = (kind) => (PUSH_KINDS.includes(kind) ? null
 // {sent: results} for an urgent push, or for an immediate one that reached a device while pushes aren't held
 // (schedule.mjs heldUntil); else {queued: {count, replaced, nextFlushAt, held, hold, sendFailed}}. A push queued or
 // sent replaces a queued one with the same tag. A push sent now, or flushed later, reaches every subscription at that moment.
-export async function deliver(message, { kind, urgent = false, immediate = false, at = new Date(), home = os.homedir(), fetch = globalThis.fetch } = {}) {
+// silent, for a push with a tag (docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md): with that
+// tag queued, its title, body and url rewrite the queued push, which still alerts when it goes → {queued}; else it is
+// sent at once through every hold but off, and the service worker replaces the tag's notification without alerting
+// → {sent: results}. It never queues.
+export async function deliver(message, { kind, urgent = false, immediate = false, silent = false, at = new Date(), home = os.homedir(), fetch = globalThis.fetch } = {}) {
   const refused = pushKindError(kind);
   if (refused) throw new PushKindError(refused);
   if (!readSubs(home).length) return { noDevice: true };
@@ -309,6 +313,19 @@ export async function deliver(message, { kind, urgent = false, immediate = false
   const h = hold(at, readSettings(home));
   if (h?.why === 'off') return { dropped: true };
   const held = h !== null;
+  if (silent) {
+    const rewrote = await withQueueLock(home, () => {
+      const q = readQueue(home);
+      const queued = q.items.find((i) => i.tag === msg.tag);
+      if (!queued) return false;
+      Object.assign(queued, { title: msg.title, body: msg.body, url: msg.url });
+      writePrivate(queueFile(home), q);
+      return true;
+    });
+    if (!rewrote) return { sent: await sendTo(readSubs(home), { ...msg, silent: true }, undefined, { home, fetch }) };
+    const status = queueStatus(at, home);
+    return { queued: { replaced: true, count: status.count, nextFlushAt: status.nextFlushAt, held, hold: h, sendFailed: false } };
+  }
   let sendFailed = false;
   if (urgent || (immediate && !held)) {
     const results = await sendTo(readSubs(home), msg, undefined, { home, fetch });
