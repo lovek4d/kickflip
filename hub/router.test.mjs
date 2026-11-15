@@ -76,12 +76,14 @@ test('a request is filed as an ask on the board Haiku picks, carrying the reason
   assert.deepEqual(read(ROUTE_QUEUE).queue, []);
 });
 
-test('with one board there is no call: the request goes there', async () => {
+test('with one board there is no call: the request goes there, a Slack request naming its thread on the ask', async () => {
   const only = board('only', {});
-  const out = await routeRequest({ text: 'hello', from: { via: 'slack', by: 'Sam' } },
+  const slack = { channel: 'D1', thread_ts: '1792801001.000100', ts: '1792801003.000100' };
+  const out = await routeRequest({ text: 'hello', from: { via: 'slack', by: 'Sam', slack } },
     { manifest: manifestOf(only), ask: async () => assert.fail('no call with one board'), paused: () => false });
   assert.deepEqual(out.routed.map((r) => r.route), ['only']);
   assert.equal(events(only[1].dir)[0].data.routed.reason, 'the only board');
+  assert.deepEqual(events(only[1].dir)[0].data.routed.slack, slack);
 });
 
 test('while usage is paused a request waits in the queue, and is routed on the first drain after the pause lifts', async () => {

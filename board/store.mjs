@@ -2853,6 +2853,13 @@ async function quickAsk(site, eventId) {
   const events = await readLines(path.join(needSite(site), 'data', 'events.jsonl'));
   return events.some((e) => (e.kind === 'ask' && e.id === eventId && e.data?.quick === true) || (e.kind === 'item-message' && e.data?.key === `ask:${eventId}` && e.data?.intent === 'build'));
 }
+// docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md: a Slack @kickflip discusses
+// first, whoever sent it, so its ask goes ready only once the owner stages its card, even with an Implement on it.
+const SLACK_DISCUSSES = (ask) => `ask "${ask}" came from a Slack @kickflip, which always discusses first: file it --phase discussing; the owner's Implement after the discussion readies it`;
+async function fromSlack(site, eventId) {
+  const events = await readLines(path.join(needSite(site), 'data', 'events.jsonl'));
+  return events.some((e) => e.kind === 'ask' && e.id === eventId && e.data?.routed?.via === 'slack');
+}
 // A Next asking the owner to mark the card ready ("Mark ready", "mark it ready").
 const ASKS_READY = /^mark (?:it |this |the (?:task|card) )?ready\b/i;
 // docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md: each --pr adds a PR, owner/repo#n or a bare number in the
@@ -3106,6 +3113,7 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
     if (leftTodo(item)) placeIn(item, 'todo', undefined, null);
   }
   if (phase !== undefined && leftTodo(item)) fail(`--phase sets a Todo task's phase; ${key} is ${LANES[item.lane]}, where the board sets it`);
+  if (phase === 'ready' && askOf !== undefined && !['staging', 'ready'].includes(item.phase) && await fromSlack(site, askOf)) fail(SLACK_DISCUSSES(askOf));
   if (phase === 'ready' && !quick && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
   // docs/adr/2026-11-14-1500-a-quick-ask-goes-ready-only-when-small-with-no-open-question.md: an Implement is no
   // discussion, so only a small change goes ready on it; the owner's tap after a discussion (staging) settles any size.
@@ -3750,6 +3758,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   const hold = holdOf({ held, pickUpAt });
   if (hold && phase !== undefined) fail('a task filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
   if (ask && phase === undefined && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
+  if (phase === 'ready' && ask && await fromSlack(site, ask)) fail(SLACK_DISCUSSES(ask));
   if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it discussing, grilling or prototyping` : 'item add files a task discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
   if (phase === 'ready' && size !== undefined && size !== 'small') fail(QUICK_NOT_SMALL(key));
   if (phase === 'ready' && !size) fail(`a new ready task has no size; a builder starts from it, so pass --size small or large with --phase ready`);

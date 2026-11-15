@@ -87,10 +87,12 @@ const changeQueue = (fn) => withFileLock(ROUTE_QUEUE, () => saveJSON(ROUTE_QUEUE
 // Files req on board as an ask carrying `routed`, logs it for the hub page and takes it off the queue. → its routed.json entry
 async function file(req, board, reason) {
   const at = new Date().toISOString();
-  const { via, by, link } = req.from;
+  const { via, by, link, slack } = req.from;
   // appendEvent throws only when the board may already have the ask, so the request leaves the queue either way and is
-  // never filed twice (docs/adr/2026-11-05-0820-a-hub-event-a-board-took-is-never-written-twice.md).
-  const eventId = await appendEvent(board, 'ask', { text: req.text, ...(req.files?.length ? { files: req.files } : {}), routed: { reason, via, by, ...(link ? { link } : {}), at } })
+  // never filed twice (docs/adr/2026-11-05-0820-a-hub-event-a-board-took-is-never-written-twice.md). A Slack request's
+  // slack {channel, thread_ts, ts} names the thread it came from
+  // (docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md).
+  const eventId = await appendEvent(board, 'ask', { text: req.text, ...(req.files?.length ? { files: req.files } : {}), routed: { reason, via, by, ...(link ? { link } : {}), ...(slack ? { slack } : {}), at } })
     .finally(() => changeQueue((queue) => queue.filter((q) => q.id !== req.id)));
   const entry = { id: req.id, at, text: req.text, via, by, ...(link ? { link } : {}), route: board.route, eventId, reason };
   saveJSON(ROUTED_LOG, { routed: [...readJSON(ROUTED_LOG, { routed: [] }).routed, entry].slice(-KEEP) });
@@ -130,8 +132,9 @@ export function drainRoutes({ manifest = readManifest(), ask = askHaiku, paused 
   return run;
 }
 
-// An incoming request {text, files?, from: {via, by, link?}} on the queue, for the next drain: the hub's tick when
-// another process queued it, as `kickflip handoff` with no board does. → the queued request
+// An incoming request {text, files?, from: {via, by, link?, slack?}} on the queue, for the next drain: the hub's tick
+// when another process or the hub's poll queued it, as `kickflip handoff` with no board and Slack intake
+// (slack-intake.mjs) do. → the queued request
 export async function queueRequest(request) {
   const req = { id: crypto.randomUUID(), at: new Date().toISOString(), text: String(request.text), ...(request.files?.length ? { files: request.files } : {}), from: request.from, tries: 0 };
   await changeQueue((queue) => [...queue, req]);

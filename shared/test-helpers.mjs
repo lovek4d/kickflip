@@ -242,11 +242,13 @@ export function fakePs(rows) {
 }
 
 // Slack's Web API for one user token: auth.test, conversations.open, chat.postMessage, chat.update, reactions.add,
-// conversations.history and conversations.replies, recording each call. world.dms maps a user id to the DM channel
+// conversations.history, conversations.replies and search.messages, recording each call. world.dms maps a user id to the DM channel
 // conversations.open answers; posts land in world.messages as the token's user, with their attachments, and reactions
 // in world.reactions; an update keeps a message's attachments unless it passes new ones, as Slack does.
 // say({channel, user, text, thread_ts, attachments}) adds another person's message → its ts. world.unheard answers the two reads
-// missing_scope, as a token without im:history does.
+// missing_scope, as a token without im:history does. search.messages matches messages holding its query, newest first,
+// each with its channel's is_im (a D channel) and is_mpim (a G channel) and a permalink naming its thread;
+// world.unsearched answers it missing_scope, as a token without search:read does.
 export const slackWorld = () => ({
   token: 'xoxp-test-token', team: 'Acme', team_id: 'T1', user: 'love', user_id: 'U0', url: 'https://acme.slack.com/',
   dms: { U1: 'D1', U2: 'D2', U3: 'D3' }, messages: [], reactions: [],
@@ -298,6 +300,14 @@ export function fakeSlack(world) {
       const parent = world.messages.find((m) => m.channel === body.channel && m.ts === body.ts);
       if (!parent) return { ok: false, error: 'thread_not_found' };
       return { ok: true, messages: [parent, ...repliesTo(body.channel, body.ts).filter((m) => Number(m.ts) > Number(body.oldest || 0))], has_more: false };
+    }
+    if (method === 'search.messages') {
+      if (world.unsearched) return { ok: false, error: 'missing_scope' };
+      const permalink = (m) => `${world.url}archives/${m.channel}/p${m.ts.replace('.', '')}${top(m) ? '' : `?thread_ts=${m.thread_ts}&cid=${m.channel}`}`;
+      const matches = world.messages.filter((m) => String(m.text || '').toLowerCase().includes(String(body.query).toLowerCase()))
+        .sort((a, b) => Number(b.ts) - Number(a.ts)).slice(0, body.count || 20)
+        .map((m) => ({ ts: m.ts, text: m.text, user: m.user, channel: { id: m.channel, is_im: m.channel.startsWith('D'), is_mpim: m.channel.startsWith('G') }, permalink: permalink(m) }));
+      return { ok: true, messages: { matches } };
     }
     if (method === 'reactions.add') {
       if (world.reactions.some((r) => r.channel === body.channel && r.timestamp === body.timestamp && r.name === body.name)) return { ok: false, error: 'already_reacted' };

@@ -146,7 +146,8 @@ export function settingsView({ now, st, rules = [], linear = { set: false }, sla
 
 // The Slack app the owner makes once: a manifest with the user scopes the hub's sends need, opened on Slack's new-app
 // page, whose User OAuth Token goes in the slot (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md).
-const SLACK_MANIFEST = { display_information: { name: 'Kickflip' }, oauth_config: { scopes: { user: ['chat:write', 'emoji:read', 'im:history', 'im:write', 'reactions:write', 'users:read'] } } };
+// search:read finds @kickflip DMs (docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md).
+const SLACK_MANIFEST = { display_information: { name: 'Kickflip' }, oauth_config: { scopes: { user: ['chat:write', 'emoji:read', 'im:history', 'im:write', 'reactions:write', 'search:read', 'users:read'] } } };
 const SLACK_APPS = { url: `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(SLACK_MANIFEST))}`, label: 'a new Slack app' };
 function slackWords(slack) {
   const workspace = slack.team ? `${slack.team} workspace` : '';

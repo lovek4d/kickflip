@@ -133,6 +133,26 @@ test('item set --from-ask files a Quick build ask ready, from any phase, with it
   assert.equal(item('A3').phase, undefined);
 });
 
+// docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md
+test('an ask routed from a Slack @kickflip always discusses first: item add and item set refuse it ready, even with an Implement on it, until the owner stages it', async () => {
+  write(at('waves', 'w', 'a1.md'), '# A1\n');
+  const routed = { reason: 'the header is this board', via: 'slack', by: 'Ann', at: '2026-11-06T09:59:00Z', slack: { channel: 'D1', thread_ts: '1.1', ts: '1.1' } };
+  addEvents({ id: 'es', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Ann: @kickflip fix the header', routed } },
+    { id: 'ei', ts: '2026-11-06T10:01:00Z', kind: 'item-message', data: { key: 'ask:es', text: '', intent: 'build' } });
+  const refused = 'ask "es" came from a Slack @kickflip, which always discusses first: file it --phase discussing; the owner\'s Implement after the discussion readies it\n';
+  const added = await board('item', 'add', 'w/S1', '--site', 'orch', '--title', 'fix: header', '--from-ask', 'es', '--text', 'Filed.', '--phase', 'ready', '--size', 'small', '--notes', 'Fit it.');
+  assert.deepEqual(added, { code: 1, out: '', err: refused });
+  assert.equal(item('S1'), undefined);
+  write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'fix: header', plan: 'a1.md', from_ask: 'es' }] });
+  assert.deepEqual(await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small'), { code: 1, out: '', err: refused });
+  assert.equal(item().phase, undefined);
+  assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'discussing')).code, 0);
+  setState({ phase: 'staging', staged_at: '2026-11-06T10:05:00.000Z', size: 'small' });
+  const r = await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--text', 'Discussed with Ann.');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(item().phase, 'ready');
+});
+
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
 test("leaving staging or ready for grilling or prototyping owes the orchestrator the round's brief", async () => {
   setState({ phase: 'staging', staged_at: '2026-11-06T10:00:00.000Z' });

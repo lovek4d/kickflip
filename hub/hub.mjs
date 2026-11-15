@@ -176,7 +176,8 @@
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
 // deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, prompts.json, secrets.json,
 // and the router's route-queue.json and routed.json: every 15 seconds the router files the requests still queued
-// (router.mjs drainRoutes; docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md).
+// (router.mjs drainRoutes; docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md), and
+// slack-intake.json, where each poll's @kickflip DM search starts (slack-intake.mjs).
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
@@ -233,6 +234,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
 import { SlackError, slackStatus, removeSlackToken, saveSlackToken } from './slack.mjs';
 import { sendReviews } from './review-send.mjs';
+import { fileSlackAsks } from './slack-intake.mjs';
 import { createAnswering } from './answering.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -508,7 +510,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   const ERROR_LOG_MS = 60 * 60_000;
   // running: the poll in progress; startedAt: when the last one began; last: its result; remaining: GitHub's points left
   // after its query, null when it made none.
-  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0, slackErrorLoggedAt: 0 };
+  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0, slackErrorLoggedAt: 0, slackIntakeErrorLoggedAt: 0 };
   const owner = ownerTracker();
 
   const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
@@ -563,6 +565,14 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       if (result.slack.failed.length && clock() - polls.slackErrorLoggedAt > ERROR_LOG_MS) {
         polls.slackErrorLoggedAt = clock();
         log(`slack sends: ${result.slack.failed.length} failed, first: ${result.slack.failed[0]} (logged at most hourly)`);
+      }
+      // docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md: queued here, routed on the tick.
+      try { result.slackIntake = await fileSlackAsks({ boards: listBoards(loadManifest()) }); }
+      catch (e) { result.slackIntake = { filed: [], failed: [e.message] }; }
+      for (const line of result.slackIntake.filed) log(`slack: @kickflip from ${line}, queued for the router`);
+      if (result.slackIntake.failed.length && clock() - polls.slackIntakeErrorLoggedAt > ERROR_LOG_MS) {
+        polls.slackIntakeErrorLoggedAt = clock();
+        log(`slack intake: ${result.slackIntake.failed.length} failed, first: ${result.slackIntake.failed[0]} (logged at most hourly)`);
       }
       try { result.deaf = await checkListening({ manifest: loadManifest() }); }
       catch (e) { result.deaf = { pushed: [], failed: [e.message] }; }

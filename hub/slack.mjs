@@ -139,6 +139,9 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     history: ({ channel, oldest }) => pages('conversations.history', { channel, oldest, inclusive: true }),
     // A thread's opener, then its replies after oldest when given, else all of them. Needs im:history.
     replies: ({ channel, ts, oldest }) => pages('conversations.replies', { channel, ts, ...(oldest ? { oldest } : {}) }),
+    // The newest count messages holding query, in every conversation the owner can read, newest first, each with its
+    // channel {id, is_im, is_mpim} and permalink. Needs search:read.
+    search: async ({ query, count = 100 }) => (await call('search.messages', { query, count, sort: 'timestamp', sort_dir: 'desc' })).messages.matches,
   };
   async function pages(method, body) {
     const out = [];
@@ -159,7 +162,7 @@ const savedToken = (home) => { const s = readSecret('slack', home); return typeo
 export function slackStatus(home) {
   const saved = savedToken(home);
   if (!saved) return { set: false };
-  return { set: true, ...(saved.refused_at ? { refused: true } : {}), ...(saved.unheard_at ? { unheard: true } : {}), ...(saved.team ? { team: saved.team, user: saved.user } : {}) };
+  return { set: true, ...(saved.refused_at ? { refused: true } : {}), ...(saved.unheard_at ? { unheard: true } : {}), ...(saved.unsearched_at ? { unsearched: true } : {}), ...(saved.team ? { team: saved.team, user: saved.user } : {}) };
 }
 // The owner's Slack user id, whose messages in a day thread are the owner's, as auth.test named it when the token was saved.
 export const slackUserId = () => savedToken()?.user_id;
@@ -205,6 +208,14 @@ export function setHearing(works) {
   if (!saved || Boolean(saved.unheard_at) === !works) return;
   const { unheard_at: _, unheard_pushed_at: __, ...rest } = saved;
   writeSecret('slack', works ? rest : { ...rest, unheard_at: new Date().toISOString() });
+}
+// docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md: whether the saved token can
+// search for @kickflip DMs, from the newest search with it; unsearched_at once Slack answered missing_scope.
+export function setSearching(works) {
+  const saved = savedToken();
+  if (!saved || Boolean(saved.unsearched_at) === !works) return;
+  const { unsearched_at: _, ...rest } = saved;
+  writeSecret('slack', works ? rest : { ...rest, unsearched_at: new Date().toISOString() });
 }
 export const hearingUnpushed = () => { const s = savedToken(); return Boolean(s?.unheard_at && !s.unheard_pushed_at); };
 export function markHearingPushed() {
