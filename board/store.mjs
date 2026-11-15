@@ -2233,7 +2233,8 @@ export async function settleAnswers(site, answers) {
 async function moveOnAnswered(site, key) {
   const { item } = await loadItem(site, key);
   const { asked } = await cardQuestions(site, key);
-  if (asked.some((q) => q.state === 'open')) return null;
+  // A requested question is handed to a prototype or the grill, whose round decides the next phase.
+  if (asked.some((q) => q.state === 'open' || q.state === 'requested')) return null;
   if (item.phase === 'grilling' && item.gates?.prototype === 'yes') {
     await setItem(site, key, { phase: 'prototyping' });
     const { source, itemFile, item: moved } = await loadItem(site, key);
@@ -2675,7 +2676,7 @@ async function grillAgain(site, key) {
 
 // The ids of a topic's answered questions that Claude acting on the card resolves.
 function answeredOnClaude(views) {
-  return views.filter((q) => q.state === 'answered').map((q) => q.id);
+  return views.filter((q) => q.state === 'answered' || (q.state === 'requested' && q.request.kind === 'grill-more')).map((q) => q.id);
 }
 
 function setResolved(owner, ids, note, at = new Date().toISOString()) {
@@ -2700,6 +2701,7 @@ export async function resolveQuestion(site, id, note, { waitsOn } = {}) {
   const view = ownerQuestion(q, answers, requests, [], reopens);
   if (view.state === 'resolved') return ownerFile(site);
   // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
+  if (view.state === 'requested' && view.request.kind === 'grill-more') fail(`${id} waits on the grill the owner sent it to; the grill's next question add resolves it`);
   if (view.state === 'requested') fail(`${id} waits on the prototype the owner asked for; question add with round_of ${id} resolves it`);
   const said = waitsOn ? messageText(note) : text(note, '--note');
   const key = cardOfTopic(q.topic);
@@ -2774,16 +2776,23 @@ async function ownerEvents(site) {
   const answers = await Promise.all(events.filter((e) => e.kind === 'owner-answer').map(async (e) => {
     return { ...e, reply: e.reply || (await replyFilesOf(path.join(site, 'data', 'replies'), e.id)).length > 0 };
   }));
-  return { answers, requests: events.filter((e) => e.kind === 'prototype-request'), reopens: events.filter((e) => e.kind === QUESTION_REOPEN) };
+  return { answers, requests: events.filter((e) => e.kind === 'prototype-request' || e.kind === 'grill-more'), reopens: events.filter((e) => e.kind === QUESTION_REOPEN) };
 }
 
 // docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
-// The answers whose question still waits for one: open, or with only a prototype requested, which a reopen puts it back
-// to. An answer to a question owner.json doesn't hold is kept for the caller to refuse.
+// The answers whose question still waits for one: open. An answer to a question owner.json doesn't hold is kept for the
+// caller to refuse.
 export async function unrecorded(site, answers) {
   const { asked } = await topicQuestionsAll(site);
   const state = new Map(asked.map((q) => [q.id, q.state]));
-  return answers.filter((a) => !state.has(String(a.id)) || ['open', 'requested'].includes(state.get(String(a.id))));
+  return answers.filter((a) => !state.has(String(a.id)) || state.get(String(a.id)) === 'open');
+}
+// Why an answer can't be sent: its question is handed to a prototype or the grill, which resolves it with the next round
+// (docs/adr/2026-11-15-1100-grill-more-hands-its-question-to-the-grill.md). → the reason, or null.
+export async function handedOver(site, answers) {
+  const { asked } = await topicQuestionsAll(site);
+  const waiting = asked.find((q) => q.state === 'requested' && answers.some((a) => String(a.id) === q.id));
+  return waiting ? `${waiting.id} waits on the ${waiting.request.kind === 'grill-more' ? 'grill' : 'prototype'} the owner asked for; its next round resolves it.` : null;
 }
 async function topicQuestionsAll(site) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });

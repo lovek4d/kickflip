@@ -686,7 +686,7 @@ export function prototypeWaits(built, events) {
     if (closedLane(it) || (it.agents || []).some((a) => a.kind === 'prototype' && a.started && !a.done)) continue;
     const own = it.prototyping && events.filter((e) => e.data?.key === it.key && isRequest(e, 'prototype')).pop();
     if (own) out.push({ key: it.key, request: own.id, since: own.ts });
-    for (const q of built.owner.filter((x) => x.topic === `item:${it.key}` && x.state === 'requested')) out.push({ key: it.key, request: q.request.id, question: q.id, since: q.request.ts });
+    for (const q of built.owner.filter((x) => x.topic === `item:${it.key}` && x.state === 'requested' && x.request.kind === 'prototype-request')) out.push({ key: it.key, request: q.request.id, question: q.id, since: q.request.ts });
   }
   return out;
 }
@@ -843,10 +843,12 @@ const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || Strin
 // A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), requested (a
 // prototype was asked for it), resolved (owner.json sets `resolved` and `resolved_at`). An answer newer than
 // `resolved_at` reopens it; without `resolved_at` it stays resolved. Each answer is acted on once the question's
-// resolution covers it. request is the owner's newest prototype-request for it after its last answer: the question reads
-// requested until a question naming it in round_of resolves it
-// (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md). answerEvents are owner-answer events and
-// requestEvents prototype-request events, oldest first; store.mjs reads their states to close a card's questions.
+// resolution covers it. request is the owner's newest prototype-request or grill-more for it after its last answer: the
+// question reads requested until a question naming it in round_of (a prototype's) or the grill's next questions on its
+// card (a grill-more's) resolve it
+// (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md,
+// docs/adr/2026-11-15-1100-grill-more-hands-its-question-to-the-grill.md). answerEvents are owner-answer events and
+// requestEvents prototype-request and grill-more events, oldest first; store.mjs reads their states to close a card's questions.
 // reask is the owner's newest reask-request for a resolved question while it is newer than `resolved_at`: question add
 // with reask_of resolves the question again once the session asks it again.
 // reopenEvents are question-reopen events, the owner's tap on a sent question's Resolved badge: the newest one, while
@@ -863,7 +865,7 @@ export function ownerQuestion(q, answerEvents, requestEvents = [], reaskEvents =
   const resolved = q.resolved && !answeredAgain && !reopened;
   const reask = resolved ? reaskEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(q.resolved_at || '')).at(-1) : null;
   const state = reopened ? 'open' : resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
-  return { ...q, state, reopened, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null, reask: reask ? { id: reask.id, ts: reask.ts } : null,
+  return { ...q, state, reopened, request: req ? { id: req.id, kind: req.kind, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null, reask: reask ? { id: reask.id, ts: reask.ts } : null,
     answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, replies: e.replies, acted: resolvedSince(q, e.ts) })) };
 }
 
@@ -884,7 +886,7 @@ export function roundSettledBy(qs, n) {
 // A topic's latest round: making while a question in it has a request and no later round has arrived, closed once an
 // answer settles it, back while one of its questions is unresolved, else none.
 function roundState(qs) {
-  const req = qs.find((q) => q.request && !qs.some((x) => roundOf(x) > roundOf(q)));
+  const req = qs.find((q) => q.request?.kind === 'prototype-request' && !qs.some((x) => roundOf(x) > roundOf(q)));
   if (req) return { n: roundOf(req) + 1, state: 'making' };
   const n = Math.max(0, ...qs.map(roundOf));
   if (!n) return null;
@@ -1298,7 +1300,7 @@ export function buildBoard(snapshot) {
   const merges = [];
   const unfiled = [];
   const answerEvents = groupBy(events.filter((e) => e.kind === 'owner-answer'), (e) => e.data?.id);
-  const requestEvents = groupBy(events.filter((e) => e.kind === 'prototype-request'), (e) => e.data?.question);
+  const requestEvents = groupBy(events.filter((e) => e.kind === 'prototype-request' || e.kind === 'grill-more'), (e) => e.data?.question);
   const reaskEvents = groupBy(events.filter((e) => e.kind === 'reask-request'), (e) => e.data?.question);
   const reopenEvents = groupBy(events.filter((e) => e.kind === QUESTION_REOPEN), (e) => e.data?.question);
   const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents.get(q.id) || [], requestEvents.get(q.id) || [], reaskEvents.get(q.id) || [], reopenEvents.get(q.id) || []));

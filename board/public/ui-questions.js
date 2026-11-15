@@ -82,8 +82,9 @@
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
   // Under the note box, the thread reply's row without What's left?: the files at the left, and at the right the eye,
   // fire, image and attach (ui.js requestIcons). The eye sends `prototype-request {key?, question, note, choice}` for that
-  // question alone, which then reads requested until its prototype round arrives; the fire and image send `grill-more`
-  // and `visual-request` the same way, the question staying open (view-questions.js).
+  // question alone, which then reads requested until its prototype round arrives; the fire sends `grill-more` the same
+  // way, which reads requested, Grilling deeper, until the grill's next questions resolve it, and the image `visual-request`,
+  // the question staying open (view-questions.js).
   const noteComposer = (q, note, eye) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`, { attach: false })}
       <div class="note-tools"><div class="pending-files" data-files></div>${requestIcons('q:' + q.id, { protoLabel: 'Ask for a prototype instead', requests: eye })}</div></div>`;
 
@@ -179,7 +180,7 @@
     const locked = q.state === 'requested';
     const chosen = locked ? q.request.choice : choiceOf(q, draft);
     return `<section class="q${q.urgent && q.state === 'open' ? ' urgent' : ''}${locked ? ' pr-busy' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
-      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(QUESTION_STATE[q.state].tone, QUESTION_STATE[q.state].label)}</div>
+      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(QUESTION_STATE[q.state].tone, q.state === 'requested' && q.request.kind === 'grill-more' ? `${SPIN}Grilling deeper` : QUESTION_STATE[q.state].label)}</div>
       <h3>${linkText(q.question, links)}</h3>
       ${q.context ? `<div class="ctx">${markdown(q.context, links)}</div>` : ''}
       ${questionLink(q.confirm_of && isPrototype(q.url) ? withParam(q.url, 'variant', q.options[0].id) : q.url)}

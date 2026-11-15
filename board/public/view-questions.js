@@ -11,7 +11,7 @@
 // The question then reads prototype requested, locked, until its prototype round arrives, and once the request is
 // recorded the page moves on as a Send does (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md,
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md). Its fire and image, beside the eye under
-// the note box, send `grill-more` and `visual-request` for that question the same way, and the question stays open
+// the note box, send `grill-more` (the question then reads requested, Grilling deeper, until the grill's next questions resolve it) and `visual-request` (the question stays open)
 // (docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md).
 // A question the owner has sent an answer to is resolved: read-only, with a Resolved badge. One that resolves
 // while its topic shows stays in place until you leave that topic, by a pill, a link or the move on after the last
@@ -219,7 +219,7 @@ const lastTopic = new Map();
     }
     // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
     // The fire or image sends `grill-more` or `visual-request {key?, question, note, choice}` for that question as the eye
-    // does, and the question stays open with its draft: the grill goes deeper on it, the visual helps answer it.
+    // does, and the grill's question reads requested, Grilling deeper, until the grill's next round; the visual's stays open with its draft.
     const REQUEST = { grill: ['grill-more', 'Grill requested.'], visual: ['visual-request', 'Visual requested.'] };
     function askAbout(q, flag, button) {
       const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;

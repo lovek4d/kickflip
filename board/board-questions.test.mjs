@@ -155,6 +155,17 @@ test('question resolve refuses a question the owner asked a prototype of; the ro
   assert.equal(read(site('orch', 'data', 'owner.json')).items[0].resolved, 'Followed by prototype round 1');
 });
 
+// docs/adr/2026-11-15-1100-grill-more-hands-its-question-to-the-grill.md
+test("question resolve refuses a question the owner sent to the grill with Grill more; the grill's next question add resolves it", async () => {
+  const add = async (q) => { write(path.join(home, 'q.json'), q); return await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')); };
+  assert.equal((await add(question('deeper', { topic: 'item:w/A1' }))).code, 0);
+  addEvents({ id: 'g-deeper', ts: '2026-10-23T10:00:00Z', kind: 'grill-more', data: { key: 'w/A1', question: 'deeper', note: 'More' } });
+  assert.deepEqual(await board('question', 'resolve', 'deeper', '--site', 'orch', '--note', 'Answered in the thread.'),
+    { code: 1, out: '', err: "deeper waits on the grill the owner sent it to; the grill's next question add resolves it\n" });
+  assert.equal((await add(question('next', { topic: 'item:w/A1' }))).code, 0);
+  assert.equal(read(site('orch', 'data', 'owner.json')).items[0].resolved, 'Followed by next');
+});
+
 // docs/adr/2026-11-13-2030-question-resolve-takes-close-so-implement-never-flashes.md
 test('question resolve --close or --implement resolves the question, writes the note to the thread and marks the card waiting', async () => {
   const add = async (id) => { write(path.join(home, 'q.json'), question(id, { topic: 'item:w/A1' })); assert.equal((await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'))).code, 0); };

@@ -453,7 +453,7 @@ test("a prototype request is its question's input until the round arrives: the q
 
   assert.deepEqual(view([plain], []), { states: [['plain', 'open']], round: null, open: 1, needs: 1 });
   const asked = plain;
-  assert.deepEqual(board({ owner: { items: [asked] }, events: [request('plain', '2026-10-23T10:00:00Z')] }).owner[0].request, { id: 'r-plain', ts: '2026-10-23T10:00:00Z', note: 'show it on a phone', choice: null });
+  assert.deepEqual(board({ owner: { items: [asked] }, events: [request('plain', '2026-10-23T10:00:00Z')] }).owner[0].request, { id: 'r-plain', kind: 'prototype-request', ts: '2026-10-23T10:00:00Z', note: 'show it on a phone', choice: null });
   assert.equal(board({ owner: { items: [asked] }, events: [request('plain', '2026-10-23T10:00:00Z', 'B')] }).owner[0].request.choice, 'B');
   assert.deepEqual(view([asked], [request('plain', '2026-10-23T10:00:00Z')]), { states: [['plain', 'requested']], round: { n: 1, state: 'making' }, open: 0, needs: 0 });
   assert.deepEqual(view([asked], [answer('plain', 'A', '2026-10-23T09:00:00Z'), request('plain', '2026-10-23T10:00:00Z')]), { states: [['plain', 'requested']], round: { n: 1, state: 'making' }, open: 0, needs: 0 });
@@ -482,7 +482,7 @@ test("a prototype request is its question's input until the round arrives: the q
 });
 
 // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-test("a question's grill or visual request reads in its card's thread as the question, the pick and the note under Grill or Visual requested, leaves the question open, and a question's grill holds the card grilling until it is answered", () => {
+test("a question's grill or visual request reads in its card's thread as the question, the pick and the note under Grill or Visual requested, hands the question to the grill (requested; a visual leaves it open), and a question's grill holds the card grilling until it is answered", () => {
   const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Behind an icon' }], asked_at: '2026-10-23T09:00:00Z' };
   const request = (kind, question, ts) => ({ id: `${kind}-${question}`, ts, kind, data: { key: 'w/A1', question, note: 'go deeper on the icon', choice: 'B' }, reply: null });
   const thread = threadOf('w/A1', { events: [request('grill-more', 'plain', '2026-10-23T10:00:00Z'), request('visual-request', 'plain', '2026-10-23T10:01:00Z')], owner: { items: [plain] } });
@@ -490,7 +490,7 @@ test("a question's grill or visual request reads in its card's thread as the que
   assert.deepEqual(thread.map((m) => [m.kind, m.text, m.status, Boolean(m.request)]), [['grill-more', asked, 'Grill requested', false], ['visual-request', asked, 'Visual requested', false]]);
   const built = (events, items = [plain]) => board({ owner: { items }, events, item: { phase: 'ready' } });
   const b = built([request('grill-more', 'plain', '2026-10-23T10:00:00Z'), request('visual-request', 'plain', '2026-10-23T10:01:00Z')]);
-  assert.deepEqual([b.owner.find((q) => q.id === 'plain').state, b.items.find((i) => i.key === 'w/A1').grilling, b.items.find((i) => i.key === 'w/A1').prototyping], ['open', true, false]);
+  assert.deepEqual([b.owner.find((q) => q.id === 'plain').state, b.items.find((i) => i.key === 'w/A1').grilling, b.items.find((i) => i.key === 'w/A1').prototyping], ['requested', true, false]);
   const deeper = { ...plain, id: 'deeper', question: 'Which icon?', asked_at: '2026-10-23T10:05:00Z' };
   assert.equal(built([request('grill-more', 'plain', '2026-10-23T10:00:00Z')], [plain, deeper]).items.find((i) => i.key === 'w/A1').grilling, false, 'the grill posted its questions');
 });

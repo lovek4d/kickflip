@@ -290,6 +290,34 @@ test("a prototype request on a question keeps its note and pick on the event and
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
+// docs/adr/2026-11-15-1100-grill-more-hands-its-question-to-the-grill.md
+test("a Grill more or prototype request hands its question over: a Send on it is refused, in one answer or a batch, and a grilling card stays grilling", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const eventsFile = path.join(site, 'data', 'events.jsonl');
+  await putWave(JSON.stringify({ items: [{ id: 'GM1', title: 'Search', phase: 'grilling' }] }));
+  const ask = (id) => ({ id, topic: 'item:t/GM1', question: `${id}?`, options: [{ id: 'A', label: 'This' }] });
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('deeper'), ask('proto')] }));
+  const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const log = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  try {
+    const grill = await send({ kind: 'grill-more', key: 't/GM1', question: 'deeper', note: 'More', choice: 'A' });
+    await ok200(grill);
+    await ok200(send({ kind: 'prototype-request', key: 't/GM1', question: 'proto', note: 'Show it', choice: 'A' }));
+    const before = log().filter((e) => e.kind === 'owner-answer').length;
+    const one = await send({ kind: 'owner-answer', id: 'deeper', choice: 'A', note: '' });
+    assert.equal(one.status, 400);
+    assert.match((await one.json()).error, /deeper waits on the grill/);
+    const batch = await send({ kind: 'owner-answers', answers: [{ id: 'proto', choice: 'A', note: '' }] });
+    assert.equal(batch.status, 400);
+    assert.match((await batch.json()).error, /proto waits on the prototype/);
+    assert.equal(log().filter((e) => e.kind === 'owner-answer').length, before);
+    const items = JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items;
+    assert.equal(items.find((i) => i.id === 'GM1').phase, 'grilling');
+    const b = (await (await send({ kind: 'item-message', key: 't/GM1', text: 'hi' })).json()).board;
+    assert.deepEqual(b.owner.map((q) => [q.id, q.state, q.request.kind]), [['deeper', 'requested', 'grill-more'], ['proto', 'requested', 'prototype-request']]);
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
 test("a re-ask request on a resolved question is recorded, marks it pending in the topic's resolved questions and reads 're-ask requested' in the card's thread; one on a question that isn't resolved records nothing", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
