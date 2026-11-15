@@ -99,7 +99,7 @@ test('file-backed checks see changes immediately while gh and tailscale stay cac
   assert.ok((await r.rows()).every((r) => r.ready));
   write(path.join(state, 'secrets.json'), { linear: { key: 'secret', workspace: 'Office', refused_at: new Date(now).toISOString() }, slack });
   const refused = (await r.rows())[2];
-  assert.deepEqual([refused.ready, refused.missing, refused.keyButton], [false, 'Linear refused the key', 'Change key']);
+  assert.deepEqual([refused.ready, refused.refused, refused.missing, refused.keyButton], [false, true, 'Linear refused the key', 'Change key']);
   fs.rmSync(path.join(home, '.codex', 'auth.json'));
   write(path.join(state, 'secrets.json'), {});
   write(path.join(state, 'push', 'subs.json'), []);
@@ -167,7 +167,7 @@ test('a ready integration missing a permission carries each missing scope with w
   assert.equal(row({ unheard: true }).ready, true);
   assert.equal(row({ unheard: true }).note, undefined);
   const refused = row({ refused: true, unheard: true, unsearched: true });
-  assert.deepEqual([refused.ready, refused.missing, refused.permissions], [false, 'Slack refused the token', undefined]);
+  assert.deepEqual([refused.ready, refused.refused, refused.missing, refused.permissions], [false, true, 'Slack refused the token', undefined]);
   // Sends go on while a permission is missing, so nothing waits on Slack.
   const reader = readinessReader({ now: () => now, probes: probesOf({ ...ready(), slack: { set: true, team: 'Acme', user: 'love', unheard: true, unsearched: true } }) });
   assert.equal(await reader.waiting('slack'), null);

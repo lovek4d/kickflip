@@ -52,10 +52,10 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
       case 'codex': return value.usable ? { ready: true, detail: 'Installed and logged in' }
         : { ready: false, missing: value.words, fix: { command: value.fix } };
       case 'linear': return !value.set ? { ready: false, missing: 'No Linear key set', keyButton: 'Add key' }
-        : value.refused ? { ready: false, missing: 'Linear refused the key', keyButton: 'Change key' }
+        : value.refused ? { ready: false, refused: true, missing: 'Linear refused the key', keyButton: 'Change key' }
         : { ready: true, detail: `Key set · ${value.workspace} workspace`, keyButton: 'Change key' };
       case 'slack': return !value.set ? { ready: false, missing: 'No Slack token set', keyButton: 'Add key' }
-        : value.refused ? { ready: false, missing: 'Slack refused the token', keyButton: 'Change key' }
+        : value.refused ? { ready: false, refused: true, missing: 'Slack refused the token', keyButton: 'Change key' }
         : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}`, keyButton: 'Change key' };
       case 'tailscale': {
         let missing, command;
