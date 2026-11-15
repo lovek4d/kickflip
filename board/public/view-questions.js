@@ -64,7 +64,7 @@
     }
     // The badge's rows in the board's order, an urgent question's topic first.
     function rows() {
-      const list = BoardUI.queueRows(board.queue, cardTopics(board.ownerTopics, board.items)).map(rowOf);
+      const list = BoardUI.queueRows(board.queue, cardTopics(board.ownerTopics, board.items), B.store.get('outbox', [])).map(rowOf);
       return [...list.filter((r) => r.urgent), ...list.filter((r) => !r.urgent)];
     }
     // An arrival slides in with a glow and settles (style.css .arrived).
@@ -91,6 +91,8 @@
     // While the board can't be reached, the page holds its sending buttons and shows the board's copy here, painted live,
     // or with none and nothing landed the landing for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
     let copy = null;
+    // A tap entering or leaving this browser's outbox moves its row at once.
+    B.atUnmount(BoardUI.onOutbox(() => { if (board) repaint(); }));
     BoardUI.holdSends(B.on, root, () => root.classList.contains('offline'), () => B.toast(BoardUI.WAITING));
     const out = (down) => {
       root.classList.add('offline');

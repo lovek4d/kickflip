@@ -87,7 +87,7 @@ BoardView.part((B) => {
   const outbox = () => store.get('outbox', []);
   const sendBox = (m) => `send:${m.sendId}`;
   const queuedFor = (key) => outbox().filter((m) => m.key === key);
-  const setOutbox = (list) => store.set('outbox', list);
+  const setOutbox = (list) => { store.set('outbox', list); BoardUI.outboxChanged(); };
   const eventOf = (m) => m.kind || 'item-message';
   const bodyOf = (m) => ({ ...(m.key ? { key: m.key } : {}), ...(m.text || !m.kind || m.kind === 'ask' ? { text: m.text } : {}), ...(m.files.length ? { files: m.files } : {}), ...(m.intent ? { intent: m.intent } : {}), ...m.fields, ...(m.version ? { version: m.version } : {}), sendId: m.sendId });
   // A card's sends draw in its thread, the New task box's in the New strip, which the board's first land draws when a

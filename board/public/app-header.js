@@ -17,7 +17,11 @@ BoardView.part((B) => {
     $('#setup').hidden = !d.setup;
     $('#setup').innerHTML = setupCard(d.setup);
     if ($('#linksSheet').open) $('#linksList').innerHTML = linksList(d.links);
-    const open = BoardUI.queueRows(d.queue, BoardUI.cardTopics(d.ownerTopics || [], d.items || [])).length;
+    renderBadge(d);
+  }
+  // The ? badge counts the rows Waiting on you draws, which an Implement or Done in the outbox drops at once.
+  function renderBadge(d) {
+    const open = BoardUI.queueRows(d.queue, BoardUI.cardTopics(d.ownerTopics || [], d.items || []), B.store.get('outbox', [])).length;
     const ask = $('#questionsLink');
     const badge = ask.querySelector('.q-badge');
     badge.hidden = !open;
@@ -25,6 +29,7 @@ BoardView.part((B) => {
     ask.setAttribute('aria-label', open ? `Open questions, ${open} open` : 'Open questions');
     B.syncQuestionsLink();
   }
+  B.atUnmount(BoardUI.onOutbox(() => { if (state.board) renderBadge(state.board); }));
   // The status line, and the moon right of the title while the owner reads away (hub/presence.mjs ownerTracker).
   const renderStatus = () => {
     $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.(), waking: state.waking });

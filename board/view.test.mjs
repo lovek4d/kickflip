@@ -6531,6 +6531,28 @@ test("at every width the board header's ? carries the queue's count as a badge, 
   }
 });
 
+// docs/adr/2026-11-15-1400-waiting-on-you-follows-the-tap-not-the-board.md
+test("an Implement tapped in a card's thread drops its Tap Implement row from Waiting on you and the ? badge before the server answers, and the row returns if the board refuses it (409)", async () => {
+  const queue = [rowTap('implement', 'w/T1', 'Implement'), rowTap('implement', 'w/T2', 'Implement')];
+  const pending = [];
+  const send = () => new Promise((resolve, reject) => pending.push({ resolve, reject }));
+  const board = { ...questionsBoard([], [], queue), items: [workCard('T1'), workCard('T2')] };
+  const b = boardOnDom({ open: ['w/T1'], board, threads: { 'w/T1': [] }, send, width: 1280 });
+  await b.settle();
+  const rows = () => b.root.querySelectorAll('#boardPane .wrow').map((r) => r.dataset.row);
+  const badge = () => b.root.querySelector('.top #questionsLink .q-badge').textContent;
+  assert.deepEqual([rows(), badge()], [['tap:w/T1', 'tap:w/T2'], '2']);
+  const form = b.root.querySelector('form[data-reply="w/T1"]');
+  b.page.fire(b.root, 'submit', { target: form, submitter: form.querySelector('button[data-intent="build"]') });
+  await b.settle();
+  assert.equal(pending.length, 1, 'the server has not answered');
+  assert.deepEqual([rows(), badge()], [['tap:w/T2'], '1'], 'the row follows the tap');
+  pending[0].reject(Object.assign(new Error('send failed: 409'), { status: 409, reason: 'already ready' }));
+  await b.settle();
+  assert.deepEqual([rows(), badge()], [['tap:w/T1', 'tap:w/T2'], '2'], 'a refused tap brings its row back');
+  b.view.unmount();
+});
+
 test("on a desktop, one click on a row in the pane opens that topic's card on the board and scrolls to it, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
   const board = { ...questionsBoard([openQuestion('q1', 'item:w/T1'), openQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')] };
   const wide = boardOnDom({ board, threads: {}, width: 1280 });

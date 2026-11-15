@@ -195,11 +195,15 @@
   // The ? page's rows and its count, which the header's badge reads too, so the two agree: the board's queue (what
   // waits on the owner, oldest first) with each question entry as its topic with an open question, {topic}, and each
   // tap as {tap}; a topic the queue doesn't name follows, in the topics' order. topics: /api/board's, named by cardTopics.
-  function queueRows(queue, topics) {
+  // outbox: this browser's unsent taps (app-threads.js); a card whose Implement or Done is in it, queued or in flight,
+  // has no tap row, the row following the tap rather than the board's answer, and returns if the board refuses the
+  // tap and it leaves the outbox (docs/adr/2026-11-15-1400-waiting-on-you-follows-the-tap-not-the-board.md).
+  function queueRows(queue, topics, outbox = []) {
     const open = topics.filter((t) => t.state !== 'resolved' && t.open > 0);
+    const tapped = new Set(outbox.filter((m) => m.intent === 'build' || m.kind === 'card-done').map((m) => m.key));
     const rows = [];
     for (const entry of queue || []) {
-      if (entry.kind !== 'question') rows.push({ tap: entry });
+      if (entry.kind !== 'question') { if (!tapped.has(entry.key)) rows.push({ tap: entry }); }
       else { const topic = open.find((t) => t.id === entry.id); if (topic) rows.push({ topic }); }
     }
     return [...rows, ...open.filter((t) => !rows.some((r) => r.topic === t)).map((topic) => ({ topic }))];
@@ -219,5 +223,10 @@
     return `<div class="ps-sheet" role="dialog" aria-label="Rounds"><h3>Rounds on ${esc(ref)}</h3>${rows.join('')}</div>`;
   }
 
-  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet, cardTopics, queueRows });
+  // The outbox changing, for the views drawing rows from it: each listener runs after the outbox is written.
+  const outboxListeners = new Set();
+  const onOutbox = (fn) => { outboxListeners.add(fn); return () => outboxListeners.delete(fn); };
+  const outboxChanged = () => outboxListeners.forEach((fn) => fn());
+
+  Object.assign(globalThis.BoardUI, { onOutbox, outboxChanged, isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet, cardTopics, queueRows });
 })();
