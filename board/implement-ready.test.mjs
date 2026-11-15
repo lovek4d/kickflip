@@ -125,3 +125,18 @@ test('item set --done on an ask card no build ran on is refused, pointing at rep
   await s.recordOwnerTap(audit(), 'card-done', { key: 'audit/T-1' });
   assert.deepEqual([t1().lane, t1().waits_on_owner], ['done', undefined]);
 });
+
+test('item set --done is refused on an ask only a planner ran on, and goes through once a build record exists', async () => {
+  fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  const agent = audit('data', 'agents', 'T-1.json');
+  fs.mkdirSync(path.dirname(agent), { recursive: true });
+  fs.writeFileSync(agent, JSON.stringify({ kind: 'grill', started: '2026-11-09T10:05:00Z', done: '2026-11-09T10:10:00Z' }));
+  const planned = await board('item', 'set', 'audit/T-1', '--done', '--text', 'Answered: yes.', '--site', 'audit');
+  assert.notEqual(planned.code, 0);
+  assert.match(planned.err, /reply .*--close/);
+  fs.writeFileSync(agent, JSON.stringify({ kind: 'build', started: '2026-11-09T10:05:00Z', done: '2026-11-09T10:10:00Z' }));
+  const built = await board('item', 'set', 'audit/T-1', '--done', '--text', 'Built.', '--site', 'audit');
+  assert.doesNotMatch(built.err, /no build ran on/);
+});

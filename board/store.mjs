@@ -3127,7 +3127,7 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   // docs/adr/2026-11-12-2300-a-finished-ask-waits-in-todo-with-an-orange-close.md: nothing landed for an ask no build
   // ran on, so the orchestrator's --done on it is refused; it waits in Todo for the owner's Close (reply --close).
   if (finishAsk && done && item.from_ask && !merged && !landed && !ownerDone && !closing && !split && !wasFinished
-    && !records.some(Boolean) && !item.branch && !hasPR(item) && !item.pushed && !item.merge_ready) {
+    && !records.some((r) => r && builds(r)) && !item.branch && !hasPR(item) && !item.pushed && !item.merge_ready) {
     fail(`${key} is an ask no build ran on, so nothing landed to mark Done; post the answer with reply ${key} --text "<answer>" --close (or thread ${key} --close) and it waits in Todo for the owner's Close`);
   }
   const owedBefore = owesNext(item, records);
