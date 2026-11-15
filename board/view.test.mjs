@@ -6978,12 +6978,17 @@ test('the Todo header filter lists four boxes, all checked; unchecking one hides
   assert.equal(todo().querySelector('summary .count').textContent, '6 of 9');
   await tap(box('blocked'));
   await tap(box('ready'));
-  assert.deepEqual(keys(), ['D1', 'D2', 'P1', 'P2', 'H1']);
+  assert.deepEqual(keys(), ['D1', 'D2', 'P1', 'P2', 'B1', 'H1', 'HB']);
   await tap(box('ready')); await tap(box('discussing'));
   assert.deepEqual(keys(), ['R1', 'R2', 'P1', 'P2', 'B1', 'H1', 'HB']);
   await tap(box('discussing')); await tap(box('planning'));
-  assert.deepEqual(keys(), ['R1', 'R2', 'D1', 'D2', 'B1', 'HB']);
+  assert.deepEqual(keys(), ['R1', 'R2', 'D1', 'D2', 'B1', 'H1', 'HB']);
   await tap(box('planning'));
+  // Each card sits under one box, so Blocked alone shows exactly the blocked cards, the ones unchecking Blocked hides.
+  for (const id of ['ready', 'discussing', 'planning']) await tap(box(id));
+  assert.deepEqual(keys(), ['B1', 'H1', 'HB']);
+  assert.equal(todo().querySelector('summary .count').textContent, '3 of 9');
+  for (const id of ['ready', 'discussing', 'planning']) await tap(box(id));
   assert.equal(keys().length, 9);
   assert.ok(!btn().classList.contains('on'));
   assert.equal(todo().querySelector('summary .count').textContent, '9');
