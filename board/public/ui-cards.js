@@ -262,19 +262,6 @@
     if (it.builder.stopped) return `<div class="${classes}">${esc(builderLine(it.builder))}</div>`;
     return `<div class="${classes}">${DOT}${esc(builderLine(it.builder))}</div>`;
   }
-  // The open card's Status row: what runs on the card, else where its lane leaves it, never the item file's raw status
-  // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
-  function statusWord(it) {
-    const b = it.builder;
-    if (b?.planner) return b.kind === 'prototype' ? 'prototyping' : 'grilling';
-    if (b && b.kind !== BUILDER_KIND.install) return b.stopped || (b.pause ? (b.pause.paused ? 'paused' : 'pausing') : b.alive === false ? 'stopped' : b.phase === 'landing' ? 'landing' : 'implementing');
-    if (it.waitsOn === 'checking') return 'Orchestrator review';
-    if (it.lane === 'done') return 'done';
-    if (it.planning) return it.planning;
-    if (it.lane === 'todo') return it.phase && (it.ready || it.phase !== 'ready') ? PHASE_LOOK[it.phase][0] : 'to do';
-    if (it.lane === 'progress') return it.reachedPhase ? `stopped at ${it.reachedPhase}` : 'in progress';
-    return 'in review';
-  }
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
   // When a hold ends, as a card reads it: the time today, the weekday within six days, else the date
   // (docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md).
@@ -508,5 +495,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane });
 })();

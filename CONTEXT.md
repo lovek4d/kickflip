@@ -267,7 +267,7 @@ A work item with a **Parent**: work spun out of another task. It is an ordinary 
 _Avoid_: backlog item, todo, follow-up tag
 
 **Parent**:
-The one task a work item was spun out of, or none: set when a task is created from another task's conversation (its thread, a grill or an answer) with `item add --from` (its threads read a blue Created ticket and Created from line, [a spun-out ticket is a child](docs/adr/2026-11-12-2000-a-spun-out-ticket-is-a-child-with-a-blue-created-line.md)), none for a task from the + or New task. The Parent lists it among its **Children**. The open task shows both as rows of task labels, with **Related to**, Blocked by and Waits on it, the mirror of Blocked by ([a follow-up is a work card with a Parent](docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md)).
+The one task a work item was spun out of, or none: set when a task is created from another task's conversation (its thread, a grill or an answer) with `item add --from` (its threads read a blue Created ticket and Created from line, [a spun-out ticket is a child](docs/adr/2026-11-12-2000-a-spun-out-ticket-is-a-child-with-a-blue-created-line.md)), none for a task from the + or New task. The Parent lists it among its **Children**. The open task shows both as rows of task labels, with **Related to**, Blocked by (every blocker, a Done one kept) and Blocks, the mirror of Blocked by ([a follow-up is a work card with a Parent](docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md), [the open card's rows start at its links](docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md)).
 _Avoid_: filed from, origin, epic
 
 **Related to**:

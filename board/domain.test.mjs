@@ -1694,7 +1694,8 @@ test("item files are storage only: a board over ~/.claude/waves builds no band, 
 });
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
-test('a card links to its Parent, lists its Children and its Related to cards on both sides, and a blocker lists what Waits on it; a card whose Parent left the board still links to its stored id', () => {
+// docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md
+test('a card links to its Parent, lists its Children and its Related to cards on both sides, and a blocker lists what it Blocks; a card whose Parent left the board still links to its stored id', () => {
   const itemFile = { items: [
     { id: 'GH-53', title: 'Parent', ticket: '#53', created: '2026-11-01T10:00:00Z', related: ['w/GH-75'] },
     { id: 'GH-93', title: 'Second child', ticket: '#93', parent: 'w/GH-53', deps: ['GH-80'], created: '2026-11-02T10:00:00Z' },
@@ -1712,8 +1713,9 @@ test('a card links to its Parent, lists its Children and its Related to cards on
   assert.deepEqual(refs(card('GH-53').related), ['#75']);
   assert.deepEqual(refs(card('GH-75').related), ['#53', '#93']);
   assert.deepEqual(refs(card('GH-93').related), ['#75']);
-  assert.deepEqual(refs(card('GH-80').waitsOnIt), ['#93']);
+  assert.deepEqual(refs(card('GH-80').blocks), ['#93']);
   assert.deepEqual(refs(card('GH-93').blockedBy), ['#80']);
+  assert.deepEqual(card('GH-93').blockers, [{ key: 'w/GH-80', ref: '#80', lane: 'todo' }]);
   // A Parent no longer on the board reads as its stored id.
   assert.deepEqual([card('GH-9').parent, card('GH-53').parent], [{ key: 'w/GH-404', ref: 'GH-404' }, null]);
   assert.equal(b.items.every((i) => i.kind === 'work'), true);

@@ -3,7 +3,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, escText, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, phaseStrip, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, installButton, tryButton, tryWords, waitOn, prName, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, escText, ago, unreadCount, workLines, BUILD_PHASES, phaseStrip, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, installButton, tryButton, tryWords, waitOn, prName, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -217,24 +217,19 @@ BoardView.part((B) => {
   function detail(it) {
     const pr = it.pr;
     const ctx = links(it.key);
+    // docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md: the face above carries the
+    // card's state, CI and reviewers, so the rows start at the card links; a row with nothing to say is left out.
     const rows = [];
-    if (pr) {
-      const ci = pr.checks ? `${pr.checks.state}${pr.checks.fail ? ` (${pr.checks.fail} failing)` : pr.checks.pending ? ` (${pr.checks.pending} running)` : ''}` : 'unknown';
-      if (pr.state === 'OPEN') {
-        rows.push(['CI', esc(ci)]);
-        rows.push(['Merge', esc([pr.mergeStateStatus, pr.reviewDecision].filter(Boolean).join(' · ').toLowerCase() || 'unknown')]);
-        rows.push(['Review', (it.reviewers || []).map((r) => `${esc(r)} <span class="muted">${REVIEW[BoardUI.record(it.review, r)?.state || 'unsent'].label}${reviewAge(BoardUI.record(it.review, r)) ? `,${reviewAge(BoardUI.record(it.review, r))}` : ''}</span>`).join(' · ') || '—']);
-      }
-    }
-    if (it.branch) rows.push(['Branch', `<code>${esc(it.branch)}</code>`]);
-    if (it.commit) rows.push(['Commit', it.commit.url ? `<a href="${esc(it.commit.url)}" target="_blank" rel="noopener"><code>${esc(it.commit.sha)}</code></a>` : `<code>${esc(it.commit.sha)}</code>`]);
-    rows.push(['Status', esc(BoardUI.statusWord(it))]);
     // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md: each link row is comma-separated text links that open their cards, oldest first.
-    for (const [label, list] of [['Parent', it.parent ? [it.parent] : []], ['Children', it.children], ['Related to', it.related], ['Blocked by', it.blockedBy], ['Waits on it', it.waitsOnIt]]) {
+    // Blocked by lists every blocker, a Done one with its done ring, while the footer's "blocked by" names only the unfinished.
+    for (const [label, list] of [['Parent', it.parent ? [it.parent] : []], ['Children', it.children], ['Related to', it.related], ['Blocked by', it.blockers], ['Blocks', it.blocks]]) {
       if (list?.length) rows.push([label, list.map(cardLink).join(', ')]);
     }
     // The builder's risk (builder done --risk), its word coloured as its PR's Slack bar.
     if (it.risk) rows.push(['Risk', `<span class="risk tone-${BoardUI.RISK_TONES[it.risk]}">${esc(it.risk)}</span>`]);
+    if (pr?.state === 'OPEN' && pr.mergeStateStatus) rows.push(['Merge', esc(pr.mergeStateStatus.toLowerCase())]);
+    if (it.branch) rows.push(['Branch', `<code>${esc(it.branch)}</code>`]);
+    if (it.commit) rows.push(['Commit', it.commit.url ? `<a href="${esc(it.commit.url)}" target="_blank" rel="noopener"><code>${esc(it.commit.sha)}</code></a>` : `<code>${esc(it.commit.sha)}</code>`]);
     if (it.manualSteps.length) rows.push(['Manual steps', linkText(it.manualSteps.join('; '), ctx)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
     const external = [

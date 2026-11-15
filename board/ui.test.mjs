@@ -1114,6 +1114,7 @@ test("a thread's Done is the box's second send button, on ⌥↵, never disabled
   assert.match(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true, resolvedBy: ui.BUTTON.done }), /^<button type="submit" data-nth="1" class="closes"/);
 });
 
+// docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md
 test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a ready card's Implement is filled orange", () => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
@@ -1124,7 +1125,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(NOW - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
-  assert.deepEqual(rows(pushed), [['Branch', 'INT-12'], ['Status', 'in review'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
+  assert.deepEqual(rows(pushed), [['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
   assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
   // Notes is a button at the end of the workflow row, after Hold, and has no ↗.
   assert.match(B.detail(open), /<div class="action-row workflow">.*<a class="button" href="notes\.html\?item=w%2FA1">Notes<\/a><\/div>/s);
@@ -1138,7 +1139,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   assert.deepEqual([copied, link.textContent, prevented], [['INT-12'], 'Copied the branch name', true]);
   later.at(-1)[1]();
   assert.equal(link.textContent, 'Pushed INT-12 to gitlab.com · 25m ago');
-  assert.deepEqual(rows(open), [['Status', 'in review'], ['Next', 'Waiting for PR reviewers']]);
+  assert.deepEqual(rows(open), [['Next', 'Waiting for PR reviewers']]);
   assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes/);
   assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes|notes\.html/);
   const install = { url: 'https://m/app.apk', older: false };
@@ -1154,6 +1155,25 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
       }
     }
   }
+});
+
+// docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md
+test("an open PR's card reads its merge state in a Merge row, after the card links and Risk and before Branch, with no CI or Review row; an unread merge state draws no row", () => {
+  const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, later() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  app.BoardView = { part: (fn) => fn(B) };
+  vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
+  const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
+  const pr = { ...openPR, mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', checks: { state: 'fail', fail: 2 } };
+  const card = { ...workCard, key: 'w/A1', ref: 'A1', lane: 'review', action: null, deps: [], kind: 'work', pr, prs: [pr], reviewers: ['Jamie'], review: { Jamie: { state: 'approved' } },
+    related: [{ key: 'w/A2', ref: 'A2' }], risk: 'medium', branch: 'A1', manualSteps: ['Restart the hub'] };
+  assert.deepEqual(rows(card).map(([label]) => label), ['Related to', 'Risk', 'Merge', 'Branch', 'Manual steps', 'Next', 'Links']);
+  assert.deepEqual(rows(card).find(([label]) => label === 'Merge'), ['Merge', 'blocked']);
+  for (const unread of [{ ...pr, mergeStateStatus: undefined }, { ...pr, mergeStateStatus: undefined, reviewDecision: undefined, checks: null }]) {
+    assert.deepEqual(rows({ ...card, pr: unread, prs: [unread] }).map(([label]) => label), ['Related to', 'Risk', 'Branch', 'Manual steps', 'Next', 'Links']);
+  }
+  for (const state of ['MERGED', 'CLOSED']) assert.equal(rows({ ...card, pr: { ...pr, state }, prs: [{ ...pr, state }] }).some(([label]) => label === 'Merge'), false);
 });
 
 test("a card with a worktree opens it in VS Code from its Links line, live on the host and muted with a tooltip off it",() => {
@@ -1177,7 +1197,8 @@ test("a card with a worktree opens it in VS Code from its Links line, live on th
 });
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
-test("the open card's details list shows Parent, Children, Related to, Blocked by and Waits on it as rows of tappable labels, leaving out empty rows; the workflow row has no follow-up Build", () => {
+// docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md
+test("the open card's details list shows Parent, Children, Related to, Blocked by and Blocks as rows of tappable labels, leaving out empty rows and drawing no Status row; the workflow row has no follow-up Build", () => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   // The linked cards are on the board, so each label reads the ref its card has now.
@@ -1187,39 +1208,29 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref) => ({ key: `w/GH-${ref.slice(1)}`, ref });
   const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
-    parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
+    parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], blockers: [link('#80')], blocks: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  assert.deepEqual(rows(card), [['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 , #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
+  assert.deepEqual(rows(card), [['Parent', '#53'], ['Children', '#94 , #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Blocks', '#99']]);
   // The builder's risk is a Risk row under the card links, its word in the colour the PR's Slack bar has.
   for (const [risk, tone] of [['low', 'ready'], ['medium', 'notice'], ['high', 'danger']]) {
-    assert.deepEqual(rows({ ...card, risk }).slice(-2), [['Waits on it', '#99'], ['Risk', risk]]);
+    assert.deepEqual(rows({ ...card, risk }).slice(-2), [['Blocks', '#99'], ['Risk', risk]]);
     assert.match(B.detail({ ...card, risk }), new RegExp(`<dt>Risk</dt><dd><span class="risk tone-${tone}">${risk}</span></dd>`));
   }
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
     [['#selectedCard=w%2FGH-53', '#53'], ['#selectedCard=w%2FGH-94', '#94'], ['#selectedCard=w%2FGH-95', '#95'], ['#selectedCard=w%2FGH-75', '#75'], ['#selectedCard=w%2FGH-80', '#80'], ['#selectedCard=w%2FGH-99', '#99']]);
   // The links are text joined by a comma and a space, with nothing else between them.
   assert.match(B.detail(card), /<\/a>, <a class="card-link" href="#selectedCard=w%2FGH-95"/);
-  assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Status', 'to do']]);
-  // The Status row reads the card's lane and agent, never the item file's stored lane
-  // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
-  const bare = { ...card, storedLane: 'review', parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] };
-  const building = { progress: 'Building · x', phase: 'building', at: null };
-  for (const [extra, want] of [
-    [{ lane: 'progress', builder: building }, 'implementing'],
-    [{ lane: 'progress', builder: { ...building, phase: 'landing' } }, 'landing'],
-    [{ lane: 'progress', builder: { ...building, alive: false, stale: true } }, 'stopped'],
-    [{ lane: 'progress', builder: null, waitsOn: 'checking' }, 'Orchestrator review'],
-    [{ lane: 'progress', builder: null, reachedPhase: 'building' }, 'stopped at building'],
-    [{ lane: 'todo', builder: { progress: 'Grilling · x', planner: true, kind: 'grill' } }, 'grilling'],
-    [{ lane: 'todo', grilling: true, planning: 'preheating' }, 'preheating'],
-    [{ lane: 'todo', prototyping: true, planning: 'planning prototype' }, 'planning prototype'],
-    [{ lane: 'todo', phase: 'discussing', turn: 'owner', planning: 'generating visual' }, 'generating visual'],
-    [{ lane: 'todo', grilling: true }, 'to do'],
-    [{ lane: 'todo', ready: true, phase: 'ready' }, 'ready'],
-    [{ lane: 'review' }, 'in review'],
-    [{ lane: 'done' }, 'done'],
-  ]) assert.deepEqual(rows({ ...bare, ...extra }), [['Status', want]], JSON.stringify(extra));
-  assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on</);
+  // No row repeats the card's status: a card with nothing to list has no rows, whatever its lane or agent.
+  const bare = { ...card, parent: null, children: [], related: [], blockedBy: [], blockers: [], blocks: [] };
+  for (const extra of [{ lane: 'todo' }, { lane: 'progress', builder: { progress: 'Building · x', phase: 'building', at: null } }, { lane: 'review' }, { lane: 'done' }]) {
+    assert.deepEqual(rows({ ...bare, ...extra }), [], JSON.stringify(extra));
+  }
+  // A blocker stays in Blocked by once it is Done, drawn with its done ring, while the footer drops it.
+  const doneBlocker = { ...bare, blockers: [{ ...link('#80'), lane: 'done' }] };
+  assert.deepEqual(rows(doneBlocker), [['Blocked by', '#80']]);
+  assert.match(B.detail(doneBlocker), /<dt>Blocked by<\/dt><dd><a class="card-link" href="#selectedCard=w%2FGH-80">#80<span class="status link-lane done"><\/span><\/a><\/dd>/);
+  assert.doesNotMatch(app.BoardUI.workLines({ ...doneBlocker, linear: [], ticket: null }), /blocked by/);
+  assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on/);
   assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Task Five', 'blocked by #80']);
   assert.doesNotMatch(app.BoardUI.workLines(card), /follow-up/);
 });
@@ -1233,7 +1244,7 @@ test('every task reference the board draws is a link ending with its lane ring: 
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref, lane) => ({ key: `w/GH-${ref.slice(1)}`, ref, lane });
   const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
-    parent: link('#53', 'done'), children: [link('#94', 'progress')], related: [link('#75', 'review')], blockedBy: [link('#80', 'progress'), link('#81', 'todo')], waitsOnIt: [link('#99', 'todo')] };
+    parent: link('#53', 'done'), children: [link('#94', 'progress')], related: [link('#75', 'review')], blockedBy: [link('#80', 'progress'), link('#81', 'todo')], blockers: [link('#80', 'progress'), link('#81', 'todo')], blocks: [link('#99', 'todo')] };
   // Each anchor to a card is followed, inside it, by that card's ring.
   const anchors = (html) => [...html.matchAll(/<a\b[^>]*href="#selectedCard=[^"]*"[^>]*>(.*?)<\/a>/g)].map(([, inner]) => inner);
   const bare = (html) => anchors(html).filter((inner) => !/<span class="status link-lane \w+"><\/span>$/.test(inner));
@@ -1529,7 +1540,6 @@ test("a run the orchestrator stopped reads the stop's words as its status, plain
   const html = ui.workLines({ ...workCard, lane: 'progress', builder });
   assert.match(html, /<div class="line3 sub agent in-progress">build stopped by orchestrator \(\d+m\)<\/div>/);
   assert.doesNotMatch(html, /working-dot|Running tests/);
-  assert.equal(ui.statusWord({ ...workCard, lane: 'progress', builder }), 'build stopped by orchestrator');
   const review = ui.workLines({ ...workCard, lane: 'review', builder: null, next: 'Verified: tap Merge to land it on main', landStopped: { words: 'land stopped by orchestrator', at: ago(0.05) } });
   assert.match(review, /<div class="line3 sub">land stopped by orchestrator \(\d+m\)<\/div>/);
 });
@@ -1906,8 +1916,6 @@ test('a paused build reads "pausing · <cause>" in orange, then "paused · <caus
   assert.match(ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: false } } }), /<span class="phase-bars"/, 'a pausing build runs on, its bars lit');
   const pausedAwake = ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
   assert.match(pausedAwake, /<span class="phase-bars dim"[^>]*aria-label="Building, step 2 of 4"/, 'a paused build dims its bars at the phase it stopped at');
-  assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: true } } }), 'paused');
-  assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: false } } }), 'pausing');
   const held = ui.workLines({ ...card, blockedBy: [], blocked: false, held: true, builder: { ...builder, pause: { cause: 'held', words: 'held', paused: true } } });
   assert.match(lines(held).at(-1), new RegExp(`^${ui.cardTime(sortAt)} · paused · held ·`), 'the hold reads once');
 });
@@ -1920,11 +1928,10 @@ test("a discussing card's time line says whose turn it is: blue for the owner's,
   assert.deepEqual(lines(yours).slice(-2), [`${ui.cardTime(sortAt)} · discussing`, '1 new message']);
   assert.match(yours, /<span class="card-phase ph-info">discussing<\/span>/);
   assert.match(ui.workLines({ ...card, turn: 'claude' }), /<span class="card-phase ph-quiet">discussing<\/span>/);
-  assert.equal(ui.statusWord(card), 'discussing');
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
-test("a staged card's time line reads staged in orange where ready reads, and its Status row says staged", () => {
+test("a staged card's time line reads staged in orange where ready reads", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, staging: true, phase: 'staging' };
   const html = ui.workLines(card, { unread: 1 });
@@ -1932,8 +1939,6 @@ test("a staged card's time line reads staged in orange where ready reads, and it
   assert.match(html, /<span class="card-phase ph-notice">staged<\/span><\/div>/);
   assert.match(lines(ui.workLines({ ...card, held: true })).slice(-1)[0], /^.* · staged · held/);
   assert.doesNotMatch(html, /ph-success/);
-  assert.equal(ui.statusWord(card), 'staged');
-  assert.equal(ui.statusWord({ ...card, staging: false, ready: true, phase: 'ready' }), 'ready');
 });
 
 test("a card's time reads the time only today, adds the day before today, and adds the year past 365 days", () => {

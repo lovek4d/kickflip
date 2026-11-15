@@ -1,5 +1,7 @@
 # A follow-up is a work card with a Parent
 
+Superseded in part by [the open card's rows start at its links and drop Status, Review and CI](2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md): Waits on it reads Blocks, and Blocked by keeps a blocker once it is Done; the rows no longer follow a Status row.
+
 This supersedes [follow-ups are Todo cards of their wave](2026-10-29-1639-follow-ups-are-todo-cards-of-their-wave.md), whose follow-ups were a list of their own, and [cards wait on explicit blocked-by links](2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md) in part: the open card's Waits on row becomes Blocked by, and a blocker shows Waits on it. Blocked by itself, the `deps` and what they gate, are unchanged.
 
 A follow-up is an ordinary work card. It holds questions, is held, bumped, blocked, grilled, prototyped and built like any card, and counts toward its wave as any card does. What makes it a follow-up is its **Parent**.

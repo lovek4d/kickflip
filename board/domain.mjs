@@ -1362,8 +1362,11 @@ export function buildBoard(snapshot) {
   for (const it of items) {
     const open = it.kind === 'work' && it.lane !== 'done';
     const depKeys = new Set(it.deps.map((d) => (String(d).includes('/') ? d : `${it.file}/${d}`)));
-    it.blockedBy = !open ? [] : [...depKeys].map((k) => byKey.get(k))
-      .filter((d) => d && d.lane !== 'done' && !d.reopened).sort(byAge).map(linkOf);
+    // blockers: every dep on the board, Done or not, which the open card's Blocked by row keeps
+    // (docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md); blockedBy: the ones it still waits on.
+    const deps = [...depKeys].map((k) => byKey.get(k)).filter(Boolean).sort(byAge);
+    it.blockers = it.kind === 'work' ? deps.map(linkOf) : [];
+    it.blockedBy = open ? deps.filter((d) => d.lane !== 'done' && !d.reopened).map(linkOf) : [];
     it.blockedUntil = open ? it.blockedUntil ?? null : null;
     it.blockReason = open ? it.blockReason ?? null : null;
     it.blocked = it.blockedBy.length > 0 || Boolean(it.blockedUntil);
@@ -1490,22 +1493,21 @@ const linkKey = (slug, k) => (String(k).includes('/') ? String(k) : `${slug}/${k
 const byAge = (a, b) => (a.created ? (b.created ? Date.parse(a.created) - Date.parse(b.created) : -1) : b.created ? 1 : 0)
   || a.ref.localeCompare(b.ref, undefined, { numeric: true });
 // Each work card's Parent (one card or none; a Parent no longer on the board reads as its stored id), its Children
-// (the cards whose Parent it is), its Related to (set on either card, shown on both) and what Waits on it (the cards
-// it blocks, the mirror of blockedBy). A card with a Parent is a follow-up.
+// (the cards whose Parent it is), its Related to (set on either card, shown on both) and what it Blocks (the cards
+// that name it as a dep, Done or not, the mirror of blockers). A card with a Parent is a follow-up.
 function linkCards(items, byKey, stored) {
   const children = new Map();
   const related = new Map();
-  const waits = new Map();
+  const blocks = new Map();
   const add = (map, key, card) => map.set(key, [...(map.get(key) || []), card]);
   for (const [key, links] of stored) {
     if (links.parent) add(children, links.parent, key);
     for (const r of links.related) if (r !== key) { add(related, key, r); add(related, r, key); }
   }
   for (const it of items) {
-    for (const d of it.blockedBy || []) {
-      add(waits, d.key, it.key);
-      d.lane = byKey.get(d.key).lane;
-    }
+    for (const d of it.blockers || []) add(blocks, d.key, it.key);
+    // A dep's lane as the board ends it: a card later in the build loop may have moved from Todo to In Progress.
+    for (const d of [...(it.blockers || []), ...(it.blockedBy || [])]) d.lane = byKey.get(d.key).lane;
   }
   const cards = (keys = []) => [...new Set(keys)].map((k) => byKey.get(k)).filter(Boolean).sort(byAge).map(linkOf);
   for (const it of items) {
@@ -1513,7 +1515,7 @@ function linkCards(items, byKey, stored) {
     it.parent = parent ? (byKey.has(parent) ? linkOf(byKey.get(parent)) : { key: parent, ref: parent.slice(parent.indexOf('/') + 1) }) : null;
     it.children = cards(children.get(it.key));
     it.related = cards(related.get(it.key));
-    it.waitsOnIt = cards(waits.get(it.key));
+    it.blocks = cards(blocks.get(it.key));
   }
 }
 
@@ -1794,7 +1796,7 @@ export const DONE_KEPT = 100;
 // No page file reads `agents`, and the rest are set on a Done card only to be sent.
 export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
   'review', 'reviewers', 'risk', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
-  'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
+  'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'blocks', 'blockers', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
 
 // The built board's Done cards that move to the archive (store.mjs archiveCards): past the newest `keep` by when they

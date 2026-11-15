@@ -1,5 +1,7 @@
 # A card's status word comes from a signal the board checks
 
+Superseded in part by [the open card's rows start at its links and drop Status, Review and CI](2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md): the open card has no Status row, and `statusWord` is gone.
+
 Amended by [stale is automatic, stalled is the orchestrator's flag](2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md): a gone or silent run now reads stale, its status line grey with no nudge, and is a `stale` wait on the orchestrator.
 
 Card #241 audited every status word a card shows against real headless runs (the card's notes,
