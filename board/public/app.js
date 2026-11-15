@@ -237,7 +237,8 @@ window.BoardView = (function () {
       const hash = AppRouter.hashWith(location.hash, changes);
       if (hash !== location.hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
     };
-    B.on(window, 'hashchange', () => { readHash(); if (state.board) { render(); scrollToFocus(); } });
+    // Hidden while its Waiting on you shows on a phone (shell.js show), the address is that page's.
+    B.on(window, 'hashchange', () => { if (B.root.hidden) return; readHash(); if (state.board) { render(); scrollToFocus(); } });
     // A card link whose hash is already the page's fires no hashchange, so its tap opens the card here.
     B.on(B.root, 'click', (ev) => {
       const a = ev.target.closest?.('a[href^="#item="], a[href^="#selectedCard="]');

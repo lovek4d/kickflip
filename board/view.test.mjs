@@ -5409,6 +5409,99 @@ test('widening past 900px on Questions swaps to the board with that topic open i
   assert.deepEqual([s.doc.querySelector('.view-board'), s.win.location.pathname], [board, '/shop/']);
 });
 
+// docs/adr/2026-11-14-2332-on-a-phone-the-board-and-waiting-on-you-switch-in-place.md
+test("on a phone the board and Waiting on you stay mounted and switch in place: the ? and the check flip which shows, each keeping its scroll and the board its open card, with no second fetch, and back returns to the board", async () => {
+  const fetched = [];
+  const fetch = async (url) => {
+    const u = new URL(url, 'https://mac.ts.net/');
+    if (u.pathname.endsWith('/api/board')) fetched.push(u.pathname);
+    const body = u.pathname.endsWith('/api/board') ? boardOf([askCard('a1', 'progress')]) : [];
+    return { ok: true, json: async () => structuredClone(body) };
+  };
+  const storage = memoryStorage([['site:shop:openItems', JSON.stringify(['w/a1'])]]);
+  const { win, doc, tap, entries, position } = await shellPage('/shop/', { fetch, storage, realBoards: true });
+  win.scrollTo = (x, y) => { win.scrollY = y; };
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  await settle();
+  const board = doc.querySelector('.view-board');
+  const card = () => board.querySelector('details.item[data-key="w/a1"]');
+  assert.ok(card()?.hasAttribute('open'));
+  const openCard = card();
+  win.scrollY = 640;
+  const views = () => [doc.querySelectorAll('.view-board').length, doc.querySelectorAll('.view-questions').length, board.hidden, doc.querySelector('.view-questions')?.hidden ?? null];
+
+  tap(board.querySelector('#questionsLink'));
+  await settle();
+  const questions = doc.querySelector('.view-questions');
+  assert.deepEqual([win.location.pathname, ...views(), win.scrollY], ['/shop/questions.html', 1, 1, true, false, 0], 'the ? shows Waiting on you over the board, kept mounted');
+  const loads = fetched.length;
+  win.scrollY = 200;
+
+  tap(questions.querySelector('a.back'));
+  await settle();
+  assert.deepEqual([win.location.pathname, ...views(), win.scrollY], ['/shop/', 1, 1, false, true, 640], 'the check flips back with the scroll it left');
+  assert.equal(doc.querySelector('.view-board'), board);
+  assert.equal(card(), openCard);
+  assert.ok(card().hasAttribute('open'), 'the open card stays open');
+  assert.equal(position(), 0, 'the check went back to the board entry');
+
+  tap(board.querySelector('#questionsLink'));
+  await settle();
+  assert.deepEqual([win.location.pathname, ...views(), win.scrollY, doc.querySelector('.view-questions')], ['/shop/questions.html', 1, 1, true, false, 200, questions], 'Waiting on you comes back as it was');
+  win.history.back();
+  await settle();
+  assert.deepEqual([win.location.pathname, ...views(), win.scrollY, card()], ['/shop/', 1, 1, false, true, 640, openCard], "the browser's back returns to the board");
+  win.history.go(1);
+  await settle();
+  assert.deepEqual([win.location.pathname, ...views()], ['/shop/questions.html', 1, 1, true, false], 'and forward to Waiting on you');
+  assert.equal(fetched.length, loads, 'no switch fetches again');
+  assert.equal(entries().length, 2);
+
+  // A question link on the board moves Waiting on you to that question; the board's own hash is left alone.
+  win.history.back();
+  await settle();
+  const link = doc.createElement('a');
+  link.setAttribute('href', 'questions.html#q2');
+  board.appendChild(link);
+  tap(link);
+  await settle();
+  assert.deepEqual([win.location.pathname + win.location.hash, doc.querySelector('.view-questions'), card()?.hasAttribute('open')], ['/shop/questions.html#q2', questions, true]);
+
+  // Leaving the board for another board unmounts both.
+  win.AppShell.open('/other/');
+  await settle();
+  assert.deepEqual([doc.querySelectorAll('.view-board').length, doc.querySelectorAll('.view-questions').length], [1, 0]);
+  assert.notEqual(doc.querySelector('.view-board'), board);
+});
+
+test("on a phone an unsaved draft on the board or on Waiting on you asks nothing when the two switch, and asks when either is left for another view", async () => {
+  const { win, doc, tap } = await shellPage('/shop/');
+  const asked = [];
+  win.BoardDialogs.confirm = (text) => { asked.push(text); return Promise.resolve(false); };
+  const board = doc.querySelector('.view-board');
+  const draft = doc.createElement('form');
+  draft.setAttribute('data-dirty', '');
+  board.appendChild(draft);
+  win.AppShell.open('/shop/questions.html');
+  assert.deepEqual([asked.length, Boolean(doc.querySelector('.view-questions')), board.hidden], [0, true, true]);
+  win.AppShell.open('/other/');
+  await new Promise(setImmediate);
+  assert.deepEqual([asked.length, win.location.pathname, doc.querySelector('.view-board'), board.hidden], [1, '/shop/questions.html', board, true], 'the hidden board keeps its draft');
+});
+
+test('widening past 900px on Waiting on you over a kept board shows that same board with the topic in its pane', async () => {
+  const s = await shellPage('/_hub/');
+  const focused = [];
+  let made = 0;
+  s.win.BoardView.create = () => { made++; return { B: { state: {}, focusQuestion: (id) => { focused.push(id); return true; } }, mount() {}, unmount() {} }; };
+  s.win.AppShell.open('/shop/');
+  const board = s.doc.querySelector('.view-board');
+  s.win.AppShell.open('/shop/questions.html#q2');
+  s.resize(1280);
+  await new Promise(setImmediate);
+  assert.deepEqual([s.doc.querySelector('.view-board'), board.hidden, s.doc.querySelector('.view-questions'), s.win.location.pathname, focused, made, s.boardUnmounts()], [board, false, null, '/shop/', ['q2'], 1, 0]);
+});
+
 // docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md
 test("from 900px a prototype URL, a link, a push, a cold load or a widening, shows the board at the board's URL with the prototype open in its pane; a phone frames the full page", async () => {
   const stub = (opened) => () => ({ B: { state: {}, openViewer: (url) => { opened.push(url); return true; } }, mount() {}, unmount() {} });

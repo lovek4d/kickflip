@@ -46,8 +46,11 @@ const lastTopic = new Map();
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const scroll = (y) => { if (!ctx.embedded) scrollTo(0, y); };
-    const setHash = (id) => { if (!ctx.embedded) history.replaceState(history.state, '', '#' + encodeURIComponent(id)); };
+    // On a phone the shell keeps this page mounted, hidden, while its board shows (shell.js show); the window's scroll
+    // and address are the board's then.
+    const alone = () => !ctx.embedded && !root.hidden;
+    const scroll = (y) => { if (alone()) scrollTo(0, y); };
+    const setHash = (id) => { if (alone()) history.replaceState(history.state, '', '#' + encodeURIComponent(id)); };
     const { esc, getDraft, setDraft, choiceOf, noteOf, isSent, questionCard, roundChip, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, downLanding } = BoardUI;
     const hashId = () => { if (ctx.embedded) return ''; const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
 
@@ -499,7 +502,7 @@ const lastTopic = new Map();
     // A link to a question this page's board doesn't have yet (a push tap on a page left in the background) loads the
     // board first, then opens its topic. Embedded in the board's pane, the board's hash is not this page's.
     if (!ctx.embedded) B.on(window, 'hashchange', async () => {
-      if (!loaded) return;
+      if (!loaded || root.hidden) return;
       const id = hashId();
       if (id && !byId(id) && !topicOf(id)) {
         await load(false);

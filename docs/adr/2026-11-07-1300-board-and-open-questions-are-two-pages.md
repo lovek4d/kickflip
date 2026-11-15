@@ -16,3 +16,5 @@ Considered:
 Superseded in part by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): the two pages are apart at every width, with no pane from 900px, and the header's ? shows on a desktop too.
 
 Restored by [the desktop pane is back without the Needs you deck](2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md): from 900px the two pages sit side by side again, Waiting on you in the pane; the header's ? stays at every width.
+
+Amended by [on a phone the board and Waiting on you switch in place](2026-11-14-2332-on-a-phone-the-board-and-waiting-on-you-switch-in-place.md): below 900px the ? and the check switch between the two, both kept mounted, in place of opening a page.

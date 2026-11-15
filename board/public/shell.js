@@ -7,7 +7,8 @@
 // [data-dirty], an unsaved edit, asks first. The shell holds the hub's one stream, /_hub/stream
 // (hub/stream.mjs): `change {route}` signals the open board, and `sidebar` repaints the sidebar. A board the shell
 // leaves is unmounted, and paints live from its saved copy when it comes back
-// (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
+// (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md); below 900px its Waiting on you is no leaving: the
+// two stay mounted and switch in place (docs/adr/2026-11-14-2332-on-a-phone-the-board-and-waiting-on-you-switch-in-place.md).
 // A push tap reaches it from hub/sw.js as {open: url}, and a page framed inside it hands it a view's URL through
 // AppShell.open(url, {replace, frames}) → true when the shell shows it in place; frames false refuses a frame view.
 // AppShell.reload() reloads the app past the shell the service worker keeps.
@@ -186,6 +187,30 @@ window.AppShell = (function () {
       v.mount();
     }
 
+    // Below 900px a board and its Waiting on you are kept mounted together: showing one hides the other, which keeps
+    // its scroll, open card and drafts, and the next switch shows it again, with no remount and no fetch. kept: the
+    // hidden one, {view, route, root, v, y} with y its scroll, or null. Any other view unmounts both.
+    let kept = null;
+    const paired = (view) => view.kind === 'board' || view.kind === 'questions';
+    const together = (view) => Boolean(current) && !wide.matches && current.route === view.route && paired(current.view) && paired(view);
+    const still = matchMedia('(prefers-reduced-motion: reduce)');
+    // A short slide: Waiting on you comes in from the right, the board from the left.
+    const slide = (root, back) => {
+      if (!still.matches) root.animate?.([{ transform: `translateX(${back ? -24 : 24}px)`, opacity: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 180, easing: 'ease-out' });
+    };
+    function drop(entry) {
+      entry.v.unmount();
+      entry.root.remove();
+    }
+    function present(view) {
+      const hub = view.route === undefined;
+      const siteTitle = hub ? 'Hub' : titleOf(view.route);
+      levelHere();
+      document.title = view.kind === 'board' ? siteTitle : AppViews[view.kind].title(view, { siteTitle });
+      if (boards().has(view.route)) { try { localStorage.setItem(LAST_KEY, view.route); } catch { /* no storage: `/` opens the start board */ } }
+      sidebar.setHere(hub ? new URL(AppRouter.urlOf(view), location.href).pathname.slice(1) : view.route);
+    }
+
     // current: {view, route, root, v}, the router's view shown, its root element and its mounted {B, mount, unmount}.
     function show(view) {
       const modal = view.kind === 'settings';
@@ -195,12 +220,36 @@ window.AppShell = (function () {
       const board = view.kind === 'board';
       const hub = route === undefined;
       const siteTitle = hub ? 'Hub' : titleOf(route);
-      if (current) current.v.unmount();
+      // back: the kept view this one is, shown again; from 900px (a widening) too, though nothing is kept there.
+      const back = kept && kept.route === route && kept.view.kind === view.kind ? kept : null;
+      const hide = together(view) && current.view.kind !== view.kind;
+      // A view shown again in its own place, such as a reload, leaves the kept one as it is.
+      if (kept && !back && !(together(view) && current.view.kind === view.kind)) drop(kept);
+      if (back || !together(view)) kept = null;
+      const was = current;
+      if (was && hide) {
+        was.y = scrollY;
+        was.root.hidden = true;
+        kept = was;
+      } else if (was) was.v.unmount();
+      if (back) {
+        if (!hide) was?.root.remove();
+        back.root.hidden = false;
+        current = { view, route, root: back.root, v: back.v };
+        present(view);
+        scrollTo(0, back.y);
+        slide(back.root, board);
+        current.v.B?.renderStatus?.();
+        // A link that names another card or question than the one it was left on moves it there.
+        if (board ? view.hash !== back.view.hash : view.id !== back.view.id) dispatchEvent(new HashChangeEvent('hashchange'));
+        if (modal) showSettings();
+        return;
+      }
       const page = board ? null : AppViews[view.kind];
       const root = document.createElement('div');
       root.className = board ? 'view-board' : page.className;
       root.innerHTML = board ? BoardView.markup({ title: siteTitle, shared: shared && sharedHere(route) }) : page.markup(view, { siteTitle });
-      if (current) current.root.replaceWith(root); else scrim.after(root);
+      if (hide) { was.root.parentNode.insertBefore(root, was.root.nextSibling); slide(root, board); } else if (was) was.root.replaceWith(root); else scrim.after(root);
       const siteRoot = hub ? '/_hub' : '/' + encodeURIComponent(route);
       let v;
       if (board) {
@@ -211,10 +260,7 @@ window.AppShell = (function () {
           loaded: (url, title) => { if (current?.v === v) framed(url, title); }, sidebarChanged: refreshSidebar });
       }
       current = { view, route, root, v };
-      levelHere();
-      document.title = board ? siteTitle : page.title(view, { siteTitle });
-      if (boards().has(route)) { try { localStorage.setItem(LAST_KEY, route); } catch { /* no storage: `/` opens the start board */ } }
-      sidebar.setHere(hub ? new URL(AppRouter.urlOf(view), location.href).pathname.slice(1) : route);
+      present(view);
       scrollTo(0, 0);
       v.mount();
       if (modal) showSettings();
@@ -236,7 +282,7 @@ window.AppShell = (function () {
 
     // The board and Waiting on you follow their own hash, so a link that only moves it keeps the view.
     const sameView = (a, b) => a.kind === b.kind && a.route === b.route && (a.kind !== 'notes' || a.item === b.item) && (a.kind !== 'frame' || a.url === b.url);
-    const dirty = () => Boolean(current?.root.querySelector('[data-dirty]'));
+    const dirty = () => [current, kept].some((entry) => entry?.root.querySelector('[data-dirty]'));
     addEventListener('beforeunload', (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });
 
     // go(view, href, how, from): router.js's, with how 'replace' for a framed page's hand-off and 'reload' for a view's
@@ -309,7 +355,12 @@ window.AppShell = (function () {
         sidebar.close();
         return true;
       };
-      if ((stays && !settings) || !dirty()) { if (stays && settings) removeSettings(); return finish(); }
+      // What the switch would tear down: on a phone's switch between a board and its Waiting on you, only the board's
+      // Settings, and on a reload there, only the view reloaded.
+      const lost = (entry) => Boolean(entry?.root.querySelector('[data-dirty]'));
+      const switches = !stays && together(view);
+      const loses = stays ? settings && lost(current) : switches ? lost(how === 'reload' ? current : settings) : dirty();
+      if (!loses) { if (stays && settings) removeSettings(); return finish(); }
       return BoardDialogs.confirm('Leave without saving? Your unsaved edits here will be lost.').then((leave) => (leave ? (removeSettings(), finish()) : false));
     }
 

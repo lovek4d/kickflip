@@ -14,3 +14,5 @@ What #561 settled stays:
 - **The header's ?** with the open-question count as its badge shows at every width. Below 900px it opens Waiting on you as its own page; from 900px it opens the topic in the pane.
 
 Supersedes in part [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): its pane, prototype, layout and fragment parts. Its deck, open-questions badge and pending-prompt parts stand.
+
+Amended by [on a phone the board and Waiting on you switch in place](2026-11-14-2332-on-a-phone-the-board-and-waiting-on-you-switch-in-place.md): below 900px the ? switches to Waiting on you in place, the board kept mounted, rather than opening it as its own page.
