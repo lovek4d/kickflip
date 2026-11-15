@@ -5,8 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { until, startBoard, untilTestEnds, stallingPs } from '../shared/test-helpers.mjs';
-import { writeBrief } from './store.mjs';
+import { until, startBoard, untilTestEnds } from '../shared/test-helpers.mjs';
 
 // docs/adr/2026-11-13-2210-the-board-server-starts-in-process-and-tests-await-settled.md
 // Each test runs the board server in this process (startBoard) on a clock it sets: Date is frozen at clock.at, since
@@ -152,13 +151,14 @@ test('a held card resumes itself within a minute of its pick-up time, once per t
   await board.start();
   assert.ok(!items().A1.held && !items().A2.held && !items().A5.held && items().A3.held_at, 'the due holds resume');
   assert.deepEqual(unblocked().map((d) => [d.key, d.until]).sort(), [['t/A1', at], ['t/A3', at], ['t/A5', at]]);
-  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
+  // Each had a discussing-start line when the server first moved its phase-less card to discussing.
+  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [2, 2, 2, 1]);
   assert.deepEqual([items().A1.pick_up_at, items().A4.held], [undefined, true]);
   await board.stop();
   await board.start();
   await board.minute();
   assert.equal(unblocked().length, 3);
-  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
+  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [2, 2, 2, 1]);
 });
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
@@ -260,8 +260,7 @@ test('with auto implement on the board starts and launches the build of the top 
   await board.minute();
   assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6', 't/A7'], 'the pull waits for the pause to end');
   assert.deepEqual(['A1', 'A2', 'A3'].map(thread), [[], [], []]);
-  // The follow-up, filed with no phase, is no pull but arrived in Todo, so it got its grill.
-  assert.deepEqual(thread('F1'), [], 'the arrival posts no thread line of its own');
+  assert.deepEqual(thread('F1'), ['Filed from t/A0: it starts discussing.'], 'the follow-up, filed with no phase, is no pull: it started discussing');
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
@@ -404,99 +403,6 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   await board.minute();
   assert.equal(triages().length, 3, 'the triage goes once the pause lifts');
   assert.equal(triages()[2].data.date, '2026-11-06');
-});
-
-// docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-test('each card arriving in Todo owes a grill brief up to the planner cap and grills from it, busy board or not, the rest in board order, once each, never while paused', async (t) => {
-  const { dir, siteDir, dataDir, clock } = scratch(t, 'auto-plan', Date.parse('2026-11-03T16:00:00Z'));
-  const waveFile = path.join(dataDir, 'items.json');
-  const eventsFile = path.join(dataDir, 'events.jsonl');
-  const ownerFile = path.join(dataDir, 'owner.json');
-  const agentFile = (id) => path.join(dataDir, 'agents', `${id}.json`);
-  const usageFile = path.join(home, '.claude', 'kickflip', 'usage.json');
-  const now = clock.at;
-  fs.mkdirSync(path.dirname(agentFile('B1')), { recursive: true });
-  fs.mkdirSync(path.join(dataDir, 'threads'));
-  fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', max_planners: 2 }));
-  const wave = { items: [
-    { id: 'B1', title: 'feat: asking', lane: 'todo', phase: 'grilling' },
-    { id: 'B2', title: 'feat: filed prototyping', lane: 'todo', phase: 'prototyping' },
-    { id: 'B3', title: 'feat: a follow-up', lane: 'todo', phase: 'grilling', parent: 't/B1' },
-    { id: 'B4', title: 'feat: past the cap', lane: 'todo' },
-    { id: 'B5', title: 'feat: quick build', lane: 'todo', phase: 'ready' },
-  ].map((it, n) => ({ ...it, created: iso(now - (n + 1) * 60000) })) };
-  fs.writeFileSync(waveFile, JSON.stringify(wave));
-  const question = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'a', label: 'A' }] });
-  fs.writeFileSync(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1')] }));
-  fs.writeFileSync(eventsFile, '');
-  put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
-  const logged = (kind) => lines(eventsFile).filter((e) => e.kind === kind).map((e) => e.data.key);
-  const thread = (id) => lines(path.join(dataDir, 'threads', `t__${id}.jsonl`)).map((l) => l.text);
-  const { claude, launched } = launchingBoard(dir, siteDir, { stays: true });
-  // The server records a planner's launch on its frozen clock, and reads a planner gone unless its process started in the
-  // minute before; this ps says each running process started a second before that clock, so a planner reads gone only
-  // once its process has.
-  const ps = stallingPs(dir, { lstart: 'Tue Nov  3 15:59:59 2026', ppid: 1 });
-  Object.assign(process.env, { PATH: `${ps.bin}:${process.env.PATH}`, KICKFLIP_CODEX: 'true', KICKFLIP_CLAUDE: claude });
-  const board = server(t, siteDir);
-  await board.start();
-  const grills = () => fs.readFileSync(path.join(dir, 'launches.log'), 'utf8').split('\n').filter((l) => l.endsWith(' grill')).length;
-  assert.deepEqual(launched('grill', 'prototype', 'build'), [], 'nothing launches while usage is paused');
-  fs.rmSync(usageFile);
-  await board.minute();
-  const owes = (id) => (JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === id).briefs || []).map((b) => b.kind);
-  assert.ok(owes('B3').length && owes('B4').length && launched('build').length === 1, 'the arrivals owe their grill briefs');
-  assert.deepEqual(['B2', 'B3', 'B4'].map(owes), [[], ['grill'], ['grill']], 'the cap of two takes the top arrivals, Todo being oldest first');
-  assert.deepEqual(launched('grill'), [], 'an owed brief launches nothing');
-  // The orchestrator writes each arrival's brief (item brief); the board launches its grill from it.
-  const brief = async (id, kind) => {
-    const draft = path.join(dir, `brief-${id}.md`);
-    fs.writeFileSync(draft, `What ${id} settled and what is open.`);
-    await writeBrief(siteDir, `t/${id}`, { kind, file: draft });
-  };
-  await brief('B3', 'grill');
-  await brief('B4', 'grill');
-  await board.changed(waveFile);
-  assert.ok(launched('grill').length === 2 && fs.existsSync(agentFile('B3')), 'the arrivals get their grills');
-  assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
-  assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
-  assert.deepEqual(launched('build'), ['t/B5'], 'a ready task is pulled, not grilled, and its build holds no planner back');
-  assert.deepEqual(thread('B3'), ['Grill requested'], "the board posts no line of its own: the orchestrator's brief does");
-  const record = JSON.parse(fs.readFileSync(agentFile('B4'), 'utf8'));
-  assert.deepEqual([record.kind, record.dispatched], ['grill', 'hub']);
-  await board.stop();
-  await board.start();
-  await board.minute();
-  assert.equal(grills(), 2, 'an open grill is not launched again, and B2 waits for a slot');
-
-  // B4's grill posts a question and finishes: its slot goes to B2, the next arrival, which was filed prototyping, so
-  // it gets a prototype planner, not a grill.
-  put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B4')] }));
-  put(agentFile('B4'), JSON.stringify({ ...record, done: iso(now) }));
-  await board.changed(ownerFile, agentFile('B4'));
-  assert.deepEqual(owes('B2'), ['prototype'], 'the next arrival gets the free slot');
-  await brief('B2', 'prototype');
-  await board.changed(waveFile);
-  assert.equal(launched('prototype').length, 1, 'its prototype planner launches from its brief');
-  assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
-  assert.deepEqual(launched('prototype'), ['t/B2']);
-  assert.deepEqual([JSON.parse(fs.readFileSync(agentFile('B2'), 'utf8'))].map((r) => [r.kind, r.dispatched]), [['prototype', 'hub']]);
-  assert.deepEqual(thread('B2'), ['Prototype requested'], "the board posts no line of its own: the orchestrator's brief does");
-  // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
-  const arrivals = lines(path.join(dataDir, 'audit.jsonl')).filter((e) => e.call === 'arrival-planner');
-  assert.deepEqual(arrivals.map((e) => [e.key, e.result, e.reason, e.inputs.phase]).sort(), [
-    ['t/B2', 'prototype', 'It landed in Todo filed prototyping.', 'prototyping'],
-    ['t/B3', 'grill', 'It landed in Todo, not filed prototyping.', 'grilling'],
-    ['t/B4', 'grill', 'It landed in Todo, not filed prototyping.', 'new'],
-  ]);
-  // B3's grill finishes with no questions: one grill per arrival, so it isn't grilled again.
-  put(agentFile('B3'), JSON.stringify({ ...JSON.parse(fs.readFileSync(agentFile('B3'), 'utf8')), done: iso(now) }));
-  await board.changed(agentFile('B3'));
-  await board.minute();
-  assert.equal(grills(), 2);
-  assert.deepEqual(logged('card-plan'), [], 'no event wakes the session');
-  assert.deepEqual(thread('B1'), [], 'a task with questions has had its grill');
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md

@@ -209,10 +209,8 @@
 //                                implementer slot max_implementers leaves free, each card In Progress taking one
 //                                (domain.mjs pullOf), bumped cards first, whether or not the board is idle, each once,
 //                                tracked in data/pulled.json, its record dispatched: 'hub'. The helpers board.mjs agent
-//                                launch asked for (launchHelpers), the landers and the rebase runs take no slot; and
-//                                each card that arrives in Todo (domain.mjs arrivalsOf) owes a grill brief, up to
-//                                max_planners running at once, a bumped card's past it, the rest waiting in board
-//                                order, busy board or not. Neither appends an event.
+//                                launch asked for (launchHelpers), the landers and the rebase runs take no slot.
+//                                Neither appends an event.
 //                                With auto_triage on, once a night from the middle of the hub's quiet hours to their
 //                                end, an idle board with two or more cards waiting on open questions (domain.mjs
 //                                triageOf) gets overnight-triage {date, topic, cards} first, unless nothing changed
@@ -347,7 +345,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -357,7 +355,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -1548,10 +1546,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
   // The Auto jobs, run on every board change and once at start: the landers, rebase runs and resumes on cards already
-  // holding their slot, the arrivals' grills, triage, then the pull, then a review. The pull fills the free implementer
+  // holding their slot, triage, then the pull, then a review. The pull fills the free implementer
   // slots with Todo's top ready cards, bumped first (domain.mjs pullOf, docs/adr/2026-11-05-0802-todo-has-no-queue.md,
-  // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md). With Auto implement on, each card that arrived in Todo owes the orchestrator its grill brief, up to max_planners at once (launchArrivals).
-  // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
+  // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).  // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
   // board. An unanswered triage holds only the cards it names, until quiet hours end, and a card pulled and not yet started holds the
   // review. None goes out while usage is paused or the Mac is busy, nor, near the line, while the last Claude start hasn't
   // reported its usage (shared/usage-gate.mjs launchHeld), each launch checking again (launchHeldNow), so near the line a
@@ -1618,7 +1615,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       dataVersion++;
     }
     if (!heldByPause) await launchHelpers(helpers);
-    if (!heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
     await checkTriage(settings, log, items, ready);
     const held = pullable.filter((k) => hold.includes(k));
     if (held.length) logCall({ call: 'pull', result: 'held', reason: 'An overnight triage waits for the session\'s reply and names these tasks, so the pull leaves them until it is answered or quiet hours end.', inputs: { cards: held } });
@@ -1681,21 +1677,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       await abandonLaunch(here, started.key, `the launch failed: ${e.message}`);
     }
     return null;
-  }
-
-  // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-  // Each card domain.mjs arrivalsOf lists owes the orchestrator the brief for its planner
-  // (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md): a prototype for a card filed
-  // prototyping, the owner having asked for one, a grill for any other. Its owed brief keeps it off the list from then on,
-  // so the cached board is dropped before the next pass reads it.
-  async function launchArrivals(cards) {
-    for (const { key, phase } of cards) {
-      if (launchHeldNow()) return;
-      const kind = phase === 'prototyping' ? 'prototype' : 'grill';
-      logCall({ call: 'arrival-planner', key, result: kind, reason: phase === 'prototyping' ? 'It landed in Todo filed prototyping.' : 'It landed in Todo, not filed prototyping.', inputs: { phase } });
-      await oweBrief(here, key, kind);
-      dataVersion++;
-    }
   }
 
   // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
@@ -2422,6 +2403,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   try { for (const line of await migrateStatuses(here)) console.log(line); } catch (e) { console.error('status migration:', e.message); }
   try { for (const line of await migratePhases(here)) console.log(line); } catch (e) { console.error('phase migration:', e.message); }
   try { for (const line of await migrateGates(here)) console.log(line); } catch (e) { console.error('gate backfill:', e.message); }
+  try { for (const line of await discussNewCards(here)) console.log(line); } catch (e) { console.error('discussing migration:', e.message); }
   try { for (const line of await stageImplementAsks(here)) console.log(line); } catch (e) { console.error('staging migration:', e.message); }
   try { for (const line of await splitSharedNotes(here)) console.log(line); } catch (e) { console.error('notes split:', e.message); }
   try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }

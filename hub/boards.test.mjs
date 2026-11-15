@@ -975,7 +975,7 @@ test('object property names work as page routes and as new boards through HTTP a
       const joined = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', '--name', names[i], '--session', sessions[i], '--template', 'board', '--repo', repo, '--port', String(namedPorts[i])]);
       assert.equal(joined.status, 0, joined.stderr);
       write(site(route, 'board.json'), { title: names[i], slug: route, items: 'data/items.json' });
-      write(site(route, 'data', 'items.json'), { items: [{ id: 'constructor', title: 'Review', lane: 'todo' }] });
+      write(site(route, 'data', 'items.json'), { items: [{ id: 'constructor', title: 'Review', lane: 'todo', phase: 'discussing' }] });
       await serving(route);
       assert.equal((await fetch(`${base}/${route}/_claude/health`)).ok, true);
       const side = await get('/_hub/sidebar.json?fresh=1');

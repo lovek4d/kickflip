@@ -3381,9 +3381,9 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   const readiedLine = judged ? readiedText(said) : undefined;
   if (phase !== undefined) {
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: sent from discussing, staging or
-    // ready to a grill or prototype, the card owes the orchestrator's brief for its round, which the board launches the
-    // planner from. A new card filed grilling waits for its arrival (domain.mjs arrivalsOf), under the planner cap.
-    if (PLANNED.includes(phase) && ['discussing', 'staging', 'ready'].includes(item.phase)) owe(item, phase === 'grilling' ? 'grill' : 'prototype');
+    // ready to a grill or prototype, or sorted into one from New, the card owes the orchestrator's brief for its round,
+    // which the board launches the planner from.
+    if (PLANNED.includes(phase) && !PLANNED.includes(item.phase)) owe(item, phase === 'grilling' ? 'grill' : 'prototype');
     leaveNew(item);
     item.phase = phase;
     if (phase === 'discussing') dropOwed(item);
@@ -3883,8 +3883,7 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // Parent, whose gates it copies.
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: phase files the card at once, with
 // relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, phase
-// is required, so no card an agent adds reads New; once filed it arrives in Todo and gets its grill
-// (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is held or ready.
+// is required, so no card an agent adds reads New; a card added with no phase starts discussing.
 async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, held, parent, from, splitOf, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
   const { file: slug, id } = key.includes('/') ? parseKey(key) : { file: key };
   if (id !== undefined) domId(id, 'the item id');
@@ -3898,9 +3897,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   if (ask) await refuseFiled(site, ask);
-  // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md: a card filed held takes no phase; it reads New until the unhold starts its grill.
   const hold = holdOf({ held, pickUpAt });
-  if (hold && phase !== undefined) fail('a task filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
   if (ask && phase === undefined && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
   if (phase === 'ready' && ask && await fromSlack(site, ask)) fail(SLACK_DISCUSSES(ask));
   if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it discussing, grilling or prototyping` : 'item add files a task discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
@@ -3936,10 +3933,14 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   // before: each task listed gains the new one as a dep in the same write; checked before anything is written.
   const blocked = before === undefined ? [] : await depList(site, slug, before);
   if (hold) setHold(item, hold);
-  if (hold && phase === undefined) item.filed_held = true;
+  if (hold && ask && phase === undefined) item.filed_held = true;
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   if (ask) item.from_ask = ask;
+  // docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md: a task added with no phase, held or not, starts discussing.
+  const opened = phase === undefined && !ask && Boolean(site);
   if (phase !== undefined) item.phase = phase;
+  else if (opened) item.phase = 'discussing';
+  if (PLANNED.includes(phase)) owe(item, phase === 'grilling' ? 'grill' : 'prototype');
   // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: an id in the source's own form names the ticket to link.
   const named = id === undefined ? null : ticketNamed(await boardSource(site), id);
   if (named && ticket !== undefined && ticketNamed(await boardSource(site), ticket) !== named) fail(`--ticket ${ticket} is not the ticket ${id} names`);
@@ -3977,6 +3978,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
     if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   }
   if (madeAtReady && site) await appendStatus(site, added, 'ticket-made', { ticket: item.ticket });
+  if (opened) await appendStatus(site, added, 'discussing-start', { from: item.parent || '' });
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), from !== undefined);
   if (said !== undefined && !ask) await appendMessage(site, added, { text: said });
   return { file: source.file, key: added, lines: [] };
@@ -4116,6 +4118,27 @@ export const migratePhases = (site) => ticketWrite(site, async () => {
     await writeArchive(site, cards);
     lines.push(`archive: ${changed} tasks' states became phases`);
   });
+  return lines;
+});
+
+// docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md
+// A Todo card with no phase that no ask made, which the arrival grill used to take, becomes discussing, once, with its
+// discussing-start line. Run by the board server as it starts. → one line per item file changed.
+export const discussNewCards = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  for (const entry of await itemSources(site)) {
+    const itemFile = await readJSON(entry.file, null);
+    const fresh = (Array.isArray(itemFile?.items) ? itemFile.items : []).filter((it) => !it.phase && !it.from_ask && !it.unfiled && !it.answered_at
+      && !leftTodo(it) && !hasPR(it));
+    if (!fresh.length) continue;
+    for (const it of fresh) {
+      it.phase = 'discussing';
+      delete it.filed_held;
+    }
+    await writeJSON(entry.file, itemFile);
+    for (const it of fresh) await appendStatus(site, `${entry.slug}/${it.id}`, 'discussing-start', { from: it.parent || '' });
+    lines.push(`${entry.slug}: ${fresh.length} new tasks moved to discussing`);
+  }
   return lines;
 });
 

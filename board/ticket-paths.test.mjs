@@ -191,7 +191,7 @@ test("the board server's Run review route and arch file file their cards as task
   assert.equal(await cli('app', 'arch', 'file', 'app/T-1'), 0);
   const finding = b.items().find((it) => it.title === 'Split the store');
   assert.deepEqual([finding.id, finding.ticket], ['T-2', undefined]);
-  assert.deepEqual(b.item('INT-1'), OLD);
+  assert.deepEqual(b.item('INT-1'), { ...OLD, phase: 'discussing' }, 'the card with no phase started discussing');
 });
 
 // Hub's key moved aside for one test: gone, or refused by Linear.

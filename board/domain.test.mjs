@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -1071,8 +1071,6 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   const answer = (n, choice, note) => ({ id: `a${n}`, ts: `2026-10-23T10:0${n}:00Z`, kind: 'owner-answer', data: { id: 'p1', choice, note }, reply: null });
   const unpicked = card({ owner: { items: [takes] }, events: [answer(1, 'A', ''), answer(2, null, 'Neither: try a darker moon')] });
   assert.deepEqual([one(unpicked).lane, one(unpicked).buildable, one(unpicked).next, one(unpicked).action, one(unpicked).phase], ['todo', false, PROTOTYPE_AGAIN, null, 'prototyping']);
-  // A card prototyping again has had its questions, so it is no arrival for the board to grill.
-  assert.deepEqual(arrivalsOf(unpicked.items), ['w/ENG-1'], 'its fresh follow-up arrives, the task itself does not');
   const picked = card({ owner: { items: [takes] }, events: [answer(2, null, 'Neither'), answer(3, 'B', 'but with the moon on the left')] });
   assert.deepEqual([one(picked).buildable, one(picked).next, one(picked).phase], [true, null, 'new']);
   // A prototype request on any of the card's questions is its newest input the same way, until the next round's pick
@@ -1774,7 +1772,6 @@ test('a staging card stays in Todo waiting on the orchestrator, and is neither p
   assert.deepEqual([card('R1').staging, card('R1').ready, card('R1').orchestrator], [false, true, null]);
   assert.deepEqual(pullOf(b.items).pullable, ['w/R1']);
   assert.equal('starts' in pullOf(b.items), false);
-  assert.deepEqual(arrivalsOf(b.items), []);
   assert.equal(owesNext(items[0], []), false);
 });
 
@@ -1814,11 +1811,6 @@ test("a card owing a brief reads the brief's word, blue, and waits on the orches
   const drawing = one({ phase: 'discussing' }, { 'visual-1': { kind: 'visual', model: 'sonnet', started: at(7) } });
   assert.deepEqual([drawing.planning, drawing.builder], ['generating visual', null]);
   assert.equal(one({ lane: 'done', briefs: [{ kind: 'grill', at: at(5) }] }).planning, null, 'a closed task owes nothing');
-  // An owed grill keeps an arrival off the arrivals: it waits on its brief, not a launch.
-  assert.deepEqual(arrivalsOf(board([{ id: 'A1', title: 'One', lane: 'todo', briefs: [{ kind: 'grill', at: at(5) }] }]).items), []);
-  // and takes a planner slot, so the cap counts cards owing briefs as it counts running planners.
-  const two = board([{ id: 'A1', title: 'One', lane: 'todo', briefs: [{ kind: 'grill', at: at(5) }] }, { id: 'A2', title: 'Two', lane: 'todo' }]).items;
-  assert.deepEqual([arrivalsOf(two, { cap: 1 }), arrivalsOf(two, { cap: 2 })], [[], ['w/A2']]);
 });
 
 test('a card-unbump after a card-bump unbumps the card, and a later bump bumps it again', () => {
@@ -1856,16 +1848,6 @@ test('a bumped ready card goes first in the pull but waits for a slot like any o
   assert.deepEqual(Object.keys(full).filter((k) => ['bumpOuts', 'pastCap'].includes(k)), [], 'nothing is bumped out');
   assert.deepEqual(pullOf([running, plain, top], { cap: 2 }).pulls, ['w/T2'], 'one free slot takes the bump first');
   assert.deepEqual(pullOf([running, plain, top], { cap: 3 }).pulls, ['w/T2', 'w/T1']);
-});
-
-// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-test('a bumped arrival gets its grill past max_planners', () => {
-  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, prototyping: false, working: false, held: false, agents: [], ...more });
-  const planning = card('w/G0', { phase: 'grilling', agents: [{ kind: 'grill', started: '2026-11-06T10:00:00Z', done: null }] });
-  const items = [card('w/B1', { bumpedAt: '2026-11-06T10:00:00Z' }), card('w/A1'), card('w/A2')];
-  assert.deepEqual(arrivalsOf([planning, ...items], { cap: 1 }), ['w/B1']);
-  assert.deepEqual(arrivalsOf([planning, ...items], { cap: 2 }), ['w/B1'], 'the bump takes the free planner slot first');
-  assert.deepEqual(arrivalsOf([planning, ...items], { cap: 3 }), ['w/B1', 'w/A1']);
 });
 
 // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
@@ -1917,7 +1899,8 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md: a card filed held reads New but is sorted, so its unhold arrives it.
   const filedHeld = card({ item: { filed_held: true, held: true } });
   assert.deepEqual([filedHeld.phase, filedHeld.unsorted], ['new', false]);
-  assert.deepEqual(arrivalsOf([card({ item: { filed_held: true } })]), ['w/A1']);
+  // Once unheld it is unsorted again, for the orchestrator to sort.
+  assert.equal(card({ item: { filed_held: true } }).unsorted, true);
   // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: an agent's item add reads New too.
   assert.equal(card({ item: { from_ask: undefined, unfiled: true } }).unsorted, true);
   assert.deepEqual(pullOf([card({ item: { from_ask: undefined, unfiled: true } })]).pullable, []);
@@ -2217,45 +2200,6 @@ test('the pull takes only ready cards in board order, never a card with no state
   const card = (key, more = {}) => ({ key, title: 'feat: task', lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const items = [card('w/A1'), card('w/A2', { phase: 'ready' }), card('w/A3'), card('w/A4', { phase: 'ready' }), card('w/A5', { phase: 'ready', blockedBy: [{ key: 'w/X' }], blocked: true })];
   assert.deepEqual(pullOf(items).pullable, ['w/A2', 'w/A4']);
-});
-
-// docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-test('a card arrives in Todo however it was filed, until something picks it up, and the planner cap takes arrivals from the top', () => {
-  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, prototyping: false, working: false, held: false, agents: [], ...more });
-  const at = '2026-11-04T10:00:00Z';
-  const arrived = [
-    card('w/A1'),
-    card('w/A2', { phase: 'grilling', fromAsk: 'e1' }),
-    card('w/A3', { phase: 'prototyping' }),
-  ];
-  const pickedUp = [
-    card('w/B1', { phase: 'ready' }),
-    card('w/B2', { held: true }),
-    card('w/B5', { grilling: true }),
-    card('w/B6', { prototyping: true }),
-    card('w/B7', { questions: { topic: 'item:w/B7', open: 0, answered: 0, resolved: 2 } }),
-    card('w/B8', { agents: [{ kind: 'grill', started: at, done: at }] }),
-    card('w/B9', { buildable: false, action: { kind: 'questions' } }),
-    card('w/C1', { lane: 'progress', buildable: false }),
-    card('w/C2', { lane: 'done', buildable: false }),
-  ];
-  assert.deepEqual(arrivalsOf([...pickedUp, ...arrived], { cap: 99 }), ['w/A1', 'w/A2', 'w/A3']);
-  // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: a working mark doesn't pick a card up.
-  assert.deepEqual(arrivalsOf([card('w/W1', { working: true })]), ['w/W1'], 'a card a session works on still arrives');
-  // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a block stops a build, not a plan.
-  assert.deepEqual(arrivalsOf([card('w/B0', { blockedBy: [{ key: 'w/X' }], blocked: true })]), ['w/B0'], 'a blocked task arrives and is grilled');
-  const blockedOrNot = [card('w/K1', { blocked: true }), card('w/K2'), card('w/K3', { blocked: true }), card('w/K4')];
-  assert.deepEqual(arrivalsOf(blockedOrNot, { cap: 3 }), ['w/K2', 'w/K4', 'w/K1'], 'unblocked arrivals take the planner slots first, then blocked ones, each in board order');
-  assert.deepEqual(arrivalsOf([...blockedOrNot, card('w/K5', { blocked: true, bumpedAt: at })], { cap: 2 }), ['w/K5', 'w/K2'], 'a bump still comes first');
-  // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: filed and linked before its grill.
-  assert.deepEqual(arrivalsOf([card('w/U0', { unsorted: true })]), [], 'a task that reads New arrives once its session files it');
-  assert.deepEqual(arrivalsOf([...pickedUp, ...arrived]), ['w/A1', 'w/A2', 'w/A3'], 'the default cap takes three');
-  const running = card('w/R1', { buildable: false, agents: [{ kind: 'grill', started: at, done: null }] });
-  const drawing = card('w/R2', { lane: 'progress', buildable: false, agents: [{ kind: 'prototype', started: at, done: null }] });
-  assert.deepEqual(arrivalsOf([running, drawing, ...arrived], { cap: 3 }), ['w/A1'], 'each running planner takes a slot');
-  assert.deepEqual(arrivalsOf([running, drawing, ...arrived], { cap: 2 }), [], 'a cap already reached launches nothing');
-  const building = card('w/R3', { lane: 'progress', buildable: false, agents: [{ kind: 'claude', started: at, done: null }] });
-  assert.deepEqual(arrivalsOf([building, ...arrived], { cap: 1 }), ['w/A1'], 'a running build takes no planner slot');
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
@@ -2681,7 +2625,7 @@ test("a visual request is a request line, or the owner's message with visual req
   assert.equal(msgs[1].state, 'answered', 'the page answers the request');
 });
 
-test("a visual agent is a planner beside the card's work: its card shows the build, not the visual, it never stops a card arriving for its grill, and it counts toward the planner cap", () => {
+test("a visual agent is a planner beside the card's work: its card shows the build, not the visual", () => {
   const visual = { kind: 'visual', model: 'sonnet', started: '2026-10-23T10:00:00Z' };
   const build = { kind: 'claude', model: 'opus', started: '2026-10-23T09:00:00Z' };
   const board = (agents, items = [{ id: 'A1', title: 'One', phase: 'grilling' }]) => buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, now: Date.parse('2026-10-23T10:01:00Z'), files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items } }] });
@@ -2691,10 +2635,6 @@ test("a visual agent is a planner beside the card's work: its card shows the bui
   assert.deepEqual([both.builder.kind, both.builder.planner], ['claude', false]);
   const thread = threadOf('w/A1', { agents: { 'visual-v1': visual } });
   assert.deepEqual(thread.map((m) => [m.text, m.planner]), [['Claude Sonnet visual started', true]]);
-  // A card in Todo with only a visual on it still arrives; the running visual takes one of the cap's planners.
-  const todo = [{ id: 'A1', title: 'One', phase: 'grilling' }, { id: 'B1', title: 'Two', phase: 'grilling' }];
-  assert.deepEqual(arrivalsOf(board({ B1: { 'visual-v1': { ...visual, done: '2026-10-23T10:00:30Z' } } }, todo).items), ['w/A1', 'w/B1']);
-  assert.deepEqual(arrivalsOf(board({ B1: { 'visual-v1': visual } }, todo).items, { cap: 1 }), []);
 });
 
 // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
@@ -2844,8 +2784,6 @@ test('a card blocked until a condition, with a reason, is blocked as a dep block
   const blocked = built({ blocked_until: 'the CI run on main is green', block_reason: 'the suite is red on main' });
   assert.deepEqual([card(blocked).blockedUntil, card(blocked).blockReason, card(blocked).blocked, card(blocked).ready], ['the CI run on main is green', 'the suite is red on main', true, false]);
   assert.deepEqual(pullOf(blocked.items).pullable, []);
-  assert.deepEqual(arrivalsOf(built({ phase: undefined, blocked_until: 'x' }).items), ['w/A1'], 'it is grilled all the same');
-  assert.deepEqual(arrivalsOf(built({ phase: undefined }).items), ['w/A1']);
   const free = built({});
   assert.deepEqual([card(free).blockedUntil, card(free).blockReason, card(free).blocked, card(free).ready], [null, null, false, true]);
   assert.deepEqual(pullOf(free.items).pullable, ['w/A1']);

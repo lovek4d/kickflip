@@ -16,4 +16,6 @@ Considered:
 - the orchestrator reviewing a grill's findings before the owner sees them: a wake and a delay on every card; the owner chose direct.
 - tracking launched arrivals in a marker file, as the pull does: the grill record already says the card had its planner, across restarts.
 
+Superseded by [every new ticket starts discussing](2026-11-15-1000-every-new-ticket-starts-discussing.md): no card is grilled on arrival, and `arrivalsOf` and `launchArrivals` are gone.
+
 Amended by [every planner launches from the orchestrator's brief](2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md): an arrival owes the orchestrator its grill brief, up to Maximum parallel planners counting cards that owe one, and the board launches the grill from the brief.

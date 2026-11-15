@@ -70,6 +70,7 @@ export const HUB_LINES = {
   'arch-review': { tone: 'orange', mark: BUILD, text: ({ card }) => fit('Started an architecture review of ', card, '; its report becomes the notes') },
   'prototype-after': { tone: 'blue', mark: PROTOTYPE, text: () => 'Prototype round asked: it moves to prototyping once every question is answered.' },
   'prototype-round': { tone: 'blue', mark: PROTOTYPE, text: () => 'You asked for a prototype round, so the board moved the task to prototyping.' },
+  'discussing-start': { tone: 'blue', mark: 'Marked as discussing', text: ({ from }) => (from ? fit('Filed from ', from, ': it starts discussing.') : 'Filed with no phase: it starts discussing.') },
   'ticket-made': { tone: 'blue', mark: 'Created ticket', text: ({ ticket }) => fit('Created ticket ', ticket, '') },
   // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: one per batch published on a
   // card, holding its question ids; orange while any of them is open (domain.mjs threadOf), grey once none is.

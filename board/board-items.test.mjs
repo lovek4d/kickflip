@@ -9,7 +9,8 @@ import { home, at, site, write, read, lines, run, runAsync, board, wave, questio
 test('item add records creation on a card placed in Todo, and refuses a taken id, an unknown dep, or a --summary', async () => {
   const before = Date.now();
   const withoutCreated = (item) => {
-    const { created, lane_at, ...rest } = item;
+    const { created, lane_at, briefs, ...rest } = item;
+    assert.deepEqual(briefs?.map((b) => b.kind), ['grill'], 'filed grilling, it owes the orchestrator its grill brief');
     const ts = Date.parse(created);
     assert.ok(ts >= before && ts <= Date.now());
     assert.equal(created, new Date(ts).toISOString());
@@ -444,18 +445,37 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
   const filed = await board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'feat: follow it up', '--parent', 'A1', '--phase', 'grilling', '--relate', 'A1');
   assert.deepEqual([filed.code, filed.err], [0, '']);
   assert.deepEqual([item('F1').phase, 'unfiled' in item('F1'), item('F1').related], ['grilling', false, ['audit/A1']]);
+  assert.deepEqual([item('F1').briefs?.map((b) => b.kind)], [['grill']], 'filed grilling, it owes the orchestrator its grill brief');
   const held = await board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'feat: filed', '--phase', 'prototyping', '--relate', 'A1,F1', '--held');
-  assert.deepEqual([held.code, held.err, item('F2')], [1, 'a task filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase\n', undefined]);
-  assert.equal((await board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'feat: filed', '--relate', 'A1,F1', '--held')).code, 0);
-  assert.deepEqual([item('F2').phase, item('F2').held, item('F2').related], [undefined, true, ['audit/A1', 'audit/F1']]);
+  assert.deepEqual([held.code, held.err, item('F2').phase, item('F2').held, item('F2').related], [0, '', 'prototyping', true, ['audit/A1', 'audit/F1']]);
   assert.equal(events().length, before, 'a task filed with its state wakes nobody');
-  // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md
+  // docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md: a task added with no phase starts discussing, held or not.
+  const thread = (id) => lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)).map((m) => m.line);
   const later = await board('item', 'add', 'audit/F4', '--site', 'audit', '--title', 'feat: later', '--held');
-  assert.deepEqual([later.code, later.err, item('F4').phase, item('F4').held, item('F4').filed_held], [0, '', undefined, true, true]);
+  assert.deepEqual([later.code, later.err, item('F4').phase, item('F4').held, item('F4').filed_held, thread('F4')], [0, '', 'discussing', true, undefined, ['discussing-start']]);
   assert.equal((await board('item', 'set', 'audit/F4', '--site', 'audit', '--phase', 'grilling')).code, 0);
-  assert.deepEqual([item('F4').phase, item('F4').filed_held], ['grilling', undefined]);
+  assert.deepEqual([item('F4').phase, item('F4').briefs?.map((b) => b.kind)], ['grilling', ['grill']]);
   const bad = await board('item', 'add', 'audit/F3', '--site', 'audit', '--title', 'feat: x', '--phase', 'done');
   assert.deepEqual([bad.code, /^--phase takes ready, discussing, grilling or prototyping/.test(bad.err), item('F3')], [1, true, undefined]);
+});
+
+// docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md
+test('discussNewCards moves a New Todo card no ask made to discussing once, with its line, and leaves asks and sorted cards', async () => {
+  const { discussNewCards } = await import('./store.mjs');
+  const file = site('audit', 'data', 'items.json');
+  const data = read(file);
+  data.items.push({ id: 'N1', title: 'New one', lane: 'todo', filed_held: true, held: true, parent: 'audit/A1' }, { id: 'N2', title: 'From an ask', lane: 'todo', from_ask: 'e1' }, { id: 'N3', title: 'Sorted', lane: 'todo', phase: 'grilling' });
+  write(file, data);
+  const first = await discussNewCards(site('audit'));
+  assert.equal(first.length, 1);
+  const cards = read(file).items;
+  const phase = (id) => cards.find((i) => i.id === id).phase;
+  assert.deepEqual(['N1', 'N2', 'N3'].map(phase), ['discussing', undefined, 'grilling']);
+  assert.equal(cards.find((i) => i.id === 'N1').filed_held, undefined);
+  const said = lines(site('audit', 'data', 'threads', 'audit__N1.jsonl'));
+  assert.deepEqual(said.map((m) => m.line), ['discussing-start']);
+  assert.match(said[0].text, /^Filed from audit\/A1/);
+  assert.deepEqual(await discussNewCards(site('audit')), [], 'a second pass changes nothing');
 });
 
 test('--parent works when an ancestor of the new Parent no longer exists', async () => {
@@ -715,7 +735,7 @@ test('--pick-up-at holds a card until a time, read as local time without an offs
   assert.equal((await board('item', 'set', 'd/A1', '--unheld', '--site', 'orch')).code, 0);
   assert.deepEqual([item().held, item().pick_up_at], [undefined, undefined]);
   assert.equal((await board('item', 'add', 'd/A2', '--title', 'feat: two', '--pick-up-at', local, '--site', 'orch')).code, 0);
-  assert.deepEqual([item('A2').lane, item('A2').phase, item('A2').held, item('A2').pick_up_at], ['todo', undefined, true, nine]);
+  assert.deepEqual([item('A2').lane, item('A2').phase, item('A2').held, item('A2').pick_up_at], ['todo', 'discussing', true, nine]);
 });
 
 test("a build's start takes a prototype pick's note as guidance, and refuses while the newest answer to the card's prototypes picks no take", async () => {

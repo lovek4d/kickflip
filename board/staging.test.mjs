@@ -201,7 +201,7 @@ test('a Quick build ask filed held and grilling goes ready and unholds in one it
   write(`${home}/draft.md`, '# Quick\n');
   const added = await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--notes-from', `${home}/draft.md`, '--held');
   assert.equal(added.code, 0, added.err);
-  assert.deepEqual([item('Q1').phase, item('Q1').held], [undefined, true]);
+  assert.deepEqual([item('Q1').phase, item('Q1').held], ['discussing', true]);
   const filed = await board('item', 'set', 'w/Q1', '--site', 'orch', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--unheld', '--size', 'small');
   assert.equal(filed.code, 0, filed.err);
   assert.deepEqual([item('Q1').phase, 'held' in item('Q1'), item('Q1').from_ask], ['ready', false, 'eq']);

@@ -508,8 +508,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          slot too.
                                                          Only on the owner's word
   settings set max-planners <1..99>                      Maximum parallel planners, 3 by default: the grills and
-                                                         prototypes running at once; arrivals past it wait in board
-                                                         order. Only on the owner's word
+                                                         prototypes running at once. Only on the owner's word
   settings set auto-review on|off                        on: while the board is idle and nothing is pulled, the board
                                                          server sends pr-review {pr, head, repo, title, author, url,
                                                          touches, asked} for one incoming PR at a time that touches
@@ -678,7 +677,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          --kind, and launch that model
   audit [<file>/<id>]                                    the board's audit log of the last 30 days, data/audit.jsonl:
                                                          each call the code made on its own (builder-pick, pull,
-                                                         round-planner, launch-held, arrival-planner, relaunch,
+                                                         round-planner, launch-held, relaunch,
                                                          lander, triage, pr-review, push, pick-up, auto-merge,
                                                          ready-draft, session-resume, compact) as "<at> <call>
                                                          [<key>]: <result>. <reason>" and the inputs it read; with

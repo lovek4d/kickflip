@@ -868,13 +868,13 @@ test("the owner's Grill and Prototype taps and a card arriving in Todo launch no
   assert.match(proto.prompt, /Two takes: a drawer and a sheet\./);
   assert.equal(proto.model, 'sonnet');
 
-  // With Auto implement on, the card that arrived in Todo with no planner yet owes its grill's brief; the planned ones don't.
+  // A card in Todo owes no grill brief of its own accord: only a tap or the orchestrator's brief asks for one.
   for (const id of ['G1', 'P1']) fs.writeFileSync(path.join(b.data, 'agents', `${id}.json`), JSON.stringify({ ...b.record(id), done: new Date().toISOString() }));
   fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
   await wrote(board, path.join(b.data, 'agents', 'G1.json'), path.join(b.data, 'agents', 'P1.json'), path.join(b.site, 'board.json'));
-  assert.deepEqual(b.item('Q1').briefs?.map((x) => x.kind), ['grill'], 'the arrival owes a grill brief');
-  assert.equal(b.runs.length, 2, 'the arrival launches nothing by itself');
-  assert.deepEqual(b.thread('Q1'), [], 'the arrival posts no thread line of its own');
+  assert.equal(b.item('Q1').briefs, undefined, 'a card with no phase owes no brief');
+  assert.equal(b.runs.length, 2, 'nothing launches by itself');
+  assert.deepEqual(b.thread('Q1').map((m) => m.line), ['discussing-start'], "its thread holds only the line the start-up move to discussing wrote");
   await brief('Q1', 'grill', 'Plan it.');
   assert.equal(b.runs.length, 3, 'its brief launches the grill');
   assert.match(b.runs[2].prompt, /builder start t\/Q1 --kind grill/);

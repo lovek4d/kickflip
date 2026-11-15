@@ -1798,6 +1798,7 @@ test("/api/board leaves resolved questions out while its topics still count and 
     items: [ask('open1', 'plan'), ask('gone1', 'plan', done), ask('gone2', 'old', done), ask('gone3', 'old', done)] }));
   const get = async (p) => (await fetch(`${base}${p}`)).json();
   try {
+    await heard(ownerFile);
     const b = await get('/api/board');
     assert.deepEqual(b.owner.map((q) => q.id), ['open1']);
     assert.deepEqual(b.ownerTopics.map((t) => [t.id, t.state, t.questions, t.open, t.resolved]),
@@ -1922,7 +1923,7 @@ test("the board's version depends on its data alone: a minute later with nothing
   const at = path.join(dir, 'site');
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
   fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'V', items: 'data/items.json', slug: 'v' }));
-  fs.writeFileSync(path.join(at, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'V1', title: 'Todo' }, { id: 'V2', title: 'Held', held: true }] }));
+  fs.writeFileSync(path.join(at, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'V1', title: 'Todo', phase: 'discussing' }, { id: 'V2', title: 'Held', held: true, phase: 'discussing' }] }));
   const server = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
   try {
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', `

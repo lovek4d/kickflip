@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildBoard, arrivalsOf, PHASES } from './domain.mjs';
+import { buildBoard, PHASES } from './domain.mjs';
 import { board, home, site, read, write, lines } from './board-fixture.mjs';
 
 const ask = { id: 'a1', ts: '2026-11-09T10:00:00Z', kind: 'ask', data: { text: 'Rethink the footer' } };
@@ -41,11 +41,6 @@ test('only a discussing card has a turn', async () => {
   assert.equal(card(built({ item: { phase: 'grilling' } })).turn, undefined);
 });
 
-test('a discussing card is not an arrival: the board launches it no grill', async () => {
-  const b = built({ item: { phase: 'discussing' }, threads: { 'hub/T-1': [reply] } });
-  assert.deepEqual(arrivalsOf(b.items), []);
-  assert.deepEqual(arrivalsOf(built({ item: { phase: 'grilling' } }).items), ['hub/T-1']);
-});
 
 // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
 test("a New task's intake wait says to triage it first into discussing, a grill, a prototype or a visual, linking a ticket it names, then to discuss it by reply and file an Implement ask ready", async () => {

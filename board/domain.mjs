@@ -1371,7 +1371,7 @@ export function buildBoard(snapshot) {
     // added (docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md), is unsorted until its session
     // sets its phase (shown as its ticket, never New), and ready once Ready with nothing blocking it or waiting on the owner.
     const unstarted = it.kind === 'work' && it.lane === 'todo';
-    it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !it.filedHeld && it.phase === 'new';
+    it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !(it.filedHeld && it.held) && it.phase === 'new';
     // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: the card an ask became reads
     // New, with its ask's state, edit and delete, until the orchestrator sorts or answers it.
     if (it.kind === 'work') {
@@ -1666,31 +1666,11 @@ export function rebasesDue(items, sent, base) {
   });
 }
 
-// docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
 // How many grills and prototypes a board runs at once, unless its max_planners setting says otherwise.
 export const MAX_PLANNERS = 3;
 // docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
 // How many card serves a board keeps up at once, unless its max_serves setting says otherwise.
 export const MAX_SERVES = 10;
-// For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
-// card in Todo nothing has picked up: buildable, not discussing, ready nor staging, filed (not New), not held, with
-// no planner record ever, no grill or prototype requested or briefed and no question topic. However it was filed (an ask, item add,
-// the +, an import) it counts the same, and a blocked card arrives too: a block only keeps a card from In Progress
-// (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md). The cap, less the planners running, takes
-// the unblocked arrivals first, then the blocked ones, each in board order; the rest wait. An arrival owes the
-// orchestrator's brief for its planner (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md).
-export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
-  const open = items.filter((i) => !closedLane(i));
-  // A card owing or holding a grill or prototype brief takes its slot as a running planner does.
-  const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done) || (i.briefs || []).some((b) => b.kind !== VISUAL)).length;
-  const fresh = open.filter((i) => i.buildable && !['discussing', 'ready', 'staging'].includes(i.phase) && !i.unsorted && !i.held && !i.grilling && !i.prototyping
-    && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL) && !(i.briefs || []).some((b) => b.kind !== VISUAL));
-  const arrived = [...fresh.filter((i) => !i.blocked), ...fresh.filter((i) => i.blocked)];
-  // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped arrival gets its grill past the cap.
-  const bumped = arrived.filter((i) => i.bumpedAt);
-  return [...bumped, ...arrived.filter((i) => !i.bumpedAt).slice(0, Math.max(0, cap - planners - bumped.length))].map((i) => i.key);
-}
-
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
 // For built items: the agents due to launch, one per open card and kind with a written brief: a grill or prototype on a
 // Todo card while no agent other than a visual one runs there, a visual beside anything but another visual
