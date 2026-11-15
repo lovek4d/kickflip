@@ -174,7 +174,7 @@ const phaseWord = (html) => [...html.matchAll(/<span class="card-phase ph-(\w+)"
 test("Todo, In Review and Done end a card's last line with its phase word, toned by who acts next; In Progress shows only its bar", async () => {
   const words = [
     ['todo', 'grilling', 'grilling', 'info'], ['todo', 'prototyping', 'prototyping', 'info'],
-    ['todo', 'staging', 'staging', 'notice'], ['todo', 'ready', 'ready', 'success'],
+    ['todo', 'staging', 'staged', 'notice'], ['todo', 'ready', 'ready', 'success'],
     ['review', 'draft', 'draft', 'quiet'], ['review', 'reviewers', 'pending review', 'notice'], ['review', 'merge', 'pending merge', 'notice'], ['review', 'stale', 'stale', 'quiet'],
     ['done', 'merged', 'merged', 'merged'], ['done', 'closed', 'closed', 'quiet'],
   ];
@@ -197,7 +197,7 @@ test('a stale review reads one stale; a blocked ready card shows ready, then its
   assert.deepEqual(phaseWord(blockedReady), [['ready', 'success']]);
   assert.match(footerWords(blockedReady), / · ready · blocked by #2$/);
   assert.match(footerWords(card({ lane: 'todo', phase: 'ready', ready: false, held: true })), / · ready · held/);
-  assert.match(footerWords(card({ lane: 'todo', phase: 'staging', staging: true, blocked: true, blockedBy })), / · staging · blocked by #2$/);
+  assert.match(footerWords(card({ lane: 'todo', phase: 'staging', staging: true, blocked: true, blockedBy })), / · staged · blocked by #2$/);
   const grilling = card({ lane: 'todo', phase: 'grilling', builder: { planner: true, kind: 'grill', progress: 'Reading', at: '2020-01-01T10:00:00.000Z', alive: true } });
   assert.deepEqual(phaseWord(grilling), [['grilling', 'info']]);
   assert.doesNotMatch(grilling, /phase-bars/);

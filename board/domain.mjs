@@ -936,7 +936,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 export const COMMANDS = {
   prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
   reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done', reopened: 'Reopened',
-  discussing: 'Marked as discussing', staged: 'Marked as staging', readied: 'Marked as ready',
+  discussing: 'Marked as discussing', staged: 'Marked as staged', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
   created: 'Created ticket', 'created-from': 'Created from', 'blocked-by': 'Blocked by', unblocks: 'Unblocks',
 };

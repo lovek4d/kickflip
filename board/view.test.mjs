@@ -3479,7 +3479,7 @@ test("a message the board never recorded survives a reload: the page shows it as
 });
 
 // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
-test("Implement shows its line at once and its button never waits: with text the message's footer reads Implement · sending…, an empty box's line reads Marked as staging · sending…, and the board's line, matched by sendId, takes each one's place", async () => {
+test("Implement shows its line at once and its button never waits: with text the message's footer reads Implement · sending…, an empty box's line reads Marked as staged · sending…, and the board's line, matched by sendId, takes each one's place", async () => {
   const sends = heldSends();
   const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
   await b.settle();
@@ -3490,20 +3490,20 @@ test("Implement shows its line at once and its button never waits: with text the
   assert.deepEqual([form().querySelector('textarea').value, threadLines(b, 'w/T1'), waitState(implement())], ['', ['Use the blue (Implement · sending…)'], IDLE]);
   assert.equal(b.sent[0][1].intent, 'build');
   await tap('');
-  assert.deepEqual([threadLines(b, 'w/T1'), waitState(implement())], [['Use the blue (Implement · sending…)', 'Marked as staging · sending…'], IDLE]);
+  assert.deepEqual([threadLines(b, 'w/T1'), waitState(implement())], [['Use the blue (Implement · sending…)', 'Marked as staged · sending…'], IDLE]);
   const at = '2026-10-30T10:05:00.000Z';
   b.server.threads['w/T1'] = [
     { ts: at, who: 'love', via: 'site', kind: 'item-message', text: 'Use the blue', eventId: 'e1', reply: null, state: 'waiting', status: 'Implement' },
-    { ts: at, who: 'claude', kind: 'command', command: 'staged', request: true, text: 'Marked as staging' },
+    { ts: at, who: 'claude', kind: 'command', command: 'staged', request: true, text: 'Marked as staged' },
   ];
   sends.answer();
   await b.settle();
-  assert.deepEqual(threadLines(b, 'w/T1'), ['Use the blue (Implement · waiting…)', 'Marked as staging', 'Marked as staging · sending…']);
+  assert.deepEqual(threadLines(b, 'w/T1'), ['Use the blue (Implement · waiting…)', 'Marked as staged', 'Marked as staged · sending…']);
   const sendId = b.sent.at(-1)[1].sendId;
-  b.server.threads['w/T1'] = [...b.server.threads['w/T1'], { ts: '2026-10-30T10:06:00.000Z', who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging', sendId }];
+  b.server.threads['w/T1'] = [...b.server.threads['w/T1'], { ts: '2026-10-30T10:06:00.000Z', who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staged', text: 'Marked as staged', sendId }];
   sends.answer();
   await b.settle();
-  assert.deepEqual(threadLines(b, 'w/T1'), ['Use the blue (Implement · waiting…)', 'Marked as staging', 'Marked as staging']);
+  assert.deepEqual(threadLines(b, 'w/T1'), ['Use the blue (Implement · waiting…)', 'Marked as staged', 'Marked as staged']);
   assert.deepEqual(sentNoIds(b).at(-1), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
   b.view.unmount();
 });

@@ -1909,15 +1909,15 @@ test("a discussing card's time line says whose turn it is: blue for the owner's,
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
-test("a staging card's time line reads staging in orange where ready reads, and its Status row says staging", () => {
+test("a staged card's time line reads staged in orange where ready reads, and its Status row says staged", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, staging: true, phase: 'staging' };
   const html = ui.workLines(card, { unread: 1 });
-  assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · staging`, '1 new message']);
-  assert.match(html, /<span class="card-phase ph-notice">staging<\/span><\/div>/);
-  assert.match(lines(ui.workLines({ ...card, held: true })).slice(-1)[0], /^.* · staging · held/);
+  assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · staged`, '1 new message']);
+  assert.match(html, /<span class="card-phase ph-notice">staged<\/span><\/div>/);
+  assert.match(lines(ui.workLines({ ...card, held: true })).slice(-1)[0], /^.* · staged · held/);
   assert.doesNotMatch(html, /ph-success/);
-  assert.equal(ui.statusWord(card), 'staging');
+  assert.equal(ui.statusWord(card), 'staged');
   assert.equal(ui.statusWord({ ...card, staging: false, ready: true, phase: 'ready' }), 'ready');
 });
 
@@ -2092,17 +2092,17 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   const requests = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'grill-more', request: true, text: 'Grill requested', eventId: 'g1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', request: true, text: 'Prototype requested', eventId: 'p1', state: 'waiting', files: [] },
-    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging', tone: 'orange', by: 'Dana Reyes' },
+    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staged', text: 'Marked as staged', tone: 'orange', by: 'Dana Reyes' },
   ]);
   assert.match(requests, new RegExp(`^<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Grill requested']}</span>Grill requested <span class="muted">· [^<]+ · <span>waiting…</span></span></div><div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>Prototype requested <span class="muted">`));
-  assert.ok(requests.includes(`<div class="msg status-line request tone-orange"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">· Dana Reyes · `));
+  assert.ok(requests.includes(`<div class="msg status-line request tone-orange"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staged']}</span>Marked as staged <span class="muted">· Dana Reyes · `));
   // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md: a reopened question's line
   // varies with its number, so it names its mark.
   const reopened = ui.threadMessages([{ ts: ago(0.2), who: 'love', kind: 'question-reopen', request: true, mark: 'question reopened', text: 'Question 2 was reopened' }]);
   assert.ok(ui.MARK_ICONS['question reopened']);
   assert.ok(reopened.startsWith(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['question reopened']}</span>Question 2 was reopened <span class="muted">`));
   assert.doesNotMatch(requests, /class="who"|data-event/);
-  assert.match(requests, /Marked as staging <span class="muted">· Dana Reyes · [^<]+<\/span><\/div>$/);
+  assert.match(requests, /Marked as staged <span class="muted">· Dana Reyes · [^<]+<\/span><\/div>$/);
 });
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
@@ -2834,14 +2834,14 @@ test("a Todo thread message's footer leads with an icon for Implement, a Reply's
   const html = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'hello', eventId: 'm1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'go', status: 'Implement', eventId: 'm2', state: 'waiting', files: [] },
-    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging', tone: 'orange' },
+    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staged', text: 'Marked as staged', tone: 'orange' },
   ]);
   assert.equal(html.split('class="foot-status"').length - 1, 1);
   assert.match(ui.MARK_ICONS.Implement, /^<svg class="mark-icon"/);
   assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implement</span>`));
-  assert.equal(ui.MARK_ICONS['Marked as staging'], ui.MARK_ICONS.Implement);
-  assert.equal(ui.MARK_ICONS['Implementation requested'], ui.MARK_ICONS['Marked as staging']);
-  assert.ok(html.includes(`<div class="msg status-line request tone-orange"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Marked as staging`));
+  assert.equal(ui.MARK_ICONS['Marked as staged'], ui.MARK_ICONS.Implement);
+  assert.equal(ui.MARK_ICONS['Implementation requested'], ui.MARK_ICONS['Marked as staged']);
+  assert.ok(html.includes(`<div class="msg status-line request tone-orange"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Marked as staged`));
 });
 
 test('a ↗ in a card title, a card details line, a thread line and a question draws as the arrow icon, never the character', () => {
@@ -2870,11 +2870,11 @@ test("a bare visual request is a request line led by the image mark, and the age
 });
 
 // docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md
-test('a "Marked as staging" line is a bare orange status line and a "Marked as ready" line is the same in green', () => {
+test('a "Marked as staged" line is a bare orange status line and a "Marked as ready" line is the same in green', () => {
   const line = (command, text, tone) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: text, text, tone });
-  const html = ui.threadMessages([line('staged', 'Marked as staging', 'orange'), line('readied', 'Marked as ready', 'green')]);
+  const html = ui.threadMessages([line('staged', 'Marked as staged', 'orange'), line('readied', 'Marked as ready', 'green')]);
   assert.deepEqual([...html.matchAll(/<div class="msg status-line ([^"]*)">/g)].map((m) => m[1]), ['request tone-orange', 'request tone-green'], 'bare status lines, each in its own tone');
-  for (const words of ['Marked as staging', 'Marked as ready']) assert.ok(html.includes(ui.MARK_ICONS[words]), words);
+  for (const words of ['Marked as staged', 'Marked as ready']) assert.ok(html.includes(ui.MARK_ICONS[words]), words);
   assert.doesNotMatch(html, /class="who"/);
 });
 
@@ -3093,7 +3093,7 @@ test("only written messages count toward a thread's newest 3: command lines and 
     { ts: at(0), who: 'claude', text: 'One' },
     { ts: at(1), who: 'claude', text: 'Two' },
     { ts: at(2), who: 'claude', text: 'Three' },
-    { ts: at(3), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging' },
+    { ts: at(3), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staged', text: 'Marked as staged' },
     { ts: at(4), who: 'claude', kind: 'command', command: 'readied', request: true, mark: 'Marked as ready', text: 'Marked as ready' },
     { ts: at(5), who: 'claude', kind: 'command', command: 'related', request: true, card: 'hub/T-1', link: '#selectedCard=hub%2FT-1', text: 'Related to hub/T-1' },
     { ts: at(6), who: 'love', via: 'site', kind: 'visual-request', request: true, command: 'visual', mark: 'Visual requested', text: 'Visual requested' },

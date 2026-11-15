@@ -297,7 +297,7 @@
   // phase only as its progress bar, a New card has none (its footer line says it), and a card In Review for an owner wait other than the merge has none. The word shows
   // whether the card is held or blocked; those words follow it.
   const PHASE_LOOK = {
-    new: ['new', 'quiet'], discussing: ['discussing', 'info'], grilling: ['grilling', 'info'], prototyping: ['prototyping', 'info'], staging: ['staging', 'notice'], ready: ['ready', 'success'],
+    new: ['new', 'quiet'], discussing: ['discussing', 'info'], grilling: ['grilling', 'info'], prototyping: ['prototyping', 'info'], staging: ['staged', 'notice'], ready: ['ready', 'success'],
     draft: ['draft', 'quiet'], reviewers: ['pending review', 'notice'], merge: ['pending merge', 'notice'], stale: ['stale', 'quiet'],
     merged: ['merged', 'merged'], closed: ['closed', 'quiet'],
   };

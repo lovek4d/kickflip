@@ -2125,12 +2125,12 @@ test("a thread message's footer names Implement when that sent it; a Reply, bein
 // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
 test("a thread-file line a button wrote is a request line carrying its command key, naming its mark when its words vary", () => {
   const lines = [
-    { ts: '2026-10-23T10:00:00Z', who: 'claude', text: 'Marked as staging', command: 'staged', sendId: 's1' },
+    { ts: '2026-10-23T10:00:00Z', who: 'claude', text: 'Marked as staged', command: 'staged', sendId: 's1' },
     { ts: '2026-10-23T10:01:00Z', who: 'love', text: 'Held until Fri 10/24, 9:00 AM', command: 'hold', by: 'Dana Reyes' },
     { ts: '2026-10-23T10:02:00Z', who: 'love', text: 'Earlier hand-typed line' },
   ];
   assert.deepEqual(threadOf('w/A1', { lines }).map((m) => [m.kind ?? null, m.command ?? null, Boolean(m.request), m.mark ?? null, m.by ?? null]), [
-    ['command', 'staged', true, 'Marked as staging', null], ['command', 'hold', true, 'Held', 'Dana Reyes'], [null, null, false, null, null],
+    ['command', 'staged', true, 'Marked as staged', null], ['command', 'hold', true, 'Held', 'Dana Reyes'], [null, null, false, null, null],
   ]);
   // A link's line names the other card by key, drawn with its ref as it stands, and links to it.
   const cards = new Map([['w/A2', { ref: '#12' }]]);
@@ -2531,7 +2531,7 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   assert.deepEqual(shape(one({ lane: 'progress' }, { agents: handed, threads: progress })), [['w/A1', 'calls', at, null]], 'a status line is no pick-up');
   // The board writes command lines (staged, related, followup) on a card; none is the session's pickup.
   const staged = { phase: 'staging', staged_at: at };
-  const stagedLine = { 'w/A1': [{ ts: later, who: 'claude', command: 'staged', text: 'Marked as staging' }, { ts: later, who: 'claude', command: 'related', text: 'Related to', card: 'w/A2' }] };
+  const stagedLine = { 'w/A1': [{ ts: later, who: 'claude', command: 'staged', text: 'Marked as staged' }, { ts: later, who: 'claude', command: 'related', text: 'Related to', card: 'w/A2' }] };
   assert.deepEqual(shape(one(staged, { threads: stagedLine })), [['w/A1', 'staging', at, null]], 'a board command line is no pick-up');
   assert.deepEqual(waitsStep([], orchestratorWaits(built({ items: [{ id: 'A1', title: 'One', ...staged }], threads: stagedLine })), new Date(later)).added, ['w/A1'], 'an Implement tap wakes the orchestrator');
 
@@ -3001,9 +3001,9 @@ test("a card's builder line is its still-running runs' newest line: a finished h
 test('on a tie a message sorts above the status line it causes', () => {
   const ts = '2026-11-12T19:35:05.149Z';
   const msg = { id: 'e1', ts, kind: 'item-message', data: { key: 'w/A1', text: 'Go build it', intent: 'build' } };
-  const lines = [{ ts, who: 'claude', command: 'staged', text: 'Marked as staging' }, { ts, who: 'claude', kind: 'move', text: 'Moved to In Progress' }];
+  const lines = [{ ts, who: 'claude', command: 'staged', text: 'Marked as staged' }, { ts, who: 'claude', kind: 'move', text: 'Moved to In Progress' }];
   const thread = threadOf('w/A1', { lines, events: [msg] });
-  assert.deepEqual(thread.map((m) => m.text), ['Go build it', 'Marked as staging', 'Moved to In Progress']);
+  assert.deepEqual(thread.map((m) => m.text), ['Go build it', 'Marked as staged', 'Moved to In Progress']);
 });
 
 // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md

@@ -113,7 +113,7 @@ test('no stages the card once its other questions are answered, in either order'
   assert.equal(last.card(), 'grilling');
   await settleAnswers(last.site, [last.answer('q-gate', 'no')]);
   assert.equal(last.card(), 'staging');
-  assert.deepEqual([last.thread().at(-1).command, last.thread().at(-1).text], ['staged', 'Marked as staging']);
+  assert.deepEqual([last.thread().at(-1).command, last.thread().at(-1).text], ['staged', 'Marked as staged']);
 });
 
 test('a gate asked alone, answered no, stages the card; yes leaves a card no longer grilling alone', async () => {

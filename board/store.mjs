@@ -2373,7 +2373,7 @@ async function stageable(site, key) {
   if ((await readJSON(stagedFile(site), {}))[key]) return false;
   return !(await unpickedPrototype(site, key));
 }
-// Stages the card, keeping the time of a stage it is already in, with a "Marked as staging" status line when it newly
+// Stages the card, keeping the time of a stage it is already in, with a "Marked as staged" status line when it newly
 // stages. A Keep discussing the stage overrides is spent (spendNext).
 async function stage(site, key, sendId) {
   const { source, itemFile, item } = await loadItem(site, key);
@@ -4596,7 +4596,7 @@ async function tapRefusals(site, key) {
 
 // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
 // A bare Implement, in the board server with no event: the card staged as an Implement with text stages it
-// (stageImplement), for the orchestrator's review before it goes ready. "Marked as staging" is the thread's whole
+// (stageImplement), for the orchestrator's review before it goes ready. "Marked as staged" is the thread's whole
 // answer to the tap (docs/adr/2026-11-12-1100-an-implement-tap-reads-only-marked-as-staging.md).
 export async function implementAsIs(site, key, sendId) {
   return stageImplement(site, key, { sendId });

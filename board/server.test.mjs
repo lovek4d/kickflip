@@ -638,7 +638,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
       assert.deepEqual([wave().items.find((i) => i.id === id).phase, 'unfiled' in wave().items.find((i) => i.id === id)], ['staging', false], id);
       assert.equal(fs.existsSync(path.join(site, 'data', 'agents', `${id}.json`)), false, id);
       // B11's title keeps the pull off it, which posts its refusal once; the tap's own line is what this reads.
-      assert.deepEqual(thread(id).filter((m) => m.line !== 'build-refused').map((m) => [m.who, m.command, m.text]), [['claude', 'staged', 'Marked as staging']], id);
+      assert.deepEqual(thread(id).filter((m) => m.line !== 'build-refused').map((m) => [m.who, m.command, m.text]), [['claude', 'staged', 'Marked as staged']], id);
     }
     assert.deepEqual(log().slice(events).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
   } finally {
