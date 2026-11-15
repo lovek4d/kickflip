@@ -47,12 +47,12 @@ test('a discussing card is not an arrival: the board launches it no grill', asyn
   assert.deepEqual(arrivalsOf(built({ item: { phase: 'grilling' } }).items), ['hub/T-1']);
 });
 
-test("a New task's intake wait says to discuss it by reply, file an Implement ask ready, grill or prototype only on its word, and link a ticket it names", async () => {
+test("a New task's intake wait says to discuss it by reply, file an Implement ask ready, send a grill, prototype or visual straight to it on its words, and link a ticket it names", async () => {
   const next = card(built()).orchestrator.next;
   assert.match(next, /reply hub\/T-1/);
   assert.match(next, /discussing/);
   assert.match(next, /--phase ready, with --size, for an Implement ask/);
-  assert.match(next, /--phase grilling or prototyping only when the ask asks for one/);
+  assert.match(next, /when the ask's words ask for a grill, prototype or visual, item brief hub\/T-1 --kind grill\|prototype\|visual then --phase grilling or prototyping \(a visual needs no phase\)/);
   assert.match(next, /--ticket/);
 });
 

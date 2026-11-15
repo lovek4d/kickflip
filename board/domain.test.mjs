@@ -2459,7 +2459,7 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
   const waits = (events, options) => orchestratorWaits(built(events, options)).map(({ key, kind, since, picked, next }) => [key, kind, since, picked, next]);
   const sort = (id) => {
     const key = `w/T-${id.slice(1)}`;
-    return `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask ${id} <task> --summary`;
+    return `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or, when the ask's words ask for a grill, prototype or visual, item brief ${key} --kind grill|prototype|visual then --phase grilling or prototyping (a visual needs no phase); or merge it into a task with item relate-ask ${id} <task> --summary`;
   };
   const cards = [asked('e1'), asked('e2')];
 

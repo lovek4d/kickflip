@@ -1701,7 +1701,7 @@ function unsorted(items, e, key) {
   return e.kind === 'ask' ? Boolean(it.isNew) : it.unfiled;
 }
 const INTAKE_NEXT = {
-  ask: (key, e) => `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask ${e.id} <task> --summary`,
+  ask: (key, e) => `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or, when the ask's words ask for a grill, prototype or visual, item brief ${key} --kind grill|prototype|visual then --phase grilling or prototyping (a visual needs no phase); or merge it into a task with item relate-ask ${e.id} <task> --summary`,
   'card-added': () => 'Link and file the task an agent added: item notes, then item set --relate and --phase',
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
