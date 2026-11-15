@@ -91,7 +91,7 @@
       <div class="small muted">Shell script · ${linesOf(s.body).length} lines</div><pre class="script-pre">${esc(s.body)}</pre>${SCRIPT_TAIL[s.state](s)}</div>`;
   // A line naming a card (domain.mjs namedLine): its words, then the card's reference as it stands (ui-links.js cardRef).
   const named = (m, links) => `${escText(m.words)} ${cardRef(m.card, links)}`;
-  const line = (m, links) => (m.kind === 'reply'
+  const line = (m, links, folded = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div>${msgFooter(m, [])}</div>`
     : m.kind === 'ask-link' ? statusLine('link', statusMark('ask-link') + named(m, links), m.ts)
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
@@ -108,7 +108,7 @@
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? statusLine('request move', statusMark('move') + escText(m.text), m.ts)
     : m.folded ? foldedRun(m, links)
-    : m.kind === 'status' ? statusLine(`builder-status${m.planner ? ' planner' : ''}`, mark('<span class="working-dot"></span>') + linkText(m.text, links), m.ts)
+    : m.kind === 'status' ? statusLine(`builder-status${m.planner ? ' planner' : ''}`, mark(folded ? '' : '<span class="working-dot"></span>') + linkText(m.text, links), m.ts)
     // A builder's judgment calls: their posted time, then whether the session verified them and when.
     : m.kind === 'calls' ? statusLine('calls', `${statusMark('judgment calls')}${escText(m.text)}'s judgment calls · ${m.calls.length}`, m.ts, {
       after: m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet',
@@ -125,14 +125,14 @@
   // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one
   // closed details line at its first line's place: the action, then its status, finished when its newest line is a finished
   // line and running otherwise, then its newest line's time;
-  // expanding it shows the run's lines and, when the run has a log, a View transcript link.
+  // expanding it shows the run's lines, a status line there leaving its dot's place empty so its text stays level, and, when the run has a log, a View transcript link.
   function foldedRun(m, links) {
     const newest = m.folded.at(-1);
     const tail = newest.finished ? 'finished' : 'running';
     const log = m.folded.find((f) => f.log)?.log;
     const logLine = log ? `<div class="small fold-log"><a href="log.html?file=${encodeURIComponent(log)}">View transcript</a></div>` : '';
     return statusLine(`calls status-fold${m.planner ? ' planner' : ''}`, `${statusMark('status lines')}${escText(m.agent)} · ${tail}`, newest.ts, {
-      summary: tail === 'finished' ? ' class="finished"' : '', rest: m.folded.map((f) => line(f, links)).join('') + logLine,
+      summary: tail === 'finished' ? ' class="finished"' : '', rest: m.folded.map((f) => line(f, links, true)).join('') + logLine,
     });
   }
   function foldStatus(lines) {

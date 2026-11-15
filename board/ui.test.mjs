@@ -2172,6 +2172,8 @@ test("one agent run folds into one closed line with a caret holding its started 
   assert.match(text(html), /^Step 0 · \S.* Claude main · running · \S.* Claude main started/);
   assert.match(text(html), /Claude main started · \S.* Step 2 · \S.* Step 3 · \S.* Between .*Owner says/);
   assert.doesNotMatch(html, /<details[^>]* open/);
+  assert.equal(html.match(/working-dot/g).length, 1, 'only the line outside the run draws a dot, none inside the fold');
+  assert.match(ui.threadMessages([ln(0)]), /working-dot/, 'a lone status line keeps its dot');
   const p = run('grill', false, true);
   const done = ui.threadMessages([agentLine(1, false, p), ln(2, p), ln(3, p), agentLine(4, true, p)]);
   assert.match(done, /<details class="msg status-line calls status-fold planner"><summary class="finished">/);
