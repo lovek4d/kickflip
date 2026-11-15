@@ -535,9 +535,7 @@ test('the hub build route enforces loopback and fixed inputs', async (t) => {
   write(path.join(web, 'manifest.json'), manifest);
   write(path.join(web, 'settings.json'), { quiet: { start: '23:59', end: '00:00', hold: false } });
   const { port } = await inProcessHub(t);
-  // Try builds wait until Tailscale serves the hub on the port KICKFLIP_HUB_PORT names (readiness.mjs), here this hub's.
-  process.env.KICKFLIP_HUB_PORT = String(port);
-  t.after(() => { delete process.env.KICKFLIP_HUB_PORT; });
+  // Try builds wait until Tailscale serves the hub on the port it listens on (readiness.mjs), here this hub's.
   write(path.join(home, 'tailscale.status'), { Web: { 'mac.ts.net:443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } });
   // Resolves once the board's try.json holds a ready w/A1. The hub's try manager replaces the file on each change, so
   // each change ends the watch on the file it replaced, and the wait watches the new one before it reads it again.

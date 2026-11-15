@@ -173,3 +173,16 @@ test('a ready integration missing a permission carries each missing scope with w
   assert.equal(await reader.waiting('slack'), null);
   for (const r of await reader.rows()) if (r.id !== 'slack') assert.equal(r.permissions, undefined);
 });
+
+test('Tailscale is checked against the port the hub listens on, not the env', async () => {
+  const bin = tempDir('readiness-ts-');
+  const script = path.join(bin, 'tailscale');
+  const status = JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'host.ts.net.' } });
+  const serve = JSON.stringify({ Web: { 'host.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:4777/' } } } } });
+  fs.writeFileSync(script, `#!/bin/sh\ncase "$*" in\n  version) echo 1.0;;\n  "status --json") echo '${status}';;\n  "debug prefs") echo '{"OperatorUser":"x"}';;\n  "serve status --json") echo '${serve}';;\nesac\n`, { mode: 0o700 });
+  const r = readinessReader({ home: bin, env: { PATH: bin, KICKFLIP_TAILSCALE: script, KICKFLIP_HUB_PORT: '4500' }, now: () => now, probes: { github: () => 'love' } });
+  const pointing = async () => (await r.rows()).find((row) => row.id === 'tailscale').missing;
+  assert.equal(await pointing(), 'Tailscale / is not serving the hub');
+  r.listenOn(4777);
+  assert.notEqual(await pointing(), 'Tailscale / is not serving the hub');
+});

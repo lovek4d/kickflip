@@ -80,13 +80,15 @@ const asyncRun = (env) => (command, args) => new Promise((resolve) => {
   execFile(command, args, { env, timeout: 3000 }, (error, stdout) => resolve({ status: error ? 1 : 0, stdout }));
 });
 export function readinessReader({ home = os.homedir(), env = process.env, now = Date.now, cacheMs = 60_000, probes = {} } = {}) {
+  // The port Tailscale must serve: the one the hub listens on (listenOn), until then KICKFLIP_HUB_PORT, else 4500.
+  let port = Number(env.KICKFLIP_HUB_PORT || 4500);
   const codex = codexStatusReader({ home, env, now, cacheMs });
   const read = {
     github: () => githubLogin({ env }).catch(() => null),
     codex,
     linear: () => linearStatus(home),
     slack: () => slackStatus(home),
-    tailscale: () => tailscaleState({ run: asyncRun(env), port: Number(env.KICKFLIP_HUB_PORT || 4500), tailscale: tailscaleBin({ env }) }),
+    tailscale: () => tailscaleState({ run: asyncRun(env), port, tailscale: tailscaleBin({ env }) }),
     notifications: () => ({ on: readSettings(home).notifications.on, devices: subscriptions(home) }),
     ...probes,
   };
@@ -107,7 +109,8 @@ export function readinessReader({ home = os.homedir(), env = process.env, now = 
     const waits = row.waits ?? GATES[id];
     return row.ready || !waits ? null : waits.replace('this', `${row.name}: ${row.missing.replace(/\.$/, '')}`);
   }
-  return { rows, waiting };
+  const listenOn = (listening) => { port = listening; cache.delete('tailscale'); };
+  return { rows, waiting, listenOn };
 }
 export const readCodex = codexStatusReader();
 export const readiness = readinessReader({ probes: { codex: readCodex } });

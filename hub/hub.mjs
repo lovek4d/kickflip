@@ -1633,6 +1633,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
 
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(askedPort, '127.0.0.1', resolve); });
   PORT = server.address().port;
+  readiness.listenOn(PORT);
   log(`hub on http://127.0.0.1:${PORT}/ (manifest ${MANIFEST})`);
   reconcileLogged();
   if (ticks) {
