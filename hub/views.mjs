@@ -2,7 +2,7 @@
 // /_hub/api/settings answer, with every word the hub page and its settings modals show. hub.mjs reads the state
 // these take; integration readiness rows and their words come from readiness.mjs; board/public/view-hub.js and view-hub-settings.js only lay the words out.
 // st is a push.mjs queueStatus(now) result throughout.
-import { clock, holdLine, snoozeEnd } from './schedule.mjs';
+import { clock, holdLine, quietMiddle, snoozeEnd } from './schedule.mjs';
 import { CHOICES as DURATIONS, FOREVER, durationEnd, endOf } from './duration.mjs';
 import { siteIcon } from './icons.mjs';
 import { codexStatus } from '../shared/codex.mjs';
@@ -117,9 +117,10 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 // quiet hours, hub rules and the Linear key, of which only whether it is set, whether Linear refused it and
 // its workspace are shown (linear.mjs linearStatus; docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md),
 // Snooze's choices are null while notifications are off. Keep awake's toggle (docs/adr/2026-11-09-1200-keep-awake-is-a-toggle-that-holds-the-mac-awake-only-on-ac-power.md) is hubView's awake.
+// overnight is overnight.mjs overnightJobs, the Quiet hours modal's Overnight work rows.
 // pausedUntil is Pause hub's end, a Date or FOREVER, or null while it is off
 // (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): its picker is the snooze picker's.
-export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, pausedUntil = null }) {
+export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, pausedUntil = null, overnight = [] }) {
   const s = st.settings;
   const n = s.notifications;
   const until = snoozedUntil(n, now);
@@ -137,7 +138,7 @@ export function settingsView({ now, st, rules = [], linear = { set: false }, sla
     },
     snooze: n.on && !until ? { choices: durationChoices(now, SNOOZE_FOREVER) } : null,
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(s.quiet.start)} until Monday ${timeOfDay(s.quiet.end)}. Urgent ones still go.` },
-    quiet: quietView(s, now),
+    quiet: quietView(s, now, overnight),
     rules,
     linear: linearWords(linear),
     slack: slackWords(slack),
@@ -173,8 +174,9 @@ function linearWords(linear) {
 }
 
 // The Quiet hours modal (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md):
-// its start and end, the overnight hold, the cadence hint, and what the snoozes, the weekend and the daily wake read with them.
-function quietView(s, now) {
+// its start and end, the overnight hold, the cadence hint, the Overnight work group and what the snoozes and the weekend
+// read with them.
+function quietView(s, now, overnight) {
   const q = s.quiet;
   const [start, end] = [timeOfDay(q.start), timeOfDay(q.end)];
   const tonight = snoozeEnd(now, 'tonight', s);
@@ -183,12 +185,28 @@ function quietView(s, now) {
     ['Snooze morning', `Until ${clock(snoozeEnd(now, 'morning', s), now)}.`],
     ['Snooze monday', `Until ${clock(snoozeEnd(now, 'monday', s), now)}.`],
     ['Off on weekends', s.notifications.weekends_off ? `Pushes wait from Friday ${start} until Monday ${end}.` : 'Off.'],
-    ['Daily wake', `Every board wakes once at ${end}, when quiet hours end.`],
   ];
   return {
     start: q.start, end: q.end, summary: quietSummary(s), hint: QUIET_HINT,
     hold: { on: q.hold, sub: q.hold ? `Pushes queued after ${start} wait until ${end}. Urgent ones still go.` : 'Off. Pushes go out all night.' },
     reads: reads.map(([title, sub]) => ({ title, sub })),
+    overnight: overnightView(overnight, { middle: timeOfDay(quietMiddle(s)), end }, now),
+  };
+}
+
+// The Overnight work group (docs/adr/2026-11-15-0700-quiet-hours-list-the-overnight-work-each-job-on-by-default.md): when
+// it starts, then each job's line and its last run, whose tone is never and off grey, ok green and failed red.
+function overnightView(jobs, window, now) {
+  const lastRun = (job) => {
+    if (!job.on) return { tone: 'off', text: 'Off' };
+    if (!job.last) return { tone: 'never', text: 'Never run' };
+    const at = `Last run ${clock(new Date(job.last.at), now)}`;
+    if (!job.last.failed) return { tone: 'ok', text: `${at} · ok` };
+    return { tone: 'failed', text: `${at} · ${job.last.failed}`, ...(job.last.href ? { href: job.last.href } : {}) };
+  };
+  return {
+    starts: `Starts at ${window.middle}, the middle of quiet hours.`,
+    jobs: jobs.map((job) => ({ id: job.id, title: job.title, icon: job.icon, sub: job.does(window), on: job.on, last: lastRun(job) })),
   };
 }
 

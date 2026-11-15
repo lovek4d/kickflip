@@ -1,0 +1,13 @@
+# Quiet hours list the overnight work, each job on by default
+
+#736 (hub/T-268), the first slice of the owner's audit of the nightly work: "one time in the middle of quiet hours where we do a bunch of overnight work and do it in an organized way that is visible. Maybe just a reference section in the hub settings somewhere of what happens, possibly with toggles." The grill settled that the work starts together at the middle of quiet hours with no new time setting, and lives in an "Overnight work" group in the Quiet hours modal. The prototype's take A, a plain list in the modal's row grammar, won, with the owner's note: "All of them should be toggleable, even morning wake. Just default to on". T-377 (one hub Triage overnight switch) and T-378 (the nightly full suite) add their rows; the npm update is regular polling, not overnight work, and gets its own section (T-376).
+
+- **The registry.** `hub/overnight.mjs` `JOBS` lists each job: id, title, tile icon, `does({middle, end})`, its line given the window's start and end as words, and `last()`, its last run `{at, failed, href?}` or null. A job's code reads `overnightOn(id)` before it runs. Adding a job is one entry there and that check.
+- **On by default.** settings.json's `overnight` stores `{<id>: false}` for a job turned off; turning it on removes the key, so a job never seen is on. `POST /_hub/settings/overnight job=<id> value=on` (absent for off) toggles one and answers `/_hub/api/settings`.
+- **The group.** `views.mjs` `quietView` gives `overnight: {starts, jobs}`: "Starts at <middle>, the middle of quiet hours." (`schedule.mjs quietMiddle`, following the hours), then per job its line, whether it's on and its last run as a tone and words: `Last run 8:00am · ok` green, `Last run 8:00am · failed on …` red and linking `href` when the job gives one, `Never run` grey, `Off` grey. An off row greys its tile and words, not its toggle.
+- **Daily wake.** Its row reads wake-state.json's `last`, which `github.mjs sendWakes` now writes for a run no board took too, so a wake that reached no board reads failed. With Daily wake off, no wake is due. The wake keeps quiet hours' end, so its line names that time; the "Snoozes and wakes read" group loses its Daily wake row and is now "Snoozes and weekends read".
+
+Considered:
+- A card or a table per job (prototype takes B and C). The owner picked the plain list; the table was cramped at phone width.
+- Storing every job's on or off. Storing only the offs keeps a new job on without a migration, as `autoUpdate` does.
+- Daily wake read-only, as the prototype drew it. The owner asked for every job to toggle.

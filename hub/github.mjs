@@ -19,6 +19,7 @@ import os from 'node:os';
 import { savedClient } from './linear.mjs';
 import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
+import { overnightOn } from './overnight.mjs';
 import { githubStateFile, wakeStateFile, wavesDir, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
 import { appendMessage, appendStatus, setItem, mergeCard } from '../board/store.mjs';
 import { allLanded, cardPRs, leastReady, prNames } from '../shared/card-prs.mjs';
@@ -381,12 +382,13 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
 // The wake due at `now` (schedule.mjs wakesDue): every board gets one `check-github {reason: "morning"}`
 // event, so its owning session runs a GitHub tick. Each wake's last send
 // day is kept in ~/.claude/kickflip/wake-state.json, so a restart never sends one twice in a day, with `last` {at, due,
-// routes, failed} for boards.mjs linksOf. A wake no board took stays due. settings: push.mjs readSettings.
+// routes, failed} for boards.mjs linksOf and the Daily wake row (overnight.mjs), a run no board took included; that wake
+// stays due. With Daily wake off in Overnight work, none is due. settings: push.mjs readSettings.
 // → {due: [hhmm], events: [{route, id}], failed: [message]}
 export async function sendWakes({ now = new Date(), settings, manifest }) {
   const state = readJSON(wakeStateFile(), {});
   state.sent ||= {};
-  const due = wakesDue(now, settings, state.sent);
+  const due = overnightOn('wake') ? wakesDue(now, settings, state.sent) : [];
   const events = [];
   const failed = [];
   const missed = [];
@@ -395,10 +397,8 @@ export async function sendWakes({ now = new Date(), settings, manifest }) {
   for (const board of boards) {
     try { events.push({ route: board.route, id: await appendEvent(board, 'check-github', { reason: 'morning' }) }); } catch (e) { failed.push(`${board.route}: could not add the morning check-github event (${e.message})`); missed.push(board.route); }
   }
-  if (events.length || !boards.length) {
-    for (const w of due) state.sent[w] = localDay(now);
-    state.last = { at: now.toISOString(), due, routes: events.map((e) => e.route), failed: missed };
-    saveJSON(wakeStateFile(), state);
-  }
+  if (events.length || !boards.length) for (const w of due) state.sent[w] = localDay(now);
+  state.last = { at: now.toISOString(), due, routes: events.map((e) => e.route), failed: missed };
+  saveJSON(wakeStateFile(), state);
   return { due, events, failed };
 }

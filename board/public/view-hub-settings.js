@@ -1,7 +1,7 @@
 // HubSettings: summary rows open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
 // settingsView's words from GET /_hub/api/settings. Linear's key and Slack's token open the same modal from the button on their Integrations rows (view-hub.js),
 // with no summary row of their own ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)). Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, Quiet
-// hours' times and hold to /_hub/settings/quiet, and saves at once, as Linear's key and Slack's token do through linear-key.js; Done waits for
+// hours' times and hold to /_hub/settings/quiet, its Overnight work toggles to /_hub/settings/overnight, and saves at once, as Linear's key and Slack's token do through linear-key.js; Done waits for
 // a key's save to land. The rules editor saves through POST /_hub/settings/rules
 // and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
 (function () {
@@ -34,7 +34,18 @@
     const holdRow = `<form class="row field" method="post" action="/_hub/settings/quiet"><input type="hidden" name="set" value="hold">${tile('moon', 'var(--accent)')}<label class="body"><span class="text"><span class="title">Hold pushes</span><span class="sub wrap">${esc(q.hold.sub)}</span></span><input type="checkbox" name="value" value="on" class="toggle" data-submit${q.hold.on ? ' checked' : ''}></label></form>`;
     const reads = q.reads.map((r) => row({ title: esc(r.title), sub: `<span class="sub wrap">${esc(r.sub)}</span>` })).join('');
     return `<div class="group">${time('start', 'Starts', q.start)}${time('end', 'Ends', q.end)}${holdRow}</div><p class="quiet-hint">${esc(q.hint)}</p>`
-      + `<h2 class="label">Snoozes and wakes read</h2><div class="group">${reads}</div>`;
+      + `<h2 class="label">Overnight work</h2><div class="group">${overnightRows(q.overnight)}</div>`
+      + `<h2 class="label">Snoozes and weekends read</h2><div class="group">${reads}</div>`;
+  }
+
+  // Overnight work (docs/adr/2026-11-15-0700-quiet-hours-list-the-overnight-work-each-job-on-by-default.md): when it
+  // starts, then a row per job with its last run and a toggle posting to /_hub/settings/overnight. An off row greys.
+  const RUN_COLOURS = { ok: 'var(--color-success)', failed: 'var(--color-danger)', never: 'var(--color-quiet)', off: 'var(--color-quiet)' };
+  function overnightRows(o) {
+    const { tile } = HubUI;
+    const run = (last) => `<span class="sub wrap run ${last.tone}">${last.href ? `<a href="${esc(last.href)}">${esc(last.text)}</a>` : esc(last.text)}</span>`;
+    const job = (j) => `<form class="row field${j.on ? '' : ' off'}" method="post" action="/_hub/settings/overnight"><input type="hidden" name="job" value="${esc(j.id)}">${tile(j.icon, RUN_COLOURS[j.last.tone])}<label class="body"><span class="text"><span class="title">${esc(j.title)}</span><span class="sub wrap">${esc(j.sub)}</span>${run(j.last)}</span><input type="checkbox" name="value" value="on" class="toggle" aria-label="${esc(j.title)}" data-submit${j.on ? ' checked' : ''}></label></form>`;
+    return `<div class="row"><span class="body"><span class="text"><span class="sub wrap">${esc(o.starts)}</span></span></span></div>${o.jobs.map(job).join('')}`;
   }
 
   const sections = [['pause', 'Pause hub'], ['notifications', 'Notifications'], ['appearance', 'Appearance'], ['quiet', 'Quiet hours'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];

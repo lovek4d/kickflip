@@ -95,6 +95,8 @@
 //                     and user, or 400 {error}, 502 {error} when Slack can't be reached (slack.mjs)
 //   /_hub/settings/quiet POST start=HH:MM, end=HH:MM, or set=hold with value=on (absent for off), one schedule.mjs editQuiet change → /_hub/api/settings's
 //                     JSON, or 400 {error}
+//   /_hub/settings/overnight POST job=<id> with value=on (absent for off) turns an Overnight work job on or off (overnight.mjs
+//                     setOvernight) → /_hub/api/settings's JSON, or 400 {error}
 //   /_hub/share/<route> GET a board's Sharing for Board settings → {people: [{login, level, name, now, at}], refused:
 //                     [{login, name, at}], link}: who the board's board.json share lists, whether each is viewing it now
 //                     and when last seen there, who was refused at its paths in the last hour, and the board's tailnet
@@ -147,7 +149,7 @@
 // GitHub (github.mjs), fetches and pulls each board's repo, checks each auto-review board's incoming PRs (incoming.mjs), pushes once for each board that is deaf (boards.mjs
 // checkListening, listenState), then sends the queued pushes unless schedule.mjs heldUntil holds them;
 // one poll never overlaps another, and coming back from away runs one at once. At the end of quiet hours it wakes each
-// board's session once a day (github.mjs sendWakes)
+// board's session once a day (github.mjs sendWakes) unless Daily wake is off in Overnight work (overnight.mjs)
 // (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). Every feature that serves
 // boards takes them from boards.mjs listBoards, the one board registry
 // (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). The host's service manager keeps the
@@ -197,6 +199,7 @@ import { caffeinate, setKeepAwake, awakeOn, awakeUnsupported } from './awake.mjs
 import { endOf } from './duration.mjs';
 import { nodeBin } from '../bin/install.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
+import { overnightJobs, setOvernight } from './overnight.mjs';
 import { checkIncoming } from './incoming.mjs';
 import { drainRoutes, routedRows } from './router.mjs';
 import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
@@ -979,7 +982,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const now = new Date();
     const gate = readUsageGate({ now });
     const pausedUntil = gate.manual === 'hub' ? endOf(gate.resets_at, now) : null;
-    return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil }), closed: closedBoards() };
+    return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil, overnight: overnightJobs() }), closed: closedBoards() };
   };
 
   const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
@@ -1320,6 +1323,15 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       const change = Object.fromEntries(['start', 'end'].filter((k) => f.has(k)).map((k) => [k, f.get(k).trim()]));
       if (f.get('set') === 'hold') change.hold = f.get('value') || 'off';
       try { saveSettings(editQuiet(readSettings(), change)); } catch (e) {
+        if (e.status !== 400) throw e;
+        return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+      }
+      stream.refresh();
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#quiet');
+    }
+    if (p === '/_hub/settings/overnight' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      try { setOvernight(f.get('job'), f.get('value') === 'on'); } catch (e) {
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }

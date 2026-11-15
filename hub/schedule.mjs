@@ -113,6 +113,13 @@ export function quietMiddleOf(t, s) {
   return middle <= t ? middle : null;
 }
 
+// The middle of quiet hours as HH:MM, when overnight work starts (overnight.mjs).
+export function quietMiddle(s) {
+  const start = minutes(s.quiet.start);
+  const middle = (start + Math.floor(((minutes(s.quiet.end) - start + 1440) % 1440) / 2)) % 1440;
+  return `${String(Math.floor(middle / 60)).padStart(2, '0')}:${String(middle % 60).padStart(2, '0')}`;
+}
+
 // Whether a check at `t` holds the queue: the hold is on and `t` falls in quiet hours, past their start's grace.
 export function holdsPushes(t, s) {
   return s.quiet.hold && quietAt(t, s) && t - lastAt(t, s.quiet.start) > HOLD_GRACE_MS;

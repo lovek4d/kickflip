@@ -48,6 +48,8 @@
 .hub-view .chips form.field { display:inline-flex; gap:6px; }
 .hub-view .chips .field input { min-height:0; padding:.2rem .5rem; width:7.5rem; }
 .hub-view .quiet-hint { margin:6px 14px 0; color:var(--muted); font-size:12px; }
+.hub-view .row.off :is(.icon, .text) { opacity:.55; }
+.hub-view .run.ok { color:var(--color-success); } .hub-view .run.failed { color:var(--color-danger); } .hub-view .run.failed a { color:inherit; }
 .hub-view .field input { flex:none; font:inherit; font-size:16px; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.3rem .6rem; min-height:2.2rem; width:8.75rem; min-width:0; text-align:right; }
 .hub-view .field input[type=number] { width:5rem; }
 .hub-view .field input.toggle { width:1.4rem; height:1.4rem; min-height:0; padding:0; accent-color:var(--accent); }

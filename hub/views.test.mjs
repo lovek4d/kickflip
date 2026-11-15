@@ -44,7 +44,6 @@ test('Quiet hours shows its start and end, the hold, the cadence hint and what e
     { title: 'Snooze morning', sub: 'Until 8:00am tomorrow.' },
     { title: 'Snooze monday', sub: 'Until 8:00am Mon Oct 19.' },
     { title: 'Off on weekends', sub: 'Off.' },
-    { title: 'Daily wake', sub: 'Every board wakes once at 8:00am, when quiet hours end.' },
   ]);
   const open = settingsView({ now, st: status(now, notify({ ...DEFAULTS, quiet: { start: '23:00', end: '07:30', hold: false } }, { weekends_off: true })) }).quiet;
   assert.deepEqual([open.summary, open.hold.sub, open.reads[0].sub, open.reads[3].sub],
@@ -127,7 +126,8 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   let slack = { set: false };
   let checked = null;
   let pausedUntil = null;
-  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, pausedUntil });
+  const overnight = [{ id: 'wake', title: 'Daily wake', icon: 'calendar', does: (w) => `Wakes every board once at ${w.end}, when quiet hours end.`, on: true, last: { at: t(8).toISOString(), failed: 'failed on alpha', href: '/alpha/' } }];
+  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, pausedUntil, overnight });
   let confirmed = false;
   let live;
   let subscribed = false;
@@ -298,8 +298,14 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
     [['start', '22:00', true, '/_hub/settings/quiet'], ['end', '08:00', true, '/_hub/settings/quiet']]);
   assert.equal(root.querySelector('input[name="set"][value="hold"]').closest('form').querySelector('input.toggle').hasAttribute('checked'), true);
   assert.equal(root.querySelector('.quiet-hint').textContent, "checks every minute while you're here, every 5 when away");
-  assert.deepEqual(root.querySelectorAll('.setting-content .label').map((h) => h.textContent), ['Snoozes and wakes read']);
-  assert.match(root.querySelector('.setting-content').textContent, /Every board wakes once at 8:00am, when quiet hours end\./);
+  assert.deepEqual(root.querySelectorAll('.setting-content .label').map((h) => h.textContent), ['Overnight work', 'Snoozes and weekends read']);
+  assert.match(root.querySelector('.setting-content').textContent, /Starts at 3:00am, the middle of quiet hours\./);
+  const wakeForm = root.querySelector('input[name="job"][value="wake"]').closest('form');
+  assert.equal(wakeForm.getAttribute('action'), '/_hub/settings/overnight');
+  assert.match(wakeForm.textContent, /Daily wake.*Wakes every board once at 8:00am, when quiet hours end\..*Last run 8:00am · failed on alpha/);
+  assert.equal(wakeForm.querySelector('.run.failed a').getAttribute('href'), '/alpha/');
+  assert.equal(wakeForm.querySelector('input.toggle').hasAttribute('checked'), true);
+  assert.equal(wakeForm.querySelector('input.toggle').hasAttribute('data-submit'), true);
   // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
   assert.equal(root.querySelector('[data-summary="pause"]').textContent, 'Off');
   await B.openSettings({ hash: '#pause' });
