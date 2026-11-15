@@ -686,6 +686,45 @@ test("an Implement message stages a Todo card where it is, its words in the note
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
+// docs/adr/2026-11-15-0100-an-implement-tap-stops-the-card-s-planners-and-stages-it.md
+test("an Implement tap on a card with a running grill, prototype or visual stops it and stages the card, its questions skipped and its chain ended", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const stagedFile = path.join(site, 'data', 'staged-questions.json');
+  const kinds = { IWG: 'grill', IWP: 'prototype', IWV: 'visual' };
+  await putWave(JSON.stringify({ items: Object.keys(kinds).map((id) => ({ id, title: id, phase: { grill: 'grilling', prototype: 'prototyping', visual: 'discussing' }[kinds[id]] })) }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const item = (id) => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === id);
+  const gone = (pid) => { try { process.kill(pid, 0); return false; } catch { return true; } };
+  fs.mkdirSync(path.join(site, 'data', 'agents'), { recursive: true });
+  const children = {};
+  for (const id of Object.keys(kinds)) {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true });
+    children[id] = child;
+    await new Promise((resolve) => child.once('spawn', resolve));
+    fs.writeFileSync(path.join(site, 'data', 'agents', `${id}.json`), JSON.stringify({ kind: kinds[id], started: new Date().toISOString(), session: { pid: child.pid, at: new Date().toISOString() } }));
+  }
+  try {
+    fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'iwq', topic: 'item:t/IWP', question: 'Which?', url: 'prototype-iw.html?q=iwq', options: [{ id: 'A', label: 'One' }] }] }));
+    fs.writeFileSync(stagedFile, JSON.stringify({ 't/IWG': [{ id: 'iwg1', topic: 'item:t/IWG', question: 'Staged?', options: [{ id: 'A', label: 'Yes' }] }] }));
+    for (const id of Object.keys(kinds)) {
+      const sent = await post({ kind: 'item-message', key: `t/${id}`, text: '', intent: 'build' });
+      assert.deepEqual([sent.board.items.find((i) => i.id === id).staging, item(id).phase], [true, 'staging'], id);
+      const record = JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', `${id}.json`), 'utf8'));
+      assert.deepEqual([Boolean(record.done), record.note], [true, 'Stopped by your Implement tap'], id);
+      if (children[id].exitCode === null && children[id].signalCode === null) await new Promise((resolve) => children[id].once('exit', resolve));
+      assert.equal(gone(children[id].pid), true, `${id}'s planner process stopped`);
+    }
+    const owner = JSON.parse(fs.readFileSync(ownerFile, 'utf8'));
+    assert.equal(owner.items[0].resolved, 'Skipped: you tapped Implement');
+    assert.equal(JSON.parse(fs.readFileSync(stagedFile, 'utf8'))['t/IWG'], undefined);
+  } finally {
+    for (const child of Object.values(children)) try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+    fs.writeFileSync(ownerFile, '{"items":[]}');
+    fs.rmSync(stagedFile, { force: true });
+    fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });
+  }
+});
+
 // docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md
 test("a Prototype, Grill or Visual tap ends the orchestrator's Implement or Close mark on a card", async () => {
   await putWave(JSON.stringify({ items: [{ id: 'OW1', title: 'One' }, { id: 'OW2', title: 'Two' }, { id: 'OW3', title: 'Three' }] }));

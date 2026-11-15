@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -2363,19 +2363,49 @@ async function discuss(site, key) {
 // The owner's words from a thread message, text then any attached files, as one notes body, or '' when it carried none.
 const messageWords = ({ text: said, files }) => [String(said || '').trim(), ...(Array.isArray(files) ? files : []).map((f) => `Attached: ${f?.path || f?.name || f}`)].filter(Boolean).join('\n');
 
+// docs/adr/2026-11-15-0100-an-implement-tap-stops-the-card-s-planners-and-stages-it.md
+// An Implement wins over whatever is in flight on the card: each open planner record (grill, prototype, visual) closes,
+// its staged and screening questions, its owed briefs and its questions not yet resolved go, the last as "Skipped: you
+// tapped Implement", which also ends their prototype chains (domain.mjs noTakePicked). → the closed planners' {pid, at},
+// for the board server to stop.
+async function endPlanners(site, key) {
+  const { source, item } = await loadItem(site, key);
+  const now = new Date().toISOString();
+  const stopped = [];
+  for (const file of await builderFiles(source.dir, item.id)) {
+    const record = await readJSON(file, null);
+    if (!record?.started || record.done || !plans(record)) continue;
+    await writeJSON(file, { ...record, done: now, note: 'Stopped by your Implement tap' });
+    stopped.push({ pid: record.session?.pid ?? null, at: record.session?.at ?? null });
+  }
+  for (const file of [stagedFile(site), screeningFile(site)]) {
+    const map = await readJSON(file, {});
+    if (map[key]) await writeJSON(file, withoutKey(map, key));
+  }
+  const { owner, asked } = await cardQuestions(site, key);
+  const unresolved = asked.filter((q) => q.state !== 'resolved').map((q) => q.id);
+  if (unresolved.length) await markResolved(site, owner, unresolved, IMPLEMENT_SKIPPED);
+  const { source: file, itemFile, item: card } = await loadItem(site, key);
+  if (card.briefs) {
+    delete card.briefs;
+    await writeJSON(file.file, itemFile);
+  }
+  return stopped;
+}
+
 // An Implement message on a Todo card, in the board server before its event: a held card is resumed, as the Build tap
-// does; its open questions resolve as skipped; its words go into the notes; and it is staged in Todo.
+// does; its planners end (endPlanners); its words go into the notes; and it is staged in Todo.
+// → the planners it closed, for the board server to stop.
 export async function stageImplement(site, key, message) {
   await clearOwnerWait(site, key);
   const { item } = await loadItem(site, key);
   if (item.held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
-  const { owner, asked } = await cardQuestions(site, key);
-  const open = asked.filter((q) => q.state === 'open').map((q) => q.id);
-  if (open.length) await markResolved(site, owner, open, 'Skipped: you tapped Implement');
+  const stopped = await endPlanners(site, key);
   const words = messageWords(message);
   if (words) await appendNotes(site, key, `Implement (owner, ${noteStamp()}), verbatim`, words);
   // A bare tap's staging line is the tap's own line, so it carries the tap's sendId; a message already holds it.
   await stage(site, key, words ? undefined : message.sendId);
+  return stopped;
 }
 // docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md
 // An owner's Implement, Done, Prototype, Grill or Visual tap, or message, on a card ends the orchestrator's waits_on_owner mark (implement or close).
@@ -4491,7 +4521,7 @@ async function tapRefusals(site, key) {
 // (stageImplement), for the orchestrator's review before it goes ready. "Marked as staging" is the thread's whole
 // answer to the tap (docs/adr/2026-11-12-1100-an-implement-tap-reads-only-marked-as-staging.md).
 export async function implementAsIs(site, key, sendId) {
-  await stageImplement(site, key, { sendId });
+  return stageImplement(site, key, { sendId });
 }
 
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md

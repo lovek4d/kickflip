@@ -522,6 +522,8 @@ const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.acti
 // Whether an answer choosing choice on question q (an owner.json item) is a card's prototype answer that picks none of
 // its takes, the owner having cleared the pick to leave only a note.
 export const picksNoTake = (q, choice) => /^item:/.test(q.topic || '') && PROTOTYPE_URL.test(q.url || '') && !(q.options || []).some((o) => o.id === choice);
+// The note a question an Implement tap skipped is resolved with.
+export const IMPLEMENT_SKIPPED = 'Skipped: you tapped Implement';
 // Card key's answers to its prototype questions and prototype requests on any of its questions (ownerQuestion views)
 // go by chain, a question and the rounds that follow it (round_of). A chain whose newest input is a request or an answer
 // that picks none of the takes leaves the card unready to build
@@ -532,8 +534,12 @@ export function noTakePicked(questions, key) {
   const mine = questions.filter((q) => q.topic === `item:${key}`);
   const byId = new Map(mine.map((q) => [q.id, q]));
   const chainOf = (q) => (byId.has(q.round_of) ? chainOf(byId.get(q.round_of)) : q.id);
-  const inputs = [...mine.filter((q) => PROTOTYPE_URL.test(q.url || '')).flatMap((q) => q.answers.map((a) => ({ q, a, again: picksNoTake(q, a.choice) }))),
-    ...mine.filter((q) => q.request).map((q) => ({ q, a: q.request, again: true }))].sort((x, y) => String(x.a.ts).localeCompare(String(y.a.ts)));
+  // An Implement tap's skip of a chain's question ends the chain's inputs older than the skip.
+  const skippedAt = new Map();
+  for (const q of mine) if (q.resolved === IMPLEMENT_SKIPPED) skippedAt.set(chainOf(q), String(q.resolved_at));
+  const again = (q, ts, picksNone) => picksNone && !(String(ts) < (skippedAt.get(chainOf(q)) ?? ''));
+  const inputs = [...mine.filter((q) => PROTOTYPE_URL.test(q.url || '')).flatMap((q) => q.answers.map((a) => ({ q, a, again: again(q, a.ts, picksNoTake(q, a.choice)) }))),
+    ...mine.filter((q) => q.request).map((q) => ({ q, a: q.request, again: again(q, q.request.ts, true) }))].sort((x, y) => String(x.a.ts).localeCompare(String(y.a.ts)));
   const newest = new Map(inputs.map((input) => [chainOf(input.q), input]));
   const last = inputs.filter((input) => input.again && newest.get(chainOf(input.q)) === input).at(-1);
   return last ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;

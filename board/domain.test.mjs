@@ -1091,6 +1091,27 @@ test("noTakePicked reads each prototype question's chain of rounds on its own: a
   assert.deepEqual(unpicked([plain, header], [answer(5, 'head', 'A')], [request]), { id: 'where', note: 'on a phone' });
 });
 
+// docs/adr/2026-11-15-0100-an-implement-tap-stops-the-card-s-planners-and-stages-it.md
+test("a question skipped by an Implement tap ends its prototype chain, so the card is buildable, until a request after the tap prototypes again", () => {
+  const proto = (id, more = {}) => ({ id, topic: 'item:w/A1', question: 'Sheet?', url: `prototype-sheet.html?q=${id}`, options: [{ id: 'A', label: 'One' }, { id: 'B', label: 'Two' }], ...more });
+  const request = (ts) => ({ id: `r${ts}`, ts, kind: 'prototype-request', data: { key: 'w/A1', question: 'sheet', note: 'again' } });
+  const skip = { resolved: 'Skipped: you tapped Implement', resolved_at: '2026-11-14T22:55:00Z' };
+  const unpicked = (items, requests) => noTakePicked(items.map((q) => ownerQuestion(q, [], requests)), 'w/A1');
+  // T-154's case: round 1 has the owner's request for another round; round 2's question was skipped by the tap.
+  const round1 = proto('sheet', { resolved: 'Prototype requested', resolved_at: '2026-11-14T22:00:00Z' });
+  const round2 = proto('sheet-2', { round_of: 'sheet', round: 2 });
+  assert.equal(unpicked([round1, { ...round2 }], [request('2026-11-14T22:00:00Z')]).id, 'sheet');
+  assert.equal(unpicked([round1, { ...round2, ...skip }], [request('2026-11-14T22:00:00Z')]), null);
+  // A request still waiting for its round, skipped on the question that carries it.
+  assert.equal(unpicked([{ ...proto('sheet'), ...skip }], [request('2026-11-14T22:00:00Z')]), null);
+  // A request made after the tap is the chain's newest input again.
+  assert.equal(unpicked([{ ...proto('sheet'), ...skip }], [request('2026-11-14T23:00:00Z')]).id, 'sheet');
+  // A no-pick answer before the tap, on a question the tap skipped.
+  const neither = { id: 'a1', ts: '2026-11-14T22:30:00Z', kind: 'owner-answer', data: { id: 'sheet', choice: null, note: 'Neither' } };
+  assert.equal(noTakePicked([ownerQuestion(proto('sheet'), [neither])], 'w/A1').id, 'sheet');
+  assert.equal(noTakePicked([ownerQuestion({ ...proto('sheet'), ...skip }, [neither])], 'w/A1'), null);
+});
+
 test("a Build the board started is In Progress reading starting until its builder's first status line, and a refused one stays in Todo with its reason while that is the card's newest line", () => {
   const card = ({ item = {}, threads = {}, agents = {} } = {}) => buildBoard({
     fromWaves: false, events: [], threads, owner: {}, prs: {}, now: Date.parse('2026-10-29T10:05:00Z'),
