@@ -2181,7 +2181,8 @@ test('every card In Progress takes one implementer slot until it lands, whatever
   assert.deepEqual(pullOf([...lane, ...others, ...todo, bumped], { cap: 9 }).pulls, ['w/T4', 'w/T1'], 'a task In Review or Todo takes none, and the bumped task goes first');
   const landed = pullOf([...lane.filter((i) => i.key !== 'w/P2'), { ...lane[1], lane: 'done' }, ...todo, bumped], { cap: 7 });
   assert.deepEqual(landed.pulls, ['w/T4'], 'once one lands, the next starts, bumped first');
-  assert.deepEqual(pullOf([...lane, ...todo]).pulls, ['w/T1', 'w/T2', 'w/T3'], 'the default cap leaves room for every ready task');
+  assert.deepEqual(pullOf([...lane.slice(0, 2), ...todo]).pulls, ['w/T1', 'w/T2', 'w/T3'], 'the default cap of 5 leaves room for every ready task beside two In Progress');
+  assert.deepEqual(pullOf([...lane.slice(0, 3), ...todo]).pulls, ['w/T1', 'w/T2'], 'the default cap of 5 stops the pull at five cards In Progress');
   assert.equal(pullOf([lane[1]]).idle, false, 'a task in Orchestrator review keeps the board from idle');
   assert.equal(pullOf([lane[3]]).idle, true, 'a task waiting on the owner leaves it idle');
 

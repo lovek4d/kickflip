@@ -473,7 +473,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false,
-                                                         "max_implementers": 10,
+                                                         "max_implementers": 5,
                                                          "max_serves": 10, "auto_triage": false,
                                                          "auto_review": false, "idle_notification": false,
                                                          "skip_draft": false, "prs": true,
@@ -508,7 +508,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   settings set build-target <target>|default            the script the hub runs for each task and main:
                                                          .kickflip/build-<target>, or .kickflip/build with
                                                          default (unset). Board Settings' Build target picks it
-  settings set max-implementers <1..99>                  Maximum parallel implementers, 10 by default: the tasks
+  settings set max-implementers <1..99>                  Maximum parallel implementers, 5 by default: the tasks
                                                          In Progress the pull fills up to, each counting until it
                                                          lands, whatever it waits on. A tap or a bump waits for a
                                                          slot too.

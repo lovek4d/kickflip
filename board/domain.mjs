@@ -1643,7 +1643,7 @@ const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.held && !i.
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // A board's Maximum parallel implementers when board.json sets none.
-export const MAX_IMPLEMENTERS = 10;
+export const MAX_IMPLEMENTERS = 5;
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
