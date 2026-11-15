@@ -14,7 +14,7 @@ button:disabled { opacity: .5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 a.button { display: inline-block; border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; background: var(--panel); color: var(--text); text-decoration: none; }
 /* resolves: the button that clears a card's Action needed (board/domain.mjs resolvedBy), in that badge's notice tone. */
-:is(a, button).resolves, button.unhold, button.closes { border-color: var(--color-notice); background: var(--color-notice); color: #1c1407; }
+:is(a, button).resolves, button.unblock, button.closes { border-color: var(--color-notice); background: var(--color-notice); color: #1c1407; }
 button.ghost { border-color: transparent; background: transparent; font-size: 18px; padding: 2px 8px; }
 textarea, input { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
   border-radius: 8px; padding: 8px 10px; width: 100%; resize: vertical; }
@@ -85,7 +85,7 @@ button.chip { border: 0; }
 .status.review { border-color: var(--color-info); background: conic-gradient(var(--color-info) 0 75%, transparent 75% 100%); }
 .sub.agent { color: var(--color-notice); }
 .sub.next { color: var(--color-notice); }
-.card-hold { color: var(--color-quiet); }
+.card-owner-block { color: var(--color-quiet); }
 .card-blocked { color: var(--color-notice); }
 /* docs/adr/2026-11-11-1200-every-lane-has-phases.md: a card's phase word, toned by who acts next (ui-cards.js PHASE_LOOK). */
 .card-phase.ph-quiet { color: var(--color-quiet); }

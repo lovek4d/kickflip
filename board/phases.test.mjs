@@ -197,7 +197,7 @@ test('a stale review reads one stale; a blocked ready card shows ready, then its
   const blockedReady = card({ lane: 'todo', phase: 'ready', ready: false, blocked: true, blockedBy });
   assert.deepEqual(phaseWord(blockedReady), [['ready', 'success']]);
   assert.match(footerWords(blockedReady), / · ready · blocked by #2$/);
-  assert.match(footerWords(card({ lane: 'todo', phase: 'ready', ready: false, held: true })), / · ready · held/);
+  assert.match(footerWords(card({ lane: 'todo', phase: 'ready', ready: false, ownerBlock: { until: null } })), / · ready · blocked$/);
   assert.match(footerWords(card({ lane: 'todo', phase: 'staging', staging: true, blocked: true, blockedBy })), / · staged · blocked by #2$/);
   const grilling = card({ lane: 'todo', phase: 'grilling', builder: { planner: true, kind: 'grill', progress: 'Reading', at: '2020-01-01T10:00:00.000Z', alive: true } });
   assert.deepEqual(phaseWord(grilling), [['grilling', 'quiet']]);

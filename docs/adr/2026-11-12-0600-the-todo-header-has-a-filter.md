@@ -1,5 +1,7 @@
 # The Todo header has a filter
 
+Superseded in part by [the owner's hold is a block](2026-11-15-2230-the-owners-hold-is-a-block.md): the Held box goes, and Blocked covers the owner's block.
+
 The owner (card #559) wanted to set aside held or blocked cards without leaving the Todo lane.
 
 - **A funnel at the right of the Todo header** opens a checklist of five boxes: Ready (phase ready or staging), Discussing (discussing or new), Planning (grilling or prototyping), Blocked, Held. All are checked by default.

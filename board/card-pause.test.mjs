@@ -1,4 +1,4 @@
-// #432: a blocked, held, usage-limited or bumped-out card pauses its builder at the next stopping point and stays In
+// #432: a blocked (by tasks, a condition or the owner), usage-limited or bumped-out card pauses its builder at the next stopping point and stays In
 // Progress (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -76,10 +76,10 @@ test('a call or an ask is a stopping point too, and the call or ask is still rec
   assert.ok(record().pause.paused);
   assert.equal(texts().at(-1), 'Paused: blocked by ENG-1. It resumes once nothing blocks it.', 'a build with no phase line yet pauses with no phase');
 
-  write(recordFile(), { ...record(), pause: { cause: 'held', words: 'held', at: now() } });
+  write(recordFile(), { ...record(), pause: { cause: 'held', words: 'blocked', at: now() } });
   const ask = await onOrch('builder', 'ask', 'w/A1', 'Which name?');
   assert.equal(ask.code, 0, ask.err);
-  assert.match(ask.out, /Paused: held\. Commit/);
+  assert.match(ask.out, /Paused: blocked\. Commit/);
 });
 
 test("a builder waiting on its ask is already at a stopping point, so builder asks --wait returns the pause at once", async (t) => {
@@ -128,8 +128,10 @@ test('the hard stop after 15 minutes marks the build paused at its phase', async
 });
 
 // docs/adr/2026-11-09-1300-…: what the board does each pass, from the built cards.
-const card = (key, fields = {}, agent = {}) => ({ key, lane: 'progress', kind: 'work', blocked: false, held: false, ...fields,
+const card = (key, fields = {}, agent = {}) => ({ key, lane: 'progress', kind: 'work', blocked: false, ownerBlock: null, ...fields,
   agents: [{ name: 'main', kind: 'claude', label: 'Builder', started: '2026-11-09T10:00:00.000Z', done: null, pid: 1, ...agent }] });
+// The owner's block, as the built card carries it (docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md).
+const OWNER_BLOCKED = { ownerBlock: { until: null }, blocked: true };
 
 test('pauseWork asks every running build to pause while usage holds its kind, and a paused one resumes once its cause clears', async () => {
   const at = Date.parse('2026-11-09T12:00:00.000Z');
@@ -137,9 +139,9 @@ test('pauseWork asks every running build to pause while usage holds its kind, an
     card('w/A', {}),
     card('w/B', { blocked: true }, { pause: { cause: 'blocked', at: '2026-11-09T11:00:00.000Z', paused: '2026-11-09T11:01:00.000Z' } }),
     card('w/C', {}, { pause: { cause: 'blocked', at: '2026-11-09T11:00:00.000Z', paused: '2026-11-09T11:01:00.000Z' } }),
-    card('w/D', { held: true }, { pause: { cause: 'held', at: '2026-11-09T11:50:00.000Z' } }),
+    card('w/D', OWNER_BLOCKED, { pause: { cause: 'held', at: '2026-11-09T11:50:00.000Z' } }),
     card('w/E', {}, { pause: { cause: 'held', at: '2026-11-09T11:50:00.000Z' } }),
-    card('w/F', { held: true }, { pause: { cause: 'held', at: '2026-11-09T11:30:00.000Z' } }),
+    card('w/F', OWNER_BLOCKED, { pause: { cause: 'held', at: '2026-11-09T11:30:00.000Z' } }),
     card('w/G', {}, { pause: { cause: 'bumped', at: '2026-11-09T10:30:00.000Z', paused: '2026-11-09T10:40:00.000Z' } }),
     card('w/H', {}, { pause: { cause: 'usage', until: '2026-11-09T13:00:00.000Z', at: '2026-11-09T11:00:00.000Z', paused: '2026-11-09T11:00:00.000Z' } }),
     card('w/L', { builder: { phase: 'landing' } }),
@@ -151,13 +153,13 @@ test('pauseWork asks every running build to pause while usage holds its kind, an
 });
 
 // docs/adr/2026-11-10-1400-the-auto-pass-re-reads-a-pause-before-dropping-it.md
-test("a pause the auto pass would drop stands unless a fresh read drops it too: the Hold's two writes can straddle the snapshot", async () => {
+test("a pause the auto pass would drop stands unless a fresh read drops it too: the Block's two writes can straddle the snapshot", async () => {
   const usageHeld = () => false;
   const pause = { cause: 'held', at: '2026-11-09T11:50:00.000Z' };
   const stale = [card('w/A', {}, { pause }), card('w/B', {}, { pause })];
-  const fresh = [card('w/A', { held: true }, { pause }), card('w/B', {}, { pause })];
-  assert.deepEqual(pauseWork(stale, { usageHeld }).drop, ['w/A', 'w/B'], 'the snapshot read A\'s record after the Hold, its item file before it');
-  assert.deepEqual(confirmedDrops(pauseWork(stale, { usageHeld }).drop, fresh, { usageHeld }), ['w/B'], 'A is held on the fresh read, so its pause stays');
+  const fresh = [card('w/A', OWNER_BLOCKED, { pause }), card('w/B', {}, { pause })];
+  assert.deepEqual(pauseWork(stale, { usageHeld }).drop, ['w/A', 'w/B'], 'the snapshot read A\'s record after the Block, its item file before it');
+  assert.deepEqual(confirmedDrops(pauseWork(stale, { usageHeld }).drop, fresh, { usageHeld }), ['w/B'], 'A is blocked on the fresh read, so its pause stays');
 });
 
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md

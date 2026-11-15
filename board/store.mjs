@@ -2491,7 +2491,7 @@ async function stage(site, key, sendId) {
 export const READY_EXPIRES_MS = 24 * 60 * 60 * 1000;
 // A ready card in Todo has ready_at, the time of its ready, and ready_main, the base branch's commit then. main is that
 // commit now: a card with no ready_main yet records it (and a ready_at, for a card readied before the record), and one
-// ready for READY_EXPIRES_MS whose main differs from its ready_main, held or not, goes back to staging with a line,
+// ready for READY_EXPIRES_MS whose main differs from its ready_main, blocked or not, goes back to staging with a line,
 // its notes kept, for the orchestrator's usual staging re-check. → the keys it re-staged
 export async function restageStaleReady(site, main, now = new Date()) {
   const restaged = [];
@@ -2560,7 +2560,7 @@ async function endPlanners(site, key) {
   return stopped;
 }
 
-// An Implement message on a Todo card, in the board server before its event: a held card is resumed, as the Build tap
+// An Implement message on a Todo card, in the board server before its event: a card the owner blocked is unblocked, as the Build tap
 // does; its planners end (endPlanners); its words go into the notes; and it is staged in Todo.
 // → the planners it closed, for the board server to stop.
 export async function stageImplement(site, key, message) {
@@ -3284,7 +3284,7 @@ function markMerged(item, merged, repo) {
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
 // change, low, medium or high, which builder done records and the PR's Slack link shows (prLink).
-async function changeItem(site, key, { risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, splitOf, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged }, options) {
+async function changeItem(site, key, { risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, splitOf, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -3303,9 +3303,9 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
-  const hold = holdOf({ held, unheld, pickUpAt });
+  const hold = holdOf({ block, unblock, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check, risk].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
+  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check, risk].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --blocked, --unblocked, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   if (ask) await refuseFiled(site, ask, key);
@@ -3330,8 +3330,8 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   if (phase === 'ready' && quick && !['staging', 'ready'].includes(item.phase) && (size ?? item.size) !== 'small') fail(QUICK_NOT_SMALL(key));
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-  if (ask && hold && phase !== undefined && !item.phase) fail('a task filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
-  if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
+  if (ask && hold && phase !== undefined && !item.phase) fail('a task filed blocked is filed New and takes no --phase; drop --phase, or drop --blocked to file it in a phase');
+  if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --blocked to file it for later');
   const wasFinished = closed(item);
   if (split && wasFinished) fail(`${key} is already Done, so the tasks waiting on it were unblocked then; move them with item set <key> --deps`);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or builder done before the merge`);
@@ -3383,11 +3383,11 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   if (unrelate !== undefined) unlink = await unrelateCards(site, key, item, await relatedKeys(site, key, unrelate, '--unrelate'));
   if (hold !== undefined) setHold(item, hold);
   if (start && item.held) {
-    fail(item.pick_up_at ? `${key} is held until ${item.pick_up_at}, when the board resumes it; start it early only with item set ${key} --unheld`
-      : `${key} is held; start it only once the owner resumes it, with item set ${key} --unheld`);
+    fail(item.pick_up_at ? `${key} is blocked until ${item.pick_up_at}, when the board unblocks it; start it early only with item set ${key} --unblocked`
+      : `${key} is blocked by the owner; start it only once they unblock it, with item set ${key} --unblocked`);
   }
   const handover = pr !== undefined || pushed !== undefined || mergeReady !== undefined;
-  // A card that leaves Todo is never still held, nor waiting on a re-check.
+  // A card that leaves Todo is never still blocked by the owner, nor waiting on a re-check.
   if (start || done || handBack || handover) {
     clearHold(item);
     delete item.recheck_at;
@@ -3567,22 +3567,24 @@ function setBuildChoice(item, { size, model }) {
 }
 
 // docs/adr/2026-10-29-1639-a-card-can-be-held-and-every-card-button-confirms.md, docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
-// The hold --held, --unheld and --pick-up-at ask for: {until} holds the card, until null meaning until the owner resumes
-// it, null resumes it, and undefined leaves it. --pick-up-at "" clears the time, which resumes the card.
-function holdOf({ held, unheld, pickUpAt }) {
-  if ([held, unheld, pickUpAt !== undefined].filter(Boolean).length > 1) fail('pass one of --held, --unheld and --pick-up-at');
+// docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md
+// The owner's block --blocked, --unblocked and --pick-up-at ask for, stored as the item's held and pick_up_at: {until}
+// blocks the card, until null meaning until the owner unblocks it, null unblocks it, and undefined leaves it.
+// --pick-up-at "" clears the time, which unblocks the card.
+function holdOf({ block, unblock, pickUpAt }) {
+  if ([block, unblock, pickUpAt !== undefined].filter(Boolean).length > 1) fail('pass one of --blocked, --unblocked and --pick-up-at');
   if (pickUpAt !== undefined) return pickUpAt === '' ? null : { until: pickUpTime(pickUpAt) };
-  return held ? { until: null } : unheld ? null : undefined;
+  return block ? { until: null } : unblock ? null : undefined;
 }
 // A past time is refused, so a typo can't start a card at once.
 function pickUpTime(value) {
   const ms = typeof value === 'string' && AT_RE.test(value) ? Date.parse(value) : NaN;
-  if (Number.isNaN(ms)) fail('--pick-up-at takes an ISO time such as 2026-11-04T09:00, the host’s local time unless it names an offset, or "" to resume the task');
-  if (ms <= Date.now()) fail(`--pick-up-at ${value} has passed; pass a later time, or --unheld to resume the task now`);
+  if (Number.isNaN(ms)) fail('--pick-up-at takes an ISO time such as 2026-11-04T09:00, the host’s local time unless it names an offset, or "" to unblock the task');
+  if (ms <= Date.now()) fail(`--pick-up-at ${value} has passed; pass a later time, or --unblocked to unblock the task now`);
   return new Date(ms).toISOString();
 }
-// A card that has left Todo is never still held, so a build's start, a hand-back, --done, --pr, --pushed and
-// --merge-ready drop its hold and pick-up time.
+// A card that has left Todo is never still blocked by the owner, so a build's start, a hand-back, --done, --pr,
+// --pushed and --merge-ready drop their block and its pick-up time.
 function clearHold(item) {
   delete item.held;
   delete item.pick_up_at;
@@ -3593,7 +3595,7 @@ function setHold(item, hold) {
   item.held_at = new Date().toISOString();
 }
 
-// A held card whose pick-up time `until` has passed, as board/server.mjs checkPickUps finds it: resumed in its item file
+// A card the owner blocked whose pick-up time `until` has passed, as board/server.mjs checkPickUps finds it: unblocked in its item file
 // file. announce first adds a thread line and, unless a dep is unfinished or a condition blocks it, card-unblocked {key, until}, as a finished
 // dep does; it is false when those were sent before a restart cut the write short.
 export async function pickUp(site, key, until, { announce = true } = {}) {
@@ -3607,7 +3609,7 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   await writeJSON(source.file, itemFile);
 }
 
-// The owner's Hold, Resume, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}), or
+// The owner's Block, Unblock, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}), or
 // a Full person's, whose data.shared_by {login, name} names their thread line, recorded in the item file as the board
 // server takes it, with a thread line; a Done closes the card and unblocks blocked cards as item set --done does
 // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). → the item set result, or null
@@ -3635,11 +3637,12 @@ export async function recordOwnerTap(site, kind, data) {
   const until = data.hold ? (typeof data.until === 'string' ? new Date(data.until).toISOString() : null) : undefined;
   setHold(item, data.hold ? { until } : null);
   await writeJSON(source.file, itemFile);
-  // A hold pauses the card's running build at its next stopping point, and stops its other agents, a landing build's
+  // A block pauses the card's running build at its next stopping point, and stops its other agents, a landing build's
   // included, so their records close: an open record with an exited process is relaunched
-  // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
+  // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md). Its pause keeps the cause
+  // held, the key builder records already carry (domain.mjs PAUSE_CLEARS).
   if (data.hold) {
-    if (!(await isLanding(site, key))) await requestPause(site, key, { cause: 'held', words: 'held' });
+    if (!(await isLanding(site, key))) await requestPause(site, key, { cause: 'held', words: 'blocked' });
     await closeBuilders(source.dir, id, false, { held: true });
     await publishStaged(site, key);
   }
@@ -3964,7 +3967,7 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: phase files the card at once, with
 // relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, phase
 // is required, so no card an agent adds reads New; a card added with no phase starts discussing.
-async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, held, parent, from, splitOf, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
+async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, block, parent, from, splitOf, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
   const { file: slug, id } = key.includes('/') ? parseKey(key) : { file: key };
   if (id !== undefined) domId(id, 'the item id');
   checkPhase(phase, state);
@@ -3977,8 +3980,8 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   if (ask) await refuseFiled(site, ask);
-  const hold = holdOf({ held, pickUpAt });
-  if (ask && phase === undefined && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
+  const hold = holdOf({ block, pickUpAt });
+  if (ask && phase === undefined && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --blocked to file it for later');
   if (phase === 'ready' && ask && await fromSlack(site, ask)) fail(SLACK_DISCUSSES(ask));
   if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it discussing, grilling or prototyping` : 'item add files a task discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
   if (phase === 'ready' && size !== undefined && size !== 'small') fail(QUICK_NOT_SMALL(key));
@@ -3986,7 +3989,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a new card has no questions yet, so its notes
   // are complete once they hold more than its title.
   if (phase === 'ready' && !(notes ?? '').trim() && notesFrom === undefined) fail('a new ready task has no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready');
-  if (intake && site && phase === undefined && !hold) fail('item add files a task on a board: pass --phase discussing, grilling or prototyping, or --held to file it for later');
+  if (intake && site && phase === undefined && !hold) fail('item add files a task on a board: pass --phase discussing, grilling or prototyping, or --blocked to file it for later');
   const { source, itemFile } = await loadItemFile(site, slug);
   if (id !== undefined && itemFile.items.some((it) => it.id === id)) fail(`item file "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();
@@ -4759,15 +4762,15 @@ const onlyRebased = (item, approved, head) => {
 };
 
 // The refusals of a build's start that the owner can act on, worded for the card; startBuilder still makes every check.
-// A held card that hasn't started is no refusal: the tap unholds it (docs/adr/2026-11-03-0234-a-held-todo-card-shows-build-in-place-of-unhold.md),
+// A card the owner blocked that hasn't started is no refusal: the tap unblocks it (docs/adr/2026-11-03-0234-a-held-todo-card-shows-build-in-place-of-unhold.md),
 // and nor is a blocked one: the tap bumps it (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
-// → {held: its hold or null, blockers: the names of its unfinished deps and its blocked-until condition (blockerNames)}.
+// → {held: the owner's block as stored, or null, blockers: the names of its unfinished deps and its blocked-until condition (blockerNames)}.
 async function tapRefusals(site, key) {
   const gate = readUsageGate({ dir: site });
   if (holdsWork(gate)) fail(pauseReason(gate));
   const { item } = await loadItem(site, key);
   const held = item.held ? { held: item.held, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
-  if (held && leftTodo(item)) fail("it's held. Unhold it, then tap Implement.");
+  if (held && leftTodo(item)) fail("it's blocked. Unblock it, then tap Implement.");
   if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes, so it prototypes again. Pick a take from the next round, then tap Implement.');
   return { held, blockers: await blockerNames(site, key, item) };
 }
@@ -4963,7 +4966,7 @@ const launchedSession = (record) => Boolean(record?.session) && record.session.a
 
 // The board server's start of a planner, kind grill or prototype, on a card: the main record opens, dispatched: 'hub',
 // as builder start --kind <kind> does, from the card's oldest written brief of that kind, which moves onto the record
-// (brief, the card's briefs entry: the record is written once with it, then the card drops it), or from kept, the entry a run the Hold stopped had. A card with neither is refused
+// (brief, the card's briefs entry: the record is written once with it, then the card drops it), or from kept, the entry a run the Block stopped had. A card with neither is refused
 // (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md).
 // → {key, kind, model, brief, ...a grill's ask, or a prototype's asks}, or null while an agent already works on the
 // card's main record. A prototype entry written before entries kept asks has its one ask as asks.
@@ -5516,7 +5519,7 @@ async function builderFiles(fileDir, id) {
 
 // Closes the card's open builder records, an install build only with the card finished. handedBack marks each record it
 // closes as handed back at that time (domain.mjs handedBackAt); endHandBack takes the mark off every record, so the
-// hand-back ends. held marks each started record it closes hold_stopped, for the Resume that relaunches it (takeHoldStopped),
+// hand-back ends. held marks each started record it closes hold_stopped, for the Unblock that relaunches it (takeHoldStopped),
 // and leaves open a build a pause rides on (requestPause).
 async function closeBuilders(fileDir, id, cardFinished, { handedBack, endHandBack = false, held = false } = {}) {
   const now = new Date().toISOString();
@@ -5534,7 +5537,7 @@ async function closeBuilders(fileDir, id, cardFinished, { handedBack, endHandBac
 }
 
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
-// The run a Hold stopped on the card's main record, taken off it for the resume that relaunches it: → {kind, label,
+// The run a Block stopped on the card's main record, taken off it for the Unblock that relaunches it: → {kind, label,
 // brief}, brief a planner's briefs entry (startPlanner) or null, or null when the hold stopped none.
 export async function takeHoldStopped(site, key) {
   const file = await builderFile(site, key);

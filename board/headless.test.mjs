@@ -971,7 +971,7 @@ test('an agent may run when ps gave no answer, and not when ps answered without 
 });
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
-test("the owner's Hold pauses the card's running builder at its next progress report, and Resume carries on its own session", async (t) => {
+test("the owner's Block pauses the card's running builder at its next progress report, and Unblock carries on its own session", async (t) => {
   const b = oneLaunchBoard(t, [{ id: 'H1', title: 'feat: hold me', phase: 'ready', size: 'large' }]);
   const { send } = await b.start();
   const { pid, id: session } = b.record('H1').session;
@@ -979,19 +979,19 @@ test("the owner's Hold pauses the card's running builder at its next progress re
   await send('card-hold', { key: 't/H1', hold: true });
   assert.doesNotThrow(() => process.kill(pid, 0), 'the builder runs on to its stopping point');
   assert.deepEqual({ done: b.record('H1').done, pause: b.record('H1').pause?.cause, lane: b.item('H1').lane }, { done: undefined, pause: 'held', lane: 'progress' }, `read the record ${JSON.stringify(b.record('H1'))}`);
-  assert.deepEqual(b.thread('H1').at(-1).text, 'Held', 'nothing stopped, so no stop line');
-  assert.match((await builderProgress(b.site, 't/H1', 'Writing the test', { phase: 'building' })).lines[0], /^Paused: held\. Commit what you have now/);
-  assert.equal(b.thread('H1').at(-1).text, 'Paused at building: held. It resumes once you unhold it.');
+  assert.deepEqual(b.thread('H1').at(-1).text, 'Blocked', 'nothing stopped, so no stop line');
+  assert.match((await builderProgress(b.site, 't/H1', 'Writing the test', { phase: 'building' })).lines[0], /^Paused: blocked\. Commit what you have now/);
+  assert.equal(b.thread('H1').at(-1).text, 'Paused at building: blocked. It resumes once you unblock it.');
   await b.gone(pid);
   await send('card-hold', { key: 't/H1', hold: false });
   assert.equal(b.runs.length, 2, 'the resume launches its session again');
   assert.equal(b.record('H1').session.pid, b.runs[1].pid);
   const [, again] = b.runs;
   assert.equal(again.resume, session);
-  assert.match(again.prompt, /^The board paused your build of task H1, and the pause has cleared: unheld\. Carry on where you stopped/);
+  assert.match(again.prompt, /^The board paused your build of task H1, and the pause has cleared: unblocked\. Carry on where you stopped/);
   assert.equal(again.cwd, b.record('H1').worktree.path);
   assert.deepEqual([b.record('H1').pause, b.record('H1').done], [undefined, undefined]);
-  assert.ok(b.thread('H1').some((m) => m.text === 'Resumed: unheld.'));
+  assert.ok(b.thread('H1').some((m) => m.text === 'Resumed: unblocked.'));
 });
 
 // docs/adr/2026-11-15-0040-a-cold-resume-past-150k-starts-a-fresh-agent-with-a-handoff.md
@@ -1053,7 +1053,7 @@ const coldTurn = (b, id, context) => {
   fs.appendFileSync(log, turn(new Date(Date.now() - 2 * 3600_000).toISOString(), [2, context - 2, 0], { text: 'Paused here; committed the parser.' }) + '\n');
 };
 
-test('Resume of a held build whose session is cold and past the cap starts a fresh builder on its model, with the handoff, and says so', async (t) => {
+test('Unblock of a blocked build whose session is cold and past the cap starts a fresh builder on its model, with the handoff, and says so', async (t) => {
   const b = oneLaunchBoard(t, [{ id: 'H2', title: 'feat: hold me', phase: 'ready', size: 'large' }]);
   const { send } = await b.start();
   const { pid } = b.record('H2').session;
@@ -1067,7 +1067,7 @@ test('Resume of a held build whose session is cold and past the cap starts a fre
   assert.equal(fresh.resume, undefined, 'a fresh agent, not the session resumed');
   assert.equal(fresh.model, first.model, "a build's carry-on keeps its model");
   assert.match(fresh.prompt, /^You are the headless builder for task H2/);
-  assert.match(fresh.prompt, /Why it carries on: The board paused this build, and the pause has cleared: unheld\./);
+  assert.match(fresh.prompt, /Why it carries on: The board paused this build, and the pause has cleared: unblocked\./);
   assert.match(fresh.prompt, /The old session's last message:\nPaused here; committed the parser\./);
   assert.ok(b.thread('H2').some((m) => m.text === 'Fresh builder: its session was over 150k.'), 'the thread says so, with no session id');
 });

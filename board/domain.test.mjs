@@ -198,7 +198,7 @@ test('a card waiting on its questions stays in Todo with its action until buildi
   const built = card({ owner: { items: [q] }, agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   assert.deepEqual([built.lane, built.action?.kind], ['progress', 'pick']);
   const held = card({ owner: { items: [q] }, held: true });
-  assert.deepEqual([held.lane, held.held, held.action?.kind, held.actionButton], ['todo', true, 'pick', 'openQuestions']);
+  assert.deepEqual([held.lane, held.ownerBlock, held.action?.kind, held.actionButton], ['todo', { until: null }, 'pick', 'openQuestions']);
   assert.equal(card({ held: true }).actionButton, null);
 });
 
@@ -946,11 +946,11 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   }
   assert.equal(card({ pr: { ...clean, mergeStateStatus: 'BLOCKED' } }).items[0].next, 'Approved, Merge shows once CI and the merge state allow');
   assert.equal(card({ item: { held: true, pr: undefined } }).items[0].action, null);
-  // docs: a card that left Todo never reads held, whatever old data says.
+  // docs: a card that left Todo never reads blocked by its owner, whatever old data says.
   const leftTodo = card({ item: { held: true, pick_up_at: '2026-11-05T17:00:00.000Z' } }).items[0];
-  assert.deepEqual([leftTodo.lane, leftTodo.held, leftTodo.heldUntil], ['review', false, null]);
+  assert.deepEqual([leftTodo.lane, leftTodo.ownerBlock], ['review', null]);
   const doneHeld = card({ item: { held: true, lane: 'done', pr: undefined } }).items[0];
-  assert.deepEqual([doneHeld.lane, doneHeld.held], ['done', false]);
+  assert.deepEqual([doneHeld.lane, doneHeld.ownerBlock], ['done', null]);
   assert.equal(card({ item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');
 
   const tapped = [{ id: 'm1', ts: '2026-10-29T10:00:00Z', kind: 'card-merge', data: { key: 'w/A1' } }];
@@ -1315,6 +1315,21 @@ test('every In Progress card bumps, held or waiting on checking included, and a 
   assert.equal(again.bumpedAt, late);
 });
 
+// docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md
+test("the owner's block reads blocked like a task's or a condition's: ownerBlock carries its until, apart from blockedBy, and the card is neither ready nor pulled", () => {
+  const card = (item, more = []) => buildBoard({ fromWaves: false, files: [{ slug: 'w', agents: {}, itemFile: { items: [{ id: 'A1', title: 'feat: one', phase: 'ready', ...item }, ...more] } }] }).items.find((i) => i.id === 'A1');
+  const free = card({});
+  assert.deepEqual([free.blocked, free.ownerBlock, free.ready, 'held' in free, 'heldUntil' in free], [false, null, true, false, false]);
+  const blocked = card({ held: true });
+  assert.deepEqual([blocked.blocked, blocked.ownerBlock, blocked.blockedBy, blocked.ready], [true, { until: null }, [], false]);
+  assert.deepEqual(pullOf([blocked]).pullable, []);
+  const until = card({ held: true, pick_up_at: '2026-11-15T15:00:00.000Z' });
+  assert.deepEqual([until.blocked, until.ownerBlock], [true, { until: '2026-11-15T15:00:00.000Z' }]);
+  const both = card({ held: true, deps: ['A2'] }, [{ id: 'A2', title: 'feat: two' }]);
+  assert.deepEqual([both.blocked, both.ownerBlock, both.blockedBy.map((d) => d.key)], [true, { until: null }, ['w/A2']]);
+  assert.equal(card({ held: true, lane: 'done' }).ownerBlock, null, 'a Done card is never blocked by its owner');
+});
+
 test('a card-hold applies at once unless held_at is newer, and only cards outside Done can be held; a held card ends at the newest hold time', () => {
   const hold = (key, ts, value) => ({ id: 'h' + ts, ts, kind: 'card-hold', data: { key, hold: value }, reply: null });
   const items = [
@@ -1325,7 +1340,7 @@ test('a card-hold applies at once unless held_at is newer, and only cards outsid
     { id: 'A5', title: 'Five', lane: 'done' },
   ];
   const events = [hold('w/A1', '2026-10-23T11:00:00Z', true), hold('w/A2', '2026-10-23T11:10:00Z', false), hold('w/A3', '2026-10-23T11:10:00Z', false), hold('w/A4', '2026-10-23T11:10:00Z', true), hold('w/A1', '2026-10-23T10:00:00Z', false)];
-  const cards = Object.fromEntries(askBoard(events, { items }).items.filter((i) => i.kind === 'work').map((i) => [i.id, [i.held, i.holdable]]));
+  const cards = Object.fromEntries(askBoard(events, { items }).items.filter((i) => i.kind === 'work').map((i) => [i.id, [Boolean(i.ownerBlock), i.holdable]]));
   assert.deepEqual(cards, { A1: [true, true], A2: [false, true], A3: [true, true], A4: [false, true], A5: [false, false] });
 
   const until = (key, ts, at) => ({ ...hold(key, ts, true), data: { key, hold: true, until: at } });
@@ -1337,8 +1352,8 @@ test('a card-hold applies at once unless held_at is newer, and only cards outsid
   ];
   const taps = [until('w/T1', '2026-10-23T11:10:00Z', '2026-11-04T17:00:00.000Z'), until('w/T2', '2026-10-23T11:10:00Z', '2026-11-04T17:00:00.000Z'),
     hold('w/T3', '2026-10-23T11:10:00Z', true), hold('w/T4', '2026-10-23T11:10:00Z', false)];
-  const ends = Object.fromEntries(askBoard(taps, { items: timed }).items.map((i) => [i.id, [i.held, i.heldUntil]]));
-  assert.deepEqual(ends, { T1: [true, '2026-11-04T17:00:00.000Z'], T2: [true, '2026-11-05T17:00:00.000Z'], T3: [true, null], T4: [false, null] });
+  const ends = Object.fromEntries(askBoard(taps, { items: timed }).items.map((i) => [i.id, i.ownerBlock]));
+  assert.deepEqual(ends, { T1: { until: '2026-11-04T17:00:00.000Z' }, T2: { until: '2026-11-05T17:00:00.000Z' }, T3: { until: null }, T4: null });
 });
 
 // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
@@ -1923,7 +1938,7 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   const ready = card({ item: { phase: 'ready' } });
   assert.deepEqual(fields(ready), [false, true, false]);
   assert.deepEqual(pullOf([ready]).pullable, ['w/A1']);
-  assert.equal(card({ item: { phase: 'ready', held: true } }).ready, true);
+  assert.equal(card({ item: { phase: 'ready', held: true } }).ready, false, 'the owner blocked it');
   assert.equal(card({ item: { phase: 'ready', deps: ['A2'] }, dep: 'building' }).ready, false);
   assert.equal(card({ item: { phase: 'ready' }, owner: { items: [q] } }).ready, false);
   assert.equal(card({ item: { phase: 'ready', lane: 'progress' } }).ready, false);
@@ -2139,11 +2154,11 @@ test("a thread message's footer names Implement when that sent it; a Reply, bein
 test("a thread-file line a button wrote is a request line carrying its command key, naming its mark when its words vary", () => {
   const lines = [
     { ts: '2026-10-23T10:00:00Z', who: 'claude', text: 'Marked as staged', command: 'staged', sendId: 's1' },
-    { ts: '2026-10-23T10:01:00Z', who: 'love', text: 'Held until Fri 10/24, 9:00 AM', command: 'hold', by: 'Dana Reyes' },
+    { ts: '2026-10-23T10:01:00Z', who: 'love', text: 'Blocked until Fri 10/24, 9:00 AM', command: 'hold', by: 'Dana Reyes' },
     { ts: '2026-10-23T10:02:00Z', who: 'love', text: 'Earlier hand-typed line' },
   ];
   assert.deepEqual(threadOf('w/A1', { lines }).map((m) => [m.kind ?? null, m.command ?? null, Boolean(m.request), m.mark ?? null, m.by ?? null]), [
-    ['command', 'staged', true, 'Marked as staged', null], ['command', 'hold', true, 'Held', 'Dana Reyes'], [null, null, false, null, null],
+    ['command', 'staged', true, 'Marked as staged', null], ['command', 'hold', true, 'Blocked', 'Dana Reyes'], [null, null, false, null, null],
   ]);
   // A link's line names the other card by key, drawn with its ref as it stands, and links to it.
   const cards = new Map([['w/A2', { ref: '#12' }]]);
@@ -2921,18 +2936,18 @@ test("a Done card the owner reopened reads Todo, discussing, its PR merged or no
 });
 
 // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
-test("an In Progress card the owner held reads held, so its paused build stays paused until the Resume; a usage pause alone doesn't read held", () => {
+test("an In Progress card the owner blocked reads their block, so its paused build stays paused until the Unblock; a usage pause alone doesn't read blocked", () => {
   const build = (pause) => ({ A1: { main: { kind: 'claude', started: '2026-11-09T11:00:00Z', pause } } });
   const paused = { cause: 'held', words: 'held', at: '2026-11-09T11:50:00Z', paused: '2026-11-09T11:55:00Z' };
   const of = (item, pause = paused) => buildBoard({ fromWaves: false, files: [{ slug: 'w', agents: build(pause), itemFile: { items: [{ id: 'A1', title: 'One', lane: 'progress', ...item }] } }] });
   const held = of({ held: true, held_at: '2026-11-09T11:50:00Z' });
-  assert.deepEqual([held.items[0].lane, held.items[0].held], ['progress', true]);
+  assert.deepEqual([held.items[0].lane, held.items[0].ownerBlock, held.items[0].blocked], ['progress', { until: null }, true]);
   assert.deepEqual(pauseWork(held.items, { usageHeld: () => false }).resume, []);
   const asked = of({ held: true, held_at: '2026-11-09T11:50:00Z' }, { ...paused, paused: undefined });
   assert.deepEqual(pauseWork(asked.items, { usageHeld: () => false }).drop, []);
   assert.deepEqual(pauseWork(of({}).items, { usageHeld: () => false }).resume, ['w/A1']);
   const usage = of({}, { cause: 'usage', words: 'usage limit', at: '2026-11-09T11:50:00Z', paused: '2026-11-09T11:55:00Z' });
-  assert.equal(usage.items[0].held, false);
+  assert.deepEqual([usage.items[0].ownerBlock, usage.items[0].blocked], [null, false]);
 });
 
 // docs/adr/2026-11-12-1300-builder-done-posts-no-line-to-the-thread.md

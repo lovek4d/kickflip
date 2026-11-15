@@ -114,7 +114,7 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   assert.ok(said('ticket ENG-9: left as it is, not assigned to you'), out.slice(-4).join('\n'));
   assert.deepEqual([item('C3').lane, stateOf('ENG-9')], ['progress', 'Todo']);
   const before = linear.calls.length;
-  for (const flags of [['--held'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
+  for (const flags of [['--blocked'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
   assert.equal(linear.calls.length, before);
   assert.equal(await cli('item', 'add', 'audit/E5', '--phase', 'grilling', '--title', 'feat: five', '--new-ticket'), 0);
   assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--title', 'feat: named in linear', '--new-ticket'), 0);

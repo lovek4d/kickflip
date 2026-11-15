@@ -99,7 +99,7 @@
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary; a Full person's names them.
     : m.request && m.card ? statusLine(`request${tone(m)}`, statusMark(m.mark) + named(m, links), m.ts)
     // A bare tap's line, the outbox's or its event's, carries where it is after its time, as a message's footer does; the
-    // board's own lines (a Hold's, a bare Implement's) have no state, as no session picks them up.
+    // board's own lines (a Block's, a bare Implement's) have no state, as no session picks them up.
     : m.request ? statusLine(`request${tone(m)}`, statusMark(m.mark || m.text) + escText(m.text), m.ts, { by: m.by, after: m.state && PICK_UP[m.state]?.(m), sendId: m.sendId })
     // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md: the board's
     // own line, its kind's mark and words, red for a fault.

@@ -1,5 +1,7 @@
 # A card can be held until a time
 
+Superseded in part by [the owner's hold is a block](2026-11-15-2230-the-owners-hold-is-a-block.md): a card held until a time reads "blocked until <time>", and the CLI's `--held`/`--unheld` are `--blocked`/`--unblocked`.
+
 The owner asked on hub/INT-162 for "a flag to pick up at a certain time", then to "reuse snooze time selector (DRY) and make it pop up on held (allow held forever or for a time)", with "as much of this as possible … non skill, deterministic code".
 
 - **A pick-up time is a timed Hold.** A card's Hold opens a sheet titled "Hold <ref>" with the shared duration picker ([snooze and Keep awake share one duration picker](2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md)): 1h, 3h, 6h, 1d, Forever and Custom. A chip is already a deliberate tap, so it replaces Hold's confirmation. Forever is the Hold that lasts until Resume; a time holds the card until then. Resume still confirms and names the time.

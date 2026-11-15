@@ -6,6 +6,7 @@ status: superseded in part by 2026-11-02-0009-the-board-applies-the-owners-hold-
 
 Superseded in part by [the board applies the owner's Hold, Resume and Done at once](2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md): the card shows the owner's Hold or Resume at once, with no "Holding…" or "Resuming…".
 Superseded in part by [a card can be held until a time](2026-11-02-1727-a-card-can-be-held-until-a-time.md): Hold opens a duration picker in place of its confirmation.
+Superseded in part by [the owner's hold is a block](2026-11-15-2230-the-owners-hold-is-a-block.md): held reads blocked, and Hold and Unhold read Block and Unblock.
 
 An open work card that isn't Done has a **Hold** button first in its action row, then Grill; its bump is an icon at the card's top right ([a card that hasn't started, or is running, can be bumped](2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md)) and confirms the same way. On a held card it reads **Resume**.
 

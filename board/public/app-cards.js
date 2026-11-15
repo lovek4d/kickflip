@@ -1,5 +1,5 @@
 // Work cards on the board view: a card in a lane, its expanded detail, its action row with each button's confirmation or
-// Hold's sheet, and opening it. Needs
+// Block's sheet, and opening it. Needs
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
@@ -134,8 +134,9 @@ BoardView.part((B) => {
     if (B.alive()) { paintMain(); B.reload(); }
   });
 
-  // Hold's sheet: the shared duration picker in place of a confirm, since a chip is already a deliberate tap
-  // (docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md). A chip or Custom sends card-hold {key, hold: true, for}.
+  // Block's sheet: the shared duration picker in place of a confirm, since a chip is already a deliberate tap
+  // (docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md, docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md).
+  // A chip or Custom sends card-hold {key, hold: true, for}, the event the owner's block keeps from when it was a hold.
   const holdSheet = $('#holdSheet');
   let holdPicking = null;
   const localInput = (d) => {
@@ -149,12 +150,12 @@ BoardView.part((B) => {
     holdSheet.classList.add('closing');
     B.later(180, () => { holdSheet.classList.remove('closing'); holdSheet.close(); });
   }
-  // Whether the open sheet came from the card's reply box, whose Hold goes through the thread's outbox.
+  // Whether the open sheet came from the card's reply box, whose Block goes through the thread's outbox.
   let holdInBox = false;
   function openHold(it, inBox) {
     holdInBox = inBox;
-    $('#holdTitle').textContent = `Hold ${it.ref}`;
-    $('#holdLede').textContent = `${it.lane === 'todo' ? 'It won’t start' : 'Claude stops work on it'} until then. Forever holds it until you unhold it.`;
+    $('#holdTitle').textContent = `Block ${it.ref}`;
+    $('#holdLede').textContent = `${it.lane === 'todo' ? 'It won’t start' : 'Claude stops work on it'} until then. Forever blocks it until you unblock it.`;
     const now = Date.now();
     $('#holdPicker').innerHTML = holdPicker(it.key, state.board.holdChoices, new Date(now));
     const input = $('#holdPicker [data-hold-at]');
@@ -165,14 +166,14 @@ BoardView.part((B) => {
     holdSheet.showModal();
     $('#holdTitle').focus({ preventScroll: true });
   }
-  // The reply box's Hold shows its line in the thread at once
+  // The reply box's Block shows its line in the thread at once
   // (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md); the action row's
-  // waits while the server records the hold (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
+  // waits while the server records the block (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
   async function hold(key, choice) {
     closeHold();
     if (holdInBox) { B.enqueue(key, { kind: 'card-hold', fields: { hold: true, for: choice } }); return; }
     const button = $(`button[data-confirm="hold"][data-key="${CSS.escape(key)}"]`);
-    const holdFace = () => { const it = cardOf(key); return JSON.stringify([it?.held, it?.heldUntil]); };
+    const holdFace = () => { const it = cardOf(key); return JSON.stringify(it?.ownerBlock ?? null); };
     const before = holdFace();
     try { await B.spinUntil(button, { send: () => B.sentHere(key, () => B.send('card-hold', { key, hold: true, for: choice })), shows: () => holdFace() !== before }); }
     catch (e) { B.failed(e); }
@@ -262,15 +263,16 @@ BoardView.part((B) => {
 
   const openPRs = (it) => (it.prs || []).filter((p) => p.state === 'OPEN');
   const CONFIRM = {
-    resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
+    resume: (it, ref) => `Unblock ${ref}?${it.ownerBlock?.until ? ` It's blocked until ${heldUntilWords(it.ownerBlock.until)}.` : ''} It can start again once nothing else blocks it.`,
     // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
     merge: (it, ref) => (it.mergeReady ? `Merge ${ref}? The board rebases ${it.mergeReady.branch} onto ${it.mergeReady.base} as it is now, reruns the tests if  moved, and lands it.`
       : openPRs(it).length > 1
       ? `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join(', ')} in turn if they are still approved, green and clean.`
       : `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join('')} if it is still approved, green and clean.`),
-    'card-build': (it, ref) => (it.blocked
-      ? `${it.held ? 'Unhold and implement' : 'Implement'} ${ref} once ${[it.blockedBy.length && `${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done`, it.blockedUntil].filter(Boolean).join(' and ')}? It is bumped to the top of Todo until then.`
-      : `${it.held ? `Unhold and implement ${ref}?` : `Implement ${ref}?`} Claude starts its implementer now with the notes as they stand.`),
+    // The tap lifts the owner's block itself; only a task or a condition still blocking the card bumps it.
+    'card-build': (it, ref) => (it.blockedBy.length || it.blockedUntil
+      ? `${it.ownerBlock ? 'Unblock and implement' : 'Implement'} ${ref} once ${[it.blockedBy.length && `${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done`, it.blockedUntil].filter(Boolean).join(' and ')}? It is bumped to the top of Todo until then.`
+      : `${it.ownerBlock ? `Unblock and implement ${ref}?` : `Implement ${ref}?`} Claude starts its implementer now with the notes as they stand.`),
     finish: (it, ref) => (it.ownerStep ? `Done with "${it.ownerStep}"? ${ref} moves to Done and its ticket closes.`
       : `Done ${ref}? It moves to Done and Claude stops work on it.${openPRs(it).length ? ` Its PR${openPRs(it).length > 1 ? 's stay' : ' stays'} open on GitHub.` : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
     // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
@@ -290,8 +292,8 @@ BoardView.part((B) => {
     const key = esc(it.key);
     const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}">${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
-      : it.held ? ask('resume', 'Unhold', 'unhold') : ask('hold', 'Hold');
-    // A Todo card's Done, right of Hold; an In Review card's Done is in its thread box
+      : it.ownerBlock ? ask('resume', 'Unblock', 'unblock') : ask('hold', 'Block');
+    // A Todo card's Done, right of Block; an In Review card's Done is in its thread box
     // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
     const close = it.lane === 'todo' && it.finishable ? ask('finish', 'Done', it.resolvedBy === BUTTON.done ? 'resolves' : '') : '';
     // A Todo card's Implement is in its thread box (app-threads.js; docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
@@ -495,7 +497,7 @@ BoardView.part((B) => {
     ev.preventDefault();
     confirmTap(b);
   });
-  // A data-confirm button's tap: Hold's sheet, or its confirm, then its event. The thread box's Hold, Resume, Done and
+  // A data-confirm button's tap: Block's sheet, or its confirm, then its event. The thread box's Block, Unblock, Done and
   // Reopen come here on ⌥↵ too; theirs go through the thread's outbox, their line in the thread at once and their button
   // free (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md).
   async function confirmTap(b) {
@@ -514,7 +516,7 @@ BoardView.part((B) => {
       B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done', ...(follow ? { follow } : {}) }, reopen: { kind: 'card-reopen' } }[act]);
       return;
     }
-    // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement, Done and Reopen
+    // Unblock, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement, Done and Reopen
     // wait while the server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
     // Each carries the version of the card it was drawn on, which the board checks the card against.
     const at = { key, ...(it.version ? { version: it.version } : {}) };
@@ -524,9 +526,9 @@ BoardView.part((B) => {
     // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
     const close = act === 'finish' && !follow ? () => closeCard(key) : null;
     // Each spins until a board shows its change (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md):
-    // Unhold the card unheld; Done and Reopen the card in another lane; Merge the card merging, which its markup draws
+    // Unblock the card with no owner block; Done and Reopen the card in another lane; Merge the card merging, which its markup draws
     // busy (docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md), or gone from In Review. Implement is T-234's.
-    const shows = { resume: (c) => !c?.held, finish: (c) => c?.lane !== it.lane, reopen: (c) => c?.lane !== it.lane,
+    const shows = { resume: (c) => !c?.ownerBlock, finish: (c) => c?.lane !== it.lane, reopen: (c) => c?.lane !== it.lane,
       merge: (c) => !c || c.lane !== 'review' || c.merging }[act];
     const send = () => B.sentHere(key, () => B.send(...sent, close));
     try { await (shows ? B.spinUntil(b, { send, shows: () => shows(cardOf(key)) }) : waitOn(b, send())); } catch (e) { B.failed(e); }

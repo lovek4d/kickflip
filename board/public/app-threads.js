@@ -14,7 +14,7 @@ BoardView.part((B) => {
   // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
   // Every card's reply box sends with Reply (intent: 'reply'), the second button of its pair beside it on ⌥↵: a Todo
   // card's Implement (intent: 'build'), its build action, enabled while the card owes it, disabled and quiet once it is staged or ready; an In
-  // Progress card's Hold, quiet, which opens the Hold sheet, or orange Resume while the owner's hold is on; an In Review
+  // Progress card's Block, quiet, which opens the Block sheet, or orange Unblock while the owner's block is on; an In Review
   // card's Done (ui-threads.js doneButton), in its tone; a Done card's Reopen, quiet. A card with no second button (one
   // not yet read from the board) has Reply alone. A pair wraps onto its own line under the row. Reply is orange while
   // a message clears the card's Action needed, as on a card the orchestrator stalled
@@ -22,7 +22,7 @@ BoardView.part((B) => {
   const replyTone = (item) => (item?.resolvedBy === BUTTON.reply ? 'resolves' : undefined);
   const laneSends = (item) => (item?.lane === 'todo' ? (item.ready ? 'todo-ready' : item.staging ? 'todo-staged' : 'todo')
     : item?.lane === 'review' ? ['review', doneTone(item)].filter(Boolean).join(' ')
-    : item?.lane === 'progress' ? (item.held ? 'progress-held' : 'progress')
+    : item?.lane === 'progress' ? (item.ownerBlock ? 'progress-blocked' : 'progress')
     : item?.lane === 'done' ? 'done' : 'one');
   const sendsOf = (item) => [laneSends(item), item?.resolvedBy === BUTTON.implement && 'implement-resolves', replyTone(item) && 'reply-resolves'].filter(Boolean).join(' ');
   const pair = (kind, html) => `<span class="send-actions" data-sends="${kind}">${html}</span>`;
@@ -31,8 +31,8 @@ BoardView.part((B) => {
     const card = (label, act, cls = '') => sendButton(label, 1, `${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${esc(item.key)}"`);
     const second = kind.startsWith('todo') ? sendButton('Implement', 1, ` class="build${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"${kind.startsWith('todo-') ? ' disabled' : ''}`)
       : kind.startsWith('review') ? doneButton(item)
-      : kind.startsWith('progress-held') ? card('Resume', 'resume', 'unhold')
-      : kind.startsWith('progress') ? card('Hold', 'hold')
+      : kind.startsWith('progress-blocked') ? card('Unblock', 'resume', 'unblock')
+      : kind.startsWith('progress') ? card('Block', 'hold')
       : kind.startsWith('done') ? card('Reopen', 'reopen') : '';
     return second ? pair(kind, `${second}${reply}`) : `<span data-sends="${kind}">${reply}</span>`;
   };
@@ -82,7 +82,7 @@ BoardView.part((B) => {
   // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
   // The outbox: the taps of a card's reply box that the board hasn't recorded yet, in send order, kept in this browser
   // under the board's own keys, so a reload keeps them. Each is {sendId, key, kind?, text, files, intent?, fields?, ts,
-  // failed?}: kind is its event (item-message when absent), fields the rest of its event's data (a Hold's hold and for).
+  // failed?}: kind is its event (item-message when absent), fields the rest of its event's data (a Block's hold and for).
   // The board records a sendId once (server.mjs), so a resend never doubles a tap.
   // docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md: the New task box's sends go
   // through it too, kind ask with no key, and queue apart from every card's; the New strip draws them (unsentAsks).
@@ -118,10 +118,10 @@ BoardView.part((B) => {
   }));
   // The line a tap draws until the board's own takes its place, in the board's words (domain.mjs COMMANDS, ACTION_LABELS,
   // INTENT_LABELS): with text or files the owner's message with the tap in its footer, else the tap's status line. waits:
-  // whether a session picks the board's line up, so it reads waiting… once the board has it; the board applies a Hold,
-  // Resume, Done, Reopen and bare Implement itself.
+  // whether a session picks the board's line up, so it reads waiting… once the board has it; the board applies a Block,
+  // Unblock, Done, Reopen and bare Implement itself.
   const REQUESTED = { 'prototype-request': 'Prototype requested', 'grill-more': 'Grill requested', 'visual-request': 'Visual requested' };
-  const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Held' : 'Resumed'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened' };
+  const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Blocked' : 'Unblocked'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened' };
   function tapOf(m) {
     if (m.text || m.files.length) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
     return { words: REQUESTED[m.kind] || CARD_TAPS[m.kind]?.(m) || 'Marked as staged', waits: Boolean(REQUESTED[m.kind]) };
@@ -387,7 +387,7 @@ BoardView.part((B) => {
     const f = ev.target.closest('form[data-reply]');
     if (!f) return;
     ev.preventDefault();
-    // Hold, Resume, Done or Reopen on ⌥↵ (app-asks.js) does what its tap does (app-cards.js confirmTap).
+    // Block, Unblock, Done or Reopen on ⌥↵ (app-asks.js) does what its tap does (app-cards.js confirmTap).
     if (ev.submitter?.dataset.confirm) { B.confirmTap(ev.submitter); return; }
     post(f, slashOf(f.querySelector('textarea').value).flag, ev.submitter);
   });

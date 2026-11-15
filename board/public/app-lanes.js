@@ -88,14 +88,14 @@ BoardView.part((B) => {
 
   // docs/adr/2026-11-12-0600-the-todo-header-has-a-filter.md
   // The Todo header's filter: one box per property a Todo card can have, all checked until the owner unchecks one. An
-  // unchecked box hides every Todo card with its property and nothing else, so a card that is held and blocked hides
-  // when either box is unchecked. The unchecked boxes are kept on this device (store 'todoFilter'); the menu's open state is in memory.
+  // unchecked box hides every Todo card with its property and nothing else, so a card that is ready and blocked hides
+  // when either box is unchecked. Blocked is any block: by tasks, a condition or the owner
+  // (docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md). The unchecked boxes are kept on this device (store 'todoFilter'); the menu's open state is in memory.
   const FILTER_BOXES = [
     ['ready', 'Ready', (i) => ['ready', 'staging'].includes(i.phase)],
     ['discussing', 'Discussing', (i) => ['discussing', 'new'].includes(i.phase)],
     ['planning', 'Planning', (i) => ['grilling', 'prototyping'].includes(i.phase)],
     ['blocked', 'Blocked', (i) => Boolean(i.blocked)],
-    ['held', 'Held', (i) => Boolean(i.held)],
   ];
   const FUNNEL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>';
   let filterOpen = false;

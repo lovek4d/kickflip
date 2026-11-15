@@ -195,14 +195,14 @@ test('an Implement message waiting from before staging becomes staging, keeping 
 });
 
 // docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: item add needs a phase on a board, so a Quick build
-// ask filed held and grilling goes ready and unholds in its --from-ask.
-test('a Quick build ask filed held and grilling goes ready and unholds in one item set --from-ask', async () => {
+// ask filed blocked and grilling goes ready and unblocks in its --from-ask.
+test('a Quick build ask filed blocked and grilling goes ready and unblocks in one item set --from-ask', async () => {
   addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } });
   write(`${home}/draft.md`, '# Quick\n');
-  const added = await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--notes-from', `${home}/draft.md`, '--held');
+  const added = await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--notes-from', `${home}/draft.md`, '--blocked');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([item('Q1').phase, item('Q1').held], ['discussing', true]);
-  const filed = await board('item', 'set', 'w/Q1', '--site', 'orch', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--unheld', '--size', 'small');
+  const filed = await board('item', 'set', 'w/Q1', '--site', 'orch', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--unblocked', '--size', 'small');
   assert.equal(filed.code, 0, filed.err);
   assert.deepEqual([item('Q1').phase, 'held' in item('Q1'), item('Q1').from_ask], ['ready', false, 'eq']);
 });

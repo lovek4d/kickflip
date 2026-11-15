@@ -108,10 +108,11 @@
   // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
   // A thread status line's leading mark, its icon or dot centred in one fixed box so every line's text starts at the
   // same place: a command line's icon by its words (domain.mjs COMMANDS: the request's eye, fire or image, Implement's
-  // code brackets, Hold's pause, Resume's play, Done's circled check), Reply's arrow, answers' check, a Questions added line's plain question mark, a builder's dot.
+  // code brackets, Block's barred circle, Unblock's play, Done's circled check), Reply's arrow, answers' check, a Questions added line's plain question mark, a builder's dot.
   const mini = (body, cls = '') => `<svg class="mark-icon${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
   const LINK = mini('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>');
   const BLOCKED = mini('<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>');
+  const PLAY = mini('<path d="M7 4v16l13-8z"/>');
   const CREATED = mini('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/>');
   const MARK_ICONS = {
     'Prototype requested': mini('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
@@ -127,7 +128,7 @@
     'Implementation requested': mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
     'Marked as ready': mini('<path d="M4 22V4"/><path d="M4 4h13l-2 4 2 4H4"/>'),
     Held: mini('<path d="M9 5v14"/><path d="M15 5v14"/>'),
-    Resumed: mini('<path d="M7 4v16l13-8z"/>'),
+    Resumed: PLAY, Unblocked: PLAY,
     // The board's status lines (board/hub-lines.mjs): a block's circle with a bar, a fault's warning triangle.
     Blocked: BLOCKED, 'Blocked by': BLOCKED, Unblocks: BLOCKED,
     Fault: mini('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),

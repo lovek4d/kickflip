@@ -462,7 +462,7 @@
     const savedCaps = {};
     let buildTarget = null, buildTargets = null;
     // Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): the hub's duration
-    // picker (hub-kit.js) with the Hold sheet's chips, Forever included, posting {pause} to api/pause at once. A Forever
+    // picker (hub-kit.js) with the Block sheet's chips, Forever included, posting {pause} to api/pause at once. A Forever
     // pause lasts until Resume.
     const pauseBox = $('#pauseBoard');
     const pickers = HubKit.durationPickers(B);

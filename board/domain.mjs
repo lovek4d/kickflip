@@ -314,13 +314,14 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const idle = lane === 'progress' && !waitsOn && (redReady || (Boolean(reopenAt) && !builtSinceReopen));
   if (idle) lane = 'review';
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
-  // A Todo card reads held, and so does an In Progress one, whose build the hold pauses until the owner's Resume
-  // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md,
-  // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md); old data can't show one in
+  // docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md: the owner's block, stored as the item's held and pick_up_at
+  // or the newer card-hold tap, {until}, until null for one with no time. A Todo card reads it, and so does an In
+  // Progress one, whose build it pauses until the owner's Unblock
+  // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md); old data can't show one in
   // In Review or Done.
-  const held = (lane === 'todo' || lane === 'progress') && (tapped ? Boolean(holdAsk.data.hold) : Boolean(it.held));
+  const owned = (lane === 'todo' || lane === 'progress') && (tapped ? Boolean(holdAsk.data.hold) : Boolean(it.held));
   // docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
-  const heldUntil = held ? (tapped ? holdAsk.data.until : it.pick_up_at) || null : null;
+  const ownerBlock = owned ? { until: (tapped ? holdAsk.data.until : it.pick_up_at) || null } : null;
   // docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: every open card bumps, and a bump lasts
   // until its unbump or the card's close, merged or Done; one made before the card last closed is over.
@@ -378,7 +379,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
     // docs/adr/2026-11-07-0700-staging-then-ready.md: when the card was staged, and when it was last sent back for a round.
     stagedAt: lane === 'todo' && it.phase === 'staging' ? it.staged_at || null : null,
-    deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, held, heldUntil, risk: it.risk || null, bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
+    deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, ownerBlock, risk: it.risk || null, bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
     merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), filedHeld: Boolean(it.filed_held), next: changing || lane === 'done' || waitsOn === 'checking' ? null : idle && ownerPending ? REPLY_WAITS : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
@@ -517,9 +518,9 @@ function ownerWaitOf(it) {
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
 // auto-merge is off, and always on a verified branch held for it), or, ahead of all of them, stalled (a card the
 // orchestrator stalled, cleared by a message in its thread), then script (an offered script waiting on the owner's Run
-// or Decline in its thread). A held card waits on nobody, and a reopened card
-// waiting only on its Done has no action. Held only stops the automatic pull, so a held card has actions like any other
-// (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
+// or Decline in its thread). A card the owner blocked waits on nobody, and a reopened card
+// waiting only on its Done has no action. The owner's block only stops the automatic pull, so such a card has actions
+// like any other (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 function actionOf(it, questionById, autoMerge) {
   if (closedLane(it)) return null;
   const thread = `#selectedCard=${encodeURIComponent(it.key)}`;
@@ -544,7 +545,7 @@ const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved'
 const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 
 // The card's one workflow button, which board/public/app-cards.js only labels: openQuestions on any card that has had
-// questions, Done ones too, held or not, which resolvedBy colours orange only while they wait on the owner, and none
+// questions, Done ones too, blocked or not, which resolvedBy colours orange only while they wait on the owner, and none
 // otherwise (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md). An ask waiting on
 // the owner's Done has it in its thread box, beside Reply
 // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md). A grill or prototype is asked for from the
@@ -554,7 +555,7 @@ function actionButtonOf(it) {
 }
 
 // docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md
-// The open card's Build: on a work card still unstarted in Todo, held or not, that waits on nothing from the owner and
+// The open card's Build: on a work card still unstarted in Todo, blocked by the owner or not, that waits on nothing from the owner and
 // has a take picked on its prototypes (noTakePicked). On a card an unfinished dep blocks, the tap bumps it
 // (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.action && !it.unpicked;
@@ -624,7 +625,7 @@ function placeOwnerWait(it, questionById, autoMerge) {
   if (it.awaitsDone) Object.assign(it, { lane: 'review', next: it.ownerStep || TAP_DONE, bumpable: false, bumpedAt: null });
   // docs/adr/2026-11-12-2300-a-finished-ask-waits-in-todo-with-an-orange-close.md: an ask stored In Review before that
   // stays there with the close mark, waiting on the owner's Done, with no phase.
-  if (it.action?.kind === ACTION_KIND.close && it.lane === 'todo' && it.storedLane === 'review' && !it.held) {
+  if (it.action?.kind === ACTION_KIND.close && it.lane === 'todo' && it.storedLane === 'review' && !it.ownerBlock) {
     Object.assign(it, { lane: 'review', waitsOn: 'owner', next: it.action.label });
     return;
   }
@@ -793,7 +794,7 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
 // (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).
 export const PAUSE_CLEARS = {
   blocked: ['nothing blocks it', 'nothing blocks it'],
-  held: ['you unhold it', 'unheld'],
+  held: ['you unblock it', 'unblocked'],
   usage: ['the usage pause lifts', 'the usage pause lifted'],
   bumped: ['a slot frees', 'a slot freed'],
 };
@@ -801,9 +802,9 @@ export const PAUSE_CLEARS = {
 export const PAUSE_HARD_STOP = 15 * 60_000;
 // The card's open main build, the one a pause rides on, or null.
 const mainBuild = (it) => (it.agents || []).find((a) => a.name === 'main' && a.started && !a.done && builds(a)) ?? null;
-// Whether anything still pauses the card's build: a block, a hold, or a usage pause on its kind (usageHeld(kind)) or a
-// usage limit that hasn't reset.
-const stillPaused = (it, pause, kind, { now, usageHeld }) => it.blocked || it.held || usageHeld(kind ?? 'claude')
+// Whether anything still pauses the card's build: a block, the owner's included, or a usage pause on its kind
+// (usageHeld(kind)) or a usage limit that hasn't reset.
+const stillPaused = (it, pause, kind, { now, usageHeld }) => it.blocked || usageHeld(kind ?? 'claude')
   || Boolean(pause.until && now < Date.parse(pause.until));
 // One pass of the board's card pauses over built items. → {ask, drop, stop, resume}, each a list of keys: ask the
 // running builds a usage pause on their kind (usageHeld(kind)) now holds, neither pausing already nor landing; drop
@@ -831,7 +832,7 @@ export function pauseWork(items, { now = Date.now(), usageHeld }) {
 }
 
 // docs/adr/2026-11-10-1400-the-auto-pass-re-reads-a-pause-before-dropping-it.md
-// The drops a fresh read of the built items still lists: a Hold writes the item file and then the builder's record, so
+// The drops a fresh read of the built items still lists: a Block writes the item file and then the builder's record, so
 // a snapshot between the two reads the pause without the hold. → the keys of drops that fresh drops as well.
 export function confirmedDrops(drops, fresh, opts) {
   const again = pauseWork(fresh, opts).drop;
@@ -970,13 +971,13 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // icon). The orchestrator reads the key when the card has no clearly defined next step (SKILL.md lists each).
 // A Grill, Prototype or Visual tap with nothing typed, or a resolved question's re-ask, is such an entry from its event;
 // the session builds the planner's prompt from the event (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
-// A bare Implement, a Hold, Resume or Done, and a New task sent with Implement are such lines from the thread file or ask.
+// A bare Implement, a Block, Unblock or Done, and a New task sent with Implement are such lines from the thread file or ask.
 // A request with text, a question's prototype, grill or visual request (its question, pick and note), a New task sent
 // with a request and an answer are the owner's messages, with the tap's words as their footer's status
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 export const COMMANDS = {
   prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
-  reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done', reopened: 'Reopened',
+  reask: 'Re-ask requested', hold: 'Blocked', resume: 'Unblocked', done: 'Marked done', reopened: 'Reopened',
   discussing: 'Marked as discussing', staged: 'Marked as staged', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
   created: 'Created ticket', 'created-from': 'Created from', 'blocked-by': 'Blocked by', unblocks: 'Unblocks',
@@ -1050,7 +1051,7 @@ const naming = (m, words, key, cards) => ({ ...m, card: key, words, text: `${wor
 // Created ticket line (hub-lines.mjs ticket-made) names the card itself, so it reads the ticket the card has now.
 const namedLine = (m, key, cards) => (m.card ? naming(m, COMMANDS[m.command], m.card, cards)
   : m.kind === HUB && m.line === 'ticket-made' ? naming(m, hubLineOf(m).mark, key, cards) : m);
-// A thread line a button wrote: its words can vary (Held until a time), so it names its mark.
+// A thread line a button wrote: its words can vary (Blocked until a time), so it names its mark.
 const commandLine = (command) => ({ kind: 'command', command, request: true, mark: COMMANDS[command], tone: COMMAND_TONES[command] });
 const requestOf = (e, asked) => {
   if (e.kind === 'item-message') return INTENT_LABELS[e.data.intent] ? { status: intentLabel(e) } : {};
@@ -1386,7 +1387,8 @@ export function buildBoard(snapshot) {
   }
   // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md).
   // It also waits on its blocked-until condition until an agent clears it, and a block, by either, carries its reason
-  // (docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md). blocked: either holds it.
+  // (docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md). blocked: either holds it, or the
+  // owner's block (ownerBlock; docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md).
   const byKey = new Map(items.map((i) => [i.key, i]));
   for (const it of items) {
     const open = it.kind === 'work' && it.lane !== 'done';
@@ -1398,9 +1400,9 @@ export function buildBoard(snapshot) {
     it.blockedBy = open ? deps.filter((d) => d.lane !== 'done' && !d.reopened).map(linkOf) : [];
     it.blockedUntil = open ? it.blockedUntil ?? null : null;
     it.blockReason = open ? it.blockReason ?? null : null;
-    it.blocked = it.blockedBy.length > 0 || Boolean(it.blockedUntil);
+    it.blocked = it.blockedBy.length > 0 || Boolean(it.blockedUntil) || Boolean(it.ownerBlock);
     placeOwnerWait(it, questionById, autoMerge);
-    if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it.storedLane, it.agents)) it.lane = 'progress';
+    if (it.lane === 'todo' && it.kind === 'work' && !it.ownerBlock && started(it.storedLane, it.agents)) it.lane = 'progress';
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
     if (it.kind === 'work') it.phase = phaseOf(it);
     // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: the card's version, its
@@ -1412,7 +1414,7 @@ export function buildBoard(snapshot) {
     // added (docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md), is unsorted until its session
     // sets its phase (shown as its ticket, never New), and ready once Ready with nothing blocking it or waiting on the owner.
     const unstarted = it.kind === 'work' && it.lane === 'todo';
-    it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !(it.filedHeld && it.held) && it.phase === 'new';
+    it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !(it.filedHeld && it.ownerBlock) && it.phase === 'new';
     // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: the card an ask became reads
     // New, with its ask's state, edit and delete, until the orchestrator sorts or answers it.
     if (it.kind === 'work') {
@@ -1430,7 +1432,7 @@ export function buildBoard(snapshot) {
     it.staging = unstarted && it.phase === 'staging';
     // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped ready card a busy host holds
     // reads held.
-    if (it.kind === 'work') it.hostHeld = Boolean(snapshot.hostBusy) && it.ready && Boolean(it.bumpedAt) && !it.held;
+    if (it.kind === 'work') it.hostHeld = Boolean(snapshot.hostBusy) && it.ready && Boolean(it.bumpedAt);
   }
   linkCards(items, byKey, storedLinks);
   // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that
@@ -1590,8 +1592,8 @@ function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, files
 // Needs you: one line per topic not tied to an item with open questions, and one per item with open
 // questions or a draft waiting on Ready, oldest first by since: its card's created time, the key Todo sorts by; a topic with no card
 // has none, so it takes when its oldest open question was asked. A line with no stamp comes last,
-// in board order; lines of cards in the In Progress lane come first (docs/adr/2026-11-05-2130-needs-you-feeds-oldest-first.md). Answered questions wait on Claude, so they don't count. A held item has
-// its line like any other: held only stops the automatic pull (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
+// in board order; lines of cards in the In Progress lane come first (docs/adr/2026-11-05-2130-needs-you-feeds-oldest-first.md). Answered questions wait on Claude, so they don't count. An item the owner
+// blocked has its line like any other: their block only stops the automatic pull (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 // {kind, text, url} is the GET /_claude/needs contract (docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md);
 // url is relative to the site root.
 function needsOf(items, topics, questions) {
@@ -1664,11 +1666,11 @@ export function needsAnswer(b) {
   };
 }
 
-// A card ready to build: an unstarted work card that isn't held, with state ready, nothing blocking it and no re-check
+// A card ready to build: an unstarted work card with state ready, nothing blocking it, the owner included, and no re-check
 // owed since its block ended. Ready says the rest: it comes only from staging, and a question, a Grill or Prototype
 // tap, or a Reply takes a card out of it (docs/adr/2026-11-07-0700-staging-then-ready.md,
 // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md).
-const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.held && !i.blocked && !i.recheckAt;
+const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.blocked && !i.recheckAt;
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // A board's Maximum parallel implementers when board.json sets none.
@@ -1893,7 +1895,7 @@ export function movesOf(built) {
   });
 }
 function moveWhy(i, to) {
-  if (to === 'todo') return i.held ? 'it is held' : i.blocked ? 'it is blocked' : 'nothing builds it';
+  if (to === 'todo') return i.blocked ? 'it is blocked' : 'nothing builds it';
   if (i.reopened && i.storedLane === 'done') return 'a message or question reopened it';
   if (i.answered && to === 'review') return 'answered, it waits for your Done';
   if (to === 'progress') return i.waitsOn === 'checking' ? 'its build handed back for a check' : i.builder ? 'a build started' : 'Claude acts next';

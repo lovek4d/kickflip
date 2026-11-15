@@ -1,5 +1,7 @@
 # Threads say Reply, with Hold, Resume and Reopen beside it
 
+Superseded in part by [the owner's hold is a block](2026-11-15-2230-the-owners-hold-is-a-block.md): Hold and Resume read Block and Unblock.
+
 The owner (card #588): "Align the in progress thread with the to-do and in review by adding a second button … And do the same thing for done. We should have a reopen and a reply. So we shouldn't have send buttons anymore, really. They should all say reply and they should all have the same style. Reopen and pause should both be quiet buttons, but resume can be orange." In the grill, Pause turned out to be the card's Hold under another name, and the owner took "bring hold over to in progress".
 
 **Every thread box has Reply, and a second button beside it.** Reply (⌘↵, `intent: 'reply'`) is the box's primary send in every lane, orange while it clears the card's Action needed; no thread box says Send. The second button, on ⌥↵, sits before it as Todo's Implement and In Review's Done already did (app-threads.js `sends`):

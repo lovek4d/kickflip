@@ -21,10 +21,10 @@ test('board.mjs prints its usage for --help and no arguments, and exits 2 naming
 });
 
 test('item: a write exits 0, an unknown card 1, and missing arguments 2', () => {
-  const held = board('item', 'set', 'w/A1', '--site', 'orch', '--held');
+  const held = board('item', 'set', 'w/A1', '--site', 'orch', '--blocked');
   assert.equal(held.code, 0, held.err);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].held, true);
-  assert.deepEqual(board('item', 'set', 'w/Z9', '--site', 'orch', '--held'), { code: 1, out: '', err: 'item file "w" has no item "Z9"\n' });
+  assert.deepEqual(board('item', 'set', 'w/Z9', '--site', 'orch', '--blocked'), { code: 1, out: '', err: 'item file "w" has no item "Z9"\n' });
   const bare = board('item', 'add');
   assert.equal(bare.code, 2);
   assert.match(bare.err, /^item add takes <file\[\/id\]> /);

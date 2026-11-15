@@ -267,7 +267,7 @@
     return `<div class="${classes}">${DOT}${esc(builderLine(it.builder))}</div>`;
   }
   const unreadCount = (othersAt, seenAt) => (seenAt ? (othersAt || []).filter((t) => String(t) > seenAt).length : 0);
-  // When a hold ends, as a card reads it: the time today, the weekday within six days, else the date
+  // When a block or a pause ends, as a card reads it: the time today, the weekday within six days, else the date
   // (docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md).
   function heldUntilWords(iso, now = new Date()) {
     const d = new Date(iso);
@@ -277,18 +277,20 @@
     if (days > 0 && days < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${clock(d)}`;
     return `${d.toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(d)}`;
   }
-  function holdWords(it) {
-    if (!it.held) return '';
-    const d = it.heldUntil && new Date(it.heldUntil);
-    const title = !d ? 'Held until you unhold it.'
-      : `Held until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.'}`;
-    return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
+  // docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md: the owner's block reads blocked, or blocked until its time,
+  // in grey, ahead of what else blocks the card (blockedWords).
+  function ownerBlockWords(it) {
+    if (!it.ownerBlock) return '';
+    const d = it.ownerBlock.until && new Date(it.ownerBlock.until);
+    const title = !d ? 'Blocked until you unblock it.'
+      : `Blocked until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.'}`;
+    return `<span class="card-owner-block" title="${esc(title)}">${esc(d ? `blocked until ${heldUntilWords(it.ownerBlock.until)}` : 'blocked')}</span>`;
   }
   // docs/adr/2026-11-11-1200-every-lane-has-phases.md
   // A Todo, In Review or Done card's phase as a word: blue for a New card, grey while a planner or machine waits
   // (discussing, grilling, prototyping), orange while it waits on the owner, green once it can go and purple once merged.
   // In Progress shows its phase only as its progress bar, and a card In Review for an owner wait other than the merge has none. The word shows
-  // whether the card is held or blocked; those words follow it.
+  // whether the card is blocked or not; those words follow it.
   const PHASE_LOOK = {
     new: ['new', 'info'], discussing: ['discussing', 'quiet'], grilling: ['grilling', 'quiet'], prototyping: ['prototyping', 'quiet'], staging: ['staged', 'notice'], ready: ['ready', 'success'],
     draft: ['draft', 'quiet'], reviewers: ['pending review', 'notice'], merge: ['pending merge', 'notice'], stale: ['stale', 'quiet'],
@@ -300,12 +302,12 @@
     return `<span class="card-phase ph-${tone}">${word}</span>`;
   }
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
-  // A paused build's word and cause, which stand in for the hold or block that caused it: "pausing · blocked by #61" in
+  // A paused build's word and cause, which stand in for the block that caused it: "pausing · blocked by #61" in
   // orange while its builder runs on to its stopping point, then "paused · blocked by #61" in grey.
   const pauseOf = (it) => (it.lane === 'progress' ? it.builder?.pause ?? null : null);
   const pauseWords = (pause) => pause && `<span class="card-${pause.paused ? 'paused' : 'pausing'}">${pause.paused ? 'paused' : 'pausing'} · ${esc(pause.words)}</span>`;
   // A card's last two rows. The footer: the time its lane sorts by (domain.mjs sortAt), then its phase word (phaseWord),
-  // then its hold and what blocks it, then a build's stale in grey, held while host recovers on a bumped
+  // then the owner's block and what else blocks it, then a build's stale in grey, held while host recovers on a bumped
   // ready card a busy host holds, in grey (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md),
   // a paused build's words (pauseWords), then an In Progress card's phase bars
   // (docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md). The row under it, drawn only when it has
@@ -319,8 +321,8 @@
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
     const pause = pauseOf(it);
-    const holdBlock = [pause?.cause !== 'held' && holdWords(it), pause?.cause !== 'blocked' && blockedWords(it)].filter(Boolean);
-    const footer = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, phaseWord(it), ...holdBlock,
+    const blocks = [pause?.cause !== 'held' && ownerBlockWords(it), pause?.cause !== 'blocked' && blockedWords(it)].filter(Boolean);
+    const footer = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, phaseWord(it), ...blocks,
       it.hostHeld && '<span class="card-host-held">held while host recovers</span>',
       !it.stalled && it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', pauseWords(pause), bars].filter(Boolean);
     const news = newWords(unread, 'message');
@@ -328,16 +330,16 @@
     return [footer.length && `<div class="line6 sub card-time">${footer.join(SEP)}</div>`,
       alert.length && `<div class="line6 sub card-alert">${alert.join(SEP)}</div>`].filter(Boolean).join('');
   }
-  // The Hold sheet's picker (app-cards.js): /api/board's holdChoices, the chips hub/duration.mjs shares with Snooze and
+  // The Block sheet's picker (app-cards.js): /api/board's holdChoices, the chips hub/duration.mjs shares with Snooze and
   // Pause hub, then Custom. Its .hub-view root takes hub.css's duration picker rules, which view-hub-settings.js
   // durationPicker's markup also uses. Each chip's length (ms, null for Forever) is worded as when it would end if picked
   // at `now`, here rather than on the server, so the board's version doesn't change with the clock
   // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
-  const holdUntil = (c, now) => (c.ms === null ? 'until you unhold it' : `until ${heldUntilWords(new Date(now.getTime() + c.ms), now)}`);
+  const holdUntil = (c, now) => (c.ms === null ? 'until you unblock it' :`until ${heldUntilWords(new Date(now.getTime() + c.ms), now)}`);
   function holdPicker(key, choices, now = new Date()) {
     const chips = choices.map((c) => `<button type="button" class="btn quiet" data-hold-for="${esc(key)}" value="${esc(c.value)}" aria-label="${esc(`${c.label}, ${holdUntil(c, now)}`)}">${esc(c.label)}</button>`).join('');
     return `<div class="hub-view"><div class="dur-chips" role="group" aria-labelledby="holdTitle"><div class="dur-choices">${chips}</div>`
-      + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom hold until a date and time"></div></div></div>`;
+      + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom block until a date and time"></div></div></div>`;
   }
   // A card waiting on its owner step has the owner's Done where the bump sits: a check icon that confirms, then sends
   // card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
@@ -447,7 +449,7 @@
       : it.refusal ? `<div class="line3 sub refused">${escText(it.refusal)}</div>`
       : it.landStopped ? `<div class="line3 sub">${escText(withCount(it.landStopped.words, it.landStopped.at))}</div>`
       : it.working ? `<div class="line3 sub agent">${thinkingLine(it.workingSince)}</div>`
-      : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${escText(it.next)}</div>` : '';
+      : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.ownerBlock ? ' idle' : ''}">Next: ${escText(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${escText(etaLine(it.eta))}</div>` : '';
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
     const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${escText(`Check can't run: ${it.ownerCheck.broken}`)}</div>`

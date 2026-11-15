@@ -1,5 +1,7 @@
 # Held only stops the automatic pull
 
+Superseded in part by [the owner's hold is a block](2026-11-15-2230-the-owners-hold-is-a-block.md): held is the owner's block, so the card reads blocked and not ready.
+
 Supersedes in part 2026-10-29-1639-a-card-can-be-held-and-every-card-button-confirms.md, where a held card waited on
 nobody.
 

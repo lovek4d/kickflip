@@ -1,0 +1,15 @@
+# The owner's hold is a block
+
+A card could stop for the owner (held), for other tasks (blocked by its deps) or for a condition (blocked until). The owner saw two words, two filter boxes and two button pairs (Hold/Unhold, Hold/Resume) for one meaning: this card doesn't start. Paused, the usage pause, was a third word close to held. Held is now one more kind of block: the owner's.
+
+**One state, three causes.** A card is blocked by tasks, by a condition or by the owner, and each reads blocked (domain.mjs `workItem`: `blocked` counts `ownerBlock`). The built card carries `ownerBlock: null | {until}` in place of `held` and `heldUntil`. An owner-blocked card is therefore not ready and not pullable, which `held` already kept it from by a separate check; the separate checks go (`pullableCard`, `moveWhy`, `stillPaused`).
+
+**Its words.** The buttons read Block and Unblock: Block opens the sheet with its until-time choices, Unblock confirms. That covers the action row's Hold/Unhold and the thread's Hold/Resume, the In Progress card's included. The thread lines read "Blocked", "Blocked until <time>" and "Unblocked"; the footer reads "blocked" or "blocked until 3:00 pm", the owner's words, before any "blocked by #53" (a card blocked both ways reads "blocked · blocked by #53"). A running build the owner blocks takes the task pause "blocked", cleared "once you unblock it". The Todo filter's Held box goes: Blocked covers the owner's block. The CLI takes `--blocked` and `--unblocked` (`--block` is already `question move`'s); `--pick-up-at` is unchanged.
+
+**Its colour stays grey.** The owner's block is the owner's own choice, nothing to act on, so it keeps held's grey (AGENTS.md: grey is idle, blocked by the owner, and paused), while a block by tasks or a condition stays orange.
+
+**Storage is unchanged.** The item file keeps `held`, `pick_up_at`, `held_at` and `filed_held`, the event stays `card-hold {key, hold, until?}`, and the pause cause key stays `held`. Every held card on every board reads owner-blocked with the same until, with no migration to run and no old event to rewrite; only what the board shows and the CLI takes changed.
+
+**Paused stays separate.** The usage pause, Pause board and Pause hub stop work for the whole board or hub until a time, not one card for the owner's reasons, and still read paused.
+
+This replaces the held words in [a card can be held](2026-10-29-1639-a-card-can-be-held-and-every-card-button-confirms.md), [a card can be held until a time](2026-11-02-1727-a-card-can-be-held-until-a-time.md), [a held Todo card shows Build in place of Unhold](2026-11-03-0234-a-held-todo-card-shows-build-in-place-of-unhold.md), [held only stops the automatic pull](2026-11-05-0500-held-only-stops-the-automatic-pull.md), [held reads gray, not orange](2026-11-07-1300-held-reads-gray-not-orange.md), [threads say Reply, with Hold, Resume and Reopen beside it](2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md) and [the Todo header has a filter](2026-11-12-0600-the-todo-header-has-a-filter.md); their mechanisms stand.

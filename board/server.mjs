@@ -34,7 +34,7 @@
 //                                current version caches for a year, anything else revalidates by ETag. Every
 //                                text response, the API's included, is gzipped when the request accepts it;
 //                                API JSON stays no-store
-//   GET  /api/board              the board's title (board.json's, as the page shows it), its reviewers' names, the Hold sheet's
+//   GET  /api/board              the board's title (board.json's, as the page shows it), its reviewers' names, the Block sheet's
 //                                holdChoices [{value, label, ms}] (../hub/duration.mjs CHOICES, ms each one's length, null for Forever;
 //                                the page words when it ends), and lanes of those items, with
 //                                data/pr-slack.json's PR links, with per-item review_link_ts and legacy
@@ -143,7 +143,7 @@
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
 //                                item set appends card-unblocked {key} when a blocked card's last dep finishes,
-//                                including held cards, a record that wakes no session: the pull takes the card.
+//                                including owner-blocked cards, a record that wakes no session: the pull takes the card.
 //                                reviewers {add?: [{name, slack_user, github}], remove?: [name]} is Board settings' reviewers
 //                                Save: the server removes the names and adds the people itself (store.mjs removeReviewers,
 //                                addReviewers, with each DM opened through the hub's Slack token and each login checked on
@@ -155,7 +155,7 @@
 //                                card-bump {key} and card-unbump {key} are a work card's bump icon, sent with no confirm;
 //                                a bump moves the card's queued lands first, an unbump back in ask order (worktree.mjs
 //                                moveQueuedLand).
-//                                card-hold {key, hold: true, for} is a Hold sheet chip or its Custom time
+//                                card-hold {key, hold: true, for} is a Block sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
 //                                card-merge {key} on a card whose verified branch waits for the owner's Merge (no PR)
@@ -184,8 +184,8 @@
 //                                in data/rebases.json (domain.mjs rebasesDue, store.mjs startRebase;
 //                                docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
 //                                card-hold and card-done are written to the item file first, with the owner's thread
-//                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); a Resume relaunches
-//                                the run its Hold stopped (resumeRun). card-reopen {key} is a Done card's Reopen: it
+//                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); an Unblock relaunches
+//                                the run its Block stopped (resumeRun). card-reopen {key} is a Done card's Reopen: it
 //                                moves the card back to Todo, discussing, before its event (store.mjs recordOwnerTap),
 //                                and one on a card not in Done → 400 {error}. None of them wakes a session, nor do card-unbump,
 //                                grill-more, prototype-request or visual-request
@@ -205,7 +205,7 @@
 //                                tagged board-<route> (domain.mjs ownerRow), tracked in data/action-pushes.json: its
 //                                first push alerts, each change re-pushes it silently, and once nothing waits it drops
 //                                its queued push, or closes the one already on the owner's devices (hub/push.mjs withdraw).
-//                                Within a minute of a held card's until or pick_up_at the server resumes it
+//                                Within a minute of an owner block's until or pick_up_at the server unblocks it
 //                                (store.mjs pickUp), at most once per time even across a restart.
 //                                The Auto jobs below run on every board change and once at start, and on the minute
 //                                check only once a usage pause lifts or while an overnight triage is due. The server always starts and launches the build of the top pullable Todo cards, one per
@@ -832,7 +832,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return steps;
   }
 
-  // The Hold sheet's chips by length, so the board's version doesn't change with the clock; the page words when each ends
+  // The Block sheet's chips by length, so the board's version doesn't change with the clock; the page words when each ends
   // (ui-cards.js holdPicker).
   const HOLD_CHOICES = CHOICES.map(([value, label]) => ({ value, label, ms: value === FOREVER ? null : durationEnd(new Date(0), value) - new Date(0) }));
 
@@ -1202,7 +1202,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         }
         if (kind === 'card-hold' && body.hold && body.for !== undefined) {
           const end = durationEnd(now(), body.for);
-          if (!end) return json(res, 400, { error: 'That hold ends in the past or more than 30 days on. Pick another time.' });
+          if (!end) return json(res, 400, { error: 'That block ends in the past or more than 30 days on. Pick another time.' });
           delete body.for;
           if (end !== FOREVER) body.until = end.toISOString();
         }
@@ -1288,13 +1288,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
           return json(res, 200, { id: null, board: await answerBoard(req, since) });
         }
-        // A Hold or Done is written to the card's item file before its event, and one that couldn't be is refused with
+        // A Block, Unblock or Done is written to the card's item file before its event, and one that couldn't be is refused with
         // why, recording nothing (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
         if (kind === 'card-hold' || kind === 'card-done') {
           const key = String(body.key || '');
           let written, agents;
           try {
-            // Read before the tap, which closes the records. A Hold stops the card's planners at once; a Done lets a landing finish.
+            // Read before the tap, which closes the records. A Block stops the card's planners at once; a Done lets a landing finish.
             agents = kind === 'card-hold' && !body.hold ? [] : await openAgents(here, key);
             if (kind === 'card-done' && await isLanding(here, key)) agents = [];
             written = await recordOwnerTap(here, kind, body);
@@ -1539,13 +1539,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     try {
       const at = now().getTime();
       const due = (await sharedBoard()).items
-        .filter((it) => it.heldUntil && it.lane !== 'done' && Date.parse(it.heldUntil) <= at);
+        .filter((it) => it.ownerBlock?.until && it.lane !== 'done' && Date.parse(it.ownerBlock.until) <= at);
       // The resumed item file stops a second pick-up; the event log covers a restart between the event and that write.
       const sent = due.length ? await readLines(events) : [];
-      for (const { key, heldUntil: until } of due) {
+      for (const { key, ownerBlock: { until } } of due) {
         await pickUp(here, key, until, { announce: !sent.some((e) => e.kind === 'card-unblocked' && e.data?.key === key && e.data?.until === until) });
         await resumeRun(key);
-        logCall({ call: 'pick-up', key, result: 'resumed', reason: 'Its hold ended.', inputs: { heldUntil: until } });
+        logCall({ call: 'pick-up', key, result: 'resumed', reason: 'Its block ended.', inputs: { until } });
       }
     } catch (err) {
       console.error('Pick-up check failed:', err.message);
@@ -1756,7 +1756,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
 
   // A planner, kind grill or prototype, opens on the card from its written brief, or from kept, the briefs entry of the
-  // run a Hold stopped, and launches headless in the board's repo (store.mjs startPlanner), unless an agent already works
+  // run a Block stopped, and launches headless in the board's repo (store.mjs startPlanner), unless an agent already works
   // on it. One that can't start or launch leaves a thread line and its record closed. One due while the board's launches
   // are held (launchHeld) waits in data/queued-planners.json {<key>: {kind, kept}}, with a thread line saying so, and
   // launches when the hold lifts (launchQueuedPlanners); another replaces it.
@@ -1789,8 +1789,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
 
   // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
-  // A resumed card (the owner's Resume, or its pick-up time) gets back the run its hold stopped, with no session: a grill
-  // or prototype launches again, and a build starts afresh as the pull starts one. A card whose hold stopped nothing is
+  // An unblocked card (the owner's Unblock, or its pick-up time) gets back the run its block stopped, with no session: a grill
+  // or prototype launches again, and a build starts afresh as the pull starts one. A card whose block stopped nothing is
   // the pull's. A lander or rebase run is left to the board's own lander and rebase jobs. A start the board refuses is its
   // thread line, and a card left with nothing running is the orchestrator's wait (domain.mjs orchestratorWaitOf).
   async function resumeRun(key) {

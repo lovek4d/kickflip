@@ -55,7 +55,7 @@ export const HUB_LINES = {
   // Resumes and unblocks.
   resumed: { tone: 'orange', mark: RESUMED, text: ({ clear }) => `Resumed: ${clear}.`, longest: { clear: 'the usage pause lifted' } },
   'ready-expired': { tone: 'grey', mark: MOVE, text: () => 'Ready expired after a day unpulled: re-checking against what landed since' },
-  'hold-ended': { tone: 'orange', mark: RESUMED, text: ({ at }) => `Resumed: its hold until ${at} ended.`, longest: { at: AT } },
+  'hold-ended': { tone: 'orange', mark: RESUMED, text: ({ at }) => `Unblocked: its block until ${at} ended.`, longest: { at: AT } },
   unblocked: { tone: 'orange', mark: RESUMED, text: ({ lifted }) => fit('Unblocked: ', lifted, '.') },
   'unblocked-done': { tone: 'orange', mark: RESUMED, text: ({ card }) => fit('Unblocked: ', card, ' is done.') },
   // Blocks.

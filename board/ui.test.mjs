@@ -1066,7 +1066,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(NOW - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
   assert.deepEqual(rows(pushed), [['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
   assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
-  // Notes is a button at the end of the workflow row, after Hold, and has no ↗.
+  // Notes is a button at the end of the workflow row, after Block, and has no ↗.
   assert.match(B.detail(open), /<div class="action-row workflow">.*<a class="button" href="notes\.html\?item=w%2FA1">Notes<\/a><\/div>/s);
   assert.match(B.detail({ ...open, pr: openPR, prs: [openPR] }), /target="_blank"[^>]*>Review on GitHub <svg[^>]*link-arrow/);
   const copied = [];
@@ -1312,7 +1312,7 @@ test("the Merge button keeps its colour from idle through the tap and the merge"
 });
 
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("an open card's action row has no Implement, which lives in a Todo card's thread box, nor Grill or Prototype; a held card shows Unhold", () => {
+test("an open card's action row has no Implement, which lives in a Todo card's thread box, nor Grill or Prototype; a card the owner blocked shows Unblock", () => {
   assert.equal(ui.buildButton, undefined);
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
@@ -1322,14 +1322,15 @@ test("an open card's action row has no Implement, which lives in a Todo card's t
   const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: null, deps: [], manualSteps: [], holdable: true, hasNotes: true,
     try: { kind: 'web', script: true, changes: false }, buildable: true };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
-  assert.deepEqual(row(todo), ['Hold']);
+  assert.deepEqual(row(todo), ['Block']);
   const changed = { ...todo, try: { ...todo.try, changes: true } };
-  assert.deepEqual(row(changed), ['Hold', 'Serve']);
-  assert.deepEqual(row({ ...changed, ready: true }), ['Hold', 'Serve']);
-  assert.deepEqual(row({ ...changed, lane: 'progress' }), ['Hold', 'Serve']);
-  assert.deepEqual(row({ ...todo, held: true }), ['Unhold']);
-  assert.deepEqual(row({ ...todo, held: true, buildable: false }), ['Unhold']);
-  assert.doesNotMatch(B.detail({ ...todo, held: true, ready: true }), /data-confirm="card-build"/);
+  assert.deepEqual(row(changed), ['Block', 'Serve']);
+  assert.deepEqual(row({ ...changed, ready: true }), ['Block', 'Serve']);
+  assert.deepEqual(row({ ...changed, lane: 'progress' }), ['Block', 'Serve']);
+  const blocked = { ...todo, ownerBlock: { until: null }, blocked: true };
+  assert.deepEqual(row(blocked), ['Unblock']);
+  assert.deepEqual(row({ ...blocked, buildable: false }), ['Unblock']);
+  assert.doesNotMatch(B.detail({ ...blocked, ready: true }), /data-confirm="card-build"/);
 });
 
 test('the working line reads thinking, in one shared class on the card and in the thread', () => {
@@ -1437,8 +1438,8 @@ test("a bare tap's line reads its words and time, then sending…, waiting… or
   assert.equal(words(ui.threadMessages([board()])), `Prototype requested · ${at} · waiting…`);
   assert.ok(ui.threadMessages([board({ state: 'working' })]).includes(`· ${ui.esc(at)} · ${ui.workingLine}`));
   assert.equal(words(ui.threadMessages([board({ state: 'answered' })])), `Prototype requested · ${at}`);
-  // A Hold, Resume, Done, Reopen or bare Implement's line is the board's own, which no session picks up.
-  assert.equal(words(ui.threadMessages([{ ts: sent, who: 'love', kind: 'command', command: 'hold', request: true, mark: 'Held', text: 'Held until 3:00 PM' }])), `Held until 3:00 PM · ${at}`);
+  // A Block, Unblock, Done, Reopen or bare Implement's line is the board's own, which no session picks up.
+  assert.equal(words(ui.threadMessages([{ ts: sent, who: 'love', kind: 'command', command: 'hold', request: true, mark: 'Blocked', text: 'Blocked until 3:00 PM' }])), `Blocked until 3:00 PM · ${at}`);
   const failed = ui.threadMessages([queued({ state: 'failed' })]);
   assert.equal(words(failed), `Prototype requested · ${at} · not sent`);
   assert.match(failed, /<span class="not-sent">not sent<\/span><span class="send-again">/);
@@ -1484,9 +1485,9 @@ test("a run the orchestrator stopped reads the stop's words as its status, plain
 });
 
 test("a refused Implement's reason takes the card's status line, in place of its next step", () => {
-  const reason = "Couldn't start implementing: it's held. Unhold it, then tap Implement.";
+  const reason = "Couldn't start implementing: it's blocked. Unblock it, then tap Implement.";
   const html = ui.workLines({ ...workCard, lane: 'todo', builder: null, next: 'Grill the notes', refusal: reason });
-  assert.match(html, /<div class="line3 sub refused">Couldn&#39;t start implementing: it&#39;s held\. Unhold it, then tap Implement\.<\/div>/);
+  assert.match(html, /<div class="line3 sub refused">Couldn&#39;t start implementing: it&#39;s blocked\. Unblock it, then tap Implement\.<\/div>/);
   assert.doesNotMatch(html, /Next: /);
 });
 
@@ -1719,7 +1720,7 @@ test("the hub's Routed section is the New strip under its own head: each row lin
 });
 
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
-const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, held: false, threadCount: 4,
+const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, ownerBlock: null, threadCount: 4,
   linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, prs: [{ ...openPR, isDraft: true, status: 'draft' }], reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
@@ -1749,8 +1750,8 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, prs: [], reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new message']);
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread|new/);
-  const busy = { ...workCard, held: true, builder: { progress: 'Running tests', at: null } };
-  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● Jamie ●', 'held']);
+  const busy = { ...workCard, ownerBlock: { until: null }, builder: { progress: 'Running tests', at: null } };
+  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● Jamie ●', 'blocked']);
   // The builder's risk is a Risk row on the open card, not a chip on the face.
   for (const risk of ['low', 'medium', 'high']) {
     assert.deepEqual(lines(ui.workLines({ ...workCard, risk })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●']);
@@ -1774,15 +1775,15 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.deepEqual(lines(ui.workLines({ ...until, blockReason: null })), ['INT-3 Five', 'blocked until the CI run on main is green']);
   assert.match(ui.workLines({ ...blocked, blockReason: 'shares the send bar' }), />blocked by INT-2<\/a><span class="card-blocked">, shares the send bar<\/span><\/div>/);
   assert.match(ui.workLines({ ...until, blockedBy: blocked.blockedBy }), />blocked by INT-2<\/a><span class="card-blocked"> and until the CI run on main is green, the suite is red &lt;now&gt;<\/span><\/div>/);
-  // docs/adr/2026-11-05-0802-todo-has-no-queue.md: a bumped blocked card waits for the pull; held, it is blocked as before (below).
+  // docs/adr/2026-11-05-0802-todo-has-no-queue.md: a bumped blocked card waits for the pull; blocked by the owner too, it reads both (below).
   assert.match(ui.workLines({ ...blocked, bumpedAt: '2026-11-05T10:00:00.000Z' }), /<a class="card-blocked" href="#selectedCard=site%2FS2">blocked by INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Open items']);
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: no bumped badge; the bump icon fills orange and unbumps.
   const sortAt = ago(2);
-  const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), held: true, sortAt,
+  const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), ownerBlock: { until: null }, sortAt,
     action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } };
-  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', `${ui.cardTime(sortAt)} · held · blocked by INT-2`, 'Open items · 1 new message']);
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', `${ui.cardTime(sortAt)} · blocked · blocked by INT-2`, 'Open items · 1 new message']);
   assert.match(ui.workLines(waiting), /<button class="ghost icon bumped" data-card-bump="w\/B5" data-bumped aria-pressed="true" aria-label="Unbump"/);
   assert.doesNotMatch(ui.workLines(waiting), /disabled|data-confirm="bump"/);
   assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
@@ -1803,7 +1804,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.doesNotMatch(ui.workLines(followup), /follow-up/);
 });
 
-test("a card's last line is the time its lane sorts by, then its hold with no held chip, then its unread messages, with no age badge", () => {
+test("a card's last line is the time its lane sorts by, then the owner's block with no chip, then its unread messages, with no age badge", () => {
   const created = ago(24 * 5);
   const updatedAt = ago(30);
   const sortAt = ago(24 * 2);
@@ -1815,27 +1816,27 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
   assert.match(ui.workLines(card, { unread: 3 }), /<div class="line6 sub card-alert"><span class="card-unread">3 new messages<\/span><\/div>$/);
   assert.doesNotMatch(text(ui.workLines(card)), /days? ago/);
 
-  const held = { ...card, held: true };
-  assert.deepEqual(lines(ui.workLines(held)), ['ENG-1 Five', `${ui.cardTime(sortAt)} · held`]);
-  assert.match(ui.workLines(held), /<span class="card-hold"[^>]*>held<\/span>/);
-  assert.deepEqual(lines(ui.workLines({ ...held, sortAt: null }, { unread: 1 })), ['ENG-1 Five', 'held', '1 new message']);
+  const held = { ...card, ownerBlock: { until: null }, blocked: true };
+  assert.deepEqual(lines(ui.workLines(held)), ['ENG-1 Five', `${ui.cardTime(sortAt)} · blocked`]);
+  assert.match(ui.workLines(held), /<span class="card-owner-block" title="Blocked until you unblock it\.">blocked<\/span>/);
+  assert.deepEqual(lines(ui.workLines({ ...held, sortAt: null }, { unread: 1 })), ['ENG-1 Five', 'blocked', '1 new message']);
   const now = new Date(NOW);
   const at = (days, h, m) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, h, m);
   const clock = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP]M)$/i, (_, x) => ` ${x.toLowerCase()}`);
-  const heldTill = (d) => ({ ...held, heldUntil: d.toISOString() });
-  assert.deepEqual(lines(ui.workLines(heldTill(at(2, 9, 0)), { unread: 2 })).slice(-2), [`${ui.cardTime(sortAt)} · held until ${at(2, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(2, 9, 0))}`, '2 new messages']);
-  assert.equal(last(ui.workLines(heldTill(at(0, 23, 59)))), `${ui.cardTime(sortAt)} · held until ${clock(at(0, 23, 59))}`);
-  assert.equal(last(ui.workLines(heldTill(at(6, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(6, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(6, 9, 0))}`);
-  assert.equal(last(ui.workLines(heldTill(at(7, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(7, 9, 0).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(at(7, 9, 0))}`);
-  assert.doesNotMatch(ui.workLines(heldTill(at(2, 9, 0))), /class="chip[^"]*">held/);
+  const heldTill = (d) => ({ ...held, ownerBlock: { until: d.toISOString() } });
+  assert.deepEqual(lines(ui.workLines(heldTill(at(2, 9, 0)), { unread: 2 })).slice(-2), [`${ui.cardTime(sortAt)} · blocked until ${at(2, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(2, 9, 0))}`, '2 new messages']);
+  assert.equal(last(ui.workLines(heldTill(at(0, 23, 59)))), `${ui.cardTime(sortAt)} · blocked until ${clock(at(0, 23, 59))}`);
+  assert.equal(last(ui.workLines(heldTill(at(6, 9, 0)))), `${ui.cardTime(sortAt)} · blocked until ${at(6, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(6, 9, 0))}`);
+  assert.equal(last(ui.workLines(heldTill(at(7, 9, 0)))), `${ui.cardTime(sortAt)} · blocked until ${at(7, 9, 0).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(at(7, 9, 0))}`);
+  assert.doesNotMatch(ui.workLines(heldTill(at(2, 9, 0))), /class="chip[^"]*">blocked/);
 });
 
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-test("a ready card's time line reads ready in green after its hold and before its unread messages, and an unsorted work card shows its ticket", () => {
+test("a ready card's time line reads ready in green ahead of its block and before its unread messages, and an unsorted work card shows its ticket", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt };
-  const html = ui.workLines({ ...card, held: true, ready: true, phase: 'ready' }, { unread: 2 });
-  assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · ready · held`, '2 new messages']);
+  const html = ui.workLines({ ...card, ownerBlock: { until: null }, phase: 'ready' }, { unread: 2 });
+  assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · ready · blocked`, '2 new messages']);
   const open = ui.workLines({ ...card, ready: true, phase: 'ready' }, { unread: 2 });
   assert.deepEqual(lines(open).slice(-2), [`${ui.cardTime(sortAt)} · ready`, '2 new messages']);
   assert.match(open, /<span class="card-phase ph-success">ready<\/span><\/div><div class="line6 sub card-alert"><span class="card-unread">/);
@@ -1870,8 +1871,8 @@ test('a paused build reads "pausing · <cause>" in orange, then "paused · <caus
   assert.match(ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: false } } }), /<span class="phase-bars"/, 'a pausing build runs on, its bars lit');
   const pausedAwake = ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
   assert.match(pausedAwake, /<span class="phase-bars dim"[^>]*aria-label="Building, step 2 of 4"/, 'a paused build dims its bars at the phase it stopped at');
-  const held = ui.workLines({ ...card, blockedBy: [], blocked: false, held: true, builder: { ...builder, pause: { cause: 'held', words: 'held', paused: true } } });
-  assert.match(lines(held).at(-1), new RegExp(`^${ui.cardTime(sortAt)} · paused · held ·`), 'the hold reads once');
+  const held = ui.workLines({ ...card, blockedBy: [], ownerBlock: { until: null }, builder: { ...builder, pause: { cause: 'held', words: 'blocked', paused: true } } });
+  assert.match(lines(held).at(-1), new RegExp(`^${ui.cardTime(sortAt)} · paused · blocked ·`), "the owner's block reads once");
 });
 
 // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md
@@ -1891,7 +1892,7 @@ test("a staged card's time line reads staged in orange where ready reads", () =>
   const html = ui.workLines(card, { unread: 1 });
   assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · staged`, '1 new message']);
   assert.match(html, /<span class="card-phase ph-notice">staged<\/span><\/div>/);
-  assert.match(lines(ui.workLines({ ...card, held: true })).slice(-1)[0], /^.* · staged · held/);
+  assert.match(lines(ui.workLines({ ...card, ownerBlock: { until: null } })).slice(-1)[0], /^.* · staged · blocked/);
   assert.doesNotMatch(html, /ph-success/);
 });
 

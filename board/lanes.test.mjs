@@ -102,7 +102,7 @@ test('the settle pass moves a card to where the board places it, never to Done, 
     { id: 'S1', title: 'Settled', lane: 'todo' },
   ], { P1: { main: open } }, { 'o/r#7': { state: 'OPEN', isDraft: false, checks: { state: 'pass' }, reviews: {} }, 'o/r#8': { state: 'MERGED' } });
   assert.deepEqual(movesOf(board).map((m) => [m.key, m.to, m.why]).sort(), [
-    ['w/H1', 'todo', 'it is held'],
+    ['w/H1', 'todo', 'it is blocked'],
     ['w/P1', 'progress', 'a build started'],
     ['w/R1', 'review', 'Ready, Merge shows once CI and the merge state allow'],
   ]);

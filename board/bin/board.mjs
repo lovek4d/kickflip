@@ -231,16 +231,16 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          A ready task whose block ended waits on your re-check:
                                                          ready again with --text "<what you re-checked>", which
                                                          goes into its notes, releases it to the pull
-         [--held | --unheld | --pick-up-at <time>]       holds or resumes the task on the owner's words; the board
-                                                         server records the owner's own Hold and Resume taps. A later
-                                                         --held/--unheld overrides a tap.
-                                                         --pick-up-at holds it until an ISO time such as
+         [--blocked | --unblocked | --pick-up-at <time>] blocks or unblocks the task on the owner's words; the board
+                                                         server records the owner's own Block and Unblock taps. A
+                                                         later --blocked/--unblocked overrides a tap.
+                                                         --pick-up-at blocks it until an ISO time such as
                                                          2026-11-04T09:00 (the host's local time without an
                                                          offset; a past time is refused), stored as UTC
                                                          pick_up_at. Within a minute of it the board server
-                                                         resumes the task, adds a thread line, and appends
+                                                         unblocks the task, adds a thread line, and appends
                                                          card-unblocked {key, until} unless a dep is unfinished.
-                                                         --held holds it with no time; --pick-up-at "" resumes it
+                                                         --blocked blocks it with no time; --pick-up-at "" unblocks it
          [--ticket <id> | --new-ticket]                links a ticket in the board’s source, or makes one there
                                                          from the title and notes; the key stays
          [--title <t>]                                   renames the task
@@ -283,7 +283,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          waiting task is one of them, or the task is already Done
          builder start for a build moves the task to In Progress with "Moved to In Progress: a build
          started", resolving its answered questions, noting "Acted on: build started". It refuses while
-         the item is held or a dep isn't done, and while the newest owner answer to its questions that
+         the owner has blocked the item or a dep isn't done, and while the newest owner answer to its questions that
          link a prototype-*.html page picks no take, which leaves the task prototyping with Next
          "Prototype again" until the next round's pick; a pick's note is the build's guidance.
          --pr closes ordinary builders and moves the task to In Review; install builders keep running.
@@ -294,7 +294,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          item:<file>/<id>) that has an answer, noting "Closed with the task", and prints "resolved: <id>"
          for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too.
          It prints "unblocked: <file>/<id>" and appends card-unblocked {key} once per unblocking,
-         including held tasks: start each unheld task next. It refuses a task the owner reopened: it
+         including tasks the owner blocked: start each task nothing blocks next. It refuses a task the owner reopened: it
          closes again only on the owner's Done
   item add <file>[/<id>] --title <t>                    a new task, unstarted; never
          [--ticket <id> | --new-ticket]                  hand-edit the item file to add one. Refuses an id the file has.
@@ -304,7 +304,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          its item file, read-only: the draft verbatim, or "# <title>"
                                                          then the --notes text. Refuses a draft that is any task's
                                                          notes file, live, done or archived, naming that task
-         [--pick-up-at <time> | --held]                  holds it until then, or until resumed, as item set's
+         [--pick-up-at <time> | --blocked]               blocks it until then, or until unblocked, as item set's
          [--size small|large] [--model opus|sonnet]      as item set's
          [--parent <file>/<id>]                          the task it was spun out of, such as one filed from
                                                          another task's thread, grill or answer: it reads as a
@@ -794,7 +794,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close']);
+const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'blocked', 'unblocked', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -952,18 +952,18 @@ const COMMANDS = {
   'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['file/id'], ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check'], async (site, [key], f, options) => {
+  'item set': [['file/id'], ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check'], async (site, [key], f, options) => {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     if (f.done && site) await store.checkNotReopened(site, key);
     if (site && [f.phase, f.title, f.ticket, f['new-ticket']].some((v) => v !== undefined)) await store.refuseUnreadEdit(site, key);
-    return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
+    return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check }, options);
   }],
-  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'before', 'after', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'held', 'parent', 'from', 'split-of', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'before', 'after', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'from', 'split-of', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new task\'s notes with item add --notes-from <draft.md>');
     if (f.phase === 'discussing' && f.text === undefined && f['from-ask'] === undefined) throw new UsageError('item add --phase discussing needs --text "<first message>": the task opens with it, after Created from, and reads the owner\'s turn');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], before: f.before, deps: f.after, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, from: f.from, splitOf: f['split-of'], size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], before: f.before, deps: f.after, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], block: f.blocked, parent: f.parent, from: f.from, splitOf: f['split-of'], size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
   }],
   'item notes': [['file/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');
@@ -1160,7 +1160,7 @@ function itemChanges(f) {
     f.done && (f['split-into'] ? `done, split into ${f['split-into'].split(',').join(', ')}` : 'done'),
     f.next !== undefined && (f.next.trim() ? 'next line set' : 'next line cleared'), f['clear-next'] && 'next line cleared',
     f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`, f.phase,
-    f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),
+    f.blocked && 'blocked', f.unblocked && 'unblocked', pickUp !== undefined && (pickUp ? `blocked until ${pickUp}` : 'unblocked'),
     f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
     f.parent !== undefined && (f.parent ? `parent ${f.parent}` : 'parent cleared'), f.related !== undefined && (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),
     f.relate !== undefined && `related to ${f.relate.split(',').join(', ')} added`, f.unrelate !== undefined && `unrelated from ${f.unrelate.split(',').join(', ')}`,

@@ -11,6 +11,6 @@ When several statuses compete for one mark (a dot, a badge, a line's colour, a r
 - blue: info for the owner to read or see (updates, review, planners).
 - green: done and well.
 - purple: merged, past done.
-- grey: idle, held and paused.
+- grey: idle, blocked by the owner, and paused.
 
 A lower colour never hides a higher one: a pause or a busy host drops off a row while a red fault is on it. The meaning of each colour is CONTEXT.md's **Colour rule**.

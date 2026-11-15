@@ -2977,7 +2977,7 @@ test("an open card shows its workflow buttons below a final details line of Note
     workCard('A2', { actionButton: null, bumpable: true }),
     workCard('A3', { actionButton: null, grilling: true, planning: 'preheating' }),
     workCard('A4', { actionButton: null, lane: 'done' }),
-    workCard('A5', { ...asking, held: true, holdable: true, action: null, resolvedBy: null }),
+    workCard('A5', { ...asking, ownerBlock: { until: null }, holdable: true, action: null, resolvedBy: null }),
     workCard('P1', { ...asking, action: { kind: 'pick', url: 'questions.html#q7', label: 'Prototypes ready: pick a take' }, resolvedBy: 'openQuestions' }),
     workCard('D1', { lane: 'review', actionButton: null, pr: draft, hasNotes: true, install, action: { kind: 'ready', url: draft.url, label: 'Tap Ready on GitHub' }, resolvedBy: 'github' }),
     workCard('R1', { lane: 'review', actionButton: null, pr: ready, install }),
@@ -3001,7 +3001,7 @@ test("an open card shows its workflow buttons below a final details line of Note
     'w/A2': [[], [], []],
     'w/A3': [[], [], []],
     'w/A4': [[], [], []],
-    'w/A5': [['Unhold', 'Questions'], [], []],
+    'w/A5': [['Unblock', 'Questions'], [], []],
     'w/P1': [['Questions'], [], ['Questions']],
     'w/D1': [['Notes'], ['Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
     'w/R1': [[], ['Install', 'Review on GitHub'], []],
@@ -3572,13 +3572,13 @@ test("Implement shows its line at once and its button never waits: with text the
 
 // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which send the message with intent: 'reply' or 'build'; an In Progress card's has Hold (⌥↵) and Reply, and the box follows the card's lane", async () => {
+test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which send the message with intent: 'reply' or 'build'; an In Progress card's has Block (⌥↵) and Reply, and the box follows the card's lane", async () => {
   const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
   const buttons = (key) => [...form(key).querySelectorAll('button[type="submit"]')].map((el) => [el.dataset.intent ?? null, el.textContent]);
   assert.deepEqual(buttons('w/T1'), [['build', 'Implement⌥↵'], ['reply', 'Reply⌘↵']]);
-  assert.deepEqual(buttons('w/P1'), [[null, 'Hold⌥↵'], ['reply', 'Reply⌘↵']]);
+  assert.deepEqual(buttons('w/P1'), [[null, 'Block⌥↵'], ['reply', 'Reply⌘↵']]);
   const send = async (key, text, intent) => {
     form(key).querySelector('textarea').value = text;
     b.page.fire(b.root, 'submit', { target: form(key), submitter: form(key).querySelector(intent ? `button[data-intent="${intent}"]` : 'button[type="submit"]') });
@@ -3599,7 +3599,7 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   assert.deepEqual([key('w/T1', { metaKey: true }), key('w/T1', { altKey: true }), key('w/P1', { ctrlKey: true }), key('w/P1', { altKey: true })], [true, true, true, true]);
   assert.deepEqual(pressed, [['w/T1', 'reply'], ['w/T1', 'build'], ['w/P1', 'reply'], ['w/P1', 'hold']]);
   await b.change({ board: boardOf([workCard('T1', { lane: 'progress' }), workCard('P1', { lane: 'progress' })]) });
-  assert.deepEqual(buttons('w/T1'), [[null, 'Hold⌥↵'], ['reply', 'Reply⌘↵']]);
+  assert.deepEqual(buttons('w/T1'), [[null, 'Block⌥↵'], ['reply', 'Reply⌘↵']]);
   b.view.unmount();
 });
 
@@ -3622,7 +3622,7 @@ test("a thread box's row has What's left? at the left and the eye, fire, image a
 });
 
 // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵) in its thread box; a Todo card has Done right of Hold in its actions, and an In Progress card neither", async () => {
+test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵) in its thread box; a Todo card has Done right of Block in its actions, and an In Progress card neither", async () => {
   const cards = [
     workCard('T1', { finishable: true, holdable: true, hasNotes: true }),
     workCard('P1', { lane: 'progress', finishable: true, holdable: true }),
@@ -3639,13 +3639,13 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
   assert.deepEqual(sends('w/R1'), ['Done⌥↵', 'Reply⌘↵']);
   assert.deepEqual(sends('w/S1'), ['Done⌥↵', 'Reply⌘↵']);
   assert.deepEqual(sends('w/a1'), ['Done⌥↵', 'Reply⌘↵']);
-  assert.deepEqual(sends('w/P1'), ['Hold⌥↵', 'Reply⌘↵']);
+  assert.deepEqual(sends('w/P1'), ['Block⌥↵', 'Reply⌘↵']);
   assert.deepEqual(sends('w/T1'), ['Implement⌥↵', 'Reply⌘↵']);
   assert.equal(form('w/R1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
   assert.equal(form('w/a1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
   for (const key of ['w/T1', 'w/P1']) assert.equal(form(key).querySelector('[data-confirm="finish"]'), null);
-  assert.deepEqual(actions('w/T1'), ['Hold', 'Done', 'Notes']);
-  assert.deepEqual(actions('w/P1'), ['Hold']);
+  assert.deepEqual(actions('w/T1'), ['Block', 'Done', 'Notes']);
+  assert.deepEqual(actions('w/P1'), ['Block']);
   assert.deepEqual(actions('w/a1'), []);
   // Reply sends the message; Done, tapped or on ⌥↵, confirms and closes the card.
   form('w/R1').querySelector('textarea').value = 'Looks good';
@@ -3669,10 +3669,10 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
 });
 
 // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
-test("an In Progress card's quiet Hold opens the Hold sheet and its orange Resume, while the owner's hold is on, confirms the unhold; a Done card's quiet Reopen confirms and sends card-reopen; every box's other send is Reply", async () => {
+test("an In Progress card's quiet Block opens the Block sheet and its orange Unblock, while the owner's block is on, confirms the unblock; a Done card's quiet Reopen confirms and sends card-reopen; every box's other send is Reply", async () => {
   const cards = [
     workCard('P1', { lane: 'progress', holdable: true }),
-    workCard('H1', { lane: 'progress', holdable: true, held: true }),
+    workCard('H1', { lane: 'progress', holdable: true, ownerBlock: { until: null }, blocked: true }),
     workCard('U1', { lane: 'progress', holdable: true, builder: { phase: 'building', pause: { cause: 'usage', words: 'usage limit', paused: true } } }),
     workCard('D1', { lane: 'done' }),
   ];
@@ -3681,9 +3681,9 @@ test("an In Progress card's quiet Hold opens the Hold sheet and its orange Resum
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
   const sends = (key) => [...form(key).querySelectorAll('button[type="submit"]')].map((el) => [el.textContent, el.getAttribute('class') || '', el.dataset.confirm ?? el.dataset.intent]);
-  assert.deepEqual(sends('w/P1'), [['Hold⌥↵', '', 'hold'], ['Reply⌘↵', 'primary', 'reply']]);
-  assert.deepEqual(sends('w/H1'), [['Resume⌥↵', 'unhold', 'resume'], ['Reply⌘↵', 'primary', 'reply']]);
-  assert.deepEqual(sends('w/U1'), [['Hold⌥↵', '', 'hold'], ['Reply⌘↵', 'primary', 'reply']], 'a usage pause is no hold of yours');
+  assert.deepEqual(sends('w/P1'), [['Block⌥↵', '', 'hold'], ['Reply⌘↵', 'primary', 'reply']]);
+  assert.deepEqual(sends('w/H1'), [['Unblock⌥↵', 'unblock', 'resume'], ['Reply⌘↵', 'primary', 'reply']]);
+  assert.deepEqual(sends('w/U1'), [['Block⌥↵', '', 'hold'], ['Reply⌘↵', 'primary', 'reply']], 'a usage pause is no block of yours');
   assert.deepEqual(sends('w/D1'), [['Reopen⌥↵', '', 'reopen'], ['Reply⌘↵', 'primary', 'reply']]);
   b.page.fire(b.root, 'submit', { target: form('w/P1'), submitter: form('w/P1').querySelector('[data-confirm="hold"]') });
   await b.settle();
@@ -3693,7 +3693,7 @@ test("an In Progress card's quiet Hold opens the Hold sheet and its orange Resum
     b.page.fire(b.root, 'submit', { target: form(key), submitter: form(key).querySelector('[data-confirm]') });
     await b.settle();
   }
-  assert.deepEqual(b.confirms.slice(-2), ['Unhold H1? It can start again once nothing blocks it.', 'Reopen D1? It moves back to Todo, discussing, for you to talk it through again.']);
+  assert.deepEqual(b.confirms.slice(-2), ['Unblock H1? It can start again once nothing else blocks it.', 'Reopen D1? It moves back to Todo, discussing, for you to talk it through again.']);
   assert.deepEqual(sentNoIds(b), [['card-hold', { key: 'w/H1', hold: false }], ['card-reopen', { key: 'w/D1' }]]);
   form('w/D1').querySelector('textarea').value = 'One more thing';
   b.page.fire(b.root, 'submit', { target: form('w/D1'), submitter: form('w/D1').querySelector('button[data-intent="reply"]') });
@@ -3988,7 +3988,7 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
     workCard('T2', { bumpable: true, bumpedAt: '2026-10-30T08:00:00.000Z' }),
     workCard('T3', { bumpable: true, holdable: true }),
     workCard('P1', { lane: 'progress', bumpable: true, bumpedAt: '2026-10-30T07:00:00.000Z', holdable: true }),
-    workCard('H1', { bumpable: false, held: true, holdable: true }),
+    workCard('H1', { bumpable: false, ownerBlock: { until: null }, holdable: true }),
   ];
   const b = boardOnDom({ open: ['w/T1', 'w/T3', 'w/H1'], board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
@@ -3998,7 +3998,7 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
     'w/T1': ['Unbump', true, false], 'w/T2': ['Unbump', true, false], 'w/T3': ['Bump to top', false, false], 'w/P1': ['Unbump', true, false], 'w/H1': null,
   });
   for (const key of ['w/T1', 'w/T3', 'w/H1']) assert.equal(card(key).querySelector('.detail .actions [data-card-bump]'), null, key);
-  assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow')?.textContent.trim() ?? null), [null, 'Hold']);
+  assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow')?.textContent.trim() ?? null), [null, 'Block']);
 
   b.page.fire(b.root, 'click', { target: icon('w/T3') });
   await b.settle();
@@ -4265,14 +4265,14 @@ test("deleting an ask from the New strip is one events POST: its trash icon wait
 // Merge race test below.
 const HOLD_CHOICES = [{ value: '1h', label: '1h', ms: 3_600_000 }];
 const CARD_TAPS = [
-  { name: 'Unhold', card: workCard('H1', { held: true, holdable: true }), act: 'resume', kind: 'card-hold', changed: (c) => ({ ...c, held: false }) },
-  { name: 'a Hold sheet chip', card: workCard('T1', { holdable: true }), act: 'hold', sheet: true, kind: 'card-hold', changed: (c) => ({ ...c, held: true, heldUntil: '2026-10-30T11:00:00.000Z' }) },
+  { name: 'Unblock', card: workCard('H1', { ownerBlock: { until: null }, holdable: true }), act: 'resume', kind: 'card-hold', changed: (c) => ({ ...c, ownerBlock: null }) },
+  { name: 'a Block sheet chip', card: workCard('T1', { holdable: true }), act: 'hold', sheet: true, kind: 'card-hold', changed: (c) => ({ ...c, ownerBlock: { until: '2026-10-30T11:00:00.000Z' } }) },
   { name: 'Done', card: workCard('F1', { finishable: true }), act: 'finish', kind: 'card-done', changed: (c) => ({ ...c, lane: 'done', storedLane: 'done' }) },
   { name: 'a bump', card: workCard('B1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 0 }), kind: 'card-bump', changed: (c) => ({ ...c, bumpedAt: '2026-10-30T10:00:01.000Z' }) },
   { name: 'Merge', card: workCard('M1', { lane: 'review', action: { kind: 'merge', url: '#selectedCard=w%2FM1', label: 'Merge' } }), act: 'merge', kind: 'card-merge' },
 ];
 
-// A board holding the row's card open, its button tapped (and the Hold sheet's chip after it), its POST held.
+// A board holding the row's card open, its button tapped (and the Block sheet's chip after it), its POST held.
 async function tapCard(row) {
   const sends = heldSends();
   const b = boardOnDom({ open: [row.card.key], board: { ...boardOf([row.card]), holdChoices: HOLD_CHOICES }, threads: {}, send: sends.send, confirm: true });
@@ -4476,10 +4476,10 @@ test("Waiting on you names a card's topic from its card, since the board sends t
   v.unmount();
 });
 
-test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unhold confirms naming the time', async () => {
+test('Block opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unblock confirms naming the time', async () => {
   const until = new Date(NOW + 2 * 86_400_000).toISOString();
   const holdChoices = [['1h', '1h', 3_600_000], ['3h', '3h', 10_800_000], ['6h', '6h', 21_600_000], ['1d', '1d', 86_400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms }));
-  const cards = [workCard('T1', { ref: 'INT-41', holdable: true }), workCard('P1', { ref: 'INT-43', lane: 'progress', holdable: true }), workCard('H1', { ref: 'INT-42', held: true, heldUntil: until, holdable: true })];
+  const cards = [workCard('T1', { ref: 'INT-41', holdable: true }), workCard('P1', { ref: 'INT-43', lane: 'progress', holdable: true }), workCard('H1', { ref: 'INT-42', ownerBlock: { until }, holdable: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: {}, confirm: true });
   await b.settle();
   const button = (key, act) => b.root.querySelector(`details.item[data-key="${key}"] [data-confirm="${act}"]`);
@@ -4487,7 +4487,7 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
   b.page.fire(b.root, 'click', { target: button('w/P1', 'hold') });
   await b.settle();
   assert.deepEqual([sheet.open, sheet.querySelector('#holdTitle').textContent, sheet.querySelector('#holdLede').textContent],
-    [true, 'Hold INT-43', 'Claude stops work on it until then. Forever holds it until you unhold it.']);
+    [true, 'Block INT-43', 'Claude stops work on it until then. Forever blocks it until you unblock it.']);
   b.page.fire(sheet.querySelector('#holdClose'), 'click');
   b.page.runTimers();
   assert.equal(sheet.open, false);
@@ -4495,10 +4495,10 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
   await b.settle();
   assert.deepEqual(b.confirms, []);
   assert.deepEqual([sheet.open, sheet.querySelector('#holdTitle').textContent, sheet.querySelector('#holdLede').textContent],
-    [true, 'Hold INT-41', 'It won’t start until then. Forever holds it until you unhold it.']);
+    [true, 'Block INT-41', 'It won’t start until then. Forever blocks it until you unblock it.']);
   const chips = sheet.querySelectorAll('[data-hold-for]');
   // The page words each chip's end from its length when the sheet opens.
-  const words = (ms) => (ms === null ? 'until you unhold it' : `until ${b.page.win.BoardUI.heldUntilWords(new Date(NOW + ms))}`);
+  const words = (ms) => (ms === null ? 'until you unblock it' : `until ${b.page.win.BoardUI.heldUntilWords(new Date(NOW + ms))}`);
   assert.deepEqual(chips.map((c) => [c.textContent, c.getAttribute('aria-label')]), holdChoices.map((c) => [c.label, `${c.label}, ${words(c.ms)}`]));
   assert.ok(sheet.querySelector('.dur-custom [data-hold-at]'));
   b.page.fire(sheet, 'click', { target: chips[1] });
@@ -4508,7 +4508,7 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-hold', { key: 'w/T1', hold: true, for: '3h' }]]);
   b.page.fire(b.root, 'click', { target: button('w/H1', 'resume') });
   await b.settle();
-  assert.deepEqual(b.confirms, [`Unhold INT-42? It's held until ${b.page.win.BoardUI.heldUntilWords(until)}. It can start again once nothing blocks it.`]);
+  assert.deepEqual(b.confirms, [`Unblock INT-42? It's blocked until ${b.page.win.BoardUI.heldUntilWords(until)}. It can start again once nothing else blocks it.`]);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-hold', { key: 'w/H1', hold: false }]);
 });
 
@@ -4636,17 +4636,17 @@ test("a card opened with more than 3 unread messages shows them all, and once cl
 test("a closed card ends its time line with its count of unread messages, and opening the card reads them, taking away the count and the line it leaves empty", async () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const b = boardOnDom({ seen: { 'w/A1': at(2), 'w/A2': at(2) },
-    board: boardOf([workCard('A1', { othersAt: [at(5), at(6)] }), workCard('A2', { othersAt: [at(5)], held: true, sortAt: at(6) })]) });
+    board: boardOf([workCard('A1', { othersAt: [at(5), at(6)] }), workCard('A2', { othersAt: [at(5)], ownerBlock: { until: null }, sortAt: at(6) })]) });
   await b.settle();
   const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
   const chips = (key) => card(key).querySelector('summary .line2')?.children.map((c) => c.textContent) ?? null;
   const last = (key) => card(key).querySelector('summary .card-time')?.textContent ?? null;
   const alert = (key) => card(key).querySelector('summary .card-alert')?.textContent ?? null;
   const time = b.page.win.BoardUI.cardTime(at(6));
-  assert.deepEqual([chips('w/A1'), alert('w/A1'), chips('w/A2'), last('w/A2'), alert('w/A2')], [null, '2 new messages', null, `${time} · held`, '1 new message']);
+  assert.deepEqual([chips('w/A1'), alert('w/A1'), chips('w/A2'), last('w/A2'), alert('w/A2')], [null, '2 new messages', null, `${time} · blocked`, '1 new message']);
   for (const key of ['w/A1', 'w/A2']) { card(key).open = true; b.page.fire(b.root, 'toggle', { target: card(key) }); }
   await b.settle();
-  assert.deepEqual([alert('w/A1'), alert('w/A2'), last('w/A2')], [null, null, `${time} · held`]);
+  assert.deepEqual([alert('w/A1'), alert('w/A2'), last('w/A2')], [null, null, `${time} · blocked`]);
 });
 
 // docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
@@ -6213,10 +6213,10 @@ test("Prototype, Grill and Visual show their line at once as sending…, their b
 });
 
 // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
-test("a reply box's Hold, after its sheet, and Resume, Done and Reopen, after their confirm, show their line at once as sending…, their button never waiting, end plain once the board has them, and a failed one retries in place", async () => {
+test("a reply box's Block, after its sheet, and Unblock, Done and Reopen, after their confirm, show their line at once as sending…, their button never waiting, end plain once the board has them, and a failed one retries in place", async () => {
   const cards = [
     workCard('P1', { lane: 'progress', holdable: true }),
-    workCard('H1', { lane: 'progress', holdable: true, held: true }),
+    workCard('H1', { lane: 'progress', holdable: true, ownerBlock: { until: null }, blocked: true }),
     workCard('R1', { lane: 'review' }),
     workCard('D1', { lane: 'done' }),
   ];
@@ -6234,20 +6234,20 @@ test("a reply box's Hold, after its sheet, and Resume, Done and Reopen, after th
   const R1 = b.root.querySelector('details.item[data-key="w/R1"]');
   assert.deepEqual([R1.closest('details.lane').dataset.lane, R1.open], ['done', false]);
   assert.deepEqual(cards.filter((c) => c.key !== 'w/R1').map((c) => [threadLines(b, c.key), waitState(second(c.key))]), [
-    [['Held · sending…'], IDLE], [['Resumed · sending…'], IDLE], [['Reopened · sending…'], IDLE],
+    [['Blocked · sending…'], IDLE], [['Unblocked · sending…'], IDLE], [['Reopened · sending…'], IDLE],
   ]);
   assert.deepEqual(sentNoIds(b), [['card-hold', { key: 'w/P1', hold: true, for: '1h' }], ['card-hold', { key: 'w/H1', hold: false }], ['card-done', { key: 'w/R1' }], ['card-reopen', { key: 'w/D1' }]]);
-  b.server.threads['w/P1'] = [{ ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'command', command: 'hold', request: true, mark: 'Held', text: 'Held until 11:00 AM' }];
+  b.server.threads['w/P1'] = [{ ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'command', command: 'hold', request: true, mark: 'Blocked', text: 'Blocked until 11:00 AM' }];
   sends.answer();
   await b.settle();
-  assert.deepEqual(threadLines(b, 'w/P1'), ['Held until 11:00 AM']);
+  assert.deepEqual(threadLines(b, 'w/P1'), ['Blocked until 11:00 AM']);
   sends.answer(false, REFUSED);
   await b.settle();
-  assert.deepEqual(threadLines(b, 'w/H1'), ['Resumed · not sent']);
+  assert.deepEqual(threadLines(b, 'w/H1'), ['Unblocked · not sent']);
   const resumeId = b.sent[1][1].sendId;
   b.page.fire(b.root, 'click', { target: b.root.querySelector(`[data-thread="w/H1"] button[data-resend="${resumeId}"]`) });
   await b.settle();
-  assert.deepEqual([b.confirms.at(-1), threadLines(b, 'w/H1'), b.sent.at(-1)[1].sendId], ['Send “Resumed” again?', ['Resumed · sending…'], resumeId]);
+  assert.deepEqual([b.confirms.at(-1), threadLines(b, 'w/H1'), b.sent.at(-1)[1].sendId], ['Send “Unblocked” again?', ['Unblocked · sending…'], resumeId]);
   b.view.unmount();
 });
 
@@ -6852,7 +6852,7 @@ test("the + is on the board's left pane on desktop and gone from the Open questi
   assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.view-board \.fab \{ right: calc\(var\(--pane-w, calc\(50% /);
 });
 
-test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Questions, then Merge", async () => {
+test("a card's workflow buttons run quiet first: Block, Notes, Serve, then Questions, then Merge", async () => {
   const ready = { state: 'OPEN', isDraft: false, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const full = {
     lane: 'review', holdable: true, hasNotes: true, pr: ready, try: { kind: 'web', script: true, changes: true },
@@ -6866,9 +6866,9 @@ test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Questi
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const order = (key) => b.root.querySelector(`details.item[data-key="${key}"] .action-row.workflow`).querySelectorAll('a, button').map((el) => el.textContent.trim());
-  assert.deepEqual(order('w/F1'), ['Hold', 'Notes', 'Serve', 'Questions', 'Merge']);
-  assert.deepEqual(order('w/F2'), ['Hold', 'Notes', 'Serve', 'Merge']);
-  assert.deepEqual(order('w/F3'), ['Hold', 'Notes', 'Serve', 'Questions', 'Merge']);
+  assert.deepEqual(order('w/F1'), ['Block', 'Notes', 'Serve', 'Questions', 'Merge']);
+  assert.deepEqual(order('w/F2'), ['Block', 'Notes', 'Serve', 'Merge']);
+  assert.deepEqual(order('w/F3'), ['Block', 'Notes', 'Serve', 'Questions', 'Merge']);
 });
 
 // docs/adr/2026-11-09-1100-needs-you-button-reaches-the-prototypes.md
@@ -6950,11 +6950,13 @@ test('a resolved question card has no border or tint of its own; the Resolved ba
 });
 
 // docs/adr/2026-11-12-0600-the-todo-header-has-a-filter.md
-test('the Todo header filter lists five boxes, all checked; unchecking one hides only the cards with that property, the icon goes orange and the count reads N of M', async () => {
+// docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md: Held is no box of its own; the owner's block is Blocked.
+test('the Todo header filter lists four boxes, all checked; unchecking one hides only the cards with that property, the owner blocked ones under Blocked, the icon goes orange and the count reads N of M', async () => {
+  const owner = { ownerBlock: { until: null }, blocked: true };
   const cards = [
     workCard('R1', { phase: 'ready', ready: true }), workCard('R2', { phase: 'staging' }), workCard('D1', { phase: 'discussing', turn: 'owner' }), workCard('D2', { phase: 'new' }),
-    workCard('P1', { phase: 'grilling' }), workCard('P2', { phase: 'prototyping' }), workCard('B1', { phase: 'ready', blocked: true }), workCard('H1', { phase: 'grilling', held: true }),
-    workCard('HB', { phase: 'ready', held: true, blocked: true })];
+    workCard('P1', { phase: 'grilling' }), workCard('P2', { phase: 'prototyping' }), workCard('B1', { phase: 'ready', blocked: true }), workCard('H1', { phase: 'grilling', ...owner }),
+    workCard('HB', { phase: 'ready', ...owner })];
   const b = boardOnDom({ board: boardOf(cards), threads: {} });
   await b.settle();
   const todo = () => b.root.querySelector('details.lane[data-lane="todo"]');
@@ -6968,15 +6970,13 @@ test('the Todo header filter lists five boxes, all checked; unchecking one hides
   assert.equal(todo().querySelector('.lane-filter-menu'), null);
   await tap(btn());
   assert.deepEqual(todo().querySelectorAll('[data-todo-filter]').map((el) => [el.dataset.todoFilter, el.getAttribute('aria-checked')]),
-    [['ready', 'true'], ['discussing', 'true'], ['planning', 'true'], ['blocked', 'true'], ['held', 'true']]);
+    [['ready', 'true'], ['discussing', 'true'], ['planning', 'true'], ['blocked', 'true']]);
   assert.equal(todo().open, true);
-  await tap(box('held'));
-  assert.deepEqual(keys(), ['R1', 'R2', 'D1', 'D2', 'P1', 'P2', 'B1']);
-  assert.ok(btn().classList.contains('on'));
-  assert.equal(todo().querySelector('summary .count').textContent, '7 of 9');
   await tap(box('blocked'));
   assert.deepEqual(keys(), ['R1', 'R2', 'D1', 'D2', 'P1', 'P2']);
-  await tap(box('held')); await tap(box('blocked'));
+  assert.ok(btn().classList.contains('on'));
+  assert.equal(todo().querySelector('summary .count').textContent, '6 of 9');
+  await tap(box('blocked'));
   await tap(box('ready'));
   assert.deepEqual(keys(), ['D1', 'D2', 'P1', 'P2', 'H1']);
   await tap(box('ready')); await tap(box('discussing'));
@@ -6990,11 +6990,11 @@ test('the Todo header filter lists five boxes, all checked; unchecking one hides
 });
 
 test('the Todo filter is remembered on this device', async () => {
-  const cards = [workCard('R1', { phase: 'ready', ready: true }), workCard('H1', { phase: 'grilling', held: true })];
+  const cards = [workCard('R1', { phase: 'ready', ready: true }), workCard('H1', { phase: 'grilling', ownerBlock: { until: null }, blocked: true })];
   const first = boardOnDom({ board: boardOf(cards), threads: {} });
   await first.settle();
   first.page.fire(first.root, 'click', { target: first.root.querySelector('button.lane-filter') }); await first.settle();
-  first.page.fire(first.root, 'click', { target: first.root.querySelector('[data-todo-filter="held"]') }); await first.settle();
+  first.page.fire(first.root, 'click', { target: first.root.querySelector('[data-todo-filter="blocked"]') }); await first.settle();
   const again = boardOnDom({ board: boardOf(cards), threads: {}, stored: [...first.storage] });
   await again.settle();
   assert.deepEqual(again.root.querySelectorAll('details.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/R1']);
