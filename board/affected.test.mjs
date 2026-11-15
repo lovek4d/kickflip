@@ -136,7 +136,9 @@ test('a repo with no test map runs the tests the change reaches, with no core', 
 });
 
 const BOARD = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
-const testCommand = (dir) => execFileSync(process.execPath, [BOARD, 'test', '--dir', dir, '--base', 'main'], { encoding: 'utf8' });
+// HOME is a scratch one, so the run reads no busy state the hub's tick kept (shared/machine-gate.mjs) and never prints
+// "waiting: the host is busy": its output doesn't depend on the host's load.
+const testCommand = (dir) => execFileSync(process.execPath, [BOARD, 'test', '--dir', dir, '--base', 'main'], { encoding: 'utf8', env: { ...process.env, HOME: tempDir('affected-home-') } });
 
 // docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md
 test('a builder\'s own tests are the test files its change adds or edits, committed or not, and none it deleted', (t) => {
