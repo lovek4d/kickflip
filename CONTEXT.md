@@ -27,7 +27,7 @@ The one server on the host that answers the tailnet address, lists every site, f
 _Avoid_: portal, gateway
 
 **Host**:
-The machine the hub and its sessions run on, a Mac or a Linux machine. Its **hub service** keeps the hub running: a launchd login item on macOS, a systemd user unit on Linux, chosen by `shared/service.mjs` at init; init, doctor, land's restart and uninstall all go through it ([the hub runs under the host's service manager](docs/adr/2026-11-01-1542-the-hub-runs-under-the-hosts-service-manager.md)).
+The machine the hub and its sessions run on, a Mac or a Linux machine. Its **hub service** keeps the hub running: a launchd login item on macOS, a systemd user unit on Linux, chosen by `shared/service.mjs` at init; init, doctor, the hub's restart for new code and uninstall all go through it ([the hub runs under the host's service manager](docs/adr/2026-11-01-1542-the-hub-runs-under-the-hosts-service-manager.md)).
 _Avoid_: the Mac, server (for the machine)
 
 **Sidebar**:
@@ -135,6 +135,10 @@ _Avoid_: deaf, stopped, not responding
 **Automatic restart**:
 A restart the hub makes by itself, once per outage: of a board's session that runs idle but hasn't been listening for 2 minutes (stopped and resumed), or of a board server that is up but hasn't answered for 1 minute. Neither runs while the board's session is busy, a builder of the board is open or a land is queued or landing. Each restart goes to `~/.claude/kickflip/auto-restarts.jsonl` with whether it brought the board back, and to the board's Hub row for a day ("restarted the session 2m ago: not listening"). The owner gets a push only when a restart fails ([the hub restarts a session not listening and a server not answering](docs/adr/2026-11-15-0123-the-hub-restarts-a-session-not-listening-and-a-server-not-answering.md)).
 _Avoid_: auto-heal, self-repair
+
+**Restart row**:
+The sidebar row under New version · Reload, worded for a restart: New server version · Restart on a board whose server runs older code than its files, New hub version · Restart on the hub's pages while the hub does. A tap restarts that server, or the hub, and reloads the page once it answers. New code never restarts a running server or the hub at once: each restarts by itself once idle, by the same holds as an **automatic restart** (a hub restart waits on every board), unless the Hub page's `auto restart` box is off; a crash or a missing server still restarts at once ([new server code waits behind a Restart row and restarts itself once idle](docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md)).
+_Avoid_: restart banner, reload banner
 
 **Status word**:
 A word in a status slot: beside a status dot, in a hub page row's status, in the board header's time slot, in a running or failed build chip, or as a usage block's tag. It is lowercase (down, starting, working, implementing, paused, healthy, degraded, up, not listening…), while sentences, toasts, tooltips, pushes, titles and button labels keep their capital ([status words are lowercase, and a board nothing will wake reads not listening](docs/adr/2026-11-03-1822-status-words-are-lowercase.md)).

@@ -10,7 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { BoardError, opensPRs, settingsOf } from './store.mjs';
-import { boardAt, hubCode, listBoards, readJSON, readManifest, samePath } from '../hub/boards.mjs';
+import { boardAt, readJSON, readManifest, samePath } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
@@ -20,7 +20,6 @@ import { releaseTag, tagRelease } from './release-tag.mjs';
 import { affectedTests } from './affected.mjs';
 import { readMachineState } from '../shared/machine-gate.mjs';
 
-const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'kickflip.mjs');
 export const skillRepo = cloneRoot;
 export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'worktrees');
 const fail = (msg) => { throw new BoardError(msg); };
@@ -286,20 +285,14 @@ function tapFailures(tap) {
   return failures;
 }
 
-// Restarts the hub ('hub') through its service (../shared/service.mjs) or one board server ('board', route).
-// KICKFLIP_RESTART_CMD='["<cmd>", …]' replaces both, with what to restart appended, so a test never reaches the
-// host's service manager or a real board.
-export function restartRunner(what, route) {
+// Restarts the hub ('hub') through its service (../shared/service.mjs). KICKFLIP_RESTART_CMD='["<cmd>", …]' replaces
+// it, with what to restart appended, so a test never reaches the host's service manager.
+export function restartRunner(what) {
+  if (!process.env.KICKFLIP_RESTART_CMD) return hubService().restart();
   let cmd;
-  if (process.env.KICKFLIP_RESTART_CMD) {
-    try { cmd = JSON.parse(process.env.KICKFLIP_RESTART_CMD); } catch {}
-    if (!Array.isArray(cmd) || !cmd.length || !cmd.every((a) => typeof a === 'string')) fail('KICKFLIP_RESTART_CMD must be a JSON array of strings');
-    cmd = [...cmd, what, ...(route ? [route] : [])];
-  } else if (what === 'hub') {
-    return hubService().restart();
-  } else {
-    cmd = [nodeBin(), KICKFLIP, 'restart', route];
-  }
+  try { cmd = JSON.parse(process.env.KICKFLIP_RESTART_CMD); } catch {}
+  if (!Array.isArray(cmd) || !cmd.length || !cmd.every((a) => typeof a === 'string')) fail('KICKFLIP_RESTART_CMD must be a JSON array of strings');
+  cmd = [...cmd, what];
   const r = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8' });
   return r.status === 0 ? null : (r.stderr || r.error?.message || `exit ${r.status}`).trim().split('\n')[0];
 }
@@ -308,11 +301,10 @@ export function restartRunner(what, route) {
 // unless the repo has base checked out, naming it, or while the worktree has uncommitted changes or the branch adds
 // nothing; squashes it into one commit and rebases that onto base when base moved, refusing on a conflict with the
 // rebase undone; runs the tests the change affects unless that commit passed them already (prepareLand); fast-forwards base
-// (landPrepared); when repo is the running kickflip clone,
-// restarts the hub when its code changed, else the board servers when board/ changed (a hub restart restarts every
-// site), test files aside; removes the worktree and branch.
-// Never pushes. A restart that fails is reported after the rest is done.
-// One land at a time on the host, since a land can restart the hub and every board server: ~/.claude/kickflip/land.lock
+// (landPrepared); removes the worktree and branch. It restarts nothing: the hub restarts what runs new code once idle
+// (docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md).
+// Never pushes.
+// One land at a time on the host: ~/.claude/kickflip/land.lock
 // {card, pid, at} names the card landing. A land that finds it held waits its turn across every process, in a file per
 // ask in ~/.claude/kickflip/land.queue, named <asked ms>-<count>-<pid> and holding {card, site, key, first}, calling
 // onWait(card) with the card it waits for. The queue goes bumped first, the latest bump (first) ahead, then first in
@@ -655,12 +647,11 @@ export async function land(tree, { hold = false, ...opts } = {}) {
 }
 
 // Under the land lock: fast-forwards base to tested, the commit prepareLand tested, tags it when it is a release
-// (release-tag.mjs), then restarts what runs the changed code and removes the worktree and branch. → {tag, commit}, the
+// (release-tag.mjs), then removes the worktree and branch. → {tag, commit}, the
 // release tag it made or null and the commit it landed, or false, changing nothing, when base moved past tested or the branch moved.
-export function landPrepared({ path: dir, branch, repo, base }, tested, { say = console.log, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
+export function landPrepared({ path: dir, branch, repo, base }, tested, { say = console.log } = {}) {
   onBase(repo, base);
   if (git(repo, 'rev-parse', branch).out !== tested || !git(repo, 'merge-base', '--is-ancestor', base, tested).ok) return false;
-  const changed = git(repo, 'diff', '--name-only', base, branch).out.split('\n').filter(Boolean);
   const merged = git(repo, 'merge', '--quiet', '--ff-only', tested);
   if (!merged.ok) fail(`could not fast-forward ${base} in ${repo}: ${merged.err}`);
   say(`${base} fast-forwarded to ${short(repo, base)} in ${repo}`);
@@ -669,18 +660,6 @@ export function landPrepared({ path: dir, branch, repo, base }, tested, { say = 
   // docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md: the tag goes on the commit as it landed.
   const { tag, err: untagged } = tagRelease(repo, tested);
   if (untagged) failed.push(untagged); else if (tag) say(`tagged ${tag}`);
-  // Only the running kickflip clone's code runs in the hub and the board servers, and no test file runs in either.
-  const running = fs.realpathSync(repo) === fs.realpathSync(clone) ? changed.filter((f) => !/\.test\.mjs$/.test(f)) : [];
-  const hubFiles = new Set(running.length ? hubCode(path.join(repo, 'hub', 'hub.mjs')).files : []);
-  if (running.some((f) => f.startsWith('hub/') || hubFiles.has(f))) {
-    const err = restart('hub');
-    if (err) failed.push(`the hub didn't restart (${err})`); else say('hub restarted, with every site');
-  } else if (running.some((f) => f.startsWith('board/'))) {
-    for (const b of boards()) {
-      const err = restart('board', b.route);
-      if (err) failed.push(`/${b.route} didn't restart (${err})`); else say(`board restarted: ${b.route}`);
-    }
-  }
 
   const removed = git(repo, 'worktree', 'remove', dir);
   if (removed.ok) say(`worktree removed: ${dir}`); else failed.push(`could not remove ${dir} (${removed.err})`);

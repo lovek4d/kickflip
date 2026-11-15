@@ -54,7 +54,8 @@ server.listen(Number(process.env.PORT), '127.0.0.1', () => fetch('http://127.0.0
   return { pkg, dir, shopPort };
 }
 
-test('a board server whose code changed on disk restarts once its board has no running builder, and its page reads restarting meanwhile', async (t) => {
+// docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md
+test('a board server whose code changed on disk waits while its board is busy, its sidebar row offering Restart, then restarts once idle, its page reading restarting meanwhile', async (t) => {
   const signal = await signals(t);
   const { pkg, dir, shopPort } = await shopSite(signal.port);
   const builder = path.join(dir, 'data', 'agents', 'A1.json');
@@ -62,18 +63,22 @@ test('a board server whose code changed on disk restarts once its board has no r
   const clock = { ms: Date.parse('2026-11-13T12:00:00Z') };
   const hub = await inProcessHub(t, { now: () => clock.ms, codeRestarts: true });
   const pid = () => fetch(`http://127.0.0.1:${shopPort}/`).then((r) => r.json()).then((j) => j.pid);
+  const newServer = async () => (await (await fetch(`${hub.base}/_hub/sidebar.json`)).json()).sites.find((s) => s.route === 'shop').newServer;
   const first = await signal.up();
   await hub.reconcile();
+  assert.equal(await newServer(), false);
 
   // The new code waits for the test's release before it listens, so its page can be caught while it restarts.
   write(path.join(pkg, 'board', 'dep.mjs'), `export const v = 2;\nawait fetch('http://127.0.0.1:' + process.env.SIGNALS + '/release');\n`);
   await hub.reconcile();
-  assert.ok(hub.lines.includes('shop runs older code than its files; restarts once no builder runs'), 'the hub sees the stale server and waits on the builder');
+  await hub.reconcile();
+  assert.deepEqual(hub.lines.filter((l) => l.includes('older code')), ['shop runs older code than its files; its restart waits, since a builder is open'], 'the hub sees the stale server, waits on the builder and says so once');
   assert.equal(await pid(), first, 'a running builder keeps the old server');
+  assert.equal(await newServer(), true, 'the board offers Restart meanwhile');
 
   write(builder, { started: new Date().toISOString(), done: new Date().toISOString(), label: 'Builder' });
   await hub.reconcile();
-  assert.ok(hub.lines.includes('shop runs older code than its files; restarting it'), 'the hub restarts the stale server');
+  assert.ok(hub.lines.includes('shop runs older code than its files; restarting it'), 'the hub restarts the stale server once the board is idle');
   await hub.logged(/^shop exited/);
   const page = await fetch(`${hub.base}/shop/`, { headers: { accept: 'text/html' } });
   assert.match(await page.text(), /restarting · its code changed/);
@@ -98,7 +103,38 @@ test('a board server whose code changed on disk restarts once its board has no r
   const answer = await fetch(`${hub.base}/shop/`);
   assert.deepEqual([answer.headers.get('x-kickflip-hub'), answer.headers.get('x-kickflip-down'), (await answer.json()).pid], ['1', null, second]);
   assert.equal(await pid(), second);
+  assert.equal(await newServer(), false);
   assert.equal(hub.lines.filter((l) => l.includes('restarting it')).length, 1, 'the hub restarted the server once');
+});
+
+test("with auto restart off an idle board keeps its old server until its Restart, which restarts that server alone", async (t) => {
+  const signal = await signals(t);
+  const { pkg, shopPort } = await shopSite(signal.port);
+  write(path.join(web, 'settings.json'), { autoRestart: false });
+  const clock = { ms: Date.parse('2026-11-13T12:00:00Z') };
+  const hub = await inProcessHub(t, { now: () => clock.ms, codeRestarts: true });
+  const pid = () => fetch(`http://127.0.0.1:${shopPort}/`).then((r) => r.json()).then((j) => j.pid);
+  const restart = (route) => fetch(`${hub.base}/_hub/restart-server`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route }) });
+  const first = await signal.up();
+  await hub.reconcile();
+  assert.equal((await restart('shop')).status, 409, 'a server running its files has nothing to restart for');
+  assert.equal((await restart('nowhere')).status, 404);
+
+  write(path.join(pkg, 'board', 'dep.mjs'), 'export const v = 2;\n');
+  await hub.reconcile();
+  await hub.reconcile();
+  assert.deepEqual(hub.lines.filter((l) => l.includes('older code')), ['shop runs older code than its files; its restart waits, since auto restart is off']);
+  assert.equal(await pid(), first);
+
+  const tapped = await restart('shop');
+  assert.deepEqual([tapped.status, await tapped.json()], [200, { route: 'shop' }]);
+  assert.ok(hub.lines.includes('shop runs older code than its files; restarting it from its Restart'));
+  await hub.logged(/^shop exited/);
+  const page = await fetch(`${hub.base}/shop/`, { headers: { accept: 'text/html' } });
+  assert.equal(page.headers.get('x-kickflip-down'), 'code');
+  clock.ms += 1000;
+  await hub.reconcile();
+  assert.notEqual(await signal.up(), first);
 });
 
 // docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md

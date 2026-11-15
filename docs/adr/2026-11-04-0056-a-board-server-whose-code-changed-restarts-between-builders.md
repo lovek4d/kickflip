@@ -1,5 +1,7 @@
 # A board server whose code changed on disk restarts once its board has no running builder
 
+Replaced by [new server code waits behind a Restart row and restarts itself once idle](2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md).
+
 #170: after a pull or upgrade changed `board/` or `hub/` files, a board server kept running its old code while browsers loaded the new client files it serves from disk. On Backend Audit the Done lane counted 12 cards and drew 1: the old server sent fold names the new `app-lanes.js` no longer reads. The owner chose (11/04) to restart stale board servers, by code hash, restarting only the server and not its session, once that board has no running builder. The upgrade path matters most: "this mostly is going to be run through the npm install" (`hub/upgrade.mjs`, #116); a git pull of a clone (`hub/try.mjs` Main pull, #60) is the other case.
 
 - **The hash.** `hub/boards.mjs` `boardCode(site)` hashes the `board/server.mjs` in a board site's `cmd`, resolved from the folder the hub starts it in, and every file it imports by a relative path, as `hubCode` does for the hub ([the hub restarts itself from its stale-code notice](2026-11-03-1638-the-hub-restarts-itself-from-its-stale-code-notice.md)). It hashes the files wherever the server runs from, so an npm upgrade of the installed package and a pull of a clone look the same. Nothing looks at what changed them.

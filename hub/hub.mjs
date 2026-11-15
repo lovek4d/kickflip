@@ -43,6 +43,9 @@
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
+//   /_hub/restart-server POST {route} from a board's New server version row: restarts that board's server alone, which
+//                     runs older code than its files, as an idle board's own restart does → {route}; 404 for no open
+//                     board, 409 while its server runs the code in its files
 //   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
 //                     the session → {route, title, session}, or {error} (restart-board.mjs)
 //   /_hub/check-update POST from the version in the hub page's footer: runs upgrade.mjs check() now and answers its result
@@ -79,6 +82,7 @@
 //   /_hub/settings/keep-awake POST keep_awake=on (anything else, or nothing, is off) → /_hub/api/settings's JSON, or
 //                     409 {error} off macOS (awake.mjs)
 //   /_hub/settings/auto-update POST auto_update=on (anything else, or nothing, is off) → /_hub/api/settings's JSON; stored as autoUpdate: false
+//   /_hub/settings/auto-restart POST auto_restart=on (anything else, or nothing, is off) → /_hub/api/settings's JSON; stored as autoRestart: false
 //   /_hub/settings/hub-pause POST pause=<usage-gate.mjs pauseEnd choice | off> → Pause hub, then /_hub/api/settings's
 //                     JSON, or 400 {error} for an end not after now or more than 30 days on
 //                     (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md)
@@ -193,7 +197,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
-import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readAutoUpdate, setAutoUpdate, deliver } from './push.mjs';
+import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readAutoUpdate, setAutoUpdate, readAutoRestart, setAutoRestart, deliver } from './push.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pending, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
@@ -230,7 +234,7 @@ import { BuildError, startBuild, killBuild, stopTries, endUnsharedTries, tryTick
 import { serveFiles } from './files.mjs';
 import { upgrader } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
-import { fallBackFromLinear, migrateDropWaves, migrateWaveNames, openBoardBuilders } from '../board/store.mjs';
+import { fallBackFromLinear, migrateDropWaves, migrateWaveNames } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
@@ -284,7 +288,8 @@ function httpProbe(port) {
 // Starts the hub on ~/.claude/kickflip of os.homedir(), listening on 127.0.0.1:port (0 picks a free one), and resolves
 // once it listens. Options stand in for what it reads of the host:
 //   now() → the time in ms the supervisor's restart waits, the poll schedule and the caches read;
-//   codeRestarts: false keeps a board server whose code changed running, and the hub from restarting for new code;
+//   codeRestarts: false keeps a board server whose code changed running, offering no Restart, and the hub from
+//   restarting for new code;
 //   probe(port) → whether a site's port answers (reconcile's probes);
 //   answers(port) → whether a board server that is up answers HTTP (reconcile's hung check);
 //   readMachine() → the Mac's {load, cores, pressure} for the busy gate (shared/machine-gate.mjs);
@@ -336,8 +341,9 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   }
 
   // ---------- supervisor ----------
-  // route -> { child, key, state, since, exitCode, restarts, nextStart, up, code, waitedOn, why }: code is a board server's
-  // boardCode as it started, waitedOn the newer code it waits on a builder to run, why 'code' from that restart's stop until the new server answers or crashes
+  // route -> { child, key, state, since, exitCode, restarts, nextStart, up, code, newCode, waitedOn, why }: code is a board
+  // server's boardCode as it started, newCode the newer code in its files while it runs older code, waitedOn that code
+  // and what its restart last waited on, why 'code' from that restart's stop until the new server answers or crashes
   const procs = new Map();
   // Every child spawned and not yet exited, including one whose route has left procs.
   const children = new Set();
@@ -396,6 +402,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const env = { ...process.env, KICKFLIP_HUB_PORT: String(PORT), ...(site.env || {}), PORT: String(site.port), PREFIX: '/' + route, KICKFLIP_ROUTE: route };
     fs.writeSync(out, `\n--- ${new Date().toISOString()} hub starting: ${site.cmd.join(' ')} (port ${site.port})\n`);
     p.code = isBoardSite(site) ? boardCode(site) : null;
+    p.newCode = null;
     let child;
     try {
       child = spawn(cmd, args, { cwd: site.cwd || site.dir, env, stdio: ['ignore', out, out], detached: true });
@@ -469,7 +476,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   }
   async function reconcilePass() {
     if (shuttingDown) return;
-    if (codeRestarts) selfRestart.check();
+    if (codeRestarts) await selfRestart.check();
     const { sites } = loadManifest();
     for (const route of [...procs.keys()]) {
       if (closingResponses.has(route)) continue;
@@ -489,17 +496,18 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         p.nextStart = clock() + 1500;
         continue;
       }
-      // docs/adr/2026-11-04-0056-a-board-server-whose-code-changed-restarts-between-builders.md
+      // docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md
       const onDisk = codeRestarts && p?.child && p.code && !p.stopping && !restarting.has(route) && !closingResponses.has(route) ? boardCode(site) : null;
-      if (onDisk && onDisk !== p.code) {
-        if (!(await openBoardBuilders(site.dir)).length) {
+      if (onDisk) p.newCode = onDisk === p.code ? null : onDisk;
+      if (onDisk && p.newCode) {
+        const held = await codeRestartHeld(route, site.dir);
+        if (!held) {
           log(`${route} runs older code than its files; restarting it`);
-          stop(route);
-          Object.assign(p, { restarts: 0, nextStart: clock() + 1500, why: 'code' });
+          restartForCode(route);
           continue;
         }
-        if (p.waitedOn !== onDisk) log(`${route} runs older code than its files; restarts once no builder runs`);
-        p.waitedOn = onDisk;
+        if (p.waitedOn !== `${onDisk} ${held}`) log(`${route} runs older code than its files; its restart waits, since ${held}`);
+        p.waitedOn = `${onDisk} ${held}`;
       }
       if ((!p || (!p.child && clock() >= (p.nextStart || 0))) && await portFree(route, site)) start(route, site);
     }
@@ -561,9 +569,32 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     p.hung.restartedAt = clock();
   }
   // The hub restarts itself for new code once it is whole on disk (self-restart.mjs), and a board server whose code
-  // changed between builders (reconcile above), unless codeRestarts is false (KICKFLIP_CODE_RESTARTS=off): a try run's
-  // demo hub, which the hub serving it restarts whole when its worktree moves.
-  const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: () => restartRunner('hub'), log });
+  // changed (reconcile above), each once idle, unless codeRestarts is false (KICKFLIP_CODE_RESTARTS=off): a try run's
+  // demo hub, which the hub serving it restarts whole when its worktree moves. A crash or a missing server restarts at
+  // once as ever; only new code waits
+  // (docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md).
+  // What holds the board at dir's restart for new code: the auto restart box off, else auto-restarts.mjs restartHeld
+  // (its session busy, a builder, planner or lander open, a land queued). → the reason, or null when it is idle.
+  async function codeRestartHeld(route, dir) {
+    if (!readAutoRestart()) return 'auto restart is off';
+    const owner = sessionOf(loadManifest(), route);
+    return restartHeld({ dir, record: owner ? liveSessions()?.get(owner.session) : null });
+  }
+  // A hub restart restarts every board server, so it waits on every board.
+  async function hubRestartHeld() {
+    if (!readAutoRestart()) return 'auto restart is off';
+    for (const { route, dir } of listBoards(loadManifest())) {
+      const held = await codeRestartHeld(route, dir);
+      if (held) return `${held} on /${route}`;
+    }
+    return null;
+  }
+  // Stops route's server for its new code; the reconcile starts it again, its page reading restarting · its code changed.
+  function restartForCode(route) {
+    stop(route);
+    Object.assign(procs.get(route), { restarts: 0, nextStart: clock() + 1500, why: 'code' });
+  }
+  const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: () => restartRunner('hub'), idle: hubRestartHeld, log });
   const reconcileLogged = () => reconcile().catch((e) => log('reconcile failed:', e.message));
   const timers = [];
 
@@ -836,7 +867,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
           : p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
       return {
         route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port ?? null, serves, state,
-        exitCode: p.exitCode ?? null, owner: s.owner || null, restart: restartable(s), changedAt: changedAt(route, s) || null, created: s.created || null,
+        exitCode: p.exitCode ?? null, owner: s.owner || null, restart: restartable(s), newServer: Boolean(p.newCode), changedAt: changedAt(route, s) || null, created: s.created || null,
         log: path.join(LOGS, route + '.log'),
       };
     });
@@ -924,6 +955,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const held = hold(now, settings);
     const data = {
       code: code.running ?? null,
+      newHub: Boolean(code.running) && code.running !== code.onDisk,
       version: VERSION,
       total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
       home: fs.realpathSync(os.homedir()),
@@ -1043,7 +1075,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return {
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-        code, version: VERSION, update: { latest: upgrade.available(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
+        code, version: VERSION, update: { latest: upgrade.available(), auto: readAutoUpdate(), clone: upgrade.clone, restart: readAutoRestart() }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
         remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pending().map(shown),
@@ -1098,6 +1130,19 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         const result = await closeBoard(route, input.name);
         stream.refresh();
         return sendJSON(200, result);
+      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
+    if (p === '/_hub/restart-server' && req.method === 'POST') {
+      try {
+        const { route } = await readJSONBody(req);
+        const site = routeRecord(loadManifest().sites, route);
+        if (!site || !isBoardSite(site)) return sendJSON(404, { error: 'That board is not open.' });
+        const proc = procs.get(route);
+        if (!proc?.newCode || !proc.child || proc.stopping) return sendJSON(409, { error: `${site.title || route}’s server runs the code in its files.` });
+        log(`${route} runs older code than its files; restarting it from its Restart`);
+        restartForCode(route);
+        stream.refresh();
+        return sendJSON(200, { route });
       } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
     }
     if (p === '/_hub/restart-board' && req.method === 'POST') {
@@ -1309,6 +1354,10 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if (p === '/_hub/settings/auto-update' && req.method === 'POST') {
       setAutoUpdate(new URLSearchParams(await readBody(req)).get('auto_update') === 'on');
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/');
+    }
+    if (p === '/_hub/settings/auto-restart' && req.method === 'POST') {
+      setAutoRestart(new URLSearchParams(await readBody(req)).get('auto_restart') === 'on');
       return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/');
     }
     if (p === '/_hub/settings/hub-pause' && req.method === 'POST') {

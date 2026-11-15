@@ -749,10 +749,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          unless the node --test files the change affects pass, as
                                                          test runs them, naming each failing
                                                          test and saving the TAP output under ~/.claude/kickflip/logs;
-                                                         fast-forwards the branch in the repo;
-                                                         restarts the hub when its code changed, else each board
-                                                         server when board/ changed; removes the worktree and its
-                                                         branch. Without --site it never pushes. One land runs at a time on the host: a
+                                                         fast-forwards the branch in the repo; removes the worktree
+                                                         and its branch. It restarts nothing: the hub restarts
+                                                         what runs new code once idle. Without --site it never pushes. One land runs at a time on the host: a
                                                          second refuses, naming the task landing. With --site, --text <what was checked>
                                                          is required, and once it lands the task closes as item set
                                                          --done --text does; it refuses first what that close

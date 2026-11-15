@@ -1051,11 +1051,16 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
   assert.equal(note(), null);
   const paintWith = (update) => live.paint({ ...hubView({ now, st: status(now, DEFAULTS), rows: [], code: { running: 'abc', onDisk: 'abc' },
     sidebar: { pause: CALM_GATE, sites: [], hub: { tone: 'ok', word: 'ok', detail: '' }, notifications: {}, total: 0 }, update }), version: '0.7.7' });
-  paintWith({ latest: '0.7.8', auto: false, clone: false });
+  paintWith({ latest: '0.7.8', auto: false, clone: false, restart: true });
   assert.equal(root.querySelector('[data-check-update]').textContent, 'kickflip.sh / 0.7.7 > 0.7.8 (new)');
   assert.equal(root.querySelector('[data-auto-update]').hasAttribute('checked'), false);
-  paintWith({ latest: null, auto: true, clone: true });
+  // docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md: auto restart
+  // sits under auto update, on a clone too.
+  assert.equal(root.querySelector('[data-auto-restart]').hasAttribute('checked'), true);
+  assert.equal(root.querySelector('[data-auto-restart]').parentNode.textContent.trim(), 'auto restart');
+  paintWith({ latest: null, auto: true, clone: true, restart: false });
   assert.equal(root.querySelector('[data-auto-update]'), null);
+  assert.equal(root.querySelector('[data-auto-restart]').hasAttribute('checked'), false);
   paintWith({ latest: null, auto: true, clone: false });
   tap();
   await settle();

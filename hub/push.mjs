@@ -191,6 +191,15 @@ export function setAutoUpdate(on, home = os.homedir()) {
   writeSettingsFile(on ? rest : { ...rest, autoUpdate: false }, home);
 }
 
+// Auto restart, the box beside it (docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md):
+// off only when settings.json says autoRestart: false; unset is on.
+export const readAutoRestart = (home = os.homedir()) => readSettingsFile(home).autoRestart !== false;
+
+export function setAutoRestart(on, home = os.homedir()) {
+  const { autoRestart: _, ...rest } = readSettingsFile(home);
+  writeSettingsFile(on ? rest : { ...rest, autoRestart: false }, home);
+}
+
 // Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md):
 // opus or sonnet forces it, auto leaves it to the card (shared/usage-gate.mjs builderPick). A missing or unknown stored
 // value is auto.
