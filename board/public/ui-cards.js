@@ -33,6 +33,8 @@
     const label = look.label ? { title, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${title}`, ...dim } } : { title: note || undefined, attrs: { ...EXTERNAL, ...dim } };
     return badge(look.tone, `${esc(name)}${look.mark}`, { href: pr.url, ...label });
   }
+  // docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md: a Merge-mode Done card's commit, in the PR badge's place: the short sha in mono, purple, linking the commit on GitHub.
+  const commitChip = (it) => !it.commit ? '' : badge('merged', `<code>${esc(it.commit.sha)}</code>`, { href: it.commit.url, title: 'Landed commit', attrs: it.commit.url ? EXTERNAL : {} });
   const linearChips = (it) => (it.linear || []).map((l) => badge('quiet', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
   const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge('quiet', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: EXTERNAL });
   // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: a card with no ticket is a task, its T-<n>
@@ -443,7 +445,7 @@
     const ids = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
     // A card shows its ticket, or Task when it has none.
     // The builder's risk (builder done --risk), coloured as its PR's Slack bar.
-    const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${it.risk ? badge(RISK_TONES[it.risk], `${it.risk} risk`) : ''}${installChip(it)}`;
+    const chips = `${prChips(it)}${commitChip(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${it.risk ? badge(RISK_TONES[it.risk], `${it.risk} risk`) : ''}${installChip(it)}`;
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: preheating, planning prototype
     // or planning visual while the orchestrator writes the brief, generating visual while a visual agent draws, in blue.
     const status = it.planning && !it.builder ?`<div class="line3 sub agent planner">${DOT}${esc(it.planning)}</div>`
@@ -503,5 +505,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, newEntries, newStrip, askLine, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, newEntries, newStrip, askLine, reviewLane });
 })();

@@ -3284,6 +3284,8 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
     item.branch = mergeReady;
   }
   if (done) { delete item.merge_ready; delete item.waits_on_owner; }
+  // docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md: the commit a land fast-forwarded the base to.
+  if (typeof landed === 'string') item.landed_sha = landed;
   if (ghSince !== undefined) {
     if (typeof ghSince !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(ghSince) || Number.isNaN(Date.parse(ghSince))) fail('--gh-since takes an ISO-8601 UTC time such as 2026-10-23T11:00:00Z');
     item.gh_since = ghSince;

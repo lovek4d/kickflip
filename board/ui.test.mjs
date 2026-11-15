@@ -3165,3 +3165,13 @@ test('a card whose planner is queued for the usage reset ends its alert row with
   assert.equal(alert({ plannerQueued: false }), undefined);
   assert.match(alert({ plannerQueued: true, stalled: true }), /card-stalled">stalled<\/span><span class="sep"> · <\/span><span class="paused">paused<\/span>$/);
 });
+
+// docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md
+test("a Merge-mode Done card's commit is a purple badge of its short sha in mono, a link when it has a url, plain when not, and nothing without one", () => {
+  const linked = ui.commitChip({ commit: { sha: 'abcdef0', url: 'https://github.com/o/r/commit/abcdef0' } });
+  assert.equal(text(linked), 'abcdef0');
+  assert.match(linked, /^<a class="chip tone-merged" href="https:\/\/github.com\/o\/r\/commit\/abcdef0" [^>]*target="_blank"[^>]*><code>abcdef0<\/code><\/a>$/);
+  assert.match(ui.commitChip({ commit: { sha: 'abcdef0', url: null } }), /^<span class="chip tone-merged"[^>]*><code>abcdef0<\/code><\/span>$/);
+  assert.equal(ui.commitChip({ commit: null }), '');
+  assert.equal(ui.prChips({ commit: { sha: 'abcdef0', url: null }, prs: [] }), '');
+});

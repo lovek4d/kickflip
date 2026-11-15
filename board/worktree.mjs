@@ -655,8 +655,8 @@ export async function land(tree, { hold = false, ...opts } = {}) {
 }
 
 // Under the land lock: fast-forwards base to tested, the commit prepareLand tested, tags it when it is a release
-// (release-tag.mjs), then restarts what runs the changed code and removes the worktree and branch. → {tag}, the
-// release tag it made or null, or false, changing nothing, when base moved past tested or the branch moved.
+// (release-tag.mjs), then restarts what runs the changed code and removes the worktree and branch. → {tag, commit}, the
+// release tag it made or null and the commit it landed, or false, changing nothing, when base moved past tested or the branch moved.
 export function landPrepared({ path: dir, branch, repo, base }, tested, { say = console.log, restart = restartRunner, boards = () => listBoards(), clone = skillRepo() } = {}) {
   onBase(repo, base);
   if (git(repo, 'rev-parse', branch).out !== tested || !git(repo, 'merge-base', '--is-ancestor', base, tested).ok) return false;
@@ -688,5 +688,5 @@ export function landPrepared({ path: dir, branch, repo, base }, tested, { say = 
   if (deleted.ok) say(`branch deleted: ${branch}`); else failed.push(`could not delete branch ${branch} (${deleted.err})`);
   git(repo, 'update-ref', '-d', testedRef(branch));
   if (failed.length) fail(`landed, but ${failed.join('; ')}`);
-  return { tag };
+  return { tag, commit: tested };
 }

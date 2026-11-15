@@ -387,6 +387,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     finishable: lane !== 'done',
     merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), filedHeld: Boolean(it.filed_held), next: changing || lane === 'done' || waitsOn === 'checking' ? null : idle && ownerPending ? REPLY_WAITS : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
     rebaseFailed,
+    commit: lane === 'done' && it.landed_sha ? { sha: it.landed_sha.slice(0, 7), url: repo ? `https://github.com/${repo}/commit/${it.landed_sha}` : null } : null,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' || stepWaits ? null : pushed,
     mergeReady: lane === 'review' ? mergeReady : null,
     // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a Merge tap's land the orchestrator

@@ -649,3 +649,13 @@ test("a land tags a release commit as it landed, after the rebase, and pushes th
   assert.equal(itemOf('A5').lane, 'done');
   assert.match(threadOf('A5').at(-1).text, /^Landed, but v0\.6\.0 didn't reach origin: /);
 });
+
+// docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md
+test('a land records the commit it fast-forwarded main to on the card', async () => {
+  const repo = scratchRepo();
+  assert.equal((await board('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
+  commit(worktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
+  const landed = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
+  assert.equal(landed.code, 0, landed.err);
+  assert.equal(itemOf('A1').landed_sha, git(repo, 'rev-parse', 'main'));
+});

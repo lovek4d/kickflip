@@ -227,6 +227,7 @@ BoardView.part((B) => {
       }
     }
     if (it.branch) rows.push(['Branch', `<code>${esc(it.branch)}</code>`]);
+    if (it.commit) rows.push(['Commit', it.commit.url ? `<a href="${esc(it.commit.url)}" target="_blank" rel="noopener"><code>${esc(it.commit.sha)}</code></a>` : `<code>${esc(it.commit.sha)}</code>`]);
     rows.push(['Status', esc(BoardUI.statusWord(it))]);
     // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md: each link row is comma-separated text links that open their cards, oldest first.
     for (const [label, list] of [['Parent', it.parent ? [it.parent] : []], ['Children', it.children], ['Related to', it.related], ['Blocked by', it.blockedBy], ['Waits on it', it.waitsOnIt]]) {

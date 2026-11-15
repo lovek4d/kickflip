@@ -3134,3 +3134,13 @@ test('every tap command has a tone, and a thread line carries its kind\'s tone; 
   assert.equal(COMMAND_TONES.readied, 'green');
   assert.equal(COMMAND_TONES.hold, 'grey');
 });
+
+// docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md
+test("a Done card with a landed sha has a commit, linking its repo's GitHub commit, and no link without one; an open card or one with no sha has none", () => {
+  const sha = 'abcdef0123456789abcdef0123456789abcdef01';
+  const view = (github, item) => buildBoard({ fromWaves: false, github, files: [{ slug: 's', itemFile: { items: [{ id: 'S1', title: 'One', ...item }] } }] }).items[0].commit;
+  assert.deepEqual(view('o/r', { lane: 'done', landed_sha: sha }), { sha: 'abcdef0', url: `https://github.com/o/r/commit/${sha}` });
+  assert.deepEqual(view(undefined, { lane: 'done', landed_sha: sha }), { sha: 'abcdef0', url: null });
+  assert.equal(view('o/r', { lane: 'done' }), null);
+  assert.equal(view('o/r', { lane: 'progress', landed_sha: sha }), null);
+});
