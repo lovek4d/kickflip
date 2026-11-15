@@ -126,8 +126,8 @@ test("Restart stops a board's session, restarts its server and resumes the sessi
     assert.equal(hubRestart.status, 200);
     assert.deepEqual(await hubRestart.json(), { route: 'hub-orchestrator', title: 'Hub', session: hubId });
     const tmuxCalls = fs.readFileSync(path.join(home, 'tmux.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    assert.deepEqual(tmuxCalls.map((a) => a.slice(0, 6)), [['has-session', '-t', '=kickflip-hub-orchestrator'], ['new-session', '-d', '-s', 'kickflip-hub-orchestrator', '-c', repo]]);
-    const started = tmuxCalls[1];
+    assert.deepEqual(tmuxCalls.map((a) => a.slice(0, 6)), [['has-session', '-t', '=kickflip-hub-orchestrator'], ['has-session', '-t', '=kickflip-hub-orchestrator'], ['new-session', '-d', '-s', 'kickflip-hub-orchestrator', '-c', repo]]);
+    const started = tmuxCalls[2];
     assert.deepEqual([started.includes(claude), started[started.indexOf('--resume') + 1], started.includes('--bg')], [true, hubId, false]);
     assert.ok(started.includes('--settings'));
     assert.equal(calls().length, made.length);

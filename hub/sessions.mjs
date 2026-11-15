@@ -125,6 +125,20 @@ export function runTmux(argv) {
 export const tmuxName = (route) => `kickflip-${route}`;
 const hasTmux = (tmux, route) => tmux(['has-session', '-t', `=${tmuxName(route)}`]).status === 0;
 
+// After a hub board's session was stopped, waits for its tmux session to be gone, polling has-session up to `limit`
+// times, `sleep` ms apart, and kills one still there, so the resume that follows doesn't refuse it as live. A board
+// that doesn't run in tmux has nothing to wait for.
+export async function closeTmux(route, { manifest = readManifest(), tmux = runTmux, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), limit = 20 } = {}) {
+  if (routeRecord(manifest.sites, route)?.hub !== true) return;
+  for (let polls = 0; hasTmux(tmux, route); polls++) {
+    if (polls >= limit) {
+      tmux(['kill-session', '-t', `=${tmuxName(route)}`]);
+      return;
+    }
+    await sleep(500);
+  }
+}
+
 // The hub board's session, when its context is full (usage.mjs contextFull) and it runs in its tmux session, gets /compact
 // typed into its pane, once per fill: compact-state.json {<route>: {session, percent, at, error?}} records the attempt
 // and is cleared once the board's context is no longer full, so a session that fills again is compacted again. A
@@ -368,11 +382,12 @@ export function resumeSession(route, options = {}) {
   return withSessionLock(route, ({ resume }) => resume(options));
 }
 
-// Under the route's session lock: stops its recorded session, then resumes it (resumeRecordedSession), whose first turn
+// Under the route's session lock: stops its recorded session, waits for its tmux session to close (closeTmux), then resumes it (resumeRecordedSession), whose first turn
 // relaunches its watcher. → resume's answer
-export function restartSession(route, { manifest = readManifest(), live = liveSessions, stop = runSessionStop, run = runClaude, tmux = runTmux } = {}) {
+export function restartSession(route, { manifest = readManifest(), live = liveSessions, stop = runSessionStop, run = runClaude, tmux = runTmux, sleep, limit } = {}) {
   return withSessionLock(route, async ({ resume }) => {
     await stopSession(sessionOf(manifest, route), { live, stop });
+    await closeTmux(route, { manifest, tmux, sleep, limit });
     return resume({ manifest, live, run, tmux });
   });
 }

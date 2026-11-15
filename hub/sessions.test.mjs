@@ -805,6 +805,35 @@ test('a session restart stops the running session, then resumes it in its folder
   assert.deepEqual([r.route, r.session, r.previous], ['again', 's-again', 's-again']);
 });
 
+// A hub board's session runs in a tmux session SIGTERM closes a moment later: a restart waits for it, and kills one that stays.
+test("a hub board's session restart waits for its old tmux session to close before resuming, and kills one that never closes", async () => {
+  const { restartSession } = await import('./sessions.mjs');
+  const dir = path.join(home, 'restart-tmux');
+  write(path.join(dir, 'board.json'), { title: 'Tmuxed' });
+  const m = { sites: { tmuxed: { dir, port: 1, cmd: boardCmd(dir), hub: true, owner: { session: 's-tmuxed', repo } } } };
+  const attempt = async (closesAfter) => {
+    const steps = [];
+    let polls = 0;
+    let open = true;
+    let running = new Map([['s-tmuxed', { pid: 1, sessionId: 's-tmuxed', kind: 'fg' }]]);
+    const tmux = (argv) => {
+      steps.push(argv[0]);
+      if (argv[0] === 'has-session') { if (++polls > closesAfter) open = false; return { status: open ? 0 : 1, stdout: '', stderr: '' }; }
+      if (argv[0] === 'kill-session') open = false;
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    const r = await restartSession('tmuxed', { manifest: m, live: () => running, stop: async () => { running = new Map(); }, tmux, sleep: async () => {}, limit: 10 });
+    return { steps, r };
+  };
+  const slow = await attempt(3);
+  assert.deepEqual(slow.steps.filter((s) => s !== 'has-session'), ['new-session'], 'a slow exit is waited out, not killed');
+  assert.ok(slow.steps.indexOf('new-session') >= 3);
+  assert.equal(slow.r.session, 's-tmuxed');
+  const stuck = await attempt(Infinity);
+  assert.deepEqual(stuck.steps.filter((s) => s !== 'has-session'), ['kill-session', 'new-session']);
+  assert.equal(stuck.steps.filter((s) => s === 'has-session').length >= 10, true);
+});
+
 test("while ps can't answer whether a session runs, the wake, the deaf push and the compact check wait for the next check, and start, resume, stop and hub refuse", async () => {
   const { stopSession, hubSession, compactFullContexts } = await import('./sessions.mjs');
   const { checkListening, listenState } = await import('./boards.mjs');

@@ -1,7 +1,7 @@
 // Restart on a board's row of the Hub page (docs/adr/2026-11-02-1736-a-board-restarts-from-its-row-on-the-hub-page.md).
 import { listBoards, readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { routeRecord, validRoute } from './routes.mjs';
-import { sessionOf, stopSession, withSessionLock } from './sessions.mjs';
+import { closeTmux, sessionOf, stopSession, withSessionLock } from './sessions.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 
@@ -13,7 +13,7 @@ export const restartable = (site) => Boolean(Array.isArray(site?.cmd) && site.cm
 const STARTING_LIMIT = 120_000;
 const POLL = 1000;
 
-// Under the board's session lock: stops its recorded session, sets its manifest entry's restart_at as `kickflip
+// Under the board's session lock: stops its recorded session and waits for its tmux session to close (closeTmux), sets its manifest entry's restart_at as `kickflip
 // restart` does, so the hub restarts its server (hub.mjs keyOf), waits for serverUp(route) (→ whether the new server
 // answered), then resumes the session. A server that hasn't answered by then is still starting: portUp(port) is polled
 // (every POLL ms by sleep, counted by now, onStarting(title) said once) for STARTING_LIMIT ms, and only a port that
@@ -31,6 +31,7 @@ export async function restartBoard(route, { serverUp, portUp, live, stop, run, n
     const shared = listBoards(manifest).filter((other) => other.route !== route && other.owner?.session === site.owner.session);
     if (shared.length) refuse(`This session is also recorded by ${shared.map((other) => `${other.title} (/${other.route})`).join(', ')}; restart refused.`, 409);
     await stopSession(sessionOf(manifest, route), { live, stop });
+    await closeTmux(route, { manifest });
     await withManifestLock(async () => {
       const m = readManifest();
       const current = routeRecord(m.sites, route);
