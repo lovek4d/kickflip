@@ -48,6 +48,38 @@
   // → {savedAt, board, threads} or null.
   const boardCopy = (key, build) => copyStore('boards', 'readonly', (store) => store.get(key)).then((s) => readCopy(s, build ?? s?.build), () => null);
 
+  // Catches the saved copy of the board at key up to the hub's board with no page on it (shell.js keepFresh;
+  // docs/adr/2026-11-15-1800-the-shell-keeps-every-sidebar-boards-saved-copy-fresh.md): by the changes since the copy's
+  // number when build saved it, else whole, with every card's thread and notes loaded beside. get(url) → the answer's
+  // JSON, rejecting on a failed one. → the saved board's number, or null when the copy was replaced meanwhile, which
+  // the board's own page saved and so is no older.
+  async function syncCopy(key, build, get) {
+    const read = () => copyStore('boards', 'readonly', (store) => store.get(key));
+    const was = await read();
+    const copy = readCopy(was, build);
+    const answer = await get(`${key}api/board${copy ? `?since=${copy.board.version}` : ''}`);
+    const patched = copy && answer.since !== undefined;
+    const threads = new Map(patched ? Object.entries(copy.threads) : []);
+    const notes = new Map(patched ? Object.entries(copy.notes) : []);
+    const board = patched ? globalThis.BoardUI.applyPatch(copy.board, answer) : answer;
+    let stale = board.items.map((i) => i.key);
+    if (patched) {
+      const patch = globalThis.BoardUI.threadPatch(threads, answer.threads || {});
+      for (const [k, msgs] of patch.set) threads.set(k, msgs);
+      stale = patch.stale;
+      for (const [k, md] of Object.entries(answer.notes || {})) if (md === null) notes.delete(k); else notes.set(k, md);
+    } else {
+      for (const [k, md] of Object.entries((await get(`${key}api/notes?all=1`)).notes)) notes.set(k, md);
+    }
+    for (let i = 0; i < stale.length; i += 4) {
+      await Promise.all(stale.slice(i, i + 4).map(async (k) => threads.set(k, await get(`${key}api/thread?key=${encodeURIComponent(k)}`))));
+    }
+    const now = await read();
+    if (now?.savedAt !== was?.savedAt || now?.build !== was?.build) return null;
+    await copyStore('boards', 'readwrite', (store) => store.put(copyOf(board, threads, notes, { build, savedAt: board.generatedAt }), key));
+    return board.version;
+  }
+
   // The order a whole board's threads load in, since a whole board carries none (app-threads.js fillThreads): → {open,
   // rest}, open the keys of the open cards, which load at once, and rest every other card's, those held lacks first,
   // each in board order.
@@ -73,5 +105,5 @@
   const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.lane ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
     it.next ?? null, it.ask?.state ?? null, ...(it.prs || []).map((pr) => [pr.state, pr.isDraft, pr.reviewDecision, pr.checks?.state ?? null])]);
 
-  Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, pageCopy, boardCopy, fillOrder, tapped, changedLines, updateSign });
+  Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, syncCopy, pageCopy, boardCopy, fillOrder, tapped, changedLines, updateSign });
 })();

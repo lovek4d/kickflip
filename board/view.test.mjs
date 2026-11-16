@@ -1630,9 +1630,10 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
 });
 
 async function shellPage(path, { fetch, sidebarData = { sites: [{ route: 'shop', title: 'The Shop', board: true, icon: '' }, { route: 'other', title: 'Other', board: true, icon: '' }] },
-  EventSource, reload, storage = memoryStorage(), realBoards = false, width = 390 } = {}) {
+  EventSource, reload, storage = memoryStorage(), realBoards = false, width = 390, indexedDB = null } = {}) {
   const page = fakePage(storage.localStorage);
   const { win } = page;
+  if (indexedDB) win.indexedDB = indexedDB;
   // One media query object per query, so a test can fire the shell's own 'change' after moving innerWidth.
   win.innerWidth = width;
   const media = new Map();
@@ -7198,4 +7199,77 @@ test("opening or closing a fold in a thread, and tapping Show more, grow and shr
   b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-thread="w/A1"] [data-thread-more]') });
   assert.ok(b.root.querySelectorAll('[data-thread="w/A1"] .msg').length > before);
   assert.equal(boxTop(), start);
+});
+
+// docs/adr/2026-11-15-1800-the-shell-keeps-every-sidebar-boards-saved-copy-fresh.md
+test("the shell keeps every other sidebar board's saved copy current: whole on open, then by the changes since, at most once a minute, and again for a copy another build saved", async () => {
+  const idb = memoryIndexedDB();
+  const storage = memoryStorage();
+  const sources = [];
+  class EventSource {
+    static CLOSED = 2;
+    constructor() { this.readyState = 1; this.listeners = new Map(); sources.push(this); }
+    addEventListener(type, fn) { this.listeners.set(type, fn); }
+    close() { this.readyState = EventSource.CLOSED; }
+  }
+  const msg = (n) => ({ at: `2026-11-15T10:0${n}:00.000Z`, text: `line ${n}` });
+  const card = (key, changed) => ({ key, lane: 'todo', changed });
+  const answers = {
+    'https://mac.ts.net/other/api/board': { title: 'Other', version: 5, generatedAt: '2026-11-15T10:00:00.000Z', items: [card('o/A', 5), card('o/B', 5)], owner: [], ownerTopics: [] },
+    'https://mac.ts.net/other/api/thread?key=o%2FA': [msg(1)],
+    'https://mac.ts.net/other/api/thread?key=o%2FB': [],
+    'https://mac.ts.net/other/api/notes?all=1': { notes: { 'o/A': '# Notes A' } },
+    'https://mac.ts.net/other/api/board?since=5': { since: 5, version: 6, generatedAt: '2026-11-15T10:05:00.000Z', set: {}, unset: [], lists: { items: { set: [card('o/B', 6)], drop: [] } },
+      threads: { 'o/A': { from: 1, lines: [msg(2)] } }, notes: { 'o/A': '# Notes A, edited' } },
+  };
+  const asked = [];
+  const { win, page } = await shellPage('/shop/', {
+    indexedDB: idb, storage, EventSource,
+    fetch: async (url) => {
+      asked.push(url);
+      return answers[url] === undefined ? new Promise(() => {}) : { ok: true, status: 200, json: async () => answers[url] };
+    },
+  });
+  const saved = () => idb.rows.get('https://mac.ts.net/other/');
+  const syncs = () => asked.filter((u) => u.includes('/other/api/board'));
+  await drain(() => saved()?.notes['o/A'], "the board the shell isn't showing is saved whole on open");
+  assert.equal(asked.some((u) => u.includes('/shop/api/')), false, 'the open board keeps its own copy');
+  assert.deepEqual([saved().build, saved().board.version, saved().threads['o/A'].length, saved().notes['o/A']], ['build-1', 5, 1, '# Notes A']);
+  assert.deepEqual(JSON.parse(storage.storage.get('site:other:copyVersion')), { build: 'build-1', version: 5 }, "app.html's boot asks since this number");
+
+  // A change within the minute of the last catch-up fetches nothing; the open board's change never does.
+  sources[0].listeners.get('change')({ data: JSON.stringify({ route: 'other' }) });
+  sources[0].listeners.get('change')({ data: JSON.stringify({ route: 'shop' }) });
+  await new Promise(setImmediate);
+  assert.deepEqual(syncs(), ['https://mac.ts.net/other/api/board']);
+
+  page.advance(61_000);
+  sources[0].listeners.get('change')({ data: JSON.stringify({ route: 'other' }) });
+  await drain(() => saved().board.version === 6, 'a change a minute on catches up by the changes since');
+  assert.deepEqual([saved().threads['o/A'].map((m) => m.text), saved().notes['o/A'], saved().board.items[1].changed], [['line 1', 'line 2'], '# Notes A, edited', 6]);
+  assert.deepEqual(JSON.parse(storage.storage.get('site:other:copyVersion')), { build: 'build-1', version: 6 });
+
+  // A copy another build saved is fetched whole again.
+  await win.BoardUI.copyStore('boards', 'readwrite', (store) => store.put({ ...saved(), build: 'build-0' }, 'https://mac.ts.net/other/'));
+  page.advance(61_000);
+  const before = asked.length;
+  sources[0].listeners.get('change')({ data: JSON.stringify({ route: 'other' }) });
+  await drain(() => saved().build === 'build-1', 'an old build copy is refetched');
+  assert.equal(asked.slice(before)[0], 'https://mac.ts.net/other/api/board');
+  assert.equal(saved().board.version, 5);
+});
+
+test("a catch-up that finds the saved copy replaced meanwhile, by the board's own view, leaves that copy", async () => {
+  const idb = memoryIndexedDB();
+  const { win } = await shellPage('/shop/', { indexedDB: idb, fetch: () => new Promise(() => {}) });
+  const key = 'https://mac.ts.net/other/';
+  const old = { build: 'build-1', savedAt: '2026-11-15T10:00:00.000Z', board: { version: 5, items: [], owner: [], ownerTopics: [] }, threads: {}, notes: {} };
+  const newer = { ...old, savedAt: '2026-11-15T10:09:00.000Z', board: { ...old.board, version: 9 } };
+  await win.BoardUI.copyStore('boards', 'readwrite', (store) => store.put(old, key));
+  const result = await win.BoardUI.syncCopy(key, 'build-1', async () => {
+    await win.BoardUI.copyStore('boards', 'readwrite', (store) => store.put(newer, key));
+    return { since: 5, version: 6, generatedAt: '2026-11-15T10:05:00.000Z', set: {}, unset: [], lists: {} };
+  });
+  assert.equal(result, null);
+  assert.equal(idb.rows.get(key).board.version, 9);
 });

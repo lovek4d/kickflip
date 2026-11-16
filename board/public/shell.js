@@ -5,7 +5,8 @@
 // siteRoot, ctx)}; a hub page's siteRoot is /_hub. Following a link to any of them, the sidebar's included, swaps the
 // view in place through router.js; a link to anything that isn't a page loads it. Leaving a view whose root holds
 // [data-dirty], an unsaved edit, asks first. The shell holds the hub's one stream, /_hub/stream
-// (hub/stream.mjs): `change {route}` signals the open board, and `sidebar` repaints the sidebar. A board the shell
+// (hub/stream.mjs): `change {route}` signals the open board and catches up the saved copy of any other (keepFresh),
+// and `sidebar` repaints the sidebar. A board the shell
 // leaves is unmounted, and paints live from its saved copy when it comes back
 // (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md); below 900px its Waiting on you is no leaving: the
 // two stay mounted and switch in place (docs/adr/2026-11-14-2332-on-a-phone-the-board-and-waiting-on-you-switch-in-place.md).
@@ -92,6 +93,24 @@ window.AppShell = (function () {
       for (const fn of listeners.get(route) || []) fn();
     }
 
+    // docs/adr/2026-11-15-1800-the-shell-keeps-every-sidebar-boards-saved-copy-fresh.md
+    // Every board the sidebar lists but the shell shows keeps its saved copy current in the background: on app open and
+    // on that board's change event, at most once a minute each. A board on screen saves its own copy. app.html's boot
+    // asks since the number in copyVersion, so that follows the save.
+    const BUILD = document.documentElement.dataset.build;
+    const syncedAt = new Map();
+    async function keepFresh(route) {
+      if (!boards().has(route) || [current, kept].some((entry) => entry?.view.kind === 'board' && entry.route === route)) return;
+      if (Date.now() - (syncedAt.get(route) ?? -Infinity) < 60_000) return;
+      syncedAt.set(route, Date.now());
+      const key = new URL(`/${encodeURIComponent(route)}/`, location.href).href;
+      const get = (url) => fetch(url, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${url} ${r.status}`))));
+      try {
+        const version = await BoardUI.syncCopy(key, BUILD, get);
+        if (version !== null) localStorage.setItem(`site:${route}:copyVersion`, JSON.stringify({ build: BUILD, version }));
+      } catch { /* the copy stays as it was until the next change */ }
+    }
+
     let es = null;
     let opened = false;
     let tries = 0;
@@ -110,7 +129,7 @@ window.AppShell = (function () {
       cur.addEventListener('change', (e) => {
         let d = null;
         try { d = JSON.parse(e.data); } catch { return; }
-        if (typeof d?.route === 'string') changed(d.route);
+        if (typeof d?.route === 'string') { changed(d.route); keepFresh(d.route); }
       });
       cur.addEventListener('sidebar', (e) => {
         try { data = JSON.parse(e.data); } catch { return; }
@@ -408,6 +427,7 @@ window.AppShell = (function () {
     show(first);
     if (pane) askPane(pane);
     openStream();
+    (async () => { for (const route of boards()) await keepFresh(route); })();
     addEventListener('visibilitychange', () => { if (!document.hidden) openStream(); });
     addEventListener('pageshow', openStream);
     // A page kept in the back-forward cache keeps its stream's connection, and a few such pages take every connection
