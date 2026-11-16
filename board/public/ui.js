@@ -508,6 +508,26 @@
   // padding reads as a backdrop click; only the dim area around the box counts as one.
   const outsideBox = (ev, box) => { const r = box.getBoundingClientRect(); return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom; };
 
+  // A sheet closes by playing its entry backwards (style.css .closing): 180 ms, then it closes and done runs. Reduced
+  // motion closes at once. cutClose ends one in progress so the sheet can open again.
+  // later is the view's own timer (B.later), which an unmount clears.
+  function closeSheet(sheet, later, done = () => {}) {
+    if (!sheet.open || sheet.classList.contains('closing')) return;
+    if (globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches) { sheet.close(); done(); return; }
+    sheet.classList.add('closing');
+    later(180, () => {
+      if (!sheet.classList.contains('closing')) return;
+      sheet.classList.remove('closing');
+      sheet.close();
+      done();
+    }, 180);
+  }
+  function cutClose(sheet) {
+    if (!sheet.classList.contains('closing')) return;
+    sheet.classList.remove('closing');
+    sheet.close();
+  }
+
   // Swiping a sheet down drags it to dismiss (docs/adr/2026-11-14-1700-swiping-a-sheet-down-drags-it-to-dismiss.md).
   // A release past a third of the sheet's height, or a flick, counts as Escape: the sheet's own cancel handler runs.
   const SWIPE = { share: 0.3, flick: 0.6, minFlick: 24, slop: 8 };
@@ -568,7 +588,7 @@
   // After ui-icon-text.js, whose iconText, ICON_SHAPES and ICON_COLOURS stay on BoardUI.
   globalThis.BoardUI = {
     ...globalThis.BoardUI,
-    LINK_ARROW, escText, onBackdrop, outsideBox, swipeToDismiss, swipeVerdict,
+    LINK_ARROW, escText, onBackdrop, outsideBox, closeSheet, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, requestRow, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };

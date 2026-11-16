@@ -18,10 +18,7 @@ BoardView.part((B) => {
     $('#mainLogReason').hidden = !text;
   }
   function closeMainLog() {
-    if (!mainSheet.open || mainSheet.classList.contains('closing')) return;
-    if (reduceMotion.matches) { mainSheet.close(); return; }
-    mainSheet.classList.add('closing');
-    B.later(180, () => { mainSheet.classList.remove('closing'); mainSheet.close(); });
+    BoardUI.closeSheet(mainSheet, B.later);
   }
   // A failing main's log lines ride the board (main.log; docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md), so the
   // sheet draws them from each board that carries them; while main rebuilds it keeps the last ones.
@@ -146,9 +143,7 @@ BoardView.part((B) => {
   function closeHold() {
     if (!holdSheet.open || holdSheet.classList.contains('closing')) return;
     holdPicking = null;
-    if (reduceMotion.matches) { holdSheet.close(); return; }
-    holdSheet.classList.add('closing');
-    B.later(180, () => { holdSheet.classList.remove('closing'); holdSheet.close(); });
+    BoardUI.closeSheet(holdSheet, B.later);
   }
   // Whether the open sheet came from the card's reply box, whose Block goes through the thread's outbox.
   let holdInBox = false;

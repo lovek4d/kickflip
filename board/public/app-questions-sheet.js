@@ -24,6 +24,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   const { esc, time, questionCard, getDraft, setDraft, noteOf, choiceOf, linkContext, ANSWER_OUTBOX } = BoardUI;
   const body = sheet.querySelector('.reader-body');
   let topic = null;
+  // The view's timer: a close still playing when the view goes is dropped with it.
+  const later = (ms, fn) => { const t = setTimeout(fn, ms); atUnmount(() => clearTimeout(t)); };
   // The questions the sheet opened with, which it keeps drawing once sent.
   let kept = new Set();
   let modal = true;
@@ -105,6 +107,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     const was = topic;
     topic = t;
     if (!openOf().length) { topic = was; return false; }
+    BoardUI.cutClose(sheet);
     if (t !== was || !sheet.open) kept = new Set(openOf().map((q) => q.id));
     if (!sheet.open) {
       modal = !matchMedia('(min-width: 900px)').matches;
@@ -114,9 +117,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     return true;
   }
   function close() {
-    if (!sheet.open) return;
-    sheet.close();
-    topic = null;
+    BoardUI.closeSheet(sheet, later, () => { topic = null; });
   }
 
   // Sends the answer outbox in order, one at a time. Each leaves it once the board has it, its draft and files cleared;

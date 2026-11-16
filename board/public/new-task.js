@@ -21,7 +21,6 @@ globalThis.BoardNewTask = (function () {
     const { keyedSend } = BoardUI;
     // The ask box is a bottom sheet: a <dialog> opened from the + button. Closing keeps the draft.
     const sheet = $('#sheet');
-    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
     // Files picked before the app shell switched away from this board are still attached, so they show again.
     BoardAttach.paint('ask', B.site.root);
     // ⌘↵ sends the ask as Discuss and ⌥↵ as Implement (ui.js keyedSend).
@@ -51,9 +50,7 @@ globalThis.BoardNewTask = (function () {
     function closeSheet() {
       if (!sheet.open || sheet.classList.contains('closing')) return;
       $('#compose').setAttribute('aria-expanded', 'false');
-      if (reduceMotion.matches) { sheet.close(); return; }
-      sheet.classList.add('closing');
-      B.later(180, () => { sheet.classList.remove('closing'); sheet.close(); });
+      BoardUI.closeSheet(sheet, B.later);
     }
     B.on($('#compose'), 'click', openSheet);
     // n pressed twice opens the sheet, as the + button's tooltip says, unless a field or another dialog has focus. With

@@ -5168,10 +5168,12 @@ test("tapping a topic's row opens the questions sheet over the list with that to
   v.answer('q2');
   await v.send();
   assert.deepEqual(v.answersSent(), [[{ id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }], [{ id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }]]);
+  v.page.runTimers();
   assert.deepEqual([v.sheet().open, v.moves], [false, []]);
   assert.deepEqual(v.shown().rows.map(([id]) => id), ['topic:item:w/T2'], 'the answered topic leaves the list');
   await v.tap('topic:item:w/T2');
   v.page.fire(v.sheet(), 'click', { target: v.sheet().querySelector('[data-qs="close"]') });
+  v.page.runTimers();
   assert.deepEqual([v.sheet().open, v.sent.length, v.shown().rows.length], [false, 2, 1]);
   v.unmount();
 });
@@ -5326,6 +5328,7 @@ test("Send sends each answered question on its own, which reads <time> · sendin
   assert.deepEqual(v.shown().questions, ['q1', 'q2', 'q3'], 'the sent questions stay in the sheet while it is open');
   v.answer('q3');
   await v.send();
+  v.page.runTimers();
   assert.deepEqual([v.answersSent().length, v.sheet().open, v.moves], [3, false, []], 'every question sent, the topic moves on');
   assert.deepEqual(v.shown().rows, []);
   v.unmount();
@@ -6187,10 +6190,12 @@ test('on desktop the reader sheet opens non-modal over the right pane: a click o
   r.page.fire(r.page.win, 'click', { target: r.root });
   assert.equal(r.sheet().open, true, 'a click outside the sheet does not close it');
   r.page.fire(r.page.win.document, 'keydown', { key: 'Escape' });
+  r.page.runTimers();
   assert.equal(r.sheet().open, false, 'Escape closes it');
   r.tap(link);
   await r.settle();
   r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
+  r.page.runTimers();
   assert.equal(r.sheet().open, false, 'its ✕ closes it');
   r.page.win.innerWidth = 600;
   r.tap(link);
@@ -6271,12 +6276,14 @@ test("a run's View transcript opens its transcript in a sheet over the board: Cl
   assert.equal(r.gets.length, gets, 'a finished log is read no more');
 
   r.page.fire(r.sheet(), 'cancel', { target: r.sheet() });
+  r.page.runTimers();
   assert.equal(r.sheet().open, false);
   assert.deepEqual(r.moves.at(-1), ['back'], 'Escape takes back the entry it pushed');
 
   r.tap(link);
   await r.settle();
   r.page.fire(r.sheet(), 'click', { target: r.sheet() });
+  r.page.runTimers();
   assert.deepEqual([r.sheet().open, r.moves.at(-1)], [false, ['back']], 'a tap on the dim area closes it');
 
   r.tap(link);
@@ -6335,6 +6342,7 @@ test("a card's Notes open, rendered, in the same sheet, and a link in them close
   const link = r.inSheet('.reader-md a');
   assert.equal(link.getAttribute('href'), 'prototype-reader.html');
   assert.equal(r.page.fire(r.sheet(), 'click', { target: link, button: 0 }).defaultPrevented, true);
+  r.page.runTimers();
   assert.deepEqual([r.sheet().open, r.moves.at(-1)[0], shown], [false, 'back', []], 'the sheet closes and takes its entry back first');
   r.page.fire(vm.runInContext('window', r.page.win), 'popstate', { state: { idx: 3 } });
   assert.deepEqual(shown, ['https://mac.ts.net/prototype-reader.html'], 'then the link opens through the shell');
@@ -6578,6 +6586,7 @@ test("on a desktop, focusQuestion marks a question's or topic's row in the pane 
   assert.equal(wide.view.B.focusQuestion('q2'), true);
   assert.deepEqual([marked(), wide.doc.activeElement, scrolled, sheet().open], [['topic:t2'], row('t2'), ['topic:t2'], true], 'a question marks its row and opens its sheet');
   assert.equal(wide.view.B.focusQuestion('t1'), true);
+  wide.page.runTimers();
   assert.deepEqual([marked(), wide.doc.activeElement, sheet().open], [['topic:t1'], row('t1'), false], 'a topic id marks its row and opens no sheet');
   assert.equal(wide.view.B.focusQuestion('q0'), true);
   assert.deepEqual([marked(), sheet().open], [[], false], 'a resolved topic has no row to mark');
@@ -6619,10 +6628,12 @@ test('a topic picked in the questions pane, by a row or a questions URL, closes 
   await r.settle();
   assert.equal(r.sheet().open, true);
   await pick('item:w/P1');
+  r.page.runTimers();
   assert.deepEqual([r.sheet().open, r.root.querySelector('#questionsSheet').open], [false, true], "a row's tap closes the reader for the questions sheet");
   r.tap(link);
   await r.settle();
   r.view.B.focusQuestion('q1');
+  r.page.runTimers();
   assert.equal(r.sheet().open, false, 'a questions URL closes the reader');
   r.view.B.openViewer('prototype-x2.html?q=q2');
   await pick('item:w/P1');
@@ -6722,6 +6733,7 @@ test("the questions sheet's Send sends the answers as Waiting on you does, closi
   await s.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(s.sent.map(([kind, data]) => [kind, data.answers.map(({ sendId, ...a }) => a)]))),
     [['owner-answers', [{ id: 'qa', question: 'Question qa?', choice: 'B', label: 'B. No', note: '' }]], ['owner-answers', [{ id: 'qb', question: 'Question qb?', choice: 'B', label: 'B. No', note: '' }]]]);
+  s.page.runTimers();
   assert.equal(s.sheet().open, false, 'every question sent, the sheet hides');
   assert.equal(s.page.win.scrollY, 700, 'the page did not move');
   assert.deepEqual(s.moves, [], 'no history entry is made or spent');
@@ -6786,6 +6798,7 @@ test("on a wide board a Questions button opens the sheet beside the pane on the 
   await s.settle();
   assert.deepEqual([s.sheet().open, s.sheet().modal, s.page.win.location.hash], [true, false, hash]);
   s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('[data-qs="close"]') });
+  s.page.runTimers();
   assert.deepEqual([s.sheet().open, s.page.win.location.hash, s.moves], [false, hash, []]);
   s.view.unmount();
 });
@@ -6819,6 +6832,7 @@ test("a questions URL or push on an open question of a card opens the card with 
   s.view.B.focusQuestion('qc');
   assert.deepEqual([s.sheet().open, s.ids()], [true, ['qc']]);
   s.view.B.focusQuestion('qa', { sheet: false });
+  s.page.runTimers();
   assert.equal(s.sheet().open, false, 'a pick that asks for no sheet closes it');
   assert.equal(s.view.B.openQuestionsSheet('nope'), false);
   s.view.unmount();

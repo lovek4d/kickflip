@@ -72,12 +72,8 @@ BoardView.part((B) => {
 
   // The Hub links sheet: the GitHub mark opens it, from inside the lane's summary, so the tap must not fold the lane.
   const linksSheet = $('#linksSheet');
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
   function closeLinks() {
-    if (!linksSheet.open || linksSheet.classList.contains('closing')) return;
-    if (reduceMotion.matches) { linksSheet.close(); return; }
-    linksSheet.classList.add('closing');
-    B.later(180, () => { linksSheet.classList.remove('closing'); linksSheet.close(); });
+    BoardUI.closeSheet(linksSheet, B.later);
   }
   B.on(B.root, 'click', (ev) => {
     if (!ev.target.closest('[data-hub-links]')) return;

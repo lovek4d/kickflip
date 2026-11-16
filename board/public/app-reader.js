@@ -104,6 +104,7 @@ BoardView.part((B) => {
   }
 
   function show(title, ref) {
+    BoardUI.cutClose(sheet);
     opened++;
     stopReading?.();
     log = null;
@@ -133,8 +134,9 @@ BoardView.part((B) => {
   }
   const refOf = (key) => state.board?.items.find((i) => i.key === key)?.ref ?? key;
   async function openNotes(search) {
-    const n = show('notes', '');
     const key = new URLSearchParams(search).get('item');
+    if (sheet.open && !sheet.classList.contains('closing') && notesKey === key) return;
+    const n = show('notes', '');
     notesKey = key;
     if (state.notesCache.has(key)) { paintNotes(key, state.notesCache.get(key), refOf(key)); return; }
     let answer;
@@ -180,7 +182,7 @@ BoardView.part((B) => {
   }
   function close() {
     if (!sheet.open) return;
-    sheet.close();
+    BoardUI.closeSheet(sheet, B.later);
     opened++;
     stopReading?.();
     if (pushed) { pushed = false; history.back(); }
