@@ -2495,7 +2495,6 @@ async function moveOnAnswered(site, key) {
     moved.gates = { ...moved.gates, prototype: 'ran' };
     owe(moved, 'prototype');
     await writeJSON(source.file, itemFile);
-    await appendStatus(site, key, 'prototype-round');
     return 'prototyping';
   }
   if (item.phase === 'grilling' && item.gates?.next === 'discuss') {
@@ -2937,7 +2936,6 @@ async function grillAgain(site, key) {
   loaded.item.phase = 'grilling';
   delete loaded.item.staged_at;
   await writeJSON(loaded.source.file, loaded.itemFile);
-  await appendStatus(site, key, 'new-question');
 }
 
 // The ids of a topic's answered questions that Claude acting on the card resolves.
@@ -4338,7 +4336,6 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
     if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   }
   if (madeAtReady && site) await appendStatus(site, added, 'ticket-made', { ticket: item.ticket });
-  if (opened) await appendStatus(site, added, 'discussing-start', { from: item.parent || '' });
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), true);
   if (said !== undefined && !ask) await appendMessage(site, added, { text: said });
   return { file: source.file, key: added, lines: [] };
@@ -4483,8 +4480,7 @@ export const migratePhases = (site, archived = () => readArchive(site)) => ticke
 });
 
 // docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md
-// A Todo card with no phase that no ask made, which the arrival grill used to take, becomes discussing, once, with its
-// discussing-start line. Run by the board server as it starts. → one line per item file changed.
+// A Todo card with no phase that no ask made, which the arrival grill used to take, becomes discussing, once, silently. Run by the board server as it starts. → one line per item file changed.
 export const discussNewCards = (site) => ticketWrite(site, async () => {
   const lines = [];
   for (const entry of await itemSources(site)) {
@@ -4497,7 +4493,6 @@ export const discussNewCards = (site) => ticketWrite(site, async () => {
       delete it.filed_held;
     }
     await writeJSON(entry.file, itemFile);
-    for (const it of fresh) await appendStatus(site, `${entry.slug}/${it.id}`, 'discussing-start', { from: it.parent || '' });
     lines.push(`${entry.slug}: ${fresh.length} new tasks moved to discussing`);
   }
   return lines;

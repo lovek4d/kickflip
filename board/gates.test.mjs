@@ -29,7 +29,8 @@ function world(fields = {}, more = []) {
   const items = () => JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items;
   const read = (id = 'A1') => items().find((it) => it.id === id);
   const set = (fields) => fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: items().map((it) => (it.id === 'A1' ? { ...it, ...fields } : it)) }));
-  const thread = () => fs.readFileSync(path.join(data, 'threads', 't__A1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const threadFile = path.join(data, 'threads', 't__A1.jsonl');
+  const thread = () => (fs.existsSync(threadFile) ? fs.readFileSync(threadFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
   // A grill planner's open record, as builder start writes it.
   const grill = () => {
     fs.mkdirSync(path.join(data, 'agents'), { recursive: true });

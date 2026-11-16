@@ -55,6 +55,9 @@ export const HUB_LINES = {
   'test-waiting': { tone: 'orange', mark: HELD, text: ({ card }) => fit('Waiting to test: ', card, ' is testing first') },
   // Resumes and unblocks.
   resumed: { tone: 'orange', mark: RESUMED, text: ({ clear }) => `Resumed: ${clear}.`, longest: { clear: 'the usage pause lifted' } },
+  // 'prototype-round', 'discussing-start' and 'new-question' are no longer written: a phase change within
+  // Todo is silent (docs/adr/2026-11-16-1800-a-phase-change-within-todo-writes-no-thread-line.md). They stay so threads
+  // written before still render.
   'ready-expired': { tone: 'grey', mark: MOVE, text: () => 'Ready expired after a day unpulled: re-checking against what landed since' },
   'hold-ended': { tone: 'orange', mark: RESUMED, text: ({ at }) => `Unblocked: its block until ${at} ended.`, longest: { at: AT } },
   unblocked: { tone: 'orange', mark: RESUMED, text: ({ lifted }) => fit('Unblocked: ', lifted, '.') },

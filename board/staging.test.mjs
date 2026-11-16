@@ -175,7 +175,8 @@ test('a question added on a staging or ready card moves it to grilling, where it
     const r = await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'));
     assert.equal(r.code, 0, r.err);
     assert.deepEqual([item().phase, item().staged_at, item().briefs], ['grilling', undefined, undefined]);
-    assert.match(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, /^A new question on it, so it is grilling until you answer\.$/);
+    // Going back to grilling is silent: the thread holds only the questions-added line.
+    assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => m.line).slice(-1), ['questions-added']);
   }
 });
 

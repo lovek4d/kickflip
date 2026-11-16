@@ -154,14 +154,14 @@ test('a held card resumes itself within a minute of its pick-up time, once per t
   await board.start();
   assert.ok(!items().A1.held && !items().A2.held && !items().A5.held && items().A3.held_at, 'the due holds resume');
   assert.deepEqual(unblocked().map((d) => [d.key, d.until]).sort(), [['t/A1', at], ['t/A3', at], ['t/A5', at]]);
-  // Each had a discussing-start line when the server first moved its phase-less card to discussing.
-  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [2, 2, 2, 1]);
+  // Moving a phase-less card to discussing writes no line.
+  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
   assert.deepEqual([items().A1.pick_up_at, items().A4.held], [undefined, true]);
   await board.stop();
   await board.start();
   await board.minute();
   assert.equal(unblocked().length, 3);
-  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [2, 2, 2, 1]);
+  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
 });
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
@@ -263,7 +263,7 @@ test('with auto implement on the board starts and launches the build of the top 
   await board.minute();
   assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6', 't/A7'], 'the pull waits for the pause to end');
   assert.deepEqual(['A1', 'A2', 'A3'].map(thread), [[], [], []]);
-  assert.deepEqual(thread('F1'), ['Filed from t/A0: it starts discussing.'], 'the follow-up, filed with no phase, is no pull: it started discussing');
+  assert.equal(JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((it) => it.id === 'F1').phase, 'discussing', 'the follow-up, filed with no phase, is no pull: it started discussing');
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md

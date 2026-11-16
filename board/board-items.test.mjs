@@ -458,7 +458,7 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
   // docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md: a task added with no phase starts discussing, held or not.
   const thread = (id) => lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)).map((m) => m.line).filter(Boolean);
   const later = await board('item', 'add', 'audit/F4', '--site', 'audit', '--relate', 'audit/A1', '--title', 'feat: later', '--blocked');
-  assert.deepEqual([later.code, later.err, item('F4').phase, item('F4').held, item('F4').filed_held, thread('F4')], [0, '', 'discussing', true, undefined, ['discussing-start']]);
+  assert.deepEqual([later.code, later.err, item('F4').phase, item('F4').held, item('F4').filed_held, thread('F4')], [0, '', 'discussing', true, undefined, []]);
   assert.equal((await board('item', 'set', 'audit/F4', '--site', 'audit', '--phase', 'grilling')).code, 0);
   assert.deepEqual([item('F4').phase, item('F4').briefs?.map((b) => b.kind)], ['grilling', ['grill']]);
   const bad = await board('item', 'add', 'audit/F3', '--site', 'audit', '--relate', 'audit/A1', '--title', 'feat: x', '--phase', 'done');
@@ -466,7 +466,7 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
 });
 
 // docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md
-test('discussNewCards moves a New Todo card no ask made to discussing once, with its line, and leaves asks and sorted cards', async () => {
+test('discussNewCards moves a New Todo card no ask made to discussing once, silently, and leaves asks and sorted cards', async () => {
   const { discussNewCards } = await import('./store.mjs');
   const file = site('audit', 'data', 'items.json');
   const data = read(file);
@@ -478,9 +478,7 @@ test('discussNewCards moves a New Todo card no ask made to discussing once, with
   const phase = (id) => cards.find((i) => i.id === id).phase;
   assert.deepEqual(['N1', 'N2', 'N3'].map(phase), ['discussing', undefined, 'grilling']);
   assert.equal(cards.find((i) => i.id === 'N1').filed_held, undefined);
-  const said = lines(site('audit', 'data', 'threads', 'audit__N1.jsonl'));
-  assert.deepEqual(said.map((m) => m.line), ['discussing-start']);
-  assert.match(said[0].text, /^Filed from audit\/A1/);
+  assert.equal(fs.existsSync(site('audit', 'data', 'threads', 'audit__N1.jsonl')), false, 'no line is written');
   assert.deepEqual(await discussNewCards(site('audit')), [], 'a second pass changes nothing');
 });
 

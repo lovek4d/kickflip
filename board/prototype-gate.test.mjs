@@ -66,7 +66,7 @@ test('yes waits for every question: the card stays grilling while another is ope
   assert.equal(first.thread().at(-1).text, 'Prototype round asked: it moves to prototyping once every question is answered.');
   assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: ['t/A1'], staged: [] });
   assert.equal(first.card(), 'prototyping');
-  assert.equal(first.thread().at(-1).text, 'You asked for a prototype round, so the board moved the task to prototyping.');
+  assert.equal(first.thread().at(-1).text, 'Prototype round asked: it moves to prototyping once every question is answered.', 'moving to prototyping writes no line');
 
   const last = world();
   await addQuestions(last.site, [other, gate]);
