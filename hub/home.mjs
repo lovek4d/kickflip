@@ -93,21 +93,18 @@ export function startRoute(sites) {
   return sites.filter((s) => s.board).sort((a, b) => b.count - a.count || b.changedAt - a.changedAt || a.route.localeCompare(b.route))[0]?.route ?? null;
 }
 
-export const STALE_CODE = 'runs older code than its files; restart it';
-
-// The hub's health from the sites' process states, each board's linksOf states (a Map by route) and the hub's own
-// boards.mjs hubLink (docs/adr/2026-11-03-0501-the-hub-reads-healthy-degraded-or-a-site-down.md): red only while a site is down,
-// amber degraded while a board link reads broken or the hub runs older code than its files, else healthy, which reads alone. A link
-// still settling doesn't count (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md). The stale code says
-// why in the detail, here and nowhere else (docs/adr/2026-10-30-1654-every-builder-works-in-a-worktree.md).
-export function hubHealth(sites, linksByRoute = new Map(), hub = null) {
+// The hub's health from the sites' process states and each board's linksOf states (a Map by route)
+// (docs/adr/2026-11-03-0501-the-hub-reads-healthy-degraded-or-a-site-down.md): red only while a site is down, amber degraded
+// while a board link reads broken, else healthy, which reads alone. A link still settling doesn't count
+// (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md). The hub running older code is no health state: the
+// New hub version banner is its only sign (docs/adr/2026-11-16-0600-older-code-reads-only-as-the-new-server-version-banner.md).
+export function hubHealth(sites, linksByRoute = new Map()) {
   const down = sites.filter((s) => s.state === 'down').length;
   const failing = sites.reduce((n, s) => n + (linksByRoute.get(s.route) || []).filter((l) => l.state === 'broken').length, 0);
   const up = sites.filter((s) => s.state === 'up').length;
-  const stale = hub?.ok === false;
   return {
-    tone: down ? 'down' : failing || stale ? 'wait' : 'ok',
-    word: down ? `${down} site${down === 1 ? '' : 's'} down` : failing || stale ? 'degraded' : 'healthy',
-    detail: down || failing || stale ? `${up} of ${sites.length} site${sites.length === 1 ? '' : 's'} up${failing ? ` · ${failing} link${failing === 1 ? '' : 's'} failing` : ''}${stale ? ` · ${STALE_CODE}` : ''}` : '',
+    tone: down ? 'down' : failing ? 'wait' : 'ok',
+    word: down ? `${down} site${down === 1 ? '' : 's'} down` : failing ? 'degraded' : 'healthy',
+    detail: down || failing ? `${up} of ${sites.length} site${sites.length === 1 ? '' : 's'} up${failing ? ` · ${failing} link${failing === 1 ? '' : 's'} failing` : ''}` : '',
   };
 }

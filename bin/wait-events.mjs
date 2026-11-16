@@ -29,8 +29,7 @@
 //   link <name> <detail>      each hub link that doesn't reach the board (../hub/boards.mjs linksOf), the list its
 //                             Hub links sheet shows (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md), at
 //                             once, while the sheet still reads it settling
-//                             (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md); and `link hub
-//                             <detail>` while the hub runs older code than its files (../hub/boards.mjs hubLink)
+//                             (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md)
 //   handed-over <owner json>  another session took the route over: stop, don't relaunch
 //   Record-only events never wake the session (docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md):
 //   ./event-lines.mjs RECORD_ONLY, the board server's own taps and usage-resumed among them. The cursor moves past them
@@ -48,7 +47,7 @@ import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
-import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mjs';
+import { boardAt, linksOf, stopPreviousWatcher } from '../hub/boards.mjs';
 import { parentOf, sessionGone as sessionGoneFor } from '../hub/live.mjs';
 import { ackPing, editedAsks, markDelivered, markWorking, restampWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent, pausedLine } from '../shared/usage-gate.mjs';
@@ -100,7 +99,7 @@ function waitLines(dir) {
 // link reads as reaching the board.
 function linkLines(dir) {
   const self = boardAt(dir);
-  return self ? [...linksOf(self, { listen: 'listening' }), hubLink()].filter((l) => !l.ok).map((l) => `link ${l.link} ${l.detail}`) : [];
+  return self ? linksOf(self, { listen: 'listening' }).filter((l) => !l.ok).map((l) => `link ${l.link} ${l.detail}`) : [];
 }
 
 // Writes through a temp file and a rename, so a reader of the cursor or watcher.json sees the old file or the new one, never half.

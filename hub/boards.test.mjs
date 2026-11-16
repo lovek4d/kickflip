@@ -25,7 +25,7 @@ process.env.KICKFLIP_HUB_PORT = '1';
 const START = 'Thu Nov  5 00:00:00 2026';
 const ps = stallingPs(home, { lstart: START, ppid: process.pid });
 process.env.PATH = `${ps.bin}:${process.env.PATH}`;
-const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, hubCodeFile, listenState, sessionBusy, checkListening, withManifestLock, saveJSON } = await import('./boards.mjs');
+const { listBoards, linksOf, oldestUnheard, hubCode, boardCode, hubCodeFile, listenState, sessionBusy, checkListening, withManifestLock, saveJSON } = await import('./boards.mjs');
 
 const claude = (...p) => path.join(home, '.claude', ...p);
 const site = (route, ...p) => claude('kickflip', 'sites', route, ...p);
@@ -178,10 +178,6 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.deepEqual(broken({ wakeOn: false, wakes: { last: { due: ['08:00'], failed: ['orch'] } } }), []);
   assert.deepEqual(linksOf(orch, { ...ok, fetches: { orch: { at: 'T', ok: true } } }).map((l) => l.link), ['github', 'repo-fetch', 'events', 'wakes', 'slack']);
   assert.deepEqual(broken({ fetches: { orch: { at: 'T', ok: false, error: 'fatal: unable to access origin', hint: 'run git fetch' } } }), ['repo-fetch']);
-  assert.equal(hubLink({ running: 'h1', onDisk: 'h1' }).ok, true);
-  assert.equal(hubLink({ running: undefined, onDisk: 'h1' }).ok, false);
-  assert.deepEqual(hubLink({ running: 'h0', onDisk: 'h1' }), { link: 'hub', ok: false,
-    detail: 'The hub runs older code than its files; restart it with ' + (process.platform === 'darwin' ? 'launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub' : 'systemctl --user restart kickflip-hub.service') });
   const recorded = structuredClone(orch);
   recorded.files[0].itemFile.items[0].review_link_ts = { Ann: { ts: '1.1', channel: 'D1' }, Bea: '1.2' };
   assert.equal(linksOf(recorded, { ...ok, topics: {} })[3].ok, true);
@@ -559,12 +555,12 @@ test("sidebar and Hub page serve usage, the shell keeps it inside Hub, and Codex
   }
 });
 
-test('while the hub runs older code than its files, the Hub row and Health card say so once and no board shows it', async () => {
+test('while the hub runs older code than its files, it reads healthy and the New hub version banner is the only sign', async () => {
   const running = read(hubCodeFile());
   assert.equal(running.hash, hubCode().hash);
   const sidebar = async () => (await fetch(`${base}/_hub/sidebar.json`)).json();
   const page = async () => (await fetch(`${base}/_hub/api/hub`)).json();
-  assert.doesNotMatch((await sidebar()).hub.detail, /older code/);
+  const before = (await sidebar()).hub;
   write(hubCodeFile(), { ...running, hash: 'older' });
   try {
     for (const route of ['orch', 'shop']) {
@@ -572,14 +568,14 @@ test('while the hub runs older code than its files, the Hub row and Health card 
       assert.equal((await (await fetch(`${base}/${route}/api/links`)).json()).links.some((l) => l.link === 'hub'), false);
     }
     const side = await sidebar();
-    assert.match(side.hub.detail, /^\d+ of \d+ sites up · runs older code than its files; restart it$/);
-    assert.notEqual(side.hub.word, 'healthy');
+    assert.equal(side.newHub, true);
+    assert.deepEqual(side.hub, before);
     assert.ok(side.sites.every((s) => !/older code|restart/i.test(JSON.stringify(s.sub))));
     const hub = await page();
     assert.equal(hub.hub.detail, side.hub.detail);
     assert.ok(hub.groups.flatMap((g) => g.sites).every((x) => x.lines.every((l) => l.link !== 'hub')));
   } finally { write(hubCodeFile(), running); }
-  assert.match((await page()).hub.detail, /runs the code in its files/);
+  assert.equal((await sidebar()).newHub, false);
 });
 
 test("a board whose repo fetch fails gets a Repo fetch link that settles, reads degraded on Health and shows on the watcher after its grace, and clears on the next fetch", async () => {

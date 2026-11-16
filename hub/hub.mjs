@@ -164,7 +164,7 @@
 // (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). The host's service manager keeps the
 // hub itself running (../shared/service.mjs, `kickflip init`).
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
-// records the hash of its own code (boards.mjs recordHubCode), so the hub link (boards.mjs hubLink) can tell when the
+// records the hash of its own code (boards.mjs recordHubCode), so the hub can tell when the
 // files changed under it (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md), and makes a hub board that
 // built on the kickflip clone a local board of its folder, once (board-repo.mjs migrateHubBoard). Once, before any board
 // starts, it renames every board's lineups to waves and its wave file to its item file (board/store.mjs migrateWaveNames),
@@ -215,7 +215,7 @@ import { migrateTriage, overnightJobs, setOvernight } from './overnight.mjs';
 import { runNightlySuite } from './nightly-suite.mjs';
 import { checkIncoming } from './incoming.mjs';
 import { drainRoutes, queueRequest, routedRows } from './router.mjs';
-import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
+import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -974,7 +974,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       code: code.running ?? null,
       newHub: Boolean(code.running) && code.running !== code.onDisk,
       version: VERSION,
-      total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
+      total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links),
       home: fs.realpathSync(os.homedir()),
       starting,
       usage: readUsage({ codexShare: readCodexShare(readCodex()) }),

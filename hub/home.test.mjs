@@ -135,13 +135,9 @@ test('the hub reads red only while a site is down, amber degraded while a board 
   assert.equal(hubHealth([...sites, { route: 'd', state: 'down' }, { route: 'e', state: 'down' }]).word, '2 sites down');
 });
 
-test('the hub running older code than its files reads degraded, under any site down', () => {
+test('the hub reads healthy while every site is up and no link fails, whatever code it runs', () => {
   const sites = [{ route: 'a', state: 'up' }, { route: 'b', state: 'up' }];
-  const stale = { link: 'hub', ok: false, detail: 'The hub runs older code than its files' };
-  assert.deepEqual(hubHealth(sites, new Map(), stale), { tone: 'wait', word: 'degraded', detail: '2 of 2 sites up · runs older code than its files; restart it' });
-  assert.deepEqual(hubHealth(sites, new Map(), { ...stale, ok: true }), { tone: 'ok', word: 'healthy', detail: '' });
-  const down = hubHealth([...sites, { route: 'c', state: 'down' }], new Map(), stale);
-  assert.deepEqual([down.tone, down.word, down.detail], ['down', '1 site down', '2 of 3 sites up · runs older code than its files; restart it']);
+  assert.deepEqual(hubHealth(sites, new Map()), { tone: 'ok', word: 'healthy', detail: '' });
 });
 
 test('a stale row lays out like a fresh one: no wrapper, so the chips stay first in the one flex line', () => {

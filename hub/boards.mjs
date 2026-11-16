@@ -497,14 +497,8 @@ export function recordHubCode() {
   return code;
 }
 
-const RESTART_HUB = hubService().restartCommand;
 export const runningHubCode = () => readJSON(hubCodeFile(), null)?.hash ?? null;
 export const hubCodeState = () => ({ running: runningHubCode(), onDisk: hubCode().hash });
-// The hub's own link, so linksOf leaves it out (docs/adr/2026-10-30-1654-every-builder-works-in-a-worktree.md).
-// → {link: 'hub', ok, detail}
-export const hubLink = ({ running, onDisk } = hubCodeState()) => (running && running === onDisk
-  ? { link: 'hub', ok: true, detail: `The hub runs the code in its files (${onDisk}).` }
-  : { link: 'hub', ok: false, detail: `The hub runs older code than its files; restart it with ${RESTART_HUB}` });
 
 // ---------- grace ----------
 // How long a link stays broken before the board shows it red; until then it reads settling, while the watcher prints
