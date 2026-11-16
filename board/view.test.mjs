@@ -3875,6 +3875,11 @@ test("Done is in the ticket actions of a work card in every lane, right of Block
   assert.deepEqual(sends('w/T1'), ['Implement⌥↵', 'Reply⌘↵']);
   assert.equal(form('w/R1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
   assert.equal(form('w/a1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
+  // A card waiting only on Done flags every Done button, in the ticket actions as in the thread actions.
+  const ticketDone = (key) => b.root.querySelector(`details.item[data-key="${key}"] .action-row.workflow [data-confirm="finish"]`);
+  assert.equal(ticketDone('w/R1').getAttribute('class'), 'resolves');
+  assert.equal(ticketDone('w/a1').getAttribute('class'), 'resolves');
+  assert.equal(ticketDone('w/S1').getAttribute('class'), null);
   for (const key of ['w/T1', 'w/P1']) assert.equal(form(key).querySelector('[data-confirm="finish"]'), null);
   assert.deepEqual(actions('w/T1'), ['Block', 'Done', 'Notes']);
   assert.deepEqual(actions('w/P1'), ['Block', 'Done']);

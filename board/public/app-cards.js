@@ -279,7 +279,7 @@ BoardView.part((B) => {
       : it.ownerBlock ? ask('resume', 'Unblock', 'unblock') : ask('hold', 'Block');
     // The ticket actions row: a work card's Done, right of Block, in every lane but Done. An In Review card's Done is
     // also among its thread actions (app-threads.js; docs/adr/2026-11-16-2359-done-is-a-ticket-action-in-every-lane.md).
-    const close = it.kind === 'work' && it.finishable ? ask('finish', 'Done', it.resolvedBy === BUTTON.done ? 'resolves' : '') : '';
+    const close = it.kind === 'work' && it.finishable ? ask('finish', 'Done', BoardUI.doneTone(it) ? 'resolves' : '') : '';
     // A Todo card's Implement is in its thread box (app-threads.js; docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
     return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${hold}${close}${notesButton(it)}${tryButton(it)}${actionButton(it)}${mergeButton(it)}`)}</div>`;
   }
