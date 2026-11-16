@@ -1,6 +1,6 @@
 // A small Markdown renderer for Notes (view-notes.js; docs/adr/2026-10-29-1639-a-full-plan-opens-as-a-page-on-the-site.md). Needs ui.js and ui-links.js.
 (function () {
-  const { esc, linkHtml } = globalThis.BoardUI;
+  const { esc, linkHtml, opensHere } = globalThis.BoardUI;
   // Raw HTML is escaped first, so a link's href can only break out through its scheme.
   const safeUrl = (u) => /^(https?:|mailto:)/i.test(u) || !/^[\w+.-]*:/.test(u);
   const WIDE_CELL = 80;
@@ -8,7 +8,7 @@
 
   function inline(s) {
     return String(s).split(/(`[^`]*`)/).map((part, n) => (n % 2 ? `<code>${esc(part.slice(1, -1))}</code>` : esc(part)
-      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) => (safeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener">${label}</a>` : m))
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) => (safeUrl(url) ? `<a href="${url}"${opensHere(url) ? '' : ' target="_blank" rel="noopener"'}>${label}</a>` : m))
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/(^|[^*\w])\*(?!\s)([^*]+?)\*(?!\w)/g, '$1<em>$2</em>'))).join('');
   }

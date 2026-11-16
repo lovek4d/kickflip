@@ -735,6 +735,12 @@ test("a board's prototype or visual page is a card page, which opens in the boar
   assert.deepEqual(['/orch/', '/orch/questions.html#q1', '/orch/shots-gallery.html', '/orch/visuals/flow.html', '/learn/prototype-x.html', '/orch/uploads/prototype-x.html'].map(card), [false, false, false, false, false, false]);
 });
 
+test("a thread's visual line is a plain link to its card page, so the shell opens it in the sheet and not in a new tab", () => {
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'visual', text: 'Flow', link: 'visuals/A1/flow.html' }]);
+  assert.match(html, /<a href="visuals\/A1\/flow\.html">Flow →<\/a>/);
+  assert.doesNotMatch(html, /target=/);
+});
+
 test('Action needed shows only while the card waits on the owner, as orange words that link to what they act on', () => {
   assert.equal(ui.actionWords({ questions: { open: 2, first: 'q1' }, action: null }), '');
   const pick = ui.actionWords({ action: { kind: 'pick', url: 'https://mac.ts.net/r/prototype-x.html?q=q1', label: 'Prototypes ready: pick a take' } });
@@ -2354,6 +2360,14 @@ test('a plan renders headings, lists, emphasis, code and links, escapes raw HTML
   assert.match(html, /<td>a \| b<\/td>/);
   assert.match(html, /<pre><code>&lt;script&gt;<\/code><\/pre>/);
   assert.doesNotMatch(html, /<script|<b>/);
+});
+
+test("a markdown link to a page on this hub, a visual, a prototype round, a log or notes, opens in place for the shell's sheet, and another origin's in a new tab", () => {
+  const html = ui.markdown('[v](visuals/A1/flow.html) [p](prototype-x.html?q=q1) [l](log.html?file=a.log) [n](notes.html?item=w%2FA1) [abs](/shop/visuals/A1/flow.html) [ext](https://x.test/a)');
+  assert.deepEqual(anchors(html).map((a) => [a[0], a[2]]), [
+    ['visuals/A1/flow.html', false], ['prototype-x.html?q=q1', false], ['log.html?file=a.log', false],
+    ['notes.html?item=w%2FA1', false], ['/shop/visuals/A1/flow.html', false], ['https://x.test/a', true],
+  ]);
 });
 
 const shown = (html) => html.replace(/<[^>]+>/g, '').replace(/&(amp|lt|gt|quot|#39);/g, (e) => ENTITIES[e]);
