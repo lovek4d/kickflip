@@ -357,7 +357,7 @@ test('every page header has a logo, a back arrow where needed, the title and dis
 test("a board's sidebar row shows its context at the top right beside its name, red from 90% and dimmed once stale", () => {
   const site = (route, ctx) => ({ route, title: route, board: true, count: 0, icon: '', sub: { status: { shape: 'pulse', colour: 'orange', word: 'Working' }, stale: false, chips: null }, ctx });
   const ago = (ms) => new Date(NOW - ms).toISOString();
-  const html = ui.sidebar({ sites: [site('a', { percent: 62, at: ago(60_000) }), site('b', { percent: 91, at: ago(3 * 3600_000) }), site('c', null), site('d')] });
+  const html = ui.sidebar({ sites: [site('a', { percent: 62, full: false, at: ago(60_000) }), site('b', { percent: 91, full: true, at: ago(3 * 3600_000) }), site('c', null), site('d')] });
   const heads = [...html.matchAll(/<span class="sb-head">(.*?<\/span>)<\/span>(?=<span class="sb-sub">|<\/span><\/a>)/g)].map((m) => m[1]);
   assert.deepEqual(heads, [
     '<span class="sb-title">a</span><span class="sb-ctx" title="62% of its context window">62% ctx</span>',
@@ -2609,7 +2609,8 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.match(together, /name="value" value="off"/);
   assert.equal(hub.pauseBanner({ state: 'normal', near: null }), '');
   const chips = [{ lane: 'todo', text: '3 todo' }];
-  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: { status: { shape: 'pulse', colour: 'orange', word: 'working' }, stale: false, chips } }];
+  // The hub sends a held board's row already grey paused (hub/home.mjs heldSite).
+  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: { status: { shape: 'dot', colour: 'grey', word: 'paused' }, stale: false, chips } }];
   const sidebar = ui.sidebar({ pause, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.equal([...sidebar.matchAll(PAUSED)].length, 2);
   assert.ok(text(sidebar).includes(`until ${until}`));
@@ -2626,7 +2627,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.match(down, /it-red"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">1 site down/);
   const staleDown = ui.sidebar({ pause, sites: [{ ...faulty[0], sub: { ...faulty[0].sub, stale: true } }], hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.match(staleDown, /it-grey"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">not listening<\/span><\/span><span class="stale-word">/, 'a stale fault keeps its word, grey');
-  const busyDown = ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy', since: new Date(NOW - 5 * 60_000).toISOString() } }, sites: [], hub: { tone: 'down', word: '1 site down', detail: 'x' } });
+  const busyDown = ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy', busy: true, banner: false, since: new Date(NOW - 5 * 60_000).toISOString() } }, sites: [], hub: { tone: 'down', word: '1 site down', detail: 'x' } });
   assert.match(busyDown, /it-red"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">1 site down/);
   assert.doesNotMatch(busyDown, />busy</);
   const degradedPaused = ui.sidebar({ pause, sites: [], hub: { tone: 'wait', word: 'degraded', detail: 'x' } });
@@ -2646,10 +2647,11 @@ test('Pause hub reads paused on the Hub row and every board with Resume on its b
   assert.equal(text(banner), `Work paused: you paused the hub. Resumes at ${until}. Resume`);
   assert.match(banner, /hold-banner ub-banner ub-paused/);
   assert.match(banner, /action="\/_hub\/settings\/hub-pause"><button class="btn quiet" name="pause" value="off">Resume/);
+  const held = { ...working, status: { shape: 'dot', colour: 'grey', word: 'paused' } };
   const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: working }, { route: 'b', title: 'B', board: true, icon: '', sub: working }];
-  const hubPaused = ui.sidebar({ pause: manual('hub'), sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  const hubPaused = ui.sidebar({ pause: manual('hub'), sites: sites.map((s) => ({ ...s, sub: held })), hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.equal([...hubPaused.matchAll(PAUSED)].length, 3);
-  const boardPaused = ui.sidebar({ pause: { state: 'normal' }, sites: [{ ...sites[0], pause: manual('board') }, sites[1]], hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  const boardPaused = ui.sidebar({ pause: { state: 'normal' }, sites: [{ ...sites[0], pause: manual('board'), sub: held }, sites[1]], hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.equal([...boardPaused.matchAll(PAUSED)].length, 1, 'only the paused board');
   assert.equal([...boardPaused.matchAll(/>working</g)].length, 1);
   assert.match(text(boardPaused), /healthy/);
@@ -2658,14 +2660,14 @@ test('Pause hub reads paused on the Hub row and every board with Resume on its b
 
 // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
 test('a busy host reads busy on the Hub row and the logo dot, not on a board or the header, a pause first, and Health has a Machine row', () => {
-  const machine = { state: 'busy', reason: 'memory pressure critical', since: new Date(NOW - 42 * 60_000).toISOString() };
+  const machine = { state: 'busy', busy: true, banner: true, reason: 'memory pressure critical', since: new Date(NOW - 42 * 60_000).toISOString() };
   const working = { status: { shape: 'pulse', colour: 'orange', word: 'working' }, stale: false, chips: [{ lane: 'todo', text: '3 todo' }] };
   const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: working }, { route: 'p', title: 'P', board: false, icon: '', sub: null }];
   const busy = ui.sidebar({ pause: { state: 'normal', machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.equal([...busy.matchAll(/it-orange"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">busy/g)].length, 1, 'the Hub row alone');
   assert.match(text(busy), /busy \(42m\)/);
   assert.doesNotMatch(text(busy), /the host is busy/);
-  const fresh = { state: 'busy', reason: 'load high', since: new Date(NOW - 59_000).toISOString() };
+  const fresh = { state: 'busy', busy: false, banner: false, reason: 'load high', since: new Date(NOW - 59_000).toISOString() };
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: fresh }, sites, hub: { tone: 'ok', word: 'healthy', detail: '' } }), />busy</, 'busy under a minute reads as not busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine: fresh }, hub: { tone: 'ok' } }), '');
   assert.match(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /it-green"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">healthy<\/span><\/span><\/span>/, 'healthy reads alone');
@@ -2673,9 +2675,10 @@ test('a busy host reads busy on the Hub row and the logo dot, not on a board or 
   assert.match(busy, /<span class="it it-orange"><span class="it-i it-pulse" aria-hidden="true"><\/span><span class="it-w">working/, 'its working dot pulses');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'ok' } }), 'busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'down' } }), 'down', 'a broken hub reads red before busy');
-  assert.equal(ui.hubDot({ pause: { state: 'paused', machine }, hub: { tone: 'ok' } }), 'paused', 'a pause shows grey, not busy');
+  assert.equal(ui.hubDot({ pause: { state: 'paused', machine: { ...machine, busy: false, banner: false } }, hub: { tone: 'ok' } }), 'paused', 'a pause shows grey, not busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine: { state: 'normal' } }, hub: { tone: 'ok' } }), '');
-  const both = ui.sidebar({ pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  const heldSites = [{ ...sites[0], sub: { ...working, status: { shape: 'dot', colour: 'grey', word: 'paused' } } }, sites[1]];
+  const both = ui.sidebar({ pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine: { ...machine, busy: false, banner: false } }, sites: heldSites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.doesNotMatch(both, />busy</, 'a pause reads first');
   assert.equal([...both.matchAll(PAUSED)].length, 2);
   const calm = ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal', reason: null } }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
@@ -3118,7 +3121,7 @@ test('the logo dot is the highest of red, orange, blue, grey: not listening or o
   assert.equal(ui.hubDot({ ...ok, sites: [{ route: 'b', board: true, listen: 'full' }] }), 'down');
   assert.equal(ui.hubDot({ ...ok, sites: [{ route: 'b', board: true, listen: 'asleep' }] }), '', 'asleep is not a fault');
   assert.equal(ui.hubDot(ok, { offline: true }), 'down', 'a page that cannot reach the host');
-  const busy = { ...ok, pause: { state: 'normal', machine: { state: 'busy', since: new Date(NOW - 5 * 60_000).toISOString() } } };
+  const busy = { ...ok, pause: { state: 'normal', machine: { state: 'busy', busy: true, banner: false, since: new Date(NOW - 5 * 60_000).toISOString() } } };
   assert.equal(ui.hubDot({ ...busy, sites: [{ route: 'b', board: true, listen: 'deaf' }] }), 'down', 'red beats orange');
   assert.equal(ui.hubDot(busy, { update: 'ready' }), 'busy', 'orange beats blue');
   assert.equal(ui.hubDot(ok, { update: 'ready' }), 'update');
@@ -3148,7 +3151,8 @@ test("only written messages count toward a thread's newest 3: command lines and 
 
 // docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md
 test('a host busy for more than 30 minutes adds a banner at the sidebar top that opens the load sheet, gone when the host eases', () => {
-  const busyFor = (minutes, extra = {}) => ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy', reason: 'load high', since: new Date(NOW - minutes * 60_000).toISOString() } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' }, ...extra });
+  // The hub sends busy (a minute, no usage pause) and banner (past 30 minutes); the sidebar draws them.
+  const busyFor = (minutes, extra = {}) => ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy', busy: true, banner: minutes > 30, reason: 'load high', since: new Date(NOW - minutes * 60_000).toISOString() } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' }, ...extra });
   assert.doesNotMatch(busyFor(29), /sb-busy-banner/, 'no banner at 29 minutes');
   assert.match(busyFor(29), /data-load-sheet/, 'the Hub row still reads busy');
   const banner = busyFor(31).match(/<button[^>]*sb-busy-banner[^>]*>.*?<\/button>/s)?.[0];
@@ -3157,12 +3161,12 @@ test('a host busy for more than 30 minutes adds a banner at the sidebar top that
   assert.match(text(banner), /Host busy \(31m\): load high/);
   assert.ok(busyFor(31).indexOf('sb-busy-banner') < busyFor(31).indexOf('sb-utility'), 'it sits above the Hub section');
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /sb-busy-banner/, 'gone when idle');
-  assert.doesNotMatch(busyFor(31, { pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine: { state: 'busy', reason: 'load high', since: new Date(NOW - 31 * 60_000).toISOString() } } }), /sb-busy-banner/, 'a usage pause reads first');
+  assert.doesNotMatch(busyFor(31, { pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine: { state: 'busy', busy: false, banner: false, reason: 'load high', since: new Date(NOW - 31 * 60_000).toISOString() } } }), /sb-busy-banner/, 'a usage pause reads first');
 });
 
 // docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md
 test("the Hub row's busy word opens what's loading the host: the load now and over the hour, then collapsed groups with orphans open and Stop on orphans alone", () => {
-  const machine = { state: 'busy', reason: 'load high', since: new Date(NOW - 42 * 60_000).toISOString() };
+  const machine = { state: 'busy', busy: true, banner: true, reason: 'load high', since: new Date(NOW - 42 * 60_000).toISOString() };
   const busy = ui.sidebar({ pause: { state: 'normal', machine }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } });
   assert.match(busy, /<span class="sb-status sb-busy" data-load-sheet role="button" tabindex="0" aria-label="busy \(42m\), what's loading the host" aria-haspopup="dialog">/);
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /data-load-sheet/);

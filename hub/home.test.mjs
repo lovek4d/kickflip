@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { siteStatus, laneChips, readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds, statusLine } from './home.mjs';
+import { siteStatus, laneChips, readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds, statusLine, sidebarPause, heldSite } from './home.mjs';
 
 test('a failed needs read keeps the last good answer, still counted, and marks it stale only once it is 15 seconds old', () => {
   const good = { working: 1, count: 2, lanes: { review: 1, progress: 0, todo: 0 }, building: false };
@@ -94,8 +94,39 @@ test("the sidebar's rows carry each site's icon, status line and count, and mark
   assert.equal(gone.sub.status.word, 'down');
   const ctx = { percent: 62, at: '2026-11-03T10:00:00.000Z' };
   const [withCtx, without] = sidebarSites(rows, waiting, new Set(['ios', 'gone']), new Map(), new Map([['ios', ctx]]));
-  assert.deepEqual(withCtx.ctx, ctx);
+  assert.deepEqual(withCtx.ctx, { ...ctx, full: false });
   assert.equal(without.ctx, null);
+});
+
+test("a board's ctx is full from 90%", () => {
+  const rows = [{ route: 'a', title: 'A', state: 'up' }];
+  const full = (percent) => sidebarSites(rows, new Map(), new Set(['a']), new Map(), new Map([['a', { percent, at: 'x' }]]))[0].ctx.full;
+  assert.deepEqual([full(89.9), full(90)], [false, true]);
+});
+
+test('the sidebar pause marks the host busy after a minute with no usage pause, and the banner after 30 minutes', () => {
+  const now = Date.parse('2026-11-15T12:00:00.000Z');
+  const gate = (state, since) => ({ state, machine: since ? { state: 'busy', reason: 'load high', since: new Date(now - since).toISOString() } : { state: 'normal' } });
+  const flags = (g) => { const { busy, banner } = sidebarPause(g, now).machine; return [busy, banner]; };
+  assert.deepEqual(flags(gate('normal', 0)), [false, false]);
+  assert.deepEqual(flags(gate('normal', 59_000)), [false, false]);
+  assert.deepEqual(flags(gate('normal', 60_000)), [true, false]);
+  assert.deepEqual(flags(gate('normal', 30 * 60_000)), [true, false]);
+  assert.deepEqual(flags(gate('normal', 30 * 60_000 + 1)), [true, true]);
+  assert.deepEqual(flags(gate('paused', 40 * 60_000)), [false, false]);
+});
+
+test("a board row reads grey paused under the hub's pause or its own, unless a red fault is on it", () => {
+  const site = (colour) => ({ route: 'a', board: true, sub: { status: colour && { shape: 'dot', colour, word: 'w' }, stale: true, chips: [{ lane: 'todo', text: '1 todo' }] } });
+  const paused = { shape: 'dot', colour: 'grey', word: 'paused' };
+  assert.deepEqual(heldSite(site('orange'), true, null).sub, { stale: true, chips: [{ lane: 'todo', text: '1 todo' }], status: paused });
+  assert.deepEqual(heldSite({ route: 'a', board: true, sub: null }, true, null).sub, { stale: false, chips: null, status: paused });
+  assert.deepEqual(heldSite(site(null), false, { state: 'paused' }).sub.status, paused);
+  assert.equal(heldSite(site('red'), true, null).sub.status.word, 'w');
+  assert.equal(heldSite(site('orange'), false, null).sub.status.word, 'w');
+  assert.equal(heldSite(site('orange'), false, { state: 'going' }).sub.status.word, 'w');
+  assert.deepEqual(heldSite(site('orange'), false, { state: 'going' }).pause, { state: 'going' });
+  assert.equal(heldSite({ ...site('orange'), board: false }, true, null).sub.status.word, 'w');
 });
 
 test('a board not listening with its context at 95% or more reads context full; listening, or below 95%, it does not', () => {

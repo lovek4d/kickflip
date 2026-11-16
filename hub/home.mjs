@@ -77,7 +77,8 @@ export function sidebarSites(rows, waiting, boards, listens = new Map(), context
   return rows.map((r) => {
     const needs = waiting.get(r.route) ?? null;
     const listen = boards.has(r.route) ? listens.get(r.route) ?? 'listening' : undefined;
-    const ctx = contexts.get(r.route) ?? null;
+    const reading = contexts.get(r.route) ?? null;
+    const ctx = reading && { ...reading, full: reading.percent >= CTX_FULL_PERCENT };
     const heard = contextFull(listen, ctx) ? 'full' : listen;
     return {
       route: r.route, title: r.title, board: boards.has(r.route), state: r.state, count: needs?.count || 0,
@@ -85,6 +86,28 @@ export function sidebarSites(rows, waiting, boards, listens = new Map(), context
       newServer: Boolean(r.newServer),
     };
   });
+}
+
+// A board's context reads red (full) from this percent; the sidebar draws the ctx.full flag.
+export const CTX_FULL_PERCENT = 90;
+// The Hub row reads busy once the host has been busy this long and no usage pause reads first; busy past BUSY_BANNER_MS
+// adds the banner at the sidebar's top.
+export const BUSY_MS = 60_000;
+export const BUSY_BANNER_MS = 30 * 60_000;
+
+// The usage gate as the sidebar carries it: machine gains busy and banner, from the host's busy-since and the clock here.
+export function sidebarPause(gate, now) {
+  const age = gate.machine.state === 'busy' ? now - Date.parse(gate.machine.since) : 0;
+  const busy = age >= BUSY_MS && gate.state !== 'paused';
+  return { ...gate, machine: { ...gate.machine, busy, banner: busy && age > BUSY_BANNER_MS } };
+}
+
+// A board row under the hub's pause or its own (boardGate, the board's usage gate, else null) reads grey paused,
+// unless its status is red: a fault keeps its word (AGENTS.md colour order). The row carries that gate as pause.
+export function heldSite(site, hubPaused, boardGate) {
+  const held = site.board && (hubPaused || boardGate?.state === 'paused') && site.sub?.status?.colour !== 'red';
+  const out = boardGate ? { ...site, pause: boardGate } : site;
+  return held ? { ...out, sub: { stale: false, chips: null, ...site.sub, status: { shape: 'dot', colour: 'grey', word: 'paused' } } } : out;
 }
 
 // The board a device opens at `/` when it has no last board: the one with the most waiting on the owner, the most

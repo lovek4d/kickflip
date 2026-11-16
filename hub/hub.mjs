@@ -15,7 +15,7 @@
 //                     those views' data and words (views.mjs), including integration readiness rows on /_hub/api/hub
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, version, total, start,
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}] (sub: home.mjs statusLine's data), hub: {tone, word, detail},
-//                     notifications: {state, text}, away}, away true while the owner reads away (presence.mjs ownerTracker), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
+//                     notifications: {state, text}, away}, away true while the owner reads away (presence.mjs ownerTracker), ctx the board's owner session's {percent, at, full} or null, pause the usage gate with machine {busy, banner} (home.mjs sidebarPause) and a held board's sub already reading paused (heldSite); each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards, each with its start step and a running clone's percent (sessions.mjs)
 //                     usage: {claude, codex}, each null when hidden, else {at, five_hour, seven_day}; windows are
@@ -219,7 +219,7 @@ import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sen
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
-import { readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds } from './home.mjs';
+import { readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds, heldSite, sidebarPause } from './home.mjs';
 import { checkSessions, compactFullContexts, sessionOf, startingBoards } from './sessions.mjs';
 import { logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
@@ -972,8 +972,9 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const landing = new Set(starting.map((s) => s.route));
     // A board under Pause board carries its own gate as pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
     const pausedBoards = new Map(boards.filter((b) => boardPausedUntil(b.dir)).map((b) => [b.route, readUsageGate({ dir: b.dir })]));
+    const gate = readUsageGate();
     const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts).filter((s) => !landing.has(s.route))
-      .map((s) => (pausedBoards.has(s.route) ? { ...s, pause: pausedBoards.get(s.route) } : s));
+      .map((s) => heldSite(s, gate.state === 'paused', pausedBoards.get(s.route) ?? null));
     const settings = readSettings();
     const held = hold(now, settings);
     const data = {
@@ -984,7 +985,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       home: fs.realpathSync(os.homedir()),
       starting,
       usage: readUsage({ codexShare: readCodexShare(readCodex()) }),
-      pause: readUsageGate(),
+      pause: sidebarPause(gate, now.getTime()),
       notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
       away: !owner.state().present,
     };

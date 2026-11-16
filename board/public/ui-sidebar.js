@@ -146,15 +146,14 @@
   }
 
   const ticketsLabel = (t) => (t.source === 'github' ? `GitHub issues${t.account ? ` · ${t.account}` : ''}` : t.source === 'linear' ? `Linear · ${t.team}` : 'None');
-  // A board's context window: its owner session's latest percent at the row's top right, red from 90%, dimmed once the
-  // reading is older than ten minutes, with that age in its tooltip.
+  // A board's context window: its owner session's latest percent at the row's top right, red when the hub says it is full
+  // (ctx.full), dimmed once the reading is older than ten minutes by this device's clock (an age), with that age in its tooltip.
   const CTX_STALE_MIN = 10;
-  const CTX_FULL_PERCENT = 90;
   function contextWords(ctx) {
     if (!ctx) return '';
     const percent = Math.round(ctx.percent);
     const minutes = Math.floor((Date.now() - Date.parse(ctx.at)) / 60_000);
-    const full = percent >= CTX_FULL_PERCENT ? ' full' : '';
+    const full = ctx.full ? ' full' : '';
     if (!(minutes >= CTX_STALE_MIN)) return `<span class="sb-ctx${full}" title="${percent}% of its context window">${percent}% ctx</span>`;
     const age = minutes < 60 ? `${minutes} min` : minutes < 1440 ? `${Math.floor(minutes / 60)} h` : `${Math.floor(minutes / 1440)} d`;
     return `<span class="sb-ctx${full} stale" title="${percent}% of its context window, read ${age} ago">${percent}% ctx</span>`;
@@ -263,12 +262,8 @@
   // update: null | 'ready' | 'reloading'. restarting: restartRow's wait.
   // now: the time a starting board's seconds count to. A shared person's data (data.shared; hub/share.mjs sharedSidebar)
   // draws their boards alone: no Hub row, update or notification rows, and no New board.
-  // Whole minutes the host has been busy (machine.since is when it turned busy), 0 while it isn't.
-  const busyMinutes = (data, now = Date.now()) => (data?.pause?.machine?.state === 'busy' ? Math.floor((now - Date.parse(data.pause.machine.since)) / 60_000) : 0);
-  // Busy for longer than this adds a banner at the sidebar's top.
-  const BUSY_BANNER_MINUTES = 30;
-  // Whether the Hub row reads busy: the host has been busy for a minute and no usage pause reads first.
-  const hubBusy = (data, now = Date.now()) => busyMinutes(data, now) >= 1 && data?.pause?.state !== 'paused';
+  // Whether the Hub row reads busy: the hub's pause.machine.busy (hub/home.mjs sidebarPause).
+  const hubBusy = (data) => Boolean(data?.pause?.machine?.busy);
   // The logo's one dot, the highest that applies (AGENTS.md colour order): 'down' (red) for a broken hub, Claude not listening on a
   // board, or this page unable to reach the host (offline, which only the page knows); 'busy' (orange); 'update' (blue, the page's
   // update is ready); 'paused' (grey); else ''
@@ -286,19 +281,15 @@
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
     const paused = data?.pause?.state === 'paused';
     // A busy host holds every board's new work but shows only on the Hub row and the logo's dot, never on a board, and a pause reads before it;
-    // busy for more than BUSY_BANNER_MINUTES it also shows as a banner at the sidebar's top that opens the load sheet
+    // busy for a long while (pause.machine.banner) it also shows as a banner at the sidebar's top that opens the load sheet
     // (docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md).
-    const busy = hubBusy(data, now);
-    const busyBanner = busy && now - Date.parse(data.pause.machine.since) > BUSY_BANNER_MINUTES * 60_000
+    const busy = hubBusy(data);
+    const busyBanner = data?.pause?.machine?.banner
       ? `<button type="button" class="sb-busy-banner" data-load-sheet aria-haspopup="dialog">${iconText('dot', HUB_COLOURS.wait, `Host busy ${globalThis.BoardUI.liveFor(data.pause.machine.since, now)}${data.pause.machine.reason ? `: ${esc(data.pause.machine.reason)}` : ''}`)}</button>`
       : '';
     // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
-    // A red fault on a board row keeps its word, and a down or degraded hub keeps the Hub row: red and orange beat the grey pause (AGENTS.md).
-    const held = (s) => s.board && (paused || s.pause?.state === 'paused') && s.sub?.status?.colour !== 'red';
-    const siteRow = (s) => {
-      const sub = held(s) ? { stale: false, chips: null, ...s.sub, status: { shape: 'dot', colour: 'grey', word: 'paused' } } : s.sub;
-      return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub ? siteLine(sub) : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)) });
-    };
+    // The hub sends a held board's row already grey paused, a red fault keeping its word (hub/home.mjs heldSite).
+    const siteRow = (s) => row({ href: siteHref(s), icon: s.icon, title: s.title, sub: s.sub ? siteLine(s.sub) : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)) });
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
     const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;
