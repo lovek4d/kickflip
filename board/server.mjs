@@ -358,7 +358,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -478,12 +478,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   const sameTag = (header, etag) => String(header || '').split(',').map((t) => t.trim().replace(/^W\//, '')).includes(etag.replace(/^W\//, ''));
   const readJSON = async (f, fallback) => { try { return JSON.parse(await fs.readFile(f, 'utf8')); } catch { return fallback; } };
   const REPEAT_WINDOW_MS = 30_000;
-  const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
   const threadFile = (key) => siteThreadFile(here, key);
   // Hidden events leave every list a page reads (docs/adr/2026-10-29-1639-dismissals-hide-on-the-server.md).
   const shownEvents = async () => {
     const hidden = await readHidden(here);
-    return (await readLines(events)).filter((e) => !hidden.has(e.id));
+    return (await readLog(events)).filter((e) => !hidden.has(e.id));
   };
 
   async function readBody(req, limit = 64 * 1024) {
@@ -638,9 +637,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return (await Promise.all((await itemSources(here)).map(async (s) => {
       const itemFile = await readJSON(s.file, null);
       if (!itemFile || !Array.isArray(itemFile.items)) return null;
-      // A Done card's builders are finished, so the board's build skips their records.
-      const done = new Set(itemFile.items.filter((it) => it.lane === 'done').map((it) => it.id));
-      return { slug: s.slug, dir: s.dir, itemFile, agents: await readAgents(path.join(s.dir, 'agents'), done) };
+      // A Done card's builders are finished, so the board's build reads only the other cards' records, and none of an
+      // archived card, which the item file no longer holds.
+      const open = new Set(itemFile.items.filter((it) => it.lane !== 'done').map((it) => it.id));
+      return { slug: s.slug, dir: s.dir, itemFile, agents: await readAgents(path.join(s.dir, 'agents'), open) };
     }))).filter(Boolean);
   }
 
@@ -656,7 +656,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
 
   // The item files with archive entries' items (store.mjs readArchive) back among their cards, so an archived card links
-  // to the live cards it names and that name it, as it did on the board.
+  // to the live cards it names and that name it, as it did on the board, with their builder records.
   async function withArchived(entries) {
     const files = await liveFiles();
     for (const a of entries) {
@@ -664,6 +664,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (into) into.itemFile.items.push(a.item);
       else files.push({ slug: a.file, itemFile: { items: [a.item] }, agents: {} });
     }
+    await Promise.all(files.filter((w) => w.dir).map(async (w) => {
+      const ids = new Set(entries.filter((a) => a.file === w.slug).map((a) => a.item.id));
+      if (ids.size) Object.assign(w.agents, await readAgents(path.join(w.dir, 'agents'), ids));
+    }));
     return files;
   }
 
@@ -675,7 +679,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
     const threadLines = Object.create(null);
     await Promise.all(files.flatMap(({ slug, itemFile }) => itemFile.items.map(async (it) => {
-      threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
+      threadLines[`${slug}/${it.id}`] = await readLog(threadFile(`${slug}/${it.id}`));
     })));
     return { github, remote, branch, reviewers: opensPRs({ github, local, hub }, settingsOf(cfg, { hub })) ? cfg.reviewers || [] : [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, files, threads: threadLines,
       working: await readWorking(here), delivered: await readDelivered(here), actedOn: await readActedOn(here), autoReview: settingsOf(cfg).auto_review, incoming: await readJSON(path.join(data, 'incoming.json'), null),
@@ -704,7 +708,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const replyIndex = await readReplyIndex(replies);
     const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e, replyIndex) : { ...e, reply: null, replies: [] })));
     await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
-      const lines = await readLines(threadFile(`ask:${e.id}`));
+      const lines = await readLog(threadFile(`ask:${e.id}`));
       if (lines.length) threadLines[`ask:${e.id}`] = lines;
     }));
 
@@ -799,7 +803,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (checkingPrototypes) return;
     checkingPrototypes = true;
     try {
-      const log = await readLines(events);
+      const log = await readLog(events);
       const raised = new Set(log.filter((e) => e.kind === 'prototype-overdue').map((e) => e.data?.request));
       for (const wait of prototypeWaits(await sharedBoard(), log)) {
         if (raised.has(wait.request) || now().getTime() - Date.parse(wait.since) < PROTOTYPE_WAIT) continue;
@@ -961,7 +965,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const itemFile = source ? await readJSON(source.file, null) : null;
     const archived = !itemFile?.items?.some((it) => it.id === id) && (await readArchive(here)).find((a) => a.key === key);
     const item = (Array.isArray(itemFile?.items) && itemFile.items.find((it) => it.id === id)) || archived?.item || null;
-    return { item, questions: archived?.questions || [], agents: item && source ? routeRecord(await readAgents(path.join(source.dir, 'agents')), id) || {} : {} };
+    return { item, questions: archived?.questions || [], agents: item && source ? routeRecord(await readAgents(path.join(source.dir, 'agents'), new Set([id])), id) || {} : {} };
   }
 
   // The work items an ask became (their from_ask) or was related to (data/ask-links.json), as domain.mjs threadOf's links.
@@ -997,7 +1001,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const askIds = [askId, ...moved].filter(Boolean);
     const keys = new Set([key, ...askIds.map((id) => `ask:${id}`)]);
     const mine = (await shownEvents()).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind)) || (e.kind === 'owner-answer' && asked.has(e.data?.id))      || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
-    const lines = (await Promise.all([...keys].map((k) => readLines(threadFile(k))))).flat();
+    const lines = (await Promise.all([...keys].map((k) => readLog(threadFile(k))))).flat();
     const clearedAt = item?.lane === 'done' ? String(item.closed_at || '') : '';
     return threadOf(key, { lines, events: await Promise.all(mine.map((e) => withReply(e))), owner, working: await readWorking(here), delivered: await readDelivered(here), actedAt: routeRecord(await readActedOn(here), key) || '', listening: !boardAt(here) || (listenState(boardAt(here)) === 'listening' && sessionBusy(boardAt(here))), clearedAt, fromAsk: askId,
       links: own ? await askLinksOf(askId) : [], agents, moved, cards: new Map((await sharedBoard()).items.map((i) => [i.key, { ref: i.ref }])) });
@@ -1176,7 +1180,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md: the page resends a
         // reply-box tap whose answer it never saw, so one already recorded under its sendId answers as recorded.
         const sendId = body.sendId ? String(body.sendId) : null;
-        const recorded = sendId && (await readLines(events)).find((e) => e.kind === kind && e.data?.sendId === sendId);
+        const recorded = sendId && (await readLog(events)).find((e) => e.kind === kind && e.data?.sendId === sendId);
         if (recorded) return json(res, 200, { id: recorded.id, board: await answerBoard(req, since) });
         // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: a tap that moves a
         // card carries the version of the card the page drew it from (domain.mjs version); one whose card has moved since
@@ -1229,7 +1233,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         // distinct send of the page's, which its sendId already guards, so it is not compared.
         if (kind === 'item-message' || kind === 'ask') {
           const text = String(body.text || '');
-          const repeat = text.trim() && !body.sendId && (await readLines(events)).reverse().find((e) => e.kind === kind && Date.now() - Date.parse(e.ts) <= REPEAT_WINDOW_MS
+          const repeat = text.trim() && !body.sendId && (await readLog(events)).reverse().find((e) => e.kind === kind && Date.now() - Date.parse(e.ts) <= REPEAT_WINDOW_MS
             && String(e.data?.text || '') === text && String(e.data?.key || '') === String(body.key || '') && JSON.stringify(e.data?.shared_by ?? null) === JSON.stringify(body.shared_by ?? null));
           if (repeat) return json(res, 200, { id: repeat.id, board: await answerBoard(req, since) });
         }
@@ -1535,7 +1539,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const due = (await sharedBoard()).items
         .filter((it) => it.ownerBlock?.until && it.lane !== 'done' && Date.parse(it.ownerBlock.until) <= at);
       // The resumed item file stops a second pick-up; the event log covers a restart between the event and that write.
-      const sent = due.length ? await readLines(events) : [];
+      const sent = due.length ? await readLog(events) : [];
       for (const { key, ownerBlock: { until } } of due) {
         await pickUp(here, key, until, { announce: !sent.some((e) => e.kind === 'card-unblocked' && e.data?.key === key && e.data?.until === until) });
         await resumeRun(key);
@@ -1601,7 +1605,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       logCall({ call: 'planner-gone', key: c.key, result: c.limited ? 'queued' : c.failed ? 'failed' : 'closed', reason: c.limited ? `Its ${c.kind} run stopped at the usage limit, which resets at ${c.limited.until}; it relaunches then.` : `Its ${c.kind} planner's process was gone with its record open.`, inputs: c });
     }
     if (gone.length) dataVersion++;
-    const log = await readLines(events);
+    const log = await readLog(events);
     const { items, reviews } = await sharedBoard();
     const hold = await triageHold(log);
     const pulled = await sentOf(PULL);
@@ -1989,7 +1993,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // Once a minute: a tapped script run whose runner died (a reboot, a kill) is recorded failed, with the log's tail as its
   // output so far (scripts.mjs diedRuns).
   async function failDeadScriptRuns() {
-    for (const { key, id, ms } of diedRuns(await readLines(events), { pidOf: readRunnerPid, alive: pidAlive, now: now().getTime() })) {
+    for (const { key, id, ms } of diedRuns(await readLog(events), { pidOf: readRunnerPid, alive: pidAlive, now: now().getTime() })) {
       await appendEvent(SCRIPT_EVENTS.result, { key, id, exit: null, died: true, timedOut: false, output: logTail(path.join(logsDir(), scriptLogName(id))), ms, log: scriptLogName(id) });
       dataVersion++;
     }
@@ -2223,7 +2227,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   async function triageDue() {
     if (!(await triageOn())) return false;
     const date = await triageNight();
-    return Boolean(date) && (await readLines(events)).filter((e) => e.kind === 'overnight-triage').at(-1)?.data?.date !== date;
+    return Boolean(date) && (await readLog(events)).filter((e) => e.kind === 'overnight-triage').at(-1)?.data?.date !== date;
   }
 
   // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
@@ -2340,7 +2344,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const file = path.join(data, 'orchestrator-waits.json');
     const stored = await readJSON(file, null);
     const previous = stored?.waits || [];
-    const log = await readLines(events);
+    const log = await readLog(events);
     const triage = await unansweredTriage(log);
     const working = await readWorking(here);
     // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: each question another board

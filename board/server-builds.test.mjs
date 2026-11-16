@@ -9,7 +9,8 @@ import { startBoard } from '../shared/test-helpers.mjs';
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
 // docs/adr/2026-11-13-2210-the-board-server-starts-in-process-and-tests-await-settled.md
-// Each board build reads the wave file once, so reads of it count the builds. run(ctx) gets the in-process server, its
+// Each board build reads data/checked.json once, and nothing else in the server reads it, so reads of it count the
+// builds (the passes read the wave file too, closeGonePlanners for the cards outside Done). run(ctx) gets the in-process server, its
 // site, how many builds so far, and a page on its stream: each change signal pushes the page's reload of the board onto
 // ctx.loads.
 async function withBoard(t, run) {
@@ -20,10 +21,11 @@ async function withBoard(t, run) {
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));
   fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two' }] }));
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), '{"items":[]}');
+  const checked = path.join(site, 'data', 'checked.json');
   let reads = 0;
   const read = fsp.readFile;
   t.mock.method(fsp, 'readFile', function (file, ...rest) {
-    if (String(file) === wave) reads++;
+    if (String(file) === checked) reads++;
     return read.call(this, file, ...rest);
   });
   const b = await startBoard(t, { site });

@@ -61,6 +61,54 @@ export const readJSON = async (f, fallback) => {
 };
 const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
+// docs/adr/2026-11-16-0205-the-event-log-and-threads-are-parsed-once-and-archived-cards-agent-files-go-unread.md
+// The lines of an append-only JSON-lines file (data/events.jsonl, a thread), each parsed once in this process: a read
+// stats the file and parses only the bytes appended since the last, read from the start of the last whole line it
+// kept, so a file rewritten under it shows in bytes that no longer match and is read whole again, as is one replaced
+// (another inode) or rewritten to the same length. A last line with no newline counts once it parses, and is left out
+// while it is still being written. A broken whole line makes the file read as empty, as readLines does. → a new array
+// each call, of frozen lines, so no caller changes what another reads.
+const logs = new Map();
+const frozen = (v) => {
+  if (v && typeof v === 'object' && !Object.isFrozen(v)) { Object.freeze(v); for (const k of Object.keys(v)) frozen(v[k]); }
+  return v;
+};
+const parseLines = (text) => text.split('\n').filter(Boolean).map((l) => frozen(JSON.parse(l)));
+export async function readLog(file) {
+  let st;
+  try { st = await fs.stat(file); } catch { logs.delete(file); return []; }
+  let kept = logs.get(file);
+  if (kept && (kept.ino !== st.ino || st.size <= kept.size)) {
+    if (st.size === kept.size && st.mtimeMs === kept.mtimeMs) return [...kept.lines, ...kept.open];
+    kept = null;
+  }
+  for (;;) {
+    const from = kept ? kept.end - kept.tail.length : 0;
+    const fh = await fs.open(file).catch(() => null);
+    if (!fh) { logs.delete(file); return []; }
+    let buf;
+    try {
+      buf = Buffer.alloc(Math.max(0, st.size - from));
+      buf = buf.subarray(0, (await fh.read(buf, 0, buf.length, from)).bytesRead);
+    } finally { await fh.close(); }
+    if (kept && !buf.subarray(0, kept.tail.length).equals(kept.tail)) { kept = null; continue; }
+    const start = kept ? kept.tail.length : 0;
+    const lastNewline = buf.lastIndexOf(10);
+    let parsed;
+    try { parsed = lastNewline >= start ? parseLines(buf.subarray(start, lastNewline + 1).toString('utf8')) : []; } catch { logs.delete(file); return []; }
+    let open = [];
+    try { open = parseLines(buf.subarray(lastNewline + 1).toString('utf8')); } catch {}
+    const tailFrom = lastNewline > 0 ? buf.lastIndexOf(10, lastNewline - 1) + 1 : 0;
+    const next = {
+      ino: st.ino, size: from + buf.length, mtimeMs: st.mtimeMs, end: from + lastNewline + 1,
+      tail: lastNewline >= 0 ? Buffer.from(buf.subarray(tailFrom, lastNewline + 1)) : Buffer.alloc(0),
+      lines: kept ? kept.lines.concat(parsed) : parsed, open,
+    };
+    logs.set(file, next);
+    return [...next.lines, ...next.open];
+  }
+}
+
 async function replace(file, text) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
@@ -183,10 +231,11 @@ export async function replyFilesOf(dir, eventId) {
   return (await readReplyIndex(dir)).get(eventId) || [];
 }
 
-// {<item id>: {<agent>: record}} from dir's <id>.json (agent main) and <id>@<agent>.json (builderFile), without the ids in skip.
-export async function readAgents(dir, skip = new Set()) {
+// {<item id>: {<agent>: record}} from dir's <id>.json (agent main) and <id>@<agent>.json (builderFile), of the ids in
+// ids, a Set.
+export async function readAgents(dir, ids) {
   let files = [];
-  try { files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json') && !skip.has(path.basename(f, '.json').split('@')[0])); } catch {}
+  try { files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json') && ids.has(path.basename(f, '.json').split('@')[0])); } catch {}
   const records = await Promise.all(files.map(async (f) => { try { return JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')); } catch { return null; } }));
   const out = Object.create(null);
   files.forEach((f, i) => {
@@ -200,7 +249,7 @@ export async function readAgents(dir, skip = new Set()) {
 export async function writeReply(site, eventId, md, title) {
   needSite(site);
   domId(eventId, 'the event id');
-  const event = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
+  const event = (await readLog(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
   if (!event) fail(`no event "${eventId}" in this site's data/events.jsonl`);
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a reply to an ask answers the card
   // it became, which alone takes --title.
@@ -302,7 +351,7 @@ export async function refuseUnreadEdit(site, ref) {
   needSite(site);
   const id = ref.includes('/') ? (await loadItem(site, ref)).item.from_ask : ref;
   if (!id) return;
-  const edit = (await readLines(path.join(site, 'data', 'events.jsonl')))
+  const edit = (await readLog(path.join(site, 'data', 'events.jsonl')))
     .filter((e) => e.kind === 'ask-edited' && e.data?.id === id && typeof e.data?.text === 'string')
     .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
   if (!edit) return;
@@ -508,8 +557,8 @@ export async function appendStatus(site, key, kind, inputs = {}, { link, questio
 // message on the thread or an owner event on the card, newer than the newest status or hub line (the builder's, the
 // lander's, the board's). Resumes in a row, or right after the builder, post none.
 export async function appendBuilderResumed(site, key) {
-  const lines = await readLines(threadFile(site, key));
-  const events = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.data?.key === key && ITEM_EVENTS.includes(e.kind));
+  const lines = await readLog(threadFile(site, key));
+  const events = (await readLog(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.data?.key === key && ITEM_EVENTS.includes(e.kind));
   const section = lines.filter((m) => m.kind === 'status' || m.kind === HUB).map((m) => String(m.ts)).sort().pop() ?? '';
   const other = [...lines.filter((m) => !m.kind && !m.command), ...events].map((m) => String(m.ts));
   if (other.some((ts) => ts > section)) await appendStatus(site, key, 'builder-resumed');
@@ -556,10 +605,10 @@ function scriptOf(file) {
 }
 // The script offer id on card key as the board reads it (domain.mjs scriptStateOf): {offer: the line's script, state}.
 export async function readScriptOffer(site, key, id) {
-  const offers = (await readLines(threadFile(site, key))).filter((m) => m.script);
+  const offers = (await readLog(threadFile(site, key))).filter((m) => m.script);
   const offer = offers.find((m) => m.script.id === id)?.script;
   if (!offer) fail(`${key} has no script ${id}`);
-  const events = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.data?.key === key && e.data?.id === id);
+  const events = (await readLog(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.data?.key === key && e.data?.id === id);
   return { offer, state: scriptStateOf(offer, events, offers.at(-1).script.id).state };
 }
 // A finished run of script id on card key ({exit, output, timedOut, ms}) as its script-result event, through the board
@@ -619,7 +668,7 @@ export async function cardName(site, key) {
 
 // The card an event in data/events.jsonl belongs to (cardName), or "the <kind> event" for one about no card.
 export async function eventCard(site, eventId) {
-  const e = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((x) => x.id === eventId);
+  const e = (await readLog(path.join(site, 'data', 'events.jsonl'))).find((x) => x.id === eventId);
   if (e?.kind === 'ask') return cardName(site, `ask:${eventId}`);
   if (typeof e?.data?.key === 'string') return cardName(site, e.data.key);
   return `the ${e?.kind} event`;
@@ -657,7 +706,7 @@ function askTitle(ask, events) {
 // when the ask already has a card or isn't New: deleted, moved, folded or answered (askNotNew).
 export const fileAsk = (site, eventId, pending) => ticketWrite(site, async () => {
   needSite(site);
-  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
   const ask = pending || events.find((e) => e.id === eventId && e.kind === 'ask') || fail(`no ask "${eventId}" in this site's data/events.jsonl`);
   if (await askCardOf(site, eventId) || await askNotNew(site, eventId, events)) return null;
   const { source, itemFile } = await askFile(site);
@@ -702,7 +751,7 @@ async function newAskCard(site, source, ask, title) {
 export const fileAsks = (site) => ticketWrite(site, async () => {
   needSite(site);
   const data = (...p) => path.join(site, 'data', ...p);
-  const events = await readLines(data('events.jsonl'));
+  const events = await readLog(data('events.jsonl'));
   const links = await readAskLinks(site);
   // Each ask's card by its id: a live card it became, else the card it went into.
   const carded = new Map(Object.entries(links));
@@ -716,7 +765,7 @@ export const fileAsks = (site) => ticketWrite(site, async () => {
   const filed = [];
   let target;
   for (const ask of asks) {
-    const thread = await readLines(threadFile(site, `ask:${ask.id}`));
+    const thread = await readLog(threadFile(site, `ask:${ask.id}`));
     if (thread.some((m) => m.line === 'ask-moved')) continue;
     const replies = await Promise.all((await replyFilesOf(data('replies'), ask.id)).map((f) => fs.stat(data('replies', f.name)).then((st) => st.mtime.toISOString())));
     const said = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts));
@@ -745,7 +794,7 @@ export const fileAsks = (site) => ticketWrite(site, async () => {
 export const retitleAskCard = (site, eventId) => ticketWrite(site, async () => {
   const card = await askCardOf(needSite(site), eventId);
   if (!card || !stillNew(card.item)) return null;
-  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
   card.item.title = askTitle(events.find((e) => e.id === eventId && e.kind === 'ask'), events);
   await writeJSON(card.source.file, card.itemFile);
   return card.key;
@@ -760,7 +809,7 @@ async function dropCard(site, { source, itemFile, item, key }) {
   await writeJSON(source.file, itemFile);
   if (item.plan) await fs.rm(path.join(source.dir, item.plan), { force: true });
   const thread = threadFile(site, key);
-  const lines = await readLines(thread);
+  const lines = await readLog(thread);
   await fs.rm(thread, { force: true });
   return lines;
 }
@@ -810,7 +859,7 @@ export async function answerCard(site, key, md, title, { waitsOn } = {}) {
 export async function relateAsk(site, eventId, key, summary) {
   needSite(site);
   domId(eventId, 'the event id');
-  const known = (await readLines(path.join(site, 'data', 'events.jsonl'))).some((e) => e.id === eventId && e.kind === 'ask');
+  const known = (await readLog(path.join(site, 'data', 'events.jsonl'))).some((e) => e.id === eventId && e.kind === 'ask');
   if (!known) fail(`no ask "${eventId}" in this site's data/events.jsonl`);
   await refuseMoved(site, eventId);
   await loadItem(site, key);
@@ -873,7 +922,7 @@ export async function unfoldAsk(site, eventId) {
 
 // The ask-moved line moveAsk wrote in ask eventId's thread when it sent the ask to another board, or undefined: the
 // ask lives there now, at the line's link.
-const movedLine = async (site, eventId) => (await readLines(threadFile(site, `ask:${eventId}`))).find((m) => m.line === 'ask-moved');
+const movedLine = async (site, eventId) => (await readLog(threadFile(site, `ask:${eventId}`))).find((m) => m.line === 'ask-moved');
 async function refuseMoved(site, eventId) {
   const moved = await movedLine(site, eventId);
   if (moved) fail(`ask "${eventId}" was moved to ${moved.link}; it lives there now`);
@@ -926,7 +975,7 @@ export async function moveAsk(site, eventId, route, { note, command = 'ask move'
   needSite(site);
   domId(eventId, 'the event id');
   const target = targetBoard(site, route, command);
-  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
   const ask = events.find((e) => e.id === eventId && e.kind === 'ask') || fail(`no ask "${eventId}" in this site's data/events.jsonl`);
   const state = await askNotNew(site, eventId, events);
   if (state?.why) fail(state.why);
@@ -986,7 +1035,7 @@ export async function askBoard(site, route, question, { from } = {}) {
 export async function answerBoardAsk(site, id, answer) {
   needSite(site);
   const words = messageText(answer);
-  const ask = boardAsksOf(await readLines(path.join(site, 'data', 'events.jsonl'))).find((a) => a.id === id)
+  const ask = boardAsksOf(await readLog(path.join(site, 'data', 'events.jsonl'))).find((a) => a.id === id)
     || fail(`no question "${id}" from another board on this board; the waits lines name each one`);
   if (ask.answer) fail(`question ${id} is already answered`);
   const asker = listBoards().find((b) => b.route === ask.from.route)
@@ -1009,7 +1058,7 @@ export async function listBoardAsks(site, { wait = false, timeout = 9, every = 2
   for (;;) {
     const asks = await readLines(boardAsksFile(site));
     if (!asks.length) return { lines: ['no asks yet'] };
-    const answers = new Map((await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'board-answer').map((e) => [e.data?.id, e.data?.text]));
+    const answers = new Map((await readLog(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'board-answer').map((e) => [e.data?.id, e.data?.text]));
     const boards = listBoards();
     const state = (a) => {
       if (answers.has(a.id)) return `answered: ${answers.get(a.id)}`;
@@ -1035,7 +1084,7 @@ export async function handoff(site, ref, { to, note, done } = {}) {
   if (!String(ref).includes('/')) return moveAsk(site, ref, to, { note, command: 'handoff' });
   const target = targetBoard(site, to, 'handoff');
   const { item } = await loadItem(site, ref);
-  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
   if (item.from_ask && (await askNotNew(site, item.from_ask, events))?.items?.includes(ref)) return moveAsk(site, item.from_ask, to, { note, command: 'handoff' });
   // Refused here, before anything is sent, when the other board has nowhere to file the task.
   await askFile(target.dir);
@@ -1118,7 +1167,7 @@ export async function readHandshake(site) {
 export async function ackPing(site, eventId) {
   needSite(site);
   domId(eventId, 'the event id');
-  const event = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
+  const event = (await readLog(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
   if (event?.kind !== 'ping' && event?.kind !== 'hello') fail(`no ping event "${eventId}" in this site's data/events.jsonl`);
   const h = (await readHandshake(site)) || {};
   if (h.ping?.id && h.ping.id !== eventId) fail(`"${eventId}" is an older ping; ack the newest, "${h.ping.id}"`);
@@ -1406,7 +1455,7 @@ const slackThreadId = (t) => `${t.channel}:${t.thread_ts}`;
 // {key, channel, thread_ts, ts, by, link, heard}: routed.slack, the @kickflip's sender and permalink, and heard, the
 // newest reply read, else the @kickflip's ts, since the replies up to it were its words.
 export async function followedSlackThreads(site) {
-  const asks = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'ask' && e.data?.routed?.via === 'slack' && e.data.routed.slack);
+  const asks = (await readLog(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'ask' && e.data?.routed?.via === 'slack' && e.data.routed.slack);
   if (!asks.length) return [];
   const heard = (await readJSON(slackThreadsFile(site), {})).threads || {};
   const out = [];
@@ -1431,7 +1480,7 @@ function orchestratorWords(words) {
 // A slack-question event's data: {reviewer, channel, thread_ts, ts, from: reviewer|owner, answer}.
 async function slackQuestion(site, eventId) {
   domId(eventId, 'the event id');
-  const e = (await readLines(path.join(needSite(site), 'data', 'events.jsonl'))).find((x) => x.id === eventId && x.kind === 'slack-question');
+  const e = (await readLog(path.join(needSite(site), 'data', 'events.jsonl'))).find((x) => x.id === eventId && x.kind === 'slack-question');
   return e?.data || fail(`no slack-question "${eventId}" in this site's data/events.jsonl`);
 }
 // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: a slack-handled {id, by}
@@ -2876,10 +2925,9 @@ function roundSettled(owner, q, answers) {
 // The owner's answers, each with whether it has a reply, and prototype requests, from the event log: what
 // domain.mjs ownerQuestion reads a question's state from. → {answers, requests}
 async function ownerEvents(site) {
-  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
-  const answers = await Promise.all(events.filter((e) => e.kind === 'owner-answer').map(async (e) => {
-    return { ...e, reply: e.reply || (await replyFilesOf(path.join(site, 'data', 'replies'), e.id)).length > 0 };
-  }));
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
+  const replies = await readReplyIndex(path.join(site, 'data', 'replies'));
+  const answers = events.filter((e) => e.kind === 'owner-answer').map((e) => ({ ...e, reply: e.reply || replies.has(e.id) }));
   return { answers, requests: events.filter((e) => e.kind === 'prototype-request' || e.kind === 'grill-more') };
 }
 
@@ -2996,7 +3044,7 @@ const OWNER_WORDS = { ask: 'text', 'ask-edited': 'text', 'item-message': 'text',
 // → words, once they quote what the owner wrote on this board; else it refuses, naming flag.
 async function ownerQuote(site, words, flag) {
   const quoted = text(words, flag).replace(/\s+/g, ' ');
-  const said = (await readLines(path.join(site, 'data', 'events.jsonl'))).map((e) => String(e.data?.[OWNER_WORDS[e.kind]] ?? '').replace(/\s+/g, ' ').toLowerCase());
+  const said = (await readLog(path.join(site, 'data', 'events.jsonl'))).map((e) => String(e.data?.[OWNER_WORDS[e.kind]] ?? '').replace(/\s+/g, ' ').toLowerCase());
   if (!said.some((t) => t.includes(quoted.toLowerCase()))) fail(`${flag} must quote the owner's words in an ask, task message or answer note on this board`);
   return quoted;
 }
@@ -3010,7 +3058,7 @@ export async function askedGate(site, key, asked) {
 
 async function checkAsk(site, eventId, name = '--from-ask') {
   domId(eventId, name);
-  const known = (await readLines(path.join(needSite(site), 'data', 'events.jsonl'))).some((e) => e.id === eventId && e.kind === 'ask');
+  const known = (await readLog(path.join(needSite(site), 'data', 'events.jsonl'))).some((e) => e.id === eventId && e.kind === 'ask');
   return known ? eventId : fail(`no ask "${eventId}" in this site's data/events.jsonl`);
 }
 
@@ -3096,14 +3144,14 @@ const NOT_STAGED = "a task goes ready only from staging, which the board sets on
 // orchestrator files it --from-ask --phase ready, its filing the judgment staging would ask for
 // (docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md).
 async function quickAsk(site, eventId) {
-  const events = await readLines(path.join(needSite(site), 'data', 'events.jsonl'));
+  const events = await readLog(path.join(needSite(site), 'data', 'events.jsonl'));
   return events.some((e) => (e.kind === 'ask' && e.id === eventId && e.data?.quick === true) || (e.kind === 'item-message' && e.data?.key === `ask:${eventId}` && e.data?.intent === 'build'));
 }
 // docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md: a Slack @kickflip discusses
 // first, whoever sent it, so its ask goes ready only once the owner stages its card, even with an Implement on it.
 const SLACK_DISCUSSES = (ask) => `ask "${ask}" came from a Slack @kickflip, which always discusses first: file it --phase discussing; the owner's Implement after the discussion readies it`;
 async function fromSlack(site, eventId) {
-  const events = await readLines(path.join(needSite(site), 'data', 'events.jsonl'));
+  const events = await readLog(path.join(needSite(site), 'data', 'events.jsonl'));
   return events.some((e) => e.kind === 'ask' && e.id === eventId && e.data?.routed?.via === 'slack');
 }
 // A Next asking the owner to mark the card ready ("Mark ready", "mark it ready").
@@ -3536,7 +3584,7 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   } else if (start && !closed(item)) {
     // docs/adr/2026-11-15-1500-a-pull-and-its-build-start-are-one-status-line.md: a build the pull just started already
     // has its line, the pull's own "Moved to In Progress: slot available".
-    const pulled = (await readLines(threadFile(site, key))).at(-1)?.line === 'pulled';
+    const pulled = (await readLog(threadFile(site, key))).at(-1)?.line === 'pulled';
     moveTo('progress', pulled ? null : 'a build started');
   }
   // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a card going ready with no ticket gets one, on a board with a source.
@@ -4128,7 +4176,7 @@ export const migrateFollowups = (site) => ticketWrite(site, async () => {
     if (clash) fail(`${entry.slug}: follow-up ${clash.id} has the id of a task; rename one, then restart the board`);
     const moved = [];
     for (const { id, title, from, filed, done, ...rest } of itemFile.followups) {
-      const closedAt = done ? (site && (await readLines(threadFile(site, `${entry.slug}/${id}`))).map((l) => l.ts).filter(Boolean).sort().pop()) || filed : null;
+      const closedAt = done ? (site && (await readLog(threadFile(site, `${entry.slug}/${id}`))).map((l) => l.ts).filter(Boolean).sort().pop()) || filed : null;
       moved.push({ id, title, ...(filed ? { created: filed } : {}), ...(from ? { parent: depKey(entry.slug, from) } : {}),
         ...(done ? { lane: 'done', ...(closedAt ? { lane_at: closedAt, closed_at: closedAt } : {}) } : {}), ...rest });
     }
@@ -4201,7 +4249,7 @@ export const migrateGates = (site) => ticketWrite(site, async () => {
         .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
       if (!last) continue;
       const ran = last.choice === 'yes' && (it.phase !== 'grilling'
-        || (await readLines(threadFile(site, key))).some((l) => l.line === 'prototype-round' && String(l.ts) > String(last.ts)));
+        || (await readLog(threadFile(site, key))).some((l) => l.line === 'prototype-round' && String(l.ts) > String(last.ts)));
       it.gates = { prototype: ran ? 'ran' : last.choice };
       changed++;
     }
@@ -4231,7 +4279,8 @@ function stateToPhase(item, built) {
 export const migratePhases = (site) => ticketWrite(site, async () => {
   const lines = [];
   const sources = await itemSources(site);
-  const built = async (dir, it) => Boolean(dir) && it.lane === 'done' && (await Promise.all((await builderFiles(dir, it.id)).map((f) => readJSON(f, null)))).some((r) => r?.started && builds(r));
+  // Read only for a Done card with no phase yet, the one stateToPhase asks it of.
+  const built = async (dir, it) => Boolean(dir) && it.lane === 'done' && !PHASES.done.includes(it.phase) && (await Promise.all((await builderFiles(dir, it.id)).map((f) => readJSON(f, null)))).some((r) => r?.started && builds(r));
   for (const entry of sources) {
     const itemFile = await readJSON(entry.file, null);
     let changed = 0;
@@ -4564,7 +4613,7 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
   const repeat = new RegExp(`^(?:${head}|${phase ?? head})\\s*:?\\s+`, 'i');
   const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail.replace(repeat, '')}` : detail;
   const file = threadFile(site, key);
-  if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
+  if ((await readLog(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
   await appendLine(file, { ts, who: 'claude', kind: 'status', run: builder.started, ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), ...(live ? { live: true } : {}), text: body });
 }
 
@@ -4867,7 +4916,7 @@ export async function markPaused(site, key) {
   const pause = open?.record.pause;
   if (!pause || pause.paused) return pause ?? null;
   const at = new Date().toISOString();
-  const phase = (await readLines(threadFile(site, key))).filter((m) => m.kind === 'status' && m.phase && !m.planner && String(m.ts) >= String(open.record.started)).pop()?.phase;
+  const phase = (await readLog(threadFile(site, key))).filter((m) => m.kind === 'status' && m.phase && !m.planner && String(m.ts) >= String(open.record.started)).pop()?.phase;
   const paused = { ...pause, paused: at, ...(phase ? { phase } : {}) };
   await writeJSON(open.file, { ...open.record, pause: paused });
   await appendStatus(site, key, 'paused', { phase, words: pause.words, clear: PAUSE_CLEARS[pause.cause][0] });
@@ -5074,7 +5123,7 @@ export async function clearStall(site, key) {
 // the card last closed, Done or merged, as the board reads a bump (domain.mjs workItem), else null.
 export async function landFirst(site, key) {
   const { item } = await loadItem(site, key);
-  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
   const latest = (kind) => events.filter((e) => e.kind === kind && e.data?.key === key).map((e) => String(e.ts)).sort().pop() || '';
   const bump = latest('card-bump');
   if (!bump || latest('card-unbump') > bump) return null;
@@ -5086,12 +5135,12 @@ export async function bumpCard(site, key, on) {
   const { item } = await loadItem(site, key);
   if (closed(item)) fail(`${await cardName(site, key)} is done; there is nothing to bump`);
   const id = await appendEvent({ dir: site }, on ? 'card-bump' : 'card-unbump', { key });
-  return (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === id).ts;
+  return (await readLog(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === id).ts;
 }
 
 // Whether the card's latest status line is the finish step's landing line.
 export async function isLanding(site, key) {
-  return (await readLines(threadFile(site, key))).filter((m) => m.kind === 'status').pop()?.phase === 'landing';
+  return (await readLog(threadFile(site, key))).filter((m) => m.kind === 'status').pop()?.phase === 'landing';
 }
 // A record's session belongs to the agent now starting on it when a launch wrote it since the record last started or closed.
 const launchedSession = (record) => Boolean(record?.session) && record.session.at > (record.done ?? record.started);
@@ -5372,7 +5421,7 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
 export async function landingLine(site, key) {
   const { source } = await loadItem(site, key);
   const file = threadFile(site, key);
-  if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.phase === 'landing') return;
+  if ((await readLog(file)).filter((m) => m.kind === 'status').pop()?.phase === 'landing') return;
   // It joins the section of the card's newest build, which a lander's lines join after it.
   const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
   const run = records.filter((r) => r?.started && builds(r) && r.label !== LANDER).map((r) => r.started).sort().pop();
@@ -5404,7 +5453,7 @@ export async function recordCall(site, key, call, { dir, agent = 'main' }) {
 // the owner as a question naming the ask ("ask": "ask<n>") before `builder verified`.
 // → [{id, agent, text, at, answer: {text, at} | null, deferred}], oldest first.
 async function builderAsks(site, key) {
-  const thread = await readLines(threadFile(site, key));
+  const thread = await readLog(threadFile(site, key));
   const replies = new Map(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => [m.ask, m]));
   return thread.filter((m) => m.kind === BUILDER_ASK.ask).map((m) => {
     const reply = replies.get(m.ask);
@@ -5654,7 +5703,7 @@ export async function checkNotReopened(site, key) {
   if (item.reopened_at) fail(`the owner reopened ${await cardName(site, key)}; it closes on the owner's Done`);
   if (item.lane !== 'done' || storedPRs(item).some((p) => p.merged_at)) return;
   const doneAt = String(item.closed_at || '');
-  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
   if (events.some((e) => e.kind === 'item-message' && e.data?.key === key && String(e.ts) > doneAt)) fail(`the owner reopened ${await cardName(site, key)} with a message; it closes on the owner's Done`);
 }
 
@@ -5745,7 +5794,7 @@ export async function stopPlanner(site, key, flags) {
   // docs/adr/2026-11-14-2015-a-clean-visual-end-with-no-page-reads-unplaced.md: a visual agent's page is a visual thread line since its record started.
   if (kind === VISUAL) {
     if (!record.started || record.done) return { file, lines: [] };
-    const placed = (await readLines(threadFile(site, key))).some((m) => m.kind === VISUAL && String(m.ts) >= record.started);
+    const placed = (await readLog(threadFile(site, key))).some((m) => m.kind === VISUAL && String(m.ts) >= record.started);
     if (placed) return { file, lines: [] };
     const { line, lines } = await appendStatus(site, key, 'visual-unplaced', {});
     return { file, lines: [line.text, ...lines] };
@@ -5768,8 +5817,12 @@ export async function stopPlanner(site, key, flags) {
 export async function closeGonePlanners(site, { alive, failure, limited = () => null }) {
   const closed = [];
   for (const source of await itemSources(site)) {
-    // The records' file names carry the card ids, so a pass with no planner open reads no item file.
-    const files = (await fs.readdir(path.join(source.dir, 'agents')).catch(() => [])).filter((n) => n.endsWith('.json') && !n.includes('@past-'));
+    // Only the records of the cards the board builds with theirs: a Done card's are finished, and an archived card's
+    // (gone from the item file) were finished before it was archived.
+    const items = (await readJSON(source.file, null))?.items;
+    const open = new Set(Array.isArray(items) ? items.filter((it) => it.lane !== 'done').map((it) => it.id) : []);
+    const files = (await fs.readdir(path.join(source.dir, 'agents')).catch(() => []))
+      .filter((n) => n.endsWith('.json') && !n.includes('@past-') && open.has(n.slice(0, -'.json'.length).split('@')[0]));
     for (const name of files) {
       const [id, ...named] = name.slice(0, -'.json'.length).split('@');
       const file = path.join(source.dir, 'agents', name);

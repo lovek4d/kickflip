@@ -22,11 +22,12 @@ test('readReplyIndex of a missing folder is empty', async () => {
   assert.equal((await readReplyIndex(path.join(tmp(), 'nope'))).size, 0);
 });
 
-test('readAgents skips the files of the ids it is told to skip', async () => {
+// docs/adr/2026-11-16-0205-the-event-log-and-threads-are-parsed-once-and-archived-cards-agent-files-go-unread.md
+test('readAgents reads only the files of the ids it is given', async () => {
   const dir = tmp();
-  for (const f of ['T-1.json', 'T-1@helper.json', 'T-2.json']) fs.writeFileSync(path.join(dir, f), JSON.stringify({ label: f }));
-  assert.deepEqual(Object.keys(await readAgents(dir)).sort(), ['T-1', 'T-2']);
-  const live = await readAgents(dir, new Set(['T-1']));
-  assert.deepEqual(Object.keys(live), ['T-2']);
-  assert.equal(live['T-2'].main.label, 'T-2.json');
+  for (const f of ['T-1.json', 'T-1@helper.json', 'T-2.json', 'T-3.json']) fs.writeFileSync(path.join(dir, f), JSON.stringify({ label: f }));
+  assert.deepEqual(Object.keys(await readAgents(dir, new Set(['T-1', 'T-2']))).sort(), ['T-1', 'T-2']);
+  const one = await readAgents(dir, new Set(['T-1']));
+  assert.deepEqual(Object.keys(one), ['T-1']);
+  assert.deepEqual(Object.keys(one['T-1']).sort(), ['helper', 'main']);
 });

@@ -65,6 +65,19 @@ test('a live planner, one the card has a question from, and a record with no pro
   assert.equal(asked.thread().some((l) => l.line === 'planner-unasked'), false);
 });
 
+// docs/adr/2026-11-16-0205-the-event-log-and-threads-are-parsed-once-and-archived-cards-agent-files-go-unread.md
+test('the pass reads no record of a Done card or of a card gone from the item file', async () => {
+  const w = world();
+  w.open('grill');
+  w.open('grill', 'Z9.json');
+  fs.writeFileSync(path.join(w.data, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'Card', lane: 'done', phase: 'closed', plan: 'notes.md' }] }));
+  const read = [];
+  assert.deepEqual(await closeGonePlanners(w.site, { alive: (r) => { read.push(r); return false; }, failure: () => null }), []);
+  assert.deepEqual(read, []);
+  assert.equal(w.record().done, undefined);
+  assert.equal(w.record('Z9.json').done, undefined);
+});
+
 test('a gone visual agent that placed no page closes with visual-unplaced, and a builder is never touched', async () => {
   const w = world();
   w.open('visual', 'A1@visual-1.json');
