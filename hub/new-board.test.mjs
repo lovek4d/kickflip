@@ -598,3 +598,29 @@ test('a joined board lands until its server answers and it listens: landing coun
   saveJSON(manifestFile, { ...joined, starting: { [route]: { ...record, asked_at: new Date(Date.now() - STARTING_WAIT).toISOString() } } });
   assert.deepEqual(await dismissBoard(route), { route }, 'a joined board that never listened can be dismissed once it reads failed');
 });
+
+// docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md
+test('a start whose session ended, or that stalled, can be retried at once; a live, busy one cannot', async () => {
+  saveJSON(manifestFile, { sites });
+  const repo = path.join(base, 'owner/project');
+  const working = claude();
+  const r = await requestBoard(input('Quiet one'), { run: working.run, live, repos });
+  const { session } = await r.started;
+  const running = new Map([[session, { pid: 4242, kind: 'bg', sessionId: session }]]);
+  const stop = async () => { running.delete(session); };
+  const transcript = path.join(home, '.claude', 'projects', fs.realpathSync(repo).replace(/[^a-zA-Z0-9]/g, '-'), `${session}.jsonl`);
+  fs.mkdirSync(path.dirname(transcript), { recursive: true });
+  fs.writeFileSync(transcript, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'kickflip doctor' } }] } }) + '\n');
+  await assert.rejects(retryBoard('quiet-one', { run: working.run, live: () => running, stop, repos }), { status: 400, message: 'Only a board that didn’t start can be retried.' }, 'busy a moment ago');
+  // Its session started, and its transcript last moved, well over STALL_AFTER ago; it asked inside STARTING_WAIT.
+  const longAgo = Date.parse('2026-01-01T00:00:00.000Z');
+  const m = readManifest();
+  m.starting['quiet-one'].since = new Date(longAgo).toISOString();
+  saveJSON(manifestFile, m);
+  fs.utimesSync(transcript, longAgo / 1000, longAgo / 1000);
+  const again = await retryBoard('quiet-one', { run: working.run, live: () => running, stop, repos });
+  assert.equal(running.size, 0, 'the stalled session was stopped first');
+  const next = (await again.started).session;
+  await assert.rejects(dismissBoard('quiet-one', { live: () => new Map([[next, {}]]) }), { status: 400 });
+  assert.deepEqual(await dismissBoard('quiet-one', { live: () => new Map() }), { route: 'quiet-one' }, 'its session ended, so it reads failed at once');
+});

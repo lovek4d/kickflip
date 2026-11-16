@@ -24,13 +24,14 @@ import { resumeStateFile, carryCursor, hubBoard, isListening, listBoards, listen
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './live.mjs';
 import { deliver, readOrchestratorModel } from './push.mjs';
-import { WAIT_MS } from './prompts.mjs';
+import { WAIT_MS, actionOf, pending, readPrompts, shown } from './prompts.mjs';
+import { sessionActivity } from './session-activity.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
 import { reposDir } from '../shared/repos.mjs';
 import { isClone } from './repos.mjs';
 import { trustFolder } from './trust.mjs';
 import { contextFull, contextReading } from './usage.mjs';
-import { audit, boardAudit } from '../shared/audit.mjs';
+import { audit, boardAudit, hubAudit } from '../shared/audit.mjs';
 import { logRestart, restartHeld } from './auto-restarts.mjs';
 
 const SKILL_DIR = storedPath(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
@@ -55,20 +56,59 @@ function startStep(rec) {
   return { step: 'starting', stepAt: rec.phase_at || rec.asked_at || rec.since };
 }
 
+// A starting session's signals (docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md),
+// read only while the record is starting orchestrator with its session known: running, liveSessions' Map (null when ps
+// gave no answer); activity, its transcript's last step (session-activity.mjs); prompt, its oldest pending prompt
+// (prompts.mjs). → {running, activity, prompt} | {}
+export function startSignals(rec, { running, store = readPrompts(), home = os.homedir() }) {
+  if (!rec.session || startStep(rec).step !== 'starting') return {};
+  return { running, activity: sessionActivity(rec.repo, rec.session, { home }), prompt: pending(store).find((p) => p.session === rec.session) || null };
+}
+
+// How long a starting session's transcript may stay quiet, with no prompt waiting on the owner, before its row reads stalled.
+export const STALL_AFTER = 3 * 60_000;
+
+// A Starting record's state from its signals (startSignals): failed when startFailed says or its session has ended;
+// else, while starting orchestrator, its last activity, the prompt it waits on, or stalled once quiet for STALL_AFTER
+// since its last activity or its session's start, whichever is later.
+// → {failed, error?, ended?, activity?, prompt?, stalled?, quietSince?}
+export function startHealth(rec, { running, activity, prompt } = {}, now = Date.now()) {
+  if (startFailed(rec, now)) return { failed: true, ...(rec.error ? { error: rec.error } : {}) };
+  if (running && rec.session && !running.has(rec.session) && startStep(rec).step === 'starting') {
+    return { failed: true, ended: true, error: `Its session ended before it joined the hub${activity ? `; its last step was ${activity.text}` : ''}.` };
+  }
+  if (prompt) return { failed: false, ...(activity ? { activity: activity.text } : {}), prompt: shown(prompt) };
+  if (!activity) return { failed: false };
+  const quietSince = Math.max(activity.at, Date.parse(rec.since || rec.phase_at || rec.asked_at));
+  return { failed: false, activity: activity.text, ...(now - quietSince >= STALL_AFTER ? { stalled: true, quietSince: new Date(quietSince).toISOString() } : {}) };
+}
+
 // The sidebar's Starting rows. clonePercent(route) is a running clone's percent (new-board.mjs), which a cloning row
 // carries. listening(route) is whether a joined board hears its events: its row stays until then, and a late one reads
-// why it failed. A record whose route has joined shows only while landing.
-export function startingBoards(manifest, now = Date.now(), clonePercent = () => undefined, listening = () => true) {
+// why it failed. signals(rec) is a record's startSignals. A record whose route has joined shows only while landing.
+export function startingBoards(manifest, now = Date.now(), clonePercent = () => undefined, listening = () => true, signals = () => ({})) {
   return Object.entries(manifest.starting || {}).filter(([route, rec]) => (routeRecord(manifest.sites, route) ? rec.joined_at && !listening(route) : true)).map(([route, rec]) => {
-    const failed = startFailed(rec, now);
+    const { failed, error, ...health } = startHealth(rec, signals(rec), now);
     return {
       route, title: rec.title || rec.label || route, repo: rec.repo, ...startStep(rec),
       ...(rec.phase === 'cloning' && clonePercent(route) !== undefined ? { percent: clonePercent(route) } : {}),
       ...(rec.branch ? { branch: rec.branch, tickets: rec.tickets } : {}),
       askedAt: rec.asked_at || rec.since, failed, ...(rec.joined_at ? { joined: true } : {}),
-      ...(rec.error ? { error: rec.error } : failed && rec.joined_at ? { error: 'Its session joined, but the board is not listening yet.' } : {}),
+      ...(error ? { error } : failed && rec.joined_at ? { error: 'Its session joined, but the board is not listening yet.' } : {}),
+      ...health,
     };
   });
+}
+
+// Each prompt a starting session raises goes in the hub's audit log with its tool and input, so the start's
+// BG_SETTINGS can allow it up front next time. input: the PermissionRequest hook's. → the route logged, or null for a
+// session that isn't a start's.
+export function logStartPrompt(input, { manifest = readManifest(), now = new Date() } = {}) {
+  const [route] = Object.entries(manifest.starting || {}).find(([, rec]) => rec.session && rec.session === input.session_id && !rec.joined_at) || [];
+  if (!route) return null;
+  const asked = input.tool_name === 'AskUserQuestion' ? `asked: ${input.tool_input?.questions?.[0]?.question || 'a question'}` : `asked to ${actionOf(input.tool_name, input.tool_input)}`;
+  audit(hubAudit(), { call: 'start-prompt', result: 'asked', reason: `/${route}'s starting session ${asked}.`, inputs: { route, session: input.session_id, tool: input.tool_name, input: input.tool_input } }, { now });
+  return route;
 }
 // "none" is the value that turns isolation off; Claude Code drops any other value and isolates. The PermissionRequest
 // hook sends the session's prompts to the phone, and its timeout stays a minute past the hook's own wait
@@ -76,12 +116,15 @@ export function startingBoards(manifest, now = Date.now(), clonePercent = () => 
 // the hub board's foreground one in tmux included. The PermissionDenied hook tells the hub when auto mode refused a
 // command, which notes it under the board setting that allows it (board/permissions.mjs). The deny rule refuses the
 // Workflow tool at once, since its opt-in prompt waits at a terminal nobody watches
-// (docs/adr/2026-11-04-0036-a-board-session-never-stalls-on-a-workflow-prompt.md). The hub service's PATH may have no
+// (docs/adr/2026-11-04-0036-a-board-session-never-stalls-on-a-workflow-prompt.md). The allow rule lets a session run
+// `kickflip doctor`, which only reads, without a prompt, since a starting session that checks a failed step with it
+// would otherwise stall on one (docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md);
+// `--fix` still asks. The hub service's PATH may have no
 // node, hence a full path.
 export const PROMPT_HOOK_TIMEOUT_S = WAIT_MS / 1000 + 60;
 export const BG_SETTINGS = JSON.stringify({
   worktree: { bgIsolation: 'none' },
-  permissions: { deny: ['Workflow'] },
+  permissions: { allow: ['Bash(kickflip doctor)'], deny: ['Workflow'] },
   hooks: {
     PermissionRequest: [{ matcher: '*', hooks: [{ type: 'command', command: `"${nodeBin()}" "${path.join(SKILL_DIR, 'hub', 'permission-hook.mjs')}"`, timeout: PROMPT_HOOK_TIMEOUT_S }] }],
     PermissionDenied: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `"${nodeBin()}" "${path.join(SKILL_DIR, 'hub', 'permission-denied-hook.mjs')}"`, timeout: 15 }] }],

@@ -3299,3 +3299,29 @@ test("New draws an ask the orchestrator filed under a collapsed Orchestrator sub
   assert.match(strip(items, { new: false }), /<details class="lane new-lane" data-lane="new" >/);
   assert.doesNotMatch(strip(items.slice(0, 1)), /new-orchestrator/);
 });
+
+// docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md
+test("a starting board's row shows its session's last activity, an orange stalled with Retry, a red prompt block with Allow and Deny, and an ended session's failed row", () => {
+  const now = Date.parse('2026-11-16T22:00:00.000Z');
+  const at = (seconds) => new Date(now - seconds * 1000).toISOString();
+  const base = { route: 'shop', title: 'Shop', step: 'starting', stepAt: at(42), branch: 'main', failed: false };
+  const row = (s) => /<div class="sb-row sb-starting" data-starting="shop">.*?<\/div>(?=<button type="button" class="sb-row sb-new")/.exec(ui.sidebar({ sites: [], starting: [{ ...base, ...s }] }, { now }))[0];
+  assert.equal(ui.startCaption({ ...base, activity: 'loading the kickflip skill' }, now), 'loading the kickflip skill · 42s');
+  assert.equal(ui.startCaption({ ...base, activity: 'x', stalled: true, quietSince: at(200) }, now), 'stalled · 3m quiet');
+  assert.match(row({ activity: 'joining the hub' }), /<span class="sb-sub sb-step">joining the hub · 42s<\/span><\/span><\/div>$/);
+
+  const stalled = row({ activity: 'running kickflip doctor', stalled: true, quietSince: at(180) });
+  assert.match(stalled, /<span class="sb-sub sb-step sb-stalled">stalled · 3m quiet<\/span><span class="sb-start-actions"><button type="button" class="sb-start-retry" data-start-retry="shop">Retry<\/button><\/span>/);
+  assert.doesNotMatch(row({ stalled: true, quietSince: at(180), branch: undefined }), /Retry/, 'only a New board start can run again');
+
+  const asking = row({ activity: 'running kickflip doctor', prompt: { id: 'p1', tool: 'Bash', action: 'run kickflip doctor --fix', detail: 'kickflip doctor --fix <x>', questions: null } });
+  assert.match(asking, /<div class="sb-prompt" role="alert" data-start-prompt="p1"><b>waiting on you · Bash: kickflip doctor --fix &lt;x&gt;<\/b><div class="sb-prompt-btns"><button type="button" class="primary" data-start-answer="allow">Allow<\/button><button type="button" class="deny" data-start-answer="deny">Deny<\/button><\/div><\/div>/);
+  assert.match(row({ prompt: { id: 'p2', tool: 'mcp__x__y', action: 'use x y', detail: '', questions: null } }), /<b>waiting on you · mcp__x__y: use x y<\/b>/);
+  const question = { question: 'Which <repo>?', header: '', multiSelect: false, options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] };
+  assert.match(row({ prompt: { id: 'p3', tool: 'AskUserQuestion', questions: [question] } }),
+    /<b>waiting on you · asks: Which &lt;repo&gt;\?<\/b><div class="sb-prompt-btns"><button type="button" data-start-question="Which &lt;repo&gt;\?" data-start-option="A">A<\/button><button type="button" data-start-question="Which &lt;repo&gt;\?" data-start-option="B">B<\/button><button type="button" class="deny" data-start-answer="deny">Skip<\/button><\/div>/);
+  assert.match(row({ prompt: { id: 'p4', tool: 'AskUserQuestion', questions: [question, question] } }), /<b>waiting on you · asks: Which &lt;repo&gt;\?<\/b><div class="sb-prompt-btns"><a href="\/_hub\/">Answer on the hub page<\/a><\/div>/);
+
+  const html = ui.sidebar({ sites: [], starting: [{ ...base, failed: true, ended: true, error: 'Its session ended before it joined the hub.' }] }, { now });
+  assert.match(html, /data-failed-start="shop" aria-haspopup="dialog">.*?<span class="sb-title">Shop<\/span><span class="sb-sub">session ended<\/span><\/span><\/button>/);
+});

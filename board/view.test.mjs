@@ -8292,3 +8292,48 @@ test('an open card whose lane changes in a repaint comes back closed and forgott
   assert.equal(card('A1').open, true, 'a card the owner opened after the move stays open');
   b.view.unmount();
 });
+
+// docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md
+test("a starting row answers its session's prompt in place and retries a stalled start, each tap waiting on the hub, a refusal shown in the row", async () => {
+  const page = repoPage(true);
+  const { win, doc } = page;
+  const stepAt = new Date(NOW).toISOString();
+  const prompt = { id: 'p1', tool: 'Bash', action: 'run kickflip doctor --fix', detail: 'kickflip doctor --fix', questions: null };
+  const question = { id: 'p2', tool: 'AskUserQuestion', questions: [{ question: 'Which repo?', header: '', multiSelect: false, options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] }] };
+  let data = { sites: [], starting: [{ route: 'shop', title: 'Shop', branch: 'main', step: 'starting', stepAt, failed: false, activity: 'running kickflip doctor', prompt }] };
+  const posted = [];
+  let answer = null;
+  win.fetch = async (url, options = {}) => {
+    if (url === '/_hub/sidebar.json') return repoResponse(data);
+    posted.push([url, JSON.parse(options.body)]);
+    return new Promise((resolve) => { answer = resolve; });
+  };
+  win.Sidebar.mount({ data });
+  const aside = doc.getElementById('sidebar');
+  const tap = (sel) => page.fire(aside, 'click', { target: aside.querySelector(sel) });
+  assert.match(aside.querySelector('.sb-prompt').textContent, /waiting on you · Bash: kickflip doctor --fix\s*Allow\s*Deny/);
+  tap('[data-start-answer="allow"]');
+  assert.deepEqual([aside.querySelector('[data-start-answer="allow"]').getAttribute('aria-busy'), aside.querySelector('[data-start-answer="deny"]').disabled], ['true', true]);
+  assert.deepEqual(posted, [['/_hub/prompts/p1/answer', { choice: 'allow' }]]);
+  data = { ...data, starting: [{ ...data.starting[0], prompt: undefined }] };
+  answer(repoResponse({ ok: true }));
+  await tick(); await tick();
+  assert.equal(aside.querySelector('.sb-prompt'), null, 'the answered prompt goes with the next copy');
+
+  data = { ...data, starting: [{ ...data.starting[0], prompt: question }] };
+  win.Sidebar.mount({ data });
+  tap('[data-start-option="B"]');
+  assert.deepEqual(posted.at(-1), ['/_hub/prompts/p2/answer', { choice: 'allow', answers: { 'Which repo?': 'B' } }]);
+  answer({ ok: false, status: 400, text: async () => JSON.stringify({ error: 'Pick an answer to "Which repo?".' }) });
+  await tick(); await tick();
+  assert.equal(aside.querySelector('.sb-start-refused').textContent, 'Pick an answer to "Which repo?".');
+
+  data = { ...data, starting: [{ ...data.starting[0], prompt: undefined, stalled: true, quietSince: new Date(NOW - 200_000).toISOString() }] };
+  win.Sidebar.mount({ data });
+  assert.match(aside.querySelector('[data-starting="shop"]').textContent, /stalled · 3m quiet\s*Retry/);
+  tap('[data-start-retry="shop"]');
+  assert.deepEqual(posted.at(-1), ['/_hub/new-board/shop/retry', {}]);
+  answer({ ok: false, status: 400, text: async () => JSON.stringify({ error: 'Only a board that didn’t start can be retried.' }) });
+  await tick(); await tick();
+  assert.equal(aside.querySelector('.sb-start-refused').textContent, 'Only a board that didn’t start can be retried.');
+});

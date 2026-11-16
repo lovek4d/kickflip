@@ -60,6 +60,17 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 .sidebar .sb-steps .phase-bars { flex: 1 1 auto; min-width: 0; display: flex; gap: 3px; }
 .sidebar .sb-steps .phase-bars i { flex: 1 1 0; width: auto; min-width: 0; }
 .sidebar .sb-step { font-variant-numeric: tabular-nums; }
+/* A stalled session reads orange with Retry; the prompt it waits on is a red block with its answers
+   (docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md). */
+.sidebar .sb-step.sb-stalled { color: var(--color-notice); }
+.sidebar .sb-start-actions { display: flex; gap: 6px; margin-top: 4px; }
+.sidebar .sb-prompt { margin-top: 6px; padding: 8px; border: 1px solid var(--color-danger); border-radius: 8px;
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent); color: var(--text); font-size: 12px; }
+.sidebar .sb-prompt b { display: block; margin-bottom: 6px; color: var(--color-danger); overflow-wrap: anywhere; }
+.sidebar .sb-prompt-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.sidebar .sb-prompt button, .sidebar .sb-start-retry { font-size: 12px; padding: 4px 12px; min-height: 30px; }
+.sidebar .sb-prompt button.deny { color: var(--color-danger); }
+.sidebar .sb-start-refused { display: block; margin-top: 4px; color: var(--color-danger); font-size: 12px; }
 /* At join the board's row fades in, ringed for a moment (sidebar.js). */
 .sidebar .sb-joined { animation: sb-join 2.5s ease-out both; }
 @keyframes sb-join {

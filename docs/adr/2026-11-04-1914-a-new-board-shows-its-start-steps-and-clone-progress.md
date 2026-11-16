@@ -18,7 +18,7 @@ The percent stays in hub memory (`new-board.mjs clonePercent`) only while the cl
 
 ## The pulsing steps
 
-Between spawning the session and its join, the hub has no signal, so starting orchestrator and landing it show the bars' running pulse, the same one an In Progress card's current build phase shows, and never a fake fill. Their seconds tick in place in `sidebar.js` each second while a start runs. A sidebar repaint would restart a CSS animation, so each repaint sets the running bar's `animation-delay` from the clock, and the pulse carries on unbroken. Real milestones for those steps are #209.
+Between spawning the session and its join, the hub has no signal, so starting orchestrator and landing it show the bars' running pulse, the same one an In Progress card's current build phase shows, and never a fake fill. Their seconds tick in place in `sidebar.js` each second while a start runs. A sidebar repaint would restart a CSS animation, so each repaint sets the running bar's `animation-delay` from the clock, and the pulse carries on unbroken. Real milestones for those steps are #209. Starting orchestrator now reads its session's liveness, last step and pending prompt ([a starting board shows its session's liveness, activity and prompt](2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md)).
 
 ## One renderer
 

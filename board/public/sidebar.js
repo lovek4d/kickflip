@@ -254,9 +254,37 @@
       if (e.target.closest?.('[data-new-board]')) { newBoard(); return; }
       // The status words sit inside the Hub row's link, so their tap opens the sheet and not the hub page.
       if (e.target.closest?.('[data-load-sheet]')) { e.preventDefault(); openLoad(); return; }
+      const startRetry = e.target.closest?.('[data-start-retry]');
+      if (startRetry) { startTap(startRetry, `/_hub/new-board/${encodeURIComponent(startRetry.dataset.startRetry)}/retry`, {}); return; }
+      const answer = e.target.closest?.('[data-start-answer], [data-start-option]');
+      if (answer) {
+        const id = answer.closest('[data-start-prompt]').dataset.startPrompt;
+        const body = answer.dataset.startOption !== undefined ? { choice: 'allow', answers: { [answer.dataset.startQuestion]: answer.dataset.startOption } } : { choice: answer.dataset.startAnswer };
+        startTap(answer, `/_hub/prompts/${encodeURIComponent(id)}/answer`, body);
+        return;
+      }
       const failed = e.target.closest?.('[data-failed-start]');
       if (failed) openFailed(failed.dataset.failedStart);
     });
+    // A starting row's own taps (ui-sidebar.js startExtra): Retry on a stalled start, and an answer to the prompt its
+    // session waits on. The tapped button waits (ui.js waitOn), the row's others disabled, until the hub answers; a prompt
+    // already answered or gone is done, and any other refusal shows in the row.
+    async function startTap(button, url, body) {
+      const row = button.closest('[data-starting]');
+      row.querySelector('.sb-start-refused')?.remove();
+      let refused = null;
+      try {
+        const response = await BoardUI.waitOn(button, fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), { group: row.querySelectorAll('button') });
+        if (!response.ok && response.status !== 404 && response.status !== 409) {
+          const text = await response.text();
+          try { refused = JSON.parse(text).error || text; } catch { refused = text || 'Could not send.'; }
+        }
+      } catch { refused = 'Could not send. Is the host awake?'; }
+      // A repaint while the tap waited drew the row afresh.
+      const drawn = aside.querySelector(`[data-starting="${row.dataset.starting}"] .sb-text`);
+      if (refused) drawn?.insertAdjacentHTML('beforeend', `<span class="sb-start-refused" role="alert">${esc(refused)}</span>`);
+      else refresh().catch(() => {});
+    }
     aside.addEventListener('keydown', (e) => {
       if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('[data-load-sheet]')) { e.preventDefault(); openLoad(); }
     });

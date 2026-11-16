@@ -2,7 +2,8 @@ import { ticketSource } from '../board/tickets.mjs';
 import { isListening, listBoards, readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch, validateRemote } from './repos.mjs';
-import { startFailed, startSession, stopSession } from './sessions.mjs';
+import { startHealth, startSession, startSignals, stopSession } from './sessions.mjs';
+import { liveSessions } from './live.mjs';
 import { LINEAR_NEEDS_KEY, linearWorks, savedClient } from './linear.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -124,26 +125,29 @@ export async function requestBoard(input, { run, live, repos = repoService(), ch
   return { route, started: start(route, { ...board, repo }, { run, live, repos, changed }) };
 }
 
-// The route's Starting record when its start failed (sessions.mjs startFailed), else refuses with action's verb.
-function failedStart(manifest, route, action) {
+// The route's Starting record when its start failed or stalled (sessions.mjs startHealth, its session read in running,
+// liveSessions' Map), else refuses with action's verb.
+function failedStart(manifest, route, action, running) {
   const pending = routeRecord(manifest.starting, route);
-  if (!pending || (routeRecord(manifest.sites, route) && !pending.joined_at) || !startFailed(pending)) refuse(`Only a board that didn’t start can be ${action}.`);
+  const health = pending && startHealth(pending, startSignals(pending, { running }));
+  if (!pending || (routeRecord(manifest.sites, route) && !pending.joined_at) || !(health.failed || health.stalled)) refuse(`Only a board that didn’t start can be ${action}.`);
   return pending;
 }
 
 // Starts a failed New board start again from its Starting record, with the same route, repo, branch, tickets and
-// purpose (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). A start that timed out first has its recorded
+// purpose (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). A start that timed out or stalled first has its recorded
 // session stopped (sessions.mjs stopSession, with live and stop), so the route never has two. The record loses its
 // error and session, and takes a new phase and asked_at, and its repo path again from the repo and the current clone
 // home, so the session starts in the folder the clone goes to. → {route, started} as requestBoard's.
-export async function retryBoard(route, { run, live, stop, repos = repoService(), changed = () => {} } = {}) {
-  const before = failedStart(readManifest(), route, 'retried');
+export async function retryBoard(route, { run, live = liveSessions, stop, repos = repoService(), changed = () => {} } = {}) {
+  const running = live();
+  const before = failedStart(readManifest(), route, 'retried', running);
   if (before.joined_at) refuse('Its session joined; a board that is not listening yet can only be dismissed.');
   if (!before.branch) refuse('Only a board asked for with New board can be retried; make it again with New board.');
   try { await stopSession(before, { live, stop }); } catch (e) { refuse(`Couldn’t stop its earlier session: ${e.message}`, 502); }
   const board = await withManifestLock(async () => {
     const manifest = readManifest();
-    const pending = failedStart(manifest, route, 'retried');
+    const pending = failedStart(manifest, route, 'retried', running);
     manifest.starting[route] = startingRecord({ ...pending, repo: repos.path(pending.github || pending.remote), purpose: pending.purpose || '' }, repos);
     await writeManifest(manifest);
     return manifest.starting[route];
@@ -151,10 +155,11 @@ export async function retryBoard(route, { run, live, stop, repos = repoService()
   return { route, started: start(route, board, { run, live, repos, changed }) };
 }
 
-export async function dismissBoard(route) {
+export async function dismissBoard(route, { live = liveSessions } = {}) {
+  const running = live();
   return withManifestLock(async () => {
     const manifest = readManifest();
-    failedStart(manifest, route, 'dismissed');
+    failedStart(manifest, route, 'dismissed', running);
     delete manifest.starting[route];
     if (!Object.keys(manifest.starting).length) delete manifest.starting;
     await writeManifest(manifest);

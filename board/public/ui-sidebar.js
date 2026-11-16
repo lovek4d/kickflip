@@ -217,10 +217,28 @@
   // Cloning fills its bar to git's percent; the later steps run the bars' pulse, never a fill.
   const START_STEPS = { cloning: 'cloning', starting: 'starting orchestrator', landing: 'landing it' };
   const STEP_KEYS = Object.keys(START_STEPS);
-  // The lower row: the step, cloning with its percent, and its seconds. A host clock ahead of this device's counts from 0s.
+  // The lower row: the step, cloning with its percent, or the starting session's last activity in its place, and its
+  // seconds; a stalled session's quiet minutes instead
+  // (docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md). A host clock ahead of
+  // this device's counts from 0s.
   function startCaption(s, now = Date.now()) {
+    if (s.stalled) return `stalled · ${Math.max(0, Math.floor((now - Date.parse(s.quietSince)) / 60_000))}m quiet`;
     const seconds = Math.max(0, Math.floor((now - Date.parse(s.stepAt)) / 1000));
-    return `${s.step === 'cloning' ? `cloning (${s.percent || 0}%)` : START_STEPS[s.step]} · ${seconds}s`;
+    return `${s.step === 'cloning' ? `cloning (${s.percent || 0}%)` : s.activity || START_STEPS[s.step]} · ${seconds}s`;
+  }
+  // What follows a starting row's caption: Retry on a stalled New board start, or the red block of the prompt its
+  // session waits on (hub/prompts.mjs shown), answered in place (sidebar.js): Allow and Deny, a single one-pick question's
+  // options and Skip, or a link to the hub page for a question that takes more.
+  function startExtra(s) {
+    if (s.stalled) return s.branch ? `<span class="sb-start-actions"><button type="button" class="sb-start-retry" data-start-retry="${esc(s.route)}">Retry</button></span>` : '';
+    const p = s.prompt;
+    if (!p) return '';
+    const q = p.questions?.[0];
+    const asks = q ? `asks: ${q.question}` : `${p.tool}: ${p.detail || p.action}`;
+    const buttons = !q ? '<button type="button" class="primary" data-start-answer="allow">Allow</button><button type="button" class="deny" data-start-answer="deny">Deny</button>'
+      : p.questions.length === 1 && !q.multiSelect ? `${q.options.map((o) => `<button type="button" data-start-question="${esc(q.question)}" data-start-option="${esc(o.label)}">${esc(o.label)}</button>`).join('')}<button type="button" class="deny" data-start-answer="deny">Skip</button>`
+        : '<a href="/_hub/">Answer on the hub page</a>';
+    return `<div class="sb-prompt" role="alert" data-start-prompt="${esc(p.id)}"><b>waiting on you · ${esc(asks)}</b><div class="sb-prompt-btns">${buttons}</div></div>`;
   }
   function startSteps(s) {
     const at = STEP_KEYS.indexOf(s.step);
@@ -293,9 +311,9 @@
     const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;
     const pending = (data?.starting || []).map((s) => (s.failed
       ? `<button type="button" class="sb-row sb-starting sb-failed" data-starting="${esc(s.route)}" data-failed-start="${esc(s.route)}" aria-haspopup="dialog">${plus}`
-        + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub">failed to start</span></span></button>`
+        + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub">${s.ended ? 'session ended' : 'failed to start'}</span></span></button>`
       : `<div class="sb-row sb-starting" data-starting="${esc(s.route)}"><span class="icon sb-plus sb-start-icon" aria-hidden="true">${svg(ICONS[s.step], 20)}</span>`
-        + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span>${startSteps(s)}<span class="sb-sub sb-step">${esc(startCaption(s, now))}</span></span></div>`)).join('');
+        + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span>${startSteps(s)}<span class="sb-sub sb-step${s.stalled ? ' sb-stalled' : ''}">${esc(startCaption(s, now))}</span>${startExtra(s)}</span></div>`)).join('');
     const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })

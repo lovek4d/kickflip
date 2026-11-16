@@ -17,7 +17,8 @@
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}] (sub: home.mjs statusLine's data), hub: {tone, word, detail},
 //                     notifications: {state, text}, away}, away true while the owner reads away (presence.mjs ownerTracker), ctx the board's owner session's {percent, at, full} or null, pause the usage gate with machine {busy, banner} (home.mjs sidebarPause) and a held board's sub already reading paused (heldSite); each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md)
-//                     starting lists pending boards, each with its start step and a running clone's percent (sessions.mjs)
+//                     starting lists pending boards, each with its start step and a running clone's percent, and while
+//                     starting orchestrator its session's last activity, its pending prompt and whether it stalled (sessions.mjs startHealth)
 //                     usage: {claude, codex}, each null when hidden, else {at, five_hour, seven_day}; windows are
 //                     null without a reading, else {used_percentage, resets_at, state: live|reset|stale} (usage.mjs).
 //                     Reset windows read 0%; stale means older than that window. Codex scans cache for 60 seconds.
@@ -209,7 +210,7 @@ import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
 import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readAutoUpdate, setAutoUpdate, deliver } from './push.mjs';
 import { ownerTracker } from './presence.mjs';
-import { POLL_MS, answerOf, expired, pending, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
+import { POLL_MS, answerOf, expired, pending, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
 import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeOn, awakeUnsupported } from './awake.mjs';
@@ -225,7 +226,7 @@ import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds, heldSite, sidebarPause } from './home.mjs';
-import { checkSessions, compactFullContexts, sessionOf, startingBoards } from './sessions.mjs';
+import { checkSessions, compactFullContexts, logStartPrompt, sessionOf, startSignals, startingBoards } from './sessions.mjs';
 import { codeRestartHeld, logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
@@ -955,7 +956,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         links.set(b.route, c.links);
       } catch (e) { log(`links of ${b.route} failed:`, e.message); links.set(b.route, []); }
     }
-    return { links, listens };
+    return { links, listens, running: ctx.running };
   }
 
   // What /_hub/sidebar.json serves, with each board's links, the hub's code hashes and the status rows behind it for the
@@ -966,10 +967,12 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const waiting = await waitingCounts(rows, { fresh });
     const manifest = loadManifest();
     const boards = listBoards(manifest);
-    const { links, listens } = boardLinks(boards);
+    const { links, listens, running } = boardLinks(boards);
     const code = hubCodeState();
     const contexts = new Map(boards.map((b) => [b.route, contextReading(b.owner?.session)]).filter(([, reading]) => reading));
-    const starting = startingBoards(manifest, now.getTime(), clonePercent, (route) => listens.get(route) === 'listening' && rows.some((r) => r.route === route && r.state === 'up'));
+    const store = readPrompts();
+    const starting = startingBoards(manifest, now.getTime(), clonePercent, (route) => listens.get(route) === 'listening' && rows.some((r) => r.route === route && r.state === 'up'),
+      (rec) => startSignals(rec, { running, store }));
     const landing = new Set(starting.map((s) => s.route));
     // A board under Pause board carries its own gate as pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
     const pausedBoards = new Map(boards.filter((b) => boardPausedUntil(b.dir)).map((b) => [b.route, readUsageGate({ dir: b.dir })]));
@@ -1550,6 +1553,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       });
       if (answer) return sendJSON(200, { state: 'answered', answer });
       promptChanged(rec.route);
+      if (!rec.route) logStartPrompt(input);
       await noteRefusal(input);
       log(`prompt ${rec.id}: ${rec.route ? `/${rec.route}` : rec.cwd} ${rec.tool}${rec.action ? ` (${rec.action})` : ''}`);
       track(deliver(pushOf(rec), { kind: 'prompt', immediate: true }).catch((e) => log(`prompt ${rec.id}: push failed: ${e.message}`)));
