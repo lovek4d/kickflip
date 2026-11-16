@@ -37,37 +37,79 @@ BoardView.part((B) => {
 
   // Runs paint through keepFocus and keeps the anchor where it was on screen, scrolling the page by however far it
   // moved, in the same task so nothing visibly jumps (docs/adr/2026-10-30-1637-an-open-card-moves-at-once-and-the-page-follows-it.md).
-  // The anchor is the field being typed in, else the title row of the open card on screen, else the first card on screen
-  // that is still in its lane after the paint, since a card that changed lane is the one leaving
-  // (docs/adr/2026-11-15-1030-a-card-moving-off-screen-leaves-the-visible-cards-where-they-were.md). A field in a
-  // dialog doesn't move with the page, so the card anchors then.
+  // The anchor is the field being typed in, else the topmost card on screen that is still in its lane after the paint,
+  // since a card that changed lane is the one leaving
+  // (docs/adr/2026-11-15-1030-a-card-moving-off-screen-leaves-the-visible-cards-where-they-were.md), else, when no card
+  // on screen kept its lane, the topmost of them still shown, which the page follows to its new place
+  // (docs/adr/2026-11-16-0916-the-topmost-card-on-screen-stays-put-through-any-reorder-or-resize.md). A field in a
+  // dialog doesn't move with the page, so the cards anchor then.
   const topOf = (el) => el.getBoundingClientRect().top;
+  const laneOf = (card) => card.closest('details.lane')?.dataset.lane;
+  // On screen: any part of the card's box is in the viewport. A card in a closed lane or fold has an empty box.
+  const onScreen = (card) => { const r = card.getBoundingClientRect(); return r.bottom > Math.max(r.top, 0) && r.top < innerHeight; };
+  // → a function finding card key after a repaint while it shows, in lane when lane is given.
+  const findCard = (key, lane) => () => {
+    const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
+    if (!card) return null;
+    const r = card.getBoundingClientRect();
+    return r.bottom > r.top && (lane === undefined || laneOf(card) === lane) ? card : null;
+  };
+  function fieldAnchor() {
+    const field = focusedField();
+    return field && !field.closest('dialog') ? { find: finder(field), top: topOf(field) } : null;
+  }
   // → the anchors in order of preference, each its place on screen and a function finding it again after a repaint.
   function anchorsOf() {
-    const field = focusedField();
-    if (field && !field.closest('dialog')) { const find = finder(field); return [{ find, top: topOf(find()) }]; }
-    const open = [...B.$$('details.item[open]')].filter((d) => state.openItems.has(d.dataset.key)).find((d) => { const r = d.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
-    if (open) {
-      const title = `details.item[data-key="${CSS.escape(open.dataset.key)}"] > summary`;
-      return [{ find: () => $(title), top: topOf($(title)) }];
-    }
-    return [...B.$$('details.item')].filter((d) => topOf(d) >= 0 && topOf(d) < innerHeight).map((d) => {
-      const card = `details.item[data-key="${CSS.escape(d.dataset.key)}"]`;
-      const lane = d.closest('details.lane')?.dataset.lane;
-      return { find: () => { const again = $(card); return again?.closest('details.lane')?.dataset.lane === lane ? again : null; }, top: topOf(d) };
-    });
+    const field = fieldAnchor();
+    if (field) return [field];
+    const cards = [...B.$$('details.item')].filter(onScreen);
+    return [...cards.map((d) => ({ find: findCard(d.dataset.key, laneOf(d)), top: topOf(d) })),
+      ...cards.map((d) => ({ find: findCard(d.dataset.key), top: topOf(d) }))];
+  }
+  // The anchor between repaints: the field being typed in, else the topmost card on screen, wherever it goes. Taken
+  // again after each steady and holdBelow, and on each scroll, so the owner's own scrolling moves it.
+  function anchorNow() {
+    const field = fieldAnchor();
+    if (field) return field;
+    const card = [...B.$$('details.item')].find(onScreen);
+    return card ? { find: findCard(card.dataset.key), top: topOf(card) } : null;
+  }
+  // anchor, and the page's scroll it was taken at or held to. A scroll event at that same scroll moved nothing: Chrome
+  // sends one late, after a size change in the same frame, so taking the anchor then would take the shifted layout.
+  let anchor = null;
+  let anchorY = 0;
+  const take = (next) => { anchor = next; anchorY = scrollY; };
+  // → whether anchor is still shown, after scrolling the page by however far it moved.
+  function hold({ find, top }) {
+    const el = find();
+    if (!el) return false;
+    const after = topOf(el);
+    if (after !== top) scrollBy(0, after - top);
+    return true;
   }
   function steady(paint) {
     const anchors = anchorsOf();
     keepFocus(paint);
-    for (const { find, top } of anchors) {
-      const el = find();
-      if (!el) continue;
-      const after = topOf(el);
-      if (after !== top) scrollBy(0, after - top);
-      return;
-    }
+    anchors.some(hold);
+    take(anchorNow());
   }
+  // A size change on the board outside a repaint (a card or lane opening or shutting, an image loading, a font
+  // settling) keeps the anchor in place. An anchor that no longer shows, such as a card in a lane just shut, gives way
+  // to the topmost card on screen now.
+  const watcher = new ResizeObserver(() => {
+    if (!anchor) return;
+    if (hold(anchor)) anchorY = scrollY; else take(anchorNow());
+  });
+  watcher.observe(B.root);
+  watcher.observe($('#lanes'));
+  B.atUnmount(() => watcher.disconnect());
+  B.on(window, 'scroll', () => { if (scrollY !== anchorY) take(anchorNow()); }, { passive: true });
+  // A tapped card's, lane's or Done fold's title anchors the change its tap makes, so opening a lane above the topmost
+  // card leaves the title where it was tapped. A thread's folds hold their reply form instead (holdBelow).
+  B.on(B.root, 'click', (ev) => {
+    const title = ev.target.closest?.('details.item > summary, details.lane > summary, details.fold > summary');
+    if (title) take({ find: () => (title.isConnected ? title : null), top: topOf(title) });
+  }, true);
   // Runs change, which grows or shrinks a thread above its reply form, and scrolls the page by the form's move so the
   // form, and every message below the change, stays where it was on screen: the page above takes the height
   // (docs/adr/2026-11-15-1600-expanding-in-a-thread-grows-it-upward.md).
@@ -77,6 +119,7 @@ BoardView.part((B) => {
     change();
     const after = topOf(form);
     if (after !== top) scrollBy(0, after - top);
+    take(anchorNow());
   }
   // Where the owner left the board, kept for its next mount in this page: the page's scroll and the box they were typing
   // in, as it unmounts or at their last press outside the board, such as on a sidebar row, which takes the focus first.

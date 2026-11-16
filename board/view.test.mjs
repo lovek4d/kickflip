@@ -86,12 +86,15 @@ function fakePage(localStorage) {
   const frames = new Map();
   const observers = new Set();
   class MutationObserver { observe() { observers.add(this); } unobserve() {} disconnect() { observers.delete(this); } }
+  // resized() runs every live ResizeObserver's callback, as the browser does after a layout that changed a size.
+  class ResizeObserver extends MutationObserver { constructor(fn) { super(); this.fn = fn; } }
+  const resized = () => { for (const o of [...observers]) if (o instanceof ResizeObserver) o.fn([]); };
   const win = Object.assign(new Target(), {
     Date: fixedDate(() => NOW + now), URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
     location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { state: null, replaceState(_state, _title, url) { win.location.hash = url?.includes('#') ? url.slice(url.indexOf('#')) : ''; }, pushState(state) { this.state = state; }, back() {} }, innerHeight: 844,
     scrollX: 0, scrollY: 0, scrollTo(x, y) { win.scrollX = x; win.scrollY = y; },
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
-    matchMedia: (query) => Object.assign(new Target(), { matches: query === '(min-width: 900px)' && win.innerWidth >= 900 }), MutationObserver, ResizeObserver: MutationObserver,
+    matchMedia: (query) => Object.assign(new Target(), { matches: query === '(min-width: 900px)' && win.innerWidth >= 900 }), MutationObserver, ResizeObserver,
     performance: { now: () => now },
     requestAnimationFrame: (fn) => { frames.set(++ids, fn); return ids; },
     cancelAnimationFrame: (id) => frames.delete(id),
@@ -137,7 +140,7 @@ function fakePage(localStorage) {
     for (const [id, t] of [...timeouts]) if (t.ms <= ms) { timeouts.delete(id); t.fn(); }
   };
   const runIntervals = (ms) => { for (const t of [...intervals.values()]) if (t.ms === ms) t.fn(); };
-  return { win, El, Target, fire, left, advance, runTimers, runIntervals, listenerCount: (target) => listeners.filter((l) => l.target === target).length };
+  return { win, El, Target, fire, left, advance, runTimers, runIntervals, resized, listenerCount: (target) => listeners.filter((l) => l.target === target).length };
 }
 
 test("a board view mounted then unmounted leaves no listener, interval, timer or watch behind, and lets go of the shell's change signal", () => {
@@ -4969,6 +4972,124 @@ test("with nothing open and no box focused, a card leaving a lane above the scre
   const t1 = top('t1');
   await b.change({ board: boardOf([askCard('r2', 'review'), askCard('p2', 'progress'), askCard('t1', 'todo'), askCard('r1', 'todo'), askCard('p1', 'done')]) });
   assert.equal(top('t1'), t1);
+});
+
+// A block layout of the page: each element 2px tall, or its height in sizes, then its children below it; a closed
+// details shows only its summary, and what it hides has an empty box at 0, as in a browser. scrollY scrolls it.
+function flowOut(b, sizes = new Map()) {
+  // The page's scroll is the window's, which the board reads.
+  const view = { scrolls: [], get scrollY() { return b.page.win.scrollY; }, set scrollY(y) { b.page.win.scrollY = y; } };
+  const boxes = () => {
+    const out = new Map();
+    let y = 0;
+    const walk = (el) => {
+      const top = y;
+      y += sizes.get(el) ?? 2;
+      const closed = el.matches('details') && !el.open;
+      for (const c of el.children) if (!closed || c.matches('summary')) walk(c);
+      out.set(el, { top, bottom: y });
+    };
+    walk(b.doc.body);
+    return out;
+  };
+  Object.getPrototypeOf(b.root).getBoundingClientRect = function () {
+    const r = boxes().get(this);
+    return r ? { top: r.top - view.scrollY, bottom: r.bottom - view.scrollY } : { top: 0, bottom: 0 };
+  };
+  b.page.win.scrollBy = (x, y) => { view.scrolls.push(y); view.scrollY += y; };
+  return view;
+}
+
+// docs/adr/2026-11-16-0916-the-topmost-card-on-screen-stays-put-through-any-reorder-or-resize.md
+test("the topmost card on screen keeps its place through a filter change, a card below it changing lane, a size change above it and a card above it collapsing, and the page follows the only card on screen when it moves", async () => {
+  const cards = [askCard('r1', 'review'), askCard('p1', 'progress'), askCard('p2', 'progress'), workCard('D1', { phase: 'discussing' }), workCard('R1', { phase: 'ready', ready: true }), workCard('R2', { phase: 'ready', ready: true })];
+  const b = boardOnDom({ open: ['w/r1'], board: boardOf(cards), threads: {} });
+  await b.settle();
+  const sizes = new Map();
+  const view = flowOut(b, sizes);
+  const card = (id) => b.root.querySelector(`details.item[data-key="w/${id}"]`);
+  const top = (id) => card(id).getBoundingClientRect().top;
+  const scrollTo = (id) => { view.scrollY += top(id); b.page.fire(vm.runInContext('window', b.page.win), 'scroll'); };
+  const tap = async (el) => { b.page.fire(b.root, 'click', { target: el }); await b.settle(); };
+
+  // The filter hides a Todo card above the one at the top of the screen.
+  scrollTo('R1');
+  let at = top('R1');
+  await tap(b.root.querySelector('button.lane-filter'));
+  await tap(b.root.querySelector('[data-todo-filter="discussing"]'));
+  assert.equal(card('D1'), null);
+  assert.equal(top('R1'), at, 'a filter change');
+
+  // A card below the top one changes lane, and one above it does: the top card holds.
+  scrollTo('p1');
+  at = top('p1');
+  await b.change({ board: boardOf([askCard('r1', 'review'), askCard('p2', 'review'), askCard('p1', 'progress'), cards[3], cards[4], cards[5]]) });
+  assert.equal(top('p1'), at, 'a card below it changing lane');
+
+  // A size change above the top card outside a render, such as an image loading in the open card above it.
+  // A scroll event that scrolled nothing, arriving between the change and the resize, keeps the anchor.
+  sizes.set(card('r1').querySelector('summary'), 40);
+  b.page.fire(vm.runInContext('window', b.page.win), 'scroll');
+  b.page.resized();
+  assert.equal(top('p1'), at, 'a size change above');
+
+  // The open card above it collapses.
+  card('r1').open = false;
+  b.page.resized();
+  assert.equal(top('p1'), at, 'a card above collapsing');
+
+  // The owner's own scroll takes a new anchor, which the next resize keeps.
+  scrollTo('R1');
+  at = top('R1');
+  sizes.set(card('p2').querySelector('summary'), 30);
+  b.page.resized();
+  assert.equal(top('R1'), at, 'a scroll re-takes the anchor');
+
+  // With one card on screen, the page follows it when it moves.
+  b.page.win.innerHeight = 3;
+  scrollTo('p1');
+  at = top('p1');
+  await b.change({ board: boardOf([askCard('r1', 'review'), askCard('p2', 'review'), askCard('p1', 'todo'), cards[3], cards[4], cards[5]]) });
+  assert.equal(card('p1').closest('details.lane').dataset.lane, 'todo');
+  assert.equal(top('p1'), at, 'the only card on screen moving');
+});
+
+test("a lane or card opening or shutting by a tap leaves its title where it was, even when it hides the top card, and a fold opening upward in a thread keeps its reply box in place through the resize that follows", async () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const run = (n) => ({ ts: at(n), who: 'claude', kind: 'status', run: 'r1', agent: 'Builder', text: `Step ${n}` });
+  const msgs = [{ ts: at(0), who: 'claude', text: 'One' }, run(1), run(2), run(3), { ts: at(4), who: 'claude', text: 'Two' }];
+  const b = boardOnDom({ open: ['w/p1'], board: boardOf([askCard('r1', 'review'), askCard('r2', 'review'), askCard('p1', 'progress')]), threads: { 'w/p1': msgs } });
+  await b.settle();
+  const view = flowOut(b);
+  const top = (el) => el.getBoundingClientRect().top;
+  const lane = b.root.querySelector('details.lane[data-lane="review"]');
+  view.scrollY = top(lane);
+  b.page.fire(vm.runInContext('window', b.page.win), 'scroll');
+  // The lane holding the top card shuts, and opens again: its title stays where it was tapped.
+  const laneAt = top(lane);
+  b.page.fire(b.root, 'click', { target: lane.querySelector('summary') });
+  lane.open = false;
+  b.page.resized();
+  assert.equal(top(lane), laneAt);
+  lane.open = true;
+  b.page.resized();
+  assert.equal(top(lane), laneAt);
+  const r2 = b.root.querySelector('details.item[data-key="w/r2"]');
+  const r2At = top(r2);
+  b.page.fire(b.root, 'click', { target: r2.querySelector('summary') });
+  r2.open = true;
+  b.page.resized();
+  assert.equal(top(r2), r2At);
+
+  // holdBelow scrolls the page so the reply box stays: the resize after it holds that, not the card above.
+  const box = () => b.root.querySelector('form[data-reply="w/p1"] textarea');
+  const fold = b.root.querySelector('[data-thread="w/p1"] details.status-fold');
+  const boxAt = top(box());
+  b.page.fire(b.root, 'click', { target: fold.querySelector('summary') });
+  assert.equal(fold.open, true);
+  assert.equal(top(box()), boxAt);
+  b.page.resized();
+  assert.equal(top(box()), boxAt);
 });
 
 test("Done closes the card and holds the card still on screen as the card moves to Done, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves flashes once, and a card another hand updates takes the tint in its place", async () => {

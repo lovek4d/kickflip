@@ -13,3 +13,5 @@ Considered:
 - holding an open card in its place until it closes, with a chip, a banner or silently: the board would show a lane that isn't the card's, and the owner rejected it for the snap;
 - anchoring the open card's title row even while a box is focused: a new message in the card's thread would push the box down under the owner's thumb;
 - pinning the lane the card moved into under the page header: it covers what is under it, and the card's lane already shows on its status dot.
+
+Amended by [the topmost card on screen stays put through any reorder or resize](2026-11-16-0916-the-topmost-card-on-screen-stays-put-through-any-reorder-or-resize.md).

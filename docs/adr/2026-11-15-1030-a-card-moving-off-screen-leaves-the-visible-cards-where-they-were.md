@@ -7,3 +7,5 @@ With no open card and no box being typed in, the board had no anchor, and the br
 - **A tap on Done.** The card leaving the screen shifts the cards below it, so the page scrolls to hold the first of them still.
 
 Lanes side by side on a desktop don't shift each other vertically, so this matters mostly on a phone's single column; the rule is the same.
+
+Amended by [the topmost card on screen stays put through any reorder or resize](2026-11-16-0916-the-topmost-card-on-screen-stays-put-through-any-reorder-or-resize.md).
