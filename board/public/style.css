@@ -87,7 +87,7 @@ button.chip { border: 0; }
 .status.review { border-color: var(--color-info); background: conic-gradient(var(--color-info) 0 75%, transparent 75% 100%); }
 .sub.agent { color: var(--color-notice); }
 .sub.next { color: var(--color-notice); }
-.card-owner-block { color: var(--color-quiet); }
+.card-owner-block { color: var(--color-notice); }
 .card-blocked { color: var(--color-notice); }
 /* docs/adr/2026-11-11-1200-every-lane-has-phases.md: a card's phase word, toned by who acts next (ui-cards.js PHASE_LOOK). */
 .card-phase.ph-quiet { color: var(--color-quiet); }

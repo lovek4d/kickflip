@@ -534,14 +534,17 @@ function actionOf(it, questionById, autoMerge) {
     if (PROTOTYPE_URL.test(q?.url || '')) return { kind: ACTION_KIND.pick, url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
     return { kind: ACTION_KIND.questions, url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
+  // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
+  const merge = it.waitsOn === 'merge' && (!autoMerge || it.mergeReady) && !it.merging && it.prs.every((p) => ['MERGED', 'CLOSED'].includes(p.state) || mergeable(p, it.reviewers.length > 0)) ? { kind: ACTION_KIND.merge, url: thread, label: 'Merge' } : null;
+  // docs/adr/2026-11-16-1000-a-blocked-card-owes-the-owner-nothing.md: a blocked card has no Implement, Done, review or
+  // steps nudge; its merge only reaches placeOwnerWait, which turns it into the disabled Merge button.
+  if (it.blocked) return merge;
   if (it.ownerWait === 'implement' && it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new')) return { kind: ACTION_KIND.implement, url: `${thread}&reply`, label: 'Tap Implement' };
   // docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md
   if (it.ownerWait === 'close') return { kind: ACTION_KIND.close, url: `${thread}&reply`, label: TAP_DONE };
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: `Review draft PR #${it.pr.number}` };
   if (it.waitsOn === 'merge' && it.manualSteps.length && !it.mergeReady) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
-  // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
-  if (it.waitsOn === 'merge' && (!autoMerge || it.mergeReady) && !it.merging && it.prs.every((p) => ['MERGED', 'CLOSED'].includes(p.state) || mergeable(p, it.reviewers.length > 0))) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
-  return null;
+  return merge;
 }
 
 const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved' && it.questions.open > 0);
@@ -2086,7 +2089,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     && !it.agents.some((a) => a.kind === VISUAL && a.started && (!a.done || String(a.started) > facts.unplaced)) ? facts.unplaced : null;
   const waits = [
     facts.ask && { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}: builder answer ${it.key} ${facts.ask.id} --text "<answer>" from the task's notes, thread and the owner's words, or builder defer ${it.key} ${facts.ask.id} --text "<what to carry on with>" when you aren't confident or the owner's opinion is wanted; never ask the owner mid-build` },
-    it.staging && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
+    it.staging && !it.blocked && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
     answeredAt && !facts.writes.some((t) => t > String(answeredAt)) && { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" },
     facts.triagedAt && { kind: 'investigate', since: facts.triagedAt, next: `Investigate ${it.key}: write its notes (item notes), then reply` },
     // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: the
