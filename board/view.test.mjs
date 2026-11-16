@@ -3854,7 +3854,7 @@ test("a thread box's row holds only What's left?, Prototype, Grill, Visual and R
 });
 
 // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵) in its thread box; a Todo card has Done right of Block in its actions, and an In Progress card neither", async () => {
+test("Done is in the ticket actions of a work card in every lane, right of Block, and also in an In Review card's thread actions, as Done (⌥↵) then Reply (⌘↵)", async () => {
   const cards = [
     workCard('T1', { finishable: true, holdable: true, hasNotes: true }),
     workCard('P1', { lane: 'progress', finishable: true, holdable: true }),
@@ -3877,8 +3877,9 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
   assert.equal(form('w/a1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
   for (const key of ['w/T1', 'w/P1']) assert.equal(form(key).querySelector('[data-confirm="finish"]'), null);
   assert.deepEqual(actions('w/T1'), ['Block', 'Done', 'Notes']);
-  assert.deepEqual(actions('w/P1'), ['Block']);
-  assert.deepEqual(actions('w/a1'), []);
+  assert.deepEqual(actions('w/P1'), ['Block', 'Done']);
+  assert.deepEqual(actions('w/R1'), ['Block', 'Done']);
+  assert.deepEqual(actions('w/a1'), ['Done']);
   // Reply sends the message; Done, tapped or on ⌥↵, confirms and closes the card.
   form('w/R1').querySelector('textarea').value = 'Looks good';
   b.page.fire(b.root, 'submit', { target: form('w/R1'), submitter: form('w/R1').querySelector('button[data-intent="reply"]') });
@@ -5219,7 +5220,7 @@ test("Done closes the card and holds the card still on screen as the card moves 
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-74]]);
+    ['done', false, '[]', [-78]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
