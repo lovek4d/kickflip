@@ -7205,6 +7205,62 @@ test("a card's Questions button opens that topic's questions sheet in place, wit
   s.view.unmount();
 });
 
+// docs/adr/2026-11-16-1900-a-sheet-opens-at-its-top-unless-already-open.md
+test("a sheet that opens scrolls its body to the top, and one already open keeps its scroll: BoardUI.openSheet", () => {
+  const page = fakePage(memoryStorage([]).localStorage);
+  miniDom(page.Target, page.win.document);
+  const dialog = page.win.document.createElement('dialog');
+  dialog.innerHTML = '<div class="body"></div>';
+  const body = dialog.querySelector('.body');
+  body.scrollTop = 300;
+  page.win.BoardUI.openSheet(dialog);
+  assert.deepEqual([dialog.open, dialog.modal, body.scrollTop], [true, true, 0], 'closed → opens at the top');
+  body.scrollTop = 300;
+  page.win.BoardUI.openSheet(dialog, { modal: false });
+  assert.deepEqual([dialog.modal, body.scrollTop], [true, 300], 'a call while open changes nothing');
+  dialog.close();
+  page.win.BoardUI.openSheet(dialog, { modal: false });
+  assert.deepEqual([dialog.open, dialog.modal, body.scrollTop], [true, false, 0], 'non-modal on request, at the top again');
+});
+
+test("the questions sheet reopens at its top, and opening it again while it is open leaves its scroll", async () => {
+  const s = sheetOnDom();
+  await s.settle();
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
+  const body = s.sheet().querySelector('.reader-body');
+  body.scrollTop = 250;
+  s.pick('qb');
+  assert.equal(body.scrollTop, 250, 'a tap inside leaves the scroll');
+  s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('[data-qs="close"]') });
+  s.page.runTimers();
+  assert.equal(s.sheet().open, false);
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
+  assert.deepEqual([s.sheet().open, body.scrollTop], [true, 0], 'reopened at the top');
+  body.scrollTop = 250;
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
+  assert.equal(body.scrollTop, 250, 'opening it again while open keeps the place');
+  s.view.unmount();
+});
+
+test("the reader sheet reopens at its top, and opening again while it is open keeps its scroll", async () => {
+  const r = readerOnDom('plain log text');
+  await r.settle();
+  const link = r.root.querySelector('a[href="notes.html?item=w%2FA1"]');
+  r.tap(link);
+  await r.settle();
+  const body = r.inSheet('.reader-body');
+  body.scrollTop = 400;
+  r.tap(link);
+  await r.settle();
+  assert.equal(body.scrollTop, 400, 'a second open while it is open keeps the place');
+  r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
+  r.page.runTimers();
+  assert.equal(r.sheet().open, false);
+  r.tap(link);
+  await r.settle();
+  assert.deepEqual([r.sheet().open, body.scrollTop], [true, 0], 'reopened at the top');
+});
+
 // docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md
 test("the questions sheet's Send sends the answered questions as one owner-answers under one send id and closes the sheet at once, leaving the page where it was", async () => {
   const s = sheetOnDom();

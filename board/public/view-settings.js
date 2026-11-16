@@ -173,7 +173,7 @@
     });
     B.atUnmount(() => { unfitModal(); modal.close(); if (previous?.isConnected) previous.focus({ preventScroll: true }); });
     B.atUnmount(BoardUI.swipeToDismiss(modal));
-    modal.showModal();
+    BoardUI.openSheet(modal);
     $('#boardSettingsTitle').focus({ preventScroll: true });
     const route = B.route;
     const closeRow = $('#closeBoard');
@@ -207,7 +207,7 @@
         $('#closeBoardError').textContent = '';
         unfit?.();
         unfit = BoardDialogs.fitSheet(closeSheet);
-        closeSheet.showModal();
+        BoardUI.openSheet(closeSheet);
         typed.focus();
       } catch { $('#closeBoardReason').textContent = 'Could not load Close board. Is the host awake?'; closeRow.disabled = false; }
     });

@@ -125,7 +125,7 @@ BoardView.part((B) => {
     body.innerHTML = '<p class="muted">Loading…</p>';
     if (!sheet.open) {
       modal = !matchMedia('(min-width: 900px)').matches;
-      if (modal) sheet.showModal(); else sheet.show();
+      BoardUI.openSheet(sheet, { modal });
     }
     // One entry for the open sheet, whatever it shows next, so Back and a close take it back once.
     if (!pushed) {

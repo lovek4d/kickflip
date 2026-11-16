@@ -81,7 +81,7 @@ BoardView.part((B) => {
     if (!state.board || linksSheet.open) return;
     $('#linksList').innerHTML = linksList(state.board.links);
     linksSheet.classList.remove('closing');
-    linksSheet.showModal();
+    BoardUI.openSheet(linksSheet);
   });
   B.on($('#linksClose'), 'click', closeLinks);
   B.on(linksSheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, linksSheet)) closeLinks(); });

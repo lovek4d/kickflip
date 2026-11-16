@@ -542,6 +542,13 @@
       done();
     }, 180);
   }
+  // The one way a sheet opens: one that isn't open yet shows (modal unless said otherwise) with its body and every scroller
+  // inside it at the top; one already open is left as it is, scroll included.
+  function openSheet(sheet, { modal = true } = {}) {
+    if (sheet.open) return;
+    if (modal) sheet.showModal(); else sheet.show();
+    for (const el of [sheet, ...sheet.querySelectorAll('*')]) if (el.scrollTop) el.scrollTop = 0;
+  }
   function cutClose(sheet) {
     if (!sheet.classList.contains('closing')) return;
     sheet.classList.remove('closing');
@@ -608,7 +615,7 @@
   // After ui-icon-text.js, whose iconText, ICON_SHAPES and ICON_COLOURS stay on BoardUI.
   globalThis.BoardUI = {
     ...globalThis.BoardUI,
-    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, cutClose, swipeToDismiss, swipeVerdict,
+    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };

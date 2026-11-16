@@ -328,7 +328,7 @@ ${BoardNewTask.markup()}`,
         const word = e.target.closest?.('[data-permissions]');
         if (word) {
           sheet.innerHTML = permissionsSheet(last.integrations.find((it) => it.id === word.dataset.permissions));
-          sheet.showModal();
+          BoardUI.openSheet(sheet);
         }
         const forgetter = e.target.closest?.('[data-forget-device]');
         if (forgetter) forgetDevice(forgetter.dataset.forgetDevice);

@@ -27,7 +27,7 @@ BoardView.part((B) => {
 
   B.on($('#waitsChip'), 'click', (ev) => {
     if (!ev.target.closest('[data-waits]') || !state.board || sheet.open || !waitsRows(state.board.orchestratorWaits || []).length) return;
-    sheet.showModal();
+    BoardUI.openSheet(sheet);
     renderWaits(state.board);
   });
   B.every(30000, () => { if (!document.hidden && state.board) renderWaits(state.board); });

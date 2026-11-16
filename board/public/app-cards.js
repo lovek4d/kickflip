@@ -62,7 +62,7 @@ BoardView.part((B) => {
     if (!postingMain) followMainAfter = null;
     mainState = state.board.main.state;
     mainSheet.classList.remove('closing');
-    mainSheet.showModal();
+    BoardUI.openSheet(mainSheet);
     shownLog = null;
     renderMainLog(state.board.main);
   });
@@ -156,7 +156,7 @@ BoardView.part((B) => {
     input.max = localInput(new Date(now + 30 * 86_400_000));
     input.value = input.defaultValue = localInput(new Date(now + 3_600_000));
     holdSheet.classList.remove('closing');
-    holdSheet.showModal();
+    BoardUI.openSheet(holdSheet);
     $('#holdTitle').focus({ preventScroll: true });
   }
   // A Block, from the reply box or the action row, shows its line in the thread at once

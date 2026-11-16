@@ -171,7 +171,7 @@
             paint();
             unfitModal = BoardDialogs.fitSheet(modal);
             ctx.closeSidebar?.();
-            modal.showModal();
+            BoardUI.openSheet(modal);
             B.$('.settings-body').scrollTop = 0;
             B.$('#hubSettingsTitle').focus({ preventScroll: true });
           }

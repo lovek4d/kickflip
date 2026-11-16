@@ -32,7 +32,10 @@ test('every sheet that is shown as a modal registers the swipe first', () => {
   let sites = 0;
   for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js'))) {
     const src = fs.readFileSync(new URL(file, dir), 'utf8');
-    for (const [, sheet] of src.matchAll(/\b(\w+)\.showModal\(\)/g)) {
+    // ui.js's own openSheet is the one showModal call that opens whatever sheet it is handed.
+    const shown = [...src.matchAll(/\b(\w+)\.showModal\(\)|\bBoardUI\.openSheet\((\w+)/g)].filter((m) => file !== 'ui.js' || m[2]);
+    for (const [, shownSheet, openedSheet] of shown) {
+      const sheet = shownSheet ?? openedSheet;
       sites++;
       assert.match(src, new RegExp(`BoardUI\\.swipeToDismiss\\(${sheet}\\)`), `${file}: ${sheet}.showModal() without swipeToDismiss(${sheet})`);
     }

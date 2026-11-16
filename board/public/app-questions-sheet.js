@@ -132,7 +132,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     if (t !== was || !sheet.open) kept = new Set(openOf().map((q) => q.id));
     if (!sheet.open) {
       modal = !matchMedia('(min-width: 900px)').matches;
-      if (modal) sheet.showModal(); else sheet.show();
+      BoardUI.openSheet(sheet, { modal });
     }
     draw();
     return true;

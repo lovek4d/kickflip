@@ -62,7 +62,7 @@ BoardView.part((B) => {
     const a = state.board?.arch;
     if (!a || sheet.open) return;
     $('#archBody').innerHTML = body(a);
-    sheet.showModal();
+    BoardUI.openSheet(sheet);
   });
   B.atUnmount(BoardUI.swipeToDismiss(sheet));
   B.on(sheet, 'click', (ev) => {

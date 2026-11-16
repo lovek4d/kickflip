@@ -43,7 +43,7 @@ globalThis.BoardNewTask = (function () {
       stopFit();
       stopFitting = BoardDialogs.fitSheet(sheet);
       sheet.classList.remove('closing');
-      sheet.showModal();
+      BoardUI.openSheet(sheet);
       $('#askText').focus();
       $('#compose').setAttribute('aria-expanded', 'true');
     }
