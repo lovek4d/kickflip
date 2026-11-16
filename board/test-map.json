@@ -38,6 +38,9 @@
     ],
     "board/board-questions.test.mjs": [
       "board/public/prototype-switcher.js"
+    ],
+    "hooks-plugin/hooks/builder-guard.test.mjs": [
+      "hooks-plugin/hooks/waits-filter-gate.mjs"
     ]
   }
 }

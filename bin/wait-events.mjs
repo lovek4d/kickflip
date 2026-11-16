@@ -15,6 +15,8 @@
 //                             session (board/store.mjs ackPing), then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
 //                             each wait on the orchestrator, a line for each of a card's waits, bumped cards first, then lanes top-down, from data/orchestrator-waits.json,
+//                             (in full when new or changed since the last wake, the rest on one
+//                             `waits still waiting: <kind> <ref>, … · <kind> …` line naming each),
 //                             which the board server keeps (board/server.mjs checkWaits): handle each one on every wake
 //                             (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md), then
 //   rule hub <text>           each hub rule (settings.json `rules`), then
@@ -87,12 +89,32 @@ async function ackPings(dir, lines, log) {
   }
 }
 
-// One line per card idle on the orchestrator (board/domain.mjs orchestratorWaits), none while the board server hasn't
-// written the list.
-function waitLines(dir) {
-  let waits = [];
-  try { waits = JSON.parse(fs.readFileSync(path.resolve(dir, 'data', 'orchestrator-waits.json'), 'utf8')).waits || []; } catch {}
-  return waits.map((w) => `waits ${w.kind} ${w.ref} ${w.key}${w.bumpedAt ? ' bumped' : ''} since ${w.since}${w.picked ? `, picked up ${w.picked}` : ''}: ${w.next}`);
+// The cards idle on the orchestrator (board/domain.mjs orchestratorWaits), none while the board server hasn't written
+// the list.
+function waitsOf(dir) {
+  try { return JSON.parse(fs.readFileSync(path.resolve(dir, 'data', 'orchestrator-waits.json'), 'utf8')).waits || []; } catch { return []; }
+}
+const waitLine = (w) => `waits ${w.kind} ${w.ref} ${w.key}${w.bumpedAt ? ' bumped' : ''} since ${w.since}${w.picked ? `, picked up ${w.picked}` : ''}: ${w.next}`;
+
+// The lines for the waits on the orchestrator: a wait prints in full when it is new since the last wake that printed
+// it or its line changed (picked up, bumped, re-owed, a new next step); the rest collapse into one
+// `waits still waiting: <kind> <ref>, <ref> · <kind> …` line naming every one, grouped by kind in the list's order, so
+// `rg '^waits'` still reads them all. shownFile holds the line each wait last printed as.
+function waitLines(dir, shownFile) {
+  const waits = waitsOf(dir);
+  let before = {};
+  try { before = JSON.parse(fs.readFileSync(shownFile, 'utf8')); } catch {}
+  const lines = Object.fromEntries(waits.map((w) => [`${w.kind} ${w.key}`, waitLine(w)]));
+  const out = [];
+  const still = new Map();
+  for (const w of waits) {
+    const id = `${w.kind} ${w.key}`;
+    if (before[id] === lines[id]) still.set(w.kind, [...(still.get(w.kind) || []), w.ref]);
+    else out.push(lines[id]);
+  }
+  if (still.size) out.push(`waits still waiting: ${[...still].map(([kind, refs]) => `${kind} ${refs.join(', ')}`).join(' · ')}`);
+  writeAtomic(shownFile, JSON.stringify(lines));
+  return out;
 }
 
 // The hub links that don't reach the board, as `link <name> <detail>` lines. This watcher still runs, so the events
@@ -210,7 +232,10 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
       // (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md).
       if (board) await markDelivered(s.dir, delivered).catch((e) => log(`delivery stamps not written (${e.message})`));
       if (board) await ackPings(s.dir, pings, log);
-      if (board) for (const line of waitLines(s.dir)) log(line);
+      // A failure writing the shown file prints every wait in full, so none is dropped.
+      if (board) {
+        try { for (const line of waitLines(s.dir, path.resolve(s.dir, 'data', `.waits-shown-${session}.json`))) log(line); } catch { for (const w of waitsOf(s.dir)) log(waitLine(w)); }
+      }
       if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) log(`rule ${line}`);
       if (board) for (const line of settingsLines(settingsOf(board))) log(line);
       if (board) log(QUIET);

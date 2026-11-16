@@ -74,6 +74,10 @@
           {
             "type": "command",
             "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/builder-guard.mjs\""
+          },
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/waits-filter-gate.mjs\""
           }
         ]
       },

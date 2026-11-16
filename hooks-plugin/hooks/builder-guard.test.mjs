@@ -42,8 +42,8 @@ test('only a worktree builder is guarded, and only the Bash tool', () => {
   assert.equal(run('git push', path.join(worktree, 'hooks-plugin'))?.permissionDecision, 'deny');
 });
 
-test('the plugin runs the guard before Bash', () => {
+test('the plugin runs the guard first before Bash, then the waits filter gate', () => {
   const plugin = JSON.parse(fs.readFileSync(fileURLToPath(new URL('./hooks.json', import.meta.url)), 'utf8'));
   assert.deepEqual(plugin.hooks.PreToolUse.find((h) => h.matcher === 'Bash'),
-    { matcher: 'Bash', hooks: [{ type: 'command', command: 'node "$HOME/.claude/skills/kickflip/hooks-plugin/hooks/builder-guard.mjs"' }] });
+    { matcher: 'Bash', hooks: [{ type: 'command', command: 'node "$HOME/.claude/skills/kickflip/hooks-plugin/hooks/builder-guard.mjs"' }, { type: 'command', command: 'node "$HOME/.claude/skills/kickflip/hooks-plugin/hooks/waits-filter-gate.mjs"' }] });
 });

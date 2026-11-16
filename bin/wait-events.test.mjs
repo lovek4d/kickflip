@@ -322,3 +322,33 @@ test('a wake that prints an ask edit moves the ask\'s working mark to now, so so
   assert.ok(Date.parse(marks.a1) >= before, marks.a1);
   assert.deepEqual([marks.m0, marks.x1], ['2026-11-12T09:00:00.000Z', undefined]);
 });
+
+test('a wait prints in full once, then a repeat collapses into one still-waiting line naming every key until its line changes', async (t) => {
+  const home = tempDir('collapse-waits-');
+  const dir = path.join(home, 'site');
+  const events = path.join(dir, 'data', 'events.jsonl');
+  const waitsFile = path.join(dir, 'data', 'orchestrator-waits.json');
+  const wait = (kind, ref, extra = {}) => ({ key: `w/${ref}`, ref, title: ref, kind, since: '2026-11-04T10:00:00.000Z', picked: null, next: 'Act', ...extra });
+  write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { sites: { shop: { dir, watch: ['data/events.jsonl'], owner: { session: 's1' } } } });
+  write(path.join(dir, 'board.json'), { title: 'Shop' });
+  write(waitsFile, { waits: [wait('calls', 'T-373'), wait('calls', 'T-368'), wait('staging', 'T-245')] });
+  write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 0 });
+  write(events, '');
+  const wake = async (n) => {
+    fs.appendFileSync(events, JSON.stringify({ id: `e${n}`, kind: 'item-message', ts: new Date().toISOString() }) + '\n');
+    const w = inProcess(t, home, { pid: 900100 + n });
+    await w.run();
+    return w.out().split('\n').filter((l) => l.startsWith('waits'));
+  };
+  const first = await wake(1);
+  assert.equal(first.length, 3);
+  assert.ok(first.every((l) => !l.startsWith('waits still')));
+  assert.deepEqual(await wake(2), ['waits still waiting: calls T-373, T-368 · staging T-245']);
+  // A pick-up changes one wait's line, and a new wait is new; the others stay collapsed.
+  write(waitsFile, { waits: [wait('calls', 'T-373', { picked: '2026-11-04T11:00:00.000Z' }), wait('calls', 'T-368'), wait('staging', 'T-245'), wait('answer', 'T-9')] });
+  assert.deepEqual(await wake(3), [
+    'waits calls T-373 w/T-373 since 2026-11-04T10:00:00.000Z, picked up 2026-11-04T11:00:00.000Z: Act',
+    'waits answer T-9 w/T-9 since 2026-11-04T10:00:00.000Z: Act',
+    'waits still waiting: calls T-368 · staging T-245',
+  ]);
+});
