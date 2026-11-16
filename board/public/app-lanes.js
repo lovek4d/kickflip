@@ -157,10 +157,11 @@ BoardView.part((B) => {
   B.on(B.root, 'click', async (ev) => {
     const answer = ev.target.closest('button[data-review-answer]');
     if (answer) {
-      // The tapped answer waits, and the review's other answer is disabled, until the server records it.
+      // A held review's Post it or Skip goes through the outbox, its row in the New strip until the board has it
+      // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
       const pr = Number(answer.dataset.review);
-      try { await waitOn(answer, B.send('review-answer', { pr, answer: answer.dataset.reviewAnswer }), { group: answer.parentNode.querySelectorAll('button') }); }
-      catch { B.notice('Could not send. Is the host awake?'); }
+      const skip = answer.dataset.reviewAnswer === 'skip';
+      B.enqueue(undefined, { kind: 'review-answer', fields: { pr, answer: answer.dataset.reviewAnswer }, said: `Review of PR #${pr}: ${skip ? 'Skip' : 'Post it'}` });
       return;
     }
     const filterBtn = ev.target.closest('button.lane-filter');

@@ -3,7 +3,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, escText, ago, unreadCount, workLines, BUILD_PHASES, phaseStrip, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, installButton, tryButton, tryWords, waitOn, prName, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, escText, ago, unreadCount, workLines, BUILD_PHASES, phaseStrip, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, installButton, tryButton, tryWords, prName, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -146,9 +146,7 @@ BoardView.part((B) => {
     BoardUI.closeSheet(holdSheet, B.later);
   }
   // Whether the open sheet came from the card's reply box, whose Block goes through the thread's outbox.
-  let holdInBox = false;
-  function openHold(it, inBox) {
-    holdInBox = inBox;
+  function openHold(it) {
     $('#holdTitle').textContent = `Block ${it.ref}`;
     $('#holdLede').textContent = `${it.lane === 'todo' ? 'It won’t start' : 'Claude stops work on it'} until then. Forever blocks it until you unblock it.`;
     const now = Date.now();
@@ -161,17 +159,12 @@ BoardView.part((B) => {
     holdSheet.showModal();
     $('#holdTitle').focus({ preventScroll: true });
   }
-  // The reply box's Block shows its line in the thread at once
-  // (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md); the action row's
-  // waits while the server records the block (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-  async function hold(key, choice) {
+  // A Block, from the reply box or the action row, shows its line in the thread at once
+  // (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md,
+  // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
+  function hold(key, choice) {
     closeHold();
-    if (holdInBox) { B.enqueue(key, { kind: 'card-hold', fields: { hold: true, for: choice } }); return; }
-    const button = $(`button[data-confirm="hold"][data-key="${CSS.escape(key)}"]`);
-    const holdFace = () => { const it = cardOf(key); return JSON.stringify(it?.ownerBlock ?? null); };
-    const before = holdFace();
-    try { await B.spinUntil(button, { send: () => B.sentHere(key, () => B.send('card-hold', { key, hold: true, for: choice })), shows: () => holdFace() !== before }); }
-    catch (e) { B.failed(e); }
+    B.enqueue(key, { kind: 'card-hold', fields: { hold: true, for: choice } });
   }
   B.on($('#holdClose'), 'click', closeHold);
   B.on(holdSheet, 'click', (ev) => {
@@ -264,10 +257,6 @@ BoardView.part((B) => {
       : openPRs(it).length > 1
       ? `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join(', ')} in turn if they are still approved, green and clean.`
       : `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join('')} if it is still approved, green and clean.`),
-    // The tap lifts the owner's block itself; only a task or a condition still blocking the card bumps it.
-    'card-build': (it, ref) => (it.blockedBy.length || it.blockedUntil
-      ? `${it.ownerBlock ? 'Unblock and implement' : 'Implement'} ${ref} once ${[it.blockedBy.length && `${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done`, it.blockedUntil].filter(Boolean).join(' and ')}? It is bumped to the top of Todo until then.`
-      : `${it.ownerBlock ? `Unblock and implement ${ref}?` : `Implement ${ref}?`} Claude starts its implementer now with the notes as they stand.`),
     finish: (it, ref) => (it.ownerStep ? `Done with "${it.ownerStep}"? ${ref} moves to Done and its ticket closes.`
       : `Done ${ref}? It moves to Done and Claude stops work on it.${openPRs(it).length ? ` Its PR${openPRs(it).length > 1 ? 's stay' : ' stays'} open on GitHub.` : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
     // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
@@ -473,21 +462,17 @@ BoardView.part((B) => {
   });
 
   // A work card's bump icon bumps it, or unbumps a bumped one, with no confirm
-  // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md). The icon pulses until the server has recorded it, and the card
-  // moves as its answer lands (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-  B.on(B.root, 'click', async (ev) => {
+  // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md). It goes through the outbox with no card thread, so
+  // its row shows in the New strip until the board has it, and the card moves as its answer lands
+  // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
+  B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('button[data-card-bump]');
     if (!b) return;
     ev.preventDefault();
     const key = b.dataset.cardBump;
     const unbump = b.hasAttribute('data-bumped');
-    // Spins until a board shows the card bumped or unbumped (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
-    const bumped = () => Boolean(cardOf(key)?.bumpedAt);
-    const before = bumped();
-    try {
-      await B.spinUntil(b, { send: () => B.sentHere(key, () => B.send(unbump ? 'card-unbump' : 'card-bump', { key })), shows: () => bumped() !== before });
-      toast(unbump ? 'Unbumped' : 'Moved to the top');
-    } catch (e) { B.failed(e); }
+    const ref = cardOf(key)?.ref || key;
+    B.enqueue(undefined, { kind: unbump ? 'card-unbump' : 'card-bump', fields: { key }, said: unbump ? `Unbumped ${ref}` : `Moved ${ref} to the top` });
   });
 
   B.on(B.root, 'click', (ev) => {
@@ -496,42 +481,23 @@ BoardView.part((B) => {
     ev.preventDefault();
     confirmTap(b);
   });
-  // A data-confirm button's tap: Block's sheet, or its confirm, then its event. The thread box's Block, Unblock, Done and
-  // Reopen come here on ⌥↵ too; theirs go through the thread's outbox, their line in the thread at once and their button
-  // free (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md).
+  // A data-confirm button's tap, the action row's or the thread box's (on ⌥↵ too): Block's sheet, or its confirm, then
+  // its event through the card's outbox, its line in the thread at once and its button free
+  // (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md,
+  // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
   async function confirmTap(b) {
     const { key, confirm: act } = b.dataset;
     // Read before the confirm takes the focus: a Done tapped with the card's thread field focused keeps the card open,
     // and the page follows it to Done (app-core.js steady anchors on the field).
     const follow = act === 'finish' && document.activeElement?.matches?.('textarea') && document.activeElement.closest('form[data-reply]')?.dataset.reply === key;
     const it = state.board.items.find((i) => i.key === key);
-    const inBox = Boolean(b.closest('form[data-reply]'));
-    if (it && act === 'hold') { openHold(it, inBox); return; }
+    if (it && act === 'hold') { openHold(it); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
-    if (inBox) {
-      // A Done not followed closes its card at the tap, before the outbox draws the card in Done
-      // (docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md).
-      if (act === 'finish' && !follow) closeCard(key);
-      B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done', ...(follow ? { follow } : {}) }, reopen: { kind: 'card-reopen' } }[act]);
-      return;
-    }
-    // Unblock, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement, Done and Reopen
-    // wait while the server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-    // Each carries the version of the card it was drawn on, which the board checks the card against.
-    const at = { key, ...(it.version ? { version: it.version } : {}) };
-    const sent = { resume: ['card-hold', { ...at, hold: false }], merge: ['card-merge', at], 'card-build': ['card-build', at],
-      finish: ['card-done', at], reopen: ['card-reopen', at] }[act];
-    // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
-    // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
-    const close = act === 'finish' && !follow ? () => closeCard(key) : null;
-    // Each spins until a board shows its change (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md):
-    // Unblock the card with no owner block; Done and Reopen the card in another lane; Merge the card merging, which its markup draws
-    // busy (docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md), or gone from In Review. Implement is T-234's.
-    const shows = { resume: (c) => !c?.ownerBlock, finish: (c) => c?.lane !== it.lane, reopen: (c) => c?.lane !== it.lane,
-      merge: (c) => !c || c.lane !== 'review' || c.merging }[act];
-    const send = () => B.sentHere(key, () => B.send(...sent, close));
-    try { await (shows ? B.spinUntil(b, { send, shows: () => shows(cardOf(key)) }) : waitOn(b, send())); } catch (e) { B.failed(e); }
-    if (act === 'finish' || act === 'reopen') B.syncSends(key);
+    // A Done not followed closes its card at the tap, before the outbox draws the card in Done
+    // (docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md).
+    // Merge: docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md.
+    if (act === 'finish' && !follow) closeCard(key);
+    B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done', ...(follow ? { follow } : {}) }, reopen: { kind: 'card-reopen' }, merge: { kind: 'card-merge' } }[act]);
   }
 
   function closeCard(key) {

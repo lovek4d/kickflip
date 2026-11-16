@@ -31,10 +31,13 @@
   // An owner's message's footer: its time, then the tap it came from (m.status, such as "answers submitted"), then where
   // it is: sending… until the board has it, waiting… until Claude picks it up, thinking… while Claude works on it
   // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md). A send that failed reads not sent,
-  // with Retry and X (app-threads.js [data-resend], [data-unsend]). A bare tap's status line reads the same after its
+  // with Retry and X (app-threads.js [data-resend], [data-unsend]); one held while the board is out of reach reads
+  // waiting for the host, and goes out on its own once it is back
+  // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md). A bare tap's status line reads the same after its
   // time (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md).
   const PICK_UP = {
     sending: () => '<span>sending…</span>',
+    held: () => '<span class="held">waiting for the host</span>',
     waiting: () => '<span>waiting…</span>',
     working: (m) => thinkingLine(m.since),
     failed: (m) => `<span class="not-sent">not sent</span><span class="send-again"><button type="button" class="ghost icon" data-resend="${esc(m.sendId)}" aria-label="Retry" title="Retry">${RETRY}</button><button type="button" class="ghost icon" data-unsend="${esc(m.sendId)}" aria-label="Dismiss" title="Dismiss, its text back in the box">${DISMISS}</button></span>`,

@@ -458,20 +458,18 @@
 <pre class="down-landing-stack" hidden>${esc(err?.stack || '')}</pre></div>`;
   // The line over a side page painted from its copy while the board can't be reached.
   const copyNote = (what, savedAt) => `<p class="note copy-note">Copy of ${esc(what)} as of ${since(savedAt)}. Read only.</p>`;
-  // The buttons that send, which a board out of reach holds (style.css .offline): every one greyed and stopped, keeping its
-  // label and size. Reading controls, folds, links, Edit and drafts stay live.
-  const SENDS = `form button[type="submit"], .actions button, button[data-confirm], button[data-review-answer], button[data-prompt-send], button[data-prompt-choice], button[data-quick], button[data-card-bump], button[data-bump], button[data-withdraw], button[data-grill], button[data-proto], button[data-visual], button[data-main-pull], button[data-arch-run], button[data-try], button[data-try-kill], button[data-reopen]`;
-  // While held(), a tap on one of root's sending buttons, and any form's submit there, Enter's included, goes nowhere, and onHeld
-  // tells the tap it is waiting. on is the view's B.on.
-  function holdSends(on, root, held, onHeld) {
-    const stop = (ev) => {
-      if (!held() || (ev.type === 'click' && !ev.target.closest?.(SENDS))) return;
-      ev.preventDefault();
-      ev.stopImmediatePropagation();
-      onHeld();
-    };
-    on(root, 'click', stop, true);
-    on(root, 'submit', stop, true);
+  // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md
+  // An outbox send (app-threads.js flush, app-questions-sheet.js flush, view-hub.js): send(signal) runs with an abort
+  // signal and gives up after SEND_LIMIT_MS, so a tap reads sending… at most that long. → send's promise, or a
+  // rejection marked timedOut. A send that got no answer at all carries unreachable (claude.js send).
+  const SEND_LIMIT_MS = 15000;
+  function sendWithin(send) {
+    const abort = new AbortController();
+    let timer;
+    const late = new Promise((resolve, reject) => {
+      timer = setTimeout(() => { abort.abort(); reject(Object.assign(new Error('No answer in 15 s'), { timedOut: true })); }, SEND_LIMIT_MS);
+    });
+    return Promise.race([send(abort.signal), late]).finally(() => clearTimeout(timer));
   }
 
   // While a board restarts, the hub answers its own 502 page, and a request can fail outright. fetchJSON waits that out:
@@ -480,7 +478,6 @@
   // {ok, status, body}, a 404's {error} included.
   // tag is the version of the board the page holds: an unchanged board answers 304, which resolves with body null
   // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
-  const WAITING = 'Waiting for the board to reconnect';
   const RESTARTING = 'Board restarting…';
   const restartNotice = () => `<span class="muted small restarting">${RESTARTING}</span>`;
   async function fetchJSON(url, { onWait = () => {}, limit = 30000, tag = null, fetch: get = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
@@ -596,7 +593,7 @@
   globalThis.BoardUI = {
     ...globalThis.BoardUI,
     LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, cutClose, swipeToDismiss, swipeVerdict,
-    esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
+    esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, requestRow, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

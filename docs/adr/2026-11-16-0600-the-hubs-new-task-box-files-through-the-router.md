@@ -1,5 +1,7 @@
 # The hub's New task box files through the router
 
+Superseded in part by [owner taps wait for the host in the outbox](2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md): the hub page now has its own outbox. A task's row leads its New strip at once, and `/_hub/route` queues a `sendId` once.
+
 The hub page gets the board's own + button and New task sheet (`board/public/new-task.js`), the same component with the same attachments, Implement, Discuss and request icons. The owner (T-236, 11/15): "exactly the same as the board just with endpoint to the router agent instead of the board orchestrator. Ask should end up in the same spot anyway."
 
 - **Same component, other send.** `BoardNewTask.wire(B)` sends through `B.enqueue`. On a board that is the outbox; on the hub page (`view-hub.js`) it waits for the box's uploads, posts `{text, files, quick | request}` to `/_hub/route`, clears the box and reloads the page's data. There is no outbox and no sending row on the hub: the Routed section shows the task waiting at once, then the card it became. A refused send or a failed upload keeps the draft and its files and toasts why.

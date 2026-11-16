@@ -1,5 +1,7 @@
 # A tap waits for the server to record it
 
+Superseded in part by [owner taps wait for the host in the outbox](2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md): bump, unbump, delete, an edit's Save, Hold, Unhold, Done, Implement and Merge no longer wait on their button. Each draws at once from the outbox and reads sending… until the board's answer lands. The server's side, on disk before it answers, stands.
+
 This supersedes in part [every owner tap the server can apply draws at once](2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md): its bullets that bump, unbump, a New card's bump, delete and edit draw before the POST, and that the bump icon's fill fades in and out. The rest of that ADR stands: the server applies the tap inside the POST, which answers with the board, and the page lands that board with no reload of its own.
 
 **The rule.** A tap never waits on a session, but every tap that saves something waits on the board server, which answers only once the change is on disk. Nothing on the card changes before that answer. Only taps that save nothing, such as opening a card or a sheet, stay instant.

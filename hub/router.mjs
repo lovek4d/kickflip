@@ -149,9 +149,12 @@ export function drainRoutes({ manifest = readManifest(), ask = askHaiku, paused 
 // An incoming request {text, files?, fields?, from: {via, by, link?, slack?}} on the queue, for the next drain: the hub's tick
 // when another process or the hub's poll queued it, as `kickflip handoff` with no board and Slack intake
 // (slack-intake.mjs) do. → the queued request
+// A request with a sendId (the hub page's outbox, board/public/view-hub.js) takes it as its id, and one already queued or
+// routed under it is not queued again, so a resend never files a task twice.
 export async function queueRequest(request) {
-  const req = { id: crypto.randomUUID(), at: new Date().toISOString(), text: String(request.text), ...(request.files?.length ? { files: request.files } : {}), ...(request.fields ? { fields: request.fields } : {}), from: request.from, tries: 0 };
-  await changeQueue((queue) => [...queue, req]);
+  const req = { id: request.sendId || crypto.randomUUID(), at: new Date().toISOString(), text: String(request.text), ...(request.files?.length ? { files: request.files } : {}), ...(request.fields ? { fields: request.fields } : {}), from: request.from, tries: 0 };
+  const had = (queue) => queue.some((q) => q.id === req.id) || readJSON(ROUTED_LOG, { routed: [] }).routed.some((r) => r.id === req.id);
+  await changeQueue((queue) => (request.sendId && had(queue) ? queue : [...queue, req]));
   return req;
 }
 

@@ -28,3 +28,15 @@ test("the hub page's upload stores a file on the hub, and its route call queues 
   assert.equal((await post(hub, '/_hub/route', JSON.stringify({ text: '  ' }))).status, 400);
   assert.equal((await post(hub, '/_hub/route', '{}', { 'content-type': 'text/plain' })).status, 403);
 });
+
+// docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md
+test("a route call under a send id is queued once, under that id, however often the page's outbox resends it", async (t) => {
+  const hub = await inProcessHub(t);
+  // The fixture's queue holds what earlier tests filed.
+  const before = fs.existsSync(path.join(web, 'route-queue.json')) ? queue().length : 0;
+  const body = JSON.stringify({ text: 'fix the basket', sendId: 'mwj0pk1c-5fyl9l' });
+  assert.deepEqual([(await post(hub, '/_hub/route', body)).status, (await post(hub, '/_hub/route', body)).status], [202, 202]);
+  assert.deepEqual(queue().slice(before).map((q) => [q.id, q.text]), [['mwj0pk1c-5fyl9l', 'fix the basket']]);
+  assert.equal((await post(hub, '/_hub/route', JSON.stringify({ text: 'odd id', sendId: '../x' }))).status, 202);
+  assert.notEqual(queue().at(-1).id, '../x', 'a send id that is no plain token is not taken as the id');
+});

@@ -122,9 +122,12 @@ BoardView.part((B) => {
     if (on.settings) { gear.removeAttribute('aria-disabled'); gear.removeAttribute('tabindex'); } else { gear.setAttribute('aria-disabled', 'true'); gear.tabIndex = -1; }
   }
   const headerWired = () => { controls.wired = true; applyControls(); };
-  // Offline, the board stays as it was and reads as before; only the header time turns red, and style.css holds the
-  // buttons that send from .view-board.offline (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+  // Offline, the board stays as it was and reads as before; only the header time turns red
+  // (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md). Every button stays live: its tap
+  // waits in the outbox as waiting for the host, and goes out once the link is back
+  // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
   function setLink(link) {
+    const was = state.link;
     state.link = link;
     if (link !== 'reconnecting') controls.boardSettled = true;
     B.root.classList.toggle('offline', link !== 'online');
@@ -132,8 +135,8 @@ BoardView.part((B) => {
     BoardUI.repaintLogoDot?.();
     applyControls();
     renderStatus();
+    if ((was === 'online') !== (link === 'online')) B.linkChanged();
   }
-  BoardUI.holdSends(B.on, B.root, () => state.link !== 'online', () => B.toast(BoardUI.WAITING));
   const linkUp = () => setLink('online');
   const linkDown = () => { if (state.link !== 'reconnecting') setLink('offline'); };
   B.on($('#settingsLink'), 'click', (ev) => {

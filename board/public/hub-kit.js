@@ -6,8 +6,9 @@
 
   // Paints url()'s JSON with paint(data) now and every `every` ms while the view shows, as the header's time says; a
   // refresh waits while busy() or the page is hidden, and the time then says how old the data is. The header's refresh
-  // button loads at once. paint(null) means the first load failed. → load()
-  function live(B, { url, paint, busy = () => false, every = 30000 }) {
+  // button loads at once. paint(null) means the first load failed. linked(online) hears whether each load reached the
+  // host. → load()
+  function live(B, { url, paint, busy = () => false, every = 30000, linked = () => {} }) {
     const refresh = B.$('#refresh');
     const status = B.$('#status');
     let at = 0;
@@ -23,9 +24,11 @@
         at = Date.now();
         globalThis.AppShell?.codeSeen?.(r.headers?.get('x-hub-code'));
         paint(data);
+        linked(true);
         if (status) status.textContent = 'now';
       } catch {
         if (!B.alive()) return;
+        linked(false);
         if (!loaded) paint(null);
         if (status) status.innerHTML = BoardUI.statusLine(undefined, { link: 'offline' });
       }

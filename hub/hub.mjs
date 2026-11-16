@@ -1481,8 +1481,9 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       return json ? sendJSON(200, flushView(r)) : redirect(res, '/_hub/');
     }
     // The hub page's New task box: its files upload here, to the hub's own data/uploads, and /_hub/route queues the task for
-    // the router like any request, with its intent (quick, or request prototype, grill or visual) and files. The router
-    // copies the files to the board it picks. Answered at once: the Routed section shows the task waiting, then its card.
+    // the router like any request, with its intent (quick, or request prototype, grill or visual) and files, under the
+    // page outbox's sendId, which queues it once however often it is sent. The router copies the files to the board it
+    // picks. Answered at once: the Routed section shows the task waiting, then its card.
     if (p === '/_hub/api/upload' && req.method === 'POST') {
       try { return sendJSON(200, await saveUpload(HOME, req, { name: decodeURIComponent(req.headers['x-filename'] || ''), type: req.headers['content-type'], length: Number(req.headers['content-length']) || 0 })); }
       catch (e) { if (e.status) return sendJSON(e.status, { error: e.message }); throw e; }
@@ -1495,7 +1496,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       if (!text && !files.length) return sendJSON(400, { error: 'Send some text or a file.' });
       if (input.request !== undefined && !['prototype', 'grill', 'visual'].includes(input.request)) return sendJSON(400, { error: 'request is prototype, grill or visual.' });
       const fields = input.request ? { request: input.request } : input.quick === true ? { quick: true } : null;
-      await queueRequest({ text, files, ...(fields ? { fields } : {}), from: { via: 'hub', by: 'love' } });
+      const sendId = typeof input.sendId === 'string' && /^[\w-]{1,64}$/.test(input.sendId) ? input.sendId : undefined;
+      await queueRequest({ text, files, ...(fields ? { fields } : {}), ...(sendId ? { sendId } : {}), from: { via: 'hub', by: 'love' } });
       track(drainRoutes().then((r) => { for (const e of r.routed) log(`router: hub request → /${e.route}: ${e.reason}`); stream.refresh(); }, (e) => log('router:', e.message)));
       stream.refresh();
       return sendJSON(202, { queued: true });

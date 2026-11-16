@@ -26,11 +26,13 @@
 
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: the requests the hub's router
   // filed on a board and the asks other boards put to one (hub/router.mjs routedRows), newest first, on the board's own New strip.
-  const routedHtml = (rows) => `<section class="new-strip routed" aria-label="New">${BoardUI.newStrip(rows.map((routed) => ({ id: routed.id, routed })), new Map(),
+  // unsent: the page outbox's rows the hub doesn't list yet, first (ui-cards.js newEntry).
+  const routedHtml = (rows, unsent) => `<section class="new-strip routed" aria-label="New">${BoardUI.newStrip([...unsent, ...rows.map((routed) => ({ id: routed.id, routed }))], new Map(),
     { label: 'New', empty: 'Nothing new yet. A Slack @kickflip request, a task from the + button or another board’s ask shows here.' })}</section>\n`;
 
-  // restarting: the routes whose Restart is out; routed: the Routed section's rows, drawn after the Boards group.
-  function sitesHtml(groups, restarting, routed) {
+  // restarting: the routes whose Restart is out; routed: the Routed section's rows, drawn after the Boards group, the
+  // unsent rows first.
+  function sitesHtml(groups, restarting, routed, unsent) {
     const { row, CHEVRON } = HubUI;
     const site = (s) => {
       const busy = restarting.has(s.route);
@@ -38,7 +40,7 @@
       const sub = busy ? RESTARTING : `<span class="st ${esc(s.tone)}">${esc(s.word)}</span>${lines}`;
       return (s.restart ? restartRow(s, sub, busy) : row({ icon: s.icon, title: esc(s.title), sub, wrap: true, trail: CHEVRON, href: s.href })) + rememberedHtml(s.remembered);
     };
-    return groups.map((g) => `<h2 class="label">${esc(g.label)}</h2>\n<div class="group">${g.sites.map(site).join('')}</div>\n${g.label === 'Boards' ? routedHtml(routed) : ''}`).join('');
+    return groups.map((g) => `<h2 class="label">${esc(g.label)}</h2>\n<div class="group">${g.sites.map(site).join('')}</div>\n${g.label === 'Boards' ? routedHtml(routed, unsent) : ''}`).join('');
   }
 
   // One helper for every integration's missing permissions (docs/adr/2026-11-15-0730-an-integration-missing-a-permission-reads-degraded.md):
@@ -91,7 +93,7 @@
   // from the tap until the hub answers with its new code and the page reloads.
   const restartHubButton = (busy) => `<button type="button" class="btn quiet restart-btn" id="restart-hub" data-restart-hub${busy ? BoardUI.BUSY : ''}>Restart hub</button>`;
 
-  function html(d, { flash, prompts, restarting, restartingHub }) {
+  function html(d, { flash, prompts, restarting, restartingHub, unsent }) {
     const { row, tile } = HubUI;
     const usage = HubUI.usageCard(d.usage, d.codex, d.pause, d.claude);
     // The status word is plain text, except while the hub runs older code: then it opens the Restart hub confirm and waits like that button.
@@ -104,7 +106,7 @@
 ${HubUI.machineRow(d.pause.machine)}
 ${awakeRow(d.awake)}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
-${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed || [])}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>`;
+${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed || [], unsent)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>`;
   }
 
   // The version line is one button: a tap checks npm now and pulls what it finds (POST /_hub/check-update), answering in
@@ -145,18 +147,97 @@ ${BoardNewTask.markup()}`,
       B.on(B.$('#refresh'), 'click', () => settings.B.refreshSettings?.());
       // docs/adr/2026-11-16-0600-the-hubs-new-task-box-files-through-the-router.md: the board's + button and New task sheet
       // (new-task.js), whose send goes to the router (POST /_hub/route) instead of a board's outbox. Its files are up on the
-      // hub first (POST /_hub/api/upload, attach.js); the Routed section shows the task waiting, then the card it became.
-      B.enqueue = async (key, { text, attached, fields }) => {
-        const root = B.site.root;
+      // hub first (POST /_hub/api/upload, attach.js).
+      // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md: a send goes through this page's own outbox,
+      // kept in this browser, each {sendId, ts, text, files, fields?, uploads?, failed?}, as a board's does (app-threads.js):
+      // its row leads the New strip at once, reading sending…, waiting for the host while the hub is out of reach, or not
+      // sent with Retry and X, until the hub lists the request under its sendId. They go one at a time, in order, and once
+      // the hub is back on their own; the hub queues a sendId once, so a resend never files a task twice.
+      const site = B.site.root;
+      const outbox = () => B.store.get('outbox', []);
+      const setOutbox = (list) => { B.store.set('outbox', list); paint(); };
+      const sendBox = (m) => `send:${m.sendId}`;
+      let online = true;
+      const unsentRows = () => outbox().filter((m) => !last?.routed?.some((r) => r.id === m.sendId))
+        .map((m) => ({ id: m.sendId, sent: m.ts, text: m.text, files: m.files, unsent: { sendId: m.sendId, state: m.failed ? 'failed' : online ? 'sending' : 'held' },
+          ...(m.uploads ? { uploads: { box: sendBox(m), list: BoardAttach.list(sendBox(m), site) } } : {}) }));
+      B.atUnmount(BoardAttach.onChange((id) => {
+        const m = outbox().find((o) => o.uploads && sendBox(o) === id);
+        if (!m) return;
+        const uploads = BoardAttach.saved(id, site);
+        if (JSON.stringify(uploads) !== JSON.stringify(m.uploads)) setOutbox(outbox().map((o) => (o.sendId === m.sendId ? { ...o, uploads } : o)));
+        else paint();
+      }));
+      const marked = (m, change) => setOutbox(outbox().map((o) => (o.sendId === m.sendId ? { ...o, ...change } : o)));
+      const post = (m) => BoardUI.sendWithin(async (signal) => {
+        const r = await fetch('/_hub/route', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ text: m.text, files: m.files, ...m.fields, sendId: m.sendId }), signal })
+          .catch((e) => { throw signal.aborted ? e : Object.assign(e, { unreachable: true }); });
+        if (!r.ok) throw Object.assign(new Error('The hub didn’t take the task.'), { status: r.status, reason: (await r.json().catch(() => null))?.error || '' });
+      });
+      let flushing = false;
+      async function flush() {
+        if (flushing) return;
+        flushing = true;
         try {
-          if (attached && !(await BoardAttach.settled(attached, root))) throw new Error('A file didn’t upload. Remove it or try again.');
-          const files = attached ? BoardAttach.files(attached, root) : [];
-          const r = await fetch('/_hub/route', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ text, files, ...fields }) });
-          if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || 'The hub didn’t take the task.');
-        } catch (e) { B.toast(e.message || 'Could not send. Is the host awake?'); throw e; }
-        if (attached) BoardAttach.clear(attached, root);
-        load();
+          for (let m = outbox()[0]; m && !m.failed && online && B.alive(); m = outbox()[0]) {
+            if (m.uploads) {
+              const up = await BoardAttach.settled(sendBox(m), site);
+              if (!B.alive()) return;
+              if (!up) { marked(m, { failed: true }); continue; }
+              const { uploads, ...rest } = m;
+              m = { ...rest, files: BoardAttach.files(sendBox(m), site) };
+              setOutbox(outbox().map((o) => (o.sendId === m.sendId ? m : o)));
+              BoardAttach.clear(sendBox(m), site);
+            }
+            try { await post(m); } catch (e) {
+              if (!B.alive()) return;
+              if (e.unreachable) { online = false; paint(); break; }
+              marked(m, { failed: true });
+              B.toast(e.reason || (e.timedOut ? 'The hub didn’t answer in 15 s.' : e.message));
+              continue;
+            }
+            // The row stays until the hub's list holds the request.
+            await load();
+            setOutbox(outbox().filter((o) => o.sendId !== m.sendId));
+          }
+        } finally { flushing = false; }
+      }
+      // The hub going out of reach or coming back (hub-kit.js live) redraws the rows, and once it is back sends them.
+      const linkChanged = (on) => {
+        if (on === online) return;
+        online = on;
+        paint();
+        if (on) flush();
       };
+      B.sendBox = sendBox;
+      B.enqueue = (key, { text, attached, fields }) => {
+        const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, ts: new Date().toISOString(), text, files: [], ...(fields ? { fields } : {}) };
+        if (attached) {
+          BoardAttach.move(attached, sendBox(m), site);
+          m.uploads = BoardAttach.saved(sendBox(m), site);
+        }
+        setOutbox([...outbox(), m]);
+        flush();
+      };
+      // Retry sends a failed task again in place, X drops it and puts its text and files back in the New task box
+      // (new-task.js reopenAsk), each after a confirm.
+      B.on(root, 'click', async (ev) => {
+        const b = ev.target.closest('.routed button[data-resend], .routed button[data-unsend]');
+        if (!b) return;
+        const retry = b.hasAttribute('data-resend');
+        const sendId = retry ? b.dataset.resend : b.dataset.unsend;
+        if (!(await BoardDialogs.confirm(retry ? 'Send this task again?' : 'Dismiss this task? Its text and files go back in the New task box.')) || !B.alive()) return;
+        const m = outbox().find((o) => o.sendId === sendId);
+        if (!m) return;
+        if (retry) {
+          marked(m, { failed: false });
+          if (m.uploads) BoardAttach.retryFailed(sendBox(m), site);
+          flush();
+        } else {
+          setOutbox(outbox().filter((o) => o.sendId !== sendId));
+          B.reopenAsk(m);
+        }
+      });
       BoardNewTask.wire(B);
       let flash = null;
       const restarting = new Set();
@@ -263,7 +344,7 @@ ${BoardNewTask.markup()}`,
       let scrollToAwake = ctx.view?.hash === '#keep-awake';
       const paint = () => {
         if (!last) return;
-        main.innerHTML = html(last, { flash, prompts, restarting, restartingHub });
+        main.innerHTML = html(last, { flash, prompts, restarting, restartingHub, unsent: unsentRows() });
         foot.innerHTML = footer(last, updateText);
         if (scrollToAwake) { scrollToAwake = false; B.$('#keep-awake')?.scrollIntoView(); }
       };
@@ -298,8 +379,13 @@ ${BoardNewTask.markup()}`,
           badge(Number(d.total) || 0);
         },
         busy: () => forms.busy() || Boolean(root.querySelector('[data-dirty]')) || Boolean(root.querySelector('dialog[open]')),
+        linked: linkChanged,
       });
       paint();
+      // Whatever a reload left in the outbox goes out again, a failed one included, its files back in its box.
+      if (outbox().some((m) => m.failed)) setOutbox(outbox().map(({ failed, ...m }) => m));
+      for (const m of outbox()) if (m.uploads && !BoardAttach.list(sendBox(m), site).length) BoardAttach.restore(sendBox(m), m.uploads, site);
+      flush();
     }),
   };
 })();

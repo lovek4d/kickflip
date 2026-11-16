@@ -5,7 +5,7 @@
 // Needs app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, state, toast, seen, markRead } = B;
-  const { waitOn, keyedSend } = BoardUI;
+  const { keyedSend } = BoardUI;
 
   // The tasks the page hasn't sent yet follow the board's, in the order they were sent (app-threads.js unsentAsks).
   function renderNew(d) {
@@ -43,6 +43,7 @@ BoardView.part((B) => {
     const key = b.closest('.new-entry')?.dataset.key || undefined;
     return { key, data: { id, ...(key ? { key } : {}) } };
   }
+  const askText = (key) => state.board.items.find((i) => i.key === key)?.ask?.text || '';
   // An edit box lives in state.edits and the New strip draws it (ui-cards.js newStrip), so a repaint keeps it, and so
   // does leaving the board and opening it again in this page.
   for (const [id, e] of B.place?.edits || []) state.edits.set(id, e);
@@ -79,17 +80,14 @@ BoardView.part((B) => {
     ev.preventDefault();
     if (!(await B.confirm('Delete this message? Claude will skip it.'))) return;
     const id = del.dataset.withdraw;
-    const { data } = pendingAsk(del, id);
-    // One request records the withdrawal and hides the ask, and its card leaves once it has
-    // (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-    try {
-      await waitOn(del, B.send('ask-withdrawn', data));
-      state.edits.delete(id);
-      BoardAttach.clear('edit:' + id, B.site.root);
-      toast('Deleted');
-    } catch (e) { B.failed(e); }
+    const { key, data } = pendingAsk(del, id);
+    // The withdrawal goes through the outbox, its row in the New strip until the board has it; then the ask hides and
+    // its card leaves (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
+    closeEditor(id);
+    BoardAttach.clear('edit:' + id, B.site.root);
+    B.enqueue(undefined, { kind: 'ask-withdrawn', fields: data, said: `Deleted: ${askText(key)}` });
   });
-  B.on(B.root, 'submit', async (ev) => {
+  B.on(B.root, 'submit', (ev) => {
     const form = ev.target.closest('form.edit-form');
     if (!form) return;
     ev.preventDefault();
@@ -100,17 +98,12 @@ BoardView.part((B) => {
     if (!text) { toast('Write something, or delete the message'); return; }
     if (BoardAttach.busy(form.dataset.composer, B.site.root)) return;
     const files = BoardAttach.files(form.dataset.composer, B.site.root);
-    // The edit box stays open, its Save waiting, until the server has recorded the edit; then the new text and files
-    // show in the New strip and the card's thread, and a refusal leaves the box as it was
-    // (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-    e.text = text;
-    try {
-      await waitOn(form.querySelector('button[type="submit"]'), B.send('ask-edited', { ...e.data, text, ...(files.length ? { files } : {}) }));
-    } catch (err) { B.failed(err); return; }
+    // Save closes the box and the edit goes through the outbox, its row in the New strip until the board has it; then
+    // the new text and files show in the New strip and the card's thread
+    // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
     closeEditor(id);
     BoardAttach.clear(form.dataset.composer, B.site.root);
-    toast('Edited');
-    B.loadThread(e.key, { force: true });
+    B.enqueue(undefined, { kind: 'ask-edited', text, files, fields: e.data, said: `Edited to: ${text}` });
   });
   Object.assign(B, { renderNew });
 });

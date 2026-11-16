@@ -13,14 +13,16 @@
 // BoardQuestionsSheet(dialog, deps) makes one: the board's (the part below), opened by a thread's "N questions added"
 // line, a question link (shell.js, app-pane.js) and a row in the desktop pane's Waiting on you; and the phone's Waiting
 // on you page's own (view-questions.js), opened by its rows and a link to a question.
-// deps: board() the board shown; threads(key) a card's thread held, or none; send(kind, data) the board's send, which
-// has landed the board it answers by the time it resolves; toast(text); siteRoot, where its attachments upload; store,
+// deps: board() the board shown; threads(key) a card's thread held, or none; send(kind, data, signal) the board's send, which
+// has landed the board it answers by the time it resolves; online() whether the board is in reach, and unreachable()
+// to call when a send got no answer at all
+// (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md); toast(text); siteRoot, where its attachments upload; store,
 // the board's own keys, which hold the answer outbox; changed(entry, sent) after an answer outbox entry changes, sent
 // once the board has it; on, atUnmount and alive, the view's own.
 // The answer outbox entries in flight from any sheet in this page, by sendId, so the board's and Waiting on you's, both
 // mounted on a phone, never send one twice at once.
 const answersInFlight = new Set();
-globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toast, on, atUnmount, alive, store, changed = () => {}, siteRoot }) => {
+globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, online, unreachable, toast, on, atUnmount, alive, store, changed = () => {}, siteRoot }) => {
   const { esc, time, questionCard, getDraft, setDraft, noteOf, choiceOf, linkContext, ANSWER_OUTBOX } = BoardUI;
   const body = sheet.querySelector('.reader-body');
   let topic = null;
@@ -64,7 +66,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   const refusal = (e) => (e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?');
   const sendingOf = (q) => {
     const m = q.state === 'open' ? entryOf(q.id) : null;
-    return m && (m.uploads ? { ...m, uploads: { box: boxOf(m), list: BoardAttach.list(boxOf(m), siteRoot) } } : m);
+    return m && { ...m, held: !online(), ...(m.uploads ? { uploads: { box: boxOf(m), list: BoardAttach.list(boxOf(m), siteRoot) } } : {}) };
   };
   const card = (q, links) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links, sending: sendingOf(q) });
 
@@ -130,16 +132,18 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     BoardUI.closeSheet(sheet, later, () => { topic = null; });
   }
 
-  // Sends the answer outbox in order, one at a time. Each leaves it once the board has it, its draft and files cleared;
-  // one the board can't be reached for stays as not sent, holding none behind it; one the board refuses leaves it, its
-  // question open again with its pick and note, and a toast says why.
+  // Sends the answer outbox in order, one at a time, while the board is in reach. Each leaves it once the board has it,
+  // its draft and files cleared; one that got no answer at all marks the board out of reach and waits for it to come
+  // back (linkChanged); one the board answers with an error, or that has no answer in 15 s (ui.js sendWithin), stays as
+  // not sent, holding none behind it; one the board refuses leaves it, its question open again with its pick and note,
+  // and a toast says why.
   let flushing = false;
   const next = () => queued().find((m) => !m.failed && !answersInFlight.has(m.sendId));
   async function flush() {
     if (flushing) return;
     flushing = true;
     try {
-      for (let m = next(); m && alive(); m = next()) {
+      for (let m = next(); m && online() && alive(); m = next()) {
         answersInFlight.add(m.sendId);
         let failure = null;
         try {
@@ -151,9 +155,15 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
             setQueued(queued().map((o) => (o.sendId === m.sendId ? m : o)));
             BoardAttach.clear(boxOf(m), siteRoot);
           }
-          await (m.request ? send(m.request.kind, m.request.data) : send('owner-answers', { answers: [m.answer] }));
+          await BoardUI.sendWithin((signal) => (m.request ? send(m.request.kind, m.request.data, signal) : send('owner-answers', { answers: [m.answer] }, signal)));
         } catch (e) { failure = e; } finally { answersInFlight.delete(m.sendId); }
         if (!alive()) return;
+        if (failure?.unreachable) {
+          unreachable();
+          changed(m, false);
+          settle(m.id);
+          break;
+        }
         if (!failure) {
           setQueued(queued().filter((o) => o.sendId !== m.sendId));
           // A sent prototype request takes its question out of the sheet; a grill's and a visual's keep their draft.
@@ -195,6 +205,12 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     settle(m.id);
   }
   const holds = (sendId) => queued().some((m) => m.sendId === sendId);
+  // The board going out of reach or coming back redraws the open answers, sending… or waiting for the host, and once it
+  // is back sends them.
+  function linkChanged() {
+    for (const m of queued()) settle(m.id);
+    flush();
+  }
 
   const newSendId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -265,7 +281,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   atUnmount(BoardUI.swipeToDismiss(sheet));
   on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
 
-  return { open, followCard, close, redraw, resend, retry, drop, holds, isOpen: () => sheet.open };
+  return { open, followCard, close, redraw, resend, retry, drop, holds, linkChanged, isOpen: () => sheet.open };
 };
 
 // The board's sheet, over the lanes and the pane. Needs app-core.js and app-threads.js, whose card threads draw the
@@ -273,7 +289,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
 BoardView.part((B) => {
   const { $, state } = B;
   const qs = BoardQuestionsSheet($('#questionsSheet'), {
-    board: () => state.board, threads: (key) => state.threadCache.get(key), send: (kind, data) => B.send(kind, data), toast: (text) => B.toast(text),
+    board: () => state.board, threads: (key) => state.threadCache.get(key), send: (kind, data, signal) => B.send(kind, data, null, { signal }),
+    online: () => state.link === 'online', unreachable: () => B.linkDown(), toast: (text) => B.toast(text),
     on: B.on, atUnmount: B.atUnmount, alive: B.alive, store: B.store, changed: (m, sent) => B.answerChanged(m, sent), siteRoot: B.site.root,
   });
   // A card's Questions button or a thread's questions line opens it from its first question. They are buttons, not
@@ -282,5 +299,5 @@ BoardView.part((B) => {
     const button = ev.target.closest?.('button[data-questions]');
     if (button) qs.open(button.dataset.questions);
   });
-  Object.assign(B, { openQuestionsSheet: qs.open, followCardQuestions: qs.followCard, closeQuestionsSheet: qs.close, resendAnswers: qs.resend, retryAnswer: qs.retry, dropAnswer: qs.drop, holdsAnswer: qs.holds });
+  Object.assign(B, { openQuestionsSheet: qs.open, followCardQuestions: qs.followCard, closeQuestionsSheet: qs.close, resendAnswers: qs.resend, answersLinkChanged: qs.linkChanged, retryAnswer: qs.retry, dropAnswer: qs.drop, holdsAnswer: qs.holds });
 });

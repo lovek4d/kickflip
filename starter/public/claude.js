@@ -2,8 +2,10 @@
 // relative path, e.g. <script src="claude.js"></script> or "../claude.js":
 // its own URL tells it the site's root, so links survive the /<route> prefix.
 //   ClaudeSite.url('notes.html')        absolute URL under the site root
-//   await ClaudeSite.send(kind, data)   sends same-origin application/json, records an event and wakes the owning session → {id};
-//                                       a refusal throws with .status and .reason, the server's {error} or ''
+//   await ClaudeSite.send(kind, data, {signal})
+//                                       sends same-origin application/json, records an event and wakes the owning session → {id};
+//                                       a refusal throws with .status and .reason, the server's {error} or '', and no
+//                                       answer at all (the host out of reach) throws with .unreachable; signal aborts it
 //   await ClaudeSite.events({kind})     events newest first, each with .reply ({html} or {json}) or null
 //   ClaudeSite.watch(fn, {kind})        calls fn(events) now and on change; polls every 10 s while
 //                                       any event waits for a reply, else every 60 s; returns stop()
@@ -16,8 +18,9 @@ window.ClaudeSite = (function () {
     const root = new URL(base, location.href).href.replace(/\/+$/, '');
     const url = (p) => root + '/' + String(p).replace(/^\/+/, '');
 
-    async function send(kind, data) {
-      const r = await fetch(url('_claude/events'), { method: 'POST', mode: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...(data || {}), kind }) });
+    async function send(kind, data, { signal } = {}) {
+      const r = await fetch(url('_claude/events'), { method: 'POST', mode: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...(data || {}), kind }), signal })
+        .catch((e) => { throw signal?.aborted ? e : Object.assign(e, { unreachable: true }); });
       if (!r.ok) throw Object.assign(new Error('send failed: ' + r.status), { status: r.status, reason: (await r.json().catch(() => null))?.error || '' });
       return r.json();
     }

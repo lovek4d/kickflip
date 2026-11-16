@@ -180,7 +180,7 @@ window.BoardView = (function () {
       const d = state.board;
       // The cards as the outbox's Done taps have them (ui-snapshot.js tapped), the lanes and strips drawing from these.
       const items = BoardUI.tapped(d.items, store.get('outbox', []));
-      drawnDone = items.filter((i, n) => i !== d.items[n]).map((i) => i.key).join();
+      drawnDone = tapSign(items, d.items);
       const title = $(':scope > .top h1');
       if (d.title && title && title.textContent !== d.title) title.textContent = d.title;
       if (d.title && document.title !== d.title) document.title = d.title;
@@ -208,8 +208,10 @@ window.BoardView = (function () {
       checkShown();
     }
 
-    // A Done entering or leaving the outbox redraws the lanes at once, the card in Done or, refused, back where it was.
-    const doneTaps = () => BoardUI.tapped(state.board.items, store.get('outbox', [])).filter((i, n) => i !== state.board.items[n]).map((i) => i.key).join();
+    // A Done, Merge or bump entering or leaving the outbox redraws the lanes at once, the card as the tap has it or,
+    // refused, back as it was.
+    const tapSign = (items, board) => JSON.stringify(items.filter((i, n) => i !== board[n]).map((i) => [i.key, i.lane, i.merging, i.bumpedAt]));
+    const doneTaps = () => tapSign(BoardUI.tapped(state.board.items, store.get('outbox', [])), state.board.items);
     let drawnDone = '';
     B.atUnmount(BoardUI.onOutbox(() => {
       if (!state.board) return;
@@ -451,9 +453,9 @@ window.BoardView = (function () {
     // so the tap needs no reload (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md); it names
     // the version on screen, so the answer is a patch from it. Nothing draws
     // before that answer. answered() runs once it comes, before its board lands. A refusal throws, carrying the
-    // server's reason for failed.
-    async function send(kind, data, answered = null) {
-      const out = await B.site.send(kind, { ...data, ...(state.view === 'fresh' ? { since: state.board.version } : {}) });
+    // server's reason for failed. signal aborts it (ui.js sendWithin).
+    async function send(kind, data, answered = null, { signal } = {}) {
+      const out = await B.site.send(kind, { ...data, ...(state.view === 'fresh' ? { since: state.board.version } : {}) }, { signal });
       if (!B.alive()) return out;
       answered?.();
       if (!land(out.board, B.boardLoad = (B.boardLoad || 0) + 1)) await boardAfter(out.board.generatedAt);

@@ -533,9 +533,6 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .script-fold summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 6px; }
 .view-only-strip { margin: 8px 0; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 13px; }
 .view-only-strip b { color: var(--accent); }
-/* A board out of reach (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md): it reads as before,
-   undimmed, and only the buttons that send, ui.js SENDS, are held, the labelled ones saying why; app-header.js stops their taps. */
-.offline :is(form button[type="submit"], .actions button, button[data-confirm], button[data-review-answer], button[data-prompt-send], button[data-prompt-choice], button[data-quick], button[data-card-bump], button[data-bump], button[data-withdraw], button[data-grill], button[data-proto], button[data-visual], button[data-main-pull], button[data-arch-run], button[data-try], button[data-try-kill], button[data-reopen]) { opacity: .55; cursor: not-allowed; }
 /* With no copy to show, the landing takes the board's place: the kickflip mark and two lines, as hub/front-door.mjs's page has them. */
 .down-landing { min-height: 60vh; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 32px 24px; text-align: center; }
 .down-landing-mark { display: block; margin-bottom: 8px; width: 70px; height: 60px; object-fit: contain; }

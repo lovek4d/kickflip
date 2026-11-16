@@ -11,7 +11,7 @@ import { footerOf } from './domain.mjs';
 // (docs/adr/2026-11-13-1417-ui-tests-freeze-date-in-their-sandbox.md). Local noon, so a day either side stays a day.
 const NOW = new Date(2026, 10, 13, 12).getTime();
 const PageDate = fixedDate(() => NOW);
-const context = vm.createContext({ Date: PageDate, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
+const context = vm.createContext({ Date: PageDate, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout, AbortController });
 for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
@@ -1275,30 +1275,19 @@ test('a side page request that keeps failing carries its state, and each wait na
   await assert.rejects(ui.fetchJSON('x', { fetch: async () => { throw new TypeError('Failed to fetch'); }, sleep: async () => {}, limit: 0 }), (e) => e.down.state === 'unreachable');
 });
 
-test("offline, only the buttons that send are held, each keeping its label", () => {
+// docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md
+test("offline, no button is held: the board's copy greys and stops nothing, since every tap waits in the outbox", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.ok(css.includes(`.offline :is(${ui.SENDS})`), 'every sending button is held');
-  assert.equal(ui.SENDS_LABELLED, undefined);
-  for (const sel of ['button[data-edit]', 'a.button', 'button[data-lane-more]', 'button[data-thread-more]']) assert.equal(ui.SENDS.includes(sel), false, sel);
+  assert.doesNotMatch(css, /\.offline :is\(/);
+  assert.deepEqual([ui.SENDS, ui.holdSends, ui.WAITING], [undefined, undefined, undefined]);
+  assert.equal(ui.SEND_LIMIT_MS, 15000);
 });
 
-test('a tap on a held sending button tells onHeld and goes nowhere; a live board lets it through', () => {
-  const handlers = {};
-  const on = (root, type, fn) => { handlers[type] = fn; };
-  let held = true;
-  const told = [];
-  ui.holdSends(on, {}, () => held, () => told.push('held'));
-  const tap = (matches) => {
-    const ev = { type: 'click', target: { closest: () => matches }, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopImmediatePropagation() {} };
-    handlers.click(ev);
-    return ev.defaultPrevented;
-  };
-  assert.equal(tap(true), true);
-  assert.equal(tap(false), false);
-  held = false;
-  assert.equal(tap(true), false);
-  assert.deepEqual(told, ['held']);
-  assert.equal(ui.WAITING, 'Waiting for the board to reconnect');
+test('sendWithin hands the send a live abort signal and passes its answer through', async () => {
+  let signal;
+  assert.equal(await ui.sendWithin((s) => { signal = s; return Promise.resolve('ok'); }), 'ok');
+  assert.equal(signal.aborted, false);
+  await assert.rejects(ui.sendWithin(() => Promise.reject(Object.assign(new Error('409'), { status: 409 }))), { status: 409 });
 });
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md

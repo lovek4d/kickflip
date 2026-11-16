@@ -145,11 +145,12 @@
   // (resolved_at), its last pick checked among locked options, and its last note and Claude's reply. reask is a re-ask under way
   // (docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md).
   // sending: the answer outbox's entry for a question the board doesn't have the answer to yet (app-questions-sheet.js),
-  // read-only with no badge, its sent line "<time> · sending…", or "<time> · not sent" with Retry and X
+  // read-only with no badge, its sent line "<time> · sending…", "<time> · waiting for the host" while held (the board out
+  // of reach), or "<time> · not sent" with Retry and X
   // (docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md).
   function resolvedCard(q, links, n, sending = null) {
     const last = q.answers[q.answers.length - 1];
-    const sentLine = sending ? `<div class="sent-line sending">${sending.request ? `<span>${esc(sending.request.said)}</span><span>·</span>` : ''}<span>${esc(time(sending.ts))}</span><span>·</span>${globalThis.BoardUI.pickUp({ state: sending.failed ? 'failed' : 'sending', sendId: sending.sendId })}</div>`
+    const sentLine = sending ? `<div class="sent-line sending">${sending.request ? `<span>${esc(sending.request.said)}</span><span>·</span>` : ''}<span>${esc(time(sending.ts))}</span><span>·</span>${globalThis.BoardUI.pickUp({ state: sending.failed ? 'failed' : sending.held ? 'held' : 'sending', sendId: sending.sendId })}</div>`
       : q.answers.length ? '<div class="sent-line">Sent.</div>' : '';
     const outcome = q.resolved ? `${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'}` : '';
     const acted = q.resolved_at ? ` <span class="acted" title="${esc(time(q.resolved_at))}">acted on ${esc(ago(q.resolved_at))}</span>.` : '';

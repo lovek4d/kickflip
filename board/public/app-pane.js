@@ -34,7 +34,7 @@ BoardView.part((B) => {
     $('#boardPane').insertAdjacentHTML('beforeend', `<div class="view-questions pane-questions">${AppViews.questions.markup({ embedded: true })}</div>`);
     const slot = $('#boardPane .pane-questions');
     // The lanes' board is the pane's: the pane holds none of its own, and renderPane hands it each board that lands.
-    const host = { board: () => state.board, send: (kind, data) => B.send(kind, data), reload: () => B.loadBoard({ via: 'signal' }) };
+    const host = { board: () => state.board, send: (kind, data, signal) => B.send(kind, data, null, { signal }), reload: () => B.loadBoard({ via: 'signal' }) };
     // A row's questions sheet takes the place of the reader.
     const openSheet = (id) => { B.closeReader?.(); return B.openQuestionsSheet(id); };
     questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, host, openOnBoard, onTopic: showTopic, openSheet, openPage: (href) => B.openPage(href) }), { slot });

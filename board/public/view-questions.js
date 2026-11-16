@@ -44,7 +44,7 @@
     let shown = '';
 
     // Embedded, the board is the lanes' (ctx.host, app-pane.js): its load, its send, and take() for each board it lands.
-    const send = (kind, data) => (ctx.embedded ? ctx.host.send(kind, data) : site.send(kind, { ...data, ...(board ? { since: board.version } : {}) }));
+    const send = (kind, data, signal) => (ctx.embedded ? ctx.host.send(kind, data, signal) : site.send(kind, { ...data, ...(board ? { since: board.version } : {}) }, { signal }));
     const topicOf = (id) => board.owner.find((q) => q.id === id)?.topic ?? (board.ownerTopics.some((t) => t.id === id) ? id : null);
 
     // A tap's title is its card's ref, a colon, then the card's title.
@@ -90,14 +90,21 @@
     let loaded = false;
     let resent = false;
     const load = () => (ctx.embedded ? ctx.host.reload() : (loading ||= fetchBoard().finally(() => { loading = null; })));
-    // While the board can't be reached, the page holds its sending buttons and shows the board's copy here, painted live,
-    // or with none and nothing landed the landing for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+    // While the board can't be reached, the page shows the board's copy here, painted live, or with none and nothing
+    // landed the landing for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+    // Its answers wait in the answer outbox meanwhile, and go out once the board is back
+    // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
     let copy = null;
     // A tap entering or leaving this browser's outbox moves its row at once.
     B.atUnmount(BoardUI.onOutbox(() => { if (board) repaint(); }));
-    BoardUI.holdSends(B.on, root, () => root.classList.contains('offline'), () => B.toast(BoardUI.WAITING));
+    const online = () => !root.classList.contains('offline');
+    const setOnline = (on) => {
+      if (on === online()) return;
+      root.classList.toggle('offline', !on);
+      own?.linkChanged();
+    };
     const out = (down) => {
-      root.classList.add('offline');
+      setOnline(false);
       copy ||= BoardUI.boardCopy(site.url(''), document.documentElement.dataset.build);
       copy.then((c) => {
         if (!B.alive() || loaded) return;
@@ -110,7 +117,7 @@
       try {
         const { body: d } = await fetchJSON(site.url('api/board' + (board ? '?since=' + encodeURIComponent(board.version) : '')), { tag: board?.version, onWait: (ms, down) => out(down), sleep: B.sleep });
         if (!B.alive()) return false;
-        root.classList.remove('offline');
+        setOnline(true);
         if (d) land(d, !loaded);
         // The board's first answer sends again what a reload left in the answer outbox (app-questions-sheet.js).
         if (!resent && board) { resent = true; sheet().resend(); }
@@ -137,12 +144,13 @@
     let own = null;
     const sheet = () => (own ||= BoardQuestionsSheet(root.querySelector('.questions-sheet'), {
       board: () => board,
-      send: async (kind, data) => {
-        const sent = await send(kind, data);
+      send: async (kind, data, signal) => {
+        const sent = await send(kind, data, signal);
         if (B.alive() && !land(sent.board, false)) await load();
         repaint();
         return sent;
       },
+      online, unreachable: () => setOnline(false),
       toast: (text) => B.toast(text), on: B.on, atUnmount: B.atUnmount, alive: B.alive, store: B.store, siteRoot: site.root,
     }));
     const openSheet = (id) => (ctx.embedded ? ctx.openSheet(id) : sheet().open(id));
