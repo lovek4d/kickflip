@@ -2189,11 +2189,11 @@ function checkOptions(options, name) {
 
 // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
 // The option the overnight triage is confident the owner already chose, from their answer on an earlier card: the
-// card's ref and the answer as they gave it.
+// task's ref and the answer as they gave it.
 function checkSuggested(s, options, at) {
-  onlyKeys(s, ['option', 'card', 'answer', 'reason'], at);
+  onlyKeys(s, ['option', 'task', 'answer', 'reason'], at);
   if (!options.some((o) => o.id === text(s.option, `${at}.option`))) fail(`${at}.option names no option "${s.option}"`);
-  text(s.card, `${at}.card`);
+  text(s.task, `${at}.task`);
   text(s.answer, `${at}.answer`);
   optional(s.reason, (v) => text(v, `${at}.reason`));
 }
@@ -4871,12 +4871,16 @@ async function restoreArchived(site, key) {
 
 // docs/adr/2026-11-04-1056-archived-done-cards-are-built-as-they-page-in.md
 // Drops what nothing reads, once: an archive entry's page card, keeping its sortAt as closed_at; an item file entry's summary;
-// and a question's push_tag and no_change, in owner.json and in the archive. Writes only a file that held one. Run by
-// the board server as it starts.
+// and a question's push_tag and no_change, in owner.json and in the archive. It also renames a question's
+// suggested.card to suggested.task. Writes only a file that held one. Run by the board server as it starts.
 const DEAD_QUESTION_FIELDS = ['push_tag', 'no_change'];
-const stripQuestion = (q) => Object.fromEntries(Object.entries(q).filter(([k]) => !DEAD_QUESTION_FIELDS.includes(k)));
+const renameSuggestedCard = ({ card, ...rest }) => ({ ...rest, task: card });
+const stripQuestion = ({ suggested, ...q }) => ({
+  ...Object.fromEntries(Object.entries(q).filter(([k]) => !DEAD_QUESTION_FIELDS.includes(k))),
+  ...(suggested ? { suggested: 'card' in suggested ? renameSuggestedCard(suggested) : suggested } : {}),
+});
 const stripItem = ({ summary, ...it }) => it;
-const holdsDead = (q) => DEAD_QUESTION_FIELDS.some((k) => k in q);
+const holdsDead = (q) => DEAD_QUESTION_FIELDS.some((k) => k in q) || 'card' in (q.suggested || {});
 export const stripDeadFields = (site, archived = () => readArchive(site)) => archiveWrite(site, async () => {
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);

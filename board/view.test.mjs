@@ -5407,7 +5407,7 @@ test("a link to a question this page has not loaded yet loads the board, then op
 
 test('tapping the marked option again clears the pick: the suggestion stays cleared, Send stays off until a note, and Space on it clears it too', async () => {
   const topic = { id: 'item:w/T1', title: 'INT-1: Topic' };
-  const question = { id: 'q1', topic: topic.id, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], suggested: { option: 'A', card: '#1', answer: 'yes' }, state: 'open' };
+  const question = { id: 'q1', topic: topic.id, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], suggested: { option: 'A', task: '#1', answer: 'yes' }, state: 'open' };
   const v = questionsOnDom({ topics: [topic], questions: [question], at: 'q1' });
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
@@ -5612,7 +5612,7 @@ test("in the desktop pane a topic's row focuses its card on the board and opens 
 // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
 test("the questions sheet's Send sends a suggested option pre-checked, and a picked one in its place", async () => {
   const question = (id, extra = {}) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open', ...extra });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1', { suggested: { option: 'B', card: '#186', answer: 'No.' } }), question('q2')], at: 'q1' });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1', { suggested: { option: 'B', task: '#186', answer: 'No.' } }), question('q2')], at: 'q1' });
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
   assert.equal($('#send').disabled, false);

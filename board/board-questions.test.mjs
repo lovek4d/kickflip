@@ -8,11 +8,11 @@ import { home, at, site, write, read, run, board, question, takePath, recordProt
 test('question add appends valid questions and rejects the whole file otherwise', async () => {
   const drawn = (more = {}) => ({ id: 'A', label: 'Keep', diagram: [[{ text: 'Hub' }, { text: 'Board', tone: 'info', to: [0] }], [{ text: 'Owner', tone: 'success' }]], practice: ['One place to change.'], ...more });
   await recordPrototype();
-  write(path.join(home, 'q.json'), [question('q1', { url: 'prototype-site.html?q=q1' }), question('q2', { topic: 'item:w/A1', urgent: true, url: 'https://linear.app/x/issue/INT-1', options: [drawn(), { id: 'B', label: 'Drop' }] }), question('q4', { topic: 'item:w/ENG-1', suggested: { option: 'B', card: '#186', answer: 'Drop it.' } })]);
+  write(path.join(home, 'q.json'), [question('q1', { url: 'prototype-site.html?q=q1' }), question('q2', { topic: 'item:w/A1', urgent: true, url: 'https://linear.app/x/issue/INT-1', options: [drawn(), { id: 'B', label: 'Drop' }] }), question('q4', { topic: 'item:w/ENG-1', suggested: { option: 'B', task: '#186', answer: 'Drop it.' } })]);
   assert.equal((await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'))).code, 0);
   assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => [q.id, q.url]), [['q1', 'prototype-site.html?q=q1'], ['q2', 'https://linear.app/x/issue/INT-1'], ['q4', undefined]]);
   assert.deepEqual(read(site('orch', 'data', 'owner.json')).items[1].options[0], drawn());
-  assert.deepEqual(read(site('orch', 'data', 'owner.json')).items[2].suggested, { option: 'B', card: '#186', answer: 'Drop it.' });
+  assert.deepEqual(read(site('orch', 'data', 'owner.json')).items[2].suggested, { option: 'B', task: '#186', answer: 'Drop it.' });
 
   const rejected = [
     [question('q1')],
@@ -23,11 +23,11 @@ test('question add appends valid questions and rejects the whole file otherwise'
     [question('q3', { options: [{ id: 'A', label: 'Keep', recommend: true }] })],
     [question('q3', { options: [{ id: 'A', label: 'X', recommended: true }, { id: 'B', label: 'Y', recommended: true }] })],
     [question('q3'), question('q3')],
-    [question('q3', { suggested: { option: 'C', card: '#186', answer: 'Keep.' } })],
+    [question('q3', { suggested: { option: 'C', task: '#186', answer: 'Keep.' } })],
     [question('q3', { suggested: { option: 'A', answer: 'Keep.' } })],
-    [question('q3', { suggested: { option: 'A', card: '#186' } })],
-    [question('q3', { suggested: { option: 'A', card: '#186', answer: 'Keep.', why: 'x' } })],
-    [question('q3', { suggested: { option: 'A', card: '#186', answer: 'Keep.', reason: '' } })],
+    [question('q3', { suggested: { option: 'A', task: '#186' } })],
+    [question('q3', { suggested: { option: 'A', task: '#186', answer: 'Keep.', why: 'x' } })],
+    [question('q3', { suggested: { option: 'A', task: '#186', answer: 'Keep.', reason: '' } })],
     [question('q3', { url: '/orch/prototype-site.html' })],
     [question('q3', { url: 'notes.html' })],
     [question('q3', { options: [drawn({ practice: undefined })] })],

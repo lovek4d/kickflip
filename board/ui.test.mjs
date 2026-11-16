@@ -860,7 +860,7 @@ test("a question's context and an option's detail draw as markdown, its text sta
 
 // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
 test('a question card pre-checks its suggested option, with a blue Orchestrator choice line under its label giving the reason, else the earlier answer it came from', () => {
-  const suggested = { ...question, suggested: { option: 'A', card: '#186', answer: 'Keep, nothing floats over a question.' } };
+  const suggested = { ...question, suggested: { option: 'A', task: '#186', answer: 'Keep, nothing floats over a question.' } };
   const opts = options(ui.questionCard(suggested));
   const checked = (html) => options(html).map((o) => /\bchecked>/.test(o));
   assert.deepEqual(opts.map((o) => text(o)), ['A. Keep Orchestrator choice: you answered this on #186: "Keep, nothing floats over a question."', 'B. Drop recommended Saves a step']);

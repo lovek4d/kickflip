@@ -204,3 +204,22 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
   const thread = await (await fetch(`${base}/api/thread?key=${encodeURIComponent(archived)}`)).json();
   assert.deepEqual(thread.map((m) => m.text), ['Make a badge', 'Question 1 · Which badge?\n→ The dot', 'Landed.'], "an archived task's thread reads whole, its ask and its answers with their questions");
 });
+
+test("the strip renames a question's suggested.card to suggested.task, in owner.json and in the archive, and then writes nothing", async () => {
+  const { home, site, read } = siteOf(3);
+  const write = (f, v) => fs.writeFileSync(path.join(site, 'data', f), JSON.stringify(v));
+  try {
+    const owner = read('owner.json');
+    owner.items[2].options = [{ id: 'A', label: 'Keep' }];
+    owner.items[2].suggested = { option: 'A', card: '#186', answer: 'Keep.' };
+    write('owner.json', owner);
+    write('done-archive.json', { cards: [{ key: 't/X1', file: 't', archived_at: at(1), closed_at: at(8), item: { id: 'X1', title: 'Old', lane: 'done' },
+      questions: [{ id: 'q-old', topic: 'item:t/X1', question: 'Old?', suggested: { option: 'A', card: '#7', answer: 'Yes.', reason: 'Same.' } }], asks: [] }] });
+    await stripDeadFields(site);
+    assert.deepEqual(read('owner.json').items[2].suggested, { option: 'A', answer: 'Keep.', task: '#186' });
+    assert.deepEqual(read('done-archive.json').cards[0].questions[0].suggested, { option: 'A', answer: 'Yes.', reason: 'Same.', task: '#7' });
+    const before = ['owner.json', 'done-archive.json'].map((f) => fs.statSync(path.join(site, 'data', f)).mtimeMs);
+    await stripDeadFields(site);
+    assert.deepEqual(['owner.json', 'done-archive.json'].map((f) => fs.statSync(path.join(site, 'data', f)).mtimeMs), before);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});

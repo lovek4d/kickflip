@@ -76,7 +76,7 @@
       form.requestSubmit();
     });
   }
-  const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(q.suggested.reason ?? `you answered this on ${q.suggested.card}: "${q.suggested.answer}"`, links) : '';
+  const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(q.suggested.reason ?? `you answered this on ${q.suggested.task}: "${q.suggested.answer}"`, links) : '';
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
