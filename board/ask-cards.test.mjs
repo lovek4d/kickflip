@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildBoard, movesOf } from './domain.mjs';
+import { ITEM_SET_FLAGS, ITEM_SET_SAYS } from './bin/board.mjs';
 import { board, home, site, read, write, lines } from './board-fixture.mjs';
 
 const ask = { id: 'a1', ts: '2026-11-09T10:00:00Z', kind: 'ask', data: { text: 'Fix the header\nIt jumps on scroll' } };
@@ -217,6 +218,30 @@ test('a Quick build ask\'s New card goes ready from new on item set --phase read
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'ready');
   // item add --from-ask on an ask that already has its card points at the card.
   assert.match((await board('item', 'add', 'audit', '--from-ask', 'a1', '--text', 'x', '--title', 'X', '--phase', 'grilling', '--site', 'audit')).err, /already task audit\/T-1/);
+});
+
+test('item set --phase ready --from-ask with --blocked-by sets Blocked by, bare or prefixed, and the card waits', async () => {
+  auditEvents({ ...ask, data: { ...ask.data, quick: true } });
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  const notes = path.join(home, 'n.md');
+  fs.writeFileSync(notes, 'Pin the header.');
+  for (const id of ['B1', 'B2']) { const a = await board('item', 'add', 'audit', '--site', 'audit', '--title', 'fix(board): ' + id, '--notes', 'x', '--phase', 'grilling', '--relate', 'audit/T-1'); assert.equal(a.code, 0, a.err); }
+  assert.equal((await board('item', 'notes', 'audit/T-1', '--heading', 'Scope', '--file', notes, '--site', 'audit')).code, 0);
+  const r = await board('item', 'set', 'audit/T-1', '--title', 'fix(board): pin the header', '--phase', 'ready', '--from-ask', 'a1', '--text', 'Quick build.', '--size', 'small', '--blocked-by', 'audit/T-2,audit/T-3', '--site', 'audit');
+  assert.deepEqual([r.code, r.err], [0, '']);
+  const item = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
+  assert.deepEqual(item.deps, ['audit/T-2', 'audit/T-3']);
+  // The command's one line names the Blocked by it set, as it names every other change.
+  assert.match(r.out, /blocked by audit\/T-2,audit\/T-3/);
+  const bare = await board('item', 'set', 'audit/T-1', '--blocked-by', 'T-2', '--site', 'audit');
+  assert.deepEqual([bare.code, bare.err], [0, '']);
+  assert.match(bare.out, /blocked by T-2/);
+  assert.deepEqual(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').deps, ['T-2']);
+});
+
+test('every flag item set takes is named in the line it prints, or is one that only shapes another', () => {
+  for (const flag of ITEM_SET_FLAGS.map((f) => f.replace('...', ''))) assert.ok(flag in ITEM_SET_SAYS, `item set --${flag} is neither reported nor listed as a modifier`);
 });
 
 // docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md

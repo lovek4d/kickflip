@@ -991,6 +991,48 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ti
   return store.stopBuilder(site, key, { ...f, requireNext: true });
 }
 
+// The words each flag of item set adds to the line it prints; null for a flag that only shapes another (--text is the
+// message of --from-ask or --done, --force goes with --done). Every flag item set takes is named here, so none is
+// accepted and left unreported.
+export const ITEM_SET_SAYS = {
+  done: (f) => f.done && (f['split-into'] ? `done, split into ${f['split-into'].split(',').join(', ')}` : 'done'),
+  'split-into': null,
+  status: null, 'clear-status': null,
+  next: (f) => (f.next.trim() ? 'next line set' : 'next line cleared'),
+  'clear-next': () => 'next line cleared',
+  pr: (f) => `PR #${f.pr}`,
+  pushed: (f) => `pushed ${f.pushed}`,
+  'gh-since': (f) => `GitHub read to ${f['gh-since']}`,
+  'from-ask': (f) => `from task ${f['from-ask']}`,
+  phase: (f) => f.phase,
+  state: (f) => `state ${f.state}`,
+  blocked: () => 'blocked',
+  unblocked: () => 'unblocked',
+  'pick-up-at': (f) => (f['pick-up-at'] ? `blocked until ${f['pick-up-at']}` : 'unblocked'),
+  'notes-file': null, plan: null,
+  'blocked-by': (f) => (f['blocked-by'] ? `blocked by ${f['blocked-by']}` : 'blocked by cleared'),
+  'blocked-until': (f) => (f['blocked-until'] ? `blocked until ${f['blocked-until']}` : 'blocked until cleared'),
+  'block-reason': (f) => (f['block-reason'] ? 'block reason set' : 'block reason cleared'),
+  parent: (f) => (f.parent ? `parent ${f.parent}` : 'parent cleared'),
+  related: (f) => (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),
+  relate: (f) => `related to ${f.relate.split(',').join(', ')} added`,
+  unrelate: (f) => `unrelated from ${f.unrelate.split(',').join(', ')}`,
+  install: () => 'install published',
+  'install-sha': null, 'install-label': null,
+  'clear-install': () => 'install cleared',
+  title: () => 'renamed',
+  size: (f) => `size ${f.size}`,
+  model: (f) => `model ${f.model}`,
+  force: null,
+  ticket: (f) => `ticket ${f.ticket}`,
+  'new-ticket': () => 'ticket made',
+  text: null,
+  check: (f) => (f.check.trim() ? `check ${f.check.trim().split(/\s+/).join(' ')}` : 'check removed'),
+  'reply-on': null,
+};
+export const ITEM_SET_FLAGS = ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check', 'reply-on'];
+const unsaid = ITEM_SET_FLAGS.map((flag) => flag.replace('...', '')).filter((flag) => !(flag in ITEM_SET_SAYS));
+if (unsaid.length) throw new Error(`item set takes ${unsaid.map((flag) => `--${flag}`).join(', ')} but ITEM_SET_SAYS does not name it`);
 const COMMANDS = {
   pr: [['file/id'], [], async (site, [key]) => ({ lines: (await store.prReport(site, key)).map((r) => JSON.stringify(r)) })],
   'pr comment': [['pr'], ['body'], (site, [pr], f) => {
@@ -1039,7 +1081,7 @@ const COMMANDS = {
   'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['file/id'], ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check', 'reply-on'], async (site, [key], f, options) => {
+  'item set': [['file/id'], ITEM_SET_FLAGS, async (site, [key], f, options) => {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     await store.refuseUnborn(site, f.text);
     if (f.done && site) await store.checkNotReopened(site, key);
@@ -1266,19 +1308,7 @@ const askedAfter = (asked) => `${plural(asked.map((q) => q.id), 'question')} ask
 const builderOf = (f) => (f.agent === undefined || f.agent === 'main' ? 'builder' : `builder ${f.agent}`);
 
 function itemChanges(f) {
-  const pickUp = f['pick-up-at'];
-  return [
-    f.done && (f['split-into'] ? `done, split into ${f['split-into'].split(',').join(', ')}` : 'done'),
-    f.next !== undefined && (f.next.trim() ? 'next line set' : 'next line cleared'), f['clear-next'] && 'next line cleared',
-    f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`, f.phase,
-    f.blocked && 'blocked', f.unblocked && 'unblocked', pickUp !== undefined && (pickUp ? `blocked until ${pickUp}` : 'unblocked'),
-    f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
-    f.parent !== undefined && (f.parent ? `parent ${f.parent}` : 'parent cleared'), f.related !== undefined && (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),
-    f.relate !== undefined && `related to ${f.relate.split(',').join(', ')} added`, f.unrelate !== undefined && `unrelated from ${f.unrelate.split(',').join(', ')}`,
-    f.install !== undefined && 'install published', f['clear-install'] && 'install cleared',
-    f.title !== undefined && 'renamed', f.ticket !== undefined && `ticket ${f.ticket}`, f['new-ticket'] && 'ticket made',
-    f.check !== undefined && (f.check.trim() ? `check ${f.check.trim().split(/\s+/).join(' ')}` : 'check removed'),
-  ].filter(Boolean).join(', ');
+  return Object.entries(ITEM_SET_SAYS).filter(([flag, says]) => says && f[flag] !== undefined && f[flag] !== false).map(([, says]) => says(f)).filter(Boolean).join(', ');
 }
 
 /*
