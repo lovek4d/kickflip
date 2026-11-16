@@ -296,7 +296,7 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set turns each on|off setting on and off in board.json, keeping its other keys", async () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"max_implementers":5,"max_serves":10,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true,"tool_use":"normal"}\n', err: '' });
+  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"max_implementers":5,"max_serves":10,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true,"tool_use":"normal","max_land_tests":1}\n', err: '' });
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
   for (const name of ['auto-merge', 'auto-build', 'auto-review', 'skip-draft', 'idle-notification']) {
     const before = cfg();

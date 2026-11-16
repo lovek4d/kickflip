@@ -64,7 +64,8 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bumped card's land goes ahead in the queue.
   const queue = { site, key, first: await store.landFirst(site, key) };
   const report = await store.testReport(site, key, { phase: 'landing' });
-  const landed = await landInTurn({ ...tree, ref }, { hold: !go, onWait, queue, report, found: (words) => store.recordCall(site, key, words, {}),sync: () => remote && syncBase(tree.repo, base) });
+  const onTestWait = (card) => store.appendStatus(site, key, 'test-waiting', { card });
+  const landed = await landInTurn({ ...tree, ref }, { hold: !go, onWait, onTestWait, queue, report, found: (words) => store.recordCall(site, key, words, {}),sync: () => remote && syncBase(tree.repo, base) });
   if (!go) {
     const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
     await store.appendMessage(site, key, { text });

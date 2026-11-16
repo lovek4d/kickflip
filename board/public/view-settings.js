@@ -45,6 +45,10 @@
     <span class="muted small sub">Each open task worktree keeps one serve up. Installs aren’t counted. A busy host asks before it starts another.</span></span>
     <input type="number" class="count" id="maxServes" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxServesStatus" role="status"></p>
+  <label class="who" for="maxLandTests"><span><span>Maximum parallel land tests</span>
+    <span class="muted small sub">Lands run the tests their change affects. Over this many at once, a land waits its turn, bumped first, then first asked.</span></span>
+    <input type="number" class="count" id="maxLandTests" min="1" max="99" step="1" inputmode="numeric" disabled></label>
+  <p class="muted small" id="maxLandTestsStatus" role="status"></p>
   <label class="who" for="autoBuild"><span><span>Auto serve</span>
     <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
     <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
@@ -519,7 +523,7 @@
       $('#autoBuild').disabled = false;
       buildTarget = d.settings?.build_target || '';
       showBuildTargets();
-      for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxServes', 'max_serves']]) {
+      for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxServes', 'max_serves'], ['maxLandTests', 'max_land_tests']]) {
         $(`#${id}`).value = savedCaps[key] = String(d.settings?.[key]);
         $(`#${id}`).disabled = false;
       }
@@ -653,6 +657,7 @@
     });
     capInput('maxImplementers', 'max_implementers', (n) => `Saved. Up to ${n === 1 ? '1 card' : `${n} cards`} In Progress at once.`);
     capInput('maxServes', 'max_serves', (n) => `Saved. Up to ${n === 1 ? '1 serve stays' : `${n} serves stay`} up at once.`);
+    capInput('maxLandTests', 'max_land_tests', (n) => `Saved. ${n === 1 ? 'One land tests' : `Up to ${n} lands test`} at a time.`);
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
     for (const want of Object.keys(TOOL_USE)) B.on($(`[data-tool-use="${want}"]`), 'click', async () => {

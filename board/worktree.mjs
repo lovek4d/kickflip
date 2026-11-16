@@ -10,6 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { BoardError, opensPRs, settingsOf } from './store.mjs';
+import { readLandTests } from '../hub/push.mjs';
 import { boardAt, readJSON, readManifest, samePath } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -396,13 +397,52 @@ async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now(), s
 }
 export const holdingLandLock = (card, fn, opts) => holdingQueuedLock('land', card, fn, opts);
 
-// A bump of the card key on the board at site moves its queued lands: first, the bump's time, puts them ahead of every
-// ask not bumped since; null puts them back in ask order. → how many it moved
+// docs/adr/2026-11-16-0700-land-test-runs-take-turns-on-the-host.md
+// fn run in one of slots test slots on the host, a file per run in ~/.claude/kickflip/landtest.running named like its
+// ask in landtest.queue, which orders the asks as the land queue does (bumped, then first asked). The ask at the head
+// of the queue starts once fewer than slots runs are live; onWait(card) names the run it waits for. A run whose process
+// is gone is not counted.
+export async function holdingTestSlot(card, fn, { slots, onWait, asked = Date.now(), site = null, key = null, first = null } = {}) {
+  const queue = queueDir('landtest');
+  const running = path.join(kickflipDir(), 'landtest.running');
+  fs.mkdirSync(queue, { recursive: true });
+  fs.mkdirSync(running, { recursive: true });
+  const ticket = `${String(asked).padStart(15, '0')}-${String(asks++).padStart(6, '0')}-${process.pid}`;
+  writeTicket(queue, ticket, { card, site, key, first });
+  let waitingFor = null;
+  try {
+    for (;;) {
+      const all = queuedAsks('landtest');
+      const ahead = all.slice(0, all.findIndex((a) => a.ticket === ticket));
+      const live = [];
+      for (const name of fs.readdirSync(running).filter((t) => !t.endsWith('.tmp'))) {
+        if (alive(ticketPid(name))) live.push(name);
+        else fs.rmSync(path.join(running, name), { force: true });
+      }
+      if (!ahead.length && live.length < slots) { writeTicket(running, ticket, { card }); break; }
+      const who = ahead.length ? ahead.at(-1).card : readTicket(running, live[0]).card;
+      if (who && who !== waitingFor) { waitingFor = who; await onWait?.(who); }
+      await untilGone([...(ahead.length ? [path.join(queue, ahead.at(-1).ticket)] : live.map((t) => path.join(running, t))), path.join(queue, ticket)]);
+    }
+  } finally {
+    fs.rmSync(path.join(queue, ticket), { force: true });
+  }
+  try { return await fn(); } finally { fs.rmSync(path.join(running, ticket), { force: true }); }
+}
+// runTests, whatever it runs, in a test slot for card (opts are holdingTestSlot's).
+export const boundedTests = (runTests, card, opts) => (...args) => holdingTestSlot(card, () => runTests(...args), opts);
+
+// A bump of the card key on the board at site moves its queued lands and their test runs: first, the bump's time,
+// puts them ahead of every ask not bumped since; null puts them back in ask order. → how many asks it moved
 export function moveQueuedLand(site, key, first) {
-  const queue = queueDir('land');
-  const mine = queuedAsks('land').filter((a) => a.key === key && a.site && samePath(a.site, site));
-  for (const { ticket, ...content } of mine) writeTicket(queue, ticket, { ...content, first });
-  return mine.length;
+  let moved = 0;
+  for (const name of ['land', 'landtest']) {
+    const queue = queueDir(name);
+    const mine = queuedAsks(name).filter((a) => a.key === key && a.site && samePath(a.site, site));
+    for (const { ticket, ...content } of mine) writeTicket(queue, ticket, { ...content, first });
+    moved += mine.length;
+  }
+  return moved;
 }
 
 // The host's land queue in its order: the land holding the lock, running, then the asks waiting, each {card, running,
@@ -634,11 +674,14 @@ function onBase(repo, base) {
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). sync runs under the lock before the fast-forward. queue
 // {site, key, first} names the board card the land is for and its standing bump, for its place in the land queue.
 // → landPrepared's {tag} once it landed.
-export async function landInTurn(tree, { hold = false, onWait, sync = () => {}, queue = {}, ...opts } = {}) {
-  const { say = console.log } = opts;
+// The tests run in a test slot (holdingTestSlot): the hub's land test runs at once (push.mjs readLandTests), and
+// onTestWait(card) names the run a land waits for.
+export async function landInTurn(tree, { hold = false, onWait, onTestWait, slots = readLandTests(), sync = () => {}, queue = {}, ...opts } = {}) {
+  const { say = console.log, runTests = affectedRun(tree.base, say) } = opts;
   const asked = Date.now();
+  const bounded = boundedTests(runTests, tree.ref ?? tree.branch, { slots, onWait: onTestWait, asked, ...queue });
   for (;;) {
-    const tested = await prepareLand(tree, opts);
+    const tested = await prepareLand(tree, { ...opts, runTests: bounded });
     if (hold) return;
     const landed = await holdingLandLock(tree.ref ?? tree.branch, () => { sync(); return landPrepared(tree, tested, opts); }, { onWait, asked, ...queue });
     if (landed) return landed;

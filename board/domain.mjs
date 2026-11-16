@@ -233,7 +233,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github' || m.via =
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 // The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
-const STILL_MERGING = ['lander-handoff', 'land-waiting'];
+const STILL_MERGING = ['lander-handoff', 'land-waiting', 'test-waiting'];
 function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
   // An archived PR the board no longer reads the hub's check for draws what it kept (store.mjs keptPRs). A hub record
   // read without its url (a Done card's PR) keeps the one its repo and number give.
@@ -335,7 +335,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const merging = waitsOn === 'merge' && Boolean(tappedAt) && tappedAt > lastClaudeAt;
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a tap queued behind another land says so in a status line.
   const lastStatus = thread.filter((m) => (m.kind === 'status' || m.kind === HUB) && String(m.ts) > String(tappedAt)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
-  const mergingNext = lastStatus?.line === 'land-waiting' ? `${OWNER_MERGE_NEXT.merging} · ${lastStatus.text[0].toLowerCase()}${lastStatus.text.slice(1)}` : OWNER_MERGE_NEXT.merging;
+  const mergingNext = ['land-waiting', 'test-waiting'].includes(lastStatus?.line) ? `${OWNER_MERGE_NEXT.merging} · ${lastStatus.text[0].toLowerCase()}${lastStatus.text.slice(1)}` : OWNER_MERGE_NEXT.merging;
   // A Build tap the board refused: its reason stays on a Todo card while it is the card's newest line
   // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
   const newest = thread.filter((m) => !['status', MOVE].includes(m.kind)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);

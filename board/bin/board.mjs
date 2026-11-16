@@ -529,7 +529,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          lands, whatever it waits on. A tap or a bump waits for a
                                                          slot too.
                                                          Only on the owner's word
-  settings set auto-review on|off                        on: while the board is idle and nothing is pulled, the board
+  settings set max-land-tests <1..99>                    Land test runs at once on the host, 1 by default: a land
+                                                         whose tests are waiting for a turn reads "Waiting to test"
+  settings set auto-review on|off                       on: while the board is idle and nothing is pulled, the board
                                                          server sends pr-review {pr, head, repo, title, author, url,
                                                          touches, asked} for one incoming PR at a time that touches
                                                          this board's tasks or asks the owner for review. Off by

@@ -52,6 +52,7 @@ export const HUB_LINES = {
   'land-moved-first': { tone: 'orange', mark: MOVE, text: ({ words }) => words, longest: { words: 'land moved first by orchestrator' } },
   'builder-stopped': { tone: 'grey', mark: HELD, text: () => 'Stopped its builder.' },
   'land-waiting': { tone: 'orange', mark: HELD, text: ({ card }) => fit('Waiting for ', card, ' to land') },
+  'test-waiting': { tone: 'orange', mark: HELD, text: ({ card }) => fit('Waiting to test: ', card, ' is testing first') },
   // Resumes and unblocks.
   resumed: { tone: 'orange', mark: RESUMED, text: ({ clear }) => `Resumed: ${clear}.`, longest: { clear: 'the usage pause lifted' } },
   'ready-expired': { tone: 'grey', mark: MOVE, text: () => 'Ready expired after a day unpulled: re-checking against what landed since' },

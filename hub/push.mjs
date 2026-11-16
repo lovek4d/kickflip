@@ -193,6 +193,22 @@ export function setAutoUpdate(on, home = os.homedir()) {
 
 // Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md):
 // opus or sonnet forces it, auto leaves it to the card (shared/usage-gate.mjs builderPick). A missing or unknown stored
+// docs/adr/2026-11-16-0700-land-test-runs-take-turns-on-the-host.md
+// Land test runs at once on the host: the hub's one number, 1 to 99, MAX_LAND_TESTS unless settings.json says otherwise.
+export const MAX_LAND_TESTS = 1;
+const validLandTests = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
+export const readLandTests = (home = os.homedir()) => {
+  const stored = readSettingsFile(home).landTests;
+  return validLandTests(stored) ? stored : MAX_LAND_TESTS;
+};
+// Throws {status: 400} for a value that isn't a whole number from 1 to 99.
+export function setLandTests(value, home = os.homedir()) {
+  const n = /^\d+$/.test(String(value)) ? Number(value) : value;
+  if (!validLandTests(n)) throw Object.assign(new Error('land-tests takes a whole number from 1 to 99'), { status: 400 });
+  writeSettingsFile({ ...readSettingsFile(home), landTests: n }, home);
+  return n;
+}
+
 // value is auto.
 export const CLAUDE_MODEL_VALUES = ['opus', 'auto', 'sonnet'];
 export const readClaudeModel = (home = os.homedir()) => {
