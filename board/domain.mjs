@@ -1498,6 +1498,7 @@ export function buildBoard(snapshot) {
   }
   intakeWaits(items, events, working, moved);
   screenWaits(items, snapshot.screening || {});
+  for (const it of items) if (it.kind === 'work') markWaitStarts(threadViews[it.key], [it.orchestrator, ...(it.moreWaits || [])].filter(Boolean));
   // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
 
@@ -1829,6 +1830,16 @@ function intakeWaits(items, events, working, moved) {
     waited.add(key);
     const it = byKey.get(key);
     waitFirst(it, { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, relatedCandidates(items, it)) });
+  }
+}
+// docs/adr/2026-11-16-1100-a-thread-entry-that-starts-a-wait-reads-waiting-until-it-clears.md
+// A tap's status line (a command line the board wrote, with no event of its own) whose ts is an open wait's since, the
+// board stamping both with one moment (store.mjs stage), reads that wait's footer state as a message does: waiting until
+// the orchestrator picks it up, then working. A line starting no wait keeps no state.
+function markWaitStarts(thread, waits) {
+  for (const m of thread) {
+    const w = m.command && !m.state && waits.find((x) => x.since === String(m.ts));
+    if (w) Object.assign(m, w.picked ? { state: 'working', since: w.picked } : { state: 'waiting' });
   }
 }
 // Puts wait on the card ahead of the waits it already has, which stay on its list.

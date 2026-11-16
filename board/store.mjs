@@ -626,8 +626,8 @@ export function messageText(body) {
 }
 // command is a button's key (domain.mjs COMMANDS), which makes the line its status line; card, on a link's line, the other
 // card's key, whose ref and title the thread draws when it renders (domain.mjs threadOf).
-async function appendCommand(site, key, { command, text: words = COMMANDS[command], who = 'claude', by, card, sendId }) {
-  const line = { ts: new Date().toISOString(), who, command, text: words, ...(sendId ? { sendId } : {}),...(by ? { by } : {}), ...(card ? { card } : {}) };
+async function appendCommand(site, key, { command, text: words = COMMANDS[command], who = 'claude', by, card, sendId, ts = new Date().toISOString() }) {
+  const line = { ts, who, command, text: words, ...(sendId ? { sendId } : {}),...(by ? { by } : {}), ...(card ? { card } : {}) };
   await appendLine(threadFile(site, key), line);
   return { lines: [] };
 }
@@ -2571,14 +2571,16 @@ async function stage(site, key, sendId) {
   const { source, itemFile, item } = await loadItem(site, key);
   if (item.phase === 'staging') return;
   leaveNew(item);
-  Object.assign(item, { phase: 'staging', staged_at: new Date().toISOString() });
+  // The line and the wait share one moment, so the line's footer finds its wait by it (domain.mjs markWaitStarts).
+  const at = new Date().toISOString();
+  Object.assign(item, { phase: 'staging', staged_at: at });
   delete item.unfiled;
   delete item.filed_held;
   delete item.ready_at;
   delete item.ready_main;
   spendNext(item);
   await writeJSON(source.file, itemFile);
-  await appendCommand(site, key, { command: 'staged', sendId });
+  await appendCommand(site, key, { command: 'staged', sendId, ts: at });
 }
 // docs/adr/2026-11-14-1700-a-ready-task-unpulled-a-day-re-stages-when-main-has-moved.md
 // How long a card may sit ready and unpulled before main's moving sends it back to staging.
