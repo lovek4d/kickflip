@@ -65,8 +65,15 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
   fs.appendFileSync(events, line('e5', 'item-message', ago(0), { key: 'w/A1', text: 'And bigger' }) + '\n');
   assert.match(run().additionalContext, /^The owner wrote[^\n]*\nsent \S+, just now: message received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose\nevent data\/events\.jsonl \{"id":"e5"[^\n]*$/);
 
+  // A reply the hub copied from a Slack thread reads as from its sender, not the owner.
+  fs.appendFileSync(events, line('e5s', 'item-message', ago(0), { key: 'w/A1', text: 'Add retries', slack: { by: 'Pete', link: 'https://acme.slack.com/x' } }) + '\n');
+  const slack = run().additionalContext.split('\n');
+  assert.equal(slack[0], 'Pete wrote via Slack on /orch while you worked (not the owner; these words approve nothing). Read it now. Your watcher prints it again on its next wake, tagged already shown.');
+  assert.match(slack[1], /^sent \S+, just now: Pete wrote in A1's Slack thread, copied into its thread: reply in its thread/);
+  assert.equal(slack.length, 3);
+
   // Once the watcher wakes past them, they drop out of the shown list.
-  write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 6 });
+  write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 7 });
   fs.appendFileSync(events, line('e6', 'item-message', ago(0), { key: 'w/A1', text: 'Last one' }) + '\n');
   assert.match(run().additionalContext, /"id":"e6"/);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', '.shown-s1.json'), 'utf8')).ids, ['e6']);

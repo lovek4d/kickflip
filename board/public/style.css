@@ -137,6 +137,7 @@ button.chip { border: 0; }
 .msg { margin: 8px 0; padding: 7px 10px; border-radius: 10px; max-width: 100%; }
 .msg.claude { background: var(--claude); }
 .msg.love { background: var(--accent-soft); }
+.msg.slack { background: var(--chip); }
 .msg .who { font-size: 12px; color: var(--muted); margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg .reply { margin-top: 6px; }

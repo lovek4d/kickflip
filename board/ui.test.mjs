@@ -819,6 +819,13 @@ test("every sender's message is its name alone, the body, then a footer with its
   assert.match(draw({ who: 'Claude planner' }), footer('Claude planner'));
   assert.match(draw({ who: 'Jamie', via: 'github' }), footer('Jamie', '<span>·</span><span>GitHub</span>'));
   assert.match(draw({ who: 'Sam', via: 'slack' }), footer('Sam', '<span>·</span><span>Slack</span>'));
+  // A reply copied from a task's Slack thread by someone else: a grey .msg.slack headed "<name> · via Slack", with the link.
+  const copied = draw({ who: 'love', via: 'slack', by: 'Pete', link: 'https://acme.slack.com/x', eventId: 'e2' });
+  assert.match(copied, /<div class="msg slack"[^>]*>\s*<div class="who">Pete · via Slack<\/div>/);
+  assert.match(copied, /acme\.slack\.com\/x/);
+  assert.doesNotMatch(copied, /msg love|<span>Slack<\/span>/);
+  // Without a sender it is the owner's own @kickflip: blue, You.
+  assert.match(draw({ who: 'love', via: 'slack', link: 'https://acme.slack.com/x', eventId: 'e3' }), /<div class="msg love"[^>]*>\s*<div class="who">You<\/div>/);
   assert.match(draw({ who: 'love', via: 'site', kind: 'item-message', eventId: 'e1', reply: null, state: 'waiting' }), footer('You', '<span>·</span><span>waiting…</span>'));
   assert.doesNotMatch(draw({ who: 'claude' }), /waiting/);
   assert.doesNotMatch(draw({ who: 'claude' }), /Orchestrator ·/);
