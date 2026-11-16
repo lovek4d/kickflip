@@ -17,7 +17,7 @@ export function runCommand(command, argv, { env = process.env, timeout = 10000 }
 // user unit on Linux (docs/adr/2026-11-01-1542-the-hub-runs-under-the-hosts-service-manager.md). Every launchctl or systemctl
 // call goes through run(command, argv, {env, timeout}) → {status, stdout, error}. On any other platform, manager is
 // null, install throws and restart returns why.
-// → {manager, item, file, id, restartCommand, definition(), install(), restart(), remove(), status(), notes()}
+// → {manager, item, file, id, restartCommand, definition(), node(), install(), restart(), remove(), status(), notes()}
 export function hubService({ platform = process.platform, home = os.homedir(), uid = process.getuid?.(), env = process.env, run = runCommand } = {}) {
   const exec = (command, argv, options = {}) => {
     try { return run(command, argv, { env, ...options }); } catch (e) { return { status: 1, stdout: '', error: e.message }; }
@@ -28,6 +28,7 @@ export function hubService({ platform = process.platform, home = os.homedir(), u
   return {
     manager: null, item: 'hub service', file: null, id: null, restartCommand: 'node hub/hub.mjs from the kickflip folder',
     definition: () => null,
+    node: () => null,
     install: async () => { throw new Error(why); },
     restart: () => why,
     remove: () => {},
@@ -68,6 +69,13 @@ function launchd({ home, uid, exec }) {
 </dict>
 </plist>
 `;
+    },
+    // The node the plist runs, ProgramArguments' first string. → path, or null with no plist.
+    node() {
+      let text;
+      try { text = fs.readFileSync(file, 'utf8'); } catch { return null; }
+      const found = /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(text)?.[1];
+      return found ? found.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&') : null;
     },
     // Starts the login item in place of the running one. → note lines.
     async install(plist, { wait = (ms) => new Promise((r) => setTimeout(r, ms)), dryRun = false } = {}) {
@@ -133,6 +141,13 @@ StandardError=append:${unitValue(log)}
 [Install]
 WantedBy=default.target
 `;
+    },
+    // The node the unit runs, ExecStart's first word. → path, or null with no unit.
+    node() {
+      let text;
+      try { text = fs.readFileSync(file, 'utf8'); } catch { return null; }
+      const found = /^ExecStart="((?:[^"\\]|\\.)*)"/m.exec(text)?.[1];
+      return found ? found.replace(/\\(.)/g, '$1').replaceAll('%%', '%').replaceAll('$$', '$') : null;
     },
     // Writes the unit, enables it for the user's manager and restarts it, so a rerun replaces the running hub. → notes.
     async install(unit, { dryRun = false } = {}) {

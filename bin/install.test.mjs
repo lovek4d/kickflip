@@ -1077,3 +1077,72 @@ test('nodeBin names the Homebrew link only when the running node is the Cellar n
   assert.equal(nodeBin(cellar, path.join(home, 'missing')), cellar);
   assert.equal(nodeBin('/Users/x/.nvm/versions/node/v24/bin/node', link), '/Users/x/.nvm/versions/node/v24/bin/node');
 });
+
+// An npm install, <prefix>/lib/node_modules/@lovek4d/kickflip, with the prefix's node when withNode.
+function npmInstall(prefix, withNode = true) {
+  const pkg = path.join(prefix, 'lib', 'node_modules', '@lovek4d', 'kickflip');
+  fs.mkdirSync(path.join(pkg, 'hooks-plugin'), { recursive: true });
+  fs.mkdirSync(path.join(pkg, 'bin'));
+  fs.writeFileSync(path.join(pkg, 'bin', 'statusline.mjs'), '#!/usr/bin/env node\n');
+  fs.mkdirSync(path.join(prefix, 'bin'), { recursive: true });
+  if (withNode) fs.writeFileSync(path.join(prefix, 'bin', 'node'), '');
+  return pkg;
+}
+
+function serviceNode(options, node) {
+  const service = hubService({ platform: options.platform, home, uid: 501 });
+  fs.mkdirSync(path.dirname(service.file), { recursive: true });
+  fs.writeFileSync(service.file, service.definition({ node, entry: '/x/hub.mjs', state: '/x', port: 1, log: '/x/log' }));
+  return service;
+}
+
+test('doctor flags a hub service whose node is not the one owning the installed package, and --fix names the owning node', async () => {
+  const { options } = healthyDoctor();
+  const homebrew = path.join(home, 'opt', 'homebrew');
+  const nvm = path.join(home, '.nvm', 'versions', 'node', 'v24');
+  const pkg = npmInstall(nvm);
+  npmInstall(homebrew);
+  const check = async (node, cloneRoot) => {
+    serviceNode(options, node);
+    return pick(await doctorReport({ ...options, cloneRoot }), 'hub service node');
+  };
+  assert.deepEqual(await check(path.join(nvm, 'bin', 'node'), pkg), { group: 'setup', item: 'hub service node', state: 'ok', detail: `${path.join(nvm, 'bin', 'node')} owns the installed kickflip`, fix: null });
+  const other = await check(path.join(homebrew, 'bin', 'node'), pkg);
+  assert.equal(other.state, 'fixable');
+  assert.equal(other.fix, 'kickflip doctor --fix');
+  assert.ok(other.detail.includes(`doesn’t own the installed kickflip, which npm keeps under ${nvm}`));
+  const gone = await check(path.join(home, '.nvm', 'versions', 'node', 'v22', 'bin', 'node'), pkg);
+  assert.equal(gone.state, 'fixable');
+  assert.ok(gone.detail.includes('is missing') && gone.detail.includes(path.join(nvm, 'bin', 'node')));
+  assert.equal((await check(path.join(homebrew, 'bin', 'node'), root)).state, 'ok');
+  fs.rmSync(hubService({ platform: 'darwin', home, uid: 501 }).file);
+  assert.equal(pick(await doctorReport({ ...options, cloneRoot: pkg }), 'hub service node'), undefined);
+});
+
+test('doctor reads a systemd unit’s node the same way', async () => {
+  const { options } = healthyDoctor();
+  const nvm = path.join(home, '.nvm', 'versions', 'node', 'v24');
+  const pkg = npmInstall(nvm);
+  const linux = { ...options, platform: 'linux', cloneRoot: pkg };
+  serviceNode(linux, '/usr/bin/node');
+  const service = hubService({ platform: 'linux', home, uid: 501 });
+  assert.equal(service.node(), '/usr/bin/node');
+  const responses = { status: 0, stdout: 'active\n' };
+  const run = (command, argv, passed) => (command === 'systemctl' ? responses : options.run(command, argv, passed));
+  assert.equal(pick(await doctorReport({ ...linux, run }), 'hub service node').state, 'fixable');
+});
+
+test('install writes the node that owns the install into the service, and a clone keeps the running node', async () => {
+  const nvm = path.join(home, '.nvm', 'versions', 'node', 'v24');
+  const pkg = npmInstall(nvm);
+  const written = [];
+  const run = (command, argv) => ({ status: 0, stdout: '', error: '' });
+  const wait = async () => {};
+  const fetch = async () => ({ ok: true, json: async () => ({ sites: [] }) });
+  await runInstall({ home, cloneRoot: pkg, platform: 'darwin', uid: 501, run, wait, fetch, tailscale: null, log: (line) => written.push(line) });
+  assert.equal(hubService({ platform: 'darwin', home, uid: 501 }).node(), path.join(nvm, 'bin', 'node'));
+  fs.rmSync(skills, { recursive: true });
+  fs.rmSync(statusline());
+  await runInstall({ home, cloneRoot: root, platform: 'darwin', uid: 501, run, wait, fetch, tailscale: null, log: () => {} });
+  assert.equal(hubService({ platform: 'darwin', home, uid: 501 }).node(), nodeBin());
+});

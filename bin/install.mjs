@@ -14,6 +14,21 @@ export const nodeBin = (execPath = process.execPath, link = HOMEBREW_LINK) => (e
 // Homebrew link instead, where the link exists. The link's folder replaces the versioned bin folder too.
 const CELLAR_NODE = /\/opt\/homebrew\/Cellar\/node\/[^/\s"'<>:]+\/bin(\/node)?(?![^/\s"'<>:])/g;
 export const relinkCellarNode = (text, link = HOMEBREW_LINK) => (fs.existsSync(link) ? text.replace(CELLAR_NODE, (_, node) => (node ? link : path.dirname(link))) : text);
+const realPath = (file) => { try { return fs.realpathSync(file); } catch { return null; } };
+// The npm prefix that owns an install laid out as <prefix>/lib/node_modules/@lovek4d/kickflip, else null (a clone).
+export const installPrefix = (cloneRoot = runningClone()) => {
+  const layout = ['lib', 'node_modules', '@lovek4d', 'kickflip'];
+  const root = realPath(cloneRoot);
+  if (!root) return null;
+  const folders = root.split(path.sep);
+  return layout.some((name, i) => folders.at(i - layout.length) !== name) ? null : path.resolve(root, ...layout.map(() => '..'));
+};
+// The node in the prefix that holds the install, null for a clone or a prefix with no node.
+export const owningNode = (cloneRoot = runningClone()) => {
+  const prefix = installPrefix(cloneRoot);
+  const node = prefix && path.join(prefix, 'bin', 'node');
+  return node && fs.existsSync(node) ? node : null;
+};
 // The watcher a site's owning session runs as a background task (bin/wait-events.mjs).
 export const watcherCommand = (route, session, root = runningClone()) => `${nodeBin()} ${path.join(root, 'bin', 'wait-events.mjs')} ${route} ${session}`;
 
@@ -177,7 +192,7 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
     const added = run('npx', addArgv(missing), { env, timeout: 300_000 });
     log(added.status === 0 ? `added ${missing.join(', ')} from ${SKILLS_SOURCE}` : `could not add ${missing.join(', ')} from ${SKILLS_SOURCE}: ${added.error}; run ${addCommand(missing)}`);
   }
-  const node = nodeBin();
+  const node = owningNode(cloneRoot) ?? nodeBin();
   const entry = storedPath(path.join(cloneRoot, 'hub', 'hub.mjs'), { home, cloneRoot });
   fs.mkdirSync(state, { recursive: true });
   const hubLog = path.join(state, 'hub.log');

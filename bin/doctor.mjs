@@ -9,7 +9,7 @@ import { codexStatus } from '../shared/codex.mjs';
 import { REVIEW_SKILLS, SKILLS_SOURCE, addCommand, skillsState, updateCommand } from '../shared/skills.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
 import { tailscaleBin, tailscaleSkipped } from '../shared/tailscale.mjs';
-import { inspectLinks, ownsStatusLine, hasWatcherStop, hubStatus, tailscaleState, runInstall } from './install.mjs';
+import { inspectLinks, installPrefix, ownsStatusLine, hasWatcherStop, hubStatus, tailscaleState, runInstall } from './install.mjs';
 
 const FIX = 'kickflip doctor --fix';
 const MARKS = { ok: 'ok', fixable: 'fixable', yours: 'yours', optional: 'optional', note: 'note' };
@@ -128,6 +128,16 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   const service = hubService({ platform, home, uid, env, run });
   const login = service.status();
   add(service.item, login.running ? 'ok' : service.manager ? 'fixable' : 'yours', login.detail, service.manager ? FIX : `run ${service.restartCommand} under a service manager of your own`);
+  const serviceNode = login.installed ? service.node() : null;
+  if (serviceNode) {
+    const prefix = installPrefix(cloneRoot);
+    const nodePrefix = path.dirname(path.dirname(serviceNode));
+    const item = 'hub service node';
+    if (!fs.existsSync(serviceNode)) add(item, 'fixable', `${serviceNode} is missing, so the hub can’t start${prefix ? `; the install’s node is ${path.join(prefix, 'bin', 'node')}` : ''}`, FIX);
+    else if (!prefix) add(item, 'ok', `${serviceNode}; kickflip runs from a clone, so no node owns it`);
+    else if (nodePrefix === prefix || (realPath(nodePrefix) && realPath(nodePrefix) === realPath(prefix))) add(item, 'ok', `${serviceNode} owns the installed kickflip`);
+    else add(item, 'fixable', `${serviceNode} doesn’t own the installed kickflip, which npm keeps under ${prefix}; an update installs there, out of the hub’s reach`, FIX);
+  }
   for (const note of service.notes()) add(note.item, note.state, note.detail, note.fix);
   if (platform === 'darwin') {
     // Spotlight's Privacy list is root's (VolumeConfiguration.plist) and a .noindex folder isn't honoured, so doctor asks
