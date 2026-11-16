@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { startBoard } from '../shared/test-helpers.mjs';
 import { buildBoard, archivedOf, slimDone, DONE_KEPT } from './domain.mjs';
-import { archiveCards, readArchive, appendMessage, setItem, stripDeadFields } from './store.mjs';
+import { archiveCards, readArchive, archiveReader, appendMessage, setItem, stripDeadFields, migrateStatuses, migratePhases, splitSharedNotes } from './store.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const at = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
@@ -136,6 +136,23 @@ test("the strip drops what nothing reads: an archive entry's page card for its c
     const before = ['items.json', 'owner.json', 'done-archive.json'].map((f) => fs.statSync(path.join(site, 'data', f)).mtimeMs);
     await stripDeadFields(site);
     assert.deepEqual(['items.json', 'owner.json', 'done-archive.json'].map((f) => fs.statSync(path.join(site, 'data', f)).mtimeMs), before, 'a stripped board writes nothing');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('the start-up passes share one read of the archive: a reader reads the file once and each pass takes its cards', async () => {
+  const { home, site, read } = siteOf(3);
+  const file = path.join(site, 'data', 'done-archive.json');
+  try {
+    fs.writeFileSync(file, JSON.stringify({ cards: [{ key: 't/X1', file: 't', closed_at: at(8), item: { id: 'X1', title: 'Old', lane: 'done', state: 'x', summary: 'Gone' }, questions: [], asks: [] }] }));
+    const cards = archiveReader(site);
+    const first = await cards();
+    fs.rmSync(file);
+    assert.equal(await cards(), first, 'the second ask is the first read, not another');
+    await migrateStatuses(site, cards);
+    await migratePhases(site, cards);
+    await splitSharedNotes(site, cards);
+    await stripDeadFields(site, cards);
+    assert.deepEqual(read('done-archive.json').cards.map((c) => c.item), [{ id: 'X1', title: 'Old', lane: 'done', phase: 'closed' }], 'the passes worked on the cards the reader held, as the file no longer did');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 

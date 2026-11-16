@@ -2530,7 +2530,7 @@ async function appendNotes(site, key, heading, body) {
 
 // Every card that names a notes file, live then archived: [{key, ref, title, created, archived, dir, plan}]. An
 // archived card's folder is its item file's, or the site's data/ once that item file is gone.
-async function cardsWithNotes(site) {
+async function cardsWithNotes(site, archived = () => readArchive(site)) {
   const { tickets } = settingsOf(await boardConfig(site));
   const cards = [];
   const files = new Map();
@@ -2539,7 +2539,7 @@ async function cardsWithNotes(site) {
     files.set(source.slug, { source, itemFile: itemFile || {} });
     for (const it of itemFile?.items || []) if (it.plan) cards.push({ key: `${source.slug}/${it.id}`, ref: refOf(itemFile, it, tickets), title: it.title, created: it.created || '', archived: false, dir: source.dir, plan: it.plan });
   }
-  for (const a of site ? await readArchive(site) : []) {
+  for (const a of site ? await archived() : []) {
     if (!a.item?.plan) continue;
     const at = files.get(a.file);
     cards.push({ key: a.key, ref: refOf(at?.itemFile || {}, a.item, tickets), title: a.item.title, created: a.item.created || '', archived: true, dir: at?.source.dir || path.join(site, 'data'), plan: a.item.plan });
@@ -2585,8 +2585,8 @@ export async function addNotes(site, key, { heading, file, from }) {
 // Run by the board server as it starts: of the cards naming one notes file, live or archived, the earliest made keeps
 // it and each later live card gets a copy under its own name, with a thread line; an archived card is never rewritten.
 // Every card's notes file is then made read-only. → one line per card given its own copy.
-export const splitSharedNotes = (site) => ticketWrite(site, async () => {
-  const cards = await cardsWithNotes(site);
+export const splitSharedNotes = (site, archived = () => readArchive(site)) => ticketWrite(site, async () => {
+  const cards = await cardsWithNotes(site, archived);
   const byFile = new Map();
   for (const card of cards) {
     const real = await realNotes(card);
@@ -4272,7 +4272,7 @@ function statusToFacts(item, records = []) {
 
 // statusToFacts over every card of a site's item files and its archive. Run by the board server as it starts. → one
 // line per file changed.
-export const migrateStatuses = (site) => ticketWrite(site, async () => {
+export const migrateStatuses = (site, archived = () => readArchive(site)) => ticketWrite(site, async () => {
   const lines = [];
   for (const entry of await itemSources(site)) {
     const itemFile = await readJSON(entry.file, null);
@@ -4289,7 +4289,7 @@ export const migrateStatuses = (site) => ticketWrite(site, async () => {
     lines.push(`${entry.slug}: ${changed} tasks' statuses became lanes and facts`);
   }
   await archiveWrite(site, async () => {
-    const cards = await readArchive(site);
+    const cards = await archived();
     const changed = cards.filter((c) => c.item && statusToFacts(c.item)).length;
     if (!changed) return;
     await writeArchive(site, cards);
@@ -4343,7 +4343,7 @@ function stateToPhase(item, built) {
 }
 // stateToPhase over every card of a site's item files and its archive, before the board server's other start-up
 // passes. → one line per file changed.
-export const migratePhases = (site) => ticketWrite(site, async () => {
+export const migratePhases = (site, archived = () => readArchive(site)) => ticketWrite(site, async () => {
   const lines = [];
   const sources = await itemSources(site);
   // Read only for a Done card with no phase yet, the one stateToPhase asks it of.
@@ -4357,7 +4357,7 @@ export const migratePhases = (site) => ticketWrite(site, async () => {
     lines.push(`${entry.slug}: ${changed} tasks' states became phases`);
   }
   await archiveWrite(site, async () => {
-    const cards = await readArchive(site);
+    const cards = await archived();
     let changed = 0;
     for (const c of cards) if (c.item && stateToPhase(c.item, await built(sources.find((e) => e.slug === (c.file || parseKey(c.key).file))?.dir, c.item))) changed++;
     if (!changed) return;
@@ -4419,6 +4419,13 @@ export const stageImplementAsks = (site) => ticketWrite(site, async () => {
 export const archiveFile = (site) => path.join(site, 'data', 'done-archive.json');
 const archiveWrite = (site, fn) => withFileLock(path.join(site, 'done-archive'), fn, { heartbeat: true });
 export const readArchive = async (site) => (await readJSON(archiveFile(site), { cards: [] })).cards || [];
+// One read of the archive for the start-up passes that take a `cards` reader: the board server hands the same one to each, so
+// the file is read once as it starts. The passes that write the archive write the cards they were given, so the held
+// copy stays what the file holds.
+export const archiveReader = (site) => {
+  let held;
+  return async () => (held ??= await readArchive(site));
+};
 // An entry's place, which GET /api/done's before= cursor names: newest first by its closing time, then by key.
 export const archiveRank = (a) => `${a.closed_at || ''}|${a.key}`;
 const byClosed = (a, b) => (archiveRank(a) < archiveRank(b) ? 1 : archiveRank(a) > archiveRank(b) ? -1 : 0);
@@ -4519,14 +4526,14 @@ const DEAD_QUESTION_FIELDS = ['push_tag', 'no_change'];
 const stripQuestion = (q) => Object.fromEntries(Object.entries(q).filter(([k]) => !DEAD_QUESTION_FIELDS.includes(k)));
 const stripItem = ({ summary, ...it }) => it;
 const holdsDead = (q) => DEAD_QUESTION_FIELDS.some((k) => k in q);
-export const stripDeadFields = (site) => archiveWrite(site, async () => {
+export const stripDeadFields = (site, archived = () => readArchive(site)) => archiveWrite(site, async () => {
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     if (Array.isArray(itemFile?.items) && itemFile.items.some((it) => 'summary' in it)) await writeJSON(source.file, { ...itemFile, items: itemFile.items.map(stripItem) });
   }
   const owner = await readJSON(ownerFile(site), null);
   if ((owner?.items || []).some(holdsDead)) await writeJSON(ownerFile(site), { ...owner, items: owner.items.map(stripQuestion) });
-  const archive = await readArchive(site);
+  const archive = await archived();
   if (archive.some((a) => 'card' in a || 'summary' in a.item || (a.questions || []).some(holdsDead))) {
     await writeArchive(site, archive.map(({ card, ...a }) => ({ ...a, ...(card ? { closed_at: a.closed_at || card.sortAt } : {}),
       item: stripItem(a.item), questions: (a.questions || []).map(stripQuestion) })));
