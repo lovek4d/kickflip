@@ -10,6 +10,10 @@ orchestrator last wrote or acted on the card, and when it was picked up while th
 it for every event-backed message; `markWaitStarts` calls it for a tap line that starts a wait. `public/ui-threads.js`
 `PICK_UP` draws the result in every footer and status line.
 
+A builder's unverified judgment calls line reads the same: `markWaitStarts` gives it the state of the card's `calls`
+wait, so it reads waiting…, then thinking… with its duration (the same `thinkingLine`), then verified <time> once the
+orchestrator verifies. Before any calls wait exists it keeps "not verified yet".
+
 A submit read no waiting or thinking because Send resolves each answered question at once, noting Answered
 (`store.mjs` `resolveSentAnswers`, docs/adr/2026-11-15-1200-an-answered-question-folds-on-send.md), and `threadOf`
 counted any resolution after the answer as the orchestrator acting on it. Send's Answered resolution is now not an act:

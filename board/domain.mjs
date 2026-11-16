@@ -1929,6 +1929,9 @@ function markWaitStarts(thread, waits) {
     const w = m.command && !m.state && waits.find((x) => x.since === String(m.ts));
     if (w) Object.assign(m, pendingState({ picked: w.picked }));
   }
+  // A builder's unverified judgment calls read the orchestrator's calls wait the same way.
+  const calls = waits.find((x) => x.kind === 'calls');
+  if (calls) for (const m of thread) if (m.kind === 'calls' && !m.verified) Object.assign(m, pendingState({ picked: calls.picked }));
 }
 // Puts wait on the card ahead of the waits it already has, which stay on its list, but for a limbo wait: a card
 // waiting on this owes somebody.

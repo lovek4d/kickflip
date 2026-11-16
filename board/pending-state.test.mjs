@@ -52,3 +52,12 @@ test('the seam decides every pending state from the same inputs', () => {
   assert.deepEqual(pendingState({ picked: at(6), cleared: true }), { state: 'answered' });
   assert.deepEqual(pendingState({ replied: true, cleared: true }), { state: 'replied' });
 });
+
+test("a builder's unverified judgment calls read the calls wait: waiting, then thinking once picked, and no state once verified", () => {
+  const build = (verified = null) => ({ A1: { main: { kind: 'claude', started: at(2), done: at(3), handed_back: at(3), calls: [{ at: at(3), text: 'Kept the name' }], verified } } });
+  const calls = (agents, lines = []) => buildBoard({ now: Date.parse(at(59)), owner: owner(), events: [], threads: { 'w/A1': lines }, working: {}, delivered: { since: at(1), events: {} },
+    files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ ...card, lane: 'progress' }] } }] }).threadViews['w/A1'].find((m) => m.kind === 'calls');
+  assert.equal(calls(build()).state, 'waiting');
+  assert.deepEqual([calls(build(), [line(4)]).state, calls(build(), [line(4)]).since], ['working', at(4)], "picked up at the orchestrator's first line on it");
+  assert.equal(calls(build({ at: at(10), note: '' })).state, undefined, 'verified: no wait, no state');
+});

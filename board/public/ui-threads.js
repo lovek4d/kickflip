@@ -132,7 +132,7 @@
     : m.kind === 'status' ? statusLine(`builder-status${m.planner ? ' planner' : ''}`, mark(folded ? '' : WORKING_DOT) + linkText(m.text, links), m.ts)
     // A builder's judgment calls: their posted time, then whether the session verified them and when.
     : m.kind === 'calls' ? statusLine('calls', `${statusMark('judgment calls')}${escText(m.text)}'s judgment calls · ${m.calls.length}`, m.ts, {
-      after: m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet',
+      after: m.verified ? `verified ${esc(time(m.verified.at))}` : ['working', 'waiting'].includes(m.state) ? pickUp(m) : 'not verified yet',
       rest: `<ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}`,
     })
     : m.kind === 'reviewer' ? reviewerMessage(m, links)

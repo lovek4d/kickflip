@@ -2190,6 +2190,11 @@ test("a builder's judgment calls show collapsed under its lines, with their post
   assert.ok(html.includes(ui.MARK_ICONS['judgment calls']));
   assert.doesNotMatch(html, /<details[^>]* open/);
   assert.match(text(html), /^Claude Opus builder's judgment calls · 2 · \S.* · not verified yet Kept <the> old name Question: every agent\?$/);
+  assert.match(text(ui.threadMessages([{ ...open, state: 'waiting' }])), /· 2 · \S.* · waiting… Kept/);
+  const picked = ui.threadMessages([{ ...open, state: 'working', since: new Date(NOW - 3 * 60000).toISOString() }]);
+  assert.match(picked, /<span class="thinking" data-since="[^"]+" data-word="thinking…"><span class="it it-current">/);
+  assert.match(text(picked), /· thinking… \(3m\) Kept/);
+  assert.doesNotMatch(text(picked), /not verified yet|verifying/);
   const checked = text(ui.threadMessages([{ ...open, verified: { at: ago(0.5), note: 'Match the notes.' } }]));
   assert.match(checked, /· 2 · \S.* · verified .+ Kept <the> old name Question: every agent\? Verified: Match the notes\.$/);
   const msgs = [{ ts: ago(3), who: 'claude', text: 'One' }, { ts: ago(2), who: 'claude', text: 'Two' }, { ts: ago(1.5), who: 'claude', text: 'Three' }, open];
