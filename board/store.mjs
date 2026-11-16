@@ -3673,6 +3673,7 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
       : lastLine.status ? await appendStatus(site, key, ...lastLine.status) : await appendMessage(site, key, { text: lastLine.text });
     resolved.push(...written.lines);
   }
+  if (title !== undefined && site && item.lane === 'todo') await clearRefusal(site, key);
   // The ticket stays open while the card waits on its owner step.
   const target = item.owner_step && done ? null : ticketTarget({ start, done, handover });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo });
@@ -5440,7 +5441,7 @@ async function restoreHold(site, key, was) {
 
 async function restoreLane(site, key, was) {
   const { source, itemFile, item } = await loadItem(site, key);
-  for (const field of ['lane', 'lane_at', 'closed_at', 'reopened_at']) if (was[field] === undefined) delete item[field]; else item[field] = was[field];
+  for (const field of ['lane', 'lane_at', 'closed_at', 'reopened_at', 'phase']) if (was[field] === undefined) delete item[field]; else item[field] = was[field];
   await writeJSON(source.file, itemFile);
 }
 
@@ -5451,10 +5452,17 @@ export async function auditLog(site, key) {
   return { lines: auditLines(readAudit(boardAudit(site), { key })) };
 }
 
+// A Todo card whose newest line is a refused start gets a line after it, which the pull reads as the refusal cleared
+// (docs/adr/2026-11-16-0500-a-refused-start-returns-the-card-to-ready.md). A retitle clears the title refusal too.
+async function clearRefusal(site, key) {
+  const newest = (await readLog(threadFile(site, key))).filter((m) => !['status', MOVE].includes(m.kind)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  if (newest?.line === BUILD_REFUSED) await appendStatus(site, key, 'refusal-cleared');
+}
 const PICKED = ['codex', 'claude'];
 // `builder pick`: the kind builder start takes for a card's build. → {lines: ["codex: <reason>" or "claude <opus|sonnet>: <reason>"]}
 export async function pickBuilder(site, key) {
   const { item } = await loadItem(site, key);
+  if (site && item.lane === 'todo') await clearRefusal(site, key);
   const { kind, model, reason } = builderPick({ card: item });
   return { lines: [`${[kind, model].filter(Boolean).join(' ')}: ${reason}`] };
 }

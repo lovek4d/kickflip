@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardWith, home, at, site, write, read, lines, run, runAsync, board, onOrch, threadOf, wave, question, git, commit, scratchRepo, worktree, land, branches, record, toolUse, toolResult, stopHook, ago, onHome, pollClock } from './board-fixture.mjs';
+import { boardWith, home, at, site, write, read, lines, run, runAsync, board, onOrch, threadOf, wave, question, git, commit, scratchRepo, worktree, land, branches, record, itemOf, toolUse, toolResult, stopHook, ago, onHome, pollClock } from './board-fixture.mjs';
 import * as store from './store.mjs';
 
 test('agent.mjs still writes builder records, beside the wave file it names', async () => {
@@ -922,4 +922,20 @@ test("a past run's record is no agent of the card: builder list and a later done
   assert.equal(fs.readdirSync(at('waves', 'w', 'agents')).filter((n) => n.startsWith('A1@past-')).length, 1);
   const out = await board('builder', 'list', 'w/A1', '--site', 'orch');
   assert.doesNotMatch(out.out + out.err, /past-/);
+});
+
+// docs/adr/2026-11-16-0500-a-refused-start-returns-the-card-to-ready.md
+test('a refused start returns the card to ready, and the pull leaves it until builder pick or a retitle clears the refusal', async (t) => {
+  onHome(t);
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'feat: one', lane: 'todo', phase: 'ready' }] });
+  const refuse = () => Promise.reject(new store.BoardError('--worktree: …/A1 already exists; land or remove it first'));
+  assert.equal(await store.startTappedBuild(site('orch'), 'w/A1', refuse, 'hub'), null);
+  assert.deepEqual([itemOf().lane, itemOf().phase], ['todo', 'ready']);
+  // The refusal line is the newest, so the pull skips the card; builder pick adds the line that clears it.
+  assert.equal(threadOf().at(-1).line, 'build-refused');
+  assert.equal((await onOrch('builder', 'pick', 'w/A1')).code, 0);
+  assert.equal(threadOf().at(-1).line, 'refusal-cleared');
+  const started = await store.startTappedBuild(site('orch'), 'w/A1', async () => ({ path: at('wt'), branch: 'A1', repo: 'r' }), 'hub');
+  assert.equal(started.key, 'w/A1');
+  assert.equal(itemOf().lane, 'progress');
 });

@@ -3170,3 +3170,12 @@ test("a card's Tap Done is no owner action: it neither pushes nor counts in the 
   assert.deepEqual(ownerActions(built).map((a) => a.kind), ['implement']);
   assert.equal(ownerActions({ ...built, items: [item('w/A1', 'close')] }).length, 0);
 });
+
+// docs/adr/2026-11-16-0500-a-refused-start-returns-the-card-to-ready.md
+test("a ready Todo card whose refused start is its newest line isn't pulled until a later line clears it", () => {
+  const card = (lines) => buildBoard({ fromWaves: false, threads: { 'w/T-1': lines }, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'feat: hi', phase: 'ready' }] } }] }).items.find((i) => i.key === 'w/T-1');
+  const refused = { ts: '2026-11-16T01:00:00.000Z', who: 'claude', kind: 'hub', line: 'build-refused', text: "Couldn't start implementing: leftover" };
+  assert.deepEqual(pullOf([card([])]).pullable, ['w/T-1']);
+  assert.deepEqual(pullOf([card([refused])]).pullable, []);
+  assert.deepEqual(pullOf([card([refused, { ...refused, ts: '2026-11-16T01:05:00.000Z', line: 'refusal-cleared', text: 'Cleared' }])]).pullable, ['w/T-1']);
+});

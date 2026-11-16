@@ -1704,7 +1704,8 @@ export function needsAnswer(b) {
 // owed since its block ended. Ready says the rest: it comes only from staging, and a question, a Grill or Prototype
 // tap, or a Reply takes a card out of it (docs/adr/2026-11-07-0700-staging-then-ready.md,
 // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md).
-const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.blocked && !i.recheckAt;
+// A refusal on the card stays until a later line (builder pick's) clears it, so the pull doesn't retry a refused start.
+const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.blocked && !i.recheckAt && !i.refusal;
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // A board's Maximum tasks in progress when board.json sets none.
