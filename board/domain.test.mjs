@@ -2489,8 +2489,8 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
     const key = `w/T-${id.slice(1)}`;
     return `Triage the new task first, from what you know of the board, reading no code: ${triage(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask, the checks a staged task gets (${checks}), then item set ${key} --phase ready with --size.`;
   };
-  const checks = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --deps), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
-  const triage = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--deps <keys>] [--split-of <key>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
+  const checks = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --blocked-by), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
+  const triage = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--parent <key> [--split]] [--blocked-by <keys>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
   const cards = [asked('e1'), asked('e2')];
 
   // An ask with no card yet waits on no one: it is unfiled, for the board server to file.

@@ -192,7 +192,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          and the board server moves the rest, each with a thread
                                                          line; --status is refused
          [--next <t> | --clear-next]                     an empty --next "" clears it, as --clear-next does
-                                                         naming another unfinished task requires it in --deps
+                                                         naming another unfinished task requires it in --blocked-by
          [--pr <n> | --pr <owner/repo#n>]...             adds a PR to the task, a bare number in the board's repo;
                                                          repeatable, and never replaces one. Each PR gets its own
                                                          badge and polling; the least-ready decides the task's lane
@@ -251,7 +251,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--size small|large] [--model opus|sonnet]      what builder pick reads while the hub's Claude model is
                                                          Auto: a small task gets Claude Sonnet, any other Opus, and
                                                          --model wins over --size; "" clears either
-         [--deps <id>,<file>/<id>]                       replaces its blocked-by list; --deps "" clears it
+         [--blocked-by <id>,<file>/<id>]                 replaces its Blocked by list; --blocked-by "" clears it
          [--blocked-until "<condition>"]                 blocks it until a condition an agent can check, which
                                                          the orchestrator checks on its passes over the tasks;
                                                          --blocked-until "" clears it, which threads and emits
@@ -299,37 +299,43 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          closes again only on the owner's Done
   item add <file>[/<id>] --title <t>                    a new task, unstarted; never
          [--ticket <id> | --new-ticket]                  hand-edit the item file to add one. Refuses an id the file has.
-         [--deps <id>,<file>/<id>]                       A task with no ticket unless --ticket links one or
+                                                         A task with no ticket unless --ticket links one or
                                                          --new-ticket makes one from the title and notes
          (--notes <t> | --notes-from <draft.md>)         required on a board, except with --from-ask; the board makes the task's own notes, <id>-notes.md beside
                                                          its item file, read-only: the draft verbatim, or "# <title>"
                                                          then the --notes text. Refuses a draft that is any task's
                                                          notes file, live, done or archived, naming that task
+         [--relate <id>,<file>/<id>]                     the tasks it touches, shown as Related to on both. On a
+                                                         board a task of your own needs it, bar --from-ask and an
+                                                         imported ticket, which are the owner's. Its title and
+                                                         notes must link each task they name (T-<n>, GH-<n>,
+                                                         #<ticket>, <file>/<id>; not inside "quotes"), by any link
+         [--blocked-by <id>,<file>/<id>]                 the tasks it waits on: its Blocked by
+         [--blocks <id>,<file>/<id>]                     the tasks that wait on it, each gaining it as Blocked by
          [--pick-up-at <time> | --blocked]               blocks it until then, or until unblocked, as item set's
          [--size small|large] [--model opus|sonnet]      as item set's
-         On a board, --parent, --from and --split-of go only with --ask: a task filed from another comes in as an ask
+         On a board, --parent goes only with --ask: a task filed from another comes in as an ask
   item add <file> --ask <request>                       a task you file comes in as an ask through New, as the
-         [--parent | --from | --split-of <file>/<id>]    owner's do: an ask event, your plain-text request, filed at
-         [--relate <ids>] [--after <ids>]                once as a New T-<n> task in <file>, born with the links it
-         [--before <ids>] [--by builder|planner]         carries; it waits in intake for your triage, investigation
+         [--parent <file>/<id> [--split]]                owner's do: an ask event, your plain-text request, filed at
+         [--relate <ids>] [--blocked-by <ids>]           once as a New T-<n> task in <file>, born with the links it
+         [--blocks <ids>] [--by builder|planner]         carries; it waits in intake for your triage, investigation
                                                          and one reply. Its thread opens with a blue "From the
-                                                         orchestrator", or with --by and a source "From <ref>'s
+                                                         orchestrator", or with --by and a --parent "From <ref>'s
                                                          builder". Refuses --title, --notes, --phase and the rest
-                                                         triage decides. Prints "<label> added as <key>: an ask in New"
-         [--parent <file>/<id>]                          the task it was spun out of, such as one filed from
-                                                         another task's thread, grill or answer: it reads as a
-                                                         follow-up, and its Parent lists it in Children. A task
-                                                         from the + or New task has none
-         [--from <file>/<id>]                            spins it out of that task: sets it as the Parent, as
-                                                         --parent does, but the threads read Created ticket and
-                                                         Created from, blue, in place of Follow-up. Refuses
-                                                         --parent beside it
-         [--split-of <file>/<id>]                      a task split from that one: sets it as the Parent, as
-                                                         --parent does, and copies its gates, the owner's prototype
-                                                         answer, so its grill never asks it again.
-                                                         Refuses --parent beside it
+                                                         triage decides. Prints "<label> added as <key>: an ask in New".
+                                                         It names where it came from, --parent or --relate, and
+                                                         links each task the request names, as --title's notes do;
+                                                         --blocked-by and --blocks only order it
+         [--parent <file>/<id>]                          the task it came from: a split, a follow-up, something
+                                                         found while building it. Its Parent lists it in Children,
+                                                         and the threads read Created ticket and Created from,
+                                                         blue. A task from the + or New task has none
+         [--split]                                       with --parent, a split of that task: copies its gates, the
+                                                         owner's prototype answer, so its grill never asks it again
+         [--relate <id>,<file>/<id>]                     the tasks it touches, worth reading together, neither
+                                                         causing the other; nothing is inherited
          [--phase discussing|grilling|prototyping|ready] files it at once, as item set's --phase; the session's
-         [--relate <id>,<file>/<id>]                     own form, linking it with --relate in the same call.
+                                                         own form, linking it with --relate in the same call.
                                                          ready is for a Quick build ask (--from-ask), with --size
                                                          and --notes or --notes-from, since a builder starts from it
          [--text <t>]                                    with --phase discussing, required: the task's first thread
@@ -351,10 +357,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          headed "Folded from <ref> "<title>"" without --heading.
                                                          Resolves answered questions still waiting on Claude,
                                                          noting "Recorded in the task's notes", and prints
-                                                         "resolved: <id>" for each
+                                                         "resolved: <id>" for each. A task the section names
+                                                         (T-<n>, GH-<n>, #<ticket>, <file>/<id>; not inside
+                                                         "quotes") that the task has no link with becomes Related
+                                                         to, with a line in both threads; prints "related: <key>"
   item triage <file>/<id> --title <t> --phase <p>        the first move on a new task, from what you know of the
-         [--relate <id>,<file>/<id>] [--split-of <key>]  board, reading no code: one call sets the title (Conventional),
-         [--deps <id>,<file>/<id>] [--ticket <id>]       the phase (discussing, grilling, prototyping, or visual,
+         [--relate <id>,<file>/<id>] [--ticket <id>]     board, reading no code: one call sets the title (Conventional),
+         [--parent <key> [--split]] [--blocked-by <ids>] the phase (discussing, grilling, prototyping, or visual,
                                                          which reads discussing for the visual's brief) and the
                                                          links as item set's and item add's, which sorts the New
                                                          task and ends its intake wait. Posts nothing in its
@@ -831,7 +840,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'blocked', 'unblocked', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close']);
+const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'blocked', 'unblocked', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close', 'split']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -849,11 +858,16 @@ function parse(argv) {
   return { flags, rest };
 }
 
+// docs/adr/2026-11-16-1700-a-filed-task-links-where-it-came-from-and-the-tasks-it-names.md: the link flags the task
+// commands took before each was named for its row on the card.
+const RENAMED_LINKS = { from: '--parent', 'split-of': '--parent <task> --split', after: '--blocked-by', before: '--blocks', deps: '--blocked-by' };
 // A command's flags, each a value, or a list for a flag its allowed list names as ...<name>, which may repeat.
 function flagsOf(name, allowed, flags) {
   const repeated = new Set(allowed.filter((a) => a.startsWith('...')).map((a) => a.slice(3)));
   const known = new Set(allowed.map((a) => a.replace(/^\.\.\./, '')));
   const unknown = Object.keys(flags).filter((k) => !known.has(k));
+  const renamed = name.startsWith('item ') && unknown.find((k) => RENAMED_LINKS[k]);
+  if (renamed) throw new UsageError(`--${renamed} is now ${RENAMED_LINKS[renamed]}, the name of its link on the card`);
   if (unknown.length) throw new UsageError(`${name} does not take ${unknown.map((k) => '--' + k).join(', ')}`);
   return Object.fromEntries(Object.entries(flags).map(([k, v]) => {
     if (v === true || repeated.has(k)) return [k, v];
@@ -999,25 +1013,25 @@ const COMMANDS = {
   'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['file/id'], ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check'], async (site, [key], f, options) => {
+  'item set': [['file/id'], ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check'], async (site, [key], f, options) => {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     if (f.done && site) await store.checkNotReopened(site, key);
     if (site && [f.phase, f.title, f.ticket, f['new-ticket']].some((v) => v !== undefined)) await store.refuseUnreadEdit(site, key);
-    return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
+    return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f['blocked-by'], blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check }, options);
   }],
-  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'before', 'after', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'from', 'split-of', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by'], (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'blocks', 'blocked-by', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'split', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new task\'s notes with item add --notes-from <draft.md>');
     // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
     if (f.ask !== undefined) {
       const decided = ['title', 'notes', 'notes-from', 'phase', 'state', 'size', 'model', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'from-ask', 'text'].find((k) => f[k] !== undefined);
       if (decided) throw new UsageError(`--ask files the orchestrator's request as an ask; triage titles, notes and sorts it, so drop --${decided}`);
-      return store.askItem(needSite(site, 'item add --ask'), key, { text: f.ask, from: f.from, parent: f.parent, splitOf: f['split-of'], relate: f.relate, deps: f.after, before: f.before, by: f.by }, options);
+      return store.askItem(needSite(site, 'item add --ask'), key, { text: f.ask, parent: f.parent, split: f.split, relate: f.relate, deps: f['blocked-by'], before: f.blocks, by: f.by }, options);
     }
     if (f.by !== undefined) throw new UsageError('--by names who asked, with --ask');
     if (f.phase === 'discussing' && f.text === undefined && f['from-ask'] === undefined) throw new UsageError('item add --phase discussing needs --text "<first message>": the task opens with it, after Created from, and reads the owner\'s turn');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], before: f.before, deps: f.after, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], block: f.blocked, parent: f.parent, from: f.from, splitOf: f['split-of'], size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], before: f.blocks, deps: f['blocked-by'], ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], block: f.blocked, parent: f.parent, split: f.split, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true, filed: Boolean(site) }, options);
   }],
   'item notes': [['file/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');
@@ -1025,9 +1039,9 @@ const COMMANDS = {
     return store.addNotes(site, key, f);
   }],
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
-  'item triage': [['file/id'], ['title', 'phase', 'relate', 'split-of', 'deps', 'ticket', 'text', 'fold-into'], async (site, [key], f, options) => {
+  'item triage': [['file/id'], ['title', 'phase', 'relate', 'parent', 'split', 'blocked-by', 'ticket', 'text', 'fold-into'], async (site, [key], f, options) => {
     await store.refuseUnreadEdit(needSite(site, 'item triage'), key);
-    return store.triageItem(site, key, { title: f.title, phase: f.phase, relate: f.relate, splitOf: f['split-of'], deps: f.deps, ticket: f.ticket, text: f.text, foldInto: f['fold-into'] }, options);
+    return store.triageItem(site, key, { title: f.title, phase: f.phase, relate: f.relate, parent: f.parent, split: f.split, deps: f['blocked-by'], ticket: f.ticket, text: f.text, foldInto: f['fold-into'] }, options);
   }],
   'item relate-ask': [['eventId', 'file/id'], ['summary'], async (site, [id, key], f) => {
     await store.refuseUnreadEdit(site, id);

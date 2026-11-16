@@ -143,7 +143,7 @@ export const LAND_WORDS = {
   blocked: { card: ({ blocked }) => `Landing blocked ${blocked}`, next: ({ blocked }) => `Landing blocked ${blocked}; the board launches a lander once nothing blocks it` },
   asking: { card: () => 'Landing waits on its open question', next: () => 'Landing waits on its open question; the board launches a lander once it is answered' },
   'worktree-gone': { card: () => "Lander can't start: its worktree is gone", next: ({ key }) => `Its worktree is gone, so no lander can start: restore ${key}'s worktree from its branch, or ${STALL_NEXT}` },
-  fault: { card: () => 'Lander exited twice without landing', next: ({ key }) => `Its lander exited twice without landing: read its log, then file the fix with item add --before ${key} (it blocks this task until the fix lands), board.mjs lander ${key} to try once more, or ${STALL_NEXT}` },
+  fault: { card: () => 'Lander exited twice without landing', next: ({ key }) => `Its lander exited twice without landing: read its log, then file the fix with item add ${key.split('/')[0]} --ask "<the fix>" --parent ${key} --blocks ${key} (it blocks this task until the fix lands), board.mjs lander ${key} to try once more, or ${STALL_NEXT}` },
 };
 // docs/adr/2026-11-06-1546-only-a-run-that-changes-code-moves-an-in-review-card.md
 // Whether a build agent's run can change the card's code: not an install run, which builds the app from the branch,
@@ -1856,11 +1856,11 @@ export function relatedCandidates(items, it) {
     .slice(0, CANDIDATES_SHOWN)
     .map(({ o }) => o);
 }
-const TRIAGE = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--deps <keys>] [--split-of <key>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
+const TRIAGE = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--parent <key> [--split]] [--blocked-by <keys>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
 const candidatesLine = (cards) => (cards.length ? ` Likely related (check them, don't hunt): ${cards.map((c) => `${c.key} "${c.title}"`).join(', ')}.` : '');
 // docs/adr/2026-11-07-0700-staging-then-ready.md: what a task is checked against before it goes ready, staged or filed
 // from an Implement ask.
-const STAGING_CHECKS = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --deps), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
+const STAGING_CHECKS = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --blocked-by), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
 const INTAKE_NEXT = {
   ask: (key, cards, e) => `Triage the new task ${e.data?.asked ? `${askedBy(e.data.asked)} asked, ${NOT_THE_OWNER},` : 'first,'} from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask, the checks a staged task gets (${STAGING_CHECKS}), then item set ${key} --phase ready with --size.${candidatesLine(cards)}`,
   'card-added': (key, cards) => `Triage the task an agent added, from what you know of the board: ${TRIAGE(key)}. Then investigate: item notes.${candidatesLine(cards)}`,

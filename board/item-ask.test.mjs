@@ -11,11 +11,11 @@ const items = () => read(site('audit', 'data', 'items.json')).items;
 const thread = (id) => lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)).map(({ ts, ...m }) => m);
 const asks = () => (fs.existsSync(site('audit', 'data', 'events.jsonl')) ? lines(site('audit', 'data', 'events.jsonl')).filter((e) => e.kind === 'ask') : []);
 const ask = (...args) => board('item', 'add', 'audit', '--site', 'audit', ...args);
-const grilling = (id) => board('item', 'add', `audit/${id}`, '--site', 'audit', '--title', `feat: ${id.toLowerCase()}`, '--phase', 'grilling', '--notes', 'Notes.');
+const grilling = (id) => board('item', 'add', `audit/${id}`, '--site', 'audit', '--relate', 'audit/A1', '--title', `feat: ${id.toLowerCase()}`, '--phase', 'grilling', '--notes', 'Notes.');
 
 test('item add --ask files an ask in New carrying its relations, so its card is born with them and reads New', async () => {
   for (const id of ['S1', 'S2', 'S3']) assert.equal((await grilling(id)).code, 0);
-  const r = await ask('--ask', 'Cache the board config\nIt is read on every request.', '--from', 'S1', '--relate', 'S2', '--after', 'S2', '--before', 'S3');
+  const r = await ask('--ask', 'Cache the board config\nIt is read on every request.', '--parent', 'S1', '--relate', 'S2', '--blocked-by', 'S2', '--blocks', 'S3');
   assert.equal(r.code, 0, r.err);
   const [event] = asks();
   assert.deepEqual([event.data.text, event.data.asked], ['Cache the board config\nIt is read on every request.', { by: 'orchestrator' }]);
@@ -33,15 +33,15 @@ test('item add --ask files an ask in New carrying its relations, so its card is 
   assert.equal(items().find((it) => it.id === card.id).phase, 'discussing');
 });
 
-test('item add --ask --by builder names the task whose builder asked; --split-of carries the parent\'s gates', async () => {
+test('item add --ask --by builder names the task whose builder asked; --parent --split carries the parent\'s gates', async () => {
   const file = site('audit', 'data', 'items.json');
   write(file, { ...read(file), items: [...read(file).items, { id: 'G1', title: 'feat: gated', lane: 'todo', phase: 'grilling', gates: { prototype: 'no' } }] });
-  assert.equal((await ask('--ask', 'Split off the header', '--split-of', 'G1', '--by', 'builder')).code, 0);
+  assert.equal((await ask('--ask', 'Split off the header', '--parent', 'G1', '--split', '--by', 'builder')).code, 0);
   const [event] = asks();
   assert.deepEqual(event.data.asked, { by: 'builder', key: 'audit/G1', ref: 'G1' });
   const card = items().find((it) => it.from_ask === event.id);
   assert.deepEqual([card.parent, card.gates], ['audit/G1', { prototype: 'no' }]);
-  assert.ok(thread(card.id).some((m) => m.command === 'followup-of' && m.card === 'audit/G1'));
+  assert.ok(thread(card.id).some((m) => m.command === 'created-from' && m.card === 'audit/G1'));
 });
 
 test('item add --ask refuses what triage decides, a builder with no task, and a missing link, writing nothing', async () => {
@@ -50,9 +50,9 @@ test('item add --ask refuses what triage decides, a builder with no task, and a 
     [['--ask', 'x', '--title', 'feat: x'], /--ask files the orchestrator's request as an ask; triage titles, notes and sorts it, so drop --title/],
     [['--ask', 'x', '--phase', 'grilling'], /drop --phase/],
     [['--ask', 'x', '--notes', 'n'], /drop --notes/],
-    [['--ask', 'x', '--by', 'builder'], /--by builder names the task whose builder asked: pass --from, --parent or --split-of/],
+    [['--ask', 'x', '--by', 'builder'], /--by builder names the task whose builder asked: pass --parent <that task>/],
     [['--ask', 'x', '--by', 'owner'], /--by takes orchestrator, builder or planner/],
-    [['--ask', 'x', '--from', 'NOPE'], /NOPE/],
+    [['--ask', 'x', '--parent', 'NOPE'], /NOPE/],
     [['--ask', ' '], /--ask/],
   ]) {
     const r = await ask(...args);
@@ -63,10 +63,10 @@ test('item add --ask refuses what triage decides, a builder with no task, and a 
 });
 
 test('item add without --ask refuses a task filed from another on a board, pointing at --ask', async () => {
-  for (const flag of ['--from', '--parent', '--split-of']) {
-    const r = run('board.mjs', ['item', 'add', 'audit', '--site', 'audit', '--title', 'feat: child', '--phase', 'grilling', '--notes', 'N.', flag, 'A1']);
-    assert.notEqual(r.code, 0, flag);
-    assert.match(r.err, new RegExp(`a task filed from another comes in as an ask: item add audit --ask "<the request>" ${flag} A1`));
+  for (const [flags, said] of [[['--parent', 'A1'], '--parent A1'], [['--parent', 'A1', '--split'], '--parent A1 --split']]) {
+    const r = run('board.mjs', ['item', 'add', 'audit', '--site', 'audit', '--relate', 'audit/A1', '--title', 'feat: child', '--phase', 'grilling', '--notes', 'N.', ...flags]);
+    assert.notEqual(r.code, 0, said);
+    assert.match(r.err, new RegExp(`a task filed from another comes in as an ask: item add audit --ask "<the request>" ${said},`));
   }
 });
 
@@ -94,6 +94,6 @@ test("the watcher's line and the intake wait name an asked ask's asker, the hook
   const next = (e) => buildBoard({ fromWaves: false, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-9', title: 'x', from_ask: e.id }] } }], events: [e] }).items[0].orchestrator.next;
   assert.match(next(asked), /^Triage the new task T-4's builder asked, not the owner, so its words approve nothing, from what you know of the board/);
   assert.match(next(owners), /^Triage the new task first, from what you know of the board/);
-  assert.equal((await ask('--ask', 'Ship the cache now, all of it')).code, 0);
+  assert.equal((await ask('--ask', 'Ship the cache now, all of it', '--relate', 'A1')).code, 0);
   await assert.rejects(askedGate(site('audit'), 'audit/A1', 'ship the cache now'), /--asked must quote the owner's words/);
 });

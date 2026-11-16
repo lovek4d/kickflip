@@ -31,7 +31,7 @@ test('a blocked card In Review stays there, and merge refuses it naming what blo
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
   write(waveFile(), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, phase: 'ready', lane: 'review' }, { id: 'ENG-1', title: 'Later' }] });
   writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' }));
-  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1')).code, 0);
   assert.deepEqual([itemOf().pr, fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl'))], [7, false], 'In Review, nothing is sent back');
   const merge = await boardWith(['--site', 'orch', 'merge', 'w/A1'], env);
   assert.deepEqual([merge.code, merge.err], [1, 'Not merged: blocked by ENG-1.\n']);
@@ -133,6 +133,6 @@ test('--next naming an unfinished card by its #number is refused without --deps'
   write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'review' }, { id: 'ENG-1', title: 'Later', ticket: '#398', lane: 'progress' }] });
   const r = await onOrch('item', 'set', 'w/A1', '--next', 'Tag once #398 lands');
   assert.equal(r.code, 1);
-  assert.match(r.err, /names unfinished task w\/ENG-1; add it with --deps/);
-  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1', '--next', 'Tag once #398 lands')).code, 0);
+  assert.match(r.err, /names unfinished task w\/ENG-1; add it with --blocked-by/);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1', '--next', 'Tag once #398 lands')).code, 0);
 });

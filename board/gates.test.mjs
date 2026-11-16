@@ -90,15 +90,15 @@ test("a grill that ends asking nothing on a card whose prototype answer is kept 
 });
 
 // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md: a split comes in as an ask.
-test('item add --ask --split-of sets the Parent and copies its gates; it refuses --parent beside it', async () => {
+test('item add --ask --parent --split sets the Parent and copies its gates; --split needs --parent', async () => {
   const w = world({ gates: { prototype: 'no' } }, [{ id: 'B1', title: 'Bare', lane: 'todo', phase: 'grilling' }]);
-  const { key } = await askItem(w.site, 't', { text: 'Slice one', splitOf: 't/A1' });
+  const { key } = await askItem(w.site, 't', { text: 'Slice one', parent: 't/A1', split: true });
   const id = key.split('/')[1];
   assert.deepEqual([w.read(id).parent, w.read(id).gates], ['t/A1', { prototype: 'no' }]);
-  const bare = (await askItem(w.site, 't', { text: 'Slice of a bare task', splitOf: 't/B1' })).key.split('/')[1];
+  const bare = (await askItem(w.site, 't', { text: 'Slice of a bare task', parent: 't/B1', split: true })).key.split('/')[1];
   assert.deepEqual([w.read(bare).parent, 'gates' in w.read(bare)], ['t/B1', false]);
-  await assert.rejects(askItem(w.site, 't', { text: 'Both', splitOf: 't/A1', parent: 't/A1' }), /--parent and --split-of each set the Parent; pass one/);
-  await assert.rejects(askItem(w.site, 't', { text: 'Gone', splitOf: 't/Z9' }), /Z9/);
+  await assert.rejects(askItem(w.site, 't', { text: 'Alone', relate: 't/A1', split: true }), /--split copies the Parent's gates, so it goes with --parent/);
+  await assert.rejects(askItem(w.site, 't', { text: 'Gone', parent: 't/Z9', split: true }), /Z9/);
 });
 
 // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a card's ticket is made at ready, so no question asks for one.

@@ -73,9 +73,9 @@ test('item add files every new card as a task keyed T-<n> with no ticket, on eve
   const b = board('add');
   for (const [name, source] of SOURCES) {
     await saveBoardSettings(b.site, { tickets: source });
-    assert.equal(await cli('add', 'item', 'add', `add/${name}`, '--phase', 'grilling', '--title', `feat: on ${name}`), 0);
+    assert.equal(await cli('add', 'item', 'add', `add/${name}`, '--phase', 'grilling', '--relate', 'INT-1', '--title', `feat: on ${name}`), 0);
     assert.equal(b.item(name).ticket, undefined);
-    assert.equal(await cli('add', 'item', 'add', 'add', '--phase', 'grilling', '--title', `feat: unnamed on ${name}`), 0);
+    assert.equal(await cli('add', 'item', 'add', 'add', '--phase', 'grilling', '--relate', 'INT-1', '--title', `feat: unnamed on ${name}`), 0);
   }
   assert.deepEqual(b.items().filter((it) => it.id.startsWith('T-')).map((it) => [it.id, it.ticket]), [['T-1', undefined], ['T-2', undefined], ['T-3', undefined]]);
   assert.equal(created.length, 0);
@@ -91,7 +91,7 @@ test('T-<n> counts every wave and the Done archive, so a key is never reused', a
   t.after(() => fs.rmSync(waves, { recursive: true, force: true }));
   write(path.join(waves, 'one', 'wave.json'), { title: 'One', items: [{ id: 'T-4', title: 'Four' }] });
   write(path.join(waves, 'two', 'wave.json'), { title: 'Two', items: [] });
-  assert.equal(await cli('count', 'item', 'add', 'two', '--phase', 'grilling', '--title', 'feat: next'), 0);
+  assert.equal(await cli('count', 'item', 'add', 'two', '--phase', 'grilling', '--relate', 'one/T-4', '--title', 'feat: next'), 0);
   assert.equal(read(path.join(waves, 'two', 'wave.json')).items[0].id, 'T-8');
 });
 
@@ -99,14 +99,14 @@ test('item add --ticket links a ticket up front and names the card from it; --ne
   quiet(t);
   const b = board('linked');
   await saveBoardSettings(b.site, { tickets: { source: 'github' } });
-  assert.equal(await cli('linked', 'item', 'add', 'linked', '--phase', 'grilling', '--title', 'feat: linked', '--ticket', '#41'), 0);
+  assert.equal(await cli('linked', 'item', 'add', 'linked', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: linked', '--ticket', '#41'), 0);
   assert.equal(b.item('GH-41').ticket, '#41');
   const before = created.length;
-  assert.equal(await cli('linked', 'item', 'add', 'linked', '--phase', 'grilling', '--title', 'feat: made', '--notes', 'Lands code.', '--new-ticket'), 0);
+  assert.equal(await cli('linked', 'item', 'add', 'linked', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: made', '--notes', 'Lands code.', '--new-ticket'), 0);
   const made = b.items().at(-1);
   assert.deepEqual([made.id, made.ticket, made.ticket_created], [made.ticket.replace('#', 'GH-'), made.ticket, true]);
   assert.deepEqual(created.slice(before), [{ title: 'feat: made', body: 'Lands code.' }]);
-  assert.equal(await cli('linked', 'item', 'add', 'linked', '--phase', 'grilling', '--title', 'feat: both', '--ticket', '#5', '--new-ticket'), 1);
+  assert.equal(await cli('linked', 'item', 'add', 'linked', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: both', '--ticket', '#5', '--new-ticket'), 1);
 });
 
 test('item add <file>/GH-<n> links that issue; item set --ticket takes GH-<n>; an id the source lacks refuses and writes nothing', async (t) => {
@@ -114,33 +114,33 @@ test('item add <file>/GH-<n> links that issue; item set --ticket takes GH-<n>; a
   const errors = errorsOf(t);
   const b = board('imported');
   await saveBoardSettings(b.site, { tickets: { source: 'github' } });
-  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-488', '--phase', 'grilling', '--title', 'feat: imported'), 0);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-488', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: imported'), 0);
   assert.equal(b.item('GH-488').ticket, '#488');
-  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-404', '--phase', 'grilling', '--title', 'feat: missing'), 1);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-404', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: missing'), 1);
   assert.match(errors.at(-1), /Could not resolve/);
   assert.equal(b.item('GH-404'), undefined);
-  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-500', '--phase', 'grilling', '--title', 'feat: mismatch', '--ticket', '#501'), 1);
-  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-500', '--phase', 'grilling', '--title', 'feat: same', '--ticket', '#500'), 0);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-500', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: mismatch', '--ticket', '#501'), 1);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-500', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: same', '--ticket', '#500'), 0);
   assert.equal(b.item('GH-500').ticket, '#500');
-  assert.equal(await cli('imported', 'item', 'add', 'imported/bump', '--phase', 'grilling', '--title', 'feat: plain'), 0);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/bump', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: plain'), 0);
   assert.equal(b.item('bump').ticket, undefined);
-  assert.equal(await cli('imported', 'item', 'add', 'imported/T-9', '--phase', 'grilling', '--title', 'feat: task'), 0);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/T-9', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: task'), 0);
   assert.equal(b.item('T-9').ticket, undefined);
-  assert.equal(await cli('imported', 'item', 'add', 'imported', '--phase', 'grilling', '--title', 'feat: setme'), 0);
+  assert.equal(await cli('imported', 'item', 'add', 'imported', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: setme'), 0);
   assert.equal(await cli('imported', 'item', 'set', 'imported/T-10', '--ticket', 'GH-77'), 0);
   assert.equal(b.item('T-10').ticket, '#77');
   await saveBoardSettings(b.site, { tickets: { source: 'none' } });
-  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-5', '--phase', 'grilling', '--title', 'feat: no source'), 0);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-5', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: no source'), 0);
   assert.equal(b.item('GH-5').ticket, undefined);
 });
 
 test('item set --new-ticket gives a task a ticket in the source, keeping its key; refused on a card with one, and on a board with none', async (t) => {
   const errors = errorsOf(t);
   const b = board('later');
-  assert.equal(await cli('later', 'item', 'add', 'later', '--phase', 'grilling', '--title', 'feat: task'), 0);
+  assert.equal(await cli('later', 'item', 'add', 'later', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: task'), 0);
   assert.equal(await cli('later', 'item', 'set', 'later/T-1', '--new-ticket'), 1);
   assert.equal(errors.at(-1), NO_SOURCE);
-  assert.equal(await cli('later', 'item', 'add', 'later', '--phase', 'grilling', '--title', 'feat: linked', '--ticket', 'ENG-3'), 1);
+  assert.equal(await cli('later', 'item', 'add', 'later', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: linked', '--ticket', 'ENG-3'), 1);
   assert.equal(errors.at(-1), NO_SOURCE);
   await saveBoardSettings(b.site, { tickets: LINEAR });
   assert.equal(await cli('later', 'item', 'set', 'later/T-1', '--new-ticket'), 0);
@@ -227,7 +227,7 @@ test('the Internal source is retired: settings refuse it, and a board.json still
   write(path.join(b.site, 'board.json'), { ...read(path.join(b.site, 'board.json')), tickets: { source: 'internal', prefix: 'OPS' } });
   const { readBoardSettings } = await import('./store.mjs');
   assert.equal((await readBoardSettings(b.site)).tickets, undefined);
-  assert.equal(await cli('retired', 'item', 'add', 'retired', '--phase', 'grilling', '--title', 'feat: a task'), 0);
+  assert.equal(await cli('retired', 'item', 'add', 'retired', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: a task'), 0);
   assert.equal(b.item('T-1').ticket, undefined);
   await saveBoardSettings(b.site, { tickets: { source: 'github' } });
   await saveBoardSettings(b.site, { tickets: { source: 'none' } });
@@ -242,10 +242,10 @@ test("a ticket a board on Linear can't make after its key went is refused and wr
   key.remove();
   const waveFile = path.join(b.site, 'data', 'items.json');
   const before = fs.readFileSync(waveFile, 'utf8');
-  assert.equal(await cli('stale', 'item', 'add', 'stale/X', '--phase', 'grilling', '--title', 'feat: x', '--new-ticket'), 1);
+  assert.equal(await cli('stale', 'item', 'add', 'stale/X', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: x', '--new-ticket'), 1);
   assert.deepEqual(errors, [NO_KEY]);
   assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
-  assert.equal(await cli('stale', 'item', 'add', 'stale', '--phase', 'grilling', '--title', 'feat: y'), 0);
+  assert.equal(await cli('stale', 'item', 'add', 'stale', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: y'), 0);
   assert.equal(b.item('T-1').ticket, undefined);
 });
 
@@ -257,7 +257,7 @@ test('once Hub has no Linear key, every board on Linear falls back to no ticket 
   const onGithub = board('on-github');
   await saveBoardSettings(onLinear.site, { tickets: LINEAR });
   await saveBoardSettings(onGithub.site, { tickets: { source: 'github' } });
-  assert.equal(await cli('was-linear', 'item', 'add', 'was-linear/L1', '--phase', 'grilling', '--title', 'feat: on linear', '--new-ticket'), 0);
+  assert.equal(await cli('was-linear', 'item', 'add', 'was-linear/L1', '--phase', 'grilling', '--relate', 'INT-1', '--title', 'feat: on linear', '--new-ticket'), 0);
   const filed = onLinear.item('L1');
   assert.match(filed.ticket, /^ENG-\d+$/);
   assert.deepEqual(await fallBackFromLinear(), []);

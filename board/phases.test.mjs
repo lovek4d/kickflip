@@ -23,7 +23,7 @@ test("each lane's phases, in order: Todo's, the four build steps, In Review's an
 });
 
 test('item add and item set take --phase, store it as phase, and refuse --state naming --phase', async () => {
-  const added = await board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling');
+  const added = await board('item', 'add', 'audit/B2', '--site', 'audit', '--relate', 'audit/A1', '--title', 'feat: two', '--phase', 'grilling');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([auditItem('B2').phase, 'state' in auditItem('B2')], ['grilling', false]);
   for (const args of [['item', 'set', 'audit/B2', '--state', 'prototyping'], ['item', 'add', 'audit/B3', '--title', 'feat: three', '--state', 'grilling']]) {
@@ -36,7 +36,7 @@ test('item add and item set take --phase, store it as phase, and refuse --state 
 });
 
 test("--phase sets only a Todo card's phase", async () => {
-  assert.equal((await board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling')).code, 0);
+  assert.equal((await board('item', 'add', 'audit/B2', '--site', 'audit', '--relate', 'audit/A1', '--title', 'feat: two', '--phase', 'grilling')).code, 0);
   assert.equal((await board('builder', 'start', 'audit/B2', '--site', 'audit', '--kind', 'claude')).code, 0);
   const r = await board('item', 'set', 'audit/B2', '--site', 'audit', '--phase', 'grilling');
   assert.equal(r.code, 1);

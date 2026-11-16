@@ -33,7 +33,7 @@ function building(pid = null) {
 test("blocking a card In Progress asks its builder to pause: the card stays In Progress, its builder runs on and its record stays open", async (t) => {
   const pid = await fakeBuilder(t);
   building(pid);
-  const r = await runAsync('board.mjs', ['--site', 'orch', 'item', 'set', 'w/A1', '--deps', 'ENG-1']);
+  const r = await runAsync('board.mjs', ['--site', 'orch', 'item', 'set', 'w/A1', '--blocked-by', 'ENG-1']);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual([itemOf().lane, itemOf().deps], ['progress', ['ENG-1']]);
   assert.ok(alive(pid), 'nothing stops it at once');
@@ -45,7 +45,7 @@ test("blocking a card In Progress asks its builder to pause: the card stays In P
 
 test("a session's own builder is paused the same way, not refused", async () => {
   building();
-  const r = await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1');
+  const r = await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1');
   assert.equal(r.code, 0, r.err);
   assert.equal(record().pause.cause, 'blocked');
   assert.equal(itemOf().lane, 'progress');
@@ -54,7 +54,7 @@ test("a session's own builder is paused the same way, not refused", async () => 
 test("the builder's next progress report is its stopping point: the reply tells it to commit and stop, and the card reads paused at its phase", async () => {
   building();
   assert.equal((await onOrch('builder', 'progress', 'w/A1', '--phase', 'building', 'Writing the limiter test')).code, 0);
-  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1')).code, 0);
   const r = await onOrch('builder', 'progress', 'w/A1', '--phase', 'building', 'Writing the limiter code');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /Paused: blocked by ENG-1\. Commit what you have now .*then stop: end your turn and run nothing else\. The board resumes this session, telling it so, once the pause clears\./);
@@ -68,7 +68,7 @@ test("the builder's next progress report is its stopping point: the reply tells 
 
 test('a call or an ask is a stopping point too, and the call or ask is still recorded', async () => {
   building();
-  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1')).code, 0);
   const call = await onOrch('builder', 'call', 'w/A1', 'Kept the old name');
   assert.equal(call.code, 0, call.err);
   assert.match(call.out, /judgment call recorded on A1\nPaused: blocked by ENG-1/);
@@ -89,7 +89,7 @@ test("a builder waiting on its ask is already at a stopping point, so builder as
   const { now, checked } = pollClock(t);
   const waiting = store.listAsks(site('orch'), 'w/A1', { wait: true, now });
   await checked();
-  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1')).code, 0);
   t.mock.timers.tick(2000);
   const { lines } = await waiting;
   assert.match(lines.join('\n'), /Paused: blocked by ENG-1/);
@@ -99,7 +99,7 @@ test("a builder waiting on its ask is already at a stopping point, so builder as
 test('a card whose pause cause clears resumes: the record drops its pause and the thread says so', async (t) => {
   onHome(t);
   building();
-  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1')).code, 0);
   assert.equal((await onOrch('builder', 'progress', 'w/A1', '--phase', 'reading', 'Reading')).code, 0);
   await store.resumePaused(site('orch'), 'w/A1');
   assert.equal(record().pause, undefined);
@@ -110,7 +110,7 @@ test('a card whose pause cause clears resumes: the record drops its pause and th
 test('a pause whose cause clears before the builder stops is dropped with no line', async (t) => {
   onHome(t);
   building();
-  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1')).code, 0);
   await store.dropPause(site('orch'), 'w/A1');
   assert.equal(record().pause, undefined);
   assert.equal(texts().filter((l) => /Paused|Resumed/.test(l)).length, 0);

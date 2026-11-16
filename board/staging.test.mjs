@@ -15,7 +15,7 @@ const setState = (fields, id = 'A1') => {
 test('only the board stages a card: item set and item add refuse --phase staging', async () => {
   const refused = '--phase staging is set by the board, on an owner action; pass ready, discussing, grilling or prototyping\n';
   assert.deepEqual(await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'staging'), { code: 1, out: '', err: refused });
-  assert.deepEqual(await board('item', 'add', 'w/B1', '--site', 'orch', '--title', 'B', '--phase', 'staging'), { code: 1, out: '', err: refused });
+  assert.deepEqual(await board('item', 'add', 'w/B1', '--site', 'orch', '--relate', 'w/A1', '--title', 'B', '--phase', 'staging'), { code: 1, out: '', err: refused });
   assert.equal(item().phase, undefined);
   assert.equal(item('B1'), undefined);
 });
@@ -75,10 +75,10 @@ test('item add --from-ask refuses a Quick build ask that is not small, and write
 });
 
 test('item add without --from-ask files a card grilling or prototyping, never ready', async () => {
-  const r = await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--phase', 'ready', '--size', 'small');
+  const r = await board('item', 'add', 'w/Q1', '--site', 'orch', '--relate', 'w/A1', '--title', 'fix: quick', '--phase', 'ready', '--size', 'small');
   assert.deepEqual(r, { code: 1, out: '', err: "item add files a task discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask\n" });
   assert.equal(item('Q1'), undefined);
-  assert.equal((await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--phase', 'grilling')).code, 0);
+  assert.equal((await board('item', 'add', 'w/Q1', '--site', 'orch', '--relate', 'w/A1', '--title', 'fix: quick', '--phase', 'grilling')).code, 0);
 });
 
 // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md
@@ -200,7 +200,7 @@ test('an Implement message waiting from before staging becomes staging, keeping 
 test('a Quick build ask filed blocked and grilling goes ready and unblocks in one item set --from-ask', async () => {
   addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } });
   write(`${home}/draft.md`, '# Quick\n');
-  const added = await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--notes-from', `${home}/draft.md`, '--blocked');
+  const added = await board('item', 'add', 'w/Q1', '--site', 'orch', '--relate', 'w/A1', '--title', 'fix: quick', '--notes-from', `${home}/draft.md`, '--blocked');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([item('Q1').phase, item('Q1').held], ['discussing', true]);
   const filed = await board('item', 'set', 'w/Q1', '--site', 'orch', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--unblocked', '--size', 'small');

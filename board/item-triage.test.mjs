@@ -22,7 +22,7 @@ const messages = (id) => (!fs.existsSync(audit('data', 'threads', `audit__${id}.
 test('item triage sorts a New task in one call: its title, phase, links and ticket, and and nothing in its thread', async () => {
   auditEvents(ask('a1'));
   const key = await fileAsk('a1');
-  const r = await board('item', 'triage', key, '--title', 'fix(board): the header jumps on scroll', '--phase', 'discussing', '--relate', 'A1', '--deps', 'ENG-1', '--site', 'audit');
+  const r = await board('item', 'triage', key, '--title', 'fix(board): the header jumps on scroll', '--phase', 'discussing', '--relate', 'A1', '--blocked-by', 'ENG-1', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.match(r.out, /T-1: triaged discussing/);
   const t = item('T-1');
@@ -59,13 +59,13 @@ test('item triage --phase visual sorts the task discussing for the visual\'s bri
   assert.deepEqual([item('T-2').phase, messages('T-2')], ['grilling', []]);
 });
 
-test('item triage --split-of sets the Parent and copies its gates', async () => {
+test('item triage --parent --split sets the Parent and copies its gates', async () => {
   const items = read(audit('data', 'items.json'));
   items.items.find((i) => i.id === 'A1').gates = { prototype: 'Take B' };
   write(audit('data', 'items.json'), items);
   auditEvents(ask('a1'));
   const key = await fileAsk('a1');
-  assert.equal((await board('item', 'triage', key, '--title', 'feat(board): the header half', '--phase', 'discussing', '--split-of', 'A1', '--site', 'audit')).code, 0);
+  assert.equal((await board('item', 'triage', key, '--title', 'feat(board): the header half', '--phase', 'discussing', '--parent', 'A1', '--split', '--site', 'audit')).code, 0);
   assert.deepEqual([item('T-1').parent, item('T-1').gates], ['audit/A1', { prototype: 'Take B' }]);
   assert.deepEqual(messages('T-1'), []);
 });

@@ -728,23 +728,25 @@ export const fileAsk = (site, eventId, pending, options) => ticketWrite(site, as
 // opens its thread (domain.mjs askedLine); file, the item file its card goes in; and links {parent?, via?, related?,
 // deps?, before?}, as keys, which its card is born with (askLinks). Every link is checked before the event is
 // written. Filed at once, as handoff files on a board that may be down. → its card's key.
+// docs/adr/2026-11-16-1700-a-filed-task-links-where-it-came-from-and-the-tasks-it-names.md: it names where it came from,
+// a --parent or a --relate, and links every task its request names. via is split for --split, else from: a task
+// filed with a Parent is born from it.
 export const ASKERS = ['orchestrator', 'builder', 'planner'];
-const PARENT_FLAGS = { '--from': 'from', '--parent': 'parent', '--split-of': 'split' };
-export async function askItem(site, file, { text: request, from, parent, splitOf, relate, deps, before, by = 'orchestrator' }, options) {
+export async function askItem(site, file, { text: request, parent, split, relate, deps, before, by = 'orchestrator' }, options) {
   needSite(site);
   if (file.includes('/')) fail(`item add --ask files a task keyed by the board's next number; pass the item file alone, ${file.split('/')[0]}`);
   const words = text(request, '--ask');
   if (!ASKERS.includes(by)) fail('--by takes orchestrator, builder or planner');
-  const given = [['--from', from], ['--parent', parent], ['--split-of', splitOf]].filter(([, v]) => v !== undefined);
-  if (given.length > 1) fail(`${given[0][0]} and ${given[1][0]} each set the Parent; pass one`);
-  const [flag, source] = given[0] || [];
-  if (by !== 'orchestrator' && !source) fail(`--by ${by} names the task whose ${by} asked: pass --from, --parent or --split-of`);
+  if (by !== 'orchestrator' && parent === undefined) fail(`--by ${by} names the task whose ${by} asked: pass --parent <that task>`);
+  if (split && parent === undefined) fail(SPLIT_NEEDS_PARENT);
+  if (parent === undefined && relate === undefined) fail(`${UNSOURCED}: pass --parent <the task it came from> or --relate <the tasks it touches>`);
   await loadItemFile(site, file);
   const links = {};
-  if (source) Object.assign(links, { parent: await parentKey(site, file, null, source) || fail(`${flag} takes a task, such as <file>/<id>`), via: PARENT_FLAGS[flag] });
+  if (parent !== undefined) Object.assign(links, { parent: await parentKey(site, file, null, parent) || fail('--parent takes a task, such as <file>/<id>'), via: split ? 'split' : 'from' });
   if (relate !== undefined) links.related = await relatedKeys(site, file, relate, '--relate');
   if (deps !== undefined) links.deps = (await depList(site, file, deps)).map((d) => depKey(file, d));
   if (before !== undefined) links.before = (await depList(site, file, before)).map((d) => depKey(file, d));
+  await refuseUnlinked(site, 'the request', words, [links.parent, ...links.related || [], ...links.deps || [], ...links.before || []]);
   const asked = by === 'orchestrator' ? { by } : { by, key: links.parent, ref: await cardName(site, links.parent) };
   const id = await appendEvent(boardTarget(site), 'ask', { text: words, asked, file, ...(Object.keys(links).length ? { links } : {}) });
   // A running board may file it first, as it takes the event.
@@ -766,7 +768,7 @@ async function askLinks(site, item, slug, links = {}) {
 async function postAskLinks(site, key, links = {}, options) {
   const { item } = await loadItem(site, key);
   await blockLines(site, key, links.before || [], item.deps || [], options);
-  await postLinkLines(site, key, { related: new Set(), parent: null }, await linksOf(site, key), links.via === 'from');
+  await postLinkLines(site, key, { related: new Set(), parent: null }, await linksOf(site, key), true);
 }
 
 // The item file an ask's card goes in, {source, itemFile}: the one named slug, else the first there is; a file-items
@@ -958,13 +960,13 @@ export async function refuseInIntake(site, keys) {
     if (inIntake(item)) fail(`${key} is still in New: sort it first with item triage ${key} --title "<type>(<scope>): <summary>" --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task>; a Quick build ask goes item notes ${key}, then item set ${key} --phase ready --size small --from-ask <id>`);
   }
 }
-export async function triageItem(site, key, { title, phase, relate, splitOf, deps, ticket, text: said, foldInto }, options) {
+export async function triageItem(site, key, { title, phase, relate, parent, split, deps, ticket, text: said, foldInto }, options) {
   needSite(site);
   const { item } = await loadItem(site, key);
   if (!inIntake(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so item triage has nothing to do; change it with item set ${key}`);
   if (said !== undefined) messageText(said);
   if (foldInto !== undefined) {
-    if ([title, phase, relate, splitOf, deps, ticket].some((v) => v !== undefined)) fail('--fold-into closes the task into another; it takes only --text');
+    if ([title, phase, relate, parent, split, deps, ticket].some((v) => v !== undefined)) fail('--fold-into closes the task into another; it takes only --text');
     if (!item.from_ask) fail(`${key} is no New task an ask became, so there is nothing to fold; file it with item triage ${key} --title --phase, then close it with item set ${key} --done`);
     const summary = `Triaged: folded in ${await cardName(site, key)} "${item.title}"${said === undefined ? '' : `; ${said}`}`;
     await relateAsk(site, item.from_ask, foldInto, summary);
@@ -973,7 +975,7 @@ export async function triageItem(site, key, { title, phase, relate, splitOf, dep
   if (title === undefined || phase === undefined) fail(`item triage needs --title "<type>(<scope>): <summary>" and --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task> for a duplicate`);
   if (!TRIAGE_PHASES.includes(phase)) fail(`item triage --phase takes ${TRIAGE_PHASES.join(', ')}; ready follows the investigation, with item set ${key} --phase ready`);
   if (said !== undefined) fail('item triage --text goes only with --fold-into, whose line it joins; a triaged task shows no Triaged line, so put what you know in its notes (item notes)');
-  return setItem(site, key, { title, phase: phase === 'visual' ? 'discussing' : phase, relate, splitOf, deps, ticket, triaged: true }, options);
+  return setItem(site, key, { title, phase: phase === 'visual' ? 'discussing' : phase, relate, parent, split, deps, ticket, triaged: true }, options);
 }
 
 // Moves a folded ask back out of the card it was folded into, to a card of its own.
@@ -2639,7 +2641,12 @@ export async function addNotes(site, key, { heading, file, from }) {
   const name = await appendNotes(site, key, heading, body);
   await passNews(site, key, { from: 'notes', text: `the section "${heading}"; read it in ${path.resolve((await loadItem(site, key)).source.dir, name)}` });
   const lines = await resolveAnswered(site, key, "Recorded in the task's notes");
-  return { file: name, heading, lines };
+  // docs/adr/2026-11-16-1700-a-filed-task-links-where-it-came-from-and-the-tasks-it-names.md: notes are written while
+  // investigating, so a task the section names that isn't linked yet becomes Related rather than a refusal.
+  const linked = await linkedWith(site, key);
+  const unlinked = (await namedTasks(site, `${heading}\n${body}`)).filter((n) => n.key !== key && !linked.has(n.key)).map((n) => n.key);
+  if (unlinked.length) await setItem(site, key, { relate: unlinked.join(',') });
+  return { file: name, heading, lines: [...lines, ...unlinked.map((k) => `related: ${k}`)] };
 }
 
 // docs/adr/2026-11-09-1100-the-board-owns-a-cards-notes-file.md
@@ -3382,7 +3389,7 @@ async function checkNextDeps(site, key, item, next) {
       const otherKey = `${source.slug}/${other.id}`;
       if (otherKey === key || deps.has(otherKey) || closed(other)) continue;
       const names = [other.id, refOf(itemFile, other), other.ticket].filter(Boolean).flatMap((id) => [id, `${source.slug}/${id}`]);
-      if (names.some((name) => mentions.has(name))) fail(`--next names unfinished task ${otherKey}; add it with --deps`);
+      if (names.some((name) => mentions.has(name))) fail(`--next names unfinished task ${otherKey}; add it with --blocked-by`);
     }
   }
 }
@@ -3495,7 +3502,7 @@ function markMerged(item, merged, repo) {
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
 // change, low, medium or high, which builder done records and the PR's Slack link shows (prLink).
-async function changeItem(site, key, { risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, splitOf, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged }, options) {
+async function changeItem(site, key, { risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -3516,7 +3523,7 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ block, unblock, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check, risk].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --blocked, --unblocked, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
+  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check, risk].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --blocked, --unblocked, --pick-up-at, --blocked-by, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   if (ask) await refuseFiled(site, ask, key);
@@ -3544,7 +3551,7 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   if (ask && hold && phase !== undefined && !item.phase) fail('a task filed blocked is filed New and takes no --phase; drop --phase, or drop --blocked to file it in a phase');
   if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --blocked to file it for later');
   const wasFinished = closed(item);
-  if (split && wasFinished) fail(`${key} is already Done, so the tasks waiting on it were unblocked then; move them with item set <key> --deps`);
+  if (split && wasFinished) fail(`${key} is already Done, so the tasks waiting on it were unblocked then; move them with item set <key> --blocked-by`);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
   if (ownerDone) delete item.owner_step;
@@ -3574,7 +3581,7 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
     if (blockedUntil === '') delete item.blocked_until; else item.blocked_until = text(blockedUntil, '--blocked-until');
   }
   if (blockReason) {
-    if (!item.deps?.length && !item.blocked_until) fail('--block-reason goes with a block: --deps or --blocked-until');
+    if (!item.deps?.length && !item.blocked_until) fail('--block-reason goes with a block: --blocked-by or --blocked-until');
     item.block_reason = text(blockReason, '--block-reason');
   }
   if (blockReason === '' || (!item.deps?.length && !item.blocked_until)) delete item.block_reason;
@@ -3583,12 +3590,9 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
     if (to) item.parent = to; else delete item.parent;
   }
   // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a split child keeps the answers its parent's grill got.
-  if (splitOf !== undefined) {
-    item.parent = await parentKey(site, parseKey(key).file, key, splitOf) || fail('--split-of takes a task, such as <file>/<id>');
-    const { gates } = (await loadItem(site, item.parent)).item;
-    if (gates) item.gates = { ...gates };
-  }
-  const linked = parent !== undefined || splitOf !== undefined || related !== undefined || relate !== undefined || unrelate !== undefined ? await linksOf(site, key) : null;
+  if (splitOfParent && !item.parent) fail(SPLIT_NEEDS_PARENT);
+  if (splitOfParent) await copyGates(site, item);
+  const linked = parent !== undefined || related !== undefined || relate !== undefined || unrelate !== undefined ? await linksOf(site, key) : null;
   let unlink = related === undefined ? null : await setRelated(site, key, item, related);
   if (relate !== undefined) item.related = [...new Set([...(item.related || []).map((r) => depKey(parseKey(key).file, r)), ...await relatedKeys(site, key, relate, '--relate')])];
   if (unrelate !== undefined) unlink = await unrelateCards(site, key, item, await relatedKeys(site, key, unrelate, '--unrelate'));
@@ -3925,6 +3929,57 @@ async function relatedKeys(site, key, value, flag) {
   return list;
 }
 
+// docs/adr/2026-11-16-1700-a-filed-task-links-where-it-came-from-and-the-tasks-it-names.md
+const UNSOURCED = 'a task you file names where it came from';
+const SPLIT_NEEDS_PARENT = "--split copies the Parent's gates, so it goes with --parent <the task split>";
+// docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a split child keeps the answers its parent's grill got.
+async function copyGates(site, item) {
+  const { gates } = (await loadItem(site, item.parent)).item;
+  if (gates) item.gates = { ...gates };
+}
+// The cards words name, [{key, name}] in board order: by T-<n>, GH-<n> or another id of that shape, #<ticket>, or
+// <file>/<id>, matching a card's id, ref, ticket or key. A name inside double quotes is someone's quoted words, the
+// owner's mostly, and names nothing.
+const QUOTED = /"[^"\n]*"|“[^”\n]*”/g;
+const TASK_NAME = /(?<![\w/#.-])(?:[\w.-]+\/[\w.-]+|[A-Z][A-Z0-9]*-\d+|#\d+)/g;
+async function namedTasks(site, words) {
+  const said = new Set((String(words).replace(QUOTED, ' ').match(TASK_NAME) || []).map((n) => n.replace(/\.+$/, '')));
+  if (!said.size) return [];
+  const { tickets } = settingsOf(await boardConfig(site));
+  const named = [];
+  for (const source of await itemSources(site)) {
+    const itemFile = await readJSON(source.file, null);
+    for (const it of itemFile?.items || []) {
+      const key = `${source.slug}/${it.id}`;
+      const name = [key, it.id, refOf(itemFile, it, tickets), it.ticket].find((n) => n && said.has(n));
+      if (name) named.push({ key, name });
+    }
+  }
+  return named;
+}
+const listed = (all) => (all.length < 2 ? all.join('') : `${all.slice(0, -1).join(', ')} and ${all.at(-1)}`);
+// A new task's words (what) must link each task they name, by any link in links (keys): → refuses naming the rest.
+async function refuseUnlinked(site, what, words, links) {
+  const unlinked = (await namedTasks(site, words)).filter((n) => !links.includes(n.key));
+  if (!unlinked.length) return;
+  const one = unlinked.length === 1;
+  fail(`${what} names ${listed(unlinked.map((n) => `${n.name} (${n.key})`))} without linking ${one ? 'it' : 'them'}: add --relate ${unlinked.map((n) => n.key).join(',')}, or link ${one ? 'it' : 'each'} as --parent, --blocked-by or --blocks`);
+}
+// The cards card key is linked with, whichever card stores the link: its Parent and children, its Related to, and the
+// tasks it waits on or blocks.
+async function linkedWith(site, key) {
+  const linked = new Set();
+  for (const entry of await itemSources(site)) {
+    for (const it of (await readJSON(entry.file, null))?.items || []) {
+      const own = `${entry.slug}/${it.id}`;
+      const out = [it.parent, ...it.related || [], ...it.deps || []].filter(Boolean).map((r) => depKey(entry.slug, r));
+      if (own === key) out.forEach((k) => linked.add(k));
+      else if (out.includes(key)) linked.add(own);
+    }
+  }
+  return linked;
+}
+
 // A link shows on both cards whichever stores it, so taking one off means taking it off the other card too: → the
 // write that drops key from the Related to of each other card that drop(<its key>) picks, run once key's own item file
 // file is written.
@@ -3961,7 +4016,7 @@ async function linksOf(site, key) {
 
 // A keyed line in each thread (domain.mjs COMMANDS) for every link key gained or lost between before and after
 // (linksOf): Related to or Unrelated from, and Follow-up in the Parent's thread with Follow-up of in the child's. A card
-// spun out (item add --from) reads Created ticket in its Parent's thread and Created from in its own.
+// filed with its Parent (item add --parent) reads Created ticket in its Parent's thread and Created from in its own.
 async function postLinkLines(site, key, before, after, spunOut = false) {
   const both = async (command, other, mine = command, theirs = command) => {
     await appendCommand(site, key, { command: mine, card: other });
@@ -4193,12 +4248,12 @@ async function blockLines(site, added, blocked, deps, options) {
 // → {file, key}. A new card starts in Todo, placed as it is made, as a task with no ticket unless ticket links one or
 // newTicket makes one (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md). key is <file>/<id>, or
 // <file> alone, which names the card from its ticket, or T-<n> for a task. parent is the card it was spun out of
-// (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md); splitOf is the card it was split from, its
-// Parent, whose gates it copies.
+// (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md); split, a split of that Parent, copies its gates.
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: phase files the card at once, with
 // relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, phase
-// is required, so no card an agent adds reads New; a card added with no phase starts discussing.
-async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, block, parent, from, splitOf, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
+// is required, so no card an agent adds reads New; a card added with no phase starts discussing. filed is the
+// orchestrator's item add on a board, which names where the task came from and links the tasks it names.
+async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, block, parent, split, size, model, phase, state, relate, fromAsk, text: said, intake = false, filed = false }, options) {
   const { file: slug, id } = key.includes('/') ? parseKey(key) : { file: key };
   if (id !== undefined) domId(id, 'the item id');
   checkPhase(phase, state);
@@ -4208,8 +4263,12 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (ticket !== undefined && newTicket) fail('pass --ticket <id> to link a ticket or --new-ticket to make one, not both');
   // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
-  const sourced = [['--from', from], ['--parent', parent], ['--split-of', splitOf]].find(([, v]) => v !== undefined);
-  if (intake && site && sourced) fail(`a task filed from another comes in as an ask: item add ${slug} --ask "<the request>" ${sourced.join(' ')}, which triage titles, notes and sorts`);
+  if (split && parent === undefined) fail(SPLIT_NEEDS_PARENT);
+  if (intake && site && parent !== undefined) fail(`a task filed from another comes in as an ask: item add ${slug} --ask "<the request>" --parent ${parent}${split ? ' --split' : ''}, which triage titles, notes and sorts`);
+  // docs/adr/2026-11-16-1700-a-filed-task-links-where-it-came-from-and-the-tasks-it-names.md: a task of your own names
+  // the tasks it touches; the owner's (an ask's filing, an imported ticket) need not.
+  const imported = ticket !== undefined || (id !== undefined && Boolean(ticketNamed(await boardSource(site), id)));
+  if (filed && fromAsk === undefined && !imported && relate === undefined) fail(`${UNSOURCED}: pass --relate <the tasks it touches>, or file one from another task with item add ${slug} --ask "<the request>" --parent <that task>`);
   // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
@@ -4231,16 +4290,9 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   const created = new Date().toISOString();
   // An agent's card is titled Conventionally; the board's own (an architecture review's) waits for a retitle before its build.
   const item = { id, title: intake ? cardTitle(title) : text(title, '--title'), created, lane: 'todo', lane_at: created };
-  if (from !== undefined && parent !== undefined) fail('--from sets the Parent; drop --parent');
-  if (from !== undefined) item.parent = await parentKey(site, slug, null, from) || fail('--from takes a task, such as <file>/<id>');
   if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a task, such as <file>/<id>');
   // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a split child keeps the answers its parent's grill got.
-  if (splitOf !== undefined && (parent !== undefined || from !== undefined)) fail('--split-of sets the Parent; drop --parent and --from');
-  if (splitOf !== undefined) {
-    item.parent = await parentKey(site, slug, null, splitOf) || fail('--split-of takes a task, such as <file>/<id>');
-    const { gates } = (await loadItem(site, item.parent)).item;
-    if (gates) item.gates = { ...gates };
-  }
+  if (split) await copyGates(site, item);
   if (notes !== undefined && notesFrom !== undefined) fail('pass --notes or --notes-from, not both');
   // The ticket's body is the draft or the --notes text; the notes file heads the text with the card's title.
   const body = notesFrom !== undefined ? await refuseCardNotes(site, notesFrom, '--notes-from', () => `${DRAFT_HINT}, and link that task with --relate`)
@@ -4254,6 +4306,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   if (hold) setHold(item, hold);
   if (hold && ask && phase === undefined) item.filed_held = true;
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
+  if (filed) await refuseUnlinked(site, 'the new task', `${item.title}\n${body}`, [item.parent, ...item.related || [], ...[...item.deps || [], ...blocked].map((d) => depKey(slug, d))]);
   if (ask) item.from_ask = ask;
   // docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md: a task added with no phase, held or not, starts discussing.
   const opened = phase === undefined && !ask && Boolean(site);
@@ -4286,7 +4339,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   }
   if (madeAtReady && site) await appendStatus(site, added, 'ticket-made', { ticket: item.ticket });
   if (opened) await appendStatus(site, added, 'discussing-start', { from: item.parent || '' });
-  if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), from !== undefined);
+  if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), true);
   if (said !== undefined && !ask) await appendMessage(site, added, { text: said });
   return { file: source.file, key: added, lines: [] };
 }
