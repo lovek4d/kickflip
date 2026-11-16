@@ -40,13 +40,21 @@ if (args.join(' ') === 'serve status --json') {
   console.error('permission denied by tailscaled'); process.exit(1);
 } else if (args[0] === 'serve' && args.some((a) => a.startsWith('--https='))) {
   // The serve config keeps what serve --bg sets and off removes, as tailscaled does.
+  // Calls that run at once take turns on the file, as tailscaled's one config does.
   const file = path.join(process.env.HOME, 'tailscale.status');
-  const config = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const port = args.find((a) => a.startsWith('--https=')).slice('--https='.length);
-  config.TCP ||= {}; config.Web ||= {};
-  if (args.at(-1) === 'off') { delete config.TCP[port]; delete config.Web['mac.ts.net:' + port]; }
-  else { config.TCP[port] = { HTTPS: true }; config.Web['mac.ts.net:' + port] = { Handlers: { '/': { Proxy: args.at(-1) } } }; }
-  fs.writeFileSync(file, JSON.stringify(config));
+  const lock = file + '.lock';
+  for (;;) {
+    try { fs.mkdirSync(lock); break; } catch (e) { if (e.code !== 'EEXIST') throw e; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5); }
+  }
+  try {
+    const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const port = args.find((a) => a.startsWith('--https=')).slice('--https='.length);
+    config.TCP ||= {}; config.Web ||= {};
+    if (args.at(-1) === 'off') { delete config.TCP[port]; delete config.Web['mac.ts.net:' + port]; }
+    else { config.TCP[port] = { HTTPS: true }; config.Web['mac.ts.net:' + port] = { Handlers: { '/': { Proxy: args.at(-1) } } }; }
+    fs.writeFileSync(file + '.next', JSON.stringify(config));
+    fs.renameSync(file + '.next', file);
+  } finally { fs.rmdirSync(lock); }
 }
 `);
 fs.chmodSync(path.join(bin, 'tailscale'), 0o700);

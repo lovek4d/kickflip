@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
-import { advance, buildScriptError, calls, clock, commit, fetchTimed, config, fakeRelays, git, installWorktree, kill, listBoards, listing, manager, manifest, ownerGate, prober, read, relayOf, repo, root, script, setManager, setScript, signal, signals, site, start, state, thread, tick, tryManager, until, worktree, write } from './try-fixture.mjs';
+import { advance, buildScriptError, calls, clock, commit, execFileAsync, fetchTimed, config, fakeRelays, git, installWorktree, kill, listBoards, listing, manager, manifest, ownerGate, prober, read, relayOf, repo, root, script, setManager, setScript, signal, signals, site, start, state, thread, tick, tryManager, until, worktree, write } from './try-fixture.mjs';
 
 test('an app run uses only the fixed script and arguments, worktree cwd and build env, writes a private replacement log, and leaves builders and threads alone', async () => {
   setScript(`require('node:fs').writeFileSync('called.json', JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), board: process.env.KICKFLIP_BOARD, host: process.env.HOST, base: process.env.KICKFLIP_BASE })); console.log('stdout'); console.error('stderr');`);
@@ -263,6 +263,12 @@ if (runs <= Number(fs.readFileSync(${JSON.stringify(exits)}, 'utf8'))) setInterv
   assert.equal(launches(), 4);
   assert.equal(state().cards['w/A1'].state, 'failed');
   assert.match(thread()[0].detail, /The serve exited on its own 4 times within 10 minutes/);
+});
+
+test('the stand-in tailscale keeps every mapping of serves that run at once, as tailscaled does', async () => {
+  const mapped = Array.from({ length: 30 }, (_, i) => 8600 + i);
+  await Promise.all(mapped.map((port) => execFileAsync(path.join(bin, 'tailscale'), ['serve', '--bg', `--https=${port}`, `http://127.0.0.1:${port + 100}`])));
+  assert.deepEqual(Object.keys(read(path.join(home, 'tailscale.status')).TCP).sort(), mapped.map(String));
 });
 
 test('a serve past the board’s Maximum parallel serves is refused, a busy host asks first, and Auto serve waits for room', async (t) => {
