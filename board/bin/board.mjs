@@ -564,16 +564,16 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          on a board makes it without --worktree when it keeps none
                                                          (a taken-up or resumed record's, or the worktree the
                                                          task's last record left while it is still there)
-  builder progress <file>/<id> --phase <phase>           one status line: a phase, reading, building, checking or
+  builder progress <file>/<id> --phase <phase>           one status log line: a phase, reading, building, checking or
          (<detail> | --text <d>) [--agent <name>]        landing, and a present-tense detail of at most
                                                          80 characters in plain words, which the owner reads at a
                                                          glance; a longer detail is refused with its length. Hashes,
                                                          test counts and file names go in the hand-back. The thread
                                                          line reads "Building: <detail>", "Codex building: <detail>"
                                                          for another agent, and the task "Building · <detail>"
-         [--eta <ISO time> | --clear-eta]                an ETA shows as a line under the task's status
-         A progress line, --progress included, needs --site: it is a status line in the item's thread, and
-         the task's status shows the newest one from an agent still working. builder progress refuses
+         [--eta <ISO time> | --clear-eta]                an ETA shows as a line under the task's live status
+         A progress line, --progress included, needs --site: it is a status log line in the item's thread, and
+         the task's live status shows the newest one from an agent still working. builder progress refuses
          without an open record for that agent, as builder call does
   builder done <file>/<id> [--agent <name>]              marks that agent's record done; the item's thread
          [--next <t>] [--text <what you checked>]        shows when it started and finished. On a
@@ -655,8 +655,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          passes; fails naming each failing test and
                                                          saving the TAP output under ~/.claude/kickflip/logs. With
                                                          --site, for the task whose open build keeps that worktree, it
-                                                         writes the task's status line: its start and result in the
-                                                         thread, its progress every 2 minutes on the live line only
+                                                         writes the task's live status: its start and result in the
+                                                         status log, its progress every 2 minutes on the live status only
   item bump <file>/<id>                                  the task's bump, as the owner's bump icon sends it (card-bump;
   item unbump <file>/<id>                                card-unbump). A bumped task's land goes ahead in the land queue
                                                          of every land not bumped since, the latest bump first, without
