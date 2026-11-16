@@ -49,13 +49,18 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   const setQueued = (list) => { store.set(ANSWER_OUTBOX, list); BoardUI.outboxChanged(); };
   const entryOf = (id) => queued().find((m) => m.id === id);
 
-  const filesOf = (q) => BoardAttach.files('q:' + q.id, siteRoot);
-  const uploading = () => openOf().some((q) => BoardAttach.busy('q:' + q.id, siteRoot));
-  const pending = () => BoardUI.pendingAnswers(openOf().filter((q) => !entryOf(q.id)), filesOf);
+  // A question's attached files, up or not: an answer takes them into its own box, sent once every one is up.
+  const attachedOf = (q) => BoardAttach.list('q:' + q.id, siteRoot);
+  const boxOf = (m) => `send:${m.sendId}`;
+  const pending = () => BoardUI.pendingAnswers(openOf().filter((q) => !entryOf(q.id)), attachedOf);
   const numberOf = (q) => (board().ownerTopics.find((t) => t.id === q.topic)?.questions.indexOf(q.id) ?? -1) + 1;
   const status = (text) => { const st = sheet.querySelector('#qstatus'); if (st) st.textContent = text; };
   const refusal = (e) => (e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?');
-  const card = (q, links) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links, sending: q.state === 'open' ? entryOf(q.id) : null });
+  const sendingOf = (q) => {
+    const m = q.state === 'open' ? entryOf(q.id) : null;
+    return m && (m.uploads ? { ...m, uploads: { box: boxOf(m), list: BoardAttach.list(boxOf(m), siteRoot) } } : m);
+  };
+  const card = (q, links) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links, sending: sendingOf(q) });
 
   function draw() {
     const d = board();
@@ -83,8 +88,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   function updateBar() {
     const button = sheet.querySelector('#send');
     if (!button) return;
-    button.disabled = !pending().length || uploading();
-    button.childNodes[0].textContent = uploading() ? 'Uploading…' : 'Send';
+    button.disabled = !pending().length;
   }
   // After a recorded tap: the sheet draws the board it landed, or closes once the topic has no open question.
   const redraw = () => { if (!sheet.open) return; if (openOf().length) draw(); else close(); };
@@ -125,12 +129,21 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
       for (let m = next(); m && alive(); m = next()) {
         answersInFlight.add(m.sendId);
         let failure = null;
-        try { await send('owner-answers', { answers: [m.answer] }); } catch (e) { failure = e; } finally { answersInFlight.delete(m.sendId); }
+        try {
+          // An answer with files waits for every one to be up and sends with them; an upload that failed sends nothing.
+          if (m.uploads) {
+            if (!(await BoardAttach.settled(boxOf(m), siteRoot))) throw new Error('Upload failed');
+            const { uploads, ...rest } = m;
+            m = { ...rest, answer: { ...m.answer, files: BoardAttach.files(boxOf(m), siteRoot) } };
+            setQueued(queued().map((o) => (o.sendId === m.sendId ? m : o)));
+            BoardAttach.clear(boxOf(m), siteRoot);
+          }
+          await send('owner-answers', { answers: [m.answer] });
+        } catch (e) { failure = e; } finally { answersInFlight.delete(m.sendId); }
         if (!alive()) return;
         if (!failure) {
           setQueued(queued().filter((o) => o.sendId !== m.sendId));
           setDraft(m.id, {});
-          BoardAttach.clear('q:' + m.id, siteRoot);
         } else if (failure.status === 400) {
           setQueued(queued().filter((o) => o.sendId !== m.sendId));
           toast(refusal(failure));
@@ -143,6 +156,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   // Whatever a reload left in the answer outbox goes out again, a failed one included, once the board first lands.
   function resend() {
     if (queued().some((m) => m.failed)) setQueued(queued().map(({ failed, ...m }) => m));
+    // A file a reload left in an answer's box goes back in it (attach.js restore): one still uploading was lost.
+    for (const m of queued()) if (m.uploads && !BoardAttach.list(boxOf(m), siteRoot).length) BoardAttach.restore(boxOf(m), m.uploads, siteRoot);
     for (const m of queued()) changed(m, false);
     flush();
   }
@@ -151,6 +166,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     const m = queued().find((o) => o.sendId === sendId);
     if (!m) return;
     setQueued(queued().map((o) => (o.sendId === sendId ? { ...o, failed: false } : o)));
+    if (m.uploads) BoardAttach.retryFailed(boxOf(m), siteRoot);
     changed(m, false);
     settle(m.id);
     flush();
@@ -159,6 +175,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     const m = queued().find((o) => o.sendId === sendId);
     if (!m) return;
     setQueued(queued().filter((o) => o.sendId !== sendId));
+    if (m.uploads) BoardAttach.move(boxOf(m), 'q:' + m.id, siteRoot);
     changed(m, false);
     settle(m.id);
   }
@@ -167,16 +184,18 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   on(sheet, 'submit', (ev) => {
     ev.preventDefault();
     const list = pending();
-    if (uploading()) return;
     if (!list.length) { status('Pick an option or write a note first.'); return; }
     status('');
     const ts = new Date().toISOString();
     const entries = list.map((q) => {
       const sendId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      const answer = { ...BoardUI.answerOf(q, filesOf(q)), sendId };
+      const answer = { ...BoardUI.answerOf(q, []), sendId };
       const key = keyOf(q.topic);
-      return { sendId, id: q.id, topic: q.topic, ...(key ? { key } : {}), ts, answer,
+      const entry = { sendId, id: q.id, topic: q.topic, ...(key ? { key } : {}), ts, answer,
         text: `Question ${numberOf(q)} · ${q.question}\n→ ${[answer.label || answer.choice, answer.note].filter(Boolean).join(' · ')}` };
+      if (!attachedOf(q).length) return entry;
+      BoardAttach.move('q:' + q.id, boxOf(entry), siteRoot);
+      return { ...entry, uploads: BoardAttach.saved(boxOf(entry), siteRoot) };
     });
     setQueued([...queued(), ...entries]);
     for (const m of entries) { changed(m, false); drawOne(m.id); }
@@ -201,6 +220,16 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
 
   BoardUI.wireAnswerForm(on, sheet, updateBar);
   on(sheet, 'attach-change', updateBar);
+  // An answer's box changing, an upload's progress, its end or an X on a failed file, draws its card again and keeps the
+  // box for a reload.
+  atUnmount(BoardAttach.onChange((id) => {
+    const m = queued().find((o) => o.uploads && boxOf(o) === id);
+    if (!m) return;
+    const uploads = BoardAttach.saved(id, siteRoot);
+    if (JSON.stringify(uploads) !== JSON.stringify(m.uploads)) setQueued(queued().map((o) => (o.sendId === m.sendId ? { ...o, uploads } : o)));
+    changed(m, false);
+    settle(m.id);
+  }));
   on(sheet, 'click', (ev) => {
     if (BoardUI.onBackdrop(ev, sheet) || ev.target.closest?.('[data-qs="close"]')) { close(); return; }
     const again = ev.target.closest?.('section.q [data-resend], section.q [data-unsend]');

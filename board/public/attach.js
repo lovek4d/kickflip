@@ -13,8 +13,9 @@
 //                                {name, type, lost} as failed, Lost in a reload, which no retry can change
 //   BoardAttach.onChange(fn)     fn(id) after each change, such as to repaint a New strip row; it returns the
 //                                unsubscribe. Each composer painted also gets a bubbling attach-change event with detail {id}
-// A New task's send takes its composer's files, uploads still running, into a box of its own, send:<send id>
-// (docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md):
+// A New task's, a thread reply's and a question's answer's send takes its composer's files, uploads still running, into a
+// box of its own, send:<send id> (docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md,
+// docs/adr/2026-11-16-1030-a-thread-replys-and-an-answers-attachments-send-atomically-with-thumbnails.md):
 //   BoardAttach.move(from, to, site)  moves every file, its upload with it, from one id to another, after any already there
 //   BoardAttach.list(id, site)   the files as pendingFiles reads them, for a page that draws them itself
 //   BoardAttach.retryFailed(id, site) uploads again every failed file a retry can change

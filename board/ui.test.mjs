@@ -3215,3 +3215,13 @@ test("a Merge-mode Done card's commit is a purple badge of its short sha in mono
   assert.equal(ui.commitChip({ commit: null }), '');
   assert.equal(ui.prChips({ commit: { sha: 'abcdef0', url: null }, prs: [] }), '');
 });
+
+// docs/adr/2026-11-16-1030-a-thread-replys-and-an-answers-attachments-send-atomically-with-thumbnails.md
+test("an unsent thread reply's line draws its box's tiles in the uploads wrapper, and a sent one its files as attachments", () => {
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const list = [{ id: 'f1', name: 'bad.png', type: 'image/png', preview: 'blob:bad', status: 'error', error: 'Upload failed' }];
+  const unsent = ui.threadMessages([{ ts: ago(1), who: 'love', kind: 'item-message', text: 'See', files: [], uploads: { box: 'send:s1', list }, sendId: 's1', state: 'failed' }]);
+  assert.ok(unsent.includes(`<div data-uploads="send:s1">${ui.uploadTiles(list)}</div>`));
+  assert.match(unsent, /data-unattach="f1"/);
+  assert.ok(ui.threadMessages([{ ts: ago(1), who: 'love', kind: 'item-message', text: 'See', files: [shot], sendId: 's2', state: 'sending' }]).includes(ui.attachments([shot])));
+});

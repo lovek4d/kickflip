@@ -403,7 +403,7 @@
       return `<div class="new-entry new-question" data-new="${esc(e.id)}"><div class="new-msg">${esc(e.text)}</div><div class="new-line sub">${newTime(e.sent)} · ${line}</div></div>`;
     }
     if (e.unsent) {
-      const files = e.uploads ? `<div data-uploads="${esc(e.uploads.box)}">${globalThis.BoardUI.uploadTiles(e.uploads.list)}</div>` : globalThis.BoardUI.attachments(e.files);
+      const files = globalThis.BoardUI.sentFiles(e.files, e.uploads);
       return `<div class="new-entry" data-new="${esc(e.id)}" data-send="${esc(e.id)}"><div class="new-msg">${esc(e.text)}</div>${files}<div class="new-line sub">${newTime(e.sent)} · ${globalThis.BoardUI.pickUp(e.unsent)}</div></div>`;
     }
     const done = e.made || e.into;

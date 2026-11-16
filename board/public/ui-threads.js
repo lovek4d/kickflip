@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), the board's status lines, its builders'
 // asks, the owner's messages and their replies. Needs ui.js, ui-links.js, ui-enums.js and ui-markdown.js.
 (function () {
-  const { esc, escText, time, etaLine, replyBody, attachments, sendButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, cardRef, WORKING_DOT, AGENT_DOT } = globalThis.BoardUI;
+  const { esc, escText, time, etaLine, replyBody, sentFiles, sendButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, cardRef, WORKING_DOT, AGENT_DOT } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // ui-markdown.js loads after this file, so markdown is looked up when a thread draws.
   const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
@@ -116,7 +116,7 @@
     })
     : m.kind === 'agent' ? statusLine(`agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}`, mark(AGENT_DOT) + escText(m.text), m.ts, { after: m.eta && esc(etaLine(m.eta)) }) : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
         <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}</div>
-        <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${m.note ? `<blockquote class="quote">${linkText(m.note, links)}</blockquote>` : ''}${attachments(m.files)}${m.script ? scriptCard(m.script) : ''}
+        <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${m.note ? `<blockquote class="quote">${linkText(m.note, links)}</blockquote>` : ''}${sentFiles(m.files, m.uploads)}${m.script ? scriptCard(m.script) : ''}
         ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">View transcript</a></div>` : ''}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
         ${msgFooter(m, [VIA[m.via]?.slice(3), m.moved && 'Moved', m.edited && 'Edited'].filter(Boolean))}

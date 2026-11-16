@@ -7322,3 +7322,124 @@ test("Alt+L, Alt+G in a thread's box press What's left? and Grill, the typed tex
   assert.deepEqual(sentNoIds(b), [['item-message', { key: 'w/A1', text: "What's left?" }], ['grill-more', { key: 'w/A1', text: 'Go deeper on the sync' }]]);
   b.view.unmount();
 });
+
+// docs/adr/2026-11-16-1030-a-thread-replys-and-an-answers-attachments-send-atomically-with-thumbnails.md
+const replyTiles = (b, key) => b.root.querySelectorAll(`[data-thread="${key}"] [data-uploads] .file-thumb, [data-thread="${key}"] [data-uploads] .file-link`).map((el) => [el.getAttribute('title'), el.getAttribute('class').split(' ')[1]]);
+test("a thread reply with a file still uploading clears its box at once, its send buttons never waiting; the line shows the files as tiles under sending…, and the reply goes once every file is up, with them as its files", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const log = { name: 'run.log', url: 'uploads/2-run.log', type: 'text/plain' };
+  const boxes = boxesOn(b.page.win);
+  boxes.put('item:w/T1', [boxes.up(shot), boxes.uploading(log)]);
+  await b.settle();
+  const form = () => b.root.querySelector('form[data-reply="w/T1"]');
+  const reply = form().querySelector('button[data-intent="reply"]');
+  form().querySelector('textarea').value = 'See these';
+  b.page.fire(b.root, 'submit', { target: form(), submitter: reply });
+  await b.settle();
+  const [stored] = JSON.parse(b.storage.get(OUTBOX));
+  assert.deepEqual([b.sent, waitState(reply), boxes.boxes.has('item:w/T1'), stored.uploads], [[], IDLE, false, [shot, { name: 'run.log', type: 'text/plain', lost: true }]]);
+  assert.deepEqual(replyTiles(b, 'w/T1'), [['shot.png', 'done'], ['run.log', 'uploading']]);
+  assert.equal(b.root.querySelector(`[data-thread="w/T1"] [data-uploads]`).dataset.uploads, `send:${stored.sendId}`);
+  boxes.finish('run.log', true);
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [['item-message', { key: 'w/T1', text: 'See these', files: [shot, log], intent: 'reply' }]]);
+  assert.deepEqual([JSON.parse(b.storage.get(OUTBOX))[0].uploads, boxes.boxes.has(`send:${stored.sendId}`)], [undefined, false]);
+  b.view.unmount();
+});
+
+test("a thread reply whose upload failed sends nothing: it reads not sent with the file marked and its X; Retry uploads again and sends, and X on the reply puts its text and files back in the box", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send, confirm: true });
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const log = { name: 'run.log', url: 'uploads/2-run.log', type: 'text/plain' };
+  const boxes = boxesOn(b.page.win);
+  await b.settle();
+  const form = () => b.root.querySelector('form[data-reply="w/T1"]');
+  const post = async (text) => {
+    boxes.put('item:w/T1', [boxes.up(shot), boxes.uploading(log)]);
+    form().querySelector('textarea').value = text;
+    b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-intent="reply"]') });
+    await b.settle();
+    return JSON.parse(b.storage.get(OUTBOX)).at(-1).sendId;
+  };
+  const sendId = await post('First');
+  boxes.finish('run.log', false);
+  await b.settle();
+  const line = () => b.root.querySelector(`[data-thread="w/T1"] .msg[data-send="${sendId}"]`);
+  assert.deepEqual([b.sent, footOf(line()), replyTiles(b, 'w/T1')], [[], 'not sent', [['shot.png', 'done'], ['run.log: Upload failed', 'error']]]);
+  assert.ok(line().querySelector('[data-uploads] .file-link.error [data-unattach]'), 'the failed file has its X');
+  b.page.fire(b.root, 'click', { target: line().querySelector(`button[data-resend="${sendId}"]`) });
+  await b.settle();
+  assert.deepEqual([boxes.retried, footOf(line()), replyTiles(b, 'w/T1')[1]], [[`send:${sendId}`], 'sending…', ['run.log', 'uploading']]);
+  boxes.finish('run.log', true);
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [['item-message', { key: 'w/T1', text: 'First', files: [shot, log], intent: 'reply' }]]);
+  sends.answer();
+  await b.settle();
+
+  const second = await post('Second');
+  boxes.finish('run.log', false);
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: b.root.querySelector(`button[data-unsend="${second}"]`) });
+  await b.settle();
+  assert.deepEqual([form().querySelector('textarea').value, [...b.page.win.BoardAttach.list('item:w/T1')].map((p) => [p.name, p.status]), boxes.boxes.has(`send:${second}`)],
+    ['Second', [['shot.png', 'done'], ['run.log', 'error']], false]);
+  b.view.unmount();
+});
+
+test("a reload puts a thread reply's kept files back in its box: with every one up it sends with them, with one lost mid-upload it reads not sent", async () => {
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const whole = { sendId: 's-whole', key: 'w/T1', kind: undefined, text: 'Whole', files: [], uploads: [shot], intent: 'reply', ts: '2026-11-13T11:00:00.000Z' };
+  const cut = { sendId: 's-cut', key: 'w/T1', text: 'Cut', files: [], uploads: [shot, { name: 'run.log', type: 'text/plain', lost: true }], intent: 'reply', ts: '2026-11-13T11:01:00.000Z' };
+  const sends = heldSends();
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send, stored: [[OUTBOX, JSON.stringify([whole, cut])]] });
+  const boxes = boxesOn(b.page.win);
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind, d]) => [kind, d.text, d.files]), [['item-message', 'Whole', [shot]]]);
+  assert.ok(boxes.boxes.has('send:s-cut'));
+  assert.deepEqual(replyTiles(b, 'w/T1').slice(-2), [['shot.png', 'done'], ['run.log: Lost in a reload', 'error']]);
+  b.view.unmount();
+});
+
+test("an answer on the questions sheet with a file still uploading sends once every file is up, with them in its answer; a failed file marks the answer not sent in the card and the thread, Retry uploads again, and X reopens the question with its files", async () => {
+  const s = sheetOnDom();
+  await s.settle();
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const log = { name: 'run.log', url: 'uploads/2-run.log', type: 'text/plain' };
+  const boxes = boxesOn(s.page.win);
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
+  s.pick('qb');
+  boxes.put('q:qb', [boxes.up(shot), boxes.uploading(log)]);
+  const sendButton = () => s.sheet().querySelector('#send');
+  assert.deepEqual([sendButton().disabled, sendButton().textContent.replace(/⌘↵|Ctrl\+↵/, '').trim()], [false, 'Send'], 'Send does not wait on an upload');
+  s.page.fire(s.sheet(), 'submit', { target: s.sheet().querySelector('form') });
+  await s.settle();
+  assert.equal(s.sent.length, 0, 'nothing is sent while a file uploads');
+  const cardTiles = () => s.sheet().querySelectorAll('section.q[data-q="qb"] [data-uploads] .file-thumb, section.q[data-q="qb"] [data-uploads] .file-link').map((el) => [el.getAttribute('title'), el.getAttribute('class').split(' ')[1]]);
+  assert.deepEqual([cardTiles(), replyTiles(s, 'w/A1')], [[['shot.png', 'done'], ['run.log', 'uploading']], [['shot.png', 'done'], ['run.log', 'uploading']]]);
+  boxes.finish('run.log', false);
+  await s.settle();
+  assert.equal(s.sent.length, 0, 'an upload that failed sends nothing');
+  assert.match(s.sheet().querySelector('section.q[data-q="qb"] .sent-line').textContent, /not sent/);
+  assert.deepEqual(cardTiles()[1], ['run.log: Upload failed', 'error']);
+  s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('section.q[data-q="qb"] [data-resend]') });
+  await s.settle();
+  assert.deepEqual([boxes.retried.length, cardTiles()[1]], [1, ['run.log', 'uploading']]);
+  boxes.finish('run.log', true);
+  await s.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(s.sent.map(([kind, d]) => [kind, d.answers[0].id, d.answers[0].files]))), [['owner-answers', 'qb', [shot, log]]]);
+
+  // X on a failed one gives the question back with its files.
+  s.pick('qa');
+  boxes.put('q:qa', [boxes.uploading(log)]);
+  s.page.fire(s.sheet(), 'submit', { target: s.sheet().querySelector('form') });
+  await s.settle();
+  boxes.finish('run.log', false);
+  await s.settle();
+  s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('section.q[data-q="qa"] [data-unsend]') });
+  await s.settle();
+  assert.deepEqual([[...s.page.win.BoardAttach.list('q:qa')].map((p) => [p.name, p.status]), s.sent.length], [[['run.log', 'error']], 1]);
+  s.view.unmount();
+});

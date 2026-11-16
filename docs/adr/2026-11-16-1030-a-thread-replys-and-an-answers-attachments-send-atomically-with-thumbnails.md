@@ -1,0 +1,9 @@
+# A thread reply's and an answer's attachments send atomically, with thumbnails
+
+Extends [a new task's media shows as thumbnails and sends atomically](2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md) to the other two boxes that take files: a card's reply box and a question's answer on the questions sheet. The T-436 sweep had dropped the questions page without a reason; the owner asked "Why not ? Page?" and it came back in.
+
+- **Same mechanism.** A reply, a request (the eye, fire or image) or a question's answer with files moves them, uploads still running, into a box of its own, `send:<sendId>` (attach.js `move`), and goes into its outbox at once. The send buttons no longer wait while a file uploads; the Send on the questions sheet no longer reads Uploading….
+- **Atomic.** The send goes only once every file in its box is up, with them as its `files` (a reply's outbox flush in app-threads.js, an answer's in app-questions-sheet.js). If any upload fails nothing is sent: a reply's line and an answer's card read `not sent`, the failed file framed red with why and an X, with one Retry that uploads again what failed and then sends. Removing the failed file first sends without it.
+- **One renderer.** A reply's thread line, an answer's card and line, and a New strip row draw their files through `BoardUI.sentFiles`: the sent files as `attachments`, or while the page still sends them the box's tiles (`uploadTiles`) inside the `[data-uploads]` wrapper attach.js's X reads.
+- **X on the send** puts its text back as before and moves the box back into the composer it came from (`item:<key>` for a reply, `q:<id>` for an answer), a failed file still marked.
+- **A reload.** The outbox entry keeps its box as JSON (`uploads`, attach.js `saved`); a reload puts the uploaded files back and one still uploading comes back failed, "Lost in a reload".

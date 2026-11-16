@@ -11,4 +11,4 @@ The owner (T-193) picked prototype `bubble-media` take A, the thumbnail row, and
 - **A reload.** The outbox entry keeps its box as JSON (`uploads`, attach.js `saved`), updated on every change to the box. A reload puts the uploaded files back in the box; one that was still uploading is lost with the page, so it comes back failed, "Lost in a reload", which no retry can change, and the task reads not sent until that file is removed.
 - **Tap to expand.** A thumbnail tap opens the image full size over the board (app-lightbox.js `#lightbox`), with ‹ and › through the images of the same message, closed by ✕, the dim area, a swipe down (as every sheet) or Escape. The reader sheet reads logs and notes only and no image viewer existed, so this is its own small dialog. A modified or middle click still opens the file as a link.
 
-Thread replies, and the questions page, getting the same treatment are T-386.
+Thread replies and the questions sheet's answers get the same treatment: [2026-11-16-1030](2026-11-16-1030-a-thread-replys-and-an-answers-attachments-send-atomically-with-thumbnails.md).

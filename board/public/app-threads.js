@@ -87,11 +87,14 @@ BoardView.part((B) => {
   // docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md: the New task box's sends go
   // through it too, kind ask with no key, and queue apart from every card's; the New strip draws them (unsentAsks).
   // docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md: a New task with files is
-  // atomic. Its files move, uploads still running, into its own box (sendBox, attach.js move), and uploads is that box
-  // kept for a reload (attach.js saved); the ask goes once every file is up, with them as its files, and an upload
-  // that fails leaves it not sent.
+  // atomic, and so is a thread reply's (docs/adr/2026-11-16-1030-a-thread-replys-and-an-answers-attachments-send-atomically-with-thumbnails.md).
+  // Its files move, uploads still running, into its own box (sendBox, attach.js move), and uploads is that box
+  // kept for a reload (attach.js saved); the send goes once every file is up, with them as its files, and an upload
+  // that fails leaves it not sent. A reply's line draws the box's tiles meanwhile, as the New strip's row does.
   const outbox = () => store.get('outbox', []);
   const sendBox = (m) => `send:${m.sendId}`;
+  // An entry's box as the drawing helpers read it (BoardUI.sentFiles), drawn from the box's files as they are now.
+  const uploadsOf = (m) => ({ box: sendBox(m), list: BoardAttach.list(sendBox(m), B.site.root) });
   const queuedFor = (key) => outbox().filter((m) => m.key === key);
   const setOutbox = (list) => { store.set('outbox', list); BoardUI.outboxChanged(); };
   const eventOf = (m) => m.kind || 'item-message';
@@ -105,16 +108,16 @@ BoardView.part((B) => {
     const have = new Set(d.items.map((it) => it.ask?.sendId).filter(Boolean));
     return queuedFor(undefined).filter((m) => !have.has(m.sendId))
       .map((m) => ({ id: m.sendId, sent: m.ts, text: m.text, files: m.files, unsent: { sendId: m.sendId, state: m.failed ? 'failed' : 'sending' },
-        ...(m.uploads ? { uploads: { box: sendBox(m), list: BoardAttach.list(sendBox(m), B.site.root) } } : {}) }));
+        ...(m.uploads ? { uploads: uploadsOf(m) } : {}) }));
   }
   // A New task's box changing, an upload's progress, its end or an X on a failed file, repaints its row and keeps the
   // box for a reload.
   B.atUnmount(BoardAttach.onChange((id) => {
-    const m = queuedFor(undefined).find((o) => o.uploads && sendBox(o) === id);
+    const m = outbox().find((o) => o.uploads && sendBox(o) === id);
     if (!m) return;
     const uploads = BoardAttach.saved(id, B.site.root);
     if (JSON.stringify(uploads) !== JSON.stringify(m.uploads)) setOutbox(outbox().map((o) => (o.sendId === m.sendId ? { ...o, uploads } : o)));
-    repaint(undefined);
+    repaint(m.key);
   }));
   // The line a tap draws until the board's own takes its place, in the board's words (domain.mjs COMMANDS, ACTION_LABELS,
   // INTENT_LABELS): with text or files the owner's message with the tap in its footer, else the tap's status line. waits:
@@ -123,7 +126,7 @@ BoardView.part((B) => {
   const REQUESTED = { 'prototype-request': 'Prototype requested', 'grill-more': 'Grill requested', 'visual-request': 'Visual requested' };
   const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Blocked' : 'Unblocked'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened' };
   function tapOf(m) {
-    if (m.text || m.files.length) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
+    if (m.text || m.files.length || m.uploads) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
     return { words: REQUESTED[m.kind] || CARD_TAPS[m.kind]?.(m) || 'Marked as staged', waits: Boolean(REQUESTED[m.kind]) };
   }
   // landed: the board has it and the thread hasn't loaded its own line yet.
@@ -131,7 +134,7 @@ BoardView.part((B) => {
     const { words, status, waits } = tapOf(m);
     const state = landed ? (waits ? 'waiting' : null) : m.failed ? 'failed' : 'sending';
     return words ? { ts: m.ts, who: 'love', kind: 'command', request: true, mark: words, text: words, sendId: m.sendId, state }
-      : { ts: m.ts, who: 'love', kind: 'item-message', text: m.text, files: m.files, ...(status ? { status } : {}), sendId: m.sendId, state };
+      : { ts: m.ts, who: 'love', kind: 'item-message', text: m.text, files: m.files, ...(m.uploads ? { uploads: uploadsOf(m) } : {}), ...(status ? { status } : {}), sendId: m.sendId, state };
   };
   // The taps the board has recorded whose thread hasn't loaded since, by sendId: {m, at}, at the thread load count when
   // the board answered. The board's line carries the tap's sendId, so a thread holding it takes the tap's place at once,
@@ -143,7 +146,7 @@ BoardView.part((B) => {
   // The questions sheet's answer outbox (app-questions-sheet.js): each answer to a card's question is that card's answer
   // line, in the board's words, until the board's own line, carrying its sendId, takes its place.
   const answersFor = (key) => store.get(BoardUI.ANSWER_OUTBOX, []).filter((m) => m.key === key);
-  const answerLine = (m, state = m.failed ? 'failed' : 'sending') => ({ ts: m.ts, who: 'love', via: 'questions', kind: 'owner-answer', text: m.text, files: m.answer.files || [], status: 'answers submitted', sendId: m.sendId, state });
+  const answerLine = (m, state = m.failed ? 'failed' : 'sending') => ({ ts: m.ts, who: 'love', via: 'questions', kind: 'owner-answer', text: m.text, files: m.answer.files || [], ...(m.uploads ? { uploads: uploadsOf(m) } : {}), status: 'answers submitted', sendId: m.sendId, state });
   // After answer m changed in the outbox, its card's thread draws it; sent, the thread loads with the board's line,
   // the answer reading waiting… until then.
   function answerChanged(m, sent) {
@@ -367,6 +370,7 @@ BoardView.part((B) => {
         const text = [m.text, ta?.value ?? store.get('draft:' + m.key, '')].filter(Boolean).join('\n\n');
         if (ta) ta.value = text;
         store.set('draft:' + m.key, text);
+        if (m.uploads) BoardAttach.move(sendBox(m), 'item:' + m.key, B.site.root);
       }
     }
     repaint(m.key);
@@ -385,15 +389,14 @@ BoardView.part((B) => {
     ta.blur();
     const text = flag ? slashOf(ta.value).text : ta.value.trim();
     const id = f.dataset.composer;
-    const files = BoardAttach.files(id, B.site.root);
+    const attached = BoardAttach.list(id, B.site.root).length > 0;
     // An empty box still sends Implement, the card's build action: the board server stages the card for the
     // orchestrator's review (docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md).
     const intent = flag ? null : button.dataset.intent || null;
-    if ((!flag && !text && !files.length && intent !== 'build') || BoardAttach.busy(id, B.site.root)) return;
+    if (!flag && !text && !attached && intent !== 'build') return;
     const key = f.dataset.reply;
     await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
-      async () => enqueue(key, { ...(flag ? { kind: REQUEST_EVENT[flag] } : {}), text, files, ...(intent ? { intent } : {}) }));
-    BoardAttach.clear(id, B.site.root);
+      async () => enqueue(key, { ...(flag ? { kind: REQUEST_EVENT[flag] } : {}), text, ...(attached ? { attached: id } : {}), ...(intent ? { intent } : {}) }));
   }
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill], form[data-reply] button[data-visual]');
@@ -407,14 +410,6 @@ BoardView.part((B) => {
     if (ev.submitter?.dataset.confirm) { B.confirmTap(ev.submitter); return; }
     post(f, slashOf(f.querySelector('textarea').value).flag, ev.submitter);
   });
-  // A composer's send buttons wait while its files upload (attach.js attach-change). The New task box's stay free: its
-  // task takes the uploads with it and is sent once they are up (new-task.js, enqueue's attached).
-  B.on(B.root, 'attach-change', (ev) => {
-    if (ev.target.matches?.('#askForm')) return;
-    for (const b of ev.target.querySelectorAll('button[type=submit]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
-    if (ev.target.matches?.('form[data-reply]')) for (const b of ev.target.querySelectorAll('button[data-proto], button[data-grill], button[data-visual]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
-  });
-
   // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
   // A script offer's Run sends only after a hold of HOLD_MS, its bar filling meanwhile; letting go sooner sends nothing.
   // From the keyboard, which can't hold, Run asks a confirm instead. Run names the script's id and the sha of the text the
