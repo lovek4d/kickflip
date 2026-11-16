@@ -2728,13 +2728,14 @@ test("a Done card that had questions keeps its quiet Questions button, and a car
 });
 
 // docs/adr/2026-11-16-1200-each-orchestrator-wait-carries-its-tone-from-the-server.md
-test('a wait is grey under 15 minutes, orange from 15, red from 30, a limbo wait never red, and each check restamps the tone so the stored file changes at a threshold', () => {
+test('a wait is grey under 15 minutes, orange from 15, red from 30, a limbo wait always grey, and each check restamps the tone so the stored file changes at a threshold', () => {
   const base = Date.parse('2026-11-05T10:00:00Z');
   const at = (min) => new Date(base + min * 60000);
   const wait = (kind, o = {}) => ({ key: 'w/A1', ref: 'A1', title: 'One', kind, since: at(0).toISOString(), picked: null, next: 'Go', ...o });
   const tones = (kind) => [14, 15, 29, 30, 3000].map((m) => waitTone(wait(kind), at(m)));
   assert.deepEqual(tones('calls'), ['grey', 'orange', 'orange', 'red', 'red']);
-  assert.deepEqual(tones('limbo'), ['grey', 'orange', 'orange', 'orange', 'orange']);
+  // docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md
+  assert.deepEqual(tones('limbo'), ['grey', 'grey', 'grey', 'grey', 'grey']);
   const joined = waitsStep([], [wait('calls')], at(1));
   assert.equal(joined.waits[0].tone, 'grey');
   const crossed = waitsStep(joined.waits, [wait('calls')], at(15));

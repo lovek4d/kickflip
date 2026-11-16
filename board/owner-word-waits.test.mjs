@@ -72,3 +72,18 @@ test("each owner's-last-word wait that ends is logged with the line that ended i
   assert.deepEqual(ownerWordEnds(previous, orchestratorWaits(gone), gone, new Date(at(21))),
     [{ key: 'w/A1', ref: 'A1', messageAt: at(5), endedAt: at(21), endedBy: null, minutes: 16 }]);
 });
+
+// docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md
+test('limbo goes only on a card nothing else waits on: not beside an investigate or a reply, not on a blocked card, not while a planner or visual agent runs', () => {
+  // A freshly triaged card waits on its investigation alone.
+  const triaged = card({ phase: 'new', sorted_at: at(2), triaged: { at: at(2), phase: 'new' } });
+  assert.deepEqual(waits({ items: [triaged] }).map((w) => w[1]), ['investigate']);
+  assert.deepEqual(waits({ items: [card()], events: [said(5)] }).map((w) => w[1]), ['reply']);
+  // A card blocked by another task owes its blocker.
+  const blocker = { id: 'B1', title: 'Blocker', created: at(0), lane: 'progress', phase: 'ready' };
+  assert.equal(waits({ items: [card({ deps: ['B1'] }), blocker] }).some((w) => w[0] === 'w/A1'), false, 'blocked by a task');
+  assert.equal(waits({ items: [card({ blocked_until: '2026-12-01' })] }).some((w) => w[1] === 'limbo'), false, 'blocked until a date');
+  for (const kind of ['grill', 'prototype', 'visual']) {
+    assert.deepEqual(waits({ items: [card()], agents: { A1: { [kind]: { kind, started: at(58) } } } }), [], `a ${kind} agent running`);
+  }
+});

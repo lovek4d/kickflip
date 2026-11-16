@@ -1,19 +1,21 @@
-// The header's chip counting what waits on the orchestrator, and its sheet listing them in the waits file's order
-// (docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md; ui-waits.js draws both). A
+// The header's chip counting the cards and events waiting on the orchestrator, and its sheet listing one row for each
+// in the waits file's order (docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md,
+// docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md; ui-waits.js
+// waitsRows picks the rows and draws both). A
 // card's row opens the card. Both repaint each half-minute, so the durations count up between board changes; the colour
 // is the server's tone. Needs app-core.js.
 BoardView.part((B) => {
   const { $, state } = B;
-  const { setHTML, waitsChip, waitsList, waitsTitle } = BoardUI;
+  const { setHTML, waitsRows, waitsChip, waitsList, waitsTitle } = BoardUI;
   const sheet = $('#waitsSheet');
 
   function renderWaits(d) {
-    const waits = d.orchestratorWaits || [];
-    setHTML($('#waitsChip'), waitsChip(waits));
+    const rows = waitsRows(d.orchestratorWaits || []);
+    setHTML($('#waitsChip'), waitsChip(rows));
     if (!sheet.open) return;
-    if (!waits.length) { sheet.close(); return; }
-    $('#waitsTitle').textContent = waitsTitle(waits.length);
-    setHTML($('#waitsBody'), waitsList(waits, d.items));
+    if (!rows.length) { sheet.close(); return; }
+    $('#waitsTitle').textContent = waitsTitle(rows.length);
+    setHTML($('#waitsBody'), waitsList(rows, d.items));
   }
 
   function openCard(key) {

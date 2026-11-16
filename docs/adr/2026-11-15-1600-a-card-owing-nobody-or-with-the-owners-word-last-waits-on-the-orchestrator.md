@@ -12,3 +12,5 @@ The limbo waits come last on the waits list, oldest first (`orchestratorWaits`),
 Each reply wait that ends appends `{key, ref, messageAt, endedAt, endedBy, minutes}` to `data/limbo-waits.jsonl` (domain.mjs `ownerWordEnds`, server.mjs `stepWaits`), `endedBy` the line that ended it or null when the card closed or left the board, so an audit (T-440) can find messages "answered" by a status line alone.
 
 Amended by [a card reads thinking from its event's delivery until the orchestrator writes](2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md): an orchestrator line ends the reply wait only once the message was handed to the session.
+
+Amended by [the waits sheet lists one row per card for what the orchestrator owes now](2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md): limbo goes only on a card with no other wait and no block, and stays grey.

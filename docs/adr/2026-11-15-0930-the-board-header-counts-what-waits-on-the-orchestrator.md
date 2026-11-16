@@ -14,3 +14,5 @@ T-299 asked that nothing sent to the orchestrator be lost or forgotten, and that
 
 - A section at the top of Todo (take B): seen only with Todo scrolled to the top.
 - The count on the sidebar's board row (take C): hidden on a phone with the sidebar closed.
+
+Amended by [the waits sheet lists one row per card for what the orchestrator owes now](2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md): the sheet lists one row per card and the chip counts rows; the row has no dot, its step takes the colour.

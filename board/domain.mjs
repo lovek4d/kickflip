@@ -1888,9 +1888,10 @@ function markWaitStarts(thread, waits) {
     if (w) Object.assign(m, w.picked ? { state: 'working', since: w.picked } : { state: 'waiting' });
   }
 }
-// Puts wait on the card ahead of the waits it already has, which stay on its list.
+// Puts wait on the card ahead of the waits it already has, which stay on its list, but for a limbo wait: a card
+// waiting on this owes somebody.
 function waitFirst(it, wait) {
-  it.moreWaits = [it.orchestrator, ...(it.moreWaits || [])].filter(Boolean);
+  it.moreWaits = [it.orchestrator, ...(it.moreWaits || [])].filter((w) => w && w.kind !== 'limbo');
   it.orchestrator = wait;
 }
 
@@ -2067,8 +2068,11 @@ const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions 
 const CALLS_HOW = (key) => `read each with builder calls ${key} against the task's notes, the owner's words and the other tasks; answer a Question: call they settle, or send back a build you won't verify, with builder resume ${key} --text "<what to change>"; put a call they don't settle, or one that conflicts with the owner's words, to the owner as a question on the task ("ask": "<ask>" in it for a deferred ask); then builder verified ${key} --note "<what you checked>"; never redo it yourself or with an Agent`;
 const PROTOTYPE_ROUNDS = '; name each prototype to draw as its own round, and each owner request the task owes (a Prototype tap, a no-pick answer) as a round of its own';
 // A sorted Todo card in new or discussing that owes nobody anything: nothing the owner acts on (a mark, a question, a
-// script), no brief owed or waiting to launch, and no planner running or queued.
-const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new') && !it.unsorted && !it.action
+// script), no brief owed or waiting to launch, no planner or visual agent running or queued, and no task or date
+// blocking it. It goes only on a card with no other wait: orchestratorWaitsOf drops it beside the card's others, and
+// waitFirst beside an intake or a screen
+// (docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md).
+const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new') && !it.unsorted && !it.action && !it.blocked
   && !it.briefs.length && !it.plannerQueued && !it.agents.some((a) => a.started && !a.done);
 function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
@@ -2124,7 +2128,8 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       limbo(it) && { kind: 'limbo', since: facts.limboFrom, next: `${it.ref} owes nobody anything: ask Implement (reply ${it.key} --implement), ask questions, or close it` },
     ]),
   ];
-  return waits.filter((wait) => wait?.since).map((wait) => {
+  const held = waits.filter((wait) => wait?.since);
+  return (held.length > 1 ? held.filter((wait) => wait.kind !== 'limbo') : held).map((wait) => {
     const since = String(wait.since);
     const picked = 'picked' in wait ? wait.picked : [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
     return { kind: wait.kind, since, picked, next: wait.next, ...(wait.daily ? { daily: true } : {}) };
@@ -2237,11 +2242,12 @@ export const DAILY_REWAKE_AFTER = 24 * 60 * 60000;
 // How long a wait goes before it reads red.
 export const RED_AFTER = 30 * 60000;
 // The colour a wait draws in at now (AGENTS.md's colour priority): grey under REWAKE_AFTER, orange past it, red past
-// RED_AFTER. A limbo wait is the orchestrator's backlog, so it never reads red
-// (docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md).
+// RED_AFTER. A limbo wait is the orchestrator's backlog, so it stays grey
+// (docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md).
 export function waitTone(wait, now) {
+  if (wait.kind === 'limbo') return 'grey';
   const age = now - Date.parse(wait.since);
-  return age >= RED_AFTER && wait.kind !== 'limbo' ? 'red' : age >= REWAKE_AFTER ? 'orange' : 'grey';
+  return age >= RED_AFTER ? 'red' : age >= REWAKE_AFTER ? 'orange' : 'grey';
 }
 // One check of the cards idle on the orchestrator, for the stored list (data/orchestrator-waits.json) and the current
 // waits (orchestratorWaits) at now: each entry carries bumped, its last wake. A wait joins the list when

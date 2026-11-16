@@ -617,6 +617,9 @@ button.waits-open:hover .waits-title { text-decoration: underline; }
 .waits-main { display: grid; min-width: 0; }
 .waits-title { font-size: 14px; overflow-wrap: anywhere; }
 .waits-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; margin-top: 1px; color: var(--muted); font-size: 12px; }
+/* A row's step takes its age colour, with no dot (docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md). */
+.waits-step { font-weight: 600; }
+.waits-step.it-red { color: var(--color-danger); } .waits-step.it-orange { color: var(--color-notice); } .waits-step.it-grey { color: var(--color-quiet); }
 .arch-bulb.running svg { filter: drop-shadow(0 0 4px currentColor); }
 @media (prefers-reduced-motion: no-preference) { .arch-bulb.running svg { animation: arch-glow 1.4s ease-in-out infinite; } }
 @keyframes arch-glow { 50% { filter: drop-shadow(0 0 1px currentColor); opacity: .55; } }
