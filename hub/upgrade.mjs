@@ -4,7 +4,7 @@
 // once: run({signal}) → {ok, error} runs `kickflip update --no-restart`, which installs from npm and leaves the hub running. A pull
 // that finishes OK calls pulled() only when the package.json on disk is newer than the version the hub started with, and the
 // hub answers by restarting itself (self-restart.mjs); an OK pull that left the version put logs both versions instead. A
-// failed pull is only logged by run, and the next check tries again. A clone (root has .git) never asks. The hub page's version tap runs check() now (/_hub/check-update) and shows its answer.
+// failed pull is logged by run and kept for pull(), and the next check tries again. A clone (root has .git) never asks. The hub page's version tap runs check() now (/_hub/check-update) and shows its answer.
 // With autoUpdate() false (the hub's auto update box, docs/adr/2026-11-13-2345-a-checkbox-under-the-hubs-version-turns-auto-update-off.md)
 // a tick's check still finds the newer version and available() names it, but only a tap's check() pulls it.
 // A tick's check only holds the newer version: tick() pulls it once awayFor() (ms the owner has been away, 0 while present) reaches
@@ -37,7 +37,8 @@ export function upgrader({ root, fetch = globalThis.fetch, run, log = () => {}, 
   const clone = fs.existsSync(path.join(root, '.git'));
   const installed = () => JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   const running = installed();
-  let pulling = false;
+  let pulling = null;
+  let failure = null;
   let checkedAt = null;
   let held = null;
   let newest = null;
@@ -68,20 +69,25 @@ export function upgrader({ root, fetch = globalThis.fetch, run, log = () => {}, 
 
   function pull(latest) {
     if (pulling) return;
-    pulling = true;
+    pulling = latest;
+    failure = null;
     const limit = new AbortController();
     const timer = setTimeout(() => { log('kickflip update killed after 10 minutes'); limit.abort(); }, PULL_MS).unref();
-    run({ signal: limit.signal }).then(({ ok }) => {
-      if (!ok) return;
+    run({ signal: limit.signal }).then(({ ok, error }) => {
+      if (!ok) { failure = { latest, error }; return; }
       const now = installed();
       if (newer(now, running)) pulled();
-      else log(`kickflip update left v${now}; npm has ${latest}`);
-    }, (e) => log(`kickflip update failed: ${e.message}`))
-      .finally(() => { clearTimeout(timer); pulling = false; });
+      else { log(`kickflip update left v${now}; npm has ${latest}`); failure = { latest, error: `it left v${now} installed` }; }
+    }, (e) => { log(`kickflip update failed: ${e.message}`); failure = { latest, error: e.message }; })
+      .finally(() => { clearTimeout(timer); pulling = null; });
   }
+
+  // What the hub page reads while it waits out a pull and the restart after it: {state: 'idle' | 'pulling' | 'failed', latest?, error?}.
+  // A failure stays until the next pull begins; a pull that installed leaves idle, and the restart under it brings the new version.
+  const pullState = () => pulling ? { state: 'pulling', latest: pulling } : failure ? { state: 'failed', ...failure } : { state: 'idle' };
 
   // The newer version the last check found, or null once the install has it.
   const available = () => (newest && newer(newest, installed()) ? newest : null);
 
-  return { check, tick, available, clone };
+  return { check, tick, available, pull: pullState, clone };
 }

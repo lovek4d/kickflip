@@ -88,7 +88,7 @@
 .hub-view .version { color:inherit; background:none; border:0; cursor:pointer; }
 .hub-view .version:hover { text-decoration:underline dotted; }
 .hub-view .version .new { color:var(--accent); }
-.hub-view .version .update-note.pulling { color:var(--color-notice); }
+.hub-view .version .update-note.pulling { color:var(--color-notice); } .hub-view .version .update-note.updated { color:var(--color-success); } .hub-view .version .update-note.failed { color:var(--color-danger); }
 .hub-view .auto-update { cursor:pointer; }
 .hub-view .auto-update input { width:12px; height:12px; margin:0 4px 0 0; vertical-align:-2px; accent-color:var(--accent); }
 .hub-view .host { font-family:var(--mono); font-size:11px; overflow-wrap:anywhere; }

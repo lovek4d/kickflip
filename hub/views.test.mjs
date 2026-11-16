@@ -1092,7 +1092,6 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
   await settle();
   assert.equal(note(), 'up to date');
   for (const [out, text] of [
-    [{ state: 'pulling', latest: '0.7.8' }, 'pulling 0.7.8…'],
     [{ state: 'failed', error: 'npm answered 503' }, 'check failed: npm answered 503'],
     [{ state: 'clone', commit: 'abc1234' }, 'abc1234 · pulls with main'],
   ]) {
@@ -1107,6 +1106,84 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
   reply(500, {});
   await settle();
   assert.equal(note(), 'could not check. Is the host awake?');
+});
+
+// docs/adr/2026-11-16-2345-the-hub-reports-its-pull-and-the-page-reads-it.md
+test("the pull's state is the hub's: a page opened mid-pull, or after a failed one, reads what the tapping page does, and updated, reload follows the restart (a tap reloads)", async () => {
+  const now = t(19);
+  const data = (version, pull) => ({ ...hubView({ now, st: status(now, DEFAULTS), rows: [], code: { running: 'abc', onDisk: 'abc' },
+    sidebar: { pause: CALM_GATE, sites: [], hub: { tone: 'ok', word: 'ok', detail: '' }, notifications: {}, total: 0 }, update: { latest: null, auto: true, clone: false, pull } }), version });
+  const hub = { up: true, data: null };
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)); };
+  // A page opened on the hub as it answers now, painted with that answer.
+  function open() {
+    const document = {};
+    const { Element } = miniDom(class {}, document);
+    const root = new Element('div');
+    const page = { reloads: 0, listeners: [], live: null };
+    const context = vm.createContext({
+      navigator: {},
+      setTimeout: (fn) => setImmediate(fn),
+      BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (r, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => page.listeners.push({ target, type, fn }) }) },
+      BoardDialogs: { confirm: async () => true },
+      AppShell: { reload() { page.reloads++; } },
+      fetch: async (url) => {
+        if (url === '/_hub/check-update') return { ok: true, json: async () => ({ state: 'pulling', latest: '0.7.8' }) };
+        if (!hub.up) throw new Error('hub is restarting');
+        return { ok: true, json: async () => hub.data };
+      },
+      HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
+      BoardUI: { ...BOARD_UI },
+      PromptAnswers: { wire: () => ({ shows: () => true }) },
+      HubKit: { forms: () => ({}), live: (B, opts) => { page.live = opts; } },
+    });
+    for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+    root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
+    document.body = root;
+    context.AppViews.hub.create(root, '/_hub', {});
+    page.live.paint(hub.data);
+    page.tap = () => page.listeners.find((l) => l.target === root.querySelector('.hub-foot') && l.type === 'click').fn({ target: root.querySelector('[data-check-update]') });
+    page.note = () => { const n = root.querySelector('.update-note'); return n && [n.getAttribute('class'), n.textContent]; };
+    return page;
+  }
+
+  hub.data = data('0.7.7', { state: 'idle' });
+  const tapper = open();
+  assert.equal(tapper.note(), null);
+  tapper.tap();
+  await settle();
+  assert.deepEqual(tapper.note(), ['update-note pulling', 'pulling 0.7.8…']);
+
+  // Another page, opened while the hub pulls.
+  hub.data = data('0.7.7', { state: 'pulling', latest: '0.7.8' });
+  const fresh = open();
+  assert.deepEqual(fresh.note(), ['update-note pulling', 'pulling 0.7.8…']);
+  fresh.tap();
+  await settle();
+  assert.deepEqual(fresh.note(), ['update-note pulling', 'pulling 0.7.8…'], 'a tap while a pull runs asks nothing more');
+
+  // The hub restarts on the new version: both read updated, reload, and a tap reloads.
+  hub.up = false;
+  await settle();
+  assert.deepEqual(fresh.note(), ['update-note pulling', 'pulling 0.7.8…'], 'the hub being down mid-restart is still the pull');
+  hub.up = true;
+  hub.data = data('0.7.8', { state: 'idle' });
+  await settle();
+  for (const page of [tapper, fresh]) {
+    assert.deepEqual(page.note(), ['update-note updated', 'updated, reload']);
+    page.tap();
+    assert.equal(page.reloads, 1);
+  }
+  assert.equal(open().note(), null, 'a page opened after the restart is already on the new version');
+
+  // A failed pull reads red with its reason on a page opened after it, and a tap pulls again.
+  hub.data = data('0.7.7', { state: 'failed', latest: '0.7.8', error: 'npm exited 1' });
+  const after = open();
+  assert.deepEqual(after.note(), ['update-note failed', 'update failed: npm exited 1']);
+  hub.data = data('0.7.7', { state: 'pulling', latest: '0.7.8' });
+  after.tap();
+  await settle();
+  assert.deepEqual(after.note(), ['update-note pulling', 'pulling 0.7.8…']);
 });
 
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md

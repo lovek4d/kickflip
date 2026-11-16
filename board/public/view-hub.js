@@ -112,16 +112,16 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
   // The version line is a link to the website, then / and a button (not the link): a tap on the version checks npm now and pulls what it finds (POST /_hub/check-update), answering in
   // place (updateNote). A newer version npm has shows beside the version, old > new (new), whatever the auto update box says.
   // The box sits on the line under it; a clone never pulls, so it has no box.
-  const footer = (d, note = '') => {
+  const footer = (d, note = null) => {
     const { latest, auto, clone } = d.update;
-    return `<footer><span class="host">${esc(d.host)}</span><span class="foot-brand"><a href="https://kickflip.sh">kickflip.sh</a> / <button type="button" class="version" data-check-update>${esc(d.version)}${latest ? ` &gt; <span class="new">${esc(latest)} (new)</span>` : ''}${note ? ` <span class="update-note${note.startsWith('pulling') ? ' pulling' : ''}" role="status">${esc(note)}</span>` : ''}</button></span>${clone ? '' : `<label class="auto-update"><input type="checkbox" data-auto-update${auto ? ' checked' : ''}> auto update</label>`}</footer>`;
+    return `<footer><span class="host">${esc(d.host)}</span><span class="foot-brand"><a href="https://kickflip.sh">kickflip.sh</a> / <button type="button" class="version" data-check-update>${esc(d.version)}${latest ? ` &gt; <span class="new">${esc(latest)} (new)</span>` : ''}${note ? ` <span class="update-note ${note.kind}" role="status">${esc(note.text)}</span>` : ''}</button></span>${clone ? '' : `<label class="auto-update"><input type="checkbox" data-auto-update${auto ? ' checked' : ''}> auto update</label>`}</footer>`;
   };
-  // What the hub's answer to a version tap says (hub/upgrade.mjs check()).
+  // What the hub's answer to a version tap says (hub/upgrade.mjs check()): the note's kind colours it, its text is the words.
   const updateNote = (out) => ({
-    clone: `${out.commit} · pulls with main`,
-    same: 'up to date',
-    pulling: `pulling ${out.latest}…`,
-    failed: `check failed: ${out.error}`,
+    clone: { kind: 'info', text: `${out.commit} · pulls with main` },
+    same: { kind: 'info', text: 'up to date' },
+    pulling: { kind: 'pulling', text: `pulling ${out.latest}…` },
+    failed: { kind: 'failed', text: `check failed: ${out.error}` },
   })[out.state];
 
   // iOS shows an app badge only in a Home Screen app with notifications allowed; elsewhere this does nothing.
@@ -293,18 +293,60 @@ ${BoardNewTask.markup()}`,
         flash = { text: `The hub hasn’t come back. On the host, run ${out.command}`, error: true };
         if (B.alive()) paint();
       }
-      // A tap on the version asks the hub to check npm now and shows the answer beside it until the next paint of new data.
-      let updateText = '';
+      // A tap on the version asks the hub to check npm now and shows the answer beside it until the next tap. The pull that may follow
+      // is the hub's state, not the tapping page's: every page draws pulling (orange), failed with its reason (red) from the hub's
+      // update.pull, and updated, reload (green; a tap reloads) once the hub runs another version than this page loaded with, so a
+      // page opened or reloaded mid-pull, or on another device, reads what the tapping page does. While a pull runs the page reads the
+      // hub every 2 seconds, the hub being down meanwhile (it restarts); past PULL_WAIT tries it says the hub hasn't come back.
+      // docs/adr/2026-11-16-2345-the-hub-reports-its-pull-and-the-page-reads-it.md
+      let updateText = null;
+      let loadedVersion = null;
+      let following = false;
+      let stalled = false;
+      const PULL_WAIT = 330;
+      const pullNote = () => {
+        const pull = last?.update?.pull;
+        if (pull?.state === 'failed') return { kind: 'failed', text: `update failed: ${pull.error}` };
+        if (stalled) return { kind: 'failed', text: 'the hub hasn’t come back. Is the host awake?' };
+        if (pull?.state === 'pulling') return { kind: 'pulling', text: `pulling ${pull.latest}…` };
+        if (last && last.version !== loadedVersion) return { kind: 'updated', text: 'updated, reload' };
+        return null;
+      };
+      const shownUpdate = () => pullNote() || updateText;
+      async function followPull() {
+        if (following) return;
+        following = true;
+        let i = 0;
+        for (; i < PULL_WAIT && B.alive(); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          try {
+            const r = await fetch('/_hub/api/hub', { cache: 'no-store', headers: { accept: 'application/json' } });
+            if (!r.ok) continue;
+            last = await r.json();
+            stalled = false;
+            if (B.alive()) paint();
+            if (last.update?.pull?.state === 'failed' || last.version !== loadedVersion) break;
+          } catch { /* the hub is down while it restarts */ }
+        }
+        if (i === PULL_WAIT) { stalled = true; if (B.alive()) paint(); }
+        following = false;
+      }
       async function checkUpdate() {
-        if (updateText === 'checking…') return;
-        updateText = 'checking…';
+        const shown = shownUpdate();
+        if (shown?.kind === 'updated') return AppShell.reload();
+        if (['checking', 'pulling'].includes(shown?.kind)) return;
+        updateText = { kind: 'checking', text: 'checking…' };
         paint();
         try {
           const r = await fetch('/_hub/check-update', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: '{}' });
           const out = await r.json();
           if (!r.ok) throw new Error();
           updateText = updateNote(out);
-        } catch { updateText = 'could not check. Is the host awake?'; }
+          if (out.state === 'pulling') {
+            last = { ...last, update: { ...last.update, pull: { state: 'pulling', latest: out.latest } } };
+            followPull();
+          }
+        } catch { updateText = { kind: 'failed', text: 'could not check. Is the host awake?' }; }
         if (B.alive()) paint();
       }
       async function forgetDevice(id) {
@@ -350,7 +392,7 @@ ${BoardNewTask.markup()}`,
       const paint = () => {
         if (!last) return;
         main.innerHTML = html(last, { flash, prompts, restarting, restartingHub, unsent: unsentRows(), open: B.store.get('lanes', {}) });
-        foot.innerHTML = footer(last, updateText);
+        foot.innerHTML = footer(last, shownUpdate());
         if (scrollToAwake) { scrollToAwake = false; B.$('#keep-awake')?.scrollIntoView(); }
       };
       const prompts = PromptAnswers.wire(B, {
@@ -380,7 +422,9 @@ ${BoardNewTask.markup()}`,
         paint(d) {
           if (!d) { if (!last) main.innerHTML = '<p class="note">Offline. Is the host awake?</p>'; return; }
           last = d;
+          loadedVersion ??= d.version;
           paint();
+          if (d.update?.pull?.state === 'pulling') followPull();
           badge(Number(d.total) || 0);
         },
         busy: () => forms.busy() || Boolean(root.querySelector('[data-dirty]')) || Boolean(root.querySelector('dialog[open]')),
