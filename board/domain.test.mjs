@@ -3260,3 +3260,12 @@ test("a built work card carries its footer, and its builder the words of its lin
   assert.deepEqual(two.footer, [{ kind: 'blocked', lead: 'blocked by ', deps: [], tail: 'blocked until CI is green, x' }]);
   assert.equal(built({ alive: { 'w/B1': false } }).find((i) => i.id === 'B1').builder.words, 'stopped');
 });
+
+// docs/adr/2026-11-16-1400-todo-sorts-strictly-by-created.md
+test('Todo sorts strictly by created: a backfilled old card sorts above a newer one however recent its activity, and a Todo card with none never takes its latest activity', () => {
+  const build = (items) => buildBoard({ now: Date.parse('2026-11-14T06:00:00Z'), owner: {}, events: [], threads: {}, working: {}, files: [{ slug: 'w', agents: {}, itemFile: { items } }] });
+  const todo = (id, created) => ({ id, title: id, lane: 'todo', ...(created ? { created } : {}) });
+  const b = build([todo('NEW', '2026-11-10T00:00:00Z'), todo('OLD', '2026-11-01T00:00:00Z')]);
+  assert.deepEqual(b.items.filter((i) => i.lane === 'todo').map((i) => [i.id, i.sortAt]).sort((x, y) => x[1].localeCompare(y[1])), [['OLD', '2026-11-01T00:00:00Z'], ['NEW', '2026-11-10T00:00:00Z']]);
+  assert.equal(build([{ ...todo('OLD'), updated_at: '2026-11-15T00:00:00Z' }]).items[0].sortAt, null);
+});

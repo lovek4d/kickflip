@@ -4683,6 +4683,29 @@ export const migrateGates = (site) => ticketWrite(site, async () => {
   return lines;
 });
 
+// docs/adr/2026-11-16-1400-todo-sorts-strictly-by-created.md
+// Each live card with no created time takes the time of the first line of its thread. Todo sorts strictly by created, so
+// this runs as the board server starts, once. A card with no thread keeps none and lists last in Todo.
+// → one line per item file changed.
+export const migrateCreated = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  for (const entry of await itemSources(site)) {
+    const itemFile = await readJSON(entry.file, null);
+    let changed = 0;
+    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
+      if (it.created) continue;
+      const first = (await readLog(threadFile(site, `${entry.slug}/${it.id}`)))[0];
+      if (!first?.ts) continue;
+      it.created = first.ts;
+      changed++;
+    }
+    if (!changed) continue;
+    await writeJSON(entry.file, itemFile);
+    lines.push(`${entry.slug}: ${changed} tasks took their first event as created`);
+  }
+  return lines;
+});
+
 // docs/adr/2026-11-11-1200-every-lane-has-phases.md
 // A card's Todo `state` becomes its `phase`, and a Done card with none takes how it closed: merged when one of its PRs
 // merged, or with no PRs when a build ran on it, which landed it; closed otherwise. → whether it changed.
