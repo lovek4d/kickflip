@@ -82,7 +82,9 @@
 .hub-view .dur-on .title { font-weight:600; white-space:normal; }
 .hub-view code { font-family:var(--mono); font-size:.85em; white-space:nowrap; }
 .hub-view footer { color:var(--muted); font-size:12px; margin:1.8rem 2px 0; }
-.hub-view footer .version, .hub-view footer .auto-update { display:block; margin:0; padding:0; font:inherit; line-height:inherit; white-space:nowrap; text-align:left; }
+.hub-view footer .foot-brand, .hub-view footer .auto-update { display:block; margin:0; padding:0; font:inherit; line-height:inherit; white-space:nowrap; text-align:left; }
+.hub-view footer .version { margin:0; padding:0; font:inherit; line-height:inherit; text-align:left; }
+.hub-view footer .foot-brand a { color:inherit; }
 .hub-view .version { color:inherit; background:none; border:0; cursor:pointer; }
 .hub-view .version:hover { text-decoration:underline dotted; }
 .hub-view .version .new { color:var(--accent); }

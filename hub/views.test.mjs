@@ -533,7 +533,8 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   });
   assert.deepEqual(data.groups[0].sites.map((s) => s.remembered), [sessions, []]);
   live.paint({ ...data, version: '0.4.2', remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
-  assert.equal(root.querySelector('.hub-foot footer .version').textContent, 'kickflip.sh / 0.4.2');
+  assert.equal(root.querySelector('.hub-foot footer .version').textContent, '0.4.2');
+  assert.equal(root.querySelector('.hub-foot footer a[href="https://kickflip.sh"]').textContent, 'kickflip.sh');
   // Keep awake is a toggle row in Health under the machine row, and the Hub row no longer says Keeping awake.
   const healthGroup = root.querySelector('#keep-awake').parentNode;
   assert.deepEqual(healthGroup.querySelectorAll('.title').map((el) => el.textContent), ['Hub', 'Machine', 'Keep awake']);
@@ -1066,13 +1067,15 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
   const note = () => root.querySelector('.update-note')?.textContent ?? null;
   const reply = (status, body) => answers.shift()({ ok: status < 400, json: async () => body });
 
-  assert.equal(root.querySelector('[data-check-update]').textContent, 'kickflip.sh / 0.7.7');
+  assert.equal(root.querySelector('[data-check-update]').textContent, '0.7.7');
+  assert.equal(root.querySelector('.hub-foot a').getAttribute('href'), 'https://kickflip.sh');
+  assert.equal(root.querySelector('.hub-foot a[data-check-update]'), null, 'the link is not the update button');
   assert.equal(root.querySelector('[data-auto-update]').hasAttribute('checked'), true);
   assert.equal(note(), null);
   const paintWith = (update) => live.paint({ ...hubView({ now, st: status(now, DEFAULTS), rows: [], code: { running: 'abc', onDisk: 'abc' },
     sidebar: { pause: CALM_GATE, sites: [], hub: { tone: 'ok', word: 'ok', detail: '' }, notifications: {}, total: 0 }, update }), version: '0.7.7' });
   paintWith({ latest: '0.7.8', auto: false, clone: false });
-  assert.equal(root.querySelector('[data-check-update]').textContent, 'kickflip.sh / 0.7.7 > 0.7.8 (new)');
+  assert.equal(root.querySelector('[data-check-update]').textContent, '0.7.7 > 0.7.8 (new)');
   assert.equal(root.querySelector('[data-auto-update]').hasAttribute('checked'), false);
   assert.equal(root.querySelector('[data-auto-restart]'), null);
   paintWith({ latest: null, auto: true, clone: true });

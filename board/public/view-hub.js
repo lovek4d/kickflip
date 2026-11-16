@@ -109,12 +109,12 @@ ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/k
 ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed || [], unsent, open)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>`;
   }
 
-  // The version line is one button: a tap checks npm now and pulls what it finds (POST /_hub/check-update), answering in
+  // The version line is a link to the website, then / and a button (not the link): a tap on the version checks npm now and pulls what it finds (POST /_hub/check-update), answering in
   // place (updateNote). A newer version npm has shows beside the version, old > new (new), whatever the auto update box says.
   // The box sits on the line under it; a clone never pulls, so it has no box.
   const footer = (d, note = '') => {
     const { latest, auto, clone } = d.update;
-    return `<footer><span class="host">${esc(d.host)}</span><button type="button" class="version" data-check-update>kickflip.sh / ${esc(d.version)}${latest ? ` &gt; <span class="new">${esc(latest)} (new)</span>` : ''}${note ? ` <span class="update-note${note.startsWith('pulling') ? ' pulling' : ''}" role="status">${esc(note)}</span>` : ''}</button>${clone ? '' : `<label class="auto-update"><input type="checkbox" data-auto-update${auto ? ' checked' : ''}> auto update</label>`}</footer>`;
+    return `<footer><span class="host">${esc(d.host)}</span><span class="foot-brand"><a href="https://kickflip.sh">kickflip.sh</a> / <button type="button" class="version" data-check-update>${esc(d.version)}${latest ? ` &gt; <span class="new">${esc(latest)} (new)</span>` : ''}${note ? ` <span class="update-note${note.startsWith('pulling') ? ' pulling' : ''}" role="status">${esc(note)}</span>` : ''}</button></span>${clone ? '' : `<label class="auto-update"><input type="checkbox" data-auto-update${auto ? ' checked' : ''}> auto update</label>`}</footer>`;
   };
   // What the hub's answer to a version tap says (hub/upgrade.mjs check()).
   const updateNote = (out) => ({
