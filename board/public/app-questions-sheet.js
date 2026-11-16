@@ -33,10 +33,11 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   const topicOf = (id) => board()?.owner.find((q) => q.id === id)?.topic ?? (board()?.ownerTopics.some((t) => t.id === id) ? id : null);
   const openOf = () => board().owner.filter((q) => q.topic === topic && q.state === 'open');
   const shownOf = () => board().owner.filter((q) => q.topic === topic && (q.state === 'open' || kept.has(q.id)));
-  // The topic's batches, newest first: each its questions-added line's questions; one a line doesn't name comes last.
+  // The topic's batches, newest first: each its questions-added line's questions; one no line names comes last, as
+  // those do of a line a thread kept from before the lines named their questions.
   function batches() {
     const shown = shownOf();
-    const lines = (threads(keyOf(topic)) || []).filter((m) => m.line === 'questions-added').reverse();
+    const lines = (threads(keyOf(topic)) || []).filter((m) => m.line === 'questions-added' && m.questions).reverse();
     const groups = lines.map((m) => ({ line: m, qs: shown.filter((q) => m.questions.includes(q.id)) }));
     const rest = shown.filter((q) => !groups.some((g) => g.qs.includes(q)));
     return [...groups.filter((g) => g.qs.length), ...(rest.length ? [{ line: null, qs: rest }] : [])];

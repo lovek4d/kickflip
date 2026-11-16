@@ -6516,7 +6516,7 @@ test('a topic picked in the questions pane, by a row or a questions URL, closes 
 // Card A1 asked qa, then qb; card B1 asked qc; the thread's two Questions added lines name qa and qb.
 // gate: an owner-answers send waits on gate.promise, and with gate.down can't reach the board; once through, as
 // board/server.mjs records it, each answer's question reads answered and the card's thread gains its line, with its sendId.
-function sheetOnDom({ width = 390, board = null, gate = null } = {}) {
+function sheetOnDom({ width = 390, board = null, gate = null, lines = null } = {}) {
   const added = (ts, ids) => ({ ts, who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', text: `${ids.length} question added`, link: `questions.html#${ids[0]}`, questions: ids, open: true });
   const base = questionsBoard([openQuestion('qa', 'item:w/A1'), openQuestion('qb', 'item:w/A1'), openQuestion('qc', 'item:w/B1')], []);
   const send = async (kind, data, server) => {
@@ -6535,7 +6535,7 @@ function sheetOnDom({ width = 390, board = null, gate = null } = {}) {
     return { ids: data.answers.map((a) => `e-${a.id}`), board: structuredClone(server.board) };
   };
   const b = boardOnDom({ open: ['w/A1'], width, send, board: board || { ...base, items: [workCard('A1', { lane: 'progress', questions: { topic: 'item:w/A1', first: 'qa', open: 2, state: 'open' } }), workCard('B1')] },
-    threads: { 'w/A1': [added('2026-11-14T09:00:00.000Z', ['qa']), added('2026-11-14T10:00:00.000Z', ['qb'])] } });
+    threads: { 'w/A1': lines?.(added) || [added('2026-11-14T09:00:00.000Z', ['qa']), added('2026-11-14T10:00:00.000Z', ['qb'])] } });
   const moves = [];
   const { replaceState } = b.page.win.history;
   b.page.win.history = { state: { idx: 3 }, pushState(state, _, url) { moves.push(['push', state, url]); this.state = state; }, replaceState, back() { moves.push(['back']); } };
@@ -6563,6 +6563,16 @@ test("a thread's Questions added line keeps its words, orange while a question o
   assert.equal(s.sheet().querySelector('#readerTitle'), null);
   assert.equal(s.sheet().querySelectorAll('[data-proto]').length, 2, 'each question has its prototype eye');
   assert.deepEqual(s.moves, [], 'the sheet makes no history entry');
+  s.view.unmount();
+});
+
+// A thread kept from before a questions-added line named its questions holds a line with none.
+test("a thread with an older Questions added line that names no questions still fills the sheet", async () => {
+  const s = sheetOnDom({ lines: (added) => [{ ...added('2026-11-10T09:00:00.000Z', []), questions: undefined }, added('2026-11-14T10:00:00.000Z', ['qb'])] });
+  await s.settle();
+  s.page.fire(s.root, 'click', { target: s.root.querySelector('.status-line button[data-questions]'), button: 0 });
+  assert.equal(s.sheet().open, true);
+  assert.deepEqual(s.ids(), ['qb', 'qa'], 'the named batch, then the question no line names');
   s.view.unmount();
 });
 
