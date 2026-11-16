@@ -10,7 +10,7 @@ const waits = (snapshot) => orchestratorWaits(built(snapshot)).map(({ key, kind,
 const card = (item = {}) => ({ id: 'A1', title: 'One', created: at(0), phase: 'discussing', lane: 'todo', ...item });
 const said = (minute, key = 'w/A1') => ({ id: `m${minute}`, ts: at(minute), kind: 'item-message', data: { key, text: 'One more thing' }, reply: null });
 const line = (minute, rest = {}) => ({ ts: at(minute), who: 'claude', text: 'On it.', ...rest });
-const LIMBO = 'A1 owes nobody anything: ask Implement, ask questions, or close it';
+const LIMBO = 'A1 owes nobody anything: ask Implement (reply w/A1 --implement), ask questions, or close it';
 
 test('a discussing card with no mark, no question and nothing running waits on the orchestrator at once, until a mark, a question, a planner or a phase change', () => {
   assert.deepEqual(waits({ items: [card()] }), [['w/A1', 'limbo', at(0), LIMBO]]);
@@ -40,7 +40,7 @@ test('the limbo waits come after every other wait, oldest first, so a deploy sur
 
 test("a card whose newest thread message is the owner's waits on the orchestrator in every lane but Done, whatever its marks, until any line of the orchestrator's", () => {
   const marked = card({ waits_on_owner: { on: 'implement', at: at(1), phase: 'discussing', lane: 'todo' } });
-  assert.deepEqual(waits({ items: [marked], events: [said(5), said(7)] }), [['w/A1', 'reply', at(5), "Act on the owner's reply"]]);
+  assert.deepEqual(waits({ items: [marked], events: [said(5), said(7)] }), [['w/A1', 'reply', at(5), "Act on the owner's reply: answer it in the thread, or act and let the action's line answer it"]]);
   // Any line the orchestrator writes after it ends it, a status line too; a builder's progress line or ask doesn't.
   for (const answer of [line(8), line(8, { command: 'staged', text: 'Marked as staged' }), line(8, { kind: 'move', text: 'Moved' }), line(8, { kind: 'hub', line: 'pulled', text: 'Moved to In Progress' })]) {
     assert.deepEqual(waits({ items: [marked], events: [said(5)], threads: { 'w/A1': [answer] } }), [], JSON.stringify(answer));

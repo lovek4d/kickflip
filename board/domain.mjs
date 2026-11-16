@@ -450,7 +450,7 @@ function waitFactsOf(it, { agents, thread, events, said, refusedAt, closed }) {
   const requestAt = (kind) => events.filter((e) => isRequest(e, kind)).pop()?.ts || null;
   const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !m.command && !['status', 'agent', MOVE].includes(m.kind) && m.line !== BUILD_REFUSED).map((m) => m.ts);
   return {
-    handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
+    handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, id: ask.ask, text: ask.text } : null,
     unasked: thread.filter((m) => m.line === 'planner-unasked').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((m) => ({ at: m.ts, kind: m.detail })).pop() || null,
     unplaced: thread.filter((m) => m.line === 'visual-unplaced').map((m) => m.ts).sort().pop() || null,
     pages: thread.filter((m) => m.kind === VISUAL).map((m) => m.ts),
@@ -1802,9 +1802,12 @@ export function relatedCandidates(items, it) {
     .map(({ o }) => o);
 }
 const TRIAGE = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--deps <keys>] [--split-of <key>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
-const candidatesLine = (cards) => (cards.length ? ` Likely related: ${cards.map((c) => `${c.key} "${c.title}"`).join(', ')}.` : '');
+const candidatesLine = (cards) => (cards.length ? ` Likely related (check them, don't hunt): ${cards.map((c) => `${c.key} "${c.title}"`).join(', ')}.` : '');
+// docs/adr/2026-11-07-0700-staging-then-ready.md: what a task is checked against before it goes ready, staged or filed
+// from an Implement ask.
+const STAGING_CHECKS = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --deps), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
 const INTAKE_NEXT = {
-  ask: (key, cards) => `Triage the new task first, from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask item set ${key} --phase ready with --size.${candidatesLine(cards)}`,
+  ask: (key, cards) => `Triage the new task first, from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask, the checks a staged task gets (${STAGING_CHECKS}), then item set ${key} --phase ready with --size.${candidatesLine(cards)}`,
   'card-added': (key, cards) => `Triage the task an agent added, from what you know of the board: ${TRIAGE(key)}. Then investigate: item notes.${candidatesLine(cards)}`,
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
@@ -1832,7 +1835,7 @@ function waitFirst(it, wait) {
 function screenWaits(items, screening) {
   for (const it of items) {
     const s = routeRecord(screening, it.key);
-    if (s) waitFirst(it, { kind: 'screen', since: s.since, picked: null, next: `Screen the grill's questions ${s.ids.join(', ')}: question settle <id> --note for each the board already answers, then question publish ${it.key}; left 15 minutes unscreened, they reach the owner as they are` });
+    if (s) waitFirst(it, { kind: 'screen', since: s.since, picked: null, next: `Screen the grill's questions ${s.ids.join(', ')}: question settle <id> --note for each the task's notes and thread, merged code or another task already answer, never the prototype question, then question publish ${it.key}; left 15 minutes unscreened, they reach the owner as they are` });
   }
 }
 
@@ -1993,8 +1996,11 @@ const STALL_NEXT = "item stall it with the reason when it can't go on";
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
 // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a staged card whose split was answered Split is filed as its split, not set ready.
-const STAGING_NEXT = 'Judge the staged task against the whole board: for a discussed task first fold what was agreed into a Build notes section with item notes; then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead';
+const STAGING_NEXT = `Judge the staged task against the whole board, not only its own notes: read its notes and thread; for a discussed task first fold what was agreed into a Build notes section with item notes; ${STAGING_CHECKS}; then item set --phase ready --size <small|large> --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead`;
 const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions against what landed; answer a stale one again with question settle <id> --note, or send the task back with item set --phase grilling when the change is too big; then item set --phase ready --text "<what you re-checked>"';
+// docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md
+const CALLS_HOW = (key) => `read each with builder calls ${key} against the task's notes, the owner's words and the other tasks; answer a Question: call they settle, or send back a build you won't verify, with builder resume ${key} --text "<what to change>"; put a call they don't settle, or one that conflicts with the owner's words, to the owner as a question on the task ("ask": "<ask>" in it for a deferred ask); then builder verified ${key} --note "<what you checked>"; never redo it yourself or with an Agent`;
+const PROTOTYPE_ROUNDS = '; name each prototype to draw as its own round, and each owner request the task owes (a Prototype tap, a no-pick answer) as a round of its own';
 // A sorted Todo card in new or discussing that owes nobody anything: nothing the owner acts on (a mark, a question, a
 // script), no brief owed or waiting to launch, and no planner running or queued.
 const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new') && !it.unsorted && !it.action
@@ -2010,17 +2016,17 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const unplaced = facts.unplaced && !facts.pages.some((t) => String(t) > facts.unplaced)
     && !it.agents.some((a) => a.kind === VISUAL && a.started && (!a.done || String(a.started) > facts.unplaced)) ? facts.unplaced : null;
   const waits = [
-    facts.ask && { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` },
+    facts.ask && { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}: builder answer ${it.key} ${facts.ask.id} --text "<answer>" from the task's notes, thread and the owner's words, or builder defer ${it.key} ${facts.ask.id} --text "<what to carry on with>" when you aren't confident or the owner's opinion is wanted; never ask the owner mid-build` },
     it.staging && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
     answeredAt && !facts.writes.some((t) => t > String(answeredAt)) && { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" },
     facts.triagedAt && { kind: 'investigate', since: facts.triagedAt, next: `Investigate ${it.key}: write its notes (item notes), then reply` },
     // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: the
     // owner's word last on the card is owed, whatever else the card waits on, until the orchestrator's next line.
     // It is picked up when the message was handed over, not at a line written before that.
-    facts.ownerWord && { kind: 'reply', since: facts.ownerWord.at, picked: facts.ownerWord.picked, next: "Act on the owner's reply" },
+    facts.ownerWord && { kind: 'reply', since: facts.ownerWord.at, picked: facts.ownerWord.picked, next: "Act on the owner's reply: answer it in the thread, or act and let the action's line answer it" },
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
     // prototype or visual agent until the orchestrator writes its brief, whatever else the card asks of the owner.
-    owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page' }[owed.kind]} should cover and the files that matter` },
+    owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page' }[owed.kind]} should cover and the files that matter${owed.kind === 'prototype' ? PROTOTYPE_ROUNDS : ''}` },
     // While the owner owes the card an answer, the waits below are theirs to unblock.
     ...(ASKING.has(it.action?.kind) ? [] : [
       // One stale wait: a stopped or silent builder, else a review past seven days. A builder waiting on its own ask is
@@ -2028,8 +2034,8 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       it.builder?.stopped || it.builder?.stale ? (facts.ask ? null
         : it.builder.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: ${RESTART_NEXT}, or drop the task` }
         : { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent, then finish its run or ${RESTART_NEXT}` })
-      : it.lane === 'review' && it.stale && { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), daily: true, next: `Find out why the review went stale and fix what you can: rebase, CI, comments; if only a reviewer owes it, a thread line naming who; or ${STALL_NEXT}` },
-      it.waitsOn === 'checking' && (facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: facts.next || "Verify the builder's judgment calls" }
+      : it.lane === 'review' && it.stale && { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), daily: true, next: `Find out why the review went stale (CI red, a conflict, changes requested, reviewers silent) and fix what you can: rebase, CI, comments; re-ping silent reviewers once in Slack; write one thread line, naming who when only a reviewer owes it; ask the owner only for a decision (close it, change reviewers); or ${STALL_NEXT}` },
+      it.waitsOn === 'checking' && (facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: `${facts.next || "Verify the builder's judgment calls"}: ${CALLS_HOW(it.key)}` }
         // A verified card's wait says its land step; a lander that faulted, or one with no worktree to land from, is stale.
         : it.land ? { kind: ['fault', 'worktree-gone'].includes(it.land.step) ? 'stale' : 'checking', since: facts.handedBackAt, next: LAND_WORDS[it.land.step].next({ ...it.land, key: it.key }) }
         : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }),
@@ -2043,14 +2049,14 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
       // for the re-check that releases it to the pull.
       it.recheckAt && it.lane === 'todo' && it.phase === 'ready' && !it.blocked && { kind: 'recheck', since: it.recheckAt, next: RECHECK_NEXT },
-      it.refusal && facts.refusedAt && { kind: 'refused', since: facts.refusedAt, next: it.refusal },
+      it.refusal && facts.refusedAt && { kind: 'refused', since: facts.refusedAt, next: `${it.refusal}: fix what refused the build and start it, or say on the task why it waits` },
       it.next === NO_NEXT && lastBuild && { kind: 'unowned', since: lastBuild, next: 'Start a builder on it, or set its Next' },
       // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo whose block ended waits until the session writes on it.
       facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.blocked && !facts.writes.some((t) => t > facts.unblockedAt)
-        && { kind: 'unblocked', since: facts.unblockedAt, next: "Its block ended: act on what it waited for, or set its Next" },
+        && { kind: 'unblocked', since: facts.unblockedAt, next: 'Its block ended: act on what it waited for, or set its Next; a thread line ends the wait' },
       // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: a sorted
       // Todo card still owing Implement, with no mark, question, brief or planner, owes nobody anything.
-      limbo(it) && { kind: 'limbo', since: facts.limboFrom, next: `${it.ref} owes nobody anything: ask Implement, ask questions, or close it` },
+      limbo(it) && { kind: 'limbo', since: facts.limboFrom, next: `${it.ref} owes nobody anything: ask Implement (reply ${it.key} --implement), ask questions, or close it` },
     ]),
   ];
   return waits.filter((wait) => wait?.since).map((wait) => {

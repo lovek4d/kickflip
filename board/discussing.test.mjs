@@ -51,7 +51,7 @@ test("a New task's intake wait says to triage it first into discussing, a grill,
   assert.match(next, /item triage hub\/T-1 .*--phase discussing\|grilling\|prototyping\|visual/);
   assert.match(next, /--ticket/);
   assert.match(next, /reply hub\/T-1/);
-  assert.match(next, /for an Implement ask item set hub\/T-1 --phase ready with --size/);
+  assert.match(next, /for an Implement ask, the checks a staged task gets \(check that no open or merged task already covers it .*\), then item set hub\/T-1 --phase ready with --size/);
 });
 
 // The CLI, on the audit board (data/items.json).

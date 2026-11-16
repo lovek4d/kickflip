@@ -74,7 +74,9 @@ test('usage-resumed and the taps the board applies itself are record-only; a bum
   assert.equal(ON_CARD['card-bump']('#3', event('card-bump')), '#3 bumped: handle its waits lines first; with none, leave it');
 });
 
-test("every wait kind the board puts on the orchestrator's waits list is named in SKILL.md's Watch step, with what to do", () => {
+// docs/adr/2026-11-16-0700-a-moments-rule-lives-in-its-waits-next-text.md: the Watch step names each kind; what to do is
+// the wait's Next.
+test("every wait kind the board puts on the orchestrator's waits list is named in SKILL.md's Watch step", () => {
   const domain = fs.readFileSync(path.join(root, 'board', 'domain.mjs'), 'utf8');
   const kinds = [...new Set([...domain.matchAll(/kind: '([a-z]+)', since/g)].map((m) => m[1]))];
   for (const k of ['ask', 'staging', 'screen', 'intake', 'triage', 'calls', 'stale']) assert.ok(kinds.includes(k), k);

@@ -122,7 +122,7 @@ test("a New task's intake wait asks for item triage first, then investigation, a
   const wait = orchestratorWaits(b).find((w) => w.kind === 'intake');
   assert.equal(wait.key, 'w/T-1');
   assert.match(wait.next, /^Triage the new task first, from what you know of the board, reading no code: item triage w\/T-1 --title "<type>\(<scope>\): <summary>" --phase discussing\|grilling\|prototyping\|visual .*--fold-into <task> for a duplicate\. Then investigate/);
-  assert.match(wait.next, /Likely related: w\/T-2 "feat\(board\): the header stays pinned on scroll"\.$/);
+  assert.match(wait.next, /Likely related \(check them, don't hunt\): w\/T-2 "feat\(board\): the header stays pinned on scroll"\.$/);
 });
 
 const investigate = (key = 'audit/T-1') => {

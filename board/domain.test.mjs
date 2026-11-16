@@ -1198,7 +1198,7 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
   const state = (s, id) => (({ lane, waitsOn, closedAt, action, actionButton, next }) => [lane, waitsOn, closedAt, action?.kind ?? null, actionButton, next])(card(s, id));
   // docs/adr/2026-11-09-1804-in-progress-means-a-builder-runs.md: the reply waits on the orchestrator in In Review.
   assert.deepEqual(state(said, 'A4'), ['review', null, null, null, null, 'Your reply waits on the orchestrator']);
-  assert.deepEqual(orchestratorWaits(buildBoard(said)).filter((w) => w.key === 'w/A4').map((w) => [w.kind, w.since, w.next]), [['reply', '2026-10-23T11:30:00Z', "Act on the owner's reply"]]);
+  assert.deepEqual(orchestratorWaits(buildBoard(said)).filter((w) => w.key === 'w/A4').map((w) => [w.kind, w.since, w.next]), [['reply', '2026-10-23T11:30:00Z', "Act on the owner's reply: answer it in the thread, or act and let the action's line answer it"]]);
   assert.deepEqual(card(said, 'A6').blockedBy, []);
   assert.deepEqual(state(said, 'A7'), ['review', null, null, null, null, 'Your reply waits on the orchestrator']);
   assert.equal(card(said, 'A7').reopened, true);
@@ -1801,7 +1801,9 @@ test('a staging card stays in Todo waiting on the orchestrator, and is neither p
   const b = buildBoard({ fromWaves: false, now: Date.parse(at(30)), files: [{ slug: 'w', itemFile: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
   assert.deepEqual([card('S1').lane, card('S1').staging, card('S1').ready, card('S1').next, card('S1').stagedAt], ['todo', true, false, null, at(1)]);
-  assert.deepEqual(card('S1').orchestrator, { kind: 'staging', since: at(1), picked: null, next: 'Judge the staged task against the whole board: for a discussed task first fold what was agreed into a Build notes section with item notes; then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead' });
+  const { next: stagingNext, ...staging } = card('S1').orchestrator;
+  assert.deepEqual(staging, { kind: 'staging', since: at(1), picked: null });
+  assert.match(stagingNext, /^Judge the staged task against the whole board, .*for a discussed task first fold what was agreed into a Build notes section with item notes; .*then item set --phase ready --size <small\|large> --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead$/);
   assert.deepEqual([card('R1').staging, card('R1').ready, card('R1').orchestrator], [false, true, null]);
   assert.deepEqual(pullOf(b.items).pullable, ['w/R1']);
   assert.equal('starts' in pullOf(b.items), false);
@@ -1836,7 +1838,7 @@ test("a card owing a brief reads the brief's word, blue, and waits on the orches
   for (const [kind, word, output] of [['grill', 'preheating', 'questions'], ['prototype', 'planning prototype', 'takes'], ['visual', 'planning visual', 'page']]) {
     const it = owed(kind);
     assert.deepEqual([it.briefing, it.planning], [kind, word], kind);
-    assert.deepEqual(it.orchestrator, { kind: 'brief', since: at(5), picked: null, next: `Write the ${kind} brief: item brief w/A1 --kind ${kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${output} should cover and the files that matter` }, kind);
+    assert.deepEqual(it.orchestrator, { kind: 'brief', since: at(5), picked: null, next: `Write the ${kind} brief: item brief w/A1 --kind ${kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${output} should cover and the files that matter${kind === 'prototype' ? '; name each prototype to draw as its own round, and each owner request the task owes (a Prototype tap, a no-pick answer) as a round of its own' : ''}` }, kind);
   }
   assert.equal(owed('grill').builder, null);
   const written = one({ phase: 'grilling', briefs: [{ kind: 'grill', at: at(5), brief: { heading: 'Brief for grill round 1', text: 'x', at: at(6) } }] });
@@ -2454,8 +2456,9 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
   const waits = (events, options) => orchestratorWaits(built(events, options)).map(({ key, kind, since, picked, next }) => [key, kind, since, picked, next]);
   const sort = (id) => {
     const key = `w/T-${id.slice(1)}`;
-    return `Triage the new task first, from what you know of the board, reading no code: ${triage(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask item set ${key} --phase ready with --size.`;
+    return `Triage the new task first, from what you know of the board, reading no code: ${triage(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask, the checks a staged task gets (${checks}), then item set ${key} --phase ready with --size.`;
   };
+  const checks = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --deps), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
   const triage = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--deps <keys>] [--split-of <key>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
   const cards = [asked('e1'), asked('e2')];
 
@@ -2515,7 +2518,7 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const handed = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z', done: at, handed_back: at, calls: [{ at: '2026-11-04T09:30:00Z', text: 'x' }] } } };
   const calls = one({ lane: 'progress', next: "Verify the builder's judgment calls" }, { agents: handed });
   assert.deepEqual(shape(calls), [['w/A1', 'calls', at, null]]);
-  assert.equal(calls[0].next, "Verify the builder's judgment calls");
+  assert.match(calls[0].next, /^Verify the builder's judgment calls: read each with builder calls w\/A1 /);
   assert.equal(calls[0].ref, 'A1');
   const verified = { A1: { main: { ...handed.A1.main, verified: { at: later } } } };
   assert.deepEqual(shape(one({ lane: 'progress' }, { agents: verified })), [['w/A1', 'checking', at, later]], 'verified: under orchestrator review');
@@ -2567,7 +2570,7 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const refused = { 'w/A1': [{ ts: at, who: 'claude', kind: 'hub', line: 'build-refused', text: "Couldn't start implementing: no repo" }] };
   const refusal = one({ phase: 'ready' }, { threads: refused });
   assert.deepEqual(shape(refusal), [['w/A1', 'refused', at, null]]);
-  assert.equal(refusal[0].next, "Couldn't start implementing: no repo");
+  assert.equal(refusal[0].next, "Couldn't start implementing: no repo: fix what refused the build and start it, or say on the task why it waits");
 
   // A card past Todo whose block ended waits until the session writes on it.
   const unblocked = { lane: 'review', unblocked_at: at };
@@ -2597,7 +2600,7 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const both = built({ items: [{ id: 'T1', title: 'Todo', phase: 'ready' }, { id: 'P1', title: 'Building', lane: 'progress' }], threads: { 'w/T1': refused['w/A1'] },
     agents: { P1: handed.A1 } });
   assert.deepEqual(orchestratorWaits(both).map((w) => w.key), ['w/P1', 'w/T1']);
-  assert.deepEqual(both.items.find((i) => i.key === 'w/P1').orchestrator, { kind: 'calls', since: at, picked: null, next: "Verify the builder's judgment calls" });
+  assert.deepEqual(both.items.find((i) => i.key === 'w/P1').orchestrator, { kind: 'calls', since: at, picked: null, next: orchestratorWaits(both)[0].next });
   assert.equal(both.items.find((i) => i.key === 'w/P1').waitFacts, undefined, 'the facts stay off the task');
 });
 
@@ -2864,7 +2867,7 @@ test("a finished grill's screened questions are the card's screen wait, ahead of
   const items = [{ id: 'A1', title: 'One', state: 'grilling' }, { id: 'A2', title: 'Two', state: 'grilling' }];
   const built = (screening) => buildBoard({ fromWaves: false, now: Date.parse('2026-11-07T10:05:00Z'), files: [{ slug: 'w', agents: {}, itemFile: { items } }], events: [], screening });
   assert.deepEqual(orchestratorWaits(built({ 'w/A1': { since, ids: ['q1', 'q-gate'] } })).map(({ key, kind, since: s, picked, next }) => [key, kind, s, picked, next]),
-    [['w/A1', 'screen', since, null, "Screen the grill's questions q1, q-gate: question settle <id> --note for each the board already answers, then question publish w/A1; left 15 minutes unscreened, they reach the owner as they are"]]);
+    [['w/A1', 'screen', since, null, "Screen the grill's questions q1, q-gate: question settle <id> --note for each the task's notes and thread, merged code or another task already answer, never the prototype question, then question publish w/A1; left 15 minutes unscreened, they reach the owner as they are"]]);
   assert.deepEqual(orchestratorWaits(built({})), []);
   assert.deepEqual(orchestratorWaits(built(undefined)), []);
 });

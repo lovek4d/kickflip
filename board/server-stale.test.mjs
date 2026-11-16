@@ -518,7 +518,9 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   assert.equal(pushes().length, 0, 'five minutes in, no push');
   await board.minute();
   assert.equal(wakes().length, 1, 'once');
-  const again = { key: 't/A1', ref: 'A1', kind: 'calls', since: handedAt, next: "Verify the builder's judgment calls" };
+  const { next } = waits()[0];
+  assert.match(next, /^Verify the builder's judgment calls: read each with builder calls t\/A1 /);
+  const again = { key: 't/A1', ref: 'A1', kind: 'calls', since: handedAt, next };
   clock.advance(14);
   await board.minute();
   assert.equal(wakes().length, 1, 'not yet 15 minutes since the wake');
