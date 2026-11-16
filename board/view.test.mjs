@@ -4410,7 +4410,7 @@ test("a New strip link still names its ticket when the browser follows it: the s
   b.view.unmount();
 });
 
-test("an ask in the New strip edits in place: its edit box opens in its entry, Save closes it and sends the edit through the outbox, its row reading sending… until the board has it, and Cancel closes it", async () => {
+test("an ask in the New strip edits in place: its edit box opens in its entry, leaving it saves: the box closes and the edit goes through the outbox, its row reading sending… until the board has it; Escape, an unchanged text and an emptied one close it with nothing sent", async () => {
   const a1 = newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header');
   const sends = heldSends();
   const b = boardOnDom({ board: boardOf([a1]), threads: {}, send: sends.send });
@@ -4422,8 +4422,13 @@ test("an ask in the New strip edits in place: its edit box opens in its entry, S
   await b.settle();
   assert.equal(form().querySelector('textarea').value, 'Fix the header');
   assert.equal(entry().querySelector('.new-msg'), null);
-  form().querySelector('textarea').value = 'Fix the footer';
-  b.page.fire(b.root, 'submit', { target: form() });
+  assert.equal(form().querySelector('button'), null, 'no Save or Cancel');
+  const box = () => form().querySelector('textarea');
+  box().value = 'Fix the footer';
+  b.page.fire(b.root, 'focusout', { target: box(), relatedTarget: form().querySelector('[data-files]') });
+  await b.settle();
+  assert.deepEqual([Boolean(form()), b.sent.length], [true, 0], 'focus moving inside the form saves nothing');
+  b.page.fire(b.root, 'focusout', { target: box(), relatedTarget: null });
   await b.settle();
   assert.deepEqual([form(), sending()], [null, ['Edited to: Fix the footer']]);
   b.server.board = boardOf([{ ...a1, ask: { ...a1.ask, text: 'Fix the footer', edited: true } }]);
@@ -4435,9 +4440,20 @@ test("an ask in the New strip edits in place: its edit box opens in its entry, S
   assert.deepEqual(sentNoIds(b), [['ask-edited', { text: 'Fix the footer', id: 'a1', key: 'w/a1' }]]);
   b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
   await b.settle();
-  b.page.fire(b.root, 'click', { target: form().querySelector('button[data-edit-cancel]') });
+  box().value = 'Something else';
+  b.page.fire(b.root, 'keydown', { target: box(), key: 'Escape' });
   await b.settle();
   assert.deepEqual([form(), entry().querySelector('.new-msg').textContent], [null, 'Fix the footer']);
+  b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
+  await b.settle();
+  b.page.fire(b.root, 'focusout', { target: box(), relatedTarget: null });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
+  await b.settle();
+  box().value = '  ';
+  b.page.fire(b.root, 'focusout', { target: box(), relatedTarget: null });
+  await b.settle();
+  assert.deepEqual([form(), entry().querySelector('.new-msg').textContent, sentNoIds(b).length], [null, 'Fix the footer', 1]);
   b.view.unmount();
 });
 
@@ -4612,7 +4628,7 @@ test("an ask's edit Save closes the box at once; a refusal reads not sent with t
   b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
   await b.settle();
   form().querySelector('textarea').value = 'Fix the footer';
-  b.page.fire(b.root, 'submit', { target: form() });
+  b.page.fire(b.root, 'focusout', { target: form().querySelector('textarea'), relatedTarget: null });
   await b.settle();
   assert.deepEqual([form(), row().querySelector('.new-msg').textContent], [null, 'Edited to: Fix the footer']);
   sends.answer(false, 'The board server is restarting. Try again in a moment.');
@@ -4651,7 +4667,7 @@ test("every text box on a board the owner sends from, the new task, a thread rep
   b.view.unmount();
 });
 
-test("an ask's edit box's attached files go with the edit, Save does nothing while they upload, and the sent edit clears them", async () => {
+test("an ask's edit box's attached files go with the edit, leaving the box saves nothing while they upload, and the sent edit clears them", async () => {
   const b = boardOnDom({ board: boardOf([newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header')]), threads: {} });
   const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
   let busy = true;
@@ -4662,11 +4678,11 @@ test("an ask's edit box's attached files go with the edit, Save does nothing whi
   await b.settle();
   const form = () => b.root.querySelector('#newStrip .edit-form[data-edit-form="a1"]');
   form().querySelector('textarea').value = 'Fix the footer';
-  b.page.fire(b.root, 'submit', { target: form() });
+  b.page.fire(b.root, 'focusout', { target: form().querySelector('textarea'), relatedTarget: null });
   await b.settle();
   assert.deepEqual(b.sent, [], 'an upload still running holds the save');
   busy = false;
-  b.page.fire(b.root, 'submit', { target: form() });
+  b.page.fire(b.root, 'focusout', { target: form().querySelector('textarea'), relatedTarget: null });
   await b.settle();
   assert.deepEqual(sentNoIds(b), [['ask-edited', { text: 'Fix the footer', files: [shot], id: 'a1', key: 'w/a1' }]]);
   assert.deepEqual(cleared, ['edit:a1']);

@@ -2454,29 +2454,25 @@ test('a question card and a full plan link refs too, to the board page from anot
   ]);
 });
 
-test('the rules editor stages edits until Save, sends the list with the ids it loaded, tags Claude\'s rules, and takes colours only from colors.css', () => {
+test('the rules editor sends the whole list with the ids it loaded, tags Claude\'s rules, and takes colours only from colors.css', () => {
   const ctx = vm.createContext({ Date: PageDate });
   vm.runInContext(fs.readFileSync(new URL('./public/rules-editor.js', import.meta.url), 'utf8'), ctx);
   const ed = ctx.RulesEditor;
   const list = ed.rows([{ id: 'r1', text: 'Ask first', by: 'claude', at: 'x' }, { id: 'r2', text: 'Screenshots <b>', by: 'owner', at: 'x' }]);
-  assert.equal(ed.dirty(list), false);
   assert.match(ed.render(list), /Added by Claude/);
   assert.equal(text(ed.render(list)).match(/Added by Claude/g).length, 1);
   assert.match(ed.render(list), /Screenshots &lt;b&gt;/);
   assert.doesNotMatch(ed.render(list, { readOnly: true }), /<button/);
   assert.match(ed.render([], { empty: 'None.' }), /None\./);
-
-  list[0].text = 'Ask before main';
-  list[1].gone = true;
-  list.push({ key: 'new-1', id: null, text: 'New', by: 'owner', orig: null, gone: false });
-  assert.equal(ed.dirty(list), true);
-  const html = ed.render(list, { buttons: { primary: 'btn', quiet: 'btn quiet', icon: 'ghost' } });
-  assert.match(html, /class="rule edited"/);
-  assert.match(html, /class="rule gone"[\s\S]*data-act="undo"/);
-  assert.match(html, /class="rule new"/);
+  const html = ed.render(list, { buttons: { quiet: 'btn quiet', icon: 'ghost' } });
   assert.match(html, /class="ghost" data-act="remove"/);
-  assert.match(ed.render(list, { editing: 'r1' }), /<textarea class="rule-input"[^>]*>Ask before main<\/textarea>/);
-  assert.deepEqual(plain(ed.payload(list)), { rules: [{ id: 'r1', text: 'Ask before main' }, { text: 'New' }], base: ['r1', 'r2'] });
+  assert.doesNotMatch(html, /data-act="(undo|done|cancel|save)"/);
+  assert.match(ed.render(list, { editing: 'r1' }), /<textarea class="rule-input"[^>]*>Ask first<\/textarea>/);
+  assert.match(ed.render(list, { editing: 'r1', text: 'Ask before main' }), /<textarea class="rule-input"[^>]*>Ask before main<\/textarea>/);
+  assert.doesNotMatch(ed.render(list, { editing: 'r1' }), /<button[^>]*data-act="(done|cancel)"/);
+  list[0].text = 'Ask before main';
+  list.push({ key: undefined, id: null, text: 'New', by: 'owner' });
+  assert.deepEqual(plain(ed.payload(list)), { rules: [{ id: 'r1', text: 'Ask before main' }, { id: 'r2', text: 'Screenshots <b>' }, { text: 'New' }], base: ['r1', 'r2'] });
 
   const shared = definedIn(colorsCss);
   assert.deepEqual([...usedIn(ed.CSS)].filter((v) => !shared.has(v)), []);

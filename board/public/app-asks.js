@@ -68,13 +68,6 @@ BoardView.part((B) => {
       $(`form[data-edit-form="${CSS.escape(id)}"] textarea`)?.focus();
       return;
     }
-    const cancel = ev.target.closest('.edit-form button[data-edit-cancel]');
-    if (cancel) {
-      const id = cancel.closest('form').dataset.editForm;
-      closeEditor(id);
-      BoardAttach.clear('edit:' + id, B.site.root);
-      return;
-    }
     const del = ev.target.closest('button[data-withdraw]');
     if (!del) return;
     ev.preventDefault();
@@ -87,23 +80,32 @@ BoardView.part((B) => {
     BoardAttach.clear('edit:' + id, B.site.root);
     B.enqueue(undefined, { kind: 'ask-withdrawn', fields: data, said: `Deleted: ${askText(key)}` });
   });
-  B.on(B.root, 'submit', (ev) => {
-    const form = ev.target.closest('form.edit-form');
-    if (!form) return;
-    ev.preventDefault();
+  const revert = (id) => {
+    closeEditor(id);
+    BoardAttach.clear('edit:' + id, B.site.root);
+  };
+  // Focus leaving the form saves its edit (docs/adr/2026-11-16-2000-edits-save-when-focus-leaves-them.md); focus moving
+  // to the form's own attach button or file list doesn't. An emptied or unchanged text with no files reverts, as Escape
+  // does, and an upload still running holds the save until focus leaves again.
+  B.on(B.root, 'focusout', (ev) => {
+    const form = ev.target.closest?.('form.edit-form');
+    if (!form || (ev.relatedTarget && form.contains(ev.relatedTarget))) return;
     const id = form.dataset.editForm;
     const e = state.edits.get(id);
     if (!e) return;
     const text = form.querySelector('textarea').value.trim();
-    if (!text) { toast('Write something, or delete the message'); return; }
-    if (BoardAttach.busy(form.dataset.composer, B.site.root)) return;
     const files = BoardAttach.files(form.dataset.composer, B.site.root);
-    // Save closes the box and the edit goes through the outbox, its row in the New strip until the board has it; then
-    // the new text and files show in the New strip and the card's thread
+    if (!text || (text === askText(e.key) && !files.length)) { revert(id); return; }
+    if (BoardAttach.busy(form.dataset.composer, B.site.root)) return;
+    // The edit goes through the outbox, its row in the New strip until the board has it; then the new text and files
+    // show in the New strip and the card's thread
     // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
-    closeEditor(id);
-    BoardAttach.clear(form.dataset.composer, B.site.root);
+    revert(id);
     B.enqueue(undefined, { kind: 'ask-edited', text, files, fields: e.data, said: `Edited to: ${text}` });
+  });
+  B.on(B.root, 'keydown', (ev) => {
+    const form = ev.key === 'Escape' && ev.target.closest?.('form.edit-form');
+    if (form) revert(form.dataset.editForm);
   });
   Object.assign(B, { renderNew });
 });
