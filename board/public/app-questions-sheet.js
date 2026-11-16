@@ -44,7 +44,9 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   }
 
   // The answer outbox, in send order: each {sendId, id, topic, key?, ts, answer, text, failed?}, answer the owner-answers
-  // answer it sends and text its line in the card's thread, in the board's words (domain.mjs threadOf).
+  // answer it sends and text its line in the card's thread, in the board's words (domain.mjs threadOf). A question's
+  // prototype, grill or visual request goes through it too, as {sendId, id, topic, key?, ts, request: {kind, said, data},
+  // failed?}: no answer, it sends its kind with data and its footer reads said.
   const queued = () => store.get(ANSWER_OUTBOX, []);
   const setQueued = (list) => { store.set(ANSWER_OUTBOX, list); BoardUI.outboxChanged(); };
   const entryOf = (id) => queued().find((m) => m.id === id);
@@ -94,7 +96,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   const redraw = () => { if (!sheet.open) return; if (openOf().length) draw(); else close(); };
   // After question id's answer changed in the outbox: its card draws again, or the sheet closes once the board has every
   // question of the topic answered.
-  const settle = (id) => { if (!sheet.open) return; if (openOf().length) drawOne(id); else close(); };
+  const settle = (id) => { if (!sheet.open) return; if (!openOf().length) close(); else if (shownOf().some((q) => q.id === id)) drawOne(id); else draw(); };
 
   // id: a question's or a topic's. → false for one the board doesn't have, or a topic with no open question.
   function open(id) {
@@ -138,12 +140,14 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
             setQueued(queued().map((o) => (o.sendId === m.sendId ? m : o)));
             BoardAttach.clear(boxOf(m), siteRoot);
           }
-          await send('owner-answers', { answers: [m.answer] });
+          await (m.request ? send(m.request.kind, m.request.data) : send('owner-answers', { answers: [m.answer] }));
         } catch (e) { failure = e; } finally { answersInFlight.delete(m.sendId); }
         if (!alive()) return;
         if (!failure) {
           setQueued(queued().filter((o) => o.sendId !== m.sendId));
-          setDraft(m.id, {});
+          // A sent prototype request takes its question out of the sheet; a grill's and a visual's keep their draft.
+          if (m.request?.kind === 'prototype-request') kept.delete(m.id);
+          if (!m.request || m.request.kind === 'prototype-request') setDraft(m.id, {});
         } else if (failure.status === 400) {
           setQueued(queued().filter((o) => o.sendId !== m.sendId));
           toast(refusal(failure));
@@ -181,6 +185,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   }
   const holds = (sendId) => queued().some((m) => m.sendId === sendId);
 
+  const newSendId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
   on(sheet, 'submit', (ev) => {
     ev.preventDefault();
     const list = pending();
@@ -188,7 +194,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     status('');
     const ts = new Date().toISOString();
     const entries = list.map((q) => {
-      const sendId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const sendId = newSendId();
       const answer = { ...BoardUI.answerOf(q, []), sendId };
       const key = keyOf(q.topic);
       const entry = { sendId, id: q.id, topic: q.topic, ...(key ? { key } : {}), ts, answer,
@@ -203,19 +209,23 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   });
 
   // docs/adr/2026-11-02-1822-each-question-has-its-own-prototype-eye.md, docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-  // A question's eye, fire or image sends `prototype-request`, `grill-more` or `visual-request {key?, question, note,
-  // choice}` for that question, its note box the note and its pick so far the choice. The prototype's question then
-  // reads prototype requested, locked, and leaves the sheet; the grill's reads Grilling deeper; the visual's stays open.
+  // A question's eye, fire or image puts `prototype-request`, `grill-more` or `visual-request {key?, question, note,
+  // choice, sendId}` for that question in the outbox, its note box the note and its pick so far the choice. The question
+  // reads its request and sending… at once; once the board has it the prototype's question leaves the sheet, the
+  // grill's reads Grilling deeper and the visual's stays open.
   const REQUEST = { prototype: ['prototype-request', 'Prototype requested.'], grill: ['grill-more', 'Grill requested.'], visual: ['visual-request', 'Visual requested.'] };
-  async function ask(q, flag, button) {
+  function ask(q, flag) {
     const [kind, said] = REQUEST[flag];
     const key = keyOf(q.topic);
     const d = getDraft(q.id);
+    const sendId = newSendId();
+    const entry = { sendId, id: q.id, topic: q.topic, ...(key ? { key } : {}), ts: new Date().toISOString(),
+      request: { kind, said, data: { ...(key ? { key } : {}), question: q.id, note: noteOf(q, d).trim(), choice: choiceOf(q, d), sendId } } };
     status('');
-    try { await BoardUI.waitOn(button, send(kind, { ...(key ? { key } : {}), question: q.id, note: noteOf(q, d).trim(), choice: choiceOf(q, d) })); } catch (e) { status(refusal(e)); return; }
-    if (flag === 'prototype') { setDraft(q.id, {}); kept.delete(q.id); }
-    toast(said);
-    redraw();
+    setQueued([...queued(), entry]);
+    changed(entry, false);
+    drawOne(q.id);
+    flush();
   }
 
   BoardUI.wireAnswerForm(on, sheet, updateBar);
@@ -237,7 +247,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     const request = ev.target.closest?.('section.q [data-proto], section.q [data-grill], section.q [data-visual]');
     if (!request || request.disabled) return;
     const q = board().owner.find((x) => x.id === request.closest('section.q').dataset.q);
-    if (q) ask(q, BoardUI.requestOf(request), request);
+    if (q) ask(q, BoardUI.requestOf(request));
   });
   // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it.
   on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal) close(); });

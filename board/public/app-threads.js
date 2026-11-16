@@ -146,7 +146,9 @@ BoardView.part((B) => {
   // The questions sheet's answer outbox (app-questions-sheet.js): each answer to a card's question is that card's answer
   // line, in the board's words, until the board's own line, carrying its sendId, takes its place.
   const answersFor = (key) => store.get(BoardUI.ANSWER_OUTBOX, []).filter((m) => m.key === key);
-  const answerLine = (m, state = m.failed ? 'failed' : 'sending') => ({ ts: m.ts, who: 'love', via: 'questions', kind: 'owner-answer', text: m.text, files: m.answer.files || [], ...(m.uploads ? { uploads: uploadsOf(m) } : {}), status: 'answers submitted', sendId: m.sendId, state });
+  // A question's prototype, grill or visual request in that outbox reads as the card's own request line.
+  const requestLine = (m, state) => unsent({ ...m, kind: m.request.kind, text: m.request.data.note, files: [], fields: {} }, state === 'waiting');
+  const answerLine = (m, state = m.failed ? 'failed' : 'sending') => m.request ? requestLine(m, state) : ({ ts: m.ts, who: 'love', via: 'questions', kind: 'owner-answer', text: m.text, files: m.answer.files || [], ...(m.uploads ? { uploads: uploadsOf(m) } : {}), status: 'answers submitted', sendId: m.sendId, state });
   // After answer m changed in the outbox, its card's thread draws it; sent, the thread loads with the board's line,
   // the answer reading waiting… until then.
   function answerChanged(m, sent) {

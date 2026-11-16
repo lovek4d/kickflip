@@ -149,7 +149,7 @@
   // (docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md).
   function resolvedCard(q, links, n, sending = null) {
     const last = q.answers[q.answers.length - 1];
-    const sentLine = sending ? `<div class="sent-line sending"><span>${esc(time(sending.ts))}</span><span>·</span>${globalThis.BoardUI.pickUp({ state: sending.failed ? 'failed' : 'sending', sendId: sending.sendId })}</div>`
+    const sentLine = sending ? `<div class="sent-line sending">${sending.request ? `<span>${esc(sending.request.said)}</span><span>·</span>` : ''}<span>${esc(time(sending.ts))}</span><span>·</span>${globalThis.BoardUI.pickUp({ state: sending.failed ? 'failed' : 'sending', sendId: sending.sendId })}</div>`
       : q.answers.length ? '<div class="sent-line">Sent.</div>' : '';
     const outcome = q.resolved ? `${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'}` : '';
     const acted = q.resolved_at ? ` <span class="acted" title="${esc(time(q.resolved_at))}">acted on ${esc(ago(q.resolved_at))}</span>.` : '';
@@ -173,7 +173,10 @@
   // A requested question takes the accent tint, as a sent one takes the green.
   // sending: the question's entry in the answer outbox, which draws it as resolvedCard does with that answer.
   function questionCard(q, { n = 0, draft = {}, links = {}, sending = null } = {}) {
-    if (sending) return resolvedCard({ ...q, answers: [...q.answers, { ts: sending.ts, choice: sending.answer.choice, note: sending.answer.note, files: sending.answer.files, uploads: sending.uploads }] }, links, n, sending);
+    if (sending) {
+      const said = sending.request ? sending.request.data : sending.answer;
+      return resolvedCard({ ...q, answers: [...q.answers, { ts: sending.ts, choice: said.choice, note: said.note, files: said.files, uploads: sending.uploads }] }, links, n, sending);
+    }
     if (isSent(q)) return resolvedCard(q, links, n);
     const locked = q.state === 'requested';
     const chosen = locked ? q.request.choice : choiceOf(q, draft);
@@ -239,7 +242,8 @@
   // The answer outbox: the questions sheet's answers the board hasn't recorded yet, kept in this browser under the board's
   // own keys (app-questions-sheet.js). unsentAnswers: its entries whose question owner (/api/board's) still has open.
   const ANSWER_OUTBOX = 'answer-outbox';
-  const unsentAnswers = (owner, store) => store.get(ANSWER_OUTBOX, []).filter((m) => (owner || []).some((q) => q.id === m.id && q.state === 'open'));
+  // A visual request leaves its question open, so it is no answer.
+  const unsentAnswers = (owner, store) => store.get(ANSWER_OUTBOX, []).filter((m) => m.request?.kind !== 'visual-request' && (owner || []).some((q) => q.id === m.id && q.state === 'open'));
 
   Object.assign(globalThis.BoardUI, { onOutbox, outboxChanged, ANSWER_OUTBOX, unsentAnswers, isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet, cardTopics, queueRows });
 })();

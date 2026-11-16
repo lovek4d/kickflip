@@ -4924,7 +4924,12 @@ function questionsOnDom({ topics, questions, at, gate = null, items = [], embedd
       return { id: 'e1', board: structuredClone(boardBody()) };
     }
     // A question's grill or visual request is recorded and leaves the question open, as board/server.mjs records it.
-    if (kind === 'grill-more' || kind === 'visual-request') return { id: 'g1', board: structuredClone(boardBody()) };
+    if (kind === 'grill-more' || kind === 'visual-request') {
+      await gate?.promise;
+      if (gate?.down) throw Object.assign(new Error('send failed'), { status: 0 });
+      if (gate?.refuse) throw Object.assign(new Error('send failed: 400'), { status: 400, reason: gate.refuse });
+      return { id: 'g1', board: structuredClone(boardBody()) };
+    }
     // An Implement or Done tap is recorded and the card leaves the queue, as board/server.mjs records it.
     if (kind === 'card-build' || kind === 'card-done') {
       queue.splice(0, queue.length, ...queue.filter((e) => e.key !== data.key));
@@ -5128,23 +5133,54 @@ test("a Pick a take row opens its prototype, a tap's row opens its card's thread
   v.unmount();
 });
 
-test("the sheet's eye, fire and image ask for a prototype, a grill or a visual of that question with its note and pick; a refusal keeps the draft and says why", async () => {
+// docs/adr/2026-11-16-1100-a-questions-requests-go-out-through-the-answer-outbox.md
+test("the sheet's eye, fire and image put their request for that question, with its note and pick, in the outbox at once: it reads its request and sending…, then the visual's opens again and the prototype's leaves the sheet; a refusal opens the question again with its draft and says why", async () => {
   const gate = { promise: Promise.resolve(), refuse: '' };
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1')], at: 'q1', gate });
   await v.settle();
   assert.deepEqual(v.shown().questions, ['q1', 'q2'], "a link to an open question opens its topic's sheet");
   v.answer('q1');
-  const ask = async (sel) => { v.page.fire(v.sheet(), 'click', { target: v.sheet().querySelector(`section.q[data-q="q1"] ${sel}`) }); await v.settle(); };
-  await ask('[data-grill]');
+  const $ = (sel) => v.sheet().querySelector(sel);
+  const ask = async (sel) => { v.page.fire(v.sheet(), 'click', { target: $(`section.q[data-q="q1"] ${sel}`) }); await v.settle(); };
   await ask('[data-visual]');
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['grill-more', { key: 'w/T1', question: 'q1', note: '', choice: 'A' }], ['visual-request', { key: 'w/T1', question: 'q1', note: '', choice: 'A' }]]);
-  assert.equal(v.toast(), 'Visual requested.');
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent.map(([kind, { sendId, ...d }]) => [kind, d, typeof sendId]))), [['visual-request', { key: 'w/T1', question: 'q1', note: '', choice: 'A' }, 'string']]);
+  assert.equal($('section.q[data-q="q1"] textarea.note') !== null, true, 'a visual leaves the question open once the board has it');
+  let release;
+  gate.promise = new Promise((r) => { release = r; });
+  await ask('[data-proto]');
+  assert.match(v.footer('q1'), /^Prototype requested\. · \S.* · sending…$/);
+  assert.equal($('section.q[data-q="q1"] textarea.note'), null, 'a question being sent is locked');
+  assert.deepEqual(v.shown().rows.map(([, , , action]) => action), ['Answer 1'], "the row's count drops with it");
+  release();
+  await v.settle();
+  assert.deepEqual([v.sent.at(-1)[0], v.shown().questions], ['prototype-request', ['q2']], 'the requested question leaves the sheet');
   gate.refuse = 'board busy';
-  await ask('[data-proto]');
-  assert.deepEqual([v.shown().status, v.shown().questions, JSON.parse(v.page.win.localStorage.getItem('qdraft:q1'))], ['Nothing was sent: board busy', ['q1', 'q2'], { choice: 'A' }]);
-  gate.refuse = '';
-  await ask('[data-proto]');
-  assert.deepEqual([v.sent.at(-1)[0], v.toast(), v.shown().questions], ['prototype-request', 'Prototype requested.', ['q2']], 'the requested question leaves the sheet');
+  v.answer('q2');
+  v.page.fire(v.sheet(), 'click', { target: $('section.q[data-q="q2"] [data-grill]') });
+  await v.settle();
+  assert.deepEqual([v.footer('q2'), v.toast(), v.shown().questions, JSON.parse(v.page.win.localStorage.getItem('qdraft:q2'))], [null, 'Nothing was sent: board busy', ['q2'], { choice: 'A' }]);
+  v.unmount();
+});
+
+test("a request the board can't be reached for reads not sent with Retry and X in its footer: Retry sends it again under its send id, X opens the question again with its pick and note", async () => {
+  const gate = { promise: Promise.resolve(), down: true };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1')], at: 'q1', gate });
+  await v.settle();
+  const $ = (sel) => v.sheet().querySelector(sel);
+  const tapIn = async (sel) => { v.page.fire(v.sheet(), 'click', { target: $(sel) }); await v.settle(); };
+  v.answer('q1');
+  await tapIn('section.q[data-q="q1"] [data-visual]');
+  assert.match(v.footer('q1'), /^Visual requested\. · \S.* · not sent$/);
+  assert.ok($('section.q[data-q="q1"] [data-resend]') && $('section.q[data-q="q1"] [data-unsend]'));
+  gate.down = false;
+  await tapIn('section.q[data-q="q1"] [data-resend]');
+  assert.deepEqual([v.sent.map(([kind]) => kind), v.sent[0][1].sendId === v.sent[1][1].sendId, v.footer('q1')], [['visual-request', 'visual-request'], true, null]);
+  gate.down = true;
+  v.answer('q2');
+  await tapIn('section.q[data-q="q2"] [data-grill]');
+  assert.match(v.footer('q2'), / · not sent$/);
+  await tapIn('section.q[data-q="q2"] [data-unsend]');
+  assert.deepEqual([v.footer('q2'), $('section.q[data-q="q2"] textarea.note') !== null], [null, true], 'X: open again');
   v.unmount();
 });
 
@@ -6526,9 +6562,9 @@ function sheetOnDom({ width = 390, board = null, gate = null, lines = null } = {
   const added = (ts, ids) => ({ ts, who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', text: `${ids.length} question added`, link: `questions.html#${ids[0]}`, questions: ids, open: true });
   const base = questionsBoard([openQuestion('qa', 'item:w/A1'), openQuestion('qb', 'item:w/A1'), openQuestion('qc', 'item:w/B1')], []);
   const send = async (kind, data, server) => {
-    if (kind !== 'owner-answers') return { id: 'e0', board: structuredClone(server.board) };
     await gate?.promise;
     if (gate?.down) throw Object.assign(new Error('send failed'), { status: 0 });
+    if (kind !== 'owner-answers') return { id: 'e0', board: structuredClone(server.board) };
     for (const a of data.answers) {
       const q = server.board.owner.find((x) => x.id === a.id);
       Object.assign(q, { state: 'answered', answers: [...q.answers, { ts: '2026-11-14T11:00:00.000Z', choice: a.choice, note: a.note, files: [] }] });
@@ -6647,6 +6683,21 @@ test("an answer sent from the sheet shows at once in its card's thread as the bo
   assert.deepEqual([s.sent.filter(([kind]) => kind === 'owner-answers').length, answerLines().length], [2, 1], "sent again, and the board's line takes the page's place");
   assert.match(answerLines()[0].querySelector('.msg-foot').textContent, /waiting…$/);
   assert.equal(s.sheet().querySelector('section.q[data-q="qb"] .sent-line').textContent.trim(), 'Sent.');
+  s.view.unmount();
+});
+
+// docs/adr/2026-11-16-1100-a-questions-requests-go-out-through-the-answer-outbox.md
+test("a request sent from the sheet shows at once in its card's thread as that request, sending…, and one that fails reads not sent there with Retry and X", async () => {
+  const gate = { promise: Promise.resolve(), down: true };
+  const s = sheetOnDom({ gate });
+  await s.settle();
+  const msgs = () => s.root.querySelector('[data-thread="w/A1"] .msgs');
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
+  s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('section.q[data-q="qb"] [data-visual]') });
+  await s.settle();
+  const line = () => msgs().querySelectorAll('.msg').find((m) => m.textContent.includes('Visual requested'));
+  assert.match(line().textContent, /^Visual requested · \S.* · not sent$/);
+  assert.ok(line().querySelector('[data-resend]') && line().querySelector('[data-unsend]'), 'Retry and X in the thread');
   s.view.unmount();
 });
 
