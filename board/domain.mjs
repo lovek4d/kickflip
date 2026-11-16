@@ -1017,6 +1017,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 export const COMMANDS = {
   prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
+  'prototype-started': 'Prototype started', 'grill-started': 'Grill started', 'visual-started': 'Visual started',
   reask: 'Re-ask requested', hold: 'Blocked', resume: 'Unblocked', done: 'Marked done', reopened: 'Reopened',
   discussing: 'Marked as discussing', staged: 'Marked as staged', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
@@ -1024,7 +1025,7 @@ export const COMMANDS = {
 };
 // Each tap command's tone (hub-lines.mjs TONES): a request for a planner is blue like a planner's own lines.
 export const COMMAND_TONES = {
-  prototype: 'blue', grill: 'blue', visual: 'blue', reask: 'blue', hold: 'grey', resume: 'orange', done: 'green', reopened: 'grey',
+  prototype: 'blue', grill: 'blue', visual: 'blue', 'prototype-started': 'blue', 'grill-started': 'blue', 'visual-started': 'blue', reask: 'blue', hold: 'grey', resume: 'orange', done: 'green', reopened: 'grey',
   discussing: 'grey', staged: 'orange', readied: 'green', related: 'grey', unrelated: 'grey', followup: 'grey', 'followup-of': 'grey',
   created: 'blue', 'created-from': 'blue', 'blocked-by': 'grey', unblocks: 'grey',
 };

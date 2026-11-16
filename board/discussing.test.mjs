@@ -211,7 +211,7 @@ test("the owner's Grill or Prototype tap on a discussing card moves it to that p
 });
 
 // docs/adr/2026-11-12-0800-a-written-brief-wakes-the-board-and-going-discussing-drops-owed-briefs.md
-test('item brief appends a brief-written event and posts "<Kind> requested" for a brief nobody tapped for; one answering a tap posts no line', async () => {
+test('item brief appends a brief-written event and posts "<Kind> started" for a brief nobody tapped for; one answering a tap posts no line', async () => {
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
@@ -222,15 +222,15 @@ test('item brief appends a brief-written event and posts "<Kind> requested" for 
   const events = () => lines(audit('data', 'events.jsonl')).filter((e) => e.kind === 'brief-written');
   assert.equal((await board('item', 'brief', 'audit/T-1', '--kind', 'prototype', '--file', draft, '--site', 'audit')).code, 0);
   assert.deepEqual(events().map((e) => e.data), [{ key: 'audit/T-1', kind: 'prototype' }]);
-  assert.deepEqual(thread().filter((l) => l.command === 'prototype').map((l) => [l.who, l.text]), [['claude', 'Prototype requested']]);
+  assert.deepEqual(thread().filter((l) => l.command === 'prototype-started').map((l) => [l.who, l.text]), [['claude', 'Prototype started']]);
   await s.planAgain(audit(), 'audit/T-1', 'grill', { text: 'Ask about mobile' });
   assert.equal((await board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--file', draft, '--site', 'audit')).code, 0);
   assert.equal(events().length, 2);
-  assert.equal(thread().filter((l) => l.command === 'grill').length, 0, "the owner's tap wrote that line");
+  assert.equal(thread().filter((l) => l.command === 'grill-started').length, 0, "the owner's tap wrote that line, so the brief adds no started line");
   // A bare Visual tap (no text) is the owner's request too: its brief adds no second line.
   await s.planAgain(audit(), 'audit/T-1', 'visual');
   assert.equal((await board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--file', draft, '--site', 'audit')).code, 0);
-  assert.equal(thread().filter((l) => l.command === 'visual').length, 0, "a bare tap's brief posts no line");
+  assert.equal(thread().filter((l) => l.command === 'visual-started').length, 0, "a bare tap's brief posts no line");
 });
 
 test('a card set to discussing, by item set or a reply, drops its unwritten briefs and keeps the written ones', async () => {

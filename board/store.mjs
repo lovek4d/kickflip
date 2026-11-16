@@ -2988,9 +2988,9 @@ export async function writeBrief(site, key, { kind, file }) {
     delete briefed.staged_at;
   }
   await writeJSON(source.file, itemFile);
-  // The owner's tap wrote its own "<Kind> requested" line; a brief nobody tapped for gets it here. The event wakes the
+  // The owner's tap wrote its own "<Kind> requested" line; a brief nobody tapped for is the orchestrator's own start, and its line reads "<Kind> started". The event wakes the
   // board's auto pass, which launches the agent.
-  if (!tapped) await appendCommand(site, key, { command: kind });
+  if (!tapped) await appendCommand(site, key, { command: `${kind}-started` });
   await appendEvent({ dir: site }, 'brief-written', { key, kind });
   return { heading, lines: [`${name}: "${heading}" added to its notes; the board launches its ${kind === VISUAL ? 'visual agent' : `${kind} planner`} from it`] };
 }
