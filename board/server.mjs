@@ -331,6 +331,8 @@ function lastLogLine(lines) {
 //                                (domain.mjs needsAnswer); the hub badges the site's row and writes its status line with them
 //   GET  /api/stream             server-sent events: `event: change` shortly after a file the board reads changes, under
 //                                the item files' folder or data/. Never gzipped
+//   POST /_claude/changed        {file}: a store write in another process wrote file, under data/ or the item files'
+//                                folder; signals a change as the file watch would (store.mjs wrote). → 204
 //   GET  /_claude/health
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text). One the hub forwards with
 // X-Kickflip-Shared is a shared person's: only an event or upload of someone the board's share lists as Full is taken,
@@ -366,7 +368,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -1187,6 +1189,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           const { itemFile, item, markdown } = await readNotes(here, key);
           return json(res, 200, { key, ref: refOf(itemFile, item, settingsOf(await config()).tickets), title: item.title, markdown });
         } catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
+      }
+      // A store write in another process names the file it wrote (store.mjs wrote).
+      if (p === '/_claude/changed' && req.method === 'POST') {
+        changed(String((await readBody(req)).file));
+        res.writeHead(204, { 'cache-control': 'no-store' }).end();
+        return;
       }
       if (p === '/_claude/events' && req.method === 'POST') {
         // Room for a Send carrying every ready answer's note.
@@ -2545,6 +2553,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   await settleLanes();
   await checkArchive();
   await markNewCards();
+  // docs/adr/2026-11-16-0312-a-store-write-tells-its-board-server.md: a store write in this process calls changed
+  // directly; one in another process POSTs /_claude/changed.
+  const untell = tellOnWrite(here, changed);
   await watch?.(changed);
   await checkPrototypeWaits();
   await checkPickUps();
@@ -2585,6 +2596,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
   async function close() {
     clearInterval(ping);
+    untell();
     await settled();
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));

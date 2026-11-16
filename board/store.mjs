@@ -11,7 +11,7 @@ import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
-import { githubStateFile, appendEvent, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
+import { githubStateFile, appendEvent, isBoardSite, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd, boardClaudeModel, claudeModelFor } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel, readLandTests, setLandTests, CLAUDE_MODEL_VALUES } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
@@ -109,11 +109,46 @@ export async function readLog(file) {
   }
 }
 
-async function replace(file, text) {
+// docs/adr/2026-11-16-0312-a-store-write-tells-its-board-server.md
+// The board servers running in this process, by site: startServer's changed(file), which a write in their folders calls
+// directly. → a function that stops it
+const servers = new Map();
+export function tellOnWrite(site, changed) {
+  servers.set(path.resolve(site), changed);
+  return () => servers.delete(path.resolve(site));
+}
+const inside = (dir, file) => file === dir || file.startsWith(dir + path.sep);
+// After each write, each board whose data/ or item file's folder holds file, the folders its file watch covers, is told:
+// one served in this process through its changed(file), any other by a POST of {file} to /_claude/changed on its port in
+// the hub's manifest, not waited on. A board whose server isn't up reads the write as it starts, or its minute pass
+// signals it (signalMissedWrites).
+function wrote(file) {
+  file = path.resolve(file);
+  const ports = new Map(Object.values(readManifest().sites || {}).filter(isBoardSite).map((s) => [path.resolve(s.dir), s.port]));
+  for (const site of new Set([...servers.keys(), ...ports.keys()])) {
+    const holds = inside(path.join(site, 'data'), file) ? Promise.resolve(true)
+      : itemSources(site).then((sources) => sources.some((s) => inside(path.resolve(s.dir), file)), () => false);
+    holds.then((held) => {
+      if (!held) return;
+      if (servers.has(site)) return servers.get(site)(file);
+      if (!ports.get(site)) return;
+      return fetch(`http://127.0.0.1:${ports.get(site)}/_claude/changed`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ file }), signal: AbortSignal.timeout(10000),
+      }).then((r) => r.body?.cancel(), () => {});
+    });
+  }
+}
+// told false: a cache of what the board just read, which changes nothing any board shows.
+async function replace(file, text, { told = true } = {}) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   await fs.writeFile(tmp, text);
   await fs.rename(tmp, file);
+  if (told) wrote(file);
+}
+async function remove(file) {
+  await fs.rm(file, { force: true });
+  wrote(file);
 }
 // A value read through readJSON is written under the file's lock, merged with whatever was written to the file since that
 // read (merge3), so concurrent processes' changes to different parts of one file all survive.
@@ -129,6 +164,7 @@ const writeJSON = (file, value) => {
 async function appendLine(file, value) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.appendFile(file, JSON.stringify(value) + '\n');
+  wrote(file);
 }
 
 export async function siteDir(route) {
@@ -852,7 +888,7 @@ export const fileAsks = (site) => ticketWrite(site, async () => {
     for (const q of owner.items) if (cardOf(q.topic)) q.topic = `item:${cardOf(q.topic)}`;
     await writeJSON(ownerFile(site), owner);
   }
-  for (const f of ['ask-progress.json', 'ask-titles.json']) await fs.rm(data(f), { force: true });
+  for (const f of ['ask-progress.json', 'ask-titles.json']) await remove(data(f));
   return filed;
 });
 
@@ -873,10 +909,10 @@ async function dropCard(site, { source, itemFile, item, key }) {
   const n = Number(/^T-([1-9]\d*)$/.exec(item.id)?.[1] || 0);
   if (n > (Number(itemFile.last_task) || 0)) itemFile.last_task = n;
   await writeJSON(source.file, itemFile);
-  if (item.plan) await fs.rm(path.join(source.dir, item.plan), { force: true });
+  if (item.plan) await remove(path.join(source.dir, item.plan));
   const thread = threadFile(site, key);
   const lines = await readLog(thread);
-  await fs.rm(thread, { force: true });
+  await remove(thread);
   return lines;
 }
 
@@ -2646,6 +2682,7 @@ async function writeNotesFile(file, content) {
   await fs.rm(tmp, { force: true });
   await fs.writeFile(tmp, content, { mode: NOTES_MODE });
   await fs.rename(tmp, file);
+  wrote(file);
 }
 const notesHeading = (v) => (/\n/.test(text(v, '--heading')) ? fail('--heading is one line, the section\'s title') : text(v, '--heading'));
 const withSection = (notes, heading, body) => `${notes.replace(/\n*$/, '\n')}\n## ${heading}\n${body.replace(/^\n+|\s+$/g, '')}\n`;
@@ -4702,12 +4739,13 @@ export async function archiveCount(site) {
   const kept = (await readJSON(archiveCountFile(site), null))?.count;
   if (Number.isInteger(kept)) return kept;
   const count = (await readArchive(site)).length;
-  await writeJSON(archiveCountFile(site), { count });
+  // Counted from the archive as it stands, so no server is told of it.
+  await replace(archiveCountFile(site), JSON.stringify({ count }, null, 2) + '\n', { told: false });
   return count;
 }
 async function writeArchive(site, cards) {
   if (cards.length) await writeJSON(archiveFile(site), { cards: cards.sort(byClosed) });
-  else await fs.rm(archiveFile(site), { force: true });
+  else await remove(archiveFile(site));
   await writeJSON(archiveCountFile(site), { count: cards.length });
 }
 
@@ -5318,7 +5356,7 @@ export async function takeNews(site, key) {
   if (!open?.record.news) return [];
   const { news, ...rest } = open.record;
   await writeJSON(open.file, rest);
-  if (rest.session?.id) await fs.rm(newsPointer(site, rest.session.id), { force: true });
+  if (rest.session?.id) await remove(newsPointer(site, rest.session.id));
   return newsLines(key, news);
 }
 
@@ -5990,8 +6028,7 @@ export async function restartLander(site, key) {
   if (!open && !Object.hasOwn(sent, key)) fail(`${key} has no open builder and no lander; only a task whose lander stopped or exited has a land to restart`);
   if (open) await relaunchLander(site, key);
   delete sent[key];
-  await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
-  await fs.rename(file + '.tmp', file);
+  await replace(file, JSON.stringify(sent) + '\n');
 }
 
 // land's check: refuses while a builder record on the card holds unverified calls, naming the commands per agent.

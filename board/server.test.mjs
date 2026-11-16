@@ -593,7 +593,8 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual([record.kind, record.label, record.dispatched, record.worktree], ['claude', 'Builder', 'tap', { path: worktree, branch: 'B1', repo: clone }]);
     assert.equal(git(worktree, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
     assert.equal(wave().items.find((i) => i.id === 'B1').next, undefined);
-    assert.deepEqual(log().slice(before), []);
+    // orchestrator-waits and waits-history are the waits check's own record of a change, not an event the tap sent.
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'waits-history'].includes(k)), []);
     const started = await card('B1');
     assert.deepEqual([started.lane, started.storedLane, started.buildable, started.builder.progress, started.refusal], ['progress', 'progress', false, null, null]);
 
@@ -604,7 +605,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual([unheld.ownerBlock, unheld.lane, unheld.storedLane, unheld.builder.progress, unheld.refusal], [null, 'progress', 'progress', null, null]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items[1].pick_up_at, undefined);
     assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Unblocked'], ['claude', 'Moved to In Progress: a build started']]);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'waits-history'].includes(k)), []);
     // docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md: a held card that has an unstarted status is unheld by Implement too.
     for (const id of ['B8', 'B9']) {
       await ok200(post({ kind: 'card-build', key: `t/${id}` }));
@@ -629,7 +630,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual([unheldBumped.ownerBlock, unheldBumped.blocked, unheldBumped.lane, Boolean(unheldBumped.bumpedAt)], [null, true, 'todo', true]);
     assert.deepEqual(thread('B5').map((m) => m.text), ['Unblocked', 'Can’t start yet: waits on B4. Bumped to the top of Todo.']);
     assert.deepEqual(log().slice(before).filter((e) => e.kind === 'card-bump').map((e) => e.data.key), ['t/B3', 't/B5']);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more', 'card-bump'].includes(k)), []);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'waits-history', 'grill-more', 'card-bump'].includes(k)), []);
 
     const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
     fs.mkdirSync(taken, { recursive: true });
@@ -637,7 +638,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const leftover = await card('B4');
     // A status line holds 100 characters, so a long path reads by its last part (board/hub-lines.mjs fit).
     assert.deepEqual([leftover.lane, leftover.storedLane, leftover.refusal], ['todo', 'todo', "Couldn't start implementing: --worktree: …/B4 already exists; land or remove it first"]);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more', 'card-bump'].includes(k)), []);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'waits-history', 'grill-more', 'card-bump'].includes(k)), []);
 
     // A leftover worktree holding no work is remade from the board's fetched main; one holding work still refuses.
     git(clone, 'fetch', '--quiet', 'origin');
