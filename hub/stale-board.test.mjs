@@ -55,11 +55,13 @@ server.listen(Number(process.env.PORT), '127.0.0.1', () => fetch('http://127.0.0
 }
 
 // docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md
-test('a board server whose code changed on disk waits while its board is busy, its sidebar row offering Restart, then restarts once idle, its page reading restarting meanwhile', async (t) => {
+test('a board server whose code changed on disk waits while a land is landing, its sidebar row offering Restart, then restarts once the land is done, an open builder not holding it, its page reading restarting meanwhile', async (t) => {
   const signal = await signals(t);
   const { pkg, dir, shopPort } = await shopSite(signal.port);
-  const builder = path.join(dir, 'data', 'agents', 'A1.json');
-  write(builder, { started: new Date().toISOString(), label: 'Builder' });
+  write(path.join(dir, 'data', 'agents', 'A1.json'), { started: new Date().toISOString(), label: 'Builder' });
+  const landLock = path.join(web, 'land.lock');
+  write(landLock, { card: 'shop/A1', pid: process.pid, at: new Date().toISOString() });
+  t.after(() => fs.rmSync(landLock, { force: true }));
   const clock = { ms: Date.parse('2026-11-13T12:00:00Z') };
   const hub = await inProcessHub(t, { now: () => clock.ms, codeRestarts: true });
   const pid = () => fetch(`http://127.0.0.1:${shopPort}/`).then((r) => r.json()).then((j) => j.pid);
@@ -72,13 +74,13 @@ test('a board server whose code changed on disk waits while its board is busy, i
   write(path.join(pkg, 'board', 'dep.mjs'), `export const v = 2;\nawait fetch('http://127.0.0.1:' + process.env.SIGNALS + '/release');\n`);
   await hub.reconcile();
   await hub.reconcile();
-  assert.deepEqual(hub.lines.filter((l) => l.includes('older code')), ['shop runs older code than its files; its restart waits, since a builder is open'], 'the hub sees the stale server, waits on the builder and says so once');
-  assert.equal(await pid(), first, 'a running builder keeps the old server');
+  assert.deepEqual(hub.lines.filter((l) => l.includes('older code')), ['shop runs older code than its files; its restart waits, since a land is landing'], 'the hub sees the stale server, waits on the land and says so once');
+  assert.equal(await pid(), first, 'a land mid-flight keeps the old server');
   assert.equal(await newServer(), true, 'the board offers Restart meanwhile');
 
-  write(builder, { started: new Date().toISOString(), done: new Date().toISOString(), label: 'Builder' });
+  fs.rmSync(landLock);
   await hub.reconcile();
-  assert.ok(hub.lines.includes('shop runs older code than its files; restarting it'), 'the hub restarts the stale server once the board is idle');
+  assert.ok(hub.lines.includes('shop runs older code than its files; restarting it'), 'the hub restarts the stale server once the land is done, though the builder is still open');
   await hub.logged(/^shop exited/);
   const page = await fetch(`${hub.base}/shop/`, { headers: { accept: 'text/html' } });
   assert.match(await page.text(), /restarting · its code changed/);
@@ -105,6 +107,16 @@ test('a board server whose code changed on disk waits while its board is busy, i
   assert.equal(await pid(), second);
   assert.equal(await newServer(), false);
   assert.equal(hub.lines.filter((l) => l.includes('restarting it')).length, 1, 'the hub restarted the server once');
+
+  // A land holds the restart for as long as it runs, with no bound of its own.
+  write(landLock, { card: 'shop/A2', pid: process.pid, at: new Date().toISOString() });
+  write(path.join(pkg, 'board', 'dep.mjs'), 'export const v = 3;\n');
+  await hub.reconcile();
+  clock.ms += 24 * 60 * 60_000;
+  await hub.reconcile();
+  assert.equal(hub.lines.filter((l) => l === 'shop runs older code than its files; its restart waits, since a land is landing').length, 2);
+  assert.equal(await pid(), second, 'a day on, the land still running keeps the old server');
+  assert.equal(hub.lines.filter((l) => l.includes('restarting it')).length, 1);
 });
 
 // docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md

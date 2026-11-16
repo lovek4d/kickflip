@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { usageReader } from '../hub/usage.mjs';
+import { usageReader, DEFAULT_PAUSE_AT, nearFrom } from '../hub/usage.mjs';
 import { readSettingsFile, writeSettingsFile, readCodexShare, readClaudeModel } from '../hub/push.mjs';
 import { FOREVER, durationEnd, storedEnd } from '../hub/duration.mjs';
 import { codexStatus, codexStatusReader, effectiveCodexShare } from './codex.mjs';
@@ -35,8 +35,8 @@ export const pauseUntilWords = (end) => (end === FOREVER ? 'until the owner resu
 // near (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md): under the line, a live Claude
 // window within twice the buffer of it, {window, used, resets_at, from, going}, else null; going while a Keep going near
 // the line (keepGoing.near) covers the window. tasksInProgressCap reads it.
-export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, boardPause, machine = MACHINE_NORMAL, now = Date.now() } = {}) {
-  const line = validPauseAt(pauseAt) ? pauseAt : 90;
+export function usageGate({ claude, codex, pauseAt = DEFAULT_PAUSE_AT, keepGoing, hubPause, boardPause, machine = MACHINE_NORMAL, now = Date.now() } = {}) {
+  const line = validPauseAt(pauseAt) ? pauseAt : DEFAULT_PAUSE_AT;
   const past = (reading) => line === 100 ? null : windows.find((key) => {
     const w = reading?.[key];
     return w?.state === 'live' && Number.isFinite(w.used_percentage) && w.used_percentage >= line
@@ -86,8 +86,7 @@ function bannerOf(gate) {
   return { kind: 'paused', until: gate.resets_at, text: `Work paused: Claude’s ${weekly ? 'weekly' : '5‑hour'} usage is at ${Math.round(gate.used)}%. Resumes ${weekly ? '' : 'at '}{until}.` };
 }
 
-// The near band starts twice the buffer below 100: at 80% for the 90% line. Off (100) has none.
-const nearFrom = (line) => 2 * line - 100;
+// A live window inside the near band (usage.mjs nearFrom); Off (100) has none.
 function nearOf(claude, line, now) {
   if (line === 100) return null;
   const window = windows.find((key) => {

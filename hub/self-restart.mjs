@@ -4,8 +4,8 @@
 // running in the clone, and the hub's code files match HEAD, so a pull or rebase in progress and hand edits never restart
 // it. restartNow() is the npm side: the hub's own `kickflip update --no-restart` finished. Either waits while idle() names
 // what holds it, saying so once per reason, and each check restarts once nothing does
-// (docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md). Each restarts
-// once per new code; a restart that fails logs why once and leaves the Hub row's Restart hub.
+// (docs/adr/2026-11-16-1500-new-code-restarts-on-a-busy-board-once-no-land-is-landing.md). Each
+// restarts once per new code; a restart that fails logs why once and leaves the Hub row's Restart hub.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';

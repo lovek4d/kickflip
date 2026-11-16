@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 process.env.HOME = fs.realpathSync(tempDir('auto-restarts-'));
-const { logRestart, readRestarts, restartLines, restartHeld, autoRestartsFile, ROW_FOR } = await import('./auto-restarts.mjs');
+const { logRestart, readRestarts, restartLines, restartHeld, codeRestartHeld, autoRestartsFile, ROW_FOR } = await import('./auto-restarts.mjs');
 const { hubView } = await import('./views.mjs');
 
 test("each automatic restart is one line of the hub's log, and a board's Hub row says its newest one for a day", () => {
@@ -43,4 +43,12 @@ test('an automatic restart waits while its session is busy, a builder of the boa
   assert.equal(await restartHeld({ dir: '/b', record: { status: 'busy' }, ...none }), 'its session is busy');
   assert.equal(await restartHeld({ dir: '/b', builders: async (dir) => (dir === '/b' ? [{ key: 'a/1' }] : []), lands: () => [] }), 'a builder is open');
   assert.equal(await restartHeld({ dir: '/b', builders: async () => [], lands: () => [{ card: 'x', running: true }] }), 'a land is queued or landing');
+});
+
+// A restart for new code stops a board server or the hub, whose builders, sessions and lands run in processes of their
+// own; only a land mid-flight holds it, since the land is moving the code the restart would load.
+test('a restart for new code waits only while a land is landing, not on a queued land, a builder or a busy session', async () => {
+  assert.equal(await codeRestartHeld({ lands: () => [] }), null);
+  assert.equal(await codeRestartHeld({ lands: () => [{ card: 'x', running: false }] }), null);
+  assert.equal(await codeRestartHeld({ lands: () => [{ card: 'x', running: true }, { card: 'y', running: false }] }), 'a land is landing');
 });

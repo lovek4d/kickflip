@@ -44,7 +44,7 @@
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
 //   /_hub/restart-server POST {route} from a board's New server version row: restarts that board's server alone, which
-//                     runs older code than its files, as an idle board's own restart does → {route}; 404 for no open
+//                     runs older code than its files, as the hub's own restart for new code does → {route}; 404 for no open
 //                     board, 409 while its server runs the code in its files
 //   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
 //                     the session → {route, title, session}, or {error} (restart-board.mjs)
@@ -220,7 +220,7 @@ import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './r
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds, heldSite, sidebarPause } from './home.mjs';
 import { checkSessions, compactFullContexts, sessionOf, startingBoards } from './sessions.mjs';
-import { logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
+import { codeRestartHeld, logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
@@ -508,11 +508,11 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         p.nextStart = clock() + 1500;
         continue;
       }
-      // docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md
+      // docs/adr/2026-11-16-1500-new-code-restarts-on-a-busy-board-once-no-land-is-landing.md
       const onDisk = codeRestarts && p?.child && p.code && !p.stopping && !restarting.has(route) && !closingResponses.has(route) ? boardCode(site) : null;
       if (onDisk) p.newCode = onDisk === p.code ? null : onDisk;
       if (onDisk && p.newCode) {
-        const held = await codeRestartHeld(route, site.dir);
+        const held = codeRestartHeld();
         if (!held) {
           log(`${route} runs older code than its files; restarting it`);
           restartForCode(route);
@@ -581,30 +581,15 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     p.hung.restartedAt = clock();
   }
   // The hub restarts itself for new code once it is whole on disk (self-restart.mjs), and a board server whose code
-  // changed (reconcile above), each once idle, unless codeRestarts is false (KICKFLIP_CODE_RESTARTS=off): a try run's
-  // demo hub, which the hub serving it restarts whole when its worktree moves. A crash or a missing server restarts at
-  // once as ever; only new code waits
-  // (docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md).
-  // What holds the board at dir's restart for new code: auto-restarts.mjs restartHeld
-  // (its session busy, a builder, planner or lander open, a land queued). → the reason, or null when it is idle.
-  async function codeRestartHeld(route, dir) {
-    const owner = sessionOf(loadManifest(), route);
-    return restartHeld({ dir, record: owner ? liveSessions()?.get(owner.session) : null });
-  }
-  // A hub restart restarts every board server, so it waits on every board.
-  async function hubRestartHeld() {
-    for (const { route, dir } of listBoards(loadManifest())) {
-      const held = await codeRestartHeld(route, dir);
-      if (held) return `${held} on /${route}`;
-    }
-    return null;
-  }
+  // changed (reconcile above), each once no land is landing (auto-restarts.mjs codeRestartHeld), unless codeRestarts is false (KICKFLIP_CODE_RESTARTS=off): a try run's demo hub, which the hub
+  // serving it restarts whole when its worktree moves. A crash or a missing server restarts at once as ever; only new
+  // code waits (docs/adr/2026-11-16-1500-new-code-restarts-on-a-busy-board-once-no-land-is-landing.md).
   // Stops route's server for its new code; the reconcile starts it again, its page reading restarting · its code changed.
   function restartForCode(route) {
     stop(route);
     Object.assign(procs.get(route), { restarts: 0, nextStart: clock() + 1500, why: 'code' });
   }
-  const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: () => restartRunner('hub'), idle: hubRestartHeld, log });
+  const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: () => restartRunner('hub'), idle: async () => codeRestartHeld(), log });
   const reconcileLogged = () => reconcile().catch((e) => log('reconcile failed:', e.message));
   const timers = [];
 
@@ -981,7 +966,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links),
       home: fs.realpathSync(os.homedir()),
       starting,
-      usage: readUsage({ codexShare: readCodexShare(readCodex()) }),
+      usage: readUsage({ codexShare: readCodexShare(readCodex()), pauseAt: gate.pause_at }),
       pause: sidebarPause(gate, now.getTime()),
       notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
       away: !owner.state().present,

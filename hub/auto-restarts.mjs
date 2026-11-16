@@ -36,6 +36,15 @@ export function restartLines(now = Date.now(), entries = readRestarts()) {
 }
 const agoWords = (ms) => (ms < 60_000 ? 'just now' : ms < 3600_000 ? `${Math.floor(ms / 60_000)}m ago` : `${Math.floor(ms / 3600_000)}h ago`);
 
+// docs/adr/2026-11-16-1500-new-code-restarts-on-a-busy-board-once-no-land-is-landing.md
+// Why a restart for new code waits: a land is landing on the host, moving the code the restart would load and pushing,
+// and it holds for as long as it runs, each land being bounded by its own run. A busy session, an open builder and a
+// queued land never hold it, since each runs in a process of its own that the restart leaves running. → the reason, or
+// null.
+export function codeRestartHeld({ lands = landQueue } = {}) {
+  return lands().some((l) => l.running) ? 'a land is landing' : null;
+}
+
 // Why an automatic restart of the board at dir waits: its session is busy (record, its live session record), a builder
 // of the board is open, or a land is queued or landing on the host. → the reason, or null when nothing holds it.
 export async function restartHeld({ dir, record = null, builders = openBoardBuilders, lands = landQueue }) {

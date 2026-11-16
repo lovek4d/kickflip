@@ -45,7 +45,7 @@ test('Claude comes from usage.json without run logs, with window reset times and
   const f = fixture(t);
   f.claude();
   const r = f.read();
-  assert.deepEqual(r.claude, { at: iso(NOW), five_hour: { used_percentage: 42, resets_at: iso(NOW + HOUR), state: 'live', tone: 'ok' }, seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR), state: 'live', tone: 'high' } });
+  assert.deepEqual(r.claude, { at: iso(NOW), five_hour: { used_percentage: 42, resets_at: iso(NOW + HOUR), state: 'live', tone: 'ok' }, seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR), state: 'live', tone: 'ok' } });
   assert.equal(r.codex, null);
   f.claude({ five_hour: { used_percentage: 50, resets_at: iso(NOW + HOUR) } });
   assert.equal(f.read().claude.five_hour.used_percentage, 50);
@@ -160,7 +160,7 @@ test("Claude also reads the newest rate_limit_event in the headless agents' run 
   assert.deepEqual(f.read().claude, {
     at: iso(NOW - 60_000),
     five_hour: { used_percentage: 87, resets_at: iso(NOW + HOUR), state: 'live', tone: 'high' },
-    seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR), state: 'live', tone: 'high' },
+    seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR), state: 'live', tone: 'ok' },
   });
 });
 
@@ -260,8 +260,20 @@ test('a session\'s context reading is its saved percent and time, null without o
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('a window carries the tone its bar draws: ok under 75, high from 75, full from 90, stale grey, a reset window ok', () => {
-  assert.deepEqual([74, 75, 89, 90].map((n) => toneOf('live', n)), ['ok', 'high', 'high', 'full']);
+test('a window carries the tone its bar draws: high from twice the buffer under the pause line, full at it, stale grey, a reset window ok, Off never colours', () => {
+  assert.deepEqual([79, 80, 89, 90].map((n) => toneOf('live', n)), ['ok', 'high', 'high', 'full'], 'the default line is 90');
+  assert.deepEqual([59, 60, 79, 80].map((n) => toneOf('live', n, 80)), ['ok', 'high', 'high', 'full']);
+  assert.deepEqual([89, 90, 94, 95].map((n) => toneOf('live', n, 95)), ['ok', 'high', 'high', 'full']);
+  assert.deepEqual([99, 100].map((n) => toneOf('live', n, 100)), ['ok', 'ok']);
   assert.equal(toneOf('stale', 95), 'stale');
   assert.equal(toneOf('reset', 0), 'ok');
+});
+
+test('the reader tones each window by the pause line it is given', (t) => {
+  const f = fixture(t);
+  f.claude({ five_hour: { used_percentage: 82, resets_at: iso(NOW + HOUR) } });
+  assert.equal(f.read().claude.five_hour.tone, 'high');
+  assert.equal(f.read({ pauseAt: 80 }).claude.five_hour.tone, 'full');
+  assert.equal(f.read({ pauseAt: 95 }).claude.five_hour.tone, 'ok');
+  assert.equal(f.read({ pauseAt: 100 }).claude.five_hour.tone, 'ok');
 });

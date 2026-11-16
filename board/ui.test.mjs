@@ -2533,14 +2533,14 @@ test('usage stays within the Hub link and its card shows both windows, reset, st
   const at = new Date(NOW).toISOString();
   const resets_at = new Date(NOW + 3600_000).toISOString();
   const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live', tone: toneOf('live', used_percentage) });
-  const usage = { claude: { at, five_hour: live(75), seven_day: live(90) }, codex: { at, five_hour: live(42), seven_day: null } };
+  const usage = { claude: { at, five_hour: live(80), seven_day: live(90) }, codex: { at, five_hour: live(42), seven_day: null } };
   const html = ui.sidebar({ usage }, { here: '_hub/' });
   const hub = /<a class="sb-row on sb-hub-usage"[^>]*>([^]*?)<\/a>/.exec(html)[1];
   assert.equal((hub.match(/class="u-bar"/g) || []).length, 2);
-  assert.match(text(hub), /Hub Claude 75% · resets .* Codex 42% · resets/);
+  assert.match(text(hub), /Hub Claude 80% · resets .* Codex 42% · resets/);
   assert.doesNotMatch(hub, /<a|<button|popover|dialog/);
   const card = context.HubUI.usageCard(usage);
-  assert.match(text(card), /^Usage Claude read .*5-hour 75% · resets .*Week 90% · resets .*Codex read .*No reading/);
+  assert.match(text(card), /^Usage Claude read .*5-hour 80% · resets .*Week 90% · resets .*Codex read .*No reading/);
   assert.match(card, /u-tone-high/);
   assert.match(card, /u-tone-full/);
   assert.doesNotMatch(card, /Raw readings|<button|<details/);
@@ -2557,7 +2557,7 @@ test('usage stays within the Hub link and its card shows both windows, reset, st
   assert.doesNotMatch(ui.sidebar({ usage }), /u-name">Claude/);
   assert.doesNotMatch(context.HubUI.usageCard(usage), /title">Claude/);
   assert.equal(context.HubUI.usageCard({ claude: null, codex: null }), '');
-  assert.equal(ui.usageTone(live(75)), 'high');
+  assert.equal(ui.usageTone(live(80)), 'high');
   assert.equal(ui.usageTone(null), 'none');
 });
 

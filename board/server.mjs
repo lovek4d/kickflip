@@ -2640,11 +2640,14 @@ async function watchBoard(site, changed) {
 }
 
 // Run as a script: the board for the site dir argv[2] (else the working folder) on PORT (4600) under PREFIX, its watch
-// on, and its minute's checks every 60 s.
+// on, and its minute's checks every 60 s. SIGTERM, the hub's stop, exits once the passes and requests it started have
+// finished (close()), so a restart for new code lands between writes; the hub's SIGKILL after its grace bounds the wait
+// (docs/adr/2026-11-16-1500-new-code-restarts-on-a-busy-board-once-no-land-is-landing.md).
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const site = path.resolve(process.argv[2] || process.cwd());
   const prefix = (process.env.PREFIX || '').replace(/\/+$/, '');
   const board = await startServer({ site, port: Number(process.env.PORT || 4600), prefix, watch: (changed) => watchBoard(site, changed) });
+  process.once('SIGTERM', () => board.close().then(() => process.exit(0), () => process.exit(1)));
   setInterval(board.minute, 60000).unref();
   console.log(`site on http://127.0.0.1:${board.server.address().port}/ (prefix ${prefix || 'none'})`);
 }

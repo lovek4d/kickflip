@@ -153,10 +153,16 @@ function scanCodex(sessions) {
   return { five_hour: w(p, 'primary'), seven_day: w(s, 'secondary'), at: new Date(newest.mtime).toISOString() };
 }
 
-// The colour a usage bar draws: stale readings grey, else ok under 75%, high from 75%, full from 90%.
-export const toneOf =(state, used) => (state === 'stale' ? 'stale' : used >= 90 ? 'full' : used >= 75 ? 'high' : 'ok');
+// The pause line while settings.json's pauseAt is unset or invalid (usage-gate.mjs usageGate).
+export const DEFAULT_PAUSE_AT = 90;
+// The near band under the pause line starts twice the buffer below 100: at 80% for the 90% line.
+export const nearFrom = (line) => 2 * line - 100;
+// The colour a usage bar draws: stale readings grey, else high from the near band under the pause line, full at it. Off
+// (100) never colours.
+export const toneOf = (state, used, line = DEFAULT_PAUSE_AT) => (state === 'stale' ? 'stale'
+  : line === 100 ? 'ok' : used >= line ? 'full' : used >= nearFrom(line) ? 'high' : 'ok');
 
-function readingOf(reading, now) {
+function readingOf(reading, now, line) {
   if (!reading || typeof reading !== 'object' || Array.isArray(reading)) return null;
   const at = isoOf(reading.at);
   const window = (key) => {
@@ -167,12 +173,13 @@ function readingOf(reading, now) {
     const state = !at || now - Date.parse(at) > WINDOW_MS[key] ? 'stale'
       : w.resets_at && now >= Date.parse(w.resets_at) ? 'reset' : 'live';
     const used_percentage = state === 'reset' ? 0 : w.used_percentage;
-    return { ...w, used_percentage, state, tone: toneOf(state, used_percentage) };
+    return { ...w, used_percentage, state, tone: toneOf(state, used_percentage, line) };
   };
   return { at, five_hour: window('five_hour'), seven_day: window('seven_day') };
 }
 
-// codexShare: the setting in effect (push.mjs readCodexShare), which is Off while Codex isn't usable.
+// codexShare: the setting in effect (push.mjs readCodexShare), which is Off while Codex isn't usable. pauseAt: the pause
+// line each window's tone follows (toneOf).
 // Claude's reading is the status line's usage.json and every headless run's log together.
 export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_000 } = {}) {
   const sessions = path.join(home, '.codex', 'sessions');
@@ -180,17 +187,17 @@ export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_
   const seen = new Map();
   let cached = null;
   let checked = -Infinity;
-  return ({ codexShare = 'off' } = {}) => {
+  return ({ codexShare = 'off', pauseAt = DEFAULT_PAUSE_AT } = {}) => {
     const time = now();
     const saved = readJson(path.join(home, '.claude', 'kickflip', 'usage.json'))?.claude;
     const logs = runLogs(logDir, seen);
-    const claude = readingOf(claudeReading(saved, logs), time);
+    const claude = readingOf(claudeReading(saved, logs), time, pauseAt);
     if (codexShare === 'off') return { claude, codex: null };
     if (time - checked >= cacheMs) {
       cached = scanCodex(sessions);
       checked = time;
     }
-    return { claude, codex: readingOf(cached || { at: null }, time) };
+    return { claude, codex: readingOf(cached || { at: null }, time, pauseAt) };
   };
 }
 
