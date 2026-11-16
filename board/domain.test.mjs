@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -2714,6 +2714,22 @@ test("a Done card that had questions keeps its quiet Questions button, and a car
   assert.equal(board().items.find((i) => i.key === 'w/A1').actionButton, null);
 });
 
+// docs/adr/2026-11-16-1200-each-orchestrator-wait-carries-its-tone-from-the-server.md
+test('a wait is grey under 15 minutes, orange from 15, red from 30, a limbo wait never red, and each check restamps the tone so the stored file changes at a threshold', () => {
+  const base = Date.parse('2026-11-05T10:00:00Z');
+  const at = (min) => new Date(base + min * 60000);
+  const wait = (kind, o = {}) => ({ key: 'w/A1', ref: 'A1', title: 'One', kind, since: at(0).toISOString(), picked: null, next: 'Go', ...o });
+  const tones = (kind) => [14, 15, 29, 30, 3000].map((m) => waitTone(wait(kind), at(m)));
+  assert.deepEqual(tones('calls'), ['grey', 'orange', 'orange', 'red', 'red']);
+  assert.deepEqual(tones('limbo'), ['grey', 'orange', 'orange', 'orange', 'orange']);
+  const joined = waitsStep([], [wait('calls')], at(1));
+  assert.equal(joined.waits[0].tone, 'grey');
+  const crossed = waitsStep(joined.waits, [wait('calls')], at(15));
+  assert.equal(crossed.waits[0].tone, 'orange');
+  assert.notDeepEqual(crossed.waits, joined.waits, 'the stored waits differ, so the file is written and the page reloads');
+  assert.equal(waitsStep(crossed.waits, [wait('calls')], at(16)).waits[0].tone, 'orange');
+});
+
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
 test('a wait still open re-wakes the session every 15 minutes until picked up, then hourly from an hour after pickup (daily for a stale review), in one batch per check', () => {
   assert.equal(REWAKE_AFTER, 15 * 60000);
@@ -2744,7 +2760,7 @@ test('a wait still open re-wakes the session every 15 minutes until picked up, t
   assert.deepEqual(keys(hour.again), ['w/A1']);
   assert.deepEqual(waitsStep(hour.waits, [picked], at(139)).again, []);
   assert.deepEqual(keys(waitsStep(hour.waits, [picked], at(140)).again), ['w/A1']);
-  assert.deepEqual(waitsStep([], [picked], at(21)), { waits: [{ ...picked, bumped: iso(21) }], added: [], again: [], againAt: null }, 'one that joins picked up wakes nothing');
+  assert.deepEqual(waitsStep([], [picked], at(21)), { waits: [{ ...picked, tone: 'orange', bumped: iso(21) }], added: [], again: [], againAt: null }, 'one that joins picked up wakes nothing');
 
   // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md: a daily wait (a stale review) re-wakes
   // every 15 minutes until picked up, then once a day from its pickup; a change on its PR wakes the session by github-change.

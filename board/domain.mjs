@@ -2201,11 +2201,22 @@ export const PICKED_REWAKE_AFTER = 60 * 60000;
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 // How long a picked-up daily wait (a stale review) goes between wakes: a change on its PR wakes the session sooner, by github-change.
 export const DAILY_REWAKE_AFTER = 24 * 60 * 60000;
+// docs/adr/2026-11-16-1200-each-orchestrator-wait-carries-its-tone-from-the-server.md
+// How long a wait goes before it reads red.
+export const RED_AFTER = 30 * 60000;
+// The colour a wait draws in at now (AGENTS.md's colour priority): grey under REWAKE_AFTER, orange past it, red past
+// RED_AFTER. A limbo wait is the orchestrator's backlog, so it never reads red
+// (docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md).
+export function waitTone(wait, now) {
+  const age = now - Date.parse(wait.since);
+  return age >= RED_AFTER && wait.kind !== 'limbo' ? 'red' : age >= REWAKE_AFTER ? 'orange' : 'grey';
+}
 // One check of the cards idle on the orchestrator, for the stored list (data/orchestrator-waits.json) and the current
 // waits (orchestratorWaits) at now: each entry carries bumped, its last wake, and keeps pushed. A wait joins the list when
 // its key, kind and since are new, and wakes the session then unless it is already picked up. After that it wakes again
 // once REWAKE_AFTER passes since its last wake (or its since, for an entry stored before bumped), and once picked up,
 // once PICKED_REWAKE_AFTER (DAILY_REWAKE_AFTER for a daily wait) passes since the later of its pickup and its last wake.
+// Each entry carries tone, restamped on every check, so the stored list changes when a wait crosses a threshold.
 // All the reminders share one clock: while the last one (lastAgain, an ISO time or null) is under REWAKE_AFTER old, due
 // waits stay due and wake nothing, and the next reminder carries every wait due by then.
 // → {waits, added: [key], again: [{key, ref, kind, since, next}], againAt}
@@ -2218,13 +2229,13 @@ export function waitsStep(previous, current, now, lastAgain = null) {
     const was = previous.find((p) => p.key === w.key && p.kind === w.kind && p.since === w.since);
     if (!was) {
       if (!w.picked && !added.includes(w.key)) added.push(w.key);
-      return { ...w, bumped: at };
+      return { ...w, tone: waitTone(w, now), bumped: at };
     }
     const last = w.picked ? [w.picked, was.bumped].filter(Boolean).sort().pop() : was.bumped || w.since;
     const due = now - Date.parse(last) >= (!w.picked ? REWAKE_AFTER : w.daily ? DAILY_REWAKE_AFTER : PICKED_REWAKE_AFTER);
     const wakes = due && clockOpen;
     if (wakes) again.push({ key: w.key, ref: w.ref, kind: w.kind, since: w.since, next: w.next });
-    return { ...w, bumped: wakes ? at : was.bumped || w.since };
+    return { ...w, tone: waitTone(w, now), bumped: wakes ? at : was.bumped || w.since };
   });
   return { waits, added, again, againAt: again.length ? at : lastAgain };
 }

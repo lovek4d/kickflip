@@ -6782,9 +6782,9 @@ test("at every width the board header's ? carries the queue's count as a badge, 
 test("the board header's chip counts what waits on the orchestrator, its tap opens the list in the file's order, a card's row opens the card, and at 0 the chip is gone", async () => {
   const ago = (m) => new Date(NOW - m * 60000).toISOString();
   const orchestratorWaits = [
-    { key: 'w/T2', ref: 'T2', title: 'Work T2', kind: 'calls', since: ago(34) },
-    { key: 'w/T1', ref: 'T1', title: 'Work T1', kind: 'intake', since: ago(4) },
-    { key: 'ev-9', ref: '2026-11-12', title: 'Overnight triage 2026-11-12', kind: 'triage', since: ago(2) },
+    { key: 'w/T2', ref: 'T2', title: 'Work T2', kind: 'calls', since: ago(34), tone: 'red' },
+    { key: 'w/T1', ref: 'T1', title: 'Work T1', kind: 'intake', since: ago(4), tone: 'grey' },
+    { key: 'ev-9', ref: '2026-11-12', title: 'Overnight triage 2026-11-12', kind: 'triage', since: ago(2), tone: 'grey' },
   ];
   const b = boardOnDom({ board: { ...boardOf([workCard('T1'), workCard('T2')]), orchestratorWaits }, threads: {} });
   await b.settle();

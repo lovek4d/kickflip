@@ -867,9 +867,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
   // docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md
   // What waits on the orchestrator as the board header's chip lists it: data/orchestrator-waits.json's waits in its
-  // order, each {key, ref, title, kind, since}, leaving out the wake bookkeeping that moves while the wait stays.
+  // order, each {key, ref, title, kind, since, tone}, leaving out the wake bookkeeping that moves while the wait stays.
   const waitsShown = async () => ((await readJSON(path.join(data, 'orchestrator-waits.json'), null))?.waits || [])
-    .map(({ key, ref, title, kind, since }) => ({ key, ref, title, kind, since }));
+    .map(({ key, ref, title, kind, since, tone }) => ({ key, ref, title, kind, since, tone }));
 
   // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
   // The board a page reads, from /api/board or an events POST's answer: board(), leaving out the resolved questions
@@ -2320,7 +2320,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
-  // data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, picked, next, bumped, pushed?, link?}], againAt}: the cards idle on
+  // data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, tone, picked, next, bumped, pushed?, link?}], againAt}: the cards idle on
   // the orchestrator (domain.mjs orchestratorWaits), lanes top-down, then an unanswered triage, the events no task
   // holds (domain.mjs eventWaits) and other boards' questions, which bin/wait-events.mjs prints on every wake. Each
   // check appends at most one orchestrator-waits {added: [key], again: [{key, ref, kind, since, next}]} event once the file

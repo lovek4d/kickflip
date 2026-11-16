@@ -22,6 +22,7 @@ test('/api/board carries what waits on the orchestrator, in the waits file\'s or
 
   const stored = JSON.parse(fs.readFileSync(path.join(data, 'orchestrator-waits.json'), 'utf8')).waits;
   const board = await (await fetch(`${base}/api/board`)).json();
-  assert.deepEqual(board.orchestratorWaits, stored.map(({ key, ref, title, kind, since }) => ({ key, ref, title, kind, since })));
+  assert.deepEqual(board.orchestratorWaits, stored.map(({ key, ref, title, kind, since, tone }) => ({ key, ref, title, kind, since, tone })));
   assert.deepEqual(board.orchestratorWaits.map((w) => [w.key, w.kind]), [['t/A1', 'staging'], ['t/A2', 'staging']]);
+  assert.ok(board.orchestratorWaits.every((w) => ['grey', 'orange', 'red'].includes(w.tone)), "each wait carries the server's tone");
 });

@@ -13,9 +13,12 @@ const { WAIT_WORDS, waitsTone, waitsChip, waitsList, waitsTitle } = context.Boar
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
 const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&(amp|lt|gt|quot|#39);/g, (e) => ENTITIES[e]).replace(/\s+/g, ' ').trim();
 const ago = (minutes) => new Date(NOW - minutes * 60000).toISOString();
-const wait = (ref, kind, minutes, title = `Task ${ref}`) => ({ key: `b/${ref}`, ref, title, kind, since: ago(minutes) });
+// The server sends each wait's tone (domain.mjs waitTone); the page draws it and computes none.
+const toneAt = (kind, minutes) => (kind !== 'limbo' && minutes >= 30 ? 'red' : minutes >= 15 ? 'orange' : 'grey');
+const wait = (ref, kind, minutes, title = `Task ${ref}`) => ({ key: `b/${ref}`, ref, title, kind, since: ago(minutes), tone: toneAt(kind, minutes) });
 
-test('the count is grey while every wait is under the re-wake, orange once one is past it, red once one is past the push', () => {
+test("the count takes the strongest tone the server sent, red over orange over grey, whatever the wait's age", () => {
+  assert.equal(waitsTone([{ ...wait('T-1', 'calls', 100), tone: 'grey' }]), 'grey', 'the sent tone wins over the age');
   assert.equal(waitsTone([wait('T-1', 'intake', 2), wait('T-2', 'calls', 14)]), 'grey');
   assert.equal(waitsTone([wait('T-1', 'intake', 2), wait('T-2', 'calls', 15)]), 'orange');
   assert.equal(waitsTone([wait('T-1', 'intake', 29), wait('T-2', 'calls', 30)]), 'red');
@@ -40,7 +43,7 @@ test('the list keeps the file\'s order, each row its ref, title, kind in plain w
   const waits = [
     wait('T-9', 'calls', 34, 'Sidebar <remembers> folds'),
     wait('T-2', 'intake', 4),
-    { key: 'ev-1', ref: '2026-11-13', title: 'Overnight triage 2026-11-13', kind: 'triage', since: ago(0) },
+    { key: 'ev-1', ref: '2026-11-13', title: 'Overnight triage 2026-11-13', kind: 'triage', since: ago(0), tone: 'grey' },
   ];
   const html = waitsList(waits, [{ key: 'b/T-9' }, { key: 'b/T-2' }]);
   assert.equal(text(html), "T-9 Sidebar <remembers> folds verify the builder's calls (34m) T-2 Task T-2 sort the new task (4m) 2026-11-13 Overnight triage 2026-11-13 run the overnight triage");
