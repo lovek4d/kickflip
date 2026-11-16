@@ -25,10 +25,19 @@
       return { card: event.card, topic, changes: { selectedCard: event.card, ...(found ? { openItemsCard: found.id } : {}) }, generation: generation + 1 };
     }
     const id = 'question' in event ? event.question : event.topic;
-    found = topics.find((t) => t.id === id || t.questions?.includes(id)) || null;
+    found = topicNamed(topics, id);
     topic = found?.id ?? id ?? null;
     const card = found ? cardOf(found) : null;
     return { card, topic, changes: { ...(card ? { selectedCard: card } : {}), openItemsCard: topic }, generation: generation + 1 };
+  }
+
+  // The topic a question or topic id names, if the board has it.
+  const topicNamed = (topics, id) => topics.find((t) => t.id === id || t.questions?.includes(id)) || null;
+
+  // The card a question or topic id belongs to, by its topic, else null: a topic of no card, or an id the board doesn't have.
+  function cardOfQuestion(board, id) {
+    const t = topicNamed(board?.ownerTopics || [], id);
+    return t ? cardOf(t) : null;
   }
 
   // The phone's Waiting on you link for a selected card: its topic when it has open questions, else the page as it opens.
@@ -37,5 +46,5 @@
     return t ? `questions.html#${encodeURIComponent(t.id)}` : 'questions.html';
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { nextSelection, questionsHref });
+  Object.assign(globalThis.BoardUI ||= {}, { nextSelection, cardOfQuestion, questionsHref });
 })();

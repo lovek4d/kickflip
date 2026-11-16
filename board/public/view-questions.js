@@ -8,7 +8,8 @@
 // and, with none, "Nothing is waiting on you". A topic with open questions reads Answer N, or Pick a take when all of
 // them are prototype picks; a tap reads its action's words (Tap Implement, Hold Run, a fault's reason); a held review,
 // keyed PR, reads Review held.
-// Tapping a row opens its place, and closing that returns to the list: a topic's row opens the questions sheet
+// Tapping a row opens its place, and closing that returns to the list: a card's topic row opens the board with the card
+// open under the board's questions sheet, another topic's row opens this page's questions sheet
 // (app-questions-sheet.js) with that topic's open questions; a Pick a take opens its prototype in the board's reader sheet; a held review opens in
 // the Auto Review lane; any other row opens its card's thread. A link to an open question opens its sheet too; a link to a topic marks its row.
 // markup({embedded: true}) and ctx.embedded mount it in the board's desktop pane (app-pane.js): no header and no sheet
@@ -175,6 +176,13 @@
       if (!r) return;
       if (r.prototype) { openPrototype(r.prototype); return; }
       if (!r.topic) { openOnBoard(r.place); return; }
+      // Alone, a card's row goes to the board with the card open under its questions sheet, as a row in the desktop pane
+      // does, and Back returns here (docs/adr/2026-11-16-0828-on-a-phone-a-cards-questions-open-over-the-card.md).
+      if (!ctx.embedded && BoardUI.cardOfQuestion(board, r.topic)) {
+        const href = new URL(site.url(`questions.html#${encodeURIComponent(r.topic)}`), location.href).href;
+        if (!AppShell.open(href)) location.assign(href);
+        return;
+      }
       // Embedded, a card's row also focuses its card on the board, under the sheet.
       if (ctx.embedded) openOnBoard(r.topic);
       if (!openSheet(r.topic)) openOnBoard(r.topic);

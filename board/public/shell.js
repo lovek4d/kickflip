@@ -318,13 +318,33 @@ window.AppShell = (function () {
     // Board and Waiting on you are a board's two pages (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md):
     // from 900px the board shows Waiting on you in its pane, so every view of the questions page, a link, a push, a
     // hand-off, a history entry or a cold load, shows the board at its own URL and opens the question's topic there (id,
-    // or null for none). A board's card page, a prototype or a visual, does the same at every width and opens in the
-    // board's reader sheet (docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md).
-    const inPane = (view) => (wide.matches && view?.kind === 'questions') || AppRouter.isCardPage(view, boards());
+    // or null for none). Below 900px only a questions view naming a card's question or topic does, and the board opens
+    // that card under its questions sheet; Waiting on you with no id, and a topic of no card, stay the page
+    // (docs/adr/2026-11-16-0828-on-a-phone-a-cards-questions-open-over-the-card.md). A board's card page, a prototype or a
+    // visual, does the same at every width and opens in the board's reader sheet
+    // (docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md).
+    const inPane = (view) => (view?.kind === 'questions' && (wide.matches || (Boolean(view.id) && cardsQuestion(view))))
+      || AppRouter.isCardPage(view, boards());
+    // The board of route mounted here, shown or kept behind its Waiting on you, else none.
+    const mountedBoard = (route) => [current, kept].find((entry) => entry?.view.kind === 'board' && entry.route === route)?.v.B;
+    // Whether a phone's questions view names a card's question or topic. With no board of its route loaded here it is
+    // taken to, and the board, once loaded, sends a topic of no card back to the page (paneAsk).
+    const cardsQuestion = (view) => {
+      const board = mountedBoard(view.route)?.state?.board;
+      return !board || Boolean(BoardUI.cardOfQuestion(board, view.id));
+    };
     // ask(B) → true once the board did what the view asks. A board just shown takes a moment to fill its pane, so it is
     // asked again until it has.
     // An open question also opens its questions sheet (app-questions-sheet.js).
-    const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openPage?.(href));
+    function paneAsk(view, href) {
+      if (view.kind !== 'questions') return (B) => B.openPage?.(href);
+      if (wide.matches) return (B) => B.focusQuestion?.(view.id);
+      return (B) => {
+        if (!B.state?.board) return false;
+        if (!BoardUI.cardOfQuestion(B.state.board, view.id)) { go(view, href, 'replace'); return true; }
+        return B.focusQuestion(view.id);
+      };
+    }
     // A newer ask drops the retries of an older one, so a late retry never sets an earlier pick over the later one.
     let asked = 0;
     function askPane(ask, tries = 50, mine = ++asked) {

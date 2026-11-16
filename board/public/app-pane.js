@@ -45,7 +45,17 @@ BoardView.part((B) => {
   // → false while there is no pane or it hasn't loaded, so the shell asks again.
   // An open question's id also opens its questions sheet
   // (docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md).
+  // Below 900px the shell asks only for a card's question or topic: with no pane, the card opens on the board under the
+  // topic's questions sheet (docs/adr/2026-11-16-0828-on-a-phone-a-cards-questions-open-over-the-card.md)
+  // → false while the board hasn't loaded.
   function focusQuestion(id) {
+    if (!wide.matches) {
+      if (!state.board) return false;
+      B.select({ question: id }, { pane: false });
+      B.closeReader?.();
+      B.openQuestionsSheet(id);
+      return true;
+    }
     const shown = B.select({ question: id });
     if (shown && state.board.owner.some((q) => q.id === id && q.state === 'open')) B.openQuestionsSheet(id);
     return shown;

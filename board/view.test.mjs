@@ -5153,12 +5153,16 @@ test("Waiting on you is one list of rows in the board's order, an urgent questio
   v.unmount();
 });
 
-test("tapping a topic's row opens the questions sheet over the list with that topic's open questions; once Send has every one of them sent it closes, back to the list without the row, and ✕ closes it with nothing sent", async () => {
-  const items = [workCard('T1', { title: 'Search' }), workCard('T2', { title: 'Old' })];
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', card: 'w/T1' }, { id: 'item:w/T2', card: 'w/T2' }], questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1'), rowQuestion('q3', 'item:w/T2')], at: '', items });
+test("tapping a topic of no card's row opens the questions sheet over the list with that topic's open questions; once Send has every one of them sent it closes, back to the list without the row, and ✕ closes it with nothing sent; a card's row goes to the board", async () => {
+  const opened = [];
+  const v = questionsOnDom({ topics: [{ id: 'triage-1', title: 'Overnight triage' }, { id: 'triage-2', title: 'Older triage' }, { id: 'item:w/T3', card: 'w/T3' }],
+    questions: [rowQuestion('q1', 'triage-1'), rowQuestion('q2', 'triage-1'), rowQuestion('q3', 'triage-2'), rowQuestion('q5', 'item:w/T3')], at: '', items: [workCard('T3')], opened });
   await v.settle();
-  await v.tap('topic:item:w/T1');
-  assert.deepEqual([v.sheet().open, v.sheet().modal, v.shown().questions, v.sheet().querySelector('.reader-ref').textContent], [true, true, ['q1', 'q2'], 'T1 · Search']);
+  await v.tap('topic:item:w/T3');
+  assert.deepEqual([opened.map(([href]) => href), v.sheet().open], [['https://mac.ts.net/board-a/questions.html#item%3Aw%2FT3'], false],
+    "a card's row goes to the board through the shell, which opens the card under the board's sheet (shell.js go)");
+  await v.tap('topic:triage-1');
+  assert.deepEqual([v.sheet().open, v.sheet().modal, v.shown().questions, v.sheet().querySelector('.reader-ref').textContent], [true, true, ['q1', 'q2'], 'Overnight triage']);
   assert.equal(v.sheet().querySelectorAll('section.q[data-q="q1"] [data-proto], section.q[data-q="q1"] [data-grill], section.q[data-q="q1"] [data-visual]').length, 3, "each question keeps the thread's eye, fire and image");
   v.answer('q1');
   v.answer('q2');
@@ -5166,11 +5170,11 @@ test("tapping a topic's row opens the questions sheet over the list with that to
   assert.deepEqual(v.answersSent(), [[{ id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }], [{ id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }]]);
   v.page.runTimers();
   assert.deepEqual([v.sheet().open, v.moves], [false, []]);
-  assert.deepEqual(v.shown().rows.map(([id]) => id), ['topic:item:w/T2'], 'the answered topic leaves the list');
-  await v.tap('topic:item:w/T2');
+  assert.deepEqual(v.shown().rows.map(([id]) => id).filter((id) => id.startsWith('topic:triage')), ['topic:triage-2'], 'the answered topic leaves the list');
+  await v.tap('topic:triage-2');
   v.page.fire(v.sheet(), 'click', { target: v.sheet().querySelector('[data-qs="close"]') });
   v.page.runTimers();
-  assert.deepEqual([v.sheet().open, v.sent.length, v.shown().rows.length], [false, 2, 1]);
+  assert.deepEqual([v.sheet().open, v.sent.length, v.shown().rows.length], [false, 2, 2]);
   v.unmount();
 });
 
@@ -5194,14 +5198,14 @@ test("a held review is a blue PR row, Review held, that opens the review in the 
 test("a Pick a take row opens its prototype, a tap's row opens its card's thread, and a prototype question among others is answered in the sheet with its View prototypes link", async () => {
   const opened = [];
   const queue = [rowTap('implement', 'w/T2', 'Implement')];
-  const questions = [rowQuestion('qp', 'item:w/T3', { url: 'prototype-x2.html?q=qp' }), rowQuestion('qm', 'item:w/T4', { url: 'prototype-x3.html?q=qm' }), rowQuestion('q4', 'item:w/T4')];
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T3', title: 'T3: Look' }, { id: 'item:w/T4', title: 'T4: Mixed' }], questions, at: '', queue, opened });
+  const questions = [rowQuestion('qp', 'item:w/T3', { url: 'prototype-x2.html?q=qp' }), rowQuestion('qm', 'triage-4', { url: 'prototype-x3.html?q=qm' }), rowQuestion('q4', 'triage-4')];
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T3', title: 'T3: Look' }, { id: 'triage-4', title: 'Mixed' }], questions, at: '', queue, opened });
   await v.settle();
   await v.tap('topic:item:w/T3');
   await v.tap('tap:w/T2');
   assert.deepEqual(opened.map(([href]) => new URL(href).pathname + new URL(href).search + new URL(href).hash), ['/prototype-x2.html?q=qp', '/#item=w%2FT2']);
   assert.equal(v.sheet().open, false);
-  await v.tap('topic:item:w/T4');
+  await v.tap('topic:triage-4');
   assert.deepEqual(v.shown().questions, ['qm', 'q4']);
   assert.ok(v.sheet().querySelector('section.q[data-q="qm"] a.proto-view'));
   v.unmount();
@@ -5428,7 +5432,8 @@ test("from 900px every questions URL, a link, a push or a hand-off, shows the bo
 test('widening past 900px on Questions swaps to the board with that topic open in the pane; narrowing on the board stays on the board', async () => {
   const s = await shellPage('/_hub/');
   const focused = [];
-  s.win.BoardView.create = () => ({ B: { state: {}, focusQuestion: (id) => { focused.push(id); return true; } }, mount() {}, unmount() {} });
+  // q2 is of no card, so on a phone it stays the page.
+  s.win.BoardView.create = () => ({ B: { state: { board: questionsBoard([openQuestion('q2', 't2')]) }, focusQuestion: (id) => { focused.push(id); return true; } }, mount() {}, unmount() {} });
   s.win.AppShell.open('/shop/');
   s.win.AppShell.open('/shop/questions.html#q2');
   assert.ok(s.doc.querySelector('.view-questions'), 'a phone shows Questions as its own page');
@@ -5542,13 +5547,110 @@ test('widening past 900px on Waiting on you over a kept board shows that same bo
   const s = await shellPage('/_hub/');
   const focused = [];
   let made = 0;
-  s.win.BoardView.create = () => { made++; return { B: { state: {}, focusQuestion: (id) => { focused.push(id); return true; } }, mount() {}, unmount() {} }; };
+  s.win.BoardView.create = () => { made++; return { B: { state: { board: questionsBoard([openQuestion('q2', 't2')]) }, focusQuestion: (id) => { focused.push(id); return true; } }, mount() {}, unmount() {} }; };
   s.win.AppShell.open('/shop/');
   const board = s.doc.querySelector('.view-board');
   s.win.AppShell.open('/shop/questions.html#q2');
   s.resize(1280);
   await new Promise(setImmediate);
   assert.deepEqual([s.doc.querySelector('.view-board'), board.hidden, s.doc.querySelector('.view-questions'), s.win.location.pathname, focused, made, s.boardUnmounts()], [board, false, null, '/shop/', ['q2'], 1, 0]);
+});
+
+// docs/adr/2026-11-16-0828-on-a-phone-a-cards-questions-open-over-the-card.md
+async function phoneQuestions(path) {
+  const board = { ...questionsBoard([openQuestion('qa', 'item:w/A1'), openQuestion('qb', 'item:w/A1'), openQuestion('qz', 'overnight')], []),
+    items: [workCard('A1', { lane: 'progress', questions: { topic: 'item:w/A1', first: 'qa', open: 2, state: 'open' } }), workCard('B1', { lane: 'progress' })] };
+  const fetch = async (url) => {
+    const u = new URL(url, 'https://mac.ts.net/');
+    const body = structuredClone(u.pathname.endsWith('/api/board') ? board : []);
+    return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+  };
+  const s = await shellPage(path, { fetch, realBoards: true });
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  await settle();
+  s.page.runTimers?.();
+  await settle();
+  const boardRoot = () => s.doc.querySelector('.view-board');
+  const sheet = () => boardRoot()?.querySelector('#questionsSheet');
+  // The page's root, not the questions sheet's body, which takes the page's class too.
+  const questionsPage = () => s.doc.querySelectorAll('.view-questions').find((el) => !el.classList.contains('qs-body'));
+  const shown = () => ({
+    url: s.win.location.pathname + s.win.location.hash,
+    page: Boolean(questionsPage() && !questionsPage().hidden),
+    card: boardRoot()?.querySelector('details.item[data-key="w/A1"]')?.hasAttribute('open') ?? false,
+    sheet: Boolean(sheet()?.open && !boardRoot().hidden),
+    asked: sheet()?.open ? sheet().querySelectorAll('section.q').map((q) => q.dataset.q) : [],
+  });
+  const tapLink = async (href) => {
+    const a = s.doc.createElement('a');
+    a.setAttribute('href', href);
+    boardRoot().appendChild(a);
+    s.tap(a);
+    await settle();
+    s.page.runTimers?.();
+    await settle();
+  };
+  return { ...s, settle, sheet, shown, tapLink };
+}
+
+test("on a phone a card's question link, the header's ? and a card's Answer link, opens that card on the board with its questions sheet over it; closing the sheet leaves the card open", async () => {
+  const s = await phoneQuestions('/shop/#selectedCard=w%2FA1');
+  const count = s.entries().length;
+  const link = s.doc.querySelector('.view-board #questionsLink');
+  assert.equal(link.getAttribute('href'), 'questions.html#item%3Aw%2FA1', "the ? names the selected card's topic");
+  s.tap(link);
+  await s.settle();
+  assert.deepEqual(s.shown(), { url: '/shop/#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA1', page: false, card: true, sheet: true, asked: ['qa', 'qb'] }, 'the header ?');
+  assert.equal(s.entries().length, count, 'on its own board the tap adds no history entry');
+  s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('[data-qs="close"]') });
+  s.page.runTimers?.();
+  await s.settle();
+  assert.deepEqual([s.sheet().open, s.shown().card, s.shown().page], [false, true, false], 'closing the sheet leaves the card open');
+
+  await s.tapLink('questions.html#qb');
+  assert.deepEqual(s.shown(), { url: '/shop/#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA1', page: false, card: true, sheet: true, asked: ['qa', 'qb'] }, "a card's Answer link to its question");
+});
+
+test("on a phone a cold load or a push of a card's question shows the board at its URL with the card open under its questions sheet, and Back returns where the push came from", async () => {
+  const cold = await phoneQuestions('/shop/questions.html#qb');
+  assert.deepEqual(cold.shown(), { url: '/shop/#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA1', page: false, card: true, sheet: true, asked: ['qa', 'qb'] }, 'a cold load');
+
+  const s = await phoneQuestions('/other/');
+  s.win.AppShell.open('/shop/questions.html?from=push#item%3Aw%2FA1');
+  await s.settle();
+  s.page.runTimers?.();
+  await s.settle();
+  assert.deepEqual(s.shown(), { url: '/shop/#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA1', page: false, card: true, sheet: true, asked: ['qa', 'qb'] }, 'a push');
+  s.win.history.back();
+  await s.settle();
+  assert.equal(s.win.location.pathname, '/other/');
+});
+
+test("on a phone a card's row on Waiting on you shows the board with that card open under its questions sheet, and Back returns to Waiting on you", async () => {
+  const s = await phoneQuestions('/shop/questions.html');
+  const page = () => s.doc.querySelectorAll('.view-questions').find((el) => !el.classList.contains('qs-body'));
+  s.page.fire(page(), 'click', { target: page().querySelector('[data-row="topic:item:w/A1"]') });
+  await s.settle();
+  s.page.runTimers?.();
+  await s.settle();
+  assert.deepEqual(s.shown(), { url: '/shop/#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA1', page: false, card: true, sheet: true, asked: ['qa', 'qb'] });
+  s.win.history.back();
+  await s.settle();
+  assert.deepEqual([s.win.location.pathname, Boolean(page() && !page().hidden)], ['/shop/questions.html', true]);
+});
+
+test('on a phone Waiting on you with no id, and a question of a topic with no card, stay the questions page, by a link or a cold load', async () => {
+  const s = await phoneQuestions('/shop/');
+  await s.tapLink('questions.html');
+  assert.deepEqual([s.shown().url, s.shown().page], ['/shop/questions.html', true], 'Waiting on you');
+  s.win.history.back();
+  await s.settle();
+  await s.tapLink('questions.html#qz');
+  assert.deepEqual([s.shown().url, s.shown().page], ['/shop/questions.html#qz', true], "a board's own question");
+  const cold = await phoneQuestions('/shop/questions.html#qz');
+  assert.deepEqual([cold.shown().url, cold.shown().page], ['/shop/questions.html#qz', true], 'a cold load of one');
+  const bare = await phoneQuestions('/shop/questions.html');
+  assert.deepEqual([bare.shown().url, bare.shown().page], ['/shop/questions.html', true], 'a cold load of Waiting on you');
 });
 
 // docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md
@@ -6576,7 +6678,7 @@ test("the desktop Waiting on you pane shows the board the lanes hold, with no /a
 });
 
 // docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md
-test("on a desktop, focusQuestion marks a question's or topic's row in the pane and focuses it, and an open question opens its sheet, once the pane has loaded; a phone has no pane", async () => {
+test("on a desktop, focusQuestion marks a question's or topic's row in the pane and focuses it, and an open question opens its sheet, once the pane has loaded; a phone waits for its board", async () => {
   const board = questionsBoard([openQuestion('q1', 't1'), openQuestion('q2', 't2')], []);
   board.ownerTopics.push({ id: 't0', title: 'Topic t0', state: 'resolved', questions: ['q0'], open: 0, answered: 0, resolved: 1 });
   const wide = boardOnDom({ board, threads: {}, width: 1280 });
@@ -6598,8 +6700,7 @@ test("on a desktop, focusQuestion marks a question's or topic's row in the pane 
   assert.equal(wide.view.B.focusQuestion(null), true);
   assert.deepEqual(marked(), [], 'no topic marks none');
   const narrow = boardOnDom({ board, threads: {} });
-  await narrow.settle();
-  assert.equal(narrow.view.B.focusQuestion('q2'), false, 'a phone has no pane');
+  assert.equal(narrow.view.B.focusQuestion('q2'), false, 'a phone has no pane, and waits only for its board');
 });
 
 // docs/adr/2026-11-14-2359-one-owner-of-the-open-selection.md
@@ -6860,7 +6961,7 @@ test("from 900px opening a card opens its questions sheet while none is open or 
   phone.view.unmount();
 });
 
-test("a questions URL or push on an open question of a card opens the card with its questions sheet open", async () => {
+test("a questions URL or push on an open question of a card opens the card with its questions sheet open, and on a phone a card's topic does too", async () => {
   const s = sheetOnDom({ width: 1280 });
   await s.settle();
   assert.equal(s.view.B.focusQuestion('qb'), true);
@@ -6869,6 +6970,14 @@ test("a questions URL or push on an open question of a card opens the card with 
   assert.deepEqual([s.sheet().open, s.ids()], [true, ['qc']]);
   assert.equal(s.view.B.openQuestionsSheet('nope'), false);
   s.view.unmount();
+
+  // docs/adr/2026-11-16-0828-on-a-phone-a-cards-questions-open-over-the-card.md
+  const phone = sheetOnDom();
+  await phone.settle();
+  assert.equal(phone.view.B.focusQuestion('item:w/A1'), true);
+  assert.deepEqual([phone.sheet().open, phone.sheet().modal, phone.ids(), phone.page.win.location.hash, phone.root.querySelector('details.item[data-key="w/A1"]').open],
+    [true, true, ['qb', 'qa'], '#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA1', true], "on a phone a card's topic opens the card under its modal sheet");
+  phone.view.unmount();
 });
 
 // docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md
