@@ -82,7 +82,6 @@
 //   /_hub/settings/keep-awake POST keep_awake=on (anything else, or nothing, is off) → /_hub/api/settings's JSON, or
 //                     409 {error} off macOS (awake.mjs)
 //   /_hub/settings/auto-update POST auto_update=on (anything else, or nothing, is off) → /_hub/api/settings's JSON; stored as autoUpdate: false
-//   /_hub/settings/auto-restart POST auto_restart=on (anything else, or nothing, is off) → /_hub/api/settings's JSON; stored as autoRestart: false
 //   /_hub/settings/hub-pause POST pause=<usage-gate.mjs pauseEnd choice | off> → Pause hub, then /_hub/api/settings's
 //                     JSON, or 400 {error} for an end not after now or more than 30 days on
 //                     (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md)
@@ -202,7 +201,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
-import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readAutoUpdate, setAutoUpdate, readAutoRestart, setAutoRestart, deliver } from './push.mjs';
+import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readAutoUpdate, setAutoUpdate, deliver } from './push.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pending, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
@@ -586,16 +585,14 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   // demo hub, which the hub serving it restarts whole when its worktree moves. A crash or a missing server restarts at
   // once as ever; only new code waits
   // (docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md).
-  // What holds the board at dir's restart for new code: the auto restart box off, else auto-restarts.mjs restartHeld
+  // What holds the board at dir's restart for new code: auto-restarts.mjs restartHeld
   // (its session busy, a builder, planner or lander open, a land queued). → the reason, or null when it is idle.
   async function codeRestartHeld(route, dir) {
-    if (!readAutoRestart()) return 'auto restart is off';
     const owner = sessionOf(loadManifest(), route);
     return restartHeld({ dir, record: owner ? liveSessions()?.get(owner.session) : null });
   }
   // A hub restart restarts every board server, so it waits on every board.
   async function hubRestartHeld() {
-    if (!readAutoRestart()) return 'auto restart is off';
     for (const { route, dir } of listBoards(loadManifest())) {
       const held = await codeRestartHeld(route, dir);
       if (held) return `${held} on /${route}`;
@@ -1098,7 +1095,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return {
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-        code, version: VERSION, update: { latest: upgrade.available(), auto: readAutoUpdate(), clone: upgrade.clone, restart: readAutoRestart() }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
+        code, version: VERSION, update: { latest: upgrade.available(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
         remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pending().map(shown),
@@ -1377,10 +1374,6 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if (p === '/_hub/settings/auto-update' && req.method === 'POST') {
       setAutoUpdate(new URLSearchParams(await readBody(req)).get('auto_update') === 'on');
-      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/');
-    }
-    if (p === '/_hub/settings/auto-restart' && req.method === 'POST') {
-      setAutoRestart(new URLSearchParams(await readBody(req)).get('auto_restart') === 'on');
       return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/');
     }
     if (p === '/_hub/settings/hub-pause' && req.method === 'POST') {

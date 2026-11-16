@@ -107,36 +107,6 @@ test('a board server whose code changed on disk waits while its board is busy, i
   assert.equal(hub.lines.filter((l) => l.includes('restarting it')).length, 1, 'the hub restarted the server once');
 });
 
-test("with auto restart off an idle board keeps its old server until its Restart, which restarts that server alone", async (t) => {
-  const signal = await signals(t);
-  const { pkg, shopPort } = await shopSite(signal.port);
-  write(path.join(web, 'settings.json'), { autoRestart: false });
-  const clock = { ms: Date.parse('2026-11-13T12:00:00Z') };
-  const hub = await inProcessHub(t, { now: () => clock.ms, codeRestarts: true });
-  const pid = () => fetch(`http://127.0.0.1:${shopPort}/`).then((r) => r.json()).then((j) => j.pid);
-  const restart = (route) => fetch(`${hub.base}/_hub/restart-server`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route }) });
-  const first = await signal.up();
-  await hub.reconcile();
-  assert.equal((await restart('shop')).status, 409, 'a server running its files has nothing to restart for');
-  assert.equal((await restart('nowhere')).status, 404);
-
-  write(path.join(pkg, 'board', 'dep.mjs'), 'export const v = 2;\n');
-  await hub.reconcile();
-  await hub.reconcile();
-  assert.deepEqual(hub.lines.filter((l) => l.includes('older code')), ['shop runs older code than its files; its restart waits, since auto restart is off']);
-  assert.equal(await pid(), first);
-
-  const tapped = await restart('shop');
-  assert.deepEqual([tapped.status, await tapped.json()], [200, { route: 'shop' }]);
-  assert.ok(hub.lines.includes('shop runs older code than its files; restarting it from its Restart'));
-  await hub.logged(/^shop exited/);
-  const page = await fetch(`${hub.base}/shop/`, { headers: { accept: 'text/html' } });
-  assert.equal(page.headers.get('x-kickflip-down'), 'code');
-  clock.ms += 1000;
-  await hub.reconcile();
-  assert.notEqual(await signal.up(), first);
-});
-
 // docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md
 test('with KICKFLIP_CODE_RESTARTS=off, as a try run\'s demo hub runs, a board server whose code changed keeps running', async (t) => {
   const signal = await signals(t);

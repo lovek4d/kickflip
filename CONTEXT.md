@@ -137,7 +137,7 @@ A restart the hub makes by itself, once per outage: of a board's session that ru
 _Avoid_: auto-heal, self-repair
 
 **Restart row**:
-The sidebar row under New version · Reload, worded for a restart: New server version · Restart on a board whose server runs older code than its files, New hub version · Restart on the hub's pages while the hub does. A tap restarts that server, or the hub, and reloads the page once it answers. New code never restarts a running server or the hub at once: each restarts by itself once idle, by the same holds as an **automatic restart** (a hub restart waits on every board), unless the Hub page's `auto restart` box is off; a crash or a missing server still restarts at once ([new server code waits behind a Restart row and restarts itself once idle](docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md)).
+The sidebar row under New version · Reload, worded for a restart: New server version · Restart on a board whose server runs older code than its files, New hub version · Restart on the hub's pages while the hub does. A tap restarts that server, or the hub, and reloads the page once it answers. New code never restarts a running server or the hub at once: each restarts by itself once idle, by the same holds as an **automatic restart** (a hub restart waits on every board); a crash or a missing server still restarts at once ([new server code waits behind a Restart row and restarts itself once idle](docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md)).
 _Avoid_: restart banner, reload banner
 
 **Status word**:

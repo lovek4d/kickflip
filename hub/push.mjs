@@ -191,15 +191,6 @@ export function setAutoUpdate(on, home = os.homedir()) {
   writeSettingsFile(on ? rest : { ...rest, autoUpdate: false }, home);
 }
 
-// Auto restart, the box beside it (docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md):
-// off only when settings.json says autoRestart: false; unset is on.
-export const readAutoRestart = (home = os.homedir()) => readSettingsFile(home).autoRestart !== false;
-
-export function setAutoRestart(on, home = os.homedir()) {
-  const { autoRestart: _, ...rest } = readSettingsFile(home);
-  writeSettingsFile(on ? rest : { ...rest, autoRestart: false }, home);
-}
-
 // Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md):
 // opus or sonnet forces it, auto leaves it to the card (shared/usage-gate.mjs builderPick). A missing or unknown stored
 // value is auto.
@@ -221,12 +212,12 @@ export function readSettings(home) {
   return quietOf(readSettingsFile(home));
 }
 
-// Rewrites old `polling` windows, and the `push` block before them, as `quiet`. Returns the quiet hours, or null when
+// Rewrites old `polling` windows, and the `push` block before them, as `quiet`, and drops the old `autoRestart` key. Returns the quiet hours, or null when
 // there was nothing to migrate.
 export function migrateSettings(home) {
   const file = readSettingsFile(home);
-  if (!file.polling && !file.push) return null;
-  const { push, polling, ...rest } = file;
+  if (!file.polling && !file.push && !('autoRestart' in file)) return null;
+  const { push, polling, autoRestart, ...rest } = file;
   const { quiet } = quietOf(file);
   writeSettingsFile({ ...rest, quiet }, home);
   return quiet;

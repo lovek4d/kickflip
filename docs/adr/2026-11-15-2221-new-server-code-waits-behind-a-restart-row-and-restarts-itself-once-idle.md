@@ -14,7 +14,7 @@ This replaces the restart in [a board server whose code changed restarts between
   - The hub's restart restarts every board server, so it waits until every board is idle.
   - An npm `kickflip update --no-restart` now waits too, rather than restarting at once.
   - The hub logs what holds a restart, once per reason.
-- **One setting.** `auto restart` is a box on its own line under the footer's `auto update`, stored as `autoRestart: false`; unset is on. It covers both the hub and the board servers, and it shows on a clone, which has no auto update box, since a clone is where lands bring new code. With it off, new code waits for the row's tap.
+- **One setting.** Superseded by [auto restart is always on](2026-11-16-0300-auto-restart-is-always-on-and-auto-update-is-the-only-update-setting.md): the box and `autoRestart` are gone.
 
 ## What a board server's boot reads (11/15, this board)
 

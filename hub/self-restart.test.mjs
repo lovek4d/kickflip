@@ -113,9 +113,9 @@ test("new hub code, pulled or installed, waits while idle() names what holds it,
   await r.check();
   await r.check();
   assert.equal(calls.length, 0);
-  held = 'auto restart is off';
+  held = 'a land is queued on /shop';
   await r.check();
-  assert.deepEqual(logs, ['new hub code waits to restart, since a builder is open on /shop', 'new hub code waits to restart, since auto restart is off']);
+  assert.deepEqual(logs, ['new hub code waits to restart, since a builder is open on /shop', 'new hub code waits to restart, since a land is queued on /shop']);
   held = null;
   await r.check();
   assert.equal(calls.length, 1);

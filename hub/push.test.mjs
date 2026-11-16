@@ -187,6 +187,14 @@ test('subscriptions name each device by kind and browser with an id that is not 
   assert.deepEqual(push.deviceNames(''), { kind: '', browser: '' });
 });
 
+test('a stored autoRestart, a setting that no longer exists, is dropped by the migration', () => {
+  write(settingsFile(), { autoRestart: false, codexShare: 'auto' });
+  assert.notEqual(push.migrateSettings(home), null);
+  assert.deepEqual(read(settingsFile()), { codexShare: 'auto', quiet: read(settingsFile()).quiet });
+  assert.equal('autoRestart' in read(settingsFile()), false);
+  assert.equal(push.migrateSettings(home), null);
+});
+
 test('old polling windows migrate to quiet hours once, keeping the other settings, and a save writes quiet alone', () => {
   write(settingsFile(), { polling: { windows: [{ from: '07:00', every_minutes: 15 }, { from: '23:00', every_minutes: 60 }], hold_overnight: false, wakes: ['07:00'] }, notifications: { on: true, weekends_off: true }, codexShare: 'auto' });
   assert.deepEqual(push.migrateSettings(home), { start: '23:00', end: '07:00', hold: false });

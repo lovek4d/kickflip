@@ -68,14 +68,14 @@ const claudeView = (model) => ({
 });
 
 // sidebar: the /_hub/sidebar.json data, and hub.restart is true while the hub runs older code than its files, for the Hub row's Restart hub; rows: hub.mjs status() rows, whose restart (restart-board.mjs restartable) gives a board its Restart; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
-// (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; update: {latest: the newer version npm has or null, auto: the auto update box, clone: whether the hub is a clone, which never pulls, restart: the auto restart box}; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
+// (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; update: {latest: the newer version npm has or null, auto: the auto update box, clone: whether the hub is a clone, which never pulls}; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
 // codex: a shared/codex.mjs codexStatus; awake: {on: awake.mjs awakeOn, unsupported: awake.mjs awakeUnsupported}, which Health's Keep awake row shows.
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js). routed: router.mjs routedRows, the New
 // strip under Boards (docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md). restarts: auto-restarts.mjs
 // restartLines, the line a board's row adds for its last automatic restart.
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false, restart: true }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [], restarts = new Map() }) {
+export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [], restarts = new Map() }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const current = Boolean(code.running && code.running === code.onDisk);
   const codeLine = current ? ` · runs the code in its files (${code.onDisk})` : '';
