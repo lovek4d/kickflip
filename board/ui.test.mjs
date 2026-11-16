@@ -1127,6 +1127,26 @@ test("an open PR's card reads its merge state in a Merge row, after the card lin
   for (const state of ['MERGED', 'CLOSED']) assert.equal(rows({ ...card, pr: { ...pr, state }, prs: [{ ...pr, state }] }).some(([label]) => label === 'Merge'), false);
 });
 
+test("collapsing the card the URL selects drops its selectedCard and keeps the pill; collapsing any other card leaves the URL alone", () => {
+  const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }), location: { hash: '' } });
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  const saved = [];
+  let synced = 0;
+  const handlers = {};
+  const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on: (_, type, fn) => { (handlers[type] ||= []).push(fn); }, later() {}, root: {},
+    store: { set() {} }, state: { board: { items: [] }, openItems: new Set(['w/A', 'w/B']) }, seen: {}, thread: () => '',
+    links: (key) => app.BoardUI.linkContext([], key), saveFragment: (changes) => saved.push(changes), syncQuestionsLink: () => { synced++; } };
+  app.BoardView = { part: (fn) => fn(B) };
+  app.AppRouter = { fragmentOf: () => ({ selectedCard: 'w/A' }) };
+  vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
+  const collapse = (key) => handlers.toggle.forEach((fn) => fn({ target: { matches: () => true, open: false, dataset: { key } } }));
+  collapse('w/B');
+  assert.deepEqual([saved, synced], [[], 0]);
+  collapse('w/A');
+  assert.deepEqual([JSON.stringify(saved), synced], ['[{"selectedCard":null}]', 1]);
+  assert.deepEqual([...B.state.openItems], []);
+});
+
 test("a card with a worktree opens it in VS Code from its Links line, live on the host and muted with a tooltip off it",() => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);

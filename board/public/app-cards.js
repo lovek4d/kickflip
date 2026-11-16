@@ -413,6 +413,8 @@ BoardView.part((B) => {
       else B.loadThread(key);
     } else {
       state.openItems.delete(key);
+      // Collapsing the card the URL selects drops its selectedCard, so a reload doesn't reopen it.
+      if (AppRouter.fragmentOf(location.hash).selectedCard === key) { B.saveFragment({ selectedCard: null }); B.syncQuestionsLink(); }
     }
     store.set('openItems', [...state.openItems]);
   }, true);
