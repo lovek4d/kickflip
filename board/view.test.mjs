@@ -3174,6 +3174,20 @@ test("a Todo card's Implement is in its thread box: enabled while the card owes 
   b.view.unmount();
 });
 
+test("a thread's request words show only while its card is in Todo, disabled with Implement once it is staged or ready", async () => {
+  const cards = [workCard('T1'), workCard('S1', { staging: true }), workCard('P1', { lane: 'progress' }), workCard('R1', { lane: 'review' })];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: { 'w/T1': [], 'w/S1': [], 'w/P1': [], 'w/R1': [] } });
+  await b.settle();
+  const row = (key) => {
+    const el = b.root.querySelector(`[data-thread="${key}"]`);
+    return [el.dataset.requestWords, [...el.querySelectorAll('.request-row button')].map((x) => x.disabled).join()];
+  };
+  assert.deepEqual([row('w/T1'), row('w/S1'), row('w/P1'), row('w/R1')],
+    [['shown', 'false,false,false,false'], ['shown', 'true,true,true,true'], ['hidden', 'false,false,false,false'], ['hidden', 'false,false,false,false']]);
+  assert.equal(b.root.querySelectorAll('[data-thread="w/P1"] button[data-intent="reply"]').length, 1, 'send stays');
+  b.view.unmount();
+});
+
 // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
 test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the ask and Implement (⌥↵) sends it with quick: true; Ctrl+↵ stands in for ⌘', async () => {
   const b = boardOnDom({ board: boardOf([]), threads: {} });

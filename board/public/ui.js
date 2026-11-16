@@ -109,6 +109,9 @@
   // task box: only the words, spread across; the attach icon is inside the text box (dropZone).
   const requestRow = (id, { protoLabel, quick = false } = {}) =>
     `<span class="request-row">${(quick ? quickButton() : '') + protoButton(id, protoLabel ? { label: protoLabel } : {}) + grillButton(id) + visualButton(id)}</span>`;
+  // The request words belong to a card in New or Todo; from In Progress on its rows keep only attach and send. A
+  // card the board hasn't read yet shows them.
+  const requestShown = (item) => !item?.lane || item.isNew || item.lane === 'todo';
   // The request button an Alt+letter keydown presses within scope, or null.
   const keyedRequest = (ev, scope) => {
     const attr = ev.altKey && !ev.metaKey && !ev.ctrlKey && !ev.isComposing ? REQUEST_KEYS[ev.code] : null;
@@ -594,6 +597,6 @@
     ...globalThis.BoardUI,
     LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, requestRow, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

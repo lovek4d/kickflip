@@ -2,7 +2,7 @@
 // (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). Needs app-core.js and ui-patch.js.
 BoardView.part((B) => {
   const { $, store, state, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, dropZone, sendButton, requestRow, requestOf, slashOf, doneButton, doneTone, BUTTON } = BoardUI;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, requestRow, requestOf, requestShown, slashOf, doneButton, doneTone, BUTTON } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request' };
 
@@ -43,6 +43,10 @@ BoardView.part((B) => {
     const item = state.board?.items.find((i) => i.key === key);
     const kind = sendsOf(item);
     if (at.dataset.sends !== kind) { at.insertAdjacentHTML('afterend', sends(kind, item)); at.remove(); }
+    // The row is built once and a card moves lanes without a rebuild, so its words follow the card's lane here: hidden
+    // outside New and Todo (style.css), disabled with Implement once Implement is tapped and the card stays in Todo.
+    el.dataset.requestWords = requestShown(item) ? 'shown' : 'hidden';
+    for (const b of el.querySelectorAll('.request-row button')) b.disabled = kind.startsWith('todo-');
   }
 
   // Each open card's ui-threads.js threadMessages view. Opening a card marks it seen (app-core.js markSeen) before its

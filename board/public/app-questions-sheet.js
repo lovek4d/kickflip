@@ -77,7 +77,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     sheet.querySelector('.reader-ref').textContent = it ? `${it.ref} · ${it.title}` : d.ownerTopics.find((t) => t.id === topic)?.title || '';
     const links = linkContext(d.items, key, { base: './' });
     const groups = batches();
-    body.innerHTML = `<div class="view-questions qs-body"><form data-qsform>
+    body.innerHTML = `<div class="view-questions qs-body" data-request-words="${BoardUI.requestShown(it) ? 'shown' : 'hidden'}"><form data-qsform>
       ${groups.map((g) => `${groups.length > 1 && g.line ? `<h3 class="qs-round">${esc(g.line.text)} <span class="muted">· ${esc(time(g.line.ts))}</span></h3>` : ''}${g.qs.map((q) => card(q, links)).join('')}`).join('')}
       <div class="bar"><span class="muted small" id="qstatus" role="status"></span>${BoardUI.sendButton('Send', 0, ' id="send"')}</div>
     </form></div>`;
