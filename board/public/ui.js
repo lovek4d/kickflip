@@ -91,10 +91,10 @@
   const escText = (s) => esc(s).replace(/\u2197\uFE0E?/g, LINK_ARROW);
   const TRASH = icon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
   // docs/adr/2026-11-16-0630-the-request-row-is-outlined-buttons-spread-with-key-hints.md
-  // The request row's words: What's left? (a thread's reply box only), Prototype, Grill and Visual, small outlined
+  // The request row's words: What's left? and Review (a thread's reply box only), Prototype, Grill and Visual, small outlined
   // buttons spread evenly, each with its Alt+letter (⌥ on a Mac) as a faint hint at the right where style.css shows
   // key hints. A thread's reply box, each open question and the New task box draw the row through requestRow.
-  const REQUEST_KEYS = { KeyL: 'data-quick', KeyP: 'data-proto', KeyG: 'data-grill', KeyV: 'data-visual' };
+  const REQUEST_KEYS = { KeyL: 'data-quick', KeyP: 'data-proto', KeyG: 'data-grill', KeyV: 'data-visual', KeyR: 'data-review' };
   const ALT = MAC ? '⌥' : 'Alt+';
   const requestButton = (attr, word, letter, label, extra = '') => `<button type="button" class="req" ${attr}${extra} aria-label="${esc(label)}" title="${esc(label)}">${word}<span class="key-hint" aria-hidden="true">${ALT}${letter}</span></button>`;
   // A question's Prototype asks for one instead of the pick; a thread's and the New task's ask for prototypes.
@@ -103,12 +103,14 @@
   // The visual: a page an agent draws to answer in the thread (app-threads.js;
   // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
   const visualButton = (id) => requestButton(`data-visual="${esc(id)}"`, 'Visual', 'V', 'Ask for a visual');
+  // A thread's Review sends what typing /review does (docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md).
+  const reviewButton = (id) => requestButton(`data-review="${esc(id)}"`, 'Review', 'R', 'Ask for a review');
   const quickButton = () => requestButton('data-quick="What\'s left?"', "What's left?", 'L', "Ask what's left");
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
   // The request row, one helper for a thread's reply box (quick: What's left? first), each open question and the New
   // task box: only the words, spread across; the attach icon is inside the text box (dropZone).
-  const requestRow = (id, { protoLabel, quick = false } = {}) =>
-    `<span class="request-row">${(quick ? quickButton() : '') + protoButton(id, protoLabel ? { label: protoLabel } : {}) + grillButton(id) + visualButton(id)}</span>`;
+  const requestRow = (id, { protoLabel, quick = false, review = false } = {}) =>
+    `<span class="request-row">${(quick ? quickButton() : '') + protoButton(id, protoLabel ? { label: protoLabel } : {}) + grillButton(id) + visualButton(id) + (review ? reviewButton(id) : '')}</span>`;
   // The request words belong to a card in New or Todo; from In Progress on its rows keep only attach and send. A
   // card the board hasn't read yet shows them.
   const requestShown = (item) => !item?.lane || item.isNew || item.lane === 'todo';
@@ -118,8 +120,8 @@
     const button = attr && scope?.querySelector(`button[${attr}]`);
     return button && !button.disabled ? button : null;
   };
-  // The request a row's icon asks for: prototype, grill or visual.
-  const requestOf = (button) => (button.hasAttribute('data-proto') ? 'prototype' : button.hasAttribute('data-grill') ? 'grill' : 'visual');
+  // The request a row's icon asks for: prototype, grill, visual or review.
+  const requestOf = (button) => (button.hasAttribute('data-proto') ? 'prototype' : button.hasAttribute('data-grill') ? 'grill' : button.hasAttribute('data-review') ? 'review' : 'visual');
   // A /prototype, /grill or /visual word in a message, the last one winning, and the message without it: {flag, text}.
   // A card's thread also takes /review (docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md); a New task
   // has nothing to review yet.
@@ -608,6 +610,6 @@
     ...globalThis.BoardUI,
     LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

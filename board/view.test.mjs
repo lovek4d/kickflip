@@ -3285,7 +3285,7 @@ test("a thread's request words show only while its card is in Todo, disabled wit
     return [el.dataset.requestWords, [...el.querySelectorAll('.request-row button')].map((x) => x.disabled).join()];
   };
   assert.deepEqual([row('w/T1'), row('w/S1'), row('w/P1'), row('w/R1')],
-    [['shown', 'false,false,false,false'], ['shown', 'true,true,true,true'], ['hidden', 'false,false,false,false'], ['hidden', 'false,false,false,false']]);
+    [['shown', 'false,false,false,false,false'], ['shown', 'true,true,true,true,true'], ['hidden', 'false,false,false,false,false'], ['hidden', 'false,false,false,false,false']]);
   assert.equal(b.root.querySelectorAll('[data-thread="w/P1"] button[data-intent="reply"]').length, 1, 'send stays');
   b.view.unmount();
 });
@@ -3835,16 +3835,16 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
 });
 
 // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-test("a thread box's row holds only What's left?, Prototype, Grill and Visual, with the attach icon inside the text box, and the send pair below", async () => {
+test("a thread box's row holds only What's left?, Prototype, Grill, Visual and Review, with the attach icon inside the text box, and the send pair below", async () => {
   const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
   const row = (key) => [...form(key).querySelector('.row').children].map((el) => el.matches('.request-row') ? 'request-row' : el.dataset.sends);
-  const icons = (key) => [...form(key).querySelector('.request-row').children].map((el) => ['quick', 'proto', 'grill', 'visual'].find((k) => el.hasAttribute('data-' + k)) || (el.matches('label.attach') ? 'attach' : '?'));
+  const icons = (key) => [...form(key).querySelector('.request-row').children].map((el) => ['quick', 'proto', 'grill', 'visual', 'review'].find((k) => el.hasAttribute('data-' + k)) || (el.matches('label.attach') ? 'attach' : '?'));
   assert.deepEqual(row('w/T1'), ['request-row', 'todo']);
   assert.deepEqual(row('w/P1'), ['request-row', 'progress']);
   for (const key of ['w/T1', 'w/P1']) {
-    assert.deepEqual(icons(key), ['quick', 'proto', 'grill', 'visual']);
+    assert.deepEqual(icons(key), ['quick', 'proto', 'grill', 'visual', 'review']);
     assert.ok(form(key).querySelector('.dz .attach'));
     assert.equal(form(key).querySelector('.request-row .attach'), null);
     assert.ok(form(key).querySelector('.dz .dz-hint'));
@@ -5219,7 +5219,7 @@ test("Done closes the card and holds the card still on screen as the card moves 
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-70]]);
+    ['done', false, '[]', [-74]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
@@ -6858,6 +6858,23 @@ test("the reader sheet wraps long lines in monospace and never scrolls sideways"
   assert.match(css, /\.reader-sheet \{[^}]*height: 85dvh/);
 });
 
+// docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md
+test("the thread's Review button, fifth after Visual, sends what /review sends: a bare tap the bare request, typed text with it", async () => {
+  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] } });
+  await b.settle();
+  const form = () => b.root.querySelector('form[data-reply="w/A1"]');
+  const box = () => form().querySelector('textarea');
+  assert.deepEqual(form().querySelector('.request-row').children.map((c) => c.textContent).map((t) => t.replace(/(⌥|Alt\+).$/, '')), ["What's left?", 'Prototype', 'Grill', 'Visual', 'Review']);
+  const tap = async (text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: form().querySelector('button[data-review]') }); await b.settle(); };
+  await tap();
+  await tap('Check the diff');
+  box().value = '/review';
+  b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-nth="0"]') });
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [['review-request', { key: 'w/A1' }], ['review-request', { key: 'w/A1', text: 'Check the diff' }], ['review-request', { key: 'w/A1' }]]);
+  b.view.unmount();
+});
+
 // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
 test("Prototype, Grill and Visual show their line at once as sending…, their button never waiting; the board's line takes its place, a failed one reads not sent, and Retry resends it in place under its send id", async () => {
   const sends = heldSends();
@@ -7776,7 +7793,7 @@ test("the thread's image button, after the eye and fire, asks for a visual at on
   const image = () => form().querySelector('button[data-visual]');
   const box = () => form().querySelector('textarea');
   const icons = [...form().querySelector('.request-row').children];
-  assert.equal(icons.at(-1), image(), 'the image follows the eye and fire');
+  assert.equal(icons.at(-2), image(), 'the image follows the eye and fire, Review last');
   assert.equal(image().getAttribute('aria-label'), 'Ask for a visual');
   assert.match(box().getAttribute('placeholder'), /\/prototype, \/grill, \/visual or \/review asks for one/);
   const tap = async (text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: image() }); await b.settle(); };

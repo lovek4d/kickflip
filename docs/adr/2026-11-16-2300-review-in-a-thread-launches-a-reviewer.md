@@ -10,3 +10,5 @@ The owner asked for an adversarial review of a task in one step from its thread,
 - **Findings.** The agent posts its verified findings with `reviewer post <key> --file <findings.json>`, a list of `{severity: high|medium|low, at?: "<file>:<line>", text}`. The board ranks them, most severe first and the agent's order within a severity, and writes one thread line `{who: reviewer, kind: reviewer, text, findings}`, headed "N findings on the diff, most severe first" or "No findings on the plan". The thread draws it as a grey Reviewer message: each finding's severity badge (high red, medium orange, low blue), its file:line and its sentence, the top three shown and the rest under Show all. It is written as the reviewer, not the orchestrator, so it answers no owner message and clears no wait.
 
 A reviewer that ends without posting leaves only its finished row; there is no "unposted" fault as a visual has.
+
+The thread's request row also has a Review button after Visual (Alt+R), sending the same `review-request` as typing /review; the card's and the New task's rows have none.

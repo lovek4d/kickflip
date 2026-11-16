@@ -113,7 +113,7 @@ window.BoardAttach = (function () {
   // phone a blur starts closing the keyboard, and the send bar riding on it would slide out from under the finger
   // before the click lands. The click's own handler closes the keyboard once it sends (app-threads.js post, new-task.js).
   document.addEventListener('mousedown', (ev) => {
-    const b = ev.target.closest && ev.target.closest('button[type=submit], button[data-proto], button[data-grill], button[data-visual]');
+    const b = ev.target.closest && ev.target.closest('button[type=submit], button[data-proto], button[data-grill], button[data-visual], button[data-review]');
     if (b && b.closest('[data-composer]')) ev.preventDefault();
   });
   document.addEventListener('change', (ev) => {

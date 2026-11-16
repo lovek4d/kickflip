@@ -193,7 +193,7 @@ BoardView.part((B) => {
       // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`)}
         <div class="pending-files" data-files></div>
-        <div class="row">${requestRow(key, { quick: true })}${sends('one')}</div></form>`;
+        <div class="row">${requestRow(key, { quick: true, review: true })}${sends('one')}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncSends(el, key);
@@ -204,8 +204,8 @@ BoardView.part((B) => {
   // docs/adr/2026-11-05-0430-the-eye-and-fire-send-their-request-at-once.md
   // The composer's eye asks for a prototype, its fire for a grill and its image for a visual: a tap sends the request at
   // once, with whatever is typed, as /prototype, /grill or /visual in the text does on Reply. Nothing typed sends the
-  // bare request (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md). /review asks for a
-  // reviewer, typed only for now (docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md).
+  // bare request (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md). /review, or the Review button,
+  // asks for a reviewer (docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md).
   const PLACEHOLDER = 'Reply in this thread… (/prototype, /grill, /visual or /review asks for one)';
 
   // docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md: every card's thread rides the board's sync, so the page
@@ -429,7 +429,7 @@ BoardView.part((B) => {
       async () => enqueue(key, { ...(flag ? { kind: REQUEST_EVENT[flag] } : {}), text, ...(attached ? { attached: id } : {}), ...(intent ? { intent } : {}) }));
   }
   B.on(B.root, 'click', (ev) => {
-    const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill], form[data-reply] button[data-visual]');
+    const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill], form[data-reply] button[data-visual], form[data-reply] button[data-review]');
     if (b) post(b.closest('form'), requestOf(b), b);
   });
   B.on(B.root, 'submit', (ev) => {

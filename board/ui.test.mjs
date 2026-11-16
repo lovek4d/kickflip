@@ -977,6 +977,11 @@ test('an open question has its eye on and nothing locked, a resolved one has no 
   // Each word carries its key hint, ⌥ on a Mac and Alt+ elsewhere (style.css shows it where there is a keyboard).
   assert.match(ui.requestRow('q:q1', { quick: true }), /What's left\?<span class="key-hint" aria-hidden="true">(⌥|Alt\+)L<\/span>/);
   assert.match(ui.requestRow('q:q1'), /Grill<span class="key-hint" aria-hidden="true">(⌥|Alt\+)G<\/span>/);
+  // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: Review is a thread's fifth word, after Visual; a question's and the New task's row has none.
+  assert.deepEqual([...ui.requestRow('q:q1', { quick: true, review: true }).matchAll(/data-(quick|proto|grill|visual|review)/g)].map((m) => m[1]), ['quick', 'proto', 'grill', 'visual', 'review']);
+  assert.doesNotMatch(ui.requestRow('q:q1'), /data-review/);
+  assert.match(ui.requestRow('q:q1', { review: true }), /Review<span class="key-hint" aria-hidden="true">(⌥|Alt\+)R<\/span>/);
+  assert.equal(ui.requestOf({ hasAttribute: (a) => a === 'data-review' }), 'review');
   // Alt+letter presses its word's button within a scope: not with Ctrl or ⌘, not a button that is disabled or absent.
   const grill = { disabled: false };
   const scope = { querySelector: (sel) => ({ 'button[data-grill]': grill, 'button[data-visual]': { disabled: true } })[sel] ?? null };
