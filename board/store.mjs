@@ -2460,10 +2460,9 @@ function spendNext(item) {
 }
 
 // docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
-// Runs one card's follow-up to an owner Send, which is already recorded: a refusal becomes a thread line on the card.
-async function followUp(site, key, what, run) {
+// Runs one card's follow-up to an owner Send, which is already recorded: any failure becomes a fault line on the card.
+export async function followUp(site, key, what, run) {
   try { await run(); } catch (e) {
-    if (!(e instanceof BoardError)) throw e;
     await appendStatus(site, key, 'answers-failed', { what, error: e.message });
   }
 }

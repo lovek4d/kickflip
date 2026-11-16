@@ -361,7 +361,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -537,9 +537,18 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md,
   // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md,
   // docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md). A note with no take resolves its
-  // question, and the Send is acted on in code: gates settled, answers in the notes, cards left with nothing open staged.
+  // question. The POST answers once the answers are written and their questions resolved; the Send is then acted on in
+  // code (afterSend): gates settled, answers in the notes, cards left with nothing open staged, prototypes planned again
+  // (docs/adr/2026-11-16-0300-send-answers-once-the-answers-are-written.md).
   // An answer to a question that already has one recorded is skipped
   // (docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md).
+  // One Send's follow-ups run after another's, so two Sends never settle a card at once. A failure is a fault line on
+  // its card (store.mjs followUp).
+  let afterChain = Promise.resolve();
+  function afterSend(work) {
+    afterChain = afterChain.then(work).catch((err) => console.error('Send follow-up failed:', err.message));
+    track(afterChain);
+  }
   async function recordAnswers(sent) {
     const answers = await unrecorded(here, sent);
     const asked = new Map(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => [q.id, q]));
@@ -548,12 +557,19 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const ids = await appendEvents(answers.map((a) => ['owner-answer', isAgain(a) ? { ...a, prototype_again: true } : a]));
     await resolveNoteAnswers(here, answers);
     await resolveSentAnswers(here, answers.filter((a) => !isAgain(a)));
-    // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md, docs/adr/2026-11-07-0700-staging-then-ready.md
-    await settleAnswers(here, answers);
     dataVersion++;
-    for (const a of answers.filter(isAgain)) {
-      await planAgain(here, asked.get(String(a.id)).topic.slice(5), 'prototype', { question: String(a.id), ...(a.note ? { note: String(a.note) } : {}) });
-    }
+    afterSend(async () => {
+      // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md, docs/adr/2026-11-07-0700-staging-then-ready.md
+      // A failure after the 200 is a fault line on the card it was for, which wakes the orchestrator.
+      const keys = [...new Set(answers.map((a) => asked.get(String(a.id))?.topic).filter((t) => t?.startsWith('item:') && !t.startsWith('item:ask:')).map((t) => t.slice(5)))];
+      try { await settleAnswers(here, answers); }
+      catch (e) { for (const key of keys) await followUp(here, key, 'settling them', () => { throw e; }); }
+      for (const a of answers.filter(isAgain)) {
+        const key = asked.get(String(a.id)).topic.slice(5);
+        await followUp(here, key, 'planning the prototype again', () => planAgain(here, key, 'prototype', { question: String(a.id), ...(a.note ? { note: String(a.note) } : {}) }));
+      }
+      dataVersion++;
+    });
     return ids;
   }
   // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md

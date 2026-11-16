@@ -178,8 +178,10 @@ test("the owner's last answer on an unstarted card stages it, held or blocked to
   const before = unblocked().length;
   try {
     for (const id of ['s1a', 's2', 's4']) await ok200(answer(id));
+    await board.settled();
     assert.deepEqual(states(), ['grilling', 'staging', 'new', 'staging']);
     await ok200(answer('s1b'));
+    await board.settled();
     assert.deepEqual(states(), ['staging', 'staging', 'new', 'staging']);
     assert.deepEqual(unblocked().slice(before), []);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
@@ -231,7 +233,8 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
     const r = await answer('moon', null, 'Neither: try a darker moon');
     await ok200(r);
     assert.deepEqual([last().kind, last().data.prototype_again], ['owner-answer', true]);
-    const card = (await r.json()).board.items.find((i) => i.key === 't/P1');
+    await board.settled();
+    const card = (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/P1');
     assert.deepEqual([card.phase, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
     // The card owes the orchestrator its next round's brief, the note its ask even when it reads as a question; the board
     // launches the round from the brief (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md).
@@ -262,6 +265,7 @@ test("one Send with no take picked on two of a card's prototypes owes one brief 
   try {
     const answers = [{ id: 'sun', question: 'Which sun?', choice: null, note: 'Neither: warmer' }, { id: 'cloud', question: 'Which cloud?', choice: null, note: 'Neither: fluffier' }];
     await ok200(await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answers', answers }) }));
+    await board.settled();
     const p2 = JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'P2');
     assert.deepEqual(p2.briefs.map((b) => [b.kind, b.asks]), [['prototype', [{ question: 'sun', note: 'Neither: warmer' }, { question: 'cloud', note: 'Neither: fluffier' }]]]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
@@ -377,12 +381,52 @@ test("one owner-answers request records every answer as one-by-one answers would
       ['owner-answer', { id: 'b1a', question: 'b1a?', choice: 'A', label: 'A. This', note: 'Bigger' }],
       ['owner-answer', { id: 'b1b', question: 'b1b?', choice: null, label: '', note: 'Rename it' }]]);
     assert.deepEqual(out.ids, added.map((e) => e.id));
-    assert.equal(out.board.items.find((i) => i.id === 'B1').staging, true, 'a note-only answer stages the task too');
-    assert.deepEqual(out.board.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [], 'Send folds both answers');
+    await board.settled();
+    const after = await (await fetch(`${base}/api/board`)).json();
+    assert.equal(after.items.find((i) => i.id === 'B1').staging, true, 'a note-only answer stages the task too');
+    assert.deepEqual(after.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [], 'Send folds both answers');
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items.find((q) => q.id === 'b1a').resolved, 'Answered');
-    assert.deepEqual(out.board.ownerTopics.find((t) => t.id === 'item:t/B1').questions, ['b1a', 'b1b']);
+    assert.deepEqual(after.ownerTopics.find((t) => t.id === 'item:t/B1').questions, ['b1a', 'b1b']);
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items.find((q) => q.id === 'b1b').resolved, 'Answered with a note');
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
+// docs/adr/2026-11-16-0300-send-answers-once-the-answers-are-written.md
+test("Send answers once the answers are written and their questions resolved: the notes and staging follow, held up here by the card's notes lock", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const itemsFile = path.join(site, 'data', 'items.json');
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  await putWave(JSON.stringify({ items: [{ id: 'FAST1', title: 'Fast' }] }));
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'fast', topic: 'item:t/FAST1', question: 'fast?', options: [{ id: 'A', label: 'This' }] }] }));
+  const card = () => JSON.parse(fs.readFileSync(itemsFile, 'utf8')).items.find((i) => i.id === 'FAST1');
+  try {
+    // The follow-up writes the answer into the card's notes under this lock, so it waits here while the POST still answers.
+    await withFileLock(path.join(site, 'data', '.fast1-notes'), async () => {
+      const r = await post({ kind: 'owner-answers', answers: [{ id: 'fast', question: 'fast?', choice: 'A', label: 'A. This', note: '' }] });
+      await ok200(r);
+      assert.equal((await r.json()).ids.length, 1);
+      assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items[0].resolved, 'Answered');
+      assert.equal(card().plan, undefined, 'no notes are written yet');
+      assert.notEqual(card().phase, 'staging');
+    });
+    await board.settled();
+    assert.match(fs.readFileSync(path.join(site, 'data', card().plan), 'utf8'), /Answers \(owner/);
+    assert.equal((await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === 'FAST1').staging, true);
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
+test("a follow-up that fails after Send's 200, whatever the error, is a fault line on its card", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  // The card's notes are a directory, so reading them throws a plain Error, not a BoardError.
+  fs.mkdirSync(path.join(site, 'data', 'notes-dir'), { recursive: true });
+  await putWave(JSON.stringify({ items: [{ id: 'FAIL1', title: 'Fails', plan: 'notes-dir' }] }));
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'fail', topic: 'item:t/FAIL1', question: 'fail?', options: [{ id: 'A', label: 'This' }] }] }));
+  try {
+    await ok200(await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answers', answers: [{ id: 'fail', question: 'fail?', choice: 'A', label: 'A. This', note: '' }] }) }));
+    await board.settled();
+    const lines = fs.readFileSync(path.join(site, 'data', 'threads', 't__FAIL1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.match(lines.find((l) => l.line === 'answers-failed')?.text ?? '', /Answers recorded, but writing them into its notes failed/);
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); fs.rmSync(path.join(site, 'data', 'notes-dir'), { recursive: true, force: true }); }
 });
 
 test('a Send of answers already recorded adds nothing and answers as sent', async () => {
