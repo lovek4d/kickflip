@@ -29,6 +29,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   // The questions the sheet opened with, which it keeps drawing once sent.
   let kept = new Set();
   let modal = true;
+  // Whether the open sheet follows the opened card (autoOpen), as opposed to one the owner opened by hand.
+  let autoOpen = false;
 
   const keyOf = (id) => (id?.startsWith('item:') ? id.slice(5) : null);
   // The topic a question or topic id names on the board shown, else null.
@@ -100,13 +102,15 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   // question of the topic answered.
   const settle = (id) => { if (!sheet.open) return; if (!openOf().length) close(); else if (shownOf().some((q) => q.id === id)) drawOne(id); else draw(); };
 
-  // id: a question's or a topic's. → false for one the board doesn't have, or a topic with no open question.
-  function open(id) {
+  // id: a question's or a topic's. auto: the sheet follows the opened card (followCard); otherwise the owner opened it,
+  // and followCard leaves it. → false for one the board doesn't have, or a topic with no open question.
+  function open(id, { auto = false } = {}) {
     const t = topicOf(id);
     if (!t) return false;
     const was = topic;
     topic = t;
     if (!openOf().length) { topic = was; return false; }
+    autoOpen = auto;
     BoardUI.cutClose(sheet);
     if (t !== was || !sheet.open) kept = new Set(openOf().map((q) => q.id));
     if (!sheet.open) {
@@ -115,6 +119,12 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     }
     draw();
     return true;
+  }
+  // From 900px, a card the owner opens opens its questions sheet while none is open or the open one is autoOpen; a card
+  // with no open questions closes an autoOpen sheet.
+  function followCard(key) {
+    if (!matchMedia('(min-width: 900px)').matches || (sheet.open && !autoOpen)) return;
+    if (!open(`item:${key}`, { auto: true }) && sheet.open) close();
   }
   function close() {
     BoardUI.closeSheet(sheet, later, () => { topic = null; });
@@ -255,7 +265,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   atUnmount(BoardUI.swipeToDismiss(sheet));
   on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
 
-  return { open, close, redraw, resend, retry, drop, holds, isOpen: () => sheet.open };
+  return { open, followCard, close, redraw, resend, retry, drop, holds, isOpen: () => sheet.open };
 };
 
 // The board's sheet, over the lanes and the pane. Needs app-core.js and app-threads.js, whose card threads draw the
@@ -272,5 +282,5 @@ BoardView.part((B) => {
     const button = ev.target.closest?.('button[data-questions]');
     if (button) qs.open(button.dataset.questions);
   });
-  Object.assign(B, { openQuestionsSheet: qs.open, closeQuestionsSheet: qs.close, resendAnswers: qs.resend, retryAnswer: qs.retry, dropAnswer: qs.drop, holdsAnswer: qs.holds });
+  Object.assign(B, { openQuestionsSheet: qs.open, followCardQuestions: qs.followCard, closeQuestionsSheet: qs.close, resendAnswers: qs.resend, retryAnswer: qs.retry, dropAnswer: qs.drop, holdsAnswer: qs.holds });
 });

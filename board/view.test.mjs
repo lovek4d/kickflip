@@ -6824,6 +6824,35 @@ test('a prototype question opens in the sheet with its View prototypes link, and
   wide.view.unmount();
 });
 
+// docs/adr/2026-11-16-0600-on-desktop-the-questions-sheet-follows-the-opened-card-unless-opened-by-hand.md
+test("from 900px opening a card opens its questions sheet while none is open or the open one followed, swapping as cards open and closing for a card with no questions; a sheet opened by hand stays", async () => {
+  const qs = [openQuestion('qa', 'item:w/A1'), openQuestion('qb', 'item:w/A1'), openQuestion('qc', 'item:w/B1'), openQuestion('qd', 'item:w/D1'), openQuestion('qe', 'item:w/E1')];
+  const board = { ...questionsBoard(qs, []), items: [workCard('A1', { lane: 'progress', questions: { topic: 'item:w/A1', first: 'qa', open: 2, state: 'open' } }), workCard('B1'), workCard('C1'), workCard('D1'), workCard('E1')] };
+  const s = sheetOnDom({ width: 1280, board });
+  await s.settle();
+  const openCard = (key) => s.page.fire(s.root, 'click', { target: s.root.querySelector(`details.item[data-key="w/${key}"] > summary`), button: 0 });
+  openCard('B1');
+  assert.deepEqual([s.sheet().open, s.sheet().modal, s.ids()], [true, false, ['qc']], 'a card opened with no sheet open opens its questions');
+  openCard('D1');
+  assert.deepEqual([s.sheet().open, s.ids()], [true, ['qd']], 'the next card swaps it');
+  openCard('C1');
+  s.page.runTimers();
+  assert.equal(s.sheet().open, false, 'a card with no open questions closes a followed sheet');
+  s.view.B.openQuestionsSheet('qa');
+  s.view.B.focusQuestion;
+  s.page.fire(s.root, 'click', { target: s.root.querySelector('details.item[data-key="w/B1"] > summary'), button: 0 });
+  assert.deepEqual([s.sheet().open, s.ids()], [true, ['qb', 'qa']], 'a sheet opened by hand stays when a card opens');
+  s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('[data-qs="close"]') });
+  s.page.runTimers();
+  assert.equal(s.sheet().open, false, 'closing by hand leaves none');
+  s.view.unmount();
+  const phone = sheetOnDom({ board });
+  await phone.settle();
+  phone.page.fire(phone.root, 'click', { target: phone.root.querySelector('details.item[data-key="w/B1"] > summary'), button: 0 });
+  assert.equal(phone.sheet().open, false, 'a phone opens none');
+  phone.view.unmount();
+});
+
 test("a questions URL or push on an open question of a card opens the card with its questions sheet open, unless it asks for none", async () => {
   const s = sheetOnDom({ width: 1280 });
   await s.settle();
