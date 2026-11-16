@@ -15,7 +15,7 @@ The count reads "1 PR pending review" at one and "All reviewed" at none. One fun
 
 The digest is the same either way: same top message, same replies, same live count. The "<board> reviews" header line that used to open a thread with no digest is gone, and so is `openDayThread`. `slack say` on a day with no thread opens it with the digest too. A thread an earlier build opened with that header still gets the weekday digest as one reply, the reviewer's mention before its first line.
 
-The count is unchanged: the reviewer's PRs that are open, out of draft, not failing and not approved when the digest posts, edited down as they leave review ([a digest header keeps a live count](2026-11-13-2345-a-digest-header-keeps-a-live-count-of-prs-pending-the-reviewer.md)).
+The count is unchanged: the reviewer's PRs that are open, out of draft and not approved, failing checks included, when the digest posts, edited down as they leave review ([a digest header keeps a live count](2026-11-13-2345-a-digest-header-keeps-a-live-count-of-prs-pending-the-reviewer.md)).
 
 ## Edits name their time
 

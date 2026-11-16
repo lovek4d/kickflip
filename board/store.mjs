@@ -1414,7 +1414,7 @@ export const recordHeader = (site, due) => editJSON(digestFile(site), (all) => {
 
 const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.json');
 
-// `review digest`: each reviewer's PRs the hub last read open, out of draft, green and not approved, one item per PR
+// `review digest`: each reviewer's PRs the hub last read open, out of draft and not approved (failing checks included), one item per PR
 // with its digest reply's text, “<PR link> · <card title>” plus “ (<n> days old)” for a link over two days old.
 // data/review-digests.json {digests: [{date, reviewer, channel, ts, heard?, replies?: [{pr | prs, text, ts}]}]} holds
 // each reviewer's thread for each day, posted as postOnce posts: ts is its opener, the digest's header or the header
@@ -1442,7 +1442,7 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
         const pr = prKeyOf(p);
         const gh = routeRecord(cache.prs, pr);
         for (const r of people) if (linkOwed(gh, record, pr, r.name)) reviewers.get(r.name).linked = true;
-        if (gh?.state !== 'OPEN' || gh.isDraft || gh.failing?.length || approved(gh)) continue;
+        if (gh?.state !== 'OPEN' || gh.isDraft || approved(gh)) continue;
         for (const r of people) {
           const ts = record[pr]?.links?.[r.name]?.ts || routeRecord(legacy, r.name)?.ts || null;
           const age = ts ? (now.getTime() - Number(ts) * 1000) / 86400000 : null;

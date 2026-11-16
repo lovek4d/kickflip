@@ -604,9 +604,9 @@ test('review digest lists one item per hub-checked PR awaiting review, dates old
   write(at('kickflip', 'github-state.json'), { prs: Object.fromEntries([1, 2, 3, 4, 5, 6, 10, 13, 14].map((pr) => [`o/r#${pr}`, { state: pr === 6 ? 'CLOSED' : 'OPEN', isDraft: pr === 5, reviewDecision: pr === 4 ? 'APPROVED' : 'REVIEW_REQUIRED', approved: pr === 14, ...(pr === 13 ? { failing: ['lint'] } : {}) }])) });
   const digest = digestCommand([], now);
   assert.deepEqual([digest.date, digest.due, digest.reviewers.map((r) => [r.name, r.owed])], ['2026-11-02', true, [['Bob', true], ['Ann', true]]]);
-  assert.deepEqual(digest.reviewers[0].items.map((i) => i.key), ['w/old', 'w/edge', 'w/recent']);
+  assert.deepEqual(digest.reviewers[0].items.map((i) => i.key), ['w/old', 'w/edge', 'w/recent', 'w/ci']);
   const ann = digest.reviewers.find((r) => r.name === 'Ann');
-  assert.deepEqual([ann.slack_user, ann.dm, ann.items.map((i) => i.key)], ['U1', 'D1', ['w/old', 'w/edge', 'w/recent']]);
+  assert.deepEqual([ann.slack_user, ann.dm, ann.items.map((i) => i.key)], ['U1', 'D1', ['w/old', 'w/edge', 'w/recent', 'w/ci']]);
   assert.deepEqual(ann.items[0], { key: 'w/old', pr: 'o/r#1', title: 'old', url: 'https://github.com/o/r/pull/1', sent_ts: ts(73), days_old: 3, text: 'https://github.com/o/r/pull/1 · old (3 days old)' });
   for (const item of ann.items.slice(1)) assert.equal(Object.hasOwn(item, 'days_old'), false);
   // Before 09:00 and on a Sunday it is due as the owed links open the day's threads; past 17:00 the day still gets it.
