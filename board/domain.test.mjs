@@ -582,21 +582,21 @@ test('needs lists each Needs you line: open topics apart from items, then items 
   const answered = [{ id: 'e1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q3', choice: 'A' }, reply: null }];
   const lines = (b) => b.needs.map(({ kind, text, url }) => ({ kind, text, url }));
   assert.deepEqual(lines(board({ owner, events: answered })), [
-    { kind: 'Question', text: 'Site · 1 question', url: 'questions.html#q1' },
     { kind: 'Question', text: 'A1: One · 1 question · Ready on GitHub', url: '#selectedCard=w%2FA1' },
+    { kind: 'Question', text: 'Site · 1 question', url: 'questions.html#q1' },
   ]);
   assert.equal(board({ owner, events: answered }).needsSummary, '2 questions · 1 draft waiting on Ready');
   // docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md: a held card's open question is a Needs you line too.
   assert.deepEqual(lines(board({ owner, events: answered, held: true, item: { pr: undefined } })), [
-    { kind: 'Question', text: 'Site · 1 question', url: 'questions.html#q1' },
     { kind: 'Question', text: 'A1: One · 1 question', url: '#selectedCard=w%2FA1' },
+    { kind: 'Question', text: 'Site · 1 question', url: 'questions.html#q1' },
   ]);
   assert.deepEqual(lines(board()), [{ kind: 'Tap Ready', text: 'A1: One · Ready on GitHub', url: '#selectedCard=w%2FA1' }]);
   assert.deepEqual(lines(board({ pr: { ...greenDraft, isDraft: false } })), []);
   assert.equal(board({ pr: { ...greenDraft, isDraft: false } }).needsSummary, '');
 });
 
-test("needs sorts each card's line by its card's created time, and a topic with no card by its oldest open question", () => {
+test("needs lists card lines in the board's order, then a topic with no card by its oldest open question", () => {
   const owner = {
     topics: [{ id: 'site', title: 'Site' }],
     items: [
@@ -605,13 +605,13 @@ test("needs sorts each card's line by its card's created time, and a topic with 
     ],
   };
   const names = (b) => b.needs.map((l) => l.text.split(' · ')[0]);
-  assert.deepEqual(names(board({ owner, item: { created: '2026-10-23T10:00:00Z' } })), ['A1: One', 'Site'], 'the task was created first, though asked last');
+  assert.deepEqual(names(board({ owner, item: { created: '2026-10-23T10:00:00Z' } })), ['A1: One', 'Site'], 'a card line comes before a topic with no card');
   assert.deepEqual(board({ owner, item: { created: '2026-10-23T10:00:00Z' } }).needs.map((l) => l.since), ['2026-10-23T10:00:00Z', '2026-10-23T12:00:00Z']);
   const newer = board({ owner, item: { created: '2026-10-23T13:00:00Z' } });
-  assert.deepEqual(names(newer), ['Site', 'A1: One']);
+  assert.deepEqual(names(newer), ['A1: One', 'Site']);
   const pills = (b) => b.ownerTopics.filter((t) => t.open > 0).map((t) => t.id);
   assert.deepEqual(pills(board({ owner, item: { created: '2026-10-23T10:00:00Z' } })), ['item:w/A1', 'site'], "Waiting on you's topics follow Needs you");
-  assert.deepEqual(pills(newer), ['site', 'item:w/A1']);
+  assert.deepEqual(pills(newer), ['item:w/A1', 'site']);
 });
 
 test("questions on In Progress cards come first, oldest card first, then the other cards the same way, and their pills carry progress", () => {

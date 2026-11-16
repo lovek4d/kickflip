@@ -1601,9 +1601,9 @@ function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, files
 }
 
 // Needs you: one line per topic not tied to an item with open questions, and one per item with open
-// questions or a draft waiting on Ready, oldest first by since: its card's created time, the key Todo sorts by; a topic with no card
-// has none, so it takes when its oldest open question was asked. A line with no stamp comes last,
-// in board order; lines of cards in the In Progress lane come first (docs/adr/2026-11-05-2130-needs-you-feeds-oldest-first.md). Answered questions wait on Claude, so they don't count. An item the owner
+// questions or a draft waiting on Ready. Card lines come in the board's own order (items arrive sorted by laneOrder), so a line sits
+// where its card sits; a topic with no card follows them, its oldest open question first, one with no question time last
+// (docs/adr/2026-11-05-2130-needs-you-feeds-oldest-first.md). Answered questions wait on Claude, so they don't count. An item the owner
 // blocked has its line like any other: their block only stops the automatic pull (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 // {kind, text, url} is the GET /_claude/needs contract (docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md);
 // url is relative to the site root.
@@ -1626,7 +1626,7 @@ function needsOf(items, topics, questions) {
     return { kind: asking ? 'Question' : ready ? 'Tap Ready' : 'Action needed', title, text, url: `#selectedCard=${encodeURIComponent(it.key)}`, key: it.key, questions: asking, ready, action: other,
       since: it.created || null, progress: it.lane === 'progress' };
   }).filter(Boolean);
-  return [...fromTopics, ...fromItems].sort(oldestFirst);
+  return [...fromItems, ...fromTopics.sort(oldestFirst)];
 }
 // The ? page's queue and its count, one list: each Needs you line that waits on the owner on that page, in Needs you's
 // order (oldest first), a held review after the cards and a prompt left out, which shows on the hub page
@@ -1645,7 +1645,7 @@ function queueOf(needs) {
     return { kind, key: line.key, title: line.title, word, label: line.action?.label || '', fault: line.action?.kind === ACTION_KIND.stalled, since, progress: Boolean(progress) };
   });
 }
-const oldestFirst = (a, b) => (Boolean(b.progress) - Boolean(a.progress)) || (a.since && b.since ? a.since.localeCompare(b.since) : Boolean(b.since) - Boolean(a.since));
+const oldestFirst = (a, b) => (a.since && b.since ? a.since.localeCompare(b.since) : Boolean(b.since) - Boolean(a.since));
 
 // The board session's pending prompts lead Needs you, since each holds the session until the owner answers it there
 // (../hub/prompts.mjs shown; docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md).

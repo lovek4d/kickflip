@@ -50,3 +50,20 @@ test('a held review is in the queue after the cards, by its PR number and title'
   assert.deepEqual(b.queue.map((e) => e.kind), ['implement', 'review']);
   assert.deepEqual(b.queue[1], { kind: 'review', review: 437, title: 'PR #437 One endpoint', progress: false });
 });
+
+// docs/adr/2026-11-05-2130-needs-you-feeds-oldest-first.md: card rows sit where their cards sit on the board.
+test("the queue orders card rows with the board's lane order, a topic with no card after them", () => {
+  const ask = (topic, at) => ({ id: `q-${topic}`, topic, question: 'Keep it?', asked_at: at });
+  const b = built([
+    card('T-1', { created: '2026-11-01T10:00:00Z' }),
+    card('T-2', { created: '2026-11-02T10:00:00Z' }),
+    card('T-3', { created: '2026-11-03T10:00:00Z', lane: 'progress' }),
+    card('T-4', { created: '2026-11-04T10:00:00Z', lane: 'progress' }),
+  ], { topics: [{ id: 'ask:early', title: 'Early' }, { id: 'ask:late', title: 'Late' }], items: [
+    ask('item:hub/T-1', '2026-11-09T10:00:00Z'), ask('item:hub/T-2', '2026-11-09T10:00:00Z'),
+    ask('item:hub/T-3', '2026-11-09T10:00:00Z'), ask('item:hub/T-4', '2026-11-09T10:00:00Z'),
+    ask('ask:late', '2026-11-09T11:00:00Z'), ask('ask:early', '2026-11-08T11:00:00Z'),
+  ] });
+  assert.deepEqual(b.queue.slice(0, 4).map((e) => e.id), ['item:hub/T-4', 'item:hub/T-3', 'item:hub/T-1', 'item:hub/T-2'], 'In Progress newest first, then Todo oldest first');
+  assert.deepEqual(b.queue.slice(4).map((e) => e.id), ['ask:early', 'ask:late']);
+});

@@ -1953,7 +1953,7 @@ test("a card's question topic in the page's board carries no title of its own: t
     await heard(ownerFile);
     const b = await (await fetch(`${base}/api/board`)).json();
     assert.ok(b.items.some((i) => i.key === 't/G1'), 'the board serves the task');
-    assert.deepEqual(b.ownerTopics.map((t) => [t.id, t.card, t.title, t.summary]), [['plan', undefined, 'Plan', 'Kept'], ['item:t/G1', 't/G1', undefined, undefined]]);
+    assert.deepEqual(b.ownerTopics.map((t) => [t.id, t.card, t.title, t.summary]), [['item:t/G1', 't/G1', undefined, undefined], ['plan', undefined, 'Plan', 'Kept']]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
