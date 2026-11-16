@@ -806,8 +806,12 @@
         },
       });
     }).catch(() => { $('#rules').innerHTML = '<p class="muted">Offline. Is the host awake?</p>'; });
-    B.watch((events) => {
-      $('#rulesReplies').innerHTML = (events || []).slice(0, 3).map((e) => `<div class="reply${e.reply?.md ? ' md' : ''}">${e.reply ? BoardUI.replyBody(e.reply) : '<span class="muted small">Waiting for Claude…</span>'}</div>`).join('');
-    }, { kind: 'rules' });
+    // Read when the page opens and on each of its board's change signals, which a reply's write sends
+    // (docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md).
+    const readReplies = () => site.events({ kind: 'rules' }).then((events) => {
+      if (B.alive()) $('#rulesReplies').innerHTML = events.slice(0, 3).map((e) => `<div class="reply${e.reply?.md ? ' md' : ''}">${e.reply ? BoardUI.replyBody(e.reply) : '<span class="muted small">Waiting for Claude…</span>'}</div>`).join('');
+    }, () => {});
+    readReplies();
+    if (ctx.signal) B.own(ctx.signal(readReplies));
   }),
 };

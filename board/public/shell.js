@@ -115,6 +115,9 @@ window.AppShell = (function () {
     let opened = false;
     let tries = 0;
     let retry = null;
+    // While the stream is open a view's change signal stands in for its timer
+    // (docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md).
+    const streaming = () => es?.readyState === 1;
     // An EventSource retries a dropped stream by itself, but gives up on an answer that isn't a stream, such as while
     // the hub restarts, so a closed one reopens here with a growing backoff.
     function openStream() {
@@ -201,7 +204,7 @@ window.AppShell = (function () {
       root.className = 'view-settings';
       root.innerHTML = AppViews.settings.markup({}, { siteTitle: titleOf(current.route) });
       current.root.appendChild(root);
-      const v = AppViews.settings.create(root, '/' + encodeURIComponent(current.route), { dismiss: dismissSettings, open: openHere, sidebarChanged: refreshSidebar, siteTitle: titleOf(current.route) });
+      const v = AppViews.settings.create(root, '/' + encodeURIComponent(current.route), { dismiss: dismissSettings, open: openHere, sidebarChanged: refreshSidebar, siteTitle: titleOf(current.route), signal: signalFor(current.route) });
       settings = { root, v };
       v.mount();
     }
@@ -276,11 +279,11 @@ window.AppShell = (function () {
       const siteRoot = hub ? '/_hub' : '/' + encodeURIComponent(route);
       let v;
       if (board) {
-        v = BoardView.create(root, siteRoot, { signal: signalFor(route), pause: () => data?.sites?.find((s) => s.route === route)?.pause || data?.pause, away: () => data?.away });
+        v = BoardView.create(root, siteRoot, { signal: signalFor(route), streaming, pause: () => data?.sites?.find((s) => s.route === route)?.pause || data?.pause, away: () => data?.away });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
           reload: () => go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'reload'), closeSidebar: sidebar.close, up: () => router.up(),
-          loaded: (url, title) => { if (current?.v === v) framed(url, title); }, sidebarChanged: refreshSidebar });
+          loaded: (url, title) => { if (current?.v === v) framed(url, title); }, sidebarChanged: refreshSidebar, signal: signalFor(route), streaming });
       }
       current = { view, route, root, v };
       present(view);

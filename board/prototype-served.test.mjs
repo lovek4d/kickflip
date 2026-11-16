@@ -175,19 +175,30 @@ test("the landing draws the site's three start steps with a caption under each: 
   assert.match(crashed, /<p class="kit-landing-why">The prototype site stopped after it started\.<\/p>/);
 });
 
-// docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md
-test('the served viewer keeps polling while the frame shows: Starting while the serve is down, and a new frame at the same take and state once a new run is ready', async () => {
+// docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md, docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md
+test("the served viewer reads the serve on each of its board's change signals, never on a timer: Starting while the serve is down, and a new frame at the same take and state once a new run is ready", async () => {
   const timers = [];
+  const tickers = [];
   const keeps = [];
   const answers = [];
   const posts = [];
+  const reads = [];
+  const streams = [];
   const stage = Object.assign(new EventTarget(), { innerHTML: '', frame: null, replaceChildren(el) { this.frame = el; this.innerHTML = ''; } });
   let switcher;
+  // The hub's one stream, as hub/stream.mjs sends it: `change {route}` for each board.
+  class EventSource extends EventTarget {
+    static CLOSED = 2;
+    constructor(url) { super(); this.url = url; this.readyState = 1; streams.push(this); }
+    close() { this.readyState = EventSource.CLOSED; }
+  }
   const context = vm.createContext({
-    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/orch/prototype-look.html' }, URL, EventTarget, Event, clearTimeout, setInterval, clearInterval,
+    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/orch/prototype-look.html' }, URL, EventTarget, Event, MessageEvent, EventSource, clearTimeout, clearInterval,
     setTimeout: (fn, ms) => (ms === 5 * 60_000 ? keeps : timers).push(fn),
+    setInterval: (fn, ms) => { tickers.push({ fn, ms }); return tickers.length; },
     fetch: async (url, opts) => {
       if (opts?.method === 'POST') { posts.push(url); return {}; }
+      reads.push(url);
       const next = answers.shift();
       if (next instanceof Error) throw next;
       return { json: async () => next };
@@ -204,21 +215,33 @@ test('the served viewer keeps polling while the frame shows: Starting while the 
   context.window = context;
   vm.runInContext(fs.readFileSync(new URL('./public/ui-progress-bar.js', import.meta.url), 'utf8'), context);
   vm.runInContext(fs.readFileSync(new URL('./public/prototype-kit.js', import.meta.url), 'utf8'), context);
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
-  // Answers the next poll with answer, and returns what the stage shows after it.
+  const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)); };
+  const change = (route) => streams.at(-1).dispatchEvent(new MessageEvent('change', { data: JSON.stringify({ route }) }));
+  // Answers the read the next change signal brings with answer, and returns what the stage shows after it.
   const step = async (answer) => {
     answers.push(answer);
-    timers.shift()();
+    change('orch');
     await settle();
     return stage.frame ? stage.frame.src : stage.innerHTML;
   };
   answers.push({ state: 'running' });
   context.PrototypeKit.start({ served: '/proto/look', title: 'Look', takes: [{ key: 'A', label: 'A' }, { key: 'B', label: 'B' }], states: [{ key: 'busy', label: 'Busy' }] });
   await settle();
+  assert.deepEqual(streams.map((s) => s.url), ['/_hub/stream']);
   assert.match(stage.innerHTML, /<span class="kit-step now">building · 0s<\/span>/);
   assert.equal(posts.length, 1, 'the page asks on load');
+  assert.deepEqual([timers.length, tickers.map((t) => t.ms)], [0, [1000]], 'no read waits on a timer; the starting step counts its seconds each second');
+  const read = reads.length;
+  streams[0].dispatchEvent(new Event('open'));
+  await settle();
+  assert.equal(reads.length, read, "the stream's first open reads nothing more than the load did");
+  tickers[0].fn();
+  assert.equal(reads.length, read, 'counting the seconds reads nothing');
+  change('other');
+  await settle();
+  assert.equal(reads.length, read, "another board's change reads nothing");
   assert.equal(await step({ state: 'ready', https: 8500, since: 's1' }), 'https://mac.ts.net:8500/proto/look?variant=A&state=busy');
-  assert.equal(posts.length, 1, 'a poll that finds the site up asks nothing');
+  assert.equal(posts.length, 1, 'a read that finds the site up asks nothing');
   context.document.visibilityState = 'hidden';
   keeps.shift()();
   assert.equal(posts.length, 1, 'a hidden page does not ask');
@@ -236,7 +259,7 @@ test('the served viewer keeps polling while the frame shows: Starting while the 
   assert.equal(await step({ state: 'ready', https: 8500, since: 's1' }), first.src);
   assert.equal(stage.frame, first, 'the same run keeps its frame');
   assert.equal(await step(new Error('the board is out of reach')), first.src);
-  assert.equal(stage.frame, first, 'a poll that fails keeps the frame');
+  assert.equal(stage.frame, first, 'a read that fails keeps the frame');
   stage.frame = null;
   assert.match(await step({ state: null }), /^<div class="kit-landing"><p class="kit-landing-stopped">The prototype site had stopped. Starting it again...<\/p>.*building · 0s/);
   assert.equal(posts.length, 4, 'a framed site found down is asked for at once');
@@ -246,11 +269,18 @@ test('the served viewer keeps polling while the frame shows: Starting while the 
   assert.equal(await step({ state: 'ready', https: 8500, since: 's2' }), 'https://mac.ts.net:8500/proto/look?variant=B&state=busy');
   const second = stage.frame;
   assert.notEqual(second, first);
-  // A run that restarted between two polls still gets a new frame.
+  // A run that restarted between two signals still gets a new frame.
   await step({ state: 'ready', https: 8500, since: 's3' });
   assert.notEqual(stage.frame, second);
-  assert.equal(timers.length, 1, 'it keeps polling');
   stage.frame = null;
   assert.match(await step({ state: 'failed', lines: ['exit 1'] }), /didn’t start/);
-  assert.equal(timers.length, 0, 'a failed serve waits for Try again');
+  // A stream the hub dropped, such as while it restarts, opens again and reads the serve once it has.
+  streams.at(-1).readyState = EventSource.CLOSED;
+  streams.at(-1).dispatchEvent(new Event('error'));
+  timers.shift()();
+  assert.equal(streams.length, 2, 'a closed stream opens again');
+  answers.push({ state: 'ready', https: 8500, since: 's4' });
+  streams.at(-1).dispatchEvent(new Event('open'));
+  await settle();
+  assert.match(stage.frame.src, /:8500\/proto\/look/, 'a reopened stream reads the serve');
 });

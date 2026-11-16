@@ -211,7 +211,10 @@
     BoardUI.boardCopy(site.url(''), document.documentElement.dataset.build).then((c) => {
       if (B.alive() && c && !board) { land(c.board, true); repaint(); }
     }, () => {}).then(() => { if (B.alive()) load(); });
-    B.every(15000, () => { if (!document.hidden) load(); });
+    // Its board's change signal reloads it, and the 15 s check runs only while the shell's stream is down
+    // (docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md).
+    if (ctx.signal) B.own(ctx.signal(() => { if (!document.hidden) load(); }));
+    B.every(15000, () => { if (!document.hidden && !ctx.streaming?.()) load(); });
     B.on(document, 'visibilitychange', () => { if (!document.hidden) load(); });
   }),
 };

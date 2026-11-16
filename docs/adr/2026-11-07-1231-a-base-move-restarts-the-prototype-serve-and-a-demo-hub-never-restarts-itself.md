@@ -14,3 +14,5 @@ A served prototype round's page went blank on the phone after it had shown (#435
 **Footer gap.** Same card. On a phone, style.css sets `--app-bottom` for the bottom bar the page header becomes. The prototype page hides that header, but the variable stayed set, so the viewer footer sat about 53px above the bottom edge. The switcher's CSS now zeroes `--app-bottom` with `!important`, because style.css's `:has()` selector out-specifies anything plainer. This keeps [the phone footer paints complete and the frame ends at it](2026-11-11-1000-the-phone-footer-paints-complete-and-the-frame-ends-at-it.md) as it was meant.
 
 This amends [a prototype round is a page in the board's base worktree](2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md).
+
+Superseded in part by [the browser's polls ride the change stream](2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md): the viewer reads the serve on each of its board's change signals instead of polling.

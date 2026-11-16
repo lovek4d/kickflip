@@ -163,7 +163,6 @@ BoardView.part((B) => {
     if (state.link === 'offline') { reconnect(); return; }
     reloading(() => B.loadBoard({ via: 'refresh' }));
   });
-  B.every(5000, () => { if (pendingCheck(state.board?.checks) && !document.hidden) B.loadBoard(); });
 
   Object.assign(B, { renderHeader, renderStatus, landed, githubHeader, linkUp, linkDown, headerWired });
 });

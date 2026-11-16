@@ -27,6 +27,8 @@
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const wait = globalThis.setTimeout.bind(globalThis);
   const unwait = globalThis.clearTimeout.bind(globalThis);
+  const every = globalThis.setInterval.bind(globalThis);
+  const unevery = globalThis.clearInterval.bind(globalThis);
 
   // Phone width: the page caps the take's boxes to the stage (prototype.html). Panels the take puts side by side get
   // data-stack, which CSS stacks in one column, and a frame the take gives a width of 600px or more (a 720px or desktop
@@ -245,16 +247,26 @@
     const keepUp = () => { if (visible()) serve(); wait(keepUp, KEEP_UP_MS); };
     nativeAdd.call(document, 'visibilitychange', () => { if (visible()) serve(); });
     const post = () => frame.contentWindow.postMessage({ kickflip: 'prototype', ...at }, origin);
-    // Polls the serve while the page is open (docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md):
+    // While the site starts, its landing counts the running step's seconds in place, reading nothing.
+    let starting = null;
+    let ticker = null;
+    const count = (run) => {
+      starting = run.state === 'running' ? run : null;
+      if (starting) ticker ??= every(() => { stage.innerHTML = servedStatus(starting, Date.now(), stopped); }, 1000);
+      else if (ticker !== null) { unevery(ticker); ticker = null; }
+    };
+    // Reads the serve on load and on each of the board's change signals
+    // (docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md,
+    // docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md):
     // a ready run the frame doesn't show, the first or a new one after a restart or a base move, gets a new frame at the
-    // current take and state; a serve that's down shows its landing. A poll that can't reach the board leaves the stage.
-    async function poll() {
+    // current take and state; a serve that's down shows its landing. A read that can't reach the board leaves the stage.
+    async function read() {
       let run;
       try { run = await (await fetch(site.url('api/try/prototypes'), { cache: 'no-store' })).json(); } catch {
         if (!frame && !stage.innerHTML) stage.innerHTML = servedStatus({});
-        wait(poll, 1500);
         return;
       }
+      count(run);
       if (run.state === 'ready' && run.https) {
         if (!frame || (run.since ?? null) !== framed) {
           const src = servedSrc({ https: run.https, path: data.served, ...at });
@@ -269,19 +281,47 @@
           nativeAdd.call(frame, 'load', post);
           stage.replaceChildren(frame);
         }
-        wait(poll, 3000);
         return;
       }
       frame = null;
       // A site the page had framed that is now down had stopped: say so and ask again at once. A failed serve waits for Try again.
       if (!run.state && framed !== null) { framed = null; stopped = true; serve(); }
       stage.innerHTML = servedStatus(run, Date.now(), stopped);
-      if (run.state !== 'failed') wait(poll, 1500);
+    }
+    // One read at a time, so an older answer never lands over a newer one; a signal meanwhile reads once more after it.
+    let reading = null;
+    let readAgain = false;
+    function refresh() {
+      if (reading) { readAgain = true; return; }
+      reading = read().finally(() => {
+        reading = null;
+        if (readAgain) { readAgain = false; refresh(); }
+      });
+    }
+    // The hub's one stream (hub/stream.mjs) sends `change {route}` for each board; this board's reads the serve, since
+    // hub/try.mjs records each of the serve's steps in its data/try.json. A stream the hub dropped, such as while it
+    // restarts, opens again after 1 s, doubling up to 30 s, and reads once open, since a change may have gone by.
+    const route = decodeURIComponent(new URL(site.url(''), location.href).pathname.replace(/^\/+|\/+$/g, ''));
+    let opened = false;
+    let tries = 0;
+    function listen() {
+      const stream = new EventSource('/_hub/stream');
+      stream.addEventListener('open', () => {
+        tries = 0;
+        if (opened) refresh();
+        opened = true;
+      });
+      stream.addEventListener('change', (e) => {
+        let d = null;
+        try { d = JSON.parse(e.data); } catch { return; }
+        if (d?.route === route) refresh();
+      });
+      stream.addEventListener('error', () => { if (stream.readyState === EventSource.CLOSED) wait(listen, Math.min(30000, 1000 * 2 ** tries++)); });
     }
     nativeAdd.call(stage, 'click', (e) => {
       if (!e.target.closest?.('[data-kit-served="retry"]')) return;
       stage.innerHTML = servedStatus({});
-      serve().then(() => wait(poll, 1500));
+      serve().then(refresh);
     });
     const takes = Object.fromEntries(data.takes.map((t) => [t.key, t.label]));
     const states = data.states ? Object.fromEntries(data.states.map((s) => [s.key, s.label])) : null;
@@ -290,7 +330,8 @@
       document.documentElement.dataset.take = take;
       if (frame) post();
     } });
-    poll();
+    refresh();
+    listen();
     serve();
     wait(keepUp, KEEP_UP_MS);
     return sw;

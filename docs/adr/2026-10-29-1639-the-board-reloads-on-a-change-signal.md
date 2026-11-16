@@ -4,7 +4,7 @@ status: superseded in part by 2026-10-29-2005-one-app-for-the-whole-hub
 
 # The board reloads on a change signal
 
-Superseded in part by [one app for the whole hub](2026-10-29-2005-one-app-for-the-whole-hub.md): in the app shell the page holds the hub's one stream, `/_hub/stream`, which passes each board's signal on as `change {route}`, in place of a stream per board. The server side, the 30-second poll and the header's time below still hold.
+Superseded in part by [one app for the whole hub](2026-10-29-2005-one-app-for-the-whole-hub.md): in the app shell the page holds the hub's one stream, `/_hub/stream`, which passes each board's signal on as `change {route}`, in place of a stream per board. The server side, the 30-second poll and the header's time below still hold. Superseded in part by [the browser's polls ride the change stream](2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md): the 30-second poll runs only while the shell's stream is down.
 
 Each board page holds one server-sent event stream, `GET /api/stream` in `board/server.mjs`, and reloads the board and its open cards' threads as soon as the stream sends a change signal (owner ask, card INT-68).
 

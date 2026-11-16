@@ -150,7 +150,7 @@ test("a board view mounted then unmounted leaves no listener, interval, timer or
   view.mount();
   const mounted = page.left();
   assert.ok(mounted.listeners > loaded.listeners && mounted.intervals > 0, JSON.stringify(mounted));
-  assert.deepEqual([mounted.watches, subscribed.size], [1, 1]);
+  assert.deepEqual([mounted.watches, subscribed.size], [0, 1], 'the change signal, and no events watch');
 
   page.fire(root.querySelector('#compose'), 'click');
   page.fire(root.querySelector('#sheetClose'), 'click');
@@ -432,10 +432,13 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
 });
 
 // One Board Settings page on a fake board: /api/settings answers what is saved, and a POST is kept in posts and merged
-// into it, or answers s.refuse while that holds an error. Other URLs answer from routes by their ending.
-function settingsPage({ settings = {}, board = {}, routes = {} } = {}) {
+// into it, or answers s.refuse while that holds an error. Other URLs answer from routes by their ending. The board's
+// rules events answer s.rules, each read counted in s.rulesReads; ctx goes to the view.
+function settingsPage({ settings = {}, board = {}, routes = {}, ctx = {} } = {}) {
   const page = fakePage(memoryStorage().localStorage);
-  const s = { page, root: new page.El(), posts: [], confirms: [], refuse: '', saved: { ...settings } };
+  const s = { page, root: new page.El(), posts: [], confirms: [], refuse: '', saved: { ...settings }, rules: [], rulesReads: 0 };
+  const site = page.win.ClaudeSite.site;
+  page.win.ClaudeSite.site = (r) => ({ ...site(r), events: async (opts) => { if (opts?.kind !== 'rules') return []; s.rulesReads++; return structuredClone(s.rules); } });
   page.win.BoardDialogs.confirm = async (text) => { s.confirms.push(text); return true; };
   page.win.fetch = async (url, opts = {}) => {
     let body = url.endsWith('/api/board') ? board : Object.entries(routes).find(([end]) => url.endsWith(end))?.[1] ?? {};
@@ -449,11 +452,34 @@ function settingsPage({ settings = {}, board = {}, routes = {} } = {}) {
     }
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
   };
-  s.view = page.win.AppViews.settings.create(s.root, '/orch', {});
+  s.view = page.win.AppViews.settings.create(s.root, '/orch', ctx);
   s.mount = async () => { s.view.mount(); await tick(); return s; };
   s.set = async (el, value, field = 'value') => { el[field] = value; page.fire(el, 'change'); await tick(); };
   return s;
 }
+
+// docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md
+test("Board Settings reads Claude's replies to a rules change when it opens and on each of its board's change signals, never on a timer", async () => {
+  let signalled = null;
+  const s = await settingsPage({ ctx: { signal: (fn) => { signalled = fn; return () => { signalled = null; }; } } }).mount();
+  const replies = () => s.root.querySelector('#rulesReplies').innerHTML;
+  assert.equal(s.rulesReads, 1);
+  assert.equal(s.page.left().watches, 0, 'no events watch');
+  s.rules = [{ id: 'r1', kind: 'rules', reply: null }];
+  signalled();
+  await tick();
+  assert.deepEqual([s.rulesReads, /Waiting for Claude/.test(replies())], [2, true]);
+  for (const ms of [5000, 10000, 15000, 30000, 60000]) s.page.runIntervals(ms);
+  s.page.runTimers();
+  await tick();
+  assert.equal(s.rulesReads, 2, 'no timer reads the replies');
+  s.rules = [{ id: 'r1', kind: 'rules', reply: { html: '<p>Noted.</p>' } }];
+  signalled();
+  await tick();
+  assert.match(replies(), /Noted\./);
+  s.view.unmount();
+  assert.equal(signalled, null, 'closing lets go of the signal');
+});
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md, docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md,
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
@@ -1396,6 +1422,32 @@ test("Waiting on you paints the board's saved copy at once, then asks only for t
   answer({ ok: true, status: 200, text: async () => JSON.stringify(next), json: async () => next });
   await drain(() => />Answer 2</.test(pageEl.innerHTML), "the answer lands in the topic's row");
   view.unmount();
+});
+
+// docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md
+test("Waiting on you on its own page reloads on its board's change signal and asks nothing on a timer while the change stream is open; with the stream down it checks every 15 s", async () => {
+  const site = 'https://mac.ts.net/board-a';
+  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [], files: [], needs: [], answers: [], owner: [], ownerTopics: [] };
+  const page = fakePage(memoryStorage().localStorage);
+  const asked = [];
+  page.win.fetch = async (url) => { asked.push(url); return { ok: true, status: 200, text: async () => JSON.stringify(board), json: async () => structuredClone(board) }; };
+  const root = new page.El();
+  const stream = { open: true };
+  let signalled = null;
+  const view = page.win.AppViews.questions.create(root, site, { view: { kind: 'questions', route: 'board-a' }, signal: (fn) => { signalled = fn; return () => { signalled = null; }; }, streaming: () => stream.open });
+  view.mount();
+  await drain(() => asked.length === 1, 'the first load');
+  for (let minute = 0; minute < 5; minute++) page.runIntervals(15000);
+  await tick();
+  assert.equal(asked.length, 1, 'five idle minutes with the stream open ask nothing');
+  signalled();
+  await drain(() => asked.length === 2, 'the change signal reloads');
+  for (let i = 0; i < 10; i++) await tick();
+  stream.open = false;
+  page.runIntervals(15000);
+  await drain(() => asked.length === 3, 'with the stream down the 15 s check reloads');
+  view.unmount();
+  assert.equal(signalled, null, 'unmounting lets go of the signal');
 });
 
 test("out of reach, Board Settings shows each part's last answer here, read only under its copy line, and reopens live once the board answers", async () => {
@@ -2843,7 +2895,9 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
 });
 
 // seen: card key → its readAt on the board, the read mark board/server.mjs keeps for every device.
-function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, confirm = false, realDialogs = false, send = null, width = 390 }) {
+// streaming: {open}, the shell's change stream as the view reads it (BoardView.create's streaming), or null for a board
+// outside the shell.
+function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, confirm = false, realDialogs = false, send = null, width = 390, streaming = null }) {
   const { storage, localStorage } = memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ...stored]);
   const page = fakePage(localStorage);
   page.win.innerWidth = width;
@@ -2886,7 +2940,7 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, 
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.BoardView.markup({ title: 'A' });
   let signalled = null;
-  const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; } });
+  const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; }, ...(streaming ? { streaming: () => streaming.open } : {}) });
   view.mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
@@ -2899,6 +2953,28 @@ const workCard = (id, extra) => {
   const it = { key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], othersAt: [], ...extra };
   return { footer: footerOf({ blockedBy: [], ...it }), ...it };
 };
+
+// docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md
+test("an idle open board asks the host nothing while the change stream is open: its 30 s check runs only while the stream is down, a pending GitHub check waits for the change signal, and no asks watch polls", async () => {
+  const stream = { open: true };
+  const board = { ...boardOf([workCard('T1')]), version: 'v1', checks: { requested: { state: 'pending', at: '2026-10-30T10:00:00.000Z' } } };
+  const b = boardOnDom({ board, threads: {}, streaming: stream });
+  await b.settle();
+  // The 30 s count-up (ui.js recount) reads the page's elements.
+  b.page.win.document.querySelectorAll = () => [];
+  const asked = b.gets.length;
+  assert.equal(b.page.left().watches, 0, 'no asks watch');
+  for (let minute = 0; minute < 5; minute++) for (const ms of [5000, 15000, 30000]) b.page.runIntervals(ms);
+  await b.settle();
+  assert.deepEqual(b.gets.slice(asked), [], 'five idle minutes with the stream open ask nothing');
+  await b.change({ board: { ...board, checks: { requested: { state: 'landed', at: '2026-10-30T10:00:00.000Z' } }, version: 'v2' } });
+  assert.deepEqual([boardGets(b), b.downloads], [2, ['v1', 'v2']], 'the change signal brings the landed check');
+  stream.open = false;
+  b.page.runIntervals(30000);
+  await b.settle();
+  assert.equal(boardGets(b), 3, 'with the stream down the 30 s check reloads');
+  b.view.unmount();
+});
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
 test("the board reloads naming the version it shows, so an unchanged board downloads nothing, and a tap's own change signal finds the POST's board current: one tap, one download", async () => {

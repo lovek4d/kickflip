@@ -113,11 +113,4 @@ BoardView.part((B) => {
     B.loadThread(e.key, { force: true });
   });
   Object.assign(B, { renderNew });
-  // The asks watch polls every 10 s while an ask waits for its reply, sooner than the board's own refresh.
-  let asksSeen = false;
-  B.watch((list) => {
-    if (!list) return;
-    if (asksSeen) B.loadBoard();
-    asksSeen = true;
-  }, { kind: 'ask', limit: 50 });
 });
