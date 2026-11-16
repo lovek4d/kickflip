@@ -1,6 +1,6 @@
 // The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Claude model and Codex share, Needs you for the pending
 // prompts of sessions that own no board, Health, Integrations (readiness.mjs words), each site's health and board links
-// with the router's Routed section after the boards, then hub settings summary rows ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)). Health carries the Keep awake toggle, and Linear's and Slack's Integrations rows
+// with the New strip after the boards, then hub settings summary rows ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)). Health carries the Keep awake toggle, and Linear's and Slack's Integrations rows
 // a button that opens their key modal ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)). A board's row can carry Restart (hub/restart-board.mjs), and
 // the Hub row Restart hub while the hub runs older code than its files. Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
@@ -25,9 +25,9 @@
   }
 
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: the requests the hub's router
-  // filed on a board (hub/router.mjs routedRows), newest first, on the board's own New strip under a Routed head.
-  const routedHtml = (rows) => `<section class="new-strip routed" aria-label="Routed">${BoardUI.newStrip(rows.map((routed) => ({ id: routed.id, routed })), new Map(),
-    { label: 'Routed', empty: 'Nothing routed yet. A Slack @kickflip request or a task from the + button shows here once the router files it on a board.' })}</section>\n`;
+  // filed on a board and the asks other boards put to one (hub/router.mjs routedRows), newest first, on the board's own New strip.
+  const routedHtml = (rows) => `<section class="new-strip routed" aria-label="New">${BoardUI.newStrip(rows.map((routed) => ({ id: routed.id, routed })), new Map(),
+    { label: 'New', empty: 'Nothing new yet. A Slack @kickflip request, a task from the + button or another board’s ask shows here.' })}</section>\n`;
 
   // restarting: the routes whose Restart is out; routed: the Routed section's rows, drawn after the Boards group.
   function sitesHtml(groups, restarting, routed) {

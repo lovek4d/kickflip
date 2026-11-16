@@ -1091,7 +1091,7 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
 });
 
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
-test("the hub page's Routed section sits under Boards, drawn by the board's own New strip under a Routed head, with an empty state", () => {
+test("the hub page's New strip sits under Boards, drawn by the board's own New strip under a New head, with an empty state", () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
@@ -1117,14 +1117,14 @@ test("the hub page's Routed section sits under Boards, drawn by the board's own 
   assert.deepEqual(plain(view([row]).routed), [row]);
   live.paint({ ...view([row]), version: '1' });
   const section = root.querySelector('section.new-strip.routed');
-  assert.equal(section.getAttribute('aria-label'), 'Routed');
-  const order = section.parentNode.children.filter((el) => el.tagName === 'H2' || el === section).map((el) => (el === section ? 'Routed' : el.textContent));
-  assert.deepEqual(order.slice(-3), ['Boards', 'Routed', 'Pages'], 'it follows the Boards group');
+  assert.equal(section.getAttribute('aria-label'), 'New');
+  const order = section.parentNode.children.filter((el) => el.tagName === 'H2' || el === section).map((el) => (el === section ? 'New' : el.textContent));
+  assert.deepEqual(order.slice(-3), ['Boards', 'New', 'Pages'], 'it follows the Boards group');
   assert.deepEqual(plain(strips.at(-1).entries), [{ id: 'r1', routed: row }]);
-  assert.equal(strips.at(-1).opts.label, 'Routed');
+  assert.equal(strips.at(-1).opts.label, 'New');
   live.paint({ ...view([]), version: '1' });
   assert.deepEqual(strips.at(-1).entries.length, 0);
-  assert.match(strips.at(-1).opts.empty, /^Nothing routed yet\./);
+  assert.match(strips.at(-1).opts.empty, /^Nothing new yet\./);
 });
 
 // docs/adr/2026-11-16-0600-the-hubs-new-task-box-files-through-the-router.md

@@ -20,7 +20,7 @@ import { appendEvent, listBoards, readJSON, readManifest, saveJSON } from './boa
 import { withFileLock } from './locks.mjs';
 import { claudeBin, inherited } from './sessions.mjs';
 import { readUsageGate } from '../shared/usage-gate.mjs';
-import { refOf } from '../board/domain.mjs';
+import { boardAsksOf, refOf } from '../board/domain.mjs';
 import { copyUpload } from '../board/store.mjs';
 
 const WEB = path.join(os.homedir(), '.claude', 'kickflip');
@@ -190,8 +190,18 @@ function readLines(file) {
   try { return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }); } catch { return []; }
 }
 
-// The hub page's Routed rows, newest first: each queued request, waiting, then each routed one with `to`, the card it
-// became, and `moved`, where a later `ask move` sent it.
+// The asks other boards put to board (domain.mjs boardAsksOf over its events), as hub rows {id, at, text, asked: {from,
+// to: {route, href}, answered: {at, href} | null}}: href is the asking card, where the answer landed as a message.
+function askedRows(board, boards) {
+  return boardAsksOf(readLines(path.join(board.dir, 'data', 'events.jsonl'))).map((a) => {
+    const asker = boards.find((b) => b.route === a.from.route);
+    const answered = a.answer && { at: a.answer.at, href: a.from.key && asker ? cardHref(a.from.route, a.from.key) : null };
+    return { id: a.id, at: a.at, text: a.text, asked: { from: a.from, to: { route: board.route, href: cardHref(board.route, `ask:${a.id}`) }, answered: answered || null } };
+  });
+}
+
+// The hub page's New rows, newest first: each queued request, waiting, then each routed one with `to`, the card it
+// became, and `moved`, where a later `ask move` sent it, and each ask another board put to a board, queued or answered.
 export function routedRows({ manifest = readManifest() } = {}) {
   const boards = listBoards(manifest);
   const waiting = readJSON(ROUTE_QUEUE, { queue: [] }).queue.map((q) => ({ id: q.id, at: q.at, text: q.text, via: q.from?.via, by: q.from?.by, waiting: true }));
@@ -200,5 +210,5 @@ export function routedRows({ manifest = readManifest() } = {}) {
     const moved = board && movedTo(board, r.eventId, boards);
     return { id: r.id, at: r.at, text: r.text, via: r.via, by: r.by, reason: r.reason, to: board ? cardOf(board, r.eventId) : { route: r.route, ref: null, title: null, href: `/${r.route}/` }, ...(moved ? { moved } : {}) };
   });
-  return [...waiting, ...routed].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return [...waiting, ...routed, ...boards.flatMap((b) => askedRows(b, boards))].sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }

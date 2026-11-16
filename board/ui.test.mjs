@@ -1719,6 +1719,25 @@ test("the hub's Routed section is the New strip under its own head: each row lin
   assert.match(ui.newStrip([], new Map(), { label: 'Routed', empty: 'Nothing routed yet.' }), /<span class="count">0<\/span>[^]*<div class="new-entry new-empty">Nothing routed yet\.<\/div>/);
 });
 
+test("the hub's New strip draws an incoming ask: who asked whom, queued or answered with a link to the asking card", () => {
+  const at = ago(3);
+  const asks = [
+    { id: 'a1', at, text: 'why <X>?', asked: { from: { route: 'other', title: 'Other', ref: 'T-9' }, to: { route: 'shop', href: '/shop/#selectedCard=ask%3Aa1' }, answered: null } },
+    { id: 'a2', at, text: 'and Y?', asked: { from: { route: 'other', title: 'Other' }, to: { route: 'shop', href: '/shop/#selectedCard=ask%3Aa2' }, answered: { at, href: '/other/#selectedCard=items%2FT-9' } } },
+    { id: 'a3', at, text: 'and Z?', asked: { from: { route: 'other', title: 'Other' }, to: { route: 'shop', href: '/shop/#selectedCard=ask%3Aa3' }, answered: { at, href: null } } },
+  ];
+  const html = ui.newStrip(asks.map((routed) => ({ id: routed.id, routed })), new Map(), { label: 'New', empty: '' });
+  assert.match(html, /<span class="lane-name">New<\/span><span class="count">3<\/span>/);
+  assert.match(html, /<div class="new-msg">why &lt;X&gt;\?<\/div>/);
+  const firsts = [...html.matchAll(/<div class="new-line sub[^"]*">(<span class="new-time">.*?)<\/div>/g)].map((m) => text(m[1]));
+  assert.deepEqual(firsts.map((f) => f.slice(ui.time(at).length + 3)), ['Asked /shop · queued', 'Asked /shop · Answered', 'Asked /shop · Answered']);
+  assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)">(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])]), [
+    ['/shop/#selectedCard=ask%3Aa1', 'Asked /shop'], ['/shop/#selectedCard=ask%3Aa2', 'Asked /shop'], ['/other/#selectedCard=items%2FT-9', 'Answered'], ['/shop/#selectedCard=ask%3Aa3', 'Asked /shop']]);
+  const whys = [...html.matchAll(/<div class="new-line sub new-why">(.*?)<\/div>/g)].map((m) => text(m[1]));
+  assert.deepEqual(whys, ['/other T-9 · board ask', '/other · board ask', '/other · board ask']);
+  assert.doesNotMatch(html, /data-dismiss-new|data-edit|data-withdraw|new-dismiss/);
+});
+
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
 const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, ownerBlock: null, threadCount: 4,
   linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, prs: [{ ...openPR, isDraft: true, status: 'draft' }], reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },

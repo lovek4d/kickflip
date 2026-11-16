@@ -421,6 +421,7 @@
   // router's reason. One still queued reads waiting….
   const VIA = { slack: 'Slack' };
   function routedEntry(r) {
+    if (r.asked) return askedEntry(r);
     const to = r.moved || r.to;
     const words = r.moved ? 'Moved to' : to?.into ? 'Added to' : 'Routed to';
     const line = r.waiting ? PICKUP_WAIT
@@ -429,7 +430,15 @@
     return `<div class="new-entry" data-new="${esc(r.id)}"><div class="new-msg">${esc(r.text)}</div><div class="new-line sub${r.waiting ? '' : ' new-done'}">${newTime(r.at)} · ${line}</div>`
       + `<div class="new-line sub new-why">${esc([r.by, VIA[r.via] || r.via].filter(Boolean).join(' · '))}${esc(why)}</div></div>`;
   }
-  // entries: newEntries, or {id, routed} for the hub's Routed rows; edits: app-asks.js's state.edits, by ask id. label
+  // An incoming board ask (router.mjs askedRows): a link to its entry on the answering board, then queued, or Answered
+  // linking the asking card, where the answer landed; a muted line names the asking board and card.
+  function askedEntry(r) {
+    const { from, to, answered } = r.asked;
+    const state = !answered ? 'queued' : answered.href ? `<a class="new-link" href="${esc(answered.href)}">Answered</a>` : 'Answered';
+    return `<div class="new-entry" data-new="${esc(r.id)}"><div class="new-msg">${esc(r.text)}</div><div class="new-line sub${answered ? ' new-done' : ''}">${newTime(r.at)} · <a class="new-link" href="${esc(to.href)}">Asked <b>/${esc(to.route)}</b></a> · ${state}</div>`
+      + `<div class="new-line sub new-why">${esc(`/${from.route}${from.ref ? ` ${from.ref}` : ''} · board ask`)}</div></div>`;
+  }
+  // entries: newEntries, or {id, routed} for the hub's New rows (routed requests and board asks); edits: app-asks.js's state.edits, by ask id. label
   // heads it, New on a board; empty is what an empty strip says, which a board's never draws.
   const newStrip = (entries, edits, { label = 'New', empty = '' } = {}) => `<div class="new-head"><span class="lane-name">${esc(label)}</span><span class="count">${entries.length}</span></div>
     <div class="new-list">${entries.length ? entries.map((e) => (e.routed ? routedEntry(e.routed) : newEntry(e, edits.get(e.id)))).join('') : `<div class="new-entry new-empty">${esc(empty)}</div>`}</div>`;

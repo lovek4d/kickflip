@@ -133,6 +133,23 @@ test("the hub page's rows: newest first, each linked to the card its ask became,
   assert.equal(rows[3].reason, 'shop');
 });
 
+test("the hub page's rows carry the asks other boards put to a board, queued or answered, among the routed ones, newest first", () => {
+  const shop = board('shop', {});
+  const other = board('other', { title: 'Other' });
+  const ev = (id, ts, kind, data) => JSON.stringify({ id, ts, kind, data });
+  fs.writeFileSync(path.join(shop[1].dir, 'data', 'events.jsonl'), [
+    ev('a1', '2026-11-12T08:00:00Z', 'board-ask', { text: 'why X?', from: { route: 'other', title: 'Other', key: 'items/T-9', ref: 'T-9' } }),
+    ev('a2', '2026-11-12T09:45:00Z', 'board-ask', { text: 'and Y?', from: { route: 'other', title: 'Other' } }),
+    ev('x1', '2026-11-12T08:30:00Z', 'board-ask-answered', { id: 'a1', text: 'because' }),
+    ev('n1', '2026-11-12T08:31:00Z', 'ask', { text: 'not a board ask' }),
+  ].join('\n') + '\n');
+  fs.writeFileSync(ROUTED_LOG, JSON.stringify({ routed: [{ id: 'r1', at: '2026-11-12T09:00:00Z', text: 'checkout', via: 'slack', by: 'Maya', route: 'shop', eventId: 'e1', reason: 'shop' }] }));
+  const rows = routedRows({ manifest: manifestOf(shop, other) });
+  assert.deepEqual(rows.map((r) => r.id), ['a2', 'r1', 'a1']);
+  assert.deepEqual(rows[0], { id: 'a2', at: '2026-11-12T09:45:00Z', text: 'and Y?', asked: { from: { route: 'other', title: 'Other' }, to: { route: 'shop', href: '/shop/#selectedCard=ask%3Aa2' }, answered: null } });
+  assert.deepEqual(rows[2].asked, { from: { route: 'other', title: 'Other', key: 'items/T-9', ref: 'T-9' }, to: { route: 'shop', href: '/shop/#selectedCard=ask%3Aa1' }, answered: { at: '2026-11-12T08:30:00Z', href: '/other/#selectedCard=items%2FT-9' } });
+});
+
 // docs/adr/2026-11-16-0600-the-hubs-new-task-box-files-through-the-router.md
 test("a hub request's intent fields ride on its ask, and its uploads are copied to the board and dropped from the hub", async () => {
   const shop = board('shop', {});
