@@ -90,6 +90,10 @@ _Avoid_: resources low, overload
 The Usage task's Opus · Auto · Sonnet control, opening Claude's block: `claudeModel` in `~/.claude/kickflip/settings.json`, default Auto. It decides which model builds a task Claude builds: Opus or Sonnet always, or under Auto the task's own `--model`, else Sonnet for a task `--size small` and Opus for the rest. `builder pick` prints it with why, and a build's `builder start` refuses a `--model` it rules out. Codex builds, prototypes and grills don't read it ([usage picks Opus, Auto or Sonnet for Claude builders, and builder pick says which and why](docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md)).
 _Avoid_: Opus builders, allow Opus
 
+**Orchestrator model**:
+The model a board's own Claude session runs on, Opus or Sonnet, default Opus: picked on New board and changed in Board settings. It is the manifest owner record's `model`, passed as `--model` at each start. The hub board's idle session switches at once; any other board's background session takes it at its next new session, which Restart the session now starts. Builders don't read it; the **Claude model** picks theirs ([a board setting picks Opus or Sonnet for its orchestrator](docs/adr/2026-11-16-0945-a-board-setting-picks-opus-or-sonnet-for-its-orchestrator.md)).
+_Avoid_: board model, session model
+
 **Audit log**:
 One JSON line for each call the code makes on its own, with when, the call, the task, its result, the reason and the inputs it read: a board's in its `data/audit.jsonl`, such as the pick a build started on, a pull, a relaunch or an auto-merge, and the hub's own (usage pauses and resumes, Linear moves) in `~/.claude/kickflip/audit.jsonl`. Each keeps the last 30 days. `board.mjs audit [<card>]` and `kickflip audit` print them ([the hub and each board keep an audit log of the calls their code makes](docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md)).
 _Avoid_: hub.log (the hub's free-text stderr), history

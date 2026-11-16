@@ -36,7 +36,10 @@
 //   /_hub/branches   GET ?github=owner/repo or ?remote=<git link> lists branches and the repo default
 //   /_hub/board-repo/<route> GET repo and branch; POST {github | remote, branch} prepares the clone and sends
 //                     repo-changed (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
-//   /_hub/new-board  POST {name, github | remote, branch, purpose, tickets} → {route}: a starting reservation, then the board's session starts
+//   /_hub/board-model/<route> GET {model, hub}; POST {model: opus | sonnet} → {model, applies} (board-model.mjs)
+//   /_hub/board-model/<route>/restart POST stops a background board's session and starts a fresh one on its model
+//                     → {route, session, previous, model}
+//   /_hub/new-board  POST {name, github | remote, branch, purpose, tickets, model?} → {route}: a starting reservation, then the board's session starts
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out, and POST /_hub/new-board/<route>/retry (application/json) starts it again → {route}
 //                     (new-board.mjs)
@@ -224,6 +227,7 @@ import { codeRestartHeld, logRestart, restartHeld, restartLines } from './auto-r
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
+import { boardModel, changeBoardModel, restartOnModel } from './board-model.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { restartBoard, restartable } from './restart-board.mjs';
@@ -1231,6 +1235,16 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       try {
         const result = req.method === 'GET' ? boardRepo(repoRoute[1]) : await changeBoardRepo(repoRoute[1], await readJSONBody(req), { repos });
         if (req.method === 'POST') stream.refresh();
+        return sendJSON(200, result);
+      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
+    const modelRoute = /^\/_hub\/board-model\/([a-z0-9-]+)(\/restart)?$/.exec(p);
+    if (modelRoute && (modelRoute[2] ? req.method === 'POST' : ['GET', 'POST'].includes(req.method))) {
+      try {
+        const route = modelRoute[1];
+        if (req.method === 'GET') return sendJSON(200, boardModel(route));
+        const result = modelRoute[2] ? await restartOnModel(route) : await changeBoardModel(route, await readJSONBody(req));
+        stream.refresh();
         return sendJSON(200, result);
       } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
     }

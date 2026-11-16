@@ -242,7 +242,9 @@ function runForeground(bin, argv) {
   });
 }
 
-const common = ({ name, model }) => ['--name', name, '--permission-mode', 'auto', '--settings', BG_SETTINGS, ...(model ? ['--model', model] : [])];
+// A board's orchestrator runs on Opus unless its owner record names another model (board-model.mjs).
+export const DEFAULT_MODEL = 'opus';
+const common = ({ name, model }) => ['--name', name, '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', model || DEFAULT_MODEL];
 // The session passes the board name to kickflip board through its shell, so the name stays one quoted word.
 const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 // The skill's board entry point, which starts and resumes every board's session alike
@@ -371,7 +373,24 @@ export async function startSession(route, { manifest = readManifest(), repo, mod
   }
   const { session, confirmed } = await startedId(r.stdout);
   if (!session) throw new SessionError(`claude --bg started a session but no session record names it yet; find it with claude agents (${r.stdout.trim().slice(0, 300)})`, 'failed');
-  return { route, session, confirmed, repo: storedPath(dir), model: model || rec?.model || null, name, argv: [claudeBin(), ...argv], output: r.stdout.trim() };
+  return { route, session, confirmed, repo: storedPath(dir), model: model || rec?.model || DEFAULT_MODEL, name, argv: [claudeBin(), ...argv], output: r.stdout.trim() };
+}
+
+// Under the route's session lock: stops its recorded session and starts a fresh one in its folder and on its model
+// (startSession), which rejoins the board, then records it as the route's owner in place of the old one with the old
+// one's watcher cursor (moveOwner). A background session resumes with the options it started with, so a fresh one is
+// how a change of model reaches it (docs/adr/2026-11-16-0945-a-board-setting-picks-opus-or-sonnet-for-its-orchestrator.md).
+// → {route, session, previous, model}
+export function freshSession(route, { live = liveSessions, stop = runSessionStop, run = runClaude } = {}) {
+  return withSessionLock(route, async () => {
+    const manifest = readManifest();
+    const rec = sessionOf(manifest, route);
+    if (!rec?.repo) throw new SessionError(`/${route} has no session and folder recorded`, 'none');
+    await stopSession(rec, { live, stop });
+    const r = await startSession(route, { manifest, run, live });
+    await moveOwner(route, { from: rec.session, to: r.session });
+    return { route, session: r.session, previous: rec.session, model: r.model };
+  });
 }
 
 // `claude --resume <id> --bg` for the route's recorded session, in its folder (resumeArgv), then records the id it

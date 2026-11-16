@@ -63,6 +63,13 @@
       <button type="button" data-tool-use="normal" aria-pressed="true" disabled>Normal</button>
       <button type="button" data-tool-use="high" aria-pressed="false" disabled>High</button></span></div>
   <p class="muted small" id="toolUseStatus" role="status"></p>
+  <div class="who"><span><span>Orchestrator model</span>
+    <span class="muted small sub" id="orchestratorModelSub">Loading…</span></span>
+    <span role="group" class="share-level" id="orchestratorModel" aria-label="Orchestrator model">
+      <button type="button" data-orchestrator-model="opus" aria-pressed="false" disabled>Opus</button>
+      <button type="button" data-orchestrator-model="sonnet" aria-pressed="false" disabled>Sonnet</button></span></div>
+  <p class="muted small" id="orchestratorModelStatus" role="status"></p>
+  <button type="button" id="orchestratorRestart" hidden>Restart the session now</button>
   <label class="who" for="autoMerge"><span><span>Auto-merge</span>
     <span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch.</span></span>
     <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
@@ -672,6 +679,64 @@
       } catch (err) {
         if (!B.alive()) return;
         $('#toolUseStatus').textContent = err.message || 'Could not save. Is the host awake?';
+      }
+    });
+    // Orchestrator model (docs/adr/2026-11-16-0945-a-board-setting-picks-opus-or-sonnet-for-its-orchestrator.md): a tap
+    // saves through the hub at once. The hub board's idle session switches at once; any other board's background
+    // session can't, so a change there offers Restart the session now, a fresh session on the new model.
+    const MODEL_NAMES = { opus: 'Opus', sonnet: 'Sonnet' };
+    const modelURL = `/_hub/board-model/${encodeURIComponent(B.route)}`;
+    const APPLIES = {
+      now: (name) => `Saved. The session switched to ${name}.`,
+      'next start': (name) => `Saved. ${name} applies when the session next starts.`,
+      'new session': (name) => `Saved. ${name} applies to the next new session.`,
+    };
+    let orchestrator = null;
+    const modelButtons = () => Object.keys(MODEL_NAMES).map((value) => $(`[data-orchestrator-model="${value}"]`));
+    const showModel = () => {
+      for (const value of Object.keys(MODEL_NAMES)) $(`[data-orchestrator-model="${value}"]`).setAttribute('aria-pressed', String(value === orchestrator.model));
+      $('#orchestratorModelSub').textContent = orchestrator.hub ? 'Applies at once while the session is idle, else when the session next starts.' : 'Applies to the next new session.';
+    };
+    const unloaded = () => { if (B.alive()) $('#orchestratorModelSub').textContent = 'Could not load. Is the host awake?'; };
+    get(modelURL).then(({ ok, body }) => {
+      if (!B.alive()) return;
+      if (!ok) { unloaded(); return; }
+      orchestrator = body;
+      showModel();
+      for (const button of modelButtons()) button.disabled = false;
+    }, unloaded);
+    const postModel = async (url, body) => {
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(out.error || 'Could not save. Is the host awake?');
+      return out;
+    };
+    for (const want of Object.keys(MODEL_NAMES)) B.on($(`[data-orchestrator-model="${want}"]`), 'click', async () => {
+      const button = $(`[data-orchestrator-model="${want}"]`);
+      if (!orchestrator || want === orchestrator.model) return;
+      try {
+        const out = await BoardUI.waitOn(button, postModel(modelURL, { model: want }), { group: modelButtons() });
+        if (!B.alive()) return;
+        orchestrator = { ...orchestrator, model: out.model };
+        showModel();
+        $('#orchestratorModelStatus').textContent = APPLIES[out.applies](MODEL_NAMES[out.model]);
+        $('#orchestratorRestart').hidden = out.applies !== 'new session';
+      } catch (err) {
+        if (!B.alive()) return;
+        $('#orchestratorModelStatus').textContent = err.message;
+      }
+    });
+    B.on($('#orchestratorRestart'), 'click', async () => {
+      const name = MODEL_NAMES[orchestrator.model];
+      if (!(await BoardDialogs.confirm(`Restart the session now? Its conversation ends, and a fresh session on ${name} rejoins the board.`)) || !B.alive()) return;
+      try {
+        await BoardUI.waitOn($('#orchestratorRestart'), postModel(`${modelURL}/restart`, {}));
+        if (!B.alive()) return;
+        $('#orchestratorRestart').hidden = true;
+        $('#orchestratorModelStatus').textContent = `Restarted. A fresh session on ${name} is rejoining the board.`;
+      } catch (err) {
+        if (!B.alive()) return;
+        $('#orchestratorModelStatus').textContent = err.message;
       }
     });
     // A Landing tap saves at once with no confirmation, its choice's settings in one POST. Merge needs Push main after a

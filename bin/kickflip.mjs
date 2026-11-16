@@ -663,7 +663,8 @@ const commands = {
         label: args.label || kept?.label || '',
         repo: args.repo ? path.resolve(args.repo) : ((site.github || site.remote) && kept?.repo) || liveSessions()?.get(args.session)?.cwd || kept?.repo || process.cwd(),
       };
-      const model = args.model || kept?.model;
+      // A New board's Starting record names the model it asked for before its session is recorded on it.
+      const model = args.model || kept?.model || (pendingRepo && !pendingRepo.session ? pendingRepo.model : undefined);
       if (model) site.owner.model = model;
       const landing = routeRecord(m.starting, route);
       if (landing) m.starting[route] = { ...landing, joined_at: landing.joined_at || now };

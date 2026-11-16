@@ -274,7 +274,7 @@ test('start on a route with no site waits in starting until that session joins',
   write(web('manifest.json'), m);
   const r = json(await cli(['start', 'fresh', '--repo', otherRepo]));
   const call = calls()[before];
-  assert.deepEqual([call.argv.at(-1), call.cwd, call.argv.includes('--model')], ["/kickflip board 'fresh'", otherRepo, false]);
+  assert.deepEqual([call.argv.at(-1), call.cwd, call.argv[call.argv.indexOf('--model') + 1]], ["/kickflip board 'fresh'", otherRepo, 'opus']);
   assert.deepEqual(manifest().starting.fresh, { ...manifest().starting.fresh, session: r.session, repo: otherRepo });
   assert.deepEqual([manifest().starting.fresh.title, manifest().starting.fresh.asked_at, call.argv[2]], [pending.title, pending.asked_at, pending.title]);
   assert.equal(manifest().sites.fresh, undefined);

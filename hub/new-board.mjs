@@ -2,16 +2,18 @@ import { ticketSource } from '../board/tickets.mjs';
 import { isListening, listBoards, readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch, validateRemote } from './repos.mjs';
-import { startFailed, startSession, stopSession } from './sessions.mjs';
+import { DEFAULT_MODEL, startFailed, startSession, stopSession } from './sessions.mjs';
+import { MODELS } from './board-model.mjs';
 import { LINEAR_NEEDS_KEY, linearWorks, savedClient } from './linear.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 
 function details(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)
-    || Object.keys(input).some((k) => !['name', 'github', 'remote', 'branch', 'purpose', 'tickets'].includes(k))) refuse('Send only name, github or remote, branch, purpose and tickets.');
+    || Object.keys(input).some((k) => !['name', 'github', 'remote', 'branch', 'purpose', 'tickets', 'model'].includes(k))) refuse('Send only name, github or remote, branch, purpose, tickets and model.');
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 60) refuse('Name must be 1–60 characters.');
   if (input.purpose !== undefined && (typeof input.purpose !== 'string' || input.purpose.length > 240)) refuse('Purpose must be at most 240 characters.');
+  if (input.model !== undefined && !MODELS.includes(input.model)) refuse('Model must be opus or sonnet.');
   const title = input.name.trim().replace(/\s+/g, ' ');
   const route = routeFromName(title);
   if (!ROUTE_RE.test(route)) refuse('Name must contain a letter or digit for its route.');
@@ -26,7 +28,7 @@ function details(input) {
     if (!newProject || newProject.length > 80) refuse('Name the new Linear project.');
     tickets = { ...rest, project: newProject };
   }
-  return { route, title, github, remote, branch, tickets: ticketSource(tickets), newProject, purpose: (input.purpose || '').trim().replace(/\s+/g, ' ') };
+  return { route, title, github, remote, branch, tickets: ticketSource(tickets), model: input.model || DEFAULT_MODEL, newProject, purpose: (input.purpose || '').trim().replace(/\s+/g, ' ') };
 }
 
 // A board's repo from a request: {github} on GitHub, or {remote} on any other git host
@@ -64,8 +66,8 @@ async function recordStart(route, outcome) {
 }
 
 // The Starting row's record before its start has an outcome.
-const startingRecord = ({ title, purpose, repo, github, remote, branch, tickets }, repos) => ({
-  title, purpose, repo, ...(github ? { github } : { remote }), branch, tickets,
+const startingRecord = ({ title, purpose, repo, github, remote, branch, tickets, model }, repos) => ({
+  title, purpose, repo, ...(github ? { github } : { remote }), branch, tickets, model,
   phase: repos.cloned(github || remote) ? 'starting' : 'cloning', asked_at: new Date().toISOString(),
 });
 
@@ -78,7 +80,7 @@ const PROGRESS_EVERY_MS = 1000;
 // Prepares the clone and starts the route's session, recording the outcome on its Starting row. The clone's percent
 // calls changed at most once a second. → a promise that settles once the outcome is recorded, as {session} or {error},
 // and never rejects.
-async function start(route, { purpose, repo, github, remote, branch }, { run, live, repos, changed }) {
+async function start(route, { purpose, repo, github, remote, branch, model }, { run, live, repos, changed }) {
   let outcome;
   let sent = -Infinity;
   const progress = (percent) => {
@@ -91,7 +93,7 @@ async function start(route, { purpose, repo, github, remote, branch }, { run, li
     try { await repos.ensure(github || remote, branch, { progress }); } finally { clonePercents.delete(route); }
     await recordStart(route, { phase: 'starting' });
     changed();
-    const r = await startSession(route, { repo, prompt: joinFlags({ purpose }), run, live, clones: repos.base });
+    const r = await startSession(route, { repo, model, prompt: joinFlags({ purpose }), run, live, clones: repos.base });
     outcome = { session: r.session, name: r.name, repo: r.repo, model: r.model };
   } catch (e) { outcome = { error: errorLine(e.message) }; }
   try { await recordStart(route, outcome); } catch (e) { return { error: errorLine(`could not record the start: ${e.message}`) }; }
