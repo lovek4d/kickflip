@@ -2542,7 +2542,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const going = hub.pauseBanner({ ...pause, state: 'going' });
   assert.match(going, /hold-banner ub-banner ub-going/);
   assert.match(text(going), /Past the buffer: spending usage until .* Stop/);
-  assert.match(going, /name="value" value="off"/);
+  assert.match(going, /<button class="btn quiet" name="value" value="off">Stop/);
   assert.equal(hub.pauseBanner({ state: 'normal' }), '');
   // docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
   const near = { ...pause, state: 'normal', window: null, used: null, near: { window: 'five_hour', used: 84, resets_at: pause.resets_at, from: 80, going: false } };

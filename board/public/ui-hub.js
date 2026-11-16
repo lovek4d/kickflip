@@ -47,7 +47,7 @@
     const text = pause.state === 'normal' ? going ? `Approaching usage limit: tasks in progress back to the full cap until ${until}` : 'Approaching usage limit, reducing parallel tasks in progress'
       : going ? `Past the buffer: spending usage until ${until}`
       : `Work paused: Claude’s ${pause.window === 'five_hour' ? '5‑hour' : 'weekly'} usage is at ${Math.round(pause.used)}%. Resumes ${pause.window === 'five_hour' ? 'at ' : ''}${until}.`;
-    return `<div class="hold-banner ub-banner ub-${going ? 'going' : 'paused'}" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span>${esc(text)}</span><form method="post" action="/_hub/settings/keep-going"><button class="btn${going ? '' : ' quiet'}" name="value" value="${going ? 'off' : 'on'}">${going ? 'Stop' : 'Keep going'}</button></form></div>`;
+    return `<div class="hold-banner ub-banner ub-${going ? 'going' : 'paused'}" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span>${esc(text)}</span><form method="post" action="/_hub/settings/keep-going"><button class="btn quiet" name="value" value="${going ? 'off' : 'on'}">${going ? 'Stop' : 'Keep going'}</button></form></div>`;
   }
 
   // Health's Machine row: the gate's machine (shared/machine-gate.mjs), busy with its reason or normal, in words only
