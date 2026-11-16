@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildBoard, orchestratorWaits, relatedCandidates } from './domain.mjs';
-import { board, home, site, read, write, lines } from './board-fixture.mjs';
+import { board, home, site, read, write, lines, ticketCli } from './board-fixture.mjs';
 
 const audit = (...p) => site('audit', ...p);
 const auditEvents = (...events) => fs.appendFileSync(audit('data', 'events.jsonl'), events.map((e) => JSON.stringify(e) + '\n').join(''));
@@ -165,6 +165,59 @@ test('a fold owes no investigate wait, and a task sorted past its triage phase o
   assert.ok(investigate(k2));
   assert.equal((await board('item', 'set', k2, '--phase', 'grilling', '--site', 'audit')).code, 0);
   assert.equal(investigate(k2), undefined);
+});
+
+// docs/adr/2026-11-16-2000-an-ask-places-every-issue-it-names.md: on a GitHub board an ask naming an issue of its repo
+// is triaged only once the issue is the card's ticket or held by a task the card links.
+async function githubBoard(t) {
+  const world = await ticketCli(t);
+  await world.saveBoardSettings(audit(), { tickets: { source: 'github' } });
+  const file = audit('data', 'items.json');
+  write(file, { ...read(file), repo: 'o/audit', items: [...read(file).items, { id: 'GH-43', ticket: '#43', title: 'fix: the other', lane: 'todo', phase: 'grilling' }] });
+  return world;
+}
+
+test('item triage refuses an ask naming an issue it does not place, and takes it as --ticket or through a link to the task holding it', async (t) => {
+  const { cli, err, item: stored } = await githubBoard(t);
+  auditEvents(
+    ask('a1', 'https://github.com/o/audit/issues/674'),
+    ask('a2', 'See GH-43, which this extends'),
+    ask('a3', 'Like "#99, said by someone", and https://github.com/other/repo/issues/5'),
+    ask('a4', 'Is #674 and #675 the same?'),
+  );
+  const [k1, k2, k3, k4] = [await fileAsk('a1'), await fileAsk('a2'), await fileAsk('a3'), await fileAsk('a4')];
+  const triage = (key, ...more) => cli('item', 'triage', key, '--title', 'fix(board): x y', '--phase', 'discussing', ...more);
+  assert.equal(await triage(k1), 1);
+  assert.match(err.at(-1), /the ask names issue #674 without placing it: if it is the ask's direct topic, add --ticket 674 so the owner's Done closes it; otherwise link the task that holds it as --relate, --parent or --blocked-by/);
+  assert.equal(stored('T-1').phase, undefined);
+  assert.equal(await triage(k1, '--ticket', '#674'), 0);
+  assert.equal(stored('T-1').ticket, '#674');
+  // A link to the card holding the issue places it; another repo's issue and quoted words name nothing here.
+  assert.equal(await triage(k2), 1);
+  assert.match(err.at(-1), /names issue #43 without placing it/);
+  assert.equal(await triage(k2, '--relate', 'GH-43'), 0);
+  assert.equal(await triage(k3), 0);
+  // Of several issues, placing one leaves the rest.
+  assert.equal(await triage(k4, '--ticket', '674'), 1);
+  assert.match(err.at(-1), /names issue #675 without placing it/);
+});
+
+test('a PR is never an issue: a /pull/<n> URL and a #N the GitHub state knows as a PR need no placing', async (t) => {
+  const { cli } = await githubBoard(t);
+  write(path.join(home, '.claude', 'kickflip', 'github-state.json'), { prs: { 'o/audit#899': { state: 'OPEN' }, 'other/repo#7': { state: 'OPEN' } } });
+  auditEvents(ask('a1', 'Review https://github.com/o/audit/pull/899 and #899, GH-899'), ask('a2', 'Is #7 the one?'));
+  const [k1, k2] = [await fileAsk('a1'), await fileAsk('a2')];
+  const triage = (key) => cli('item', 'triage', key, '--title', 'fix(board): x y', '--phase', 'discussing');
+  assert.equal(await triage(k1), 0);
+  // Another repo's PR number is no PR of this one, so #7 is an issue here.
+  assert.equal(await triage(k2), 1);
+});
+
+test('item add --ask refuses words naming an issue no linked task holds', async (t) => {
+  const { cli, err } = await githubBoard(t);
+  assert.equal(await cli('item', 'add', 'audit', '--ask', 'Follow up on #43 and #50', '--relate', 'GH-43'), 1);
+  assert.match(err.at(-1), /the request names issue #50 without placing it: link the task that holds it as --relate, --parent or --blocked-by/);
+  assert.equal(await cli('item', 'add', 'audit', '--ask', 'Follow up on #43', '--relate', 'GH-43'), 0);
 });
 
 test('item triage --text is refused unless it folds, and the refusal writes nothing', async () => {

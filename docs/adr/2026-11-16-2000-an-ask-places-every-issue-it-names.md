@@ -1,0 +1,9 @@
+# An ask places every issue it names
+
+The owner filed an ask that was only a link to issue #674. Triage left the card with no ticket, so the owner's Done didn't close the issue. Making any issue in an ask the ticket would be wrong: it can as well be related, a parent, or a blocker or blocked-by, and that choice is the orchestrator's judgment. What can be mechanical is that the issue is placed somewhere on the card.
+
+- **The check.** On a GitHub-source board, `item triage` and `item add --ask` refuse while the ask's words name an issue of the board's repo (`#N`, `GH-N`, or its `https://github.com/<repo>/issues/N` URL) that is neither the card's ticket (`--ticket`, or one it already holds) nor the ticket of a task the card links (`--parent`, `--relate`, `--blocked-by`, `--blocks`, or a link already stored). It follows the rule T-530 set for a named task: a task the words name must be linked.
+- **What the refusal says.** Triage names `--ticket <N>` for the issue that is the ask's direct topic, so the owner's Done closes it, and a link to the task holding it otherwise. An issue no task holds yet is the ticket, or is imported with `item add <file>/GH-<n>` and linked. `item add --ask` has no `--ticket`, so it only offers the link.
+- **A PR is never an issue.** A `/pull/<n>` URL names no issue, nor does a `#N` or `GH-N` the hub's GitHub state (`github-state.json`) knows as a PR of the board's repo; the owner often pastes PR links.
+- **What it skips.** Quoted words (someone else's), another repo's issue URL, and boards whose source is Linear or none. Triage reads the ask's latest text, an owner edit included.
+- **Why not take the single issue as the ticket.** A link to #674 could be the topic, a parent or only related; a mechanical ticket would close an issue the owner never meant done. SKILL.md's triage paragraph carries the judgment: topic goes on as `--ticket` at triage.

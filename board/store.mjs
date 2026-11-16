@@ -787,6 +787,7 @@ export async function askItem(site, file, { text: request, parent, split, relate
   if (before !== undefined) links.before = (await depList(site, file, before)).map((d) => depKey(file, d));
   const linked = [links.parent, ...links.related || [], ...links.deps || [], ...links.before || []];
   await refuseUnlinked(site, 'the request', words, linked);
+  await refuseUnplaced(site, 'the request', words, { links: linked.filter(Boolean), repo: boardRepoOf(site, (await loadItemFile(site, file)).itemFile) });
   await refuseUnborn(site, words);
   // The reply goes before the ask's event, which a running board may file, and post its link lines, at once.
   await (await replyFirst(site, linked.filter(Boolean), replyOn))();
@@ -1019,6 +1020,12 @@ export async function triageItem(site, key, { title, phase, relate, parent, spli
   if (title === undefined || phase === undefined) fail(`item triage needs --title "<type>(<scope>): <summary>" and --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task> for a duplicate`);
   if (!TRIAGE_PHASES.includes(phase)) fail(`item triage --phase takes ${TRIAGE_PHASES.join(', ')}; ready follows the investigation, with item set ${key} --phase ready`);
   if (said !== undefined) fail('item triage --text goes only with --fold-into, whose line it joins; a triaged task shows no Triaged line, so put what you know in its notes (item notes)');
+  if (item.from_ask) {
+    const file = parseKey(key).file;
+    const links = new Set(await linkedWith(site, key));
+    for (const k of [parent, ...String(relate ?? '').split(','), ...String(deps ?? '').split(',')]) if (k !== undefined && k.trim()) links.add(depKey(file, k.trim()));
+    await refuseUnplaced(site, 'the ask', await askWordsOf(site, item.from_ask), { links: [...links], ticket: ticket ?? item.ticket, repo: boardRepoOf(site, (await loadItemFile(site, file)).itemFile), canTicket: true });
+  }
   return setItem(site, key, { title, phase: phase === 'visual' ? 'discussing' : phase, relate, parent, split, deps, ticket, replyOn, triaged: true }, options);
 }
 
@@ -4157,6 +4164,38 @@ async function refuseUnlinked(site, what, words, links) {
   if (!unlinked.length) return;
   const one = unlinked.length === 1;
   fail(`${what} names ${listed(unlinked.map((n) => `${n.name} (${n.key})`))} without linking ${one ? 'it' : 'them'}: add --relate ${unlinked.map((n) => n.key).join(',')}, or link ${one ? 'it' : 'each'} as --parent, --blocked-by or --blocks`);
+}
+// The latest text of ask eventId: its last edit's, else its own.
+async function askWordsOf(site, eventId) {
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
+  const edit = events.filter((e) => e.kind === 'ask-edited' && e.data?.id === eventId && typeof e.data?.text === 'string')
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  return edit ? edit.data.text : events.find((e) => e.id === eventId && e.kind === 'ask')?.data?.text || '';
+}
+// The issue numbers of the board's repo that words name, as #N, GH-N or the issue's URL; quoted words name none. A PR
+// is never an issue: a /pull/<n> URL isn't one, nor is a #N or GH-N the hub's GitHub state knows as a PR of the repo.
+async function issuesNamed(words, repo) {
+  const bare = String(words).replace(QUOTED, ' ');
+  const prs = Object.keys((await readJSON(githubStateFile(), {})).prs || {}).map((k) => /^(.+)#(\d+)$/.exec(k)).filter((m) => m && m[1].toLowerCase() === String(repo).toLowerCase()).map((m) => Number(m[2]));
+  const found = [...bare.matchAll(/(?<![\w/#.-])(?:#|GH-)([1-9]\d*)(?![\w-])/g)].map((m) => Number(m[1])).filter((n) => !prs.includes(n));
+  for (const m of bare.matchAll(/https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/([1-9]\d*)(?!\d)/g)) if (m[1].toLowerCase() === String(repo).toLowerCase()) found.push(Number(m[2]));
+  return [...new Set(found)];
+}
+// docs/adr/2026-11-16-2000-an-ask-places-every-issue-it-names.md
+// On a GitHub board, an ask's words (what) must place each issue of the board's repo they name: as the card's ticket, or
+// through a link (links, keys) to a task holding it. Whether it is the ask's topic, a parent, a blocker or only related
+// stays the orchestrator's call; the refusal names the options. canTicket: the command can give the card a --ticket.
+async function refuseUnplaced(site, what, words, { links, ticket, repo, canTicket }) {
+  if ((await boardSource(site))?.source !== 'github') return;
+  const held = new Set();
+  for (const key of links) held.add((await loadItem(site, key)).item.ticket);
+  const own = /^(?:#|GH-)?([1-9]\d*)$/.exec(String(ticket ?? ''));
+  if (own) held.add(`#${own[1]}`);
+  const unplaced = (await issuesNamed(words, repo)).filter((n) => !held.has(`#${n}`));
+  if (!unplaced.length) return;
+  const one = unplaced.length === 1;
+  const topic = canTicket ? `if ${one ? 'it is' : 'one is'} the ask's direct topic, add --ticket ${one ? unplaced[0] : '<issue>'} so the owner's Done closes it; otherwise ` : '';
+  fail(`${what} names issue ${listed(unplaced.map((n) => `#${n}`))} without placing ${one ? 'it' : 'them'}: ${topic}link the task that holds ${one ? 'it' : 'each'} as --relate, --parent or --blocked-by (an issue no task holds yet: item add <file>/GH-<n> imports it first)`);
 }
 // The cards card key is linked with, whichever card stores the link: its Parent and children, its Related to, and the
 // tasks it waits on or blocks.
