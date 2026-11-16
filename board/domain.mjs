@@ -1023,7 +1023,7 @@ const numbered = (asked, q) => `Question ${numberOf(asked, q.id)} · ${q.questio
 // its status); a thread message has its button's label as its status (intentLabel).
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: a routed ask's status line, at its
 // routing time, just before the ask arrived, linked to the message it came from.
-const VIA_NAMES = { slack: 'Slack', handoff: 'a handoff' };
+const VIA_NAMES = { slack: 'Slack', handoff: 'a handoff', hub: 'the hub' };
 function routedLine(e) {
   const r = e.data?.routed;
   if (!r) return [];

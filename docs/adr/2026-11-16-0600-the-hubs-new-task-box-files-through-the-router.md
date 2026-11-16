@@ -1,0 +1,9 @@
+# The hub's New task box files through the router
+
+The hub page gets the board's own + button and New task sheet (`board/public/new-task.js`), the same component with the same attachments, Implement, Discuss and request icons. The owner (T-236, 11/15): "exactly the same as the board just with endpoint to the router agent instead of the board orchestrator. Ask should end up in the same spot anyway."
+
+- **Same component, other send.** `BoardNewTask.wire(B)` sends through `B.enqueue`. On a board that is the outbox; on the hub page (`view-hub.js`) it waits for the box's uploads, posts `{text, files, quick | request}` to `/_hub/route`, clears the box and reloads the page's data. There is no outbox and no sending row on the hub: the Routed section shows the task waiting at once, then the card it became. A refused send or a failed upload keeps the draft and its files and toasts why.
+- **Answered at once.** `/_hub/route` queues the request with `queueRequest` (`from: {via: 'hub', by: 'love'}`) and starts a drain without waiting for it, so a Haiku call never holds the page. Usage paused or a failed call leave it queued, as for any request (ADR 2026-11-12-2345).
+- **Intent rides on the ask.** A queued request carries `fields`, `{quick: true}` or `{request: 'prototype' | 'grill' | 'visual'}`, which the router spreads into the ask event it files. The board then treats it as one filed there: Implement is a Quick build, a request starts its planner. Unlike a Slack request it is not held to discuss first, since the owner sent it.
+- **Files cross to the board at filing.** The box's files upload to the hub's own `data/uploads` (`/_hub/api/upload`, `saveUpload`) before any board is picked. Filing copies each to the board's `data/uploads` with `copyUpload`, the copy `ask move` uses, then drops the hub's copy.
+- **The thread line.** `VIA_NAMES` in `board/domain.mjs` gains `hub`, so the ask's thread opens "Routed here from the hub: <reason>".

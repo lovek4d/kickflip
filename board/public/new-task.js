@@ -1,6 +1,6 @@
-// The + button and the sheet that sends a new task as an ask event, on the board's main page alone: the board view's markup
-// (app.js) puts BoardNewTask.markup() in its root and app-asks.js wires it with BoardNewTask.wire(B). No other page
-// opts in. The ask goes through the outbox (app-threads.js enqueue) and shows at once in the New strip. B.newTaskKey(ev) is the n-twice handler, which a framed page's document also feeds.
+// The + button and the sheet that sends a new task as an ask event, on the board's main page and the hub page alone: each view's markup
+// puts BoardNewTask.markup() in its root and wires it with BoardNewTask.wire(B). No other page opts in. The send is B.enqueue:
+// on a board the outbox (app-threads.js enqueue), shown at once in the New strip; on the hub page a post to the router (view-hub.js). B.newTaskKey(ev) is the n-twice handler, which a framed page's document also feeds.
 globalThis.BoardNewTask = (function () {
   const markup = () => `<button id="compose" class="fab" type="button" aria-label="New task" title="New task (press n twice)" aria-haspopup="dialog" aria-expanded="false"><svg width="35" height="35" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
 <dialog id="sheet" class="sheet" aria-labelledby="sheetTitle">

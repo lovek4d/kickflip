@@ -132,3 +132,22 @@ test("the hub page's rows: newest first, each linked to the card its ask became,
   assert.equal(rows[1].moved, undefined);
   assert.equal(rows[3].reason, 'shop');
 });
+
+// docs/adr/2026-11-16-0600-the-hubs-new-task-box-files-through-the-router.md
+test("a hub request's intent fields ride on its ask, and its uploads are copied to the board and dropped from the hub", async () => {
+  const shop = board('shop', {});
+  const uploads = path.join(home, '.claude', 'kickflip', 'data', 'uploads');
+  fs.mkdirSync(uploads, { recursive: true });
+  fs.writeFileSync(path.join(uploads, '1700-shot.png'), 'png');
+  await routeRequest({ text: 'fix the basket', fields: { quick: true }, files: [{ name: 'shot.png', url: 'uploads/1700-shot.png', type: 'image/png', size: 3 }], from: { via: 'hub', by: 'love' } },
+    { manifest: manifestOf(shop), paused: () => false });
+  const [e] = events(shop[1].dir);
+  assert.equal(e.data.quick, true);
+  assert.deepEqual(e.data.routed.via, 'hub');
+  const [file] = e.data.files;
+  assert.match(file.url, /^uploads\/\d+-shot\.png$/);
+  assert.equal(fs.readFileSync(path.join(shop[1].dir, 'data', file.url), 'utf8'), 'png');
+  assert.equal(fs.existsSync(path.join(uploads, '1700-shot.png')), false);
+  await routeRequest({ text: 'look into it', fields: { request: 'grill' }, from: { via: 'hub', by: 'love' } }, { manifest: manifestOf(shop), paused: () => false });
+  assert.equal(events(shop[1].dir)[1].data.request, 'grill');
+});

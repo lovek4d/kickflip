@@ -151,7 +151,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
       constructor(form) { this.form = form; }
       *[Symbol.iterator]() { for (const el of this.form.querySelectorAll('input[name]')) if (el.getAttribute('type') !== 'checkbox' || el.hasAttribute('checked')) yield [el.getAttribute('name'), el.value]; }
     },
-    BoardView: { page: (root, site, run) => { const B = { root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }; run(B); return B; } },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => { const B = { root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }; run(B); return B; } },
     RulesEditor: { mount: () => ({ set() {} }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
@@ -501,7 +501,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   const listeners = [], opened = [];
   const context = vm.createContext({
     navigator: {}, localStorage: { getItem: () => 'mine' },
-    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, ago: (iso) => (Date.now() - Date.parse(iso) > 3600_000 ? '2h ago' : '5m ago') },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -614,7 +614,7 @@ test('an integration missing a permission reads amber degraded, and tapping the 
   const listeners = [], opened = [];
   const context = vm.createContext({
     navigator: {}, localStorage: { getItem: () => null },
-    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { markup: () => '', create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, ago: () => '5m ago' },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -705,7 +705,7 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
   const context = vm.createContext({
     navigator: {},
     setTimeout: (fn) => Promise.resolve().then(fn),
-    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     BoardDialogs: { confirm: async (text) => { asked.push(text); return confirmed; } },
     AppShell: { reload: () => { reloads++; } },
     fetch: (url, init = {}) => { requests.push([url, init.method || 'GET', init.body]); return new Promise((resolve) => answers.push(resolve)); },
@@ -790,7 +790,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
-    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -867,7 +867,7 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
-    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -935,7 +935,7 @@ test("the hub page leads with a banner while pushes are held or snoozed, and its
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
-    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: (el, site, ctx) => { settingsCtx = ctx; return { B: { refreshSettings: () => settingsRefreshes++ }, mount() {}, unmount() {} }; } },
     BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -982,7 +982,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   const data = () => ({ integrations: [], pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
-    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI }, PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
@@ -1025,7 +1025,7 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
   const context = vm.createContext({
     navigator: {},
     setTimeout: (fn) => Promise.resolve().then(fn),
-    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     BoardDialogs: { confirm: async () => true },
     AppShell: { reload() {} },
     fetch: (url, init = {}) => { requests.push([url, init.method || 'GET', init.body]); return new Promise((resolve) => answers.push(resolve)); },
@@ -1099,7 +1099,7 @@ test("the hub page's Routed section sits under Boards, drawn by the board's own 
   const strips = [];
   const context = vm.createContext({
     navigator: {}, localStorage: { getItem: () => null },
-    BoardView: { page: (r, site, run) => run({ $: (s) => r.querySelector(s), alive: () => true, atUnmount() {}, on() {} }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (r, site, run) => run({ $: (s) => r.querySelector(s), alive: () => true, atUnmount() {}, on() {} }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, newStrip: (entries, edits, opts) => { strips.push({ entries, opts }); return `<i class="strip">${entries.length}</i>`; } },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -1125,4 +1125,39 @@ test("the hub page's Routed section sits under Boards, drawn by the board's own 
   live.paint({ ...view([]), version: '1' });
   assert.deepEqual(strips.at(-1).entries.length, 0);
   assert.match(strips.at(-1).opts.empty, /^Nothing routed yet\./);
+});
+
+// docs/adr/2026-11-16-0600-the-hubs-new-task-box-files-through-the-router.md
+test("the hub page wires the board's New task box, whose send waits for its files, posts to the router, and clears the box", async () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  let wired = null, loads = 0;
+  const posts = [], toasts = [], cleared = [];
+  let settled = true, status = 202;
+  const context = vm.createContext({
+    navigator: {}, localStorage: { getItem: () => null },
+    BoardNewTask: { markup: () => '', wire: (B) => { wired = B; } },
+    BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), atUnmount() {}, on() {}, alive: () => true, toast: (text) => toasts.push(text), site: { root: '/_hub' } }) },
+    BoardAttach: { settled: async () => settled, files: () => [{ name: 'a.png', url: 'uploads/1-a.png' }], clear: (id, site) => cleared.push([id, site]) },
+    fetch: async (url, init) => { posts.push([url, JSON.parse(init.body)]); return { ok: status < 300, json: async () => ({ error: 'no' }) }; },
+    HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
+    BoardUI: { ...BOARD_UI },
+    PromptAnswers: { wire: () => ({ shows: () => true }) },
+    HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: () => () => { loads += 1; } },
+  });
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
+  context.AppViews.hub.create(root, '/_hub', {});
+  await wired.enqueue(undefined, { kind: 'ask', text: 'fix it', attached: 'ask', fields: { quick: true } });
+  assert.deepEqual(posts, [['/_hub/route', { text: 'fix it', files: [{ name: 'a.png', url: 'uploads/1-a.png' }], quick: true }]]);
+  assert.deepEqual([cleared, loads], [[['ask', '/_hub']], 1]);
+  await wired.enqueue(undefined, { kind: 'ask', text: 'plan it', fields: { request: 'grill' } });
+  assert.deepEqual(posts[1], ['/_hub/route', { text: 'plan it', files: [], request: 'grill' }]);
+  settled = false;
+  await assert.rejects(wired.enqueue(undefined, { kind: 'ask', text: 'x', attached: 'ask' }), /didn’t upload/);
+  settled = true; status = 400;
+  await assert.rejects(wired.enqueue(undefined, { kind: 'ask', text: 'y' }), /no/);
+  assert.equal(toasts.length, 2);
+  assert.equal(cleared.length, 1, 'a send the hub refused keeps its files in the box');
 });

@@ -27,7 +27,7 @@
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: the requests the hub's router
   // filed on a board (hub/router.mjs routedRows), newest first, on the board's own New strip under a Routed head.
   const routedHtml = (rows) => `<section class="new-strip routed" aria-label="Routed">${BoardUI.newStrip(rows.map((routed) => ({ id: routed.id, routed })), new Map(),
-    { label: 'Routed', empty: 'Nothing routed yet. A Slack @kickflip request shows here once the router files it on a board.' })}</section>\n`;
+    { label: 'Routed', empty: 'Nothing routed yet. A Slack @kickflip request or a task from the + button shows here once the router files it on a board.' })}</section>\n`;
 
   // restarting: the routes whose Restart is out; routed: the Routed section's rows, drawn after the Boards group.
   function sitesHtml(groups, restarting, routed) {
@@ -136,7 +136,8 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
     title: () => 'Hub',
     markup: () => `${BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png' })}
 <main class="has-top"><div class="hub-status"></div><section class="hub-settings">${HubSettings.markup()}</section><div class="hub-foot"></div></main>
-<dialog class="sheet permissions-sheet" aria-labelledby="permissionsTitle"></dialog>`,
+<dialog class="sheet permissions-sheet" aria-labelledby="permissionsTitle"></dialog>
+${BoardNewTask.markup()}`,
 
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
       const main = B.$('.hub-status');
@@ -145,6 +146,21 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
       settings.mount();
       B.atUnmount(() => settings.unmount());
       B.on(B.$('#refresh'), 'click', () => settings.B.refreshSettings?.());
+      // docs/adr/2026-11-16-0600-the-hubs-new-task-box-files-through-the-router.md: the board's + button and New task sheet
+      // (new-task.js), whose send goes to the router (POST /_hub/route) instead of a board's outbox. Its files are up on the
+      // hub first (POST /_hub/api/upload, attach.js); the Routed section shows the task waiting, then the card it became.
+      B.enqueue = async (key, { text, attached, fields }) => {
+        const root = B.site.root;
+        try {
+          if (attached && !(await BoardAttach.settled(attached, root))) throw new Error('A file didn’t upload. Remove it or try again.');
+          const files = attached ? BoardAttach.files(attached, root) : [];
+          const r = await fetch('/_hub/route', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ text, files, ...fields }) });
+          if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || 'The hub didn’t take the task.');
+        } catch (e) { B.toast(e.message || 'Could not send. Is the host awake?'); throw e; }
+        if (attached) BoardAttach.clear(attached, root);
+        load();
+      };
+      BoardNewTask.wire(B);
       let flash = null;
       const restarting = new Set();
       B.openSettings = (...args) => settings.B.openSettings(...args);

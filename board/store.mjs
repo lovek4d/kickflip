@@ -900,7 +900,7 @@ async function askNotNew(site, eventId, events) {
 
 // A copy of an upload in another site's data/uploads under a fresh stored name, or the file's name alone when this
 // site no longer has it, so the other board never shows a broken link.
-async function copyUpload(from, to, f) {
+export async function copyUpload(from, to, f) {
   const file = /^uploads\/([\w.-]+)$/.exec(f?.url || '')?.[1];
   const src = STORED.test(file || '') ? path.join(uploadsDir(from), file) : null;
   if (!src || !(await fs.stat(src).then((s) => s.isFile(), () => false))) return { name: String(f?.name || file || 'file') };

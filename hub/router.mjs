@@ -21,8 +21,12 @@ import { withFileLock } from './locks.mjs';
 import { claudeBin, inherited } from './sessions.mjs';
 import { readUsageGate } from '../shared/usage-gate.mjs';
 import { refOf } from '../board/domain.mjs';
+import { copyUpload } from '../board/store.mjs';
 
 const WEB = path.join(os.homedir(), '.claude', 'kickflip');
+// The hub's own site for uploads: the hub page's New task box uploads here, before any board is picked, and filing copies
+// each file to the board.
+const UPLOAD_HOME = WEB;
 export const ROUTE_QUEUE = path.join(WEB, 'route-queue.json');
 export const ROUTED_LOG = path.join(WEB, 'routed.json');
 export const ROUTE_TRIES = 3;
@@ -80,6 +84,14 @@ export function parseRoute(answer, routes) {
   return { route, reason: reason.length > REASON_LIMIT ? `${reason.slice(0, REASON_LIMIT - 1).trimEnd()}…` : reason };
 }
 
+// The hub's copy of a request's upload, once the board has its own.
+const dropUpload = async (f) => {
+  const file = /^uploads\/(\d+-[\w.-]+)$/.exec(f.url || '')?.[1];
+  if (!file) return;
+  const dir = path.join(UPLOAD_HOME, 'data', 'uploads');
+  await Promise.all([fs.promises.rm(path.join(dir, file), { force: true }), fs.promises.rm(path.join(dir, '.meta', `${file}.json`), { force: true })]);
+};
+
 const readQueue = () => readJSON(ROUTE_QUEUE, { queue: [] }).queue;
 // The lock covers each change to the queue file, never a Haiku call, which outlasts its stale age.
 const changeQueue = (fn) => withFileLock(ROUTE_QUEUE, () => saveJSON(ROUTE_QUEUE, { queue: fn(readQueue()) }));
@@ -92,8 +104,10 @@ async function file(req, board, reason) {
   // never filed twice (docs/adr/2026-11-05-0820-a-hub-event-a-board-took-is-never-written-twice.md). A Slack request's
   // slack {channel, thread_ts, ts} names the thread it came from
   // (docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md).
-  const eventId = await appendEvent(board, 'ask', { text: req.text, ...(req.files?.length ? { files: req.files } : {}), routed: { reason, via, by, ...(link ? { link } : {}), ...(slack ? { slack } : {}), at } })
+  const files = await Promise.all((req.files || []).map((f) => copyUpload(UPLOAD_HOME, board.dir, f)));
+  const eventId = await appendEvent(board, 'ask', { text: req.text, ...(files.length ? { files } : {}), ...req.fields, routed: { reason, via, by, ...(link ? { link } : {}), ...(slack ? { slack } : {}), at } })
     .finally(() => changeQueue((queue) => queue.filter((q) => q.id !== req.id)));
+  await Promise.all((req.files || []).map(dropUpload));
   const entry = { id: req.id, at, text: req.text, via, by, ...(link ? { link } : {}), route: board.route, eventId, reason };
   saveJSON(ROUTED_LOG, { routed: [...readJSON(ROUTED_LOG, { routed: [] }).routed, entry].slice(-KEEP) });
   return entry;
@@ -132,11 +146,11 @@ export function drainRoutes({ manifest = readManifest(), ask = askHaiku, paused 
   return run;
 }
 
-// An incoming request {text, files?, from: {via, by, link?, slack?}} on the queue, for the next drain: the hub's tick
+// An incoming request {text, files?, fields?, from: {via, by, link?, slack?}} on the queue, for the next drain: the hub's tick
 // when another process or the hub's poll queued it, as `kickflip handoff` with no board and Slack intake
 // (slack-intake.mjs) do. → the queued request
 export async function queueRequest(request) {
-  const req = { id: crypto.randomUUID(), at: new Date().toISOString(), text: String(request.text), ...(request.files?.length ? { files: request.files } : {}), from: request.from, tries: 0 };
+  const req = { id: crypto.randomUUID(), at: new Date().toISOString(), text: String(request.text), ...(request.files?.length ? { files: request.files } : {}), ...(request.fields ? { fields: request.fields } : {}), from: request.from, tries: 0 };
   await changeQueue((queue) => [...queue, req]);
   return req;
 }

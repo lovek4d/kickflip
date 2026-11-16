@@ -891,6 +891,8 @@ test("a routed ask's thread opens with a blue status line naming where it came f
   assert.equal(threadOf('w/T-1', { events: [askAt('b2', '2026-10-23T09:40:00Z')], fromAsk: 'b2' }).length, 1, 'an ask the router never saw has no routed line');
   const handed = askAt('b3', '2026-10-23T09:41:00Z', { data: { text: 'Retry checkout', routed: { reason: 'checkout fix named this board', via: 'handoff', by: 'checkout fix', at: '2026-10-23T09:40:59Z' } } });
   assert.equal(threadOf('w/T-2', { events: [handed], fromAsk: 'b3' })[0].text, 'Routed here from a handoff: checkout fix named this board');
+  const typed = askAt('b4', '2026-10-23T09:42:00Z', { data: { text: 'Retry checkout', routed: { reason: 'checkout is the shop', via: 'hub', by: 'love', at: '2026-10-23T09:41:59Z' } } });
+  assert.equal(threadOf('w/T-3', { events: [typed], fromAsk: 'b4' })[0].text, 'Routed here from the hub: checkout is the shop');
 });
 
 test("the owner's reply on a Done ask's card, sent on the card or the ask's old key, waits and works like a work item's thread message, and reopens the card", () => {

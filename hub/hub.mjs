@@ -111,6 +111,10 @@
 //   /_hub/settings/rules POST {rules: [{id?, text}], base: [id]} saves the hub rules in settings.json (rules.mjs
 //                     applyRules) and, when anything changed, sends every board a `rules {scope: "hub", added, edited,
 //                     removed}` event (boards.mjs sendToBoards). → {rules, events, failed}; a bad list → 400 {error}
+//   /_hub/api/upload  POST the raw file as the body, its name URI-encoded in x-filename → {name, url, path, type, size}: the hub page's New task
+//                     box uploads here, to the hub's data/uploads, as a board's api/upload does
+//   /_hub/route       POST {text, files?, quick? | request?} (application/json) from that box: queues the task for the router
+//                     (from.via hub) and answers 202 {queued} at once; 400 {error} for no text or file, or another request
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`kickflip poll-now`)
 //   /_hub/build       POST {route, key, anyway?}, key <file>/<id> or main (retry failed tip), loopback only:
@@ -210,7 +214,7 @@ import { checkGitHub, sendWakes } from './github.mjs';
 import { migrateTriage, overnightJobs, setOvernight } from './overnight.mjs';
 import { runNightlySuite } from './nightly-suite.mjs';
 import { checkIncoming } from './incoming.mjs';
-import { drainRoutes, routedRows } from './router.mjs';
+import { drainRoutes, queueRequest, routedRows } from './router.mjs';
 import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
@@ -236,7 +240,7 @@ import { BuildError, startBuild, killBuild, stopTries, endUnsharedTries, tryTick
 import { serveFiles } from './files.mjs';
 import { upgrader } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
-import { fallBackFromLinear, migrateDropWaves, migrateWaveNames } from '../board/store.mjs';
+import { fallBackFromLinear, migrateDropWaves, migrateWaveNames, saveUpload } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
@@ -1490,6 +1494,26 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       const r = await flushQueue();
       if (r) log(`push queue: ${r.ok ? 'sent' : 'could not send'} ${r.count} queued (from the settings page)`);
       return json ? sendJSON(200, flushView(r)) : redirect(res, '/_hub/');
+    }
+    // The hub page's New task box: its files upload here, to the hub's own data/uploads, and /_hub/route queues the task for
+    // the router like any request, with its intent (quick, or request prototype, grill or visual) and files. The router
+    // copies the files to the board it picks. Answered at once: the Routed section shows the task waiting, then its card.
+    if (p === '/_hub/api/upload' && req.method === 'POST') {
+      try { return sendJSON(200, await saveUpload(HOME, req, { name: decodeURIComponent(req.headers['x-filename'] || ''), type: req.headers['content-type'], length: Number(req.headers['content-length']) || 0 })); }
+      catch (e) { if (e.status) return sendJSON(e.status, { error: e.message }); throw e; }
+    }
+    if (p === '/_hub/route' && req.method === 'POST') {
+      let input;
+      try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: e.status ? e.message : 'Send the task as JSON.' }); }
+      const text = typeof input.text === 'string' ? input.text.trim() : '';
+      const files = (Array.isArray(input.files) ? input.files : []).filter((f) => /^uploads\/\d+-[\w.-]+$/.test(f?.url)).map(({ name, url, type, size }) => ({ name, url, type, size }));
+      if (!text && !files.length) return sendJSON(400, { error: 'Send some text or a file.' });
+      if (input.request !== undefined && !['prototype', 'grill', 'visual'].includes(input.request)) return sendJSON(400, { error: 'request is prototype, grill or visual.' });
+      const fields = input.request ? { request: input.request } : input.quick === true ? { quick: true } : null;
+      await queueRequest({ text, files, ...(fields ? { fields } : {}), from: { via: 'hub', by: 'love' } });
+      track(drainRoutes().then((r) => { for (const e of r.routed) log(`router: hub request → /${e.route}: ${e.reason}`); stream.refresh(); }, (e) => log('router:', e.message)));
+      stream.refresh();
+      return sendJSON(202, { queued: true });
     }
     if (p === '/_hub/poll' && req.method === 'POST') {
       const body = await readJSONBody(req);
