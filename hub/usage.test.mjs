@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { usageReader, checkUsagePause, contextReading, runLimit } from './usage.mjs';
+import { usageReader, checkUsagePause, contextReading, runLimit, toneOf } from './usage.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const originalHome = process.env.HOME;
@@ -45,7 +45,7 @@ test('Claude comes from usage.json without run logs, with window reset times and
   const f = fixture(t);
   f.claude();
   const r = f.read();
-  assert.deepEqual(r.claude, { at: iso(NOW), five_hour: { used_percentage: 42, resets_at: iso(NOW + HOUR), state: 'live' }, seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR), state: 'live' } });
+  assert.deepEqual(r.claude, { at: iso(NOW), five_hour: { used_percentage: 42, resets_at: iso(NOW + HOUR), state: 'live', tone: 'ok' }, seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR), state: 'live', tone: 'high' } });
   assert.equal(r.codex, null);
   f.claude({ five_hour: { used_percentage: 50, resets_at: iso(NOW + HOUR) } });
   assert.equal(f.read().claude.five_hour.used_percentage, 50);
@@ -54,7 +54,7 @@ test('Claude comes from usage.json without run logs, with window reset times and
 test('a reset window reads 0%, independently of the weekly window', (t) => {
   const f = fixture(t);
   f.claude({ five_hour: { used_percentage: 95, resets_at: iso(NOW) } });
-  assert.deepEqual(f.read().claude.five_hour, { used_percentage: 0, resets_at: iso(NOW), state: 'reset' });
+  assert.deepEqual(f.read().claude.five_hour, { used_percentage: 0, resets_at: iso(NOW), state: 'reset', tone: 'ok' });
   assert.equal(f.read().claude.seven_day.state, 'live');
   f.claude({ seven_day: { used_percentage: 99, resets_at: iso(NOW - 1) } });
   assert.equal(f.read().claude.seven_day.used_percentage, 0);
@@ -86,7 +86,7 @@ test('Codex takes the highest readings in the newest window, allowing three minu
   f.log('high-week', { primary: 30, secondary: 57, reset: NOW + HOUR - 180_000 });
   f.log('outside-drift', { primary: 98, secondary: 99, reset: NOW + HOUR - 181_000 });
   const r = f.read({ codexShare: 'auto' }).codex;
-  assert.deepEqual(r, { at: iso(NOW), five_hour: { used_percentage: 42, resets_at: iso(NOW + HOUR), state: 'live' }, seven_day: { used_percentage: 57, resets_at: iso(NOW + 24 * HOUR), state: 'live' } });
+  assert.deepEqual(r, { at: iso(NOW), five_hour: { used_percentage: 42, resets_at: iso(NOW + HOUR), state: 'live', tone: 'ok' }, seven_day: { used_percentage: 57, resets_at: iso(NOW + 24 * HOUR), state: 'live', tone: 'ok' } });
 });
 
 test('Codex reads only the six newest rollouts by mtime, and the last limits in each', (t) => {
@@ -159,8 +159,8 @@ test("Claude also reads the newest rate_limit_event in the headless agents' run 
   write(f.file('.claude', 'kickflip', 'logs', 'hub-orchestrator.log'), JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { unifiedWindows: { five_hour: { utilization: 1, resetsAt: (NOW + HOUR) / 1000 } } } }) + '\n');
   assert.deepEqual(f.read().claude, {
     at: iso(NOW - 60_000),
-    five_hour: { used_percentage: 87, resets_at: iso(NOW + HOUR), state: 'live' },
-    seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR), state: 'live' },
+    five_hour: { used_percentage: 87, resets_at: iso(NOW + HOUR), state: 'live', tone: 'high' },
+    seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR), state: 'live', tone: 'high' },
   });
 });
 
@@ -258,4 +258,10 @@ test('a session\'s context reading is its saved percent and time, null without o
     assert.equal(contextReading('../x', { home: dir }), null);
     assert.equal(contextReading(undefined, { home: dir }), null);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a window carries the tone its bar draws: ok under 75, high from 75, full from 90, stale grey, a reset window ok', () => {
+  assert.deepEqual([74, 75, 89, 90].map((n) => toneOf('live', n)), ['ok', 'high', 'high', 'full']);
+  assert.equal(toneOf('stale', 95), 'stale');
+  assert.equal(toneOf('reset', 0), 'ok');
 });

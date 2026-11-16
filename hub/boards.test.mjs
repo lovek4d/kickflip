@@ -533,7 +533,7 @@ test("sidebar and Hub page serve usage, the shell keeps it inside Hub, and Codex
     assert.deepEqual((await get('/_hub/sidebar.json')).usage, { claude: null, codex: null });
     assert.deepEqual(await codex(), [null, false, 'not logged in', 'off']);
     write(usageFile, { claude: { at, five_hour: { used_percentage: 42, resets_at: resets } } });
-    const expected = { claude: { at, five_hour: { used_percentage: 42, resets_at: resets, state: 'live' }, seven_day: null }, codex: null };
+    const expected = { claude: { at, five_hour: { used_percentage: 42, resets_at: resets, state: 'live', tone: 'ok' }, seven_day: null }, codex: null };
     assert.deepEqual((await get('/_hub/sidebar.json')).usage, expected);
     assert.deepEqual((await get('/_hub/api/hub')).usage, expected);
     const shell = await (await fetch(base + '/_hub/')).text();

@@ -43,7 +43,7 @@
   // A pause's end in words: until its clock, or until you resume a Forever Pause hub or Pause board
   // (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
   const pauseUntilWords = (end) => (end === 'forever' ? 'until you resume' : `until ${usageClock(end)}`);
-  const usageTone = (w) => !w ? 'none' : w.state === 'stale' ? 'stale' : w.used_percentage >= 90 ? 'full' : w.used_percentage >= 75 ? 'high' : 'ok';
+  const usageTone = (w) => w?.tone ?? 'none';
   const usageBar = (w) => `<span class="u-bar" aria-hidden="true"><i style="width:${w?.state === 'stale' ? 0 : Math.max(0, Math.min(100, w?.used_percentage || 0))}%"></i></span>`;
   function usageWords(reading, key) {
     const w = reading[key];
@@ -52,15 +52,12 @@
     if (w.state === 'reset') return `Reset ${esc(usageClock(w.resets_at))}`;
     return `<span class="u-num">${Math.round(w.used_percentage)}%</span> · resets ${esc(usageClock(w.resets_at))}`;
   }
-  // Claude's week shows as a second bar once it is live within the near band under the pause line, which starts twice the
-  // buffer below 100 (shared/usage-gate.mjs nearFrom): orange under the line, red at it. Off (100) has no band.
-  function weekBar(reading, pauseAt) {
-    const w = reading.seven_day;
-    if (!(pauseAt < 100) || w?.state !== 'live' || !(w.used_percentage >= 2 * pauseAt - 100)) return '';
-    const tone = w.used_percentage >= pauseAt ? 'full' : 'high';
-    return `<span class="u-one u-tone-${tone}"><span class="u-line"><span class="u-name">Claude week</span> ${usageWords(reading, 'seven_day')}</span>${usageBar(w)}</span>`;
+  // Claude's week shows as a second bar when the gate sends a week tone (shared/usage-gate.mjs weekTone), its own colour.
+  function weekBar(reading, tone) {
+    if (!tone) return '';
+    return `<span class="u-one u-tone-${tone}"><span class="u-line"><span class="u-name">Claude week</span> ${usageWords(reading, 'seven_day')}</span>${usageBar(reading.seven_day)}</span>`;
   }
-  function sidebarUsage(data, pauseAt) {
+  function sidebarUsage(data, weekTone) {
     const products = usageProducts(data);
     return products.length ? `<span class="sb-usage">${products.map((p) => {
       const r = data[p];
@@ -70,7 +67,7 @@
         : w.state === 'stale' ? `${name} · last seen ${esc(usageClock(r.at))}`
           : w.state === 'reset' ? `${name} · reset ${esc(usageClock(w.resets_at))}`
             : `${name} ${usageWords(r, 'five_hour')}`;
-      return `<span class="u-one u-tone-${usageTone(w)}"><span class="u-line">${words}</span>${usageBar(w)}</span>${p === 'claude' ? weekBar(r, pauseAt) : ''}`;
+      return `<span class="u-one u-tone-${usageTone(w)}"><span class="u-line">${words}</span>${usageBar(w)}</span>${p === 'claude' ? weekBar(r, weekTone) : ''}`;
     }).join('')}</span>` : '';
   }
   // The utility rows, in the order they show.
@@ -273,13 +270,13 @@
     if (offline || deaf || data?.hub?.tone === 'down') return 'down';
     if (hubBusy(data)) return 'busy';
     if (update) return 'update';
-    return data?.pause?.state === 'paused' ? 'paused' : '';
+    return data?.pause?.paused ? 'paused' : '';
   };
 
   function sidebar(data, { here = '', device = null, switching = false, update = null, restarting = false, now = Date.now() } = {}) {
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
-    const paused = data?.pause?.state === 'paused';
+    const paused = Boolean(data?.pause?.paused);
     // A busy host holds every board's new work but shows only on the Hub row and the logo's dot, never on a board, and a pause reads before it;
     // busy for a long while (pause.machine.banner) it also shows as a banner at the sidebar's top that opens the load sheet
     // (docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md).
@@ -302,7 +299,7 @@
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
-    const usage = sidebarUsage(data?.usage, data?.pause?.pause_at);
+    const usage = sidebarUsage(data?.usage, data?.pause?.week);
     const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: globalThis.BoardUI.liveFor(data.pause.machine.since, now), sheet: true } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());

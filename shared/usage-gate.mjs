@@ -55,8 +55,35 @@ export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, bo
   const codexWindow = past(codex);
   const codexDetails = { past: Boolean(codexWindow), ...details(codex, codexWindow) };
   const manual = pausedUntil(hubPause, now) ? 'hub' : pausedUntil(boardPause, now) ? 'board' : null;
-  if (manual) return { pause_at: line, state: 'paused', manual, window: null, used: null, resets_at: pausedUntil(manual === 'hub' ? hubPause : boardPause, now), near: null, codex: codexDetails, machine };
-  return { pause_at: line, state: window ? going ? 'going' : 'paused' : 'normal', manual: null, ...hit, near, codex: codexDetails, machine };
+  const gate = manual
+    ? { pause_at: line, state: 'paused', manual, window: null, used: null, resets_at: pausedUntil(manual === 'hub' ? hubPause : boardPause, now), near: null, codex: codexDetails, machine }
+    : { pause_at: line, state: window ? going ? 'going' : 'paused' : 'normal', manual: null, ...hit, near, codex: codexDetails, machine };
+  return { ...gate, paused: gate.state === 'paused', week: weekTone(claude, line), banner: bannerOf(gate) };
+}
+
+// The tone of Claude's week bar in the sidebar, which shows once the week is live within the near band under the line:
+// high under the line, full at it. Null while the bar is hidden; Off (100) has no band.
+function weekTone(claude, line) {
+  const w = claude?.seven_day;
+  if (line === 100 || w?.state !== 'live' || !(w.used_percentage >= nearFrom(line))) return null;
+  return w.used_percentage >= line ? 'full' : 'high';
+}
+
+// paused is what the sidebar's Hub row and board rows, the logo's dot and the header read: the gate holds new work as a
+// pause (usage or manual), which is when resets_at is the pause's end.
+// The hub page's pause banner: {kind, text, until} or null. kind is manual (Resume), going and near-going (Stop), or
+// paused and near (Keep going); text holds `{until}` where the browser puts `until`, an ISO time or forever, in its own clock.
+function bannerOf(gate) {
+  if (gate.manual) return { kind: 'manual', until: gate.resets_at, text: gate.resets_at === FOREVER ? 'Work paused: you paused the hub until you resume.' : 'Work paused: you paused the hub. Resumes at {until}.' };
+  if (gate.state === 'normal') {
+    if (!gate.near) return null;
+    return gate.near.going
+      ? { kind: 'near-going', until: gate.near.resets_at, text: 'Approaching usage limit: tasks in progress back to the full cap until {until}' }
+      : { kind: 'near', until: gate.near.resets_at, text: 'Approaching usage limit, reducing parallel tasks in progress' };
+  }
+  if (gate.state === 'going') return { kind: 'going', until: gate.resets_at, text: 'Past the buffer: spending usage until {until}' };
+  const weekly = gate.window !== 'five_hour';
+  return { kind: 'paused', until: gate.resets_at, text: `Work paused: Claude’s ${weekly ? 'weekly' : '5‑hour'} usage is at ${Math.round(gate.used)}%. Resumes ${weekly ? '' : 'at '}{until}.` };
 }
 
 // The near band starts twice the buffer below 100: at 80% for the 90% line. Off (100) has none.

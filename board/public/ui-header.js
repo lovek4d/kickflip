@@ -7,7 +7,7 @@
   // /api/board's checks.watcher (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
   // link is 'online', 'offline' (the last board load failed) or 'reconnecting' (a refresh tap is retrying it, and the icon spins).
   const statusLine = (at, { link = 'online', watcher, pause } = {}) => {
-    const paused = pause?.state === 'paused';
+    const paused = Boolean(pause?.paused);
     const reason = link === 'offline' ? "Offline: can't reach the host"
       : watcher === 'stopped' ? 'Claude not listening'
       : paused ? `Paused ${BoardUI.pauseUntilWords(pause.resets_at)}`

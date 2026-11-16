@@ -25,7 +25,7 @@ function fixture(t) {
 }
 
 test('the line defaults to 90, includes equality, checks the five-hour window first and Off never pauses either tool', () => {
-  assert.deepEqual(gate(), { pause_at: 90, state: 'paused', manual: null, window: 'five_hour', used: 90, resets_at: until, near: null, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null } });
+  assert.deepEqual(gate(), { pause_at: 90, state: 'paused', manual: null, window: 'five_hour', used: 90, resets_at: until, near: null, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null }, paused: true, week: null, banner: { kind: 'paused', until, text: 'Work paused: Claude’s 5‑hour usage is at 90%. Resumes at {until}.' } });
   assert.equal(gate({ claude: reading(89, 89) }).state, 'normal');
   assert.equal(gate({ claude: reading(99, 99) }).window, 'five_hour');
   assert.equal(gate({ claude: reading(40, 95) }).window, 'seven_day');
@@ -99,7 +99,7 @@ test("Keep going near the line restores the full cap until the window's reset, a
 test('a manual hub or board pause pauses all new work until its end, over the usage pause and Keep going, hub first', () => {
   const later = new Date(now + 7200_000).toISOString();
   const calm = { claude: reading(20, 20) };
-  assert.deepEqual(gate({ ...calm, hubPause: later }), { pause_at: 90, state: 'paused', manual: 'hub', window: null, used: null, resets_at: later, near: null, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null } });
+  assert.deepEqual(gate({ ...calm, hubPause: later }), { pause_at: 90, state: 'paused', manual: 'hub', window: null, used: null, resets_at: later, near: null, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null }, paused: true, week: null, banner: { kind: 'manual', until: later, text: 'Work paused: you paused the hub. Resumes at {until}.' } });
   assert.equal(gate({ ...calm, boardPause: later }).manual, 'board');
   assert.equal(gate({ ...calm, hubPause: until, boardPause: later }).manual, 'hub', 'the hub pause covers every board');
   assert.equal(gate({ hubPause: later }).manual, 'hub', 'over the usage pause');
@@ -315,4 +315,26 @@ test('setClaudeModel saves opus, auto or sonnet beside the other hub settings an
     assert.throws(() => setClaudeModel(value, f.home), { message: 'claude-model takes opus, auto or sonnet', status: 400 });
   }
   assert.deepEqual(f.settings(), { codexShare: 'off', claudeModel: 'auto' });
+});
+
+test("the gate sends the week bar's tone once the week is live within the near band, none outside it", () => {
+  const tone = (seven, extra = {}) => gate({ claude: reading(34, seven), ...extra }).week;
+  assert.deepEqual([79, 80, 89, 90].map((n) => tone(n)), [null, 'high', 'high', 'full']);
+  assert.deepEqual([[60, 80], [59, 80], [99, 100]].map(([n, pauseAt]) => tone(n, { pauseAt })), ['high', null, null]);
+  assert.equal(gate({ claude: { five_hour: win(34), seven_day: win(95, week, 'stale') } }).week, null);
+});
+
+test('the gate words its banner: paused, going, near, near with Keep going, manual, and none when calm', () => {
+  const keep = { window: 'five_hour', until };
+  const b = (extra) => gate(extra).banner;
+  assert.deepEqual([95, 84, 50].map((n) => gate({ claude: reading(n) }).paused), [true, false, false]);
+  assert.equal(gate({ claude: reading(95), keepGoing: keep }).paused, false, 'Keep going lifts the pause');
+  assert.equal(gate({ hubPause: 'forever' }).paused, true);
+  assert.equal(b({ claude: reading(50) }), null);
+  assert.deepEqual(b({ claude: reading(95) }), { kind: 'paused', until, text: 'Work paused: Claude’s 5‑hour usage is at 95%. Resumes at {until}.' });
+  assert.deepEqual(b({ claude: reading(10, 95) }), { kind: 'paused', until: week, text: 'Work paused: Claude’s weekly usage is at 95%. Resumes {until}.' });
+  assert.deepEqual(b({ claude: reading(95), keepGoing: keep }), { kind: 'going', until, text: 'Past the buffer: spending usage until {until}' });
+  assert.deepEqual(b({ claude: reading(84) }), { kind: 'near', until, text: 'Approaching usage limit, reducing parallel tasks in progress' });
+  assert.deepEqual(b({ claude: reading(84), keepGoing: { ...keep, near: true } }), { kind: 'near-going', until, text: 'Approaching usage limit: tasks in progress back to the full cap until {until}' });
+  assert.deepEqual(b({ hubPause: 'forever' }), { kind: 'manual', until: 'forever', text: 'Work paused: you paused the hub until you resume.' });
 });

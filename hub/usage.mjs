@@ -153,6 +153,9 @@ function scanCodex(sessions) {
   return { five_hour: w(p, 'primary'), seven_day: w(s, 'secondary'), at: new Date(newest.mtime).toISOString() };
 }
 
+// The colour a usage bar draws: stale readings grey, else ok under 75%, high from 75%, full from 90%.
+export const toneOf =(state, used) => (state === 'stale' ? 'stale' : used >= 90 ? 'full' : used >= 75 ? 'high' : 'ok');
+
 function readingOf(reading, now) {
   if (!reading || typeof reading !== 'object' || Array.isArray(reading)) return null;
   const at = isoOf(reading.at);
@@ -163,7 +166,8 @@ function readingOf(reading, now) {
     if (w.used_percentage == null) return null;
     const state = !at || now - Date.parse(at) > WINDOW_MS[key] ? 'stale'
       : w.resets_at && now >= Date.parse(w.resets_at) ? 'reset' : 'live';
-    return { ...w, used_percentage: state === 'reset' ? 0 : w.used_percentage, state };
+    const used_percentage = state === 'reset' ? 0 : w.used_percentage;
+    return { ...w, used_percentage, state, tone: toneOf(state, used_percentage) };
   };
   return { at, five_hour: window('five_hour'), seven_day: window('seven_day') };
 }

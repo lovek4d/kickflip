@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { fixedDate } from '../shared/fixed-clock.mjs';
+import { toneOf } from '../hub/usage.mjs';
+import { usageGate } from '../shared/usage-gate.mjs';
 
 // The one time every test here builds its data from and every renderer counts to: each sandbox's Date stands still at it
 // (docs/adr/2026-11-13-1417-ui-tests-freeze-date-in-their-sandbox.md). Local noon, so a day either side stays a day.
@@ -216,14 +218,14 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(ui.statusLine(null), '');
   // The time never changes to words: only the span's class (red, orange) and title move.
   const cls = (html) => /class="([^"]*)"/.exec(html)[1];
-  for (const opts of [{ watcher: 'stopped' }, { link: 'offline' }, { link: 'reconnecting' }, { watcher: 'asleep' }, { watcher: 'waking' }, { pause: { state: 'paused', resets_at: ago(-1) } }, { watcher: 'stopped' }]) {
+  for (const opts of [{ watcher: 'stopped' }, { link: 'offline' }, { link: 'reconnecting' }, { watcher: 'asleep' }, { watcher: 'waking' }, { pause: { paused: true, resets_at: ago(-1) } }, { watcher: 'stopped' }]) {
     assert.equal(text(ui.statusLine(fresh, opts)), 'now', JSON.stringify(opts));
   }
   assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped' })), 'fresh', 'never coloured: the logo dot says it');
   assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /title="Claude not listening\. Updated /);
   assert.equal(cls(ui.statusLine(fresh, { link: 'offline' })), 'fresh');
-  assert.equal(cls(ui.statusLine(fresh, { pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh');
-  assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped', pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh');
+  assert.equal(cls(ui.statusLine(fresh, { pause: { paused: true, resets_at: ago(-1) } })), 'fresh');
+  assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped', pause: { paused: true, resets_at: ago(-1) } })), 'fresh');
   assert.equal(cls(ui.statusLine(fresh, { link: 'reconnecting' })), 'fresh');
   assert.match(ui.statusLine(fresh, { link: 'reconnecting' }), /title="Reconnecting…\. Updated /);
   assert.match(ui.statusLine(fresh, { watcher: 'asleep' }), /title="Asleep: [^"]*wakes it\. Updated /);
@@ -234,7 +236,7 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(cls(ui.statusLine(sec(59))), 'fresh');
   assert.equal(cls(ui.statusLine(sec(61))), 'fresh late');
   assert.equal(cls(ui.statusLine(sec(61), { watcher: 'stopped', link: 'offline' })), 'fresh late');
-  assert.equal(cls(ui.statusLine(sec(59), { watcher: 'stopped', pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh');
+  assert.equal(cls(ui.statusLine(sec(59), { watcher: 'stopped', pause: { paused: true, resets_at: ago(-1) } })), 'fresh');
   assert.equal(text(ui.statusLine(undefined, { link: 'offline' })), '');
   assert.equal(text(ui.githubLine(checks)), 'GitHub 4 min');
   assert.match(ui.githubLine(checks), /<svg class="gh-mark"[^>]*aria-label="GitHub"/);
@@ -2518,7 +2520,7 @@ test('the GitHub mark opens the Hub links sheet, with a red dot while a link is 
 test('usage stays within the Hub link and its card shows both windows, reset, stale and missing readings', () => {
   const at = new Date(NOW).toISOString();
   const resets_at = new Date(NOW + 3600_000).toISOString();
-  const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live' });
+  const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live', tone: toneOf('live', used_percentage) });
   const usage = { claude: { at, five_hour: live(75), seven_day: live(90) }, codex: { at, five_hour: live(42), seven_day: null } };
   const html = ui.sidebar({ usage }, { here: '_hub/' });
   const hub = /<a class="sb-row on sb-hub-usage"[^>]*>([^]*?)<\/a>/.exec(html)[1];
@@ -2533,7 +2535,7 @@ test('usage stays within the Hub link and its card shows both windows, reset, st
   usage.claude.five_hour = { ...live(0), state: 'reset' };
   assert.match(text(ui.sidebar({ usage })), /Claude · reset /);
   assert.match(text(context.HubUI.usageCard(usage)), /5-hour Reset /);
-  usage.claude.five_hour = { ...live(95), state: 'stale' };
+  usage.claude.five_hour = { ...live(95), state: 'stale', tone: toneOf('stale', 95) };
   const stale = ui.sidebar({ usage });
   assert.match(text(stale), /Claude · last seen/);
   assert.match(stale, /u-tone-stale/);
@@ -2543,15 +2545,17 @@ test('usage stays within the Hub link and its card shows both windows, reset, st
   assert.doesNotMatch(ui.sidebar({ usage }), /u-name">Claude/);
   assert.doesNotMatch(context.HubUI.usageCard(usage), /title">Claude/);
   assert.equal(context.HubUI.usageCard({ claude: null, codex: null }), '');
-  assert.deepEqual([74, 75, 89, 90].map((n) => ui.usageTone(live(n))), ['ok', 'high', 'high', 'full']);
+  assert.equal(ui.usageTone(live(75)), 'high');
+  assert.equal(ui.usageTone(null), 'none');
 });
 
 test('the sidebar shows Claude’s week as a second bar once it is within the near band of the pause line', () => {
   const resets_at = new Date(NOW + 3600_000).toISOString();
-  const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live' });
-  const hub = (week, pause_at, state = 'live') => /<a class="sb-row on sb-hub-usage"[^>]*>([^]*?)<\/a>/.exec(ui.sidebar({
-    usage: { claude: { at: resets_at, five_hour: live(34), seven_day: { ...live(week), state } }, codex: null }, pause: { pause_at },
-  }, { here: '_hub/' }))[1];
+  const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live', tone: toneOf('live', used_percentage) });
+  const hub = (week, pauseAt, state = 'live') => {
+    const claude = { at: resets_at, five_hour: live(34), seven_day: { ...live(week), state } };
+    return /<a class="sb-row on sb-hub-usage"[^>]*>([^]*?)<\/a>/.exec(ui.sidebar({ usage: { claude, codex: null }, pause: usageGate({ claude, pauseAt, now: NOW }) }, { here: '_hub/' }))[1];
+  };
   const bars = (html) => (html.match(/class="u-bar"/g) || []).length;
   assert.equal(bars(hub(79, 90)), 1);
   assert.equal(bars(hub(80, 90)), 2);
@@ -2569,7 +2573,9 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const resets_at = new Date(NOW + 3600_000).toISOString();
   const until = ui.usageClock(resets_at);
   const reading = { at: new Date(NOW).toISOString(), five_hour: { used_percentage: 91, resets_at, state: 'live' }, seven_day: null };
-  const pause = { pause_at: 90, state: 'paused', window: 'five_hour', used: 91, resets_at };
+  const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live' });
+  const gateOf = (five, keepGoing, week = null) => usageGate({ claude: { five_hour: live(five), seven_day: week && live(week) }, keepGoing, now: NOW });
+  const pause = gateOf(91);
   const hub = context.HubUI;
   const card = hub.usageCard({ claude: reading, codex: reading }, null, pause);
   assert.match(text(card), /Codex .*Pause work at 10% buffer − 90% \+/);
@@ -2589,25 +2595,26 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.match(text(banner), /Work paused: Claude’s 5‑hour usage is at 91%. Resumes at/);
   assert.match(banner, /action="\/_hub\/settings\/keep-going"/);
   assert.match(banner, /name="value" value="on">Keep going/);
-  const weekly = hub.pauseBanner({ ...pause, window: 'seven_day' });
+  const weekly = hub.pauseBanner(gateOf(10, undefined, 91));
   assert.match(text(weekly), /weekly usage is at 91%. Resumes /);
   assert.doesNotMatch(text(weekly), /Resumes at/);
-  const going = hub.pauseBanner({ ...pause, state: 'going' });
+  const keep = { window: 'five_hour', until: resets_at };
+  const going = hub.pauseBanner(gateOf(91, keep));
   assert.match(going, /hold-banner ub-banner ub-going/);
   assert.match(text(going), /Past the buffer: spending usage until .* Stop/);
   assert.match(going, /<button class="btn quiet" name="value" value="off">Stop/);
   assert.equal(hub.pauseBanner({ state: 'normal' }), '');
   // docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
-  const near = { ...pause, state: 'normal', window: null, used: null, near: { window: 'five_hour', used: 84, resets_at: pause.resets_at, from: 80, going: false } };
+  const near = gateOf(84);
   const slowing = hub.pauseBanner(near);
   assert.match(slowing, /hold-banner ub-banner ub-paused/);
   assert.equal(text(slowing), 'Approaching usage limit, reducing parallel tasks in progress Keep going');
   assert.match(slowing, /action="\/_hub\/settings\/keep-going"><button class="btn quiet" name="value" value="on">/);
-  const together = hub.pauseBanner({ ...near, near: { ...near.near, going: true } });
+  const together = hub.pauseBanner(gateOf(84, { ...keep, near: true }));
   assert.match(together, /hold-banner ub-banner ub-going/);
   assert.match(text(together), /^Approaching usage limit: tasks in progress back to the full cap until .* Stop$/);
   assert.match(together, /name="value" value="off"/);
-  assert.equal(hub.pauseBanner({ state: 'normal', near: null }), '');
+  assert.equal(hub.pauseBanner(gateOf(50)), '');
   const chips = [{ lane: 'todo', text: '3 todo' }];
   // The hub sends a held board's row already grey paused (hub/home.mjs heldSite).
   const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: { status: { shape: 'dot', colour: 'grey', word: 'paused' }, stale: false, chips } }];
@@ -2634,14 +2641,14 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.match(degradedPaused, /it-orange"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">degraded/);
   assert.doesNotMatch(degradedPaused, PAUSED);
   assert.match(ui.statusLine(ago(0), { pause }), new RegExp(`^<span class="fresh" title="Paused until ${until}\\. Updated [^"]*">now</span>$`));
-  assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
+  assert.doesNotMatch(ui.statusLine(null, { pause: gateOf(91, keep) }), /paused/i);
 });
 
 // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
 test('Pause hub reads paused on the Hub row and every board with Resume on its banner; Pause board on its own row alone', () => {
   const resets_at = new Date(NOW + 3600_000).toISOString();
   const until = ui.usageClock(resets_at);
-  const manual = (scope) => ({ pause_at: 90, state: 'paused', manual: scope, window: null, used: null, resets_at });
+  const manual = (scope) => usageGate({ hubPause: scope === 'hub' ? resets_at : null, boardPause: scope === 'board' ? resets_at : null, now: NOW });
   const working = { status: { shape: 'pulse', colour: 'orange', word: 'working' }, stale: false, chips: null };
   const banner = context.HubUI.pauseBanner(manual('hub'));
   assert.equal(text(banner), `Work paused: you paused the hub. Resumes at ${until}. Resume`);
@@ -2675,10 +2682,10 @@ test('a busy host reads busy on the Hub row and the logo dot, not on a board or 
   assert.match(busy, /<span class="it it-orange"><span class="it-i it-pulse" aria-hidden="true"><\/span><span class="it-w">working/, 'its working dot pulses');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'ok' } }), 'busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'down' } }), 'down', 'a broken hub reads red before busy');
-  assert.equal(ui.hubDot({ pause: { state: 'paused', machine: { ...machine, busy: false, banner: false } }, hub: { tone: 'ok' } }), 'paused', 'a pause shows grey, not busy');
+  assert.equal(ui.hubDot({ pause: { paused: true, machine: { ...machine, busy: false, banner: false } }, hub: { tone: 'ok' } }), 'paused', 'a pause shows grey, not busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine: { state: 'normal' } }, hub: { tone: 'ok' } }), '');
   const heldSites = [{ ...sites[0], sub: { ...working, status: { shape: 'dot', colour: 'grey', word: 'paused' } } }, sites[1]];
-  const both = ui.sidebar({ pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine: { ...machine, busy: false, banner: false } }, sites: heldSites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  const both = ui.sidebar({ pause: { paused: true, resets_at: new Date(NOW + 3600_000).toISOString(), machine: { ...machine, busy: false, banner: false } }, sites: heldSites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.doesNotMatch(both, />busy</, 'a pause reads first');
   assert.equal([...both.matchAll(PAUSED)].length, 2);
   const calm = ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal', reason: null } }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
@@ -2696,7 +2703,7 @@ test('a busy host reads busy on the Hub row and the logo dot, not on a board or 
 });
 
 test('a Forever Pause hub or Pause board reads until you resume on the banner, the Hub row and the header', () => {
-  const forever = (scope) => ({ pause_at: 90, state: 'paused', manual: scope, window: null, used: null, resets_at: 'forever' });
+  const forever = (scope) => usageGate({ hubPause: scope === 'hub' ? 'forever' : null, boardPause: scope === 'board' ? 'forever' : null, now: NOW });
   assert.equal(text(context.HubUI.pauseBanner(forever('hub'))), 'Work paused: you paused the hub until you resume. Resume');
   assert.match(text(ui.sidebar({ pause: forever('hub'), sites: [], hub: { tone: 'ok', word: 'healthy', detail: 'up' } })), /paused until you resume/);
   assert.equal(ui.statusLine(null, { pause: forever('board') }), '<span class="fresh" title="Paused until you resume"></span>');
@@ -3092,7 +3099,7 @@ test('a fault line with an error draws as a closed section: its title shows, the
 
 test('the header time stays plain while usage is paused, and the hub pause banner with Keep going is the one the board shows', () => {
   const resets_at = new Date(NOW + 3600_000).toISOString();
-  const pause = { pause_at: 90, state: 'paused', manual: null, window: 'weekly', used: 95, resets_at, near: null };
+  const pause = usageGate({ claude: { five_hour: { used_percentage: 95, resets_at, state: 'live' } }, now: NOW });
   assert.equal(/class="fresh"/.test(ui.statusLine(null, { pause })), true);
   assert.match(context.HubUI.pauseBanner(pause), /action="\/_hub\/settings\/keep-going"><button class="btn quiet" name="value" value="on">Keep going/);
 });
@@ -3125,7 +3132,7 @@ test('the logo dot is the highest of red, orange, blue, grey: not listening or o
   assert.equal(ui.hubDot({ ...busy, sites: [{ route: 'b', board: true, listen: 'deaf' }] }), 'down', 'red beats orange');
   assert.equal(ui.hubDot(busy, { update: 'ready' }), 'busy', 'orange beats blue');
   assert.equal(ui.hubDot(ok, { update: 'ready' }), 'update');
-  const paused = { ...ok, pause: { state: 'paused' } };
+  const paused = { ...ok, pause: { paused: true } };
   assert.equal(ui.hubDot(paused, { update: 'ready' }), 'update', 'blue beats grey');
   assert.equal(ui.hubDot(paused), 'paused');
   assert.equal(ui.hubDot(null), '');
@@ -3161,7 +3168,7 @@ test('a host busy for more than 30 minutes adds a banner at the sidebar top that
   assert.match(text(banner), /Host busy \(31m\): load high/);
   assert.ok(busyFor(31).indexOf('sb-busy-banner') < busyFor(31).indexOf('sb-utility'), 'it sits above the Hub section');
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /sb-busy-banner/, 'gone when idle');
-  assert.doesNotMatch(busyFor(31, { pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine: { state: 'busy', busy: false, banner: false, reason: 'load high', since: new Date(NOW - 31 * 60_000).toISOString() } } }), /sb-busy-banner/, 'a usage pause reads first');
+  assert.doesNotMatch(busyFor(31, { pause: { paused: true, resets_at: new Date(NOW + 3600_000).toISOString(), machine: { state: 'busy', busy: false, banner: false, reason: 'load high', since: new Date(NOW - 31 * 60_000).toISOString() } } }), /sb-busy-banner/, 'a usage pause reads first');
 });
 
 // docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md

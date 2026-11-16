@@ -7,6 +7,7 @@ import { DEFAULTS, hold, flushAt, snoozeEnd } from './schedule.mjs';
 import { durationEnd } from './duration.mjs';
 import { hubView, settingsView, siteHealth, flushView } from './views.mjs';
 import { codexStatus } from '../shared/codex.mjs';
+import { usageGate } from '../shared/usage-gate.mjs';
 
 // The gate as readUsageGate reads it with no pause and a calm Mac, which every hub page carries.
 const CALM_GATE = { pause_at: 90, state: 'normal', manual: null, window: null, used: null, resets_at: null, machine: { state: 'normal', reason: null } };
@@ -978,8 +979,11 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   const toasts = [];
   let live;
   let changed = 0;
-  let gate = { pause_at: 90, state: 'paused', used: 91, window: 'five_hour', resets_at: new Date(Date.now() + 3600_000).toISOString(), machine: CALM_GATE.machine };
-  const data = () => ({ integrations: [], pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
+  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const five_hour = { used_percentage: 91, resets_at, state: 'live' };
+  const choice = { pauseAt: 90, going: false };
+  const gateNow = () => usageGate({ claude: { five_hour }, pauseAt: choice.pauseAt, keepGoing: choice.going ? { window: 'five_hour', until: resets_at } : undefined, machine: CALM_GATE.machine });
+  const data = () => ({ integrations: [], pause: gateNow(), usage: { claude: { at: new Date().toISOString(), five_hour } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
     BoardNewTask: { markup: () => '', wire() {} }, BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
@@ -987,8 +991,8 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
     BoardUI: { ...BOARD_UI }, PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
       posts.push([url, opts.method, opts.body.toString()]);
-      if (url.endsWith('/pause-at')) gate.pause_at = Number(opts.body.get('value'));
-      else gate.state = opts.body.get('value') === 'on' ? 'going' : 'paused';
+      if (url.endsWith('/pause-at')) choice.pauseAt = Number(opts.body.get('value'));
+      else choice.going = opts.body.get('value') === 'on';
       return { ok: true, json: async () => data() };
     },
   });
