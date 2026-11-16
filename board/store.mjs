@@ -946,6 +946,16 @@ export async function relateAsk(site, eventId, key, summary) {
 // item relate-ask does, a line on both.
 export const TRIAGE_PHASES = ['discussing', 'grilling', 'prototyping', 'visual'];
 const inIntake = (item) => (item.from_ask ? stillNew(item) : Boolean(item.unfiled) && !item.phase);
+// Every command that writes to a card refuses while it is still in intake: item triage is the one that sorts it.
+// A name without a "/" is an ask's event id: the card the ask became is the one written to, if it has one.
+export async function refuseInIntake(site, keys) {
+  for (const name of keys) {
+    const card = name.includes('/') ? { key: name, ...(await loadItem(site, name)) } : await askCardOf(needSite(site), name);
+    if (!card) continue;
+    const { key, item } = card;
+    if (inIntake(item)) fail(`${key} is still in New: sort it first with item triage ${key} --title "<type>(<scope>): <summary>" --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task>; a Quick build ask goes item notes ${key}, then item set ${key} --phase ready --size small --from-ask <id>`);
+  }
+}
 export async function triageItem(site, key, { title, phase, relate, splitOf, deps, ticket, text: said, foldInto }, options) {
   needSite(site);
   const { item } = await loadItem(site, key);

@@ -144,9 +144,10 @@ test('an ask routed from a Slack @kickflip always discusses first: item add and 
   assert.deepEqual(added, { code: 1, out: '', err: refused });
   assert.equal(item('S1'), undefined);
   write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'fix: header', plan: 'a1.md', from_ask: 'es' }] });
-  assert.deepEqual(await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small'), { code: 1, out: '', err: refused });
+  // docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md: a New card takes item triage first.
+  assert.match((await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small')).err, /w\/A1 is still in New/);
   assert.equal(item().phase, undefined);
-  assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'discussing')).code, 0);
+  assert.equal((await board('item', 'triage', 'w/A1', '--site', 'orch', '--title', 'fix(board): header', '--phase', 'discussing')).code, 0);
   setState({ phase: 'staging', staged_at: '2026-11-06T10:05:00.000Z', size: 'small' });
   const r = await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--text', 'Discussed with Ann.');
   assert.equal(r.code, 0, r.err);

@@ -342,9 +342,9 @@ test('item notes resolves only answered questions', async () => {
 test("a reply, a build's start and a later builder start each resolve the answered questions they act on, leaving the rest", async () => {
   const on = (id, topic) => question(id, { topic });
   const answer = (id) => ({ id: `answer-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } });
-  // Ask e1 is New card w/T-1, so a reply to it acts on that card's questions.
+  // Ask e1 is card w/T-1, sorted discussing (a New card takes no reply), so a reply to it acts on that card's questions.
   const w = wave();
-  w.items.push({ id: 'T-1', title: 'Asked', lane: 'todo', from_ask: 'e1' });
+  w.items.push({ id: 'T-1', title: 'Asked', lane: 'todo', phase: 'discussing', from_ask: 'e1' });
   write(at('waves', 'w', 'wave.json'), w);
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [on('ask-q', 'item:w/T-1'), on('card-q', 'item:w/A1'), on('open-q', 'item:w/A1')] });
   addEvents(answer('ask-q'), answer('card-q'));
@@ -804,9 +804,9 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
 });
 
 // docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md
-test('reply --title titles only the New or answered task an ask became, and item relate-ask takes no --title', async () => {
+test('reply --title titles only the task an ask became, sorted by item triage, and item relate-ask takes no --title', async () => {
   const w = wave();
-  w.items.push({ id: 'T-1', title: 'Header', lane: 'todo', from_ask: 'e1' }, { id: 'T-2', title: 'and the footer', lane: 'todo', from_ask: 'e2' });
+  w.items.push({ id: 'T-1', title: 'Header', lane: 'todo', phase: 'discussing', from_ask: 'e1' }, { id: 'T-2', title: 'and the footer', lane: 'todo', from_ask: 'e2' });
   write(at('waves', 'w', 'wave.json'), w);
   addEvents({ id: 'e2', ts: '2026-10-23T10:05:00Z', kind: 'ask', data: { text: 'and the footer' } },
     { id: 'm2', ts: '2026-10-23T10:07:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'on a task' } });
@@ -858,9 +858,8 @@ test('ask move refuses a route that is not another board, and an ask that is not
     { id: 'm1', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Not an ask' } });
   // e1's card is answered and e7's started, so neither moves.
   const w = wave();
-  w.items.push({ id: 'T-1', title: 'Answered', lane: 'todo', from_ask: 'e1' }, { id: 'T-2', title: 'Talked', lane: 'progress', next: 'Building', from_ask: 'e7' });
+  w.items.push({ id: 'T-1', title: 'Answered', lane: 'todo', phase: 'discussing', answered_at: '2026-10-23T10:30:00Z', from_ask: 'e1' }, { id: 'T-2', title: 'Talked', lane: 'progress', next: 'Building', from_ask: 'e7' });
   write(at('waves', 'w', 'wave.json'), w);
-  await board('reply', 'e1', '--site', 'orch', '--text', 'Answered.');
   await board('item', 'relate-ask', 'e4', 'w/A1', '--summary', 'Folded in', '--site', 'orch');
   const refusals = [
     [['e7', '--to', 'nope'], /--to nope: no board at \/nope in the hub's manifest; the boards are orch, audit/],

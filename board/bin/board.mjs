@@ -985,6 +985,7 @@ const COMMANDS = {
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
     const input = readJSONInput(f.file);
+    await store.refuseInIntake(site, itemTopics(input));
     return { ...(await store.addQuestions(site, input, renderCheck())), asked: [input].flat() };
   }],
   'question resolve': [['id'], ['note', 'close', 'implement'], (site, [id], f) => {
@@ -1305,6 +1306,18 @@ const ACTS = {
   'builder verified': onCard, 'builder answer': onCard, 'builder defer': onCard,
 };
 
+// docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md
+// The cards a command writes to, which must be sorted: a card still in New takes nothing until item triage sorts it.
+// A thread line of the owner's (--who love) is the owner's message, which a New card is made of. The Quick pair also
+// sorts a New card: item notes, then item set --phase ready --from-ask <id>.
+const itemTopics = (questions) => [...new Set([questions].flat().map((q) => String(q.topic || '')).filter((t) => t.startsWith('item:') && !t.startsWith('item:ask:')).map((t) => t.slice(5)))];
+const WRITES = {
+  'item set': (site, [key], f) => (f.phase === 'ready' && f['from-ask'] !== undefined ? [] : [key]),
+  'item brief': onCard,
+  reply: (site, [id]) => [id],
+  thread: (site, [key], f) => ((f.who ?? 'claude') === 'claude' ? [key] : []),
+};
+
 export async function main(argv, options = {}) {
   try {
     const { flags, rest } = parse(argv);
@@ -1323,6 +1336,8 @@ export async function main(argv, options = {}) {
     checkInputs(allowed, opts);
     const site = route === undefined ? null : await store.siteDir(route);
     if (site && TO_OWNER[name] && (name !== 'thread' || (opts.who ?? 'claude') === 'claude')) await store.refuseQuestionIds(site, TO_OWNER[name].map((flag) => opts[flag]));
+    const writes = routeRecord(WRITES, name);
+    if (site && writes) await store.refuseInIntake(site, await writes(site, args, opts));
     const result = await run(site, args, opts, options);
     const acts = routeRecord(ACTS, name);
     if (site && acts) await store.markActedOn(site, await acts(site, args, opts, result));

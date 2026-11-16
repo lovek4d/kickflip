@@ -101,6 +101,8 @@ async function store() {
   process.env.HOME = home;
   return import('./store.mjs');
 }
+// docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md: a New card is sorted by item triage.
+const triage = (key, phase = 'discussing') => board('item', 'triage', key, '--title', 'fix(board): the header', '--phase', phase, '--site', 'audit');
 
 test('the board files a New ask as a T-<n> card once, titled by its first line with no phase, and never reuses a number a dropped card had', async () => {
   auditEvents(ask, { id: 'a2', ts: '2026-11-09T10:01:00Z', kind: 'ask', data: { text: '', files: [{ name: 'shot.png' }] } });
@@ -116,33 +118,35 @@ test('the board files a New ask as a T-<n> card once, titled by its first line w
   assert.equal(await s.fileAsk(audit(), 'a2'), 'audit/T-2');
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-2').title, 'shot.png');
   // A sorted card is not dropped by a withdrawal.
-  assert.equal((await board('item', 'set', 'audit/T-2', '--phase', 'grilling', '--site', 'audit')).code, 0);
+  assert.equal((await triage('audit/T-2', 'grilling')).code, 0);
   assert.equal(await s.dropAskCard(audit(), 'a2'), null);
 });
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
-test('the first phase a New card gets stamps when it was ingested, by item set or by a reply, and a later phase keeps that stamp', async () => {
+test('the first phase a New card gets stamps when it was ingested, by item triage, and a later phase keeps that stamp', async () => {
   auditEvents(ask, { id: 'a2', ts: '2026-11-09T10:01:00Z', kind: 'ask', data: { text: 'Second' } });
   const s = await store();
   await s.fileAsk(audit(), 'a1');
   await s.fileAsk(audit(), 'a2');
   const item = (id) => read(audit('data', 'items.json')).items.find((i) => i.id === id);
   assert.equal(item('T-1').sorted_at, undefined);
-  assert.equal((await board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit')).code, 0);
+  assert.equal((await triage('audit/T-1', 'grilling')).code, 0);
   const first = item('T-1').sorted_at;
   assert.ok(Date.parse(first) > Date.parse('2026-11-09T10:00:00Z'));
   assert.equal((await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit')).code, 0);
   assert.equal(item('T-1').sorted_at, first);
-  assert.equal((await board('reply', 'audit/T-2', '--text', 'Yes.', '--site', 'audit')).code, 0);
+  assert.equal((await triage('audit/T-2')).code, 0);
   assert.ok(item('T-2').sorted_at);
 });
 
 // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md
-test('reply on a New card starts its discussion: a message in its thread, the card discussing; on a card sorted otherwise it is refused, and --phase takes an answered card back to Todo', async () => {
+test('reply on a New card is refused until it is triaged; then it is a message in its thread; on a card sorted otherwise it is refused, and --phase takes an answered card back to Todo', async () => {
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  const r = await board('reply', 'audit/T-1', '--text', 'It jumps because of the sticky bar.', '--title', 'fix: header jumps on scroll', '--site', 'audit');
+  assert.match((await board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit')).err, /still in New/);
+  assert.equal((await triage('audit/T-1')).code, 0);
+  const r =await board('reply', 'audit/T-1', '--text', 'It jumps because of the sticky bar.', '--title', 'fix: header jumps on scroll', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   const t1 = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
   assert.deepEqual([t1.answered_at, t1.phase, t1.title], [undefined, 'discussing', 'fix: header jumps on scroll']);
@@ -159,10 +163,12 @@ test('reply on a New card starts its discussion: a message in its thread, the ca
   assert.deepEqual([back.answered_at, back.phase, back.lane], [undefined, 'discussing', 'todo']);
 });
 
-test('reply to an ask whose card is New writes the reply and starts its discussion', async () => {
+test('reply to an ask whose card is New is refused; once the card is triaged it writes the reply', async () => {
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
+  assert.match((await board('reply', 'a1', '--text', 'Yes.', '--site', 'audit')).err, /still in New/);
+  await triage('audit/T-1');
   assert.equal((await board('reply', 'a1', '--text', 'Yes.', '--site', 'audit')).code, 0);
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'discussing');
 });
@@ -183,7 +189,7 @@ test('item relate-ask on an ask whose card is New merges it: the card goes, its 
   // A sorted card is filed work: relate-ask refuses rather than dropping it.
   auditEvents({ ...ask, id: 'a3' });
   await s.fileAsk(audit(), 'a3');
-  await board('item', 'set', 'audit/T-2', '--phase', 'grilling', '--site', 'audit');
+  await triage('audit/T-2', 'grilling');
   assert.match((await board('item', 'relate-ask', 'a3', 'audit/A1', '--summary', 'x', '--site', 'audit')).err, /became audit\/T-2/);
 });
 
@@ -193,8 +199,10 @@ test('a Quick build ask\'s New card goes ready from new on item set --phase read
   await s.fileAsk(audit(), 'a1');
   const notes = path.join(home, 'n.md');
   fs.writeFileSync(notes, 'Pin the header.');
+  // docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md: the Quick pair sorts a New card; a reply does not.
+  assert.match((await board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit')).err, /still in New: sort it first with item triage audit\/T-1 .*item notes audit\/T-1, then item set audit\/T-1 --phase ready/);
   assert.equal((await board('item', 'notes', 'audit/T-1', '--heading', 'Scope', '--file', notes, '--site', 'audit')).code, 0);
-  const r = await board('item', 'set', 'audit/T-1', '--phase', 'ready', '--size', 'small', '--title', 'fix(board): pin the header', '--site', 'audit');
+  const r = await board('item', 'set', 'audit/T-1', '--phase', 'ready', '--size', 'small', '--from-ask', 'a1', '--text', 'Quick build.', '--title', 'fix(board): pin the header', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'ready');
   // item add --from-ask on an ask that already has its card points at the card.
@@ -207,12 +215,6 @@ test('every sorting command refuses an ask edited after its working mark, printi
   const notes = path.join(home, 'n.md');
   fs.writeFileSync(notes, 'Pin the header.');
   const commands = [
-    ['reply on its task', (key) => ['reply', key, '--text', 'It jumps.'], (item) => item.phase === 'discussing'],
-    ['reply on its ask', (key, id) => ['reply', id, '--text', 'It jumps.'], (item) => item.phase === 'discussing'],
-    ['item set --phase ready', (key) => ['item', 'set', key, '--phase', 'ready', '--size', 'small', '--title', 'fix(board): asks wait for done'], (item) => item.phase === 'ready'],
-    ['item set --phase grilling', (key) => ['item', 'set', key, '--phase', 'grilling'], (item) => item.phase === 'grilling'],
-    ['item set --phase prototyping', (key) => ['item', 'set', key, '--phase', 'prototyping'], (item) => item.phase === 'prototyping'],
-    ['item set --title', (key) => ['item', 'set', key, '--title', 'fix(board): header jumps'], (item) => item.title === 'fix(board): header jumps'],
     ['item relate-ask', (key, id) => ['item', 'relate-ask', id, 'audit/A1', '--summary', 'Same as the header work'], (item) => item === undefined],
     ['item triage', (key) => ['item', 'triage', key, '--title', 'fix(board): header jumps', '--phase', 'discussing'], (item) => item.phase === 'discussing'],
   ];
@@ -220,7 +222,6 @@ test('every sorting command refuses an ask edited after its working mark, printi
     const id = `r${n}`;
     auditEvents({ id, ts: '2026-11-12T09:38:00.000Z', kind: 'ask', data: { text: 'Completed asks go straight to Done', quick: true } });
     const key = await s.fileAsk(audit(), id);
-    await board('item', 'notes', key, '--heading', 'Scope', '--file', notes, '--site', 'audit');
     write(audit('data', 'working.json'), { events: { ...(fs.existsSync(audit('data', 'working.json')) ? read(audit('data', 'working.json')).events : {}), [id]: '2026-11-12T09:38:03.000Z' } });
     auditEvents({ id: `x${n}`, ts: '2026-11-12T09:38:14.000Z', kind: 'ask-edited', data: { id, key, text: 'Completed asks wait in In Review for my Done' } });
     const item = () => read(audit('data', 'items.json')).items.find((i) => i.from_ask === id);
@@ -242,18 +243,17 @@ test('an ask edited before its hand-over sorts at once; an edited ask never hand
   await s.fileAsk(audit(), 'a1');
   write(audit('data', 'working.json'), { events: { a1: '2026-11-09T10:01:00Z' } });
   auditEvents({ id: 'm1', ts: '2026-11-09T10:02:00Z', kind: 'item-message', data: { key: 'audit/T-1', text: 'Also the footer' } });
-  assert.deepEqual((await board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit')).code, 0);
+  assert.deepEqual((await triage('audit/T-1', 'grilling')).code, 0);
 
   auditEvents({ ...ask, id: 'a2' }, { id: 'x2', ts: '2026-11-09T10:00:30Z', kind: 'ask-edited', data: { id: 'a2', text: 'Fix the footer' } });
   await s.fileAsk(audit(), 'a2');
-  for (const flags of [['--ticket', '41'], ['--new-ticket'], ['--phase', 'discussing']]) {
+  for (const flags of [['--ticket', '41'], []]) {
     write(audit('data', 'working.json'), { events: { a1: '2026-11-09T10:01:00Z' } });
-    assert.match((await board('item', 'set', 'audit/T-2', ...flags, '--site', 'audit')).err, /task a2 was edited at 2026-11-09T10:00:30Z, after you read it\. Its text now:\nFix the footer\n/, flags[0]);
+    assert.match((await board('item', 'triage', 'audit/T-2', '--title', 'fix(board): the footer', '--phase', 'discussing', ...flags, '--site', 'audit')).err, /task a2 was edited at 2026-11-09T10:00:30Z, after you read it\. Its text now:\nFix the footer\n/, flags[0]);
   }
-  // Commands that don't sort it, and asks with no edit, are untouched.
+  // Asks with no edit are untouched.
   write(audit('data', 'working.json'), { events: {} });
-  assert.equal((await board('item', 'set', 'audit/T-2', '--next', 'Then this', '--site', 'audit')).code, 0);
   auditEvents({ ...ask, id: 'a3' });
   await s.fileAsk(audit(), 'a3');
-  assert.equal((await board('item', 'set', 'audit/T-3', '--phase', 'grilling', '--site', 'audit')).code, 0);
+  assert.equal((await triage('audit/T-3', 'grilling')).code, 0);
 });

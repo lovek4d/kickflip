@@ -41,12 +41,15 @@ async function store() {
   process.env.HOME = home;
   return import('./store.mjs');
 }
+// docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md: a New card is sorted by item triage.
+const triage = (key, phase = 'discussing') => board('item', 'triage', key, '--title', 'fix(board): the footer', '--phase', phase, '--site', 'audit');
 const ask = { id: 'a1', ts: '2026-11-09T10:00:00Z', kind: 'ask', data: { text: 'Rethink the footer' } };
 
 test('reply --implement and --close post the message and store the mark; the owner\'s tap or any message clears it; a reply without a flag sets none', async () => {
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
   assert.equal((await board('reply', 'audit/T-1', '--text', 'Plain.', '--site', 'audit')).code, 0);
   assert.equal(t1().waits_on_owner, undefined);
   const r = await board('reply', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
@@ -76,6 +79,9 @@ test('--implement and --close are refused on a reply to an event, which has no c
     assert.notEqual(r.code, 0);
     assert.match(r.err, /--implement and --close/);
   }
+  fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
+  await (await store()).fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
   const both = await board('reply', 'audit/T-1', '--text', 'x', '--implement', '--close', '--site', 'audit');
   assert.notEqual(both.code, 0);
   assert.match(both.err, /not both/);
@@ -85,6 +91,7 @@ test('thread --implement marks any ticket ready to implement, and is refused wit
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
   const t = await board('thread', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
   assert.deepEqual([t.code, t.err], [0, '']);
   assert.equal(t1().waits_on_owner.on, 'implement');
@@ -115,6 +122,7 @@ test('item set --done on an ask card no build ran on is refused, pointing at rep
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
   const r = await board('item', 'set', 'audit/T-1', '--done', '--text', 'Answered: yes.', '--site', 'audit');
   assert.notEqual(r.code, 0);
   assert.match(r.err, /reply .*--close/);
@@ -130,6 +138,7 @@ test('item set --done is refused on an ask only a planner ran on, and goes throu
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
   const agent = audit('data', 'agents', 'T-1.json');
   fs.mkdirSync(path.dirname(agent), { recursive: true });
   fs.writeFileSync(agent, JSON.stringify({ kind: 'grill', started: '2026-11-09T10:05:00Z', done: '2026-11-09T10:10:00Z' }));
@@ -172,6 +181,7 @@ test('reply and thread --implement mark the phase and lane they were set in; thr
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
   await board('reply', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
   assert.deepEqual([t1().waits_on_owner.phase, t1().waits_on_owner.lane], ['discussing', t1().lane]);
   await s.clearOwnerWait(audit(), 'audit/T-1');
@@ -196,6 +206,7 @@ test('a reply or thread line asking the owner to tap Implement or Done is refuse
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
   const file = audit('data', 'threads', 'audit__T-1.jsonl');
   const lines = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0);
   for (const [args, flag] of [[['reply', 'audit/T-1', '--text', 'Three parts. Tap Implement.'], '--implement'], [['thread', 'audit/T-1', '--text', 'Shipped; tap done.'], '--close'], [['thread', 'audit/T-1', '--text', 'Nothing to build, so Tap Done.'], '--close']]) {

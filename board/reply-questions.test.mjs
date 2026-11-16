@@ -25,6 +25,8 @@ async function askCard() {
   process.env.HOME = home;
   const { fileAsk } = await import('./store.mjs');
   await fileAsk(site('audit'), 'a1');
+  // docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md: a New card takes no reply until sorted.
+  assert.equal((await board('item', 'triage', 'audit/T-1', '--title', 'fix(board): the header', '--phase', 'discussing', '--site', 'audit')).code, 0);
 }
 const auditThread = () => site('audit', 'data', 'threads', 'audit__T-1.jsonl');
 const auditOwned = () => read(site('audit', 'data', 'owner.json')).items;

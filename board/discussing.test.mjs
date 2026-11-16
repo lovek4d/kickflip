@@ -62,12 +62,15 @@ async function store() {
   process.env.HOME = home;
   return import('./store.mjs');
 }
+// docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md: a New card is sorted by item triage.
+const triage = (key, phase = 'discussing') => board('item', 'triage', key, '--title', 'fix(board): the footer', '--phase', phase, '--site', 'audit');
 
-test('reply on a New card starts its discussion: a message in its thread, the card discussing in Todo; a later reply goes on with it', async () => {
+test('reply on a triaged card is a message in its thread, the card discussing in Todo; a later reply goes on with it', async () => {
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  const r = await board('reply', 'audit/T-1', '--text', 'The footer could fold into the sidebar.', '--title', 'feat: footer rethink', '--site', 'audit');
+  await triage('audit/T-1');
+  const r =await board('reply', 'audit/T-1', '--text', 'The footer could fold into the sidebar.', '--title', 'feat: footer rethink', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.deepEqual([t1().phase, t1().lane, t1().answered_at, t1().title], ['discussing', 'todo', undefined, 'feat: footer rethink']);
   const again = await board('reply', 'audit/T-1', '--text', 'Or stay as it is on desktop.', '--site', 'audit');
@@ -77,11 +80,11 @@ test('reply on a New card starts its discussion: a message in its thread, the ca
   assert.match((await board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit')).err, /sorted \(grilling\)/);
 });
 
-test("item set --phase discussing files a card discussing, and leaving it for grilling or prototyping owes the orchestrator's brief for the round", async () => {
+test("item triage --phase discussing files a card discussing, and leaving it for grilling or prototyping owes the orchestrator's brief for the round", async () => {
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  const r = await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  const r = await triage('audit/T-1');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(t1().phase, 'discussing');
   const before = new Date().toISOString();
@@ -105,7 +108,7 @@ test("item brief writes the orchestrator's brief into the notes as \"Brief for <
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  await triage('audit/T-1');
   await s.planAgain(audit(), 'audit/T-1', 'grill', { text: 'Ask about mobile' });
   assert.equal(t1().phase, 'grilling');
   assert.deepEqual(t1().briefs.map(({ kind, ask: asked, brief }) => [kind, asked, brief]), [['grill', { text: 'Ask about mobile' }, undefined]]);
@@ -139,7 +142,7 @@ test("the board's start of a planner or visual agent takes the oldest written br
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  await triage('audit/T-1');
   await s.planAgain(audit(), 'audit/T-1', 'grill', { text: 'Ask about mobile' });
   await assert.rejects(s.startPlanner(audit(), 'audit/T-1', 'grill'), /has no grill brief; the orchestrator writes it with item brief audit\/T-1 --kind grill --file <draft.md>/);
   await assert.rejects(s.startVisual(audit(), 'audit/T-1'), /has no visual brief/);
@@ -166,7 +169,7 @@ test("a planner's or visual agent's record is written once, so no read of it sho
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  await triage('audit/T-1');
   const draft = path.join(home, 'brief.md');
   fs.writeFileSync(draft, 'Cover the phone layout.');
   const agents = audit('data', 'agents');
@@ -198,7 +201,7 @@ test("the owner's Grill or Prototype tap on a discussing card moves it to that p
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  await triage('audit/T-1');
   await s.planAgain(audit(), 'audit/T-1', 'grill');
   assert.equal(t1().phase, 'grilling');
   await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
@@ -212,7 +215,7 @@ test('item brief appends a brief-written event and posts "<Kind> requested" for 
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  await triage('audit/T-1');
   const draft = path.join(home, 'brief.md');
   fs.writeFileSync(draft, 'Settled: a phone layout.');
   const thread = () => lines(audit('data', 'threads', 'audit__T-1.jsonl')).filter((l) => l.command);
@@ -236,7 +239,7 @@ test('a card set to discussing, by item set or a reply, drops its unwritten brie
   await s.fileAsk(audit(), 'a1');
   await s.oweBrief(audit(), 'audit/T-1', 'grill');
   assert.equal(t1().briefs.length, 1);
-  assert.equal((await board('reply', 'audit/T-1', '--text', 'Talk first.', '--site', 'audit')).code, 0);
+  assert.equal((await triage('audit/T-1')).code, 0);
   assert.deepEqual([t1().phase, t1().briefs], ['discussing', undefined]);
   await s.oweBrief(audit(), 'audit/T-1', 'grill');
   const draft = path.join(home, 'brief.md');

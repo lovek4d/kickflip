@@ -28,10 +28,11 @@ test('item add, item set --title and reply --title refuse a title that is neithe
   process.env.HOME = home;
   const { fileAsk } = await import('./store.mjs');
   await fileAsk(site('audit'), 'a1');
+  assert.equal((await board('item', 'triage', 'audit/T-1', '--title', 'fix: the header', '--phase', 'discussing', '--site', 'audit')).code, 0);
   const bad = await board('reply', 'audit/T-1', '--text', 'It jumps.', '--title', 'Header jumps', '--site', 'audit');
   assert.deepEqual([bad.code, bad.err], [1, `--title "Header jumps" ${shape}; a task's title is ${words}\n`]);
   const t1 = () => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === 'T-1');
-  assert.deepEqual([t1().title, t1().phase], ['Fix the header', undefined]);
+  assert.deepEqual([t1().title, t1().phase], ['fix: the header', 'discussing']);
   assert.equal((await board('reply', 'audit/T-1', '--text', 'It jumps.', '--title', 'fix(board): header jumps on scroll', '--site', 'audit')).code, 0);
   assert.equal(t1().title, 'fix(board): header jumps on scroll');
 });
