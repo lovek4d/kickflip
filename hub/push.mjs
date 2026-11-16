@@ -191,8 +191,6 @@ export function setAutoUpdate(on, home = os.homedir()) {
   writeSettingsFile(on ? rest : { ...rest, autoUpdate: false }, home);
 }
 
-// Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md):
-// opus or sonnet forces it, auto leaves it to the card (shared/usage-gate.mjs builderPick). A missing or unknown stored
 // docs/adr/2026-11-16-0700-land-test-runs-take-turns-on-the-host.md
 // Land test runs at once on the host: the hub's one number, 1 to 99, MAX_LAND_TESTS unless settings.json says otherwise.
 export const MAX_LAND_TESTS = 1;
@@ -209,7 +207,9 @@ export function setLandTests(value, home = os.homedir()) {
   return n;
 }
 
-// value is auto.
+// Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md),
+// Hub settings' Builders: opus or sonnet forces it, auto leaves it to the card (shared/usage-gate.mjs builderPick). A
+// board's own Builders choice overrides it (usage-gate.mjs claudeModelFor). A missing or unknown stored value is auto.
 export const CLAUDE_MODEL_VALUES = ['opus', 'auto', 'sonnet'];
 export const readClaudeModel = (home = os.homedir()) => {
   const stored = readSettingsFile(home).claudeModel;
@@ -220,6 +220,20 @@ export const readClaudeModel = (home = os.homedir()) => {
 export function setClaudeModel(value, home = os.homedir()) {
   if (!CLAUDE_MODEL_VALUES.includes(value)) throw Object.assign(new Error('claude-model takes opus, auto or sonnet'), { status: 400 });
   writeSettingsFile({ ...readSettingsFile(home), claudeModel: value }, home);
+  return value;
+}
+
+// Hub settings' Orchestrators: the model each board's own session runs on unless its owner record names one
+// (hub/sessions.mjs startArgv). Auto has no say here. A missing or unknown stored value is opus.
+export const ORCHESTRATOR_MODEL_VALUES = ['opus', 'sonnet'];
+export const readOrchestratorModel = (home = os.homedir()) => {
+  const stored = readSettingsFile(home).orchestratorModel;
+  return ORCHESTRATOR_MODEL_VALUES.includes(stored) ? stored : 'opus';
+};
+// Throws {status: 400} for a value that isn't a choice.
+export function setOrchestratorModel(value, home = os.homedir()) {
+  if (!ORCHESTRATOR_MODEL_VALUES.includes(value)) throw Object.assign(new Error('orchestrator-model takes opus or sonnet'), { status: 400 });
+  writeSettingsFile({ ...readSettingsFile(home), orchestratorModel: value }, home);
   return value;
 }
 

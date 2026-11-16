@@ -24,6 +24,7 @@ const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.
 const { routeFromName, ROUTE_RE } = await import('./routes.mjs');
 const { saveJSON, readManifest, listBoards, prsOf, linksOf } = await import('./boards.mjs');
 const { linearClient } = await import('./linear.mjs');
+const { setOrchestratorModel } = await import('./push.mjs');
 const { fakeLinear, linearWorld } = await import('../shared/test-helpers.mjs');
 const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');
 const sessionsDir = path.join(home, '.claude', 'sessions');
@@ -95,7 +96,7 @@ test('new repo requests clone before starting a session and store the board bran
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
-  assert.deepEqual(rec, { title: "Bob's audit", purpose: 'Review $HOME changes', repo, github: 'owner/new-project', branch: 'release/next', tickets: null, model: 'opus', phase: 'starting', phase_at: rec.phase_at, asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
+  assert.deepEqual(rec, { title: "Bob's audit", purpose: 'Review $HOME changes', repo, github: 'owner/new-project', branch: 'release/next', tickets: null, phase: 'starting', phase_at: rec.phase_at, asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
   assert.ok(rec.phase_at >= pending.asked_at && rec.since >= rec.phase_at);
   assert.ok(fs.existsSync(path.join(repo, '.git')));
   const at = Date.parse(rec.asked_at);
@@ -125,17 +126,18 @@ test('concurrent boards share one clone without switching its branch and need no
   assert.equal(cloneCalls.length - before, 1);
 });
 
-test('New board starts its orchestrator on the model picked, Opus or Sonnet, Opus when none is, and refuses any other', async () => {
+test("New board asks no model: its orchestrator starts on Hub settings' Orchestrators and records none, so it stays on Hub default", async () => {
   saveJSON(manifestFile, { sites: {} });
   const { calls, run } = claude();
-  const sonnet = await requestBoard({ ...input('On sonnet', 'owner/shared'), model: 'sonnet' }, { run, live, repos });
-  await sonnet.started;
-  assert.equal(readManifest().starting['on-sonnet'].model, 'sonnet');
-  assert.ok(calls[0].argv.join(' ').includes('--model sonnet'));
-  for (const model of ['haiku', '', 1]) {
-    await assert.rejects(requestBoard({ ...input('Other model', 'owner/shared'), model }, { run, live, repos }), { status: 400, message: 'Model must be opus or sonnet.' });
-  }
-  assert.equal(readManifest().starting['other-model'], undefined);
+  setOrchestratorModel('sonnet', home);
+  try {
+    const board = await requestBoard(input('On hub default', 'owner/shared'), { run, live, repos });
+    await board.started;
+    assert.equal(calls[0].argv[calls[0].argv.indexOf('--model') + 1], 'sonnet');
+    assert.equal('model' in readManifest().starting['on-hub-default'], false);
+    await assert.rejects(requestBoard({ ...input('Other model', 'owner/shared'), model: 'opus' }, { run, live, repos }), { status: 400, message: 'Send only name, github or remote, branch, purpose and tickets.' });
+    assert.equal(readManifest().starting['other-model'], undefined);
+  } finally { setOrchestratorModel('opus', home); }
 });
 
 test('failed clones leave no clone or temporary directory and never start claude', async () => {
@@ -221,7 +223,7 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   const keyFile = path.join(home, '.claude', 'kickflip', 'secrets.json');
   fs.writeFileSync(keyFile, JSON.stringify({ linear: { key: 'lin_api_test_key' } }));
   const broken = claude({ status: 1, stdout: '', stderr: 'Not signed in · run claude /login' });
-  const first = await requestBoard({ ...input('Retry me'), purpose: 'Try it again', tickets, model: 'sonnet' }, { run: broken.run, live, repos });
+  const first = await requestBoard({ ...input('Retry me'), purpose: 'Try it again', tickets }, { run: broken.run, live, repos });
   fs.rmSync(keyFile);
   assert.match((await first.started).error, /Not signed in/);
   const failedAt = readManifest().starting['retry-me'].asked_at;
@@ -232,7 +234,7 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   const again = await retryBoard('retry-me', { run: working.run, live, stop, repos, changed: () => changes.push('retry-me') });
   assert.equal(again.route, 'retry-me');
   const reset = readManifest().starting['retry-me'];
-  assert.deepEqual(reset, { title: 'Retry me', purpose: 'Try it again', repo, github: 'owner/project', branch: 'main', tickets, model: 'sonnet', phase: 'starting', asked_at: reset.asked_at });
+  assert.deepEqual(reset, { title: 'Retry me', purpose: 'Try it again', repo, github: 'owner/project', branch: 'main', tickets, phase: 'starting', asked_at: reset.asked_at });
   assert.ok(reset.asked_at >= failedAt);
   assert.equal(startingBoards(readManifest())[0].failed, false);
   await assert.rejects(retryBoard('retry-me', { run: working.run, live, stop, repos }), { status: 400, message: 'Only a board that didn’t start can be retried.' });
@@ -241,7 +243,6 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   assert.deepEqual(stops, []);
   assert.deepEqual(working.calls, [{ cwd: repo, argv: broken.calls[0].argv }]);
   assert.equal(working.calls[0].argv.at(-1), "/kickflip board 'Retry me' --description 'Try it again'");
-  assert.ok(working.calls[0].argv.join(' ').includes('--model sonnet'));
   const started = readManifest().starting['retry-me'];
   assert.deepEqual([started.session, started.error], [session, undefined]);
 

@@ -23,7 +23,7 @@ import { withFileLock } from './locks.mjs';
 import { resumeStateFile, carryCursor, hubBoard, isListening, listBoards, listenState, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, watchedLines, watcherCursor, withManifestLock, writeManifest } from './boards.mjs';
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './live.mjs';
-import { deliver } from './push.mjs';
+import { deliver, readOrchestratorModel } from './push.mjs';
 import { WAIT_MS } from './prompts.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
 import { reposDir } from '../shared/repos.mjs';
@@ -242,9 +242,9 @@ function runForeground(bin, argv) {
   });
 }
 
-// A board's orchestrator runs on Opus unless its owner record names another model (board-model.mjs).
-export const DEFAULT_MODEL = 'opus';
-const common = ({ name, model }) => ['--name', name, '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', model || DEFAULT_MODEL];
+// A board's orchestrator runs on its owner record's model, its Board settings override, else Hub settings' Orchestrators
+// (push.mjs readOrchestratorModel), read at each start (board-model.mjs).
+const common = ({ name, model }) => ['--name', name, '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', model || readOrchestratorModel()];
 // The session passes the board name to kickflip board through its shell, so the name stays one quoted word.
 const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 // The skill's board entry point, which starts and resumes every board's session alike
@@ -354,7 +354,8 @@ async function moveOwner(route, { from, to, mark }) {
 // A new background session for the route, in repo (else the recorded session's folder, else the cwd), whose first
 // prompt is `/kickflip board '<board name>'` plus prompt. Refuses while the route's recorded session is live. Writes nothing to the
 // manifest. A folder that is a clone under clones (repos.mjs isClone) is first marked trusted for Claude Code (trust.mjs).
-// → {route, session, confirmed, repo, model, name, argv, output}
+// → {route, session, confirmed, repo, model, name, argv, output}: model is the override asked for or recorded, null on
+// Hub settings' Orchestrators, so a caller that records it never pins the hub's choice.
 export async function startSession(route, { manifest = readManifest(), repo, model, prompt, run = runClaude, live = liveSessions, clones = reposDir() } = {}) {
   if (routeRecord(manifest.closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
@@ -373,7 +374,7 @@ export async function startSession(route, { manifest = readManifest(), repo, mod
   }
   const { session, confirmed } = await startedId(r.stdout);
   if (!session) throw new SessionError(`claude --bg started a session but no session record names it yet; find it with claude agents (${r.stdout.trim().slice(0, 300)})`, 'failed');
-  return { route, session, confirmed, repo: storedPath(dir), model: model || rec?.model || DEFAULT_MODEL, name, argv: [claudeBin(), ...argv], output: r.stdout.trim() };
+  return { route, session, confirmed, repo: storedPath(dir), model: model || rec?.model || null, name, argv: [claudeBin(), ...argv], output: r.stdout.trim() };
 }
 
 // Under the route's session lock: stops its recorded session and starts a fresh one in its folder and on its model

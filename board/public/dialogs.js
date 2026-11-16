@@ -192,7 +192,7 @@
     el.setAttribute('class', 'sheet');
     el.setAttribute('aria-labelledby', 'newBoardTitle');
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const draft = { name: '', purpose: '', github: '', remote: '', branch: '', tickets: { source: 'none' }, model: 'opus' };
+    const draft = { name: '', purpose: '', github: '', remote: '', branch: '', tickets: { source: 'none' } };
     let tickets;
     let repos = [], signedIn = false, pasted, selected, edited = false, sending = false, closed = false, generation = 0, lookupTimer, linear;
     const controller = new AbortController();
@@ -296,8 +296,7 @@
       const shared = selected.shared.map((b) => b.title).join(', ');
       content.innerHTML = `<button type="button" data-back-repos>‹ Back</button><p class="nb-next">${current ? 'Repo details' : '2 · Board details'}</p><div class="nb-selected"><strong>${esc(nameOf(selected))}</strong><span class="nb-help">${esc(access(selected))}</span><p>${selected.cloned ? shared ? `Shared with ${esc(shared)}` : 'Already cloned' : 'Clones to'}<code class="nb-clone">${esc(selected.clone)}</code></p></div><label class="nb-field"><span>Default branch for this board</span><select name="branch" disabled><option value="">Loading branches…</option></select><span class="nb-help" data-branch-help></span></label><p class="nb-next">Each board’s implementers work in separate worktrees off this clone. Sharing the clone doesn’t share their working files.</p>${current ? '<p class="nb-next">New implementers and GitHub links will use the selected repo.</p>' : `<label class="nb-field"><span>Name</span><input name="name" type="text" value="${esc(draft.name)}" required maxlength="60" autocomplete="off"></label><label class="nb-field"><span>Description</span><input name="purpose" type="text" value="${esc(draft.purpose)}" required maxlength="240" autocomplete="off"><span class="nb-help">Used by the hub for request routing</span></label><p class="nb-next">The hub ${selected.cloned ? 'reuses the clone' : 'clones the repo'} and starts your board. You can keep using your other boards.</p>`}`;
       if (!current) {
-        content.querySelectorAll('.nb-next')[content.querySelectorAll('.nb-next').length - 1].insertAdjacentHTML('beforebegin', '<div class="nb-field tk-section" role="group" aria-labelledby="nbTicketsLabel"><span id="nbTicketsLabel">Tickets</span><span class="nb-help">Where this board’s tasks get their tickets. You can change it in Board settings.</span><div data-board-tickets></div></div>'
-          + `<div class="nb-field" role="group" aria-labelledby="nbModelLabel"><span id="nbModelLabel">Orchestrator model</span><span class="nb-help">The model the board’s own Claude session runs on. You can change it in Board settings.</span><div class="tk-seg two">${[['opus', 'Opus'], ['sonnet', 'Sonnet']].map(([value, label]) => `<button type="button" data-nb-model="${value}" aria-pressed="${value === draft.model}">${label}</button>`).join('')}</div></div>`);
+        content.querySelectorAll('.nb-next')[content.querySelectorAll('.nb-next').length - 1].insertAdjacentHTML('beforebegin', '<div class="nb-field tk-section" role="group" aria-labelledby="nbTicketsLabel"><span id="nbTicketsLabel">Tickets</span><span class="nb-help">Where this board’s tasks get their tickets. You can change it in Board settings.</span><div data-board-tickets></div></div>');
         tickets = ticketsControl(content.querySelector('[data-board-tickets]'), { value: draft.tickets, linear, loadLinear: async () => (linear = await request('/_hub/api/linear')),
           repo: () => draft.github, title: () => draft.name.trim(), isNew: true, change(value) { draft.tickets = value; sync(); } });
       }
@@ -321,10 +320,7 @@
       if (e.target.closest('[data-cancel-new]')) done();
       else if (e.target.closest('[data-check-auth]')) picker(true);
       else if (e.target.closest('[data-back-repos]')) picker();
-      else if (e.target.closest('[data-nb-model]')) {
-        draft.model = e.target.closest('[data-nb-model]').dataset.nbModel;
-        for (const b of form.querySelectorAll('[data-nb-model]')) b.setAttribute('aria-pressed', String(b.dataset.nbModel === draft.model));
-      } else { const row = e.target.closest('[data-repo]'); if (row) pick(row.dataset.repo); }
+      else { const row = e.target.closest('[data-repo]'); if (row) pick(row.dataset.repo); }
     });
     form.addEventListener('input', (e) => {
       if (e.target.getAttribute('name') === 'search') { search(e.target.value); return; }
@@ -348,7 +344,7 @@
       try {
         const repo = draft.remote ? { remote: draft.remote } : { github: draft.github };
         // Start, or Use repo, waits (ui.js waitOn) until the hub answers; a new board's own start then shows in the sidebar.
-        await BoardUI.waitOn(start, save(current ? { ...repo, branch: draft.branch } : { name: draft.name.trim(), purpose: draft.purpose.trim(), ...repo, branch: draft.branch, tickets: tickets.read(), model: draft.model }, selected));
+        await BoardUI.waitOn(start, save(current ? { ...repo, branch: draft.branch } : { name: draft.name.trim(), purpose: draft.purpose.trim(), ...repo, branch: draft.branch, tickets: tickets.read() }, selected));
         sending = false;
         el.close();
       } catch (e) { sending = false; fail(e); sync(); }

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { usageReader, DEFAULT_PAUSE_AT, nearFrom } from '../hub/usage.mjs';
-import { readSettingsFile, writeSettingsFile, readCodexShare, readClaudeModel } from '../hub/push.mjs';
+import { readSettingsFile, writeSettingsFile, readCodexShare, readClaudeModel, CLAUDE_MODEL_VALUES } from '../hub/push.mjs';
 import { FOREVER, durationEnd, storedEnd } from '../hub/duration.mjs';
 import { codexStatus, codexStatusReader, effectiveCodexShare } from './codex.mjs';
 import { MACHINE_NORMAL, readMachineState } from './machine-gate.mjs';
@@ -151,10 +151,12 @@ export const heldUsageEvent = (line) => {
 // model claudePick gives. card is the card's wave entry, whose size and model Auto reads. inputs is what the pick read,
 // up to the point it decided, for the audit log (shared/audit.mjs).
 // → {kind, model?, reason, inputs}
-export function builderPick({ home = os.homedir(), now = Date.now(), card = {} } = {}) {
+// dir is the board's site dir, whose own Builders choice overrides the hub's (claudeModelFor).
+export function builderPick({ home = os.homedir(), now = Date.now(), card = {}, dir = null } = {}) {
   const status = codexStatus({ home });
-  const inputs = { codex: status.reason ?? 'usable', claudeModel: readClaudeModel(home), size: card.size ?? null, cardModel: card.model ?? null };
-  const claude = (why) => { const { model, reason } = claudePick(inputs.claudeModel, card); return { kind: 'claude', model, reason: `${why} ${reason}`, inputs }; };
+  const own = boardClaudeModel(dir);
+  const inputs = { codex: status.reason ?? 'usable', claudeModel: own ?? readClaudeModel(home), ...(own ? { boardClaudeModel: own } : {}), size: card.size ?? null, cardModel: card.model ?? null };
+  const claude = (why) => { const { model, reason } = claudePick(inputs.claudeModel, card, own ? "This board's Claude model" : 'Claude model'); return { kind: 'claude', model, reason: `${why} ${reason}`, inputs }; };
   if (!status.usable) return claude(status.words);
   inputs.codexShare = effectiveCodexShare(readSettingsFile(home).codexShare, status);
   if (inputs.codexShare === 'off') return claude('Codex share is off.');
@@ -168,11 +170,20 @@ export function builderPick({ home = os.homedir(), now = Date.now(), card = {} }
 // Sonnet for a card sized small and Opus for the rest
 // (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md). → {model, reason}
 const NAMES = { opus: 'Opus', sonnet: 'Sonnet' };
-function claudePick(setting, card) {
-  if (setting !== 'auto') return { model: setting, reason: `Claude model is ${NAMES[setting]}.` };
-  if (card.model) return { model: card.model, reason: `Claude model is Auto and the task asks for Claude ${NAMES[card.model]}.` };
-  return card.size === 'small' ? { model: 'sonnet', reason: 'Claude model is Auto and the task is small.' } : { model: 'opus', reason: "Claude model is Auto and the task isn't small." };
+function claudePick(setting, card, whose) {
+  if (setting !== 'auto') return { model: setting, reason: `${whose} is ${NAMES[setting]}.` };
+  if (card.model) return { model: card.model, reason: `${whose} is Auto and the task asks for Claude ${NAMES[card.model]}.` };
+  return card.size === 'small' ? { model: 'sonnet', reason: `${whose} is Auto and the task is small.` } : { model: 'opus', reason: `${whose} is Auto and the task isn't small.` };
 }
+
+// Board settings' Builders, board.json claude_model: opus, auto or sonnet, else null on Hub default
+// (docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md).
+export const boardClaudeModel = (dir) => {
+  const own = dir ? readBoardJson(dir).claude_model : undefined;
+  return CLAUDE_MODEL_VALUES.includes(own) ? own : null;
+};
+// The Claude model that builds on the board at dir: its own Builders choice, else Hub settings' (push.mjs readClaudeModel).
+export const claudeModelFor = ({ home = os.homedir(), dir = null } = {}) => boardClaudeModel(dir) ?? readClaudeModel(home);
 
 const MANUAL_WORDS = { hub: ['the hub', 'Pause hub in Hub settings'], board: ['this board', 'Pause board in Board settings'] };
 // A pause is worded before a busy Mac.

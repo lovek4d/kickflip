@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override
+---
+
 # A board setting picks Opus or Sonnet for its orchestrator
+
+Superseded in part by [Builders and Orchestrators each take a hub default a board can override](2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md): an empty owner record now runs on Hub settings' Orchestrators, not always Opus; Board settings' row is Orchestrators with Hub default first; New board asks no model.
 
 The owner (T-525) asked for a "configurable option to use opus or sonnet as the board orchestrator, board level setting? Also selected on board creation. Default opus", then asked whether it "works for headless?"
 

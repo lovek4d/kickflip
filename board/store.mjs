@@ -12,8 +12,8 @@ import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitle
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
 import { githubStateFile, appendEvent, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
-import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
-import { reviseQueued, pushKindError, readClaudeModel, readLandTests, setLandTests } from '../hub/push.mjs';
+import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd, boardClaudeModel, claudeModelFor } from '../shared/usage-gate.mjs';
+import { reviseQueued, pushKindError, readClaudeModel, readLandTests, setLandTests, CLAUDE_MODEL_VALUES } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, resolveTicket, ticketNamed, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
@@ -1854,7 +1854,9 @@ export const settingsOf = (cfg, board) => {
     idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true, prs: board?.hub ? cfg?.prs === true : cfg?.prs !== false,
     tool_use: cfg?.tool_use === 'high' ? 'high' : 'normal',
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}),
-    ...(validBuildTarget(cfg?.build_target) ? { build_target: cfg.build_target } : {}) };
+    ...(validBuildTarget(cfg?.build_target) ? { build_target: cfg.build_target } : {}),
+    // Builders, overriding Hub settings' (usage-gate.mjs claudeModelFor); none on Hub default.
+    ...(CLAUDE_MODEL_VALUES.includes(cfg?.claude_model) ? { claude_model: cfg.claude_model } : {}) };
 };
 // Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): a shared/usage-gate.mjs
 // pauseEnd choice, or off, saved as board.json's paused_until, which readUsageGate reads with the board's dir. It is no
@@ -1877,11 +1879,11 @@ export async function readBoardSettings(site) {
 // listBoards entry or hub/board-repo.mjs boardRepo's answer, settings settingsOf's.
 export const opensPRs = (board, settings) => Boolean(board?.github) && (!board.local || board.hub === true) && settings.prs;
 
-// changes {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tool_use?: 'normal' | 'high', tickets?: source, github_login?: login | null, build_target?: target | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tool_use?: 'normal' | 'high', tickets?: source, github_login?: login | null, build_target?: target | null, claude_model?: 'opus' | 'auto' | 'sonnet' | null} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
 // then pushes main (permissions.mjs pushMain).
 export async function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'tickets', 'github_login', 'build_target'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'tickets', 'github_login', 'build_target', 'claude_model'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   // The hub's number is written to the hub's settings, after the board's own changes are checked.
@@ -1904,6 +1906,9 @@ export async function saveBoardSettings(site, changes) {
       else if (!validBuildTarget(v)) fail('build_target must name .kickflip/build-<target>: letters, digits, ".", "_" or "-", or null for .kickflip/build');
     } else if (k === 'tool_use') {
       if (!TOOL_USE.includes(v)) fail('tool_use must be normal or high');
+    } else if (k === 'claude_model') {
+      if (v === null) changes.claude_model = undefined;
+      else if (!CLAUDE_MODEL_VALUES.includes(v)) fail('claude_model must be opus, auto, sonnet or null for Hub default');
     } else if (CAPS.includes(k)) {
       if (!validCap(v)) fail(`${k} must be a whole number from 1 to 99`);
     } else bool(v, k);
@@ -1940,7 +1945,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'github_login', 'tickets', 'build_target'];
+  const names = ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'github_login', 'tickets', 'build_target', 'claude_model'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -1960,6 +1965,10 @@ export async function setBoardSetting(site, name, value) {
     const { file, settings } = await saveBoardSettings(site, { tool_use: value });
     return { file, lines: [`tool-use ${settings.tool_use}`] };
   }
+  if (key === 'claude_model') {
+    const { file, settings } = await saveBoardSettings(site, { claude_model: value === 'hub' ? null : value });
+    return { file, lines: settingsLines({ claude_model: settings.claude_model }) };
+  }
   if (CAPS.includes(key) || key === 'max_land_tests') {
     const { file, settings } = await saveBoardSettings(site, { [key]: /^\d+$/.test(value) ? Number(value) : value });
     return { file, lines: [`${name} ${settings[key]}`] };
@@ -1968,7 +1977,7 @@ export async function setBoardSetting(site, name, value) {
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
 }
-export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || k === 'tool_use' || CAPS.includes(k) ? v : k === 'build_target' ? v || 'default' : v ? 'on' : 'off'}`);
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || k === 'tool_use' || CAPS.includes(k) ? v : k === 'build_target' ? v || 'default' : k === 'claude_model' ? v || 'hub' : v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {
@@ -4969,7 +4978,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
   // dispatched one included (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
   const resumed = before && unverifiedCalls(before).length ? before : null;
-  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: { tap: "The owner's Build tap picked it.", hub: "The board's pull picked it." }[takeUp.dispatched] ?? "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
+  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: { tap: "The owner's Build tap picked it.", hub: "The board's pull picked it." }[takeUp.dispatched] ?? "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {}, dir: site }) : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: each kind is held by its own usage.
@@ -4979,8 +4988,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const line = asLine && forAgent(asLine, plans({ kind: k }), '--progress');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
-  const forced = k === 'claude' ? readClaudeModel() : 'auto';
-  if (askedModel !== undefined && forced !== 'auto' && askedModel !== forced) fail(`--model ${askedModel}: the hub's Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
+  if (k === 'claude') refuseUnforced(site, askedModel);
   const claude = k === 'claude' ? askedModel ?? pick?.model ?? (takeUp && providerOf(takeUp.kind) === 'claude' ? takeUp.model : undefined) ?? 'opus'
     : plans({ kind: k }) ? askedModel ?? (takeUp?.kind === k ? takeUp.model : undefined) ?? PLANNER_MODEL[k]
     : k === HELPER ? askedModel ?? before?.model : undefined;
@@ -5464,6 +5472,14 @@ async function cardWorktree(site, key) {
   return [main?.worktree, item.worktree].find((w) => w?.path && existsSync(w.path)) ?? null;
 }
 
+// A --model the Claude model that builds on the board rules out, its own Builders choice or else the hub's
+// (usage-gate.mjs claudeModelFor), is refused while that choice is Opus or Sonnet.
+function refuseUnforced(site, model) {
+  const forced = claudeModelFor({ dir: site });
+  if (model === undefined || forced === 'auto' || model === forced) return;
+  fail(`--model ${model}: ${boardClaudeModel(site) ? "this board's" : "the hub's"} Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
+}
+
 // `agent launch <file/id> --name <n> --task <t> [--writes] [--model opus|sonnet]`: any session asks for a helper on an
 // open card, which the board server launches headless (server.mjs launchHelpers) at once, on its card's implementer
 // slot (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md). Its record,
@@ -5476,8 +5492,7 @@ export async function requestHelper(site, key, { name, task, writes, model }) {
   const agent = helperName(name);
   const job = text(task, '--task');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
-  const forced = readClaudeModel();
-  if (model !== undefined && forced !== 'auto' && model !== forced) fail(`--model ${model}: the hub's Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
+  refuseUnforced(site, model);
   const { item } = await loadItem(site, key);
   if (closed(item)) fail(`${await cardName(site, key)} is Done; a helper needs an open task`);
   const file = await builderFile(site, key, undefined, agent);
@@ -5498,8 +5513,8 @@ export async function startHelper(site, key, name, make) {
   const asked = await readJSON(file, null);
   if (asked?.kind !== HELPER || asked.started || asked.done) return null;
   const { item } = await loadItem(site, key);
-  const pick = builderPick({ card: item });
-  const forced = readClaudeModel();
+  const pick = builderPick({ card: item, dir: site });
+  const forced = claudeModelFor({ dir: site });
   const model = asked.model ?? (forced !== 'auto' ? forced : pick.kind === 'claude' ? pick.model : 'opus');
   const tree = asked.writes ? await cardWorktree(site, key) : null;
   if (asked.writes && !tree) fail(`${key} has no worktree for helper ${name} to branch from`);
@@ -5660,7 +5675,7 @@ const PICKED = ['codex', 'claude'];
 export async function pickBuilder(site, key) {
   const { item } = await loadItem(site, key);
   if (site && item.lane === 'todo') await clearRefusal(site, key);
-  const { kind, model, reason } = builderPick({ card: item });
+  const { kind, model, reason } = builderPick({ card: item, dir: site });
   return { lines: [`${[kind, model].filter(Boolean).join(' ')}: ${reason}`] };
 }
 

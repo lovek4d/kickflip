@@ -87,15 +87,16 @@
       + `<p class="u-share-desc">${esc(codex.description)}</p>${codex.fix ? `<p class="u-share-fix"><code>${esc(codex.fix)}</code></p>` : ''}</div>`;
   }
 
-  // The Claude model control, drawn as Codex share's: claude is hub/views.mjs hubView's claude, and its form posts to
-  // /_hub/settings/claude-model, which view-hub.js sends.
-  function claudeModel(claude) {
-    const buttons = claude.choices.map((c) => `<button type="submit" name="value" value="${esc(c.value)}" aria-pressed="${c.on}">${esc(c.label)}</button>`).join('');
-    return `<div class="u-share"><form class="segments" method="post" action="/_hub/settings/claude-model" role="group" aria-label="Claude model">${buttons}</form>`
-      + `<p class="u-share-desc">${esc(claude.description)}</p></div>`;
+  // The Builders or Orchestrators control, drawn as Codex share's, in Hub settings' Usage card and in Board settings
+  // alike: model is a shared/model-views.mjs view. Hub settings' form posts to action, which view-hub.js sends; Board
+  // settings' has none, and view-settings.js sends its submit (docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md).
+  function modelControl(model, action) {
+    const buttons = model.choices.map((c) => `<button type="submit" name="value" value="${esc(c.value)}" aria-pressed="${c.on}">${esc(c.label)}</button>`).join('');
+    return `<div class="u-share model-control"><span class="model-label">${esc(model.label)}</span><form class="segments model-seg"${action ? ` method="post" action="${esc(action)}"` : ''} data-model="${esc(model.name)}" role="group" aria-label="${esc(model.label)}">${buttons}</form>`
+      + `<p class="u-share-desc">${esc(model.description)}</p></div>`;
   }
 
-  // data is the usage reading; claude, when given, opens Claude's block with the Claude model control, even without a
+  // data is the usage reading; claude, when given, opens Claude's block with the Builders and Orchestrators controls, even without a
   // reading; codex, when given, draws Codex's block even without a reading: the Codex share control
   // first, then Codex's bars while share isn't Off.
   function usageCard(data, codex, pause, claude) {
@@ -110,7 +111,7 @@
       `<div class="u-tone-${usageTone(r[key])}${pause?.pause_at < 100 ? ' ub-marked' : ''}"><div class="u-win"><span>${label}</span><span>${usageWords(r, key)}</span></div>${usageBar(r[key]).replace('</span>', `${pause?.pause_at < 100 ? `<span class="ub-mark" style="left:${pause.pause_at}%"></span>` : ''}</span>`)}</div>`).join('');
     const blocks = products.map((p) => {
       const r = data?.[p] || { at: null };
-      if (p === 'claude' && claude) return `<div class="block u-block">${head(usageNames.claude, asof(r))}${claudeModel(claude)}${windows(r)}</div>`;
+      if (p === 'claude' && claude) return `<div class="block u-block">${head(usageNames.claude, asof(r))}${modelControl(claude.builders, '/_hub/settings/claude-model')}${modelControl(claude.orchestrators, '/_hub/settings/orchestrator-model')}${windows(r)}</div>`;
       if (p !== 'codex' || !codex) return `<div class="block u-block">${head(usageNames[p], asof(r))}${windows(r)}</div>`;
       const bars = codex.usable && codex.share !== 'off';
       return `<div class="block u-block">${head(usageNames.codex, codex.tag || (bars ? asof(r) : ''))}${codexShare(codex)}${bars ? `<div class="u-codex-bars">${windows(r)}</div>` : ''}</div>`;
@@ -119,5 +120,5 @@
     return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}${buffer}</div></section>`;
   }
 
-  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, machineRow, deviceRow, usageCard };
+  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, machineRow, deviceRow, usageCard, modelControl };
 })();

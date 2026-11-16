@@ -355,9 +355,9 @@ ${BoardNewTask.markup()}`,
         after: () => load(),
       });
       const forms = HubKit.forms(B, {
-        accepts: (action, form) => ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going', '/_hub/settings/keep-awake'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
+        accepts: (action, form) => ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/orchestrator-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going', '/_hub/settings/keep-awake'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
         answer(out, action) {
-          if (['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
+          if (['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/orchestrator-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
             last = out; flash = null; paint();
             if (action.endsWith('/keep-going')) {
               const { kind, until } = out.pause.banner;

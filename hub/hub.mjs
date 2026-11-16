@@ -36,7 +36,8 @@
 //   /_hub/branches   GET ?github=owner/repo or ?remote=<git link> lists branches and the repo default
 //   /_hub/board-repo/<route> GET repo and branch; POST {github | remote, branch} prepares the clone and sends
 //                     repo-changed (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
-//   /_hub/board-model/<route> GET {model, hub}; POST {model: opus | sonnet} → {model, applies} (board-model.mjs)
+//   /_hub/board-model/<route> GET {orchestrators, hub}; POST {model: opus | sonnet | null for Hub default}
+//                     → {orchestrators, applies} (board-model.mjs)
 //   /_hub/board-model/<route>/restart POST stops a background board's session and starts a fresh one on its model
 //                     → {route, session, previous, model}
 //   /_hub/new-board  POST {name, github | remote, branch, purpose, tickets, model?} → {route}: a starting reservation, then the board's session starts
@@ -90,7 +91,9 @@
 //                     (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md)
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
 //                     fix while Codex isn't installed or logged in, checked afresh
-//   /_hub/settings/claude-model POST value=opus|auto|sonnet → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/claude-model POST value=opus|auto|sonnet, Builders → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/orchestrator-model POST value=opus|sonnet, Orchestrators (board-model.mjs changeHubOrchestratorModel)
+//                     → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/pause-at POST value=50..100 in steps of 5 → /_hub/api/hub's JSON, or 400 {error}; 100 is Off
 //   /_hub/settings/keep-going POST value=on|off → /_hub/api/hub's JSON, or 400 {error}; on without a pause → 409 {error}
 //   /_hub/settings/linear POST key=<Linear personal API key>, checked with Linear and saved, as refused if Linear
@@ -204,7 +207,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
-import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readAutoUpdate, setAutoUpdate, deliver } from './push.mjs';
+import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readAutoUpdate, setAutoUpdate, deliver } from './push.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pending, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
@@ -227,7 +230,7 @@ import { codeRestartHeld, logRestart, restartHeld, restartLines } from './auto-r
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
-import { boardModel, changeBoardModel, restartOnModel } from './board-model.mjs';
+import { boardModel, changeBoardModel, changeHubOrchestratorModel, restartOnModel } from './board-model.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { restartBoard, restartable } from './restart-board.mjs';
@@ -1092,7 +1095,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return {
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-        code, version: VERSION, update: { latest: upgrade.available(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
+        code, version: VERSION, update: { latest: upgrade.available(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
         remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pending().map(shown),
@@ -1400,9 +1403,9 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       }
       return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
     }
-    if (p === '/_hub/settings/claude-model' && req.method === 'POST') {
+    if (['/_hub/settings/claude-model', '/_hub/settings/orchestrator-model'].includes(p) && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
-      try { setClaudeModel(f.get('value')); } catch (e) {
+      try { if (p.endsWith('/claude-model')) setClaudeModel(f.get('value')); else changeHubOrchestratorModel(f.get('value')); } catch (e) {
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }

@@ -13,6 +13,7 @@ import { freePorts, until, boardListening, fakeSlack, slackWorld, startBoard, un
 import { fakeGh, writeGithubUser } from '../shared/fake-gh.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { writeBrief } from './store.mjs';
+import { buildersView } from '../shared/model-views.mjs';
 import { watch as watchEvents } from '../bin/wait-events.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
@@ -1438,7 +1439,8 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const before = (await checks()).length;
   try {
     assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false,max_implementers: 5, max_serves: 10, auto_review: false, idle_notification: false, skip_draft: false, prs: true, tool_use: 'normal', max_land_tests: 1 },
-      paused_until: null, pause_choices: [['1h', '1h', 3600_000], ['3h', '3h', 3 * 3600_000], ['6h', '6h', 6 * 3600_000], ['1d', '1d', 86400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms })) });
+      paused_until: null, pause_choices: [['1h', '1h', 3600_000], ['3h', '3h', 3 * 3600_000], ['6h', '6h', 6 * 3600_000], ['1d', '1d', 86400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms })),
+      builders: buildersView('auto', null) });
     assert.deepEqual((await (await fetch(`${base}/api/settings`)).json()).pause_choices, (await (await fetch(`${base}/api/board`)).json()).holdChoices, "Pause board's chips are the Hold sheet's");
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);

@@ -262,6 +262,24 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       const redirect = await postModel('value=opus', false);
       assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/']);
     });
+    await t.test('the Orchestrators route saves opus or sonnet, refuses anything else and redirects forms', async () => {
+      const post = (body, json = true) => fetch(`${base}/_hub/settings/orchestrator-model`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
+      });
+      const on = (hub) => hub.claude.orchestrators.choices.find((c) => c.on).value;
+      assert.equal(on(await getHub()), 'opus');
+      const settingsBefore = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const value of ['sonnet', 'opus']) {
+        const r = await post(`value=${value}`);
+        assert.equal(r.status, 200);
+        assert.equal(on(await r.json()), value);
+        assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { ...settingsBefore, orchestratorModel: value });
+      }
+      const bad = await post('value=auto');
+      assert.deepEqual([bad.status, await bad.json()], [400, { error: 'orchestrator-model takes opus or sonnet' }]);
+      const redirect = await post('value=opus', false);
+      assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/']);
+    });
     await t.test('pause line routes save the gate, refuse bad values and redirect forms', async () => {
       const postGate = (name, body, json = true) => fetch(`${base}/_hub/settings/${name}`, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',

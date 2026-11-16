@@ -469,9 +469,12 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
 // One Board Settings page on a fake board: /api/settings answers what is saved, and a POST is kept in posts and merged
 // into it, or answers s.refuse while that holds an error. Other URLs answer from routes by their ending. The board's
 // rules events answer s.rules, each read counted in s.rulesReads; ctx goes to the view.
-function settingsPage({ settings = {}, board = {}, routes = {}, ctx = {} } = {}) {
+// dom: a mini-dom.mjs root that parses what the view draws, for a test that reads inside it.
+function settingsPage({ settings = {}, board = {}, routes = {}, ctx = {}, dom = false } = {}) {
   const page = fakePage(memoryStorage().localStorage);
-  const s = { page, root: new page.El(), posts: [], confirms: [], refuse: '', saved: { ...settings }, rules: [], rulesReads: 0 };
+  const Element = dom && miniDom(page.Target, page.win.document).Element;
+  const root = dom ? page.win.document.body.appendChild(new Element('div')) : new page.El();
+  const s = { page, root, posts: [], confirms: [], refuse: '', saved: { ...settings }, rules: [], rulesReads: 0 };
   const site = page.win.ClaudeSite.site;
   page.win.ClaudeSite.site = (r) => ({ ...site(r), events: async (opts) => { if (opts?.kind !== 'rules') return []; s.rulesReads++; return structuredClone(s.rules); } });
   page.win.BoardDialogs.confirm = async (text) => { s.confirms.push(text); return true; };
@@ -487,6 +490,7 @@ function settingsPage({ settings = {}, board = {}, routes = {}, ctx = {} } = {})
     }
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
   };
+  if (dom) root.innerHTML = page.win.AppViews.settings.markup({}, {});
   s.view = page.win.AppViews.settings.create(s.root, '/orch', ctx);
   s.mount = async () => { s.view.mount(); await tick(); return s; };
   s.set = async (el, value, field = 'value') => { el[field] = value; page.fire(el, 'change'); await tick(); };
@@ -562,32 +566,51 @@ test('Board Settings reads Tool use from the saved setting, saves a tap at once,
   high.view.unmount();
 });
 
-// docs/adr/2026-11-16-0945-a-board-setting-picks-opus-or-sonnet-for-its-orchestrator.md
-test("Board Settings reads the orchestrator model from the hub, saves a tap there, and on a headless board offers Restart the session now, asking first", async () => {
-  const s = settingsPage();
+// docs/adr/2026-11-16-0945-a-board-setting-picks-opus-or-sonnet-for-its-orchestrator.md,
+// docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md
+test("Board Settings draws Hub settings' Builders and Orchestrators controls with Hub default first, saves a tap at once to the board or the hub, and on a headless board offers Restart the session now, asking first", async () => {
+  const { buildersView, orchestratorsView } = await import('../shared/model-views.mjs');
+  const s = settingsPage({ dom: true });
   const hubPosts = [];
+  let override = null;
   const answer = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body });
   const base = s.page.win.fetch;
   s.page.win.fetch = async (url, opts = {}) => {
+    if (url.endsWith('/api/settings')) {
+      const out = await (await base(url, opts)).json();
+      return answer({ ...out, builders: buildersView('auto', s.saved.claude_model ?? null) });
+    }
     if (!url.includes('/_hub/board-model/')) return base(url, opts);
-    if (opts.method !== 'POST') return answer({ model: 'opus', hub: false });
+    if (opts.method !== 'POST') return answer({ orchestrators: orchestratorsView('opus', override), hub: false });
     hubPosts.push([url, JSON.parse(opts.body)]);
-    return answer(url.endsWith('/restart') ? { route: 'orch', session: 's2', previous: 's1', model: 'sonnet' } : { model: 'sonnet', applies: 'new session' });
+    if (url.endsWith('/restart')) return answer({ route: 'orch', session: 's2', previous: 's1', model: override });
+    override = JSON.parse(opts.body).model;
+    return answer({ orchestrators: orchestratorsView('opus', override), applies: 'new session' });
   };
   await s.mount();
-  const button = (model) => s.root.querySelector(`[data-orchestrator-model="${model}"]`);
-  const pressed = () => ['opus', 'sonnet'].map((model) => button(model).getAttribute('aria-pressed'));
-  const status = () => s.root.querySelector('#orchestratorModelStatus').textContent;
+  const control = (name) => s.root.querySelector(`#${name}Model`);
+  const labels = (name) => control(name).querySelectorAll('button').map((b) => b.textContent);
+  const pressed = (name) => control(name).querySelector('button[aria-pressed="true"]').value;
+  const tap = async (name, value) => { s.page.fire(s.root.querySelector('#boardModels'), 'click', { target: control(name).querySelector(`button[value="${value}"]`) }); await tick(); };
+  const status = () => s.root.querySelector('#modelStatus').textContent;
   const restart = s.root.querySelector('#orchestratorRestart');
-  assert.match(s.page.win.AppViews.settings.markup({}, {}), /<button type="button" id="orchestratorRestart" hidden>Restart the session now<\/button>/);
-  assert.deepEqual([pressed(), button('opus').disabled, s.root.querySelector('#orchestratorModelSub').textContent], [['true', 'false'], false, 'Applies to the next new session.']);
-  s.page.fire(button('sonnet'), 'click');
-  await tick();
-  assert.deepEqual(hubPosts, [['/_hub/board-model/orch', { model: 'sonnet' }]]);
-  assert.deepEqual([pressed(), status(), restart.hidden], [['false', 'true'], 'Saved. Sonnet applies to the next new session.', false]);
+  assert.deepEqual([control('builders').querySelector('.model-label').textContent, labels('builders'), pressed('builders')], ['Builders', ['Hub default (Auto)', 'Opus', 'Auto', 'Sonnet'], 'hub']);
+  assert.deepEqual([control('orchestrators').querySelector('.model-label').textContent, labels('orchestrators'), pressed('orchestrators')], ['Orchestrators', ['Hub default (Opus)', 'Opus', 'Sonnet'], 'hub']);
+  assert.equal(control('builders').querySelector('.u-share-desc').textContent, 'Follows Hub settings. Auto: small tasks get Sonnet, the rest get Opus.');
+  assert.deepEqual([s.root.querySelector('#orchestratorModelSub').textContent, restart.hidden], ['Orchestrators: applies to the next new session.', false]);
+  await tap('builders', 'sonnet');
+  assert.deepEqual([s.posts.at(-1), pressed('builders'), status()], [{ claude_model: 'sonnet' }, 'sonnet', 'Saved. Builds that start from now take it.']);
+  await tap('builders', 'hub');
+  assert.deepEqual([s.posts.at(-1), pressed('builders')], [{ claude_model: null }, 'hub']);
+  await tap('orchestrators', 'sonnet');
+  assert.deepEqual([hubPosts, pressed('orchestrators'), status()], [[['/_hub/board-model/orch', { model: 'sonnet' }]], 'sonnet', 'Saved. Sonnet applies to the next new session.']);
+  await tap('orchestrators', 'sonnet');
+  assert.equal(hubPosts.length, 1, 'the choice already on saves nothing');
   s.page.fire(restart, 'click');
   await tick();
-  assert.deepEqual([hubPosts.at(-1), s.confirms.length, restart.hidden, status()], [['/_hub/board-model/orch/restart', {}], 1, true, 'Restarted. A fresh session on Sonnet is rejoining the board.']);
+  assert.deepEqual([hubPosts.at(-1), s.confirms, status()], [['/_hub/board-model/orch/restart', {}], ['Restart the session now? Its conversation ends, and a fresh session on Sonnet rejoins the board.'], 'Restarted. A fresh session on Sonnet is rejoining the board.']);
+  await tap('orchestrators', 'hub');
+  assert.deepEqual([hubPosts.at(-1), pressed('orchestrators'), status()], [['/_hub/board-model/orch', { model: null }], 'hub', 'Saved. Opus applies to the next new session.']);
   s.view.unmount();
 });
 
@@ -1056,7 +1079,7 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   page.win.FormData = class { constructor(form) { return form.querySelectorAll('input[name]').filter((i) => !i.disabled && (i.getAttribute('type') !== 'checkbox' || i.checked)).map((i) => [i.getAttribute('name'), i.value]); } };
   const choices = (on) => ['half', 'auto', 'off'].map((value) => ({ value, label: value, on: value === on }));
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '0 sites', host: 'mac', groups: [],
-    usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', description: '', choices: choices('auto') },
+    usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', builders: { name: 'builders', label: 'Builders', description: '', choices: choices('auto') }, orchestrators: { name: 'orchestrators', label: 'Orchestrators', description: '', choices: choices('auto') } },
     pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date(NOW).toISOString(), machine: { state: 'normal', reason: null } } };
   const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off', choices: [] }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, closed: [], snooze: { choices: [] } };
   const posts = [];
@@ -2282,10 +2305,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     if (!wide) assert.match(control.textContent, /Issues in owner\/project/);
     field('branch').value = 'release/next';
     page.fire(form, 'change', { target: field('branch') });
-    const model = (value) => sheet.querySelector(`[data-nb-model="${value}"]`);
-    assert.deepEqual([model('opus').getAttribute('aria-pressed'), model('sonnet').getAttribute('aria-pressed')], ['true', 'false'], 'Opus is picked until another is');
-    page.fire(form, 'click', { target: model('sonnet') });
-    assert.deepEqual([model('opus').getAttribute('aria-pressed'), model('sonnet').getAttribute('aria-pressed')], ['false', 'true']);
+    assert.equal(sheet.querySelector('[data-nb-model]'), null, 'New board asks no model: a new board starts on Hub default');
     page.fire(form, 'submit');
     await tick();
     assert.equal(sheet.querySelector('[role="alert"]').textContent, refusal);
@@ -2297,7 +2317,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.equal(posted.length, 2);
     finish();
     await tick();
-    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', github: 'owner/project', branch: 'release/next', purpose: 'Review changes', tickets: wide ? { source: 'none' } : { source: 'github' }, model: 'sonnet' }, 'application/json']);
+    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', github: 'owner/project', branch: 'release/next', purpose: 'Review changes', tickets: wide ? { source: 'none' } : { source: 'github' } }, 'application/json']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
     assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Backend audit.*cloning \(0%\) · 0s/);
     assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
@@ -2418,7 +2438,7 @@ test('pasted unlisted repos use the normal branch and save steps in New board an
     assert.equal(sheet.querySelector('[type="submit"]').disabled, false);
     page.fire(form, 'submit');
     await tick();
-    assert.deepEqual(saved, [current ? { github: 'outside/project', branch: 'canary' } : { github: 'outside/project', branch: 'canary', name: 'project', purpose: 'Outside work', tickets: { source: 'none' }, model: 'opus' }]);
+    assert.deepEqual(saved, [current ? { github: 'outside/project', branch: 'canary' } : { github: 'outside/project', branch: 'canary', name: 'project', purpose: 'Outside work', tickets: { source: 'none' } }]);
     assert.deepEqual(urls, ['/_hub/repos', '/_hub/repo?github=outside%2Fproject', '/_hub/branches?github=outside%2Fproject']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
   }
@@ -2508,7 +2528,7 @@ test('a pasted git link on another host picks its host-labelled row, lists branc
   page.fire(form, 'input', { target: sheet.querySelector('[name="purpose"]') });
   page.fire(form, 'submit');
   await tick();
-  assert.deepEqual(saved, [{ name: 'firmware', purpose: 'Firmware work', remote: link, branch: 'main', tickets: { source: 'none' }, model: 'opus' }]);
+  assert.deepEqual(saved, [{ name: 'firmware', purpose: 'Firmware work', remote: link, branch: 'main', tickets: { source: 'none' } }]);
   assert.deepEqual(urls, ['/_hub/repos', `/_hub/repo?remote=${encodeURIComponent(link)}`, `/_hub/branches?remote=${encodeURIComponent(link)}`]);
 });
 

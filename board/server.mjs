@@ -257,15 +257,16 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, build_target?} (store.mjs readBoardSettings),
-//                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
+//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, build_target?, claude_model?} (store.mjs readBoardSettings),
+//                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices,
+//                                builders: Board Settings' Builders control, shared/model-views.mjs buildersView}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets)
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (store.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null, claude_model?: opus | auto | sonnet | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
-//                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
+//                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id, builders}; a bad body → 400 {error}
 //   POST /api/share              {add: login} | {remove: login} | {login, level: view | full} → board.json's share, the
 //                                logins the board is shared with, a bare login View and {login, level: 'full'} Full
 //                                (store.mjs saveBoardShare; docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md,
@@ -357,7 +358,8 @@ import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
-import { withdraw } from '../hub/push.mjs';
+import { readClaudeModel, withdraw } from '../hub/push.mjs';
+import { buildersView } from '../shared/model-views.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
@@ -1400,7 +1402,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const id = rulesChanged(saved.changes) ? await appendEvent('rules', { scope: 'board', ...saved.changes }) : null;
         return json(res, 200, { rules: saved.rules, id });
       }
-      if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here), paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES });
+      if (p === '/api/settings' && req.method === 'GET') {
+        const settings = await readBoardSettings(here);
+        return json(res, 200, { settings, paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES, builders: buildersView(readClaudeModel(), settings.claude_model ?? null) });
+      }
       // Board Settings' Build target picker (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
       if (p === '/api/build-targets' && req.method === 'GET') {
         const self = boardAt(here);
@@ -1499,7 +1504,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const id = told.length ? await appendEvent('settings', Object.fromEntries(told.map((k) => [k, saved.settings[k] ?? null]))) : null;
         // An approved PR merges on the session's GitHub tick once auto-merge is on (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
         if (saved.changed.includes('auto_merge') && saved.settings.auto_merge) await appendEvent('check-github', { reason: 'auto-merge' });
-        return json(res, 200, { settings: saved.settings, id });
+        return json(res, 200, { settings: saved.settings, id, builders: buildersView(readClaudeModel(), saved.settings.claude_model ?? null) });
       }
       if (p === '/api/arch-review' && req.method === 'POST') {
         await readBody(req);

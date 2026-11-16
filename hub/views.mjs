@@ -6,6 +6,7 @@ import { clock, holdLine, quietMiddle, snoozeEnd } from './schedule.mjs';
 import { CHOICES as DURATIONS, FOREVER, durationEnd, endOf } from './duration.mjs';
 import { siteIcon } from './icons.mjs';
 import { codexStatus } from '../shared/codex.mjs';
+import { buildersView, orchestratorsView } from '../shared/model-views.mjs';
 
 export const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -51,31 +52,26 @@ const codexView = (share, status, claudeModel) => ({
   fix: status.fix,
 });
 
-// The Usage card's Claude model control (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md): model
-// is push.mjs readClaudeModel, and the description always says what Auto does. builder is the word for who builds
-// when Claude does, which the Codex share and pause line descriptions use: the forced model, or Claude under Auto.
+// The Usage card's Claude block opens with the Builders and Orchestrators controls (shared/model-views.mjs): model is
+// push.mjs readClaudeModel, Builders, and orchestrator push.mjs readOrchestratorModel. builder is the word for who
+// builds when Claude does, which the Codex share and pause line descriptions use: the forced model, or Claude under Auto.
 const BUILDER_WORDS = { opus: 'Opus', sonnet: 'Sonnet', auto: 'Claude' };
-const CLAUDE_CHOICES = [
-  { value: 'opus', label: 'Opus', description: 'Always Opus. Auto would give small tasks to Sonnet.' },
-  { value: 'auto', label: 'Auto', description: 'Auto: small tasks get Sonnet, the rest get Opus.' },
-  { value: 'sonnet', label: 'Sonnet', description: 'Always Sonnet. Auto would give large tasks to Opus.' },
-];
-const claudeView = (model) => ({
+const claudeView = (model, orchestrator) => ({
   model,
   builder: BUILDER_WORDS[model],
-  choices: CLAUDE_CHOICES.map(({ value, label }) => ({ value, label, on: value === model })),
-  description: CLAUDE_CHOICES.find((c) => c.value === model).description,
+  builders: buildersView(model),
+  orchestrators: orchestratorsView(orchestrator),
 });
 
 // sidebar: the /_hub/sidebar.json data, and hub.restart is true while the hub runs older code than its files, for the Hub row's Restart hub; rows: hub.mjs status() rows, whose restart (restart-board.mjs restartable) gives a board its Restart; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
-// (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; update: {latest: the newer version npm has or null, auto: the auto update box, clone: whether the hub is a clone, which never pulls}; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
+// (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; update: {latest: the newer version npm has or null, auto: the auto update box, clone: whether the hub is a clone, which never pulls}; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel; orchestratorModel: push.mjs readOrchestratorModel;
 // codex: a shared/codex.mjs codexStatus; awake: {on: awake.mjs awakeOn, unsupported: awake.mjs awakeUnsupported}, which Health's Keep awake row shows.
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js). routed: router.mjs routedRows, the New
 // strip under Boards (docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md). restarts: auto-restarts.mjs
 // restartLines, the line a board's row adds for its last automatic restart.
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [], restarts = new Map() }) {
+export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', orchestratorModel = 'opus', codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [], restarts = new Map() }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const current = Boolean(code.running && code.running === code.onDisk);
   const codeLine = current ? ` · runs the code in its files (${code.onDisk})` : '';
@@ -96,7 +92,7 @@ export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, 
     usage: sidebar.usage,
     pause: sidebar.pause,
     codex: codexView(codexShare, codex, claudeModel),
-    claude: claudeView(claudeModel),
+    claude: claudeView(claudeModel, orchestratorModel),
     empty: rows.length === 0,
     notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: deviceLine(st, now) },
     hold: st.hold && st.hold.why !== 'off' ? { text: `Notifications ${holdLine(st.hold, now)}`, end: st.hold.why === 'snoozed' } : null,

@@ -59,6 +59,8 @@
 .hub-view .segments button { min-width:0; min-height:44px; padding:6px; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--muted); font:inherit; cursor:pointer; }
 .hub-view .segments button[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); font-weight:600; }
 .hub-view .segments button:focus-visible { outline:2px solid var(--accent); outline-offset:-3px; }
+/* ui-hub.js modelControl (style.css .model-seg): as many columns as choices, over the segments' three. */
+.hub-view .model-seg { grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:minmax(0, 1fr); }
 .hub-view .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
 .hub-view .actions { margin-top:1.2rem; display:flex; justify-content:flex-end; }
 .hub-view .flash { animation:none; margin-top:1rem; padding:10px 12px; border-radius:10px; background:var(--panel); border:1px solid var(--line); color:var(--color-success); }

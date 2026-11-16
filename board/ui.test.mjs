@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { fixedDate } from '../shared/fixed-clock.mjs';
 import { toneOf } from '../hub/usage.mjs';
 import { usageGate } from '../shared/usage-gate.mjs';
+import { buildersView, orchestratorsView } from '../shared/model-views.mjs';
 import { footerOf } from './domain.mjs';
 
 // The one time every test here builds its data from and every renderer counts to: each sandbox's Date stands still at it
@@ -2569,7 +2570,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const card = hub.usageCard({ claude: reading, codex: reading }, null, pause);
   assert.match(text(card), /Codex .*Pause work at 10% buffer − 90% \+/);
   assert.match(text(card), /Claude’s new work waits.*Codex hands its work to Claude implementers/);
-  for (const builder of ['Opus', 'Sonnet']) assert.match(text(hub.usageCard({ claude: reading }, null, pause, { model: builder.toLowerCase(), builder, choices: [], description: '' })), new RegExp(`Codex hands its work to ${builder} implementers`));
+  for (const builder of ['Opus', 'Sonnet']) assert.match(text(hub.usageCard({ claude: reading }, null, pause, { model: builder.toLowerCase(), builder, builders: buildersView(builder.toLowerCase()), orchestrators: orchestratorsView('opus') })), new RegExp(`Codex hands its work to ${builder} implementers`));
   assert.equal([...card.matchAll(/class="ub-mark" style="left:90%"/g)].length, 4);
   assert.match(card, /form class="segments ub-step" method="post" action="\/_hub\/settings\/pause-at"/);
   assert.match(card, /value="85" aria-label="Pause 5% sooner"/);

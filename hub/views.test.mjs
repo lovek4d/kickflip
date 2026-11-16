@@ -856,8 +856,9 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   assert.equal(root.querySelector('[role="alert"]').textContent, 'codex-share takes auto, always, or off');
 });
 
-// docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
-test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet, whose helper says what Auto does, and saves each choice or shows a refusal", async () => {
+// docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md,
+// docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md
+test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto and Sonnet, whose helper says what Auto does, then Orchestrators, Opus and Sonnet, and saves each choice or shows a refusal", async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
@@ -867,7 +868,8 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
   let refused = false;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const hub = (claudeModel, claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare: 'off', codex: USABLE, claudeModel,
+  const saved = { claudeModel: 'auto', orchestratorModel: 'opus' };
+  const hub = (claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare: 'off', codex: USABLE, ...saved,
     sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
@@ -878,7 +880,8 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
-      return { ok: !refused, json: async () => refused ? { error: 'claude-model takes opus, auto or sonnet' } : hub(opts.body.get('value')) };
+      if (!refused) saved[url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel'] = opts.body.get('value');
+      return { ok: !refused, json: async () => refused ? { error: 'claude-model takes opus, auto or sonnet' } : hub() };
     },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'hub-kit.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
@@ -886,9 +889,11 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
   context.AppViews.hub.create(root, '/_hub', {});
   const claude = () => root.querySelectorAll('.usage .u-block')[0];
-  const selected = () => claude().querySelector('.segments button[aria-pressed="true"]').value;
-  const submit = (value) => {
-    const form = claude().querySelector('.segments');
+  const control = (name) => claude().querySelector(`[data-model="${name}"]`);
+  const selected = (name = 'builders') => control(name).querySelector('button[aria-pressed="true"]').value;
+  const desc = (name) => control(name).parentNode.querySelector('.u-share-desc').textContent;
+  const submit = (value, name = 'builders') => {
+    const form = control(name);
     const button = form.querySelector(`button[value="${value}"]`);
     return listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form,
       submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
@@ -898,30 +903,37 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
     auto: 'Auto: small tasks get Sonnet, the rest get Opus.',
     sonnet: 'Always Sonnet. Auto would give large tasks to Opus.',
   };
+  const SWITCH = 'A running session takes a change when it next starts, or now from its Board settings.';
 
-  live.paint(hub('auto'));
+  live.paint(hub());
   assert.equal(claude().querySelector('.u-head .title').textContent, 'Claude');
-  assert.equal(claude().querySelector('.segments').getAttribute('aria-label'), 'Claude model');
-  assert.equal(claude().querySelector('.segments').getAttribute('action'), '/_hub/settings/claude-model');
-  assert.deepEqual(claude().querySelectorAll('.segments button').map((b) => b.textContent), ['Opus', 'Auto', 'Sonnet']);
-  assert.match(claude().textContent, /^Claude.*OpusAutoSonnetAuto: small tasks get Sonnet, the rest get Opus\.5-hour42%/);
-  assert.equal(selected(), 'auto');
+  assert.deepEqual(claude().querySelectorAll('.model-label').map((el) => el.textContent), ['Builders', 'Orchestrators']);
+  assert.deepEqual([control('builders').getAttribute('aria-label'), control('builders').getAttribute('action')], ['Builders', '/_hub/settings/claude-model']);
+  assert.deepEqual([control('orchestrators').getAttribute('aria-label'), control('orchestrators').getAttribute('action')], ['Orchestrators', '/_hub/settings/orchestrator-model']);
+  assert.deepEqual(control('builders').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Auto', 'Sonnet']);
+  assert.deepEqual(control('orchestrators').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Sonnet']);
+  assert.match(claude().textContent, /^Claude.*BuildersOpusAutoSonnetAuto: small tasks get Sonnet, the rest get Opus\.OrchestratorsOpusSonnetEach board’s own session runs on Opus unless its Board settings pick another\..*5-hour42%/);
+  assert.deepEqual([selected(), selected('orchestrators')], ['auto', 'opus']);
   for (const value of ['opus', 'sonnet', 'auto']) {
     await submit(value);
     const { url, opts } = posts.at(-1);
     assert.deepEqual([url, opts.method, opts.body.toString()], ['/_hub/settings/claude-model', 'POST', `value=${value}`]);
     assert.equal(selected(), value);
-    assert.equal(claude().querySelector('.u-share-desc').textContent, HELP[value]);
+    assert.equal(desc('builders'), HELP[value]);
   }
+  await submit('sonnet', 'orchestrators');
+  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/orchestrator-model', 'value=sonnet']);
+  assert.deepEqual([selected(), selected('orchestrators'), desc('orchestrators')], ['auto', 'sonnet', `Each board’s own session runs on Sonnet unless its Board settings pick another. ${SWITCH}`]);
   refused = true;
   await submit('opus');
   assert.equal(selected(), 'auto');
   assert.equal(root.querySelector('[role="alert"]').textContent, 'claude-model takes opus, auto or sonnet');
 
-  // With no Claude reading yet, the block still opens with the control.
-  live.paint(hub('sonnet', null));
+  // With no Claude reading yet, the block still opens with the controls.
+  saved.claudeModel = 'sonnet';
+  live.paint(hub(null));
   assert.deepEqual(root.querySelectorAll('.usage .u-head .title').map((el) => el.textContent), ['Claude', 'Codex']);
-  assert.equal(selected(), 'sonnet');
+  assert.deepEqual([selected(), selected('orchestrators')], ['sonnet', 'sonnet']);
 });
 
 test("the hub page leads with a banner while pushes are held or snoozed, and its End snooze lifts a snooze", async () => {
