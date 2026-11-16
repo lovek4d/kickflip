@@ -5,9 +5,12 @@
 // server starts it detached, so a restart of the server doesn't stop the run.
 import path from 'node:path';
 import { readScriptOffer, recordScriptResult } from '../store.mjs';
-import { logsDir, runScript, scriptLogName } from '../scripts.mjs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { logsDir, runScript, scriptLogName, scriptPidName } from '../scripts.mjs';
 
 const [site, key, id, cwd] = process.argv.slice(2);
+mkdirSync(logsDir(), { recursive: true });
+writeFileSync(path.join(logsDir(), scriptPidName(id)), String(process.pid));
 const { offer } = await readScriptOffer(site, key, id);
 const { exit, timedOut, output, ms } = await runScript({ body: offer.body, cwd, log: path.join(logsDir(), scriptLogName(id)) });
 await recordScriptResult(site, key, id, { exit, timedOut, output, ms });

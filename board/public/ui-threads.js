@@ -82,7 +82,7 @@
       <div class="small muted script-note">Nothing runs until you hold Run.</div><div class="small muted script-shared">Only the board’s owner can run it.</div>`,
     running: (s) => `<div class="script-status work"><span class="working-dot"></span>Running on ${esc(s.host)}… ${logLink(s.log, 'Live output')}</div>`,
     finished: (s) => `<div class="script-status ok">✓ Finished · exit 0${seconds(s.ms)}</div>${s.output ? `<details class="script-fold"><summary>Output · ${linesOf(s.output).length} lines</summary><pre class="script-pre">${esc(s.output)}</pre></details>` : ''}${logLink(s.log, 'Full output')}`,
-    failed: (s) => `<div class="script-status bad">✕ Failed · exit ${esc(s.exit)}${seconds(s.ms)}${s.timedOut ? ' · stopped at its time limit' : ''}</div>${s.output ? `<pre class="script-pre script-out">${esc(linesOf(s.output).slice(-TAIL_LINES).join('\n'))}</pre>` : ''}${logLink(s.log, 'Full output')}`,
+    failed: (s) => `<div class="script-status bad">✕ Failed · ${s.died ? 'its runner died' : `exit ${esc(s.exit)}`}${seconds(s.ms)}${s.timedOut ? ' · stopped at its time limit' : ''}</div>${s.output ? `<pre class="script-pre script-out">${esc(linesOf(s.output).slice(-TAIL_LINES).join('\n'))}</pre>` : ''}${logLink(s.log, 'Full output')}`,
     declined: () => '<div class="script-status mute">Declined · nothing ran</div>',
     replaced: () => '<div class="script-status mute">Replaced by a newer script · nothing ran</div>',
   };

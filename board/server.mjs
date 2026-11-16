@@ -374,6 +374,7 @@ import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
 import { listBuildTargets } from './build-script.mjs';
+import { diedRuns, logTail, logsDir, readRunnerPid, scriptLogName } from './scripts.mjs';
 import { reviewerPeople } from './reviewer-people.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, savedSlack, slackStatus } from '../hub/slack.mjs';
@@ -1984,6 +1985,14 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }
   }
 
+  // Once a minute: a tapped script run whose runner died (a reboot, a kill) is recorded failed, with the log's tail as its
+  // output so far (scripts.mjs diedRuns).
+  async function failDeadScriptRuns() {
+    for (const { key, id, ms } of diedRuns(await readLines(events), { pidOf: readRunnerPid, alive: pidAlive, now: now().getTime() })) {
+      await appendEvent(SCRIPT_EVENTS.result, { key, id, exit: null, died: true, timedOut: false, output: logTail(path.join(logsDir(), scriptLogName(id))), ms, log: scriptLogName(id) });
+      dataVersion++;
+    }
+  }
   // The script offers whose Run or Decline is being recorded, so two taps at once record one.
   const scriptTaps = new Set();
   // Starts card key's offered script id in cwd (startScript), a runner that couldn't start going in the audit log.
@@ -2497,6 +2506,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     track(signalMissedWrites());
     track(checkPrototypeWaits());
     track(reviveHeadless());
+    track(failDeadScriptRuns().catch((err) => console.error('Script run check failed:', err.message)));
     track(launchLostBuilds());
     // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
     track(publishUnscreened(here).then((keys) => { if (keys.length) dataVersion++; }, (err) => console.error('Screen publish failed:', err.message)));

@@ -52,3 +52,37 @@ export function runScript({ body, cwd, log, timeoutMs = SCRIPT_TIMEOUT, cap = OU
     });
   });
 }
+
+// The runner's own pid, which bin/script-run.mjs writes when it starts and the server's minute check reads to see
+// whether a tapped run still has a runner (diedRuns).
+export const scriptPidName = (id) => `script-${id}.pid`;
+// How long a Run may go with no pid file before its runner reads as never started.
+export const RUNNER_START_GRACE = 2 * 60000;
+
+// The tapped runs in events (the board's events.jsonl lines) with no result or decline whose runner is gone: its pid
+// file names a pid that isn't alive, or there is no pid file and the tap is older than RUNNER_START_GRACE.
+// → [{key, id, ms}], ms the time since the tap.
+export function diedRuns(events, { pidOf, alive, now = Date.now() }) {
+  const ended = new Set(events.filter((e) => e.kind === 'script-result' || e.kind === 'script-decline').map((e) => e.data.id));
+  return events.filter((e) => e.kind === 'script-run' && !ended.has(e.data.id)).flatMap((e) => {
+    const since = now - Date.parse(e.ts);
+    const pid = pidOf(e.data.id);
+    return (pid === null ? since > RUNNER_START_GRACE : !alive(pid)) ? [{ key: e.data.key, id: e.data.id, ms: since }] : [];
+  });
+}
+
+// The last cap bytes of a run's log, the output a run whose runner died kept so far; empty when there is no log.
+export function logTail(file, cap = OUTPUT_CAP) {
+  try {
+    const buf = fs.readFileSync(file);
+    return buf.subarray(Math.max(0, buf.length - cap)).toString('utf8');
+  } catch { return ''; }
+}
+
+// The pid in run id's pid file, null before its runner wrote one.
+export function readRunnerPid(id) {
+  try {
+    const pid = Number(fs.readFileSync(path.join(logsDir(), scriptPidName(id)), 'utf8'));
+    return Number.isInteger(pid) ? pid : null;
+  } catch { return null; }
+}

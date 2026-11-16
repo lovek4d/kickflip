@@ -45,8 +45,8 @@ export function scriptStateOf(offer, events, live) {
   const mine = events.filter((e) => e.data?.id === offer.id);
   const result = mine.find((e) => e.kind === SCRIPT_EVENTS.result);
   if (result) {
-    const { exit, output, timedOut, log, ms } = result.data;
-    return { state: exit === 0 ? 'finished' : 'failed', exit, output: output ?? '', timedOut: Boolean(timedOut), log: log ?? null, ms: ms ?? null };
+    const { exit, output, timedOut, died, log, ms } = result.data;
+    return { state: exit === 0 ? 'finished' : 'failed', exit, output: output ?? '', timedOut: Boolean(timedOut), died: Boolean(died), log: log ?? null, ms: ms ?? null };
   }
   if (mine.some((e) => e.kind === SCRIPT_EVENTS.decline)) return { state: 'declined' };
   if (mine.some((e) => e.kind === SCRIPT_EVENTS.run)) return { state: 'running', log: scriptLogName(offer.id) };
