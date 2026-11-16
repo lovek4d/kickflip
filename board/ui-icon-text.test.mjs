@@ -22,7 +22,7 @@ test('iconText draws a shape and a word in one colour, the icon hidden unless it
 test("the colour 'current' takes the line's own colour, for a working dot or thread mark alone", () => {
   assert.equal(iconText('pulse', 'current', ''), '<span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"></span></span>');
   assert.ok(!ICON_COLOURS.includes('current'), "the colour priority's six stay six");
-  assert.match(css, /\.it-current \{ --it: currentColor; gap: 0;/);
+  assert.match(css, /\.it-current \{ --it: currentColor; font-weight: inherit;/);
 });
 
 test('iconText refuses a shape or colour outside its enums', () => {
@@ -32,7 +32,7 @@ test('iconText refuses a shape or colour outside its enums', () => {
 });
 
 test('the gap, the 8px dot and every colour sit on the helper\'s own classes, so no parent has to be flex', () => {
-  assert.match(css, /\.it \{[^}]*display: inline-flex;[^}]*gap: 6px;/);
+  assert.match(css, /\.it \{[^}]*display: inline-flex;[^}]*gap: 5px;/);
   assert.match(css, /\.it-dot::before, \.it-pulse::before \{[^}]*width: 8px; height: 8px;/);
   for (const colour of ICON_COLOURS) assert.match(css, new RegExp(`\\.it-${colour} \\{ --it: var\\(--color-`));
 });

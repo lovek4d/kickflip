@@ -217,14 +217,16 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 .sidebar .lc-needs { --tone: var(--color-danger); } .sidebar .lc-review { --tone: var(--accent); } .sidebar .lc-progress { --tone: var(--color-notice); } .sidebar .lc-todo { --tone: var(--muted); }
 /* The one icon and word (ui-icon-text.js iconText): the shape fixes the icon, its size and the gap, on the helper's own
    inline-flex box, so no parent has to be flex; the colour colours the icon and the word alike. */
-.it { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--it); font-weight: 600; }
+.it { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--it); font-weight: 600; }
 .it-red { --it: var(--color-danger); } .it-orange { --it: var(--color-notice); } .it-blue { --it: var(--color-info); }
 .it-green { --it: var(--color-success); } .it-purple { --it: var(--color-merged); } .it-grey { --it: var(--color-quiet); }
 .it-i { flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .it-i svg { display: block; width: 12px; height: 12px; }
 .it-question svg { width: 18px; height: 18px; }
-/* An icon alone in a line of its own colour (a working dot, a thread mark) has no word to gap from. */
-.it-current { --it: currentColor; gap: 0; font-weight: inherit; }
+/* An icon alone (a working dot, a thread mark) takes the line's own colour and the 5px gap after it, to the word that
+   follows it in the line; a .mark is an icon alone with none (style.css). */
+.it-current { --it: currentColor; font-weight: inherit; vertical-align: 1px; }
+.it:where(:not(:has(.it-w))) { margin-right: 5px; }
 .it-dot::before, .it-pulse::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--it); }
 @keyframes sb-pulse { 50% { opacity: .35; } }
 @keyframes it-spin { to { transform: rotate(360deg); } }
