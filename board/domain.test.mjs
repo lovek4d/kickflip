@@ -2730,6 +2730,19 @@ test('a wait is grey under 15 minutes, orange from 15, red from 30, a limbo wait
   assert.equal(waitsStep(crossed.waits, [wait('calls')], at(16)).waits[0].tone, 'orange');
 });
 
+test('pr-review, review-answer, arch-review and slack-question waits only re-wake the orchestrator: a wait 30+ minutes old has no pushed field and no owner push', () => {
+  const base = Date.parse('2026-11-05T10:00:00Z');
+  const at = (min) => new Date(base + min * 60000);
+  for (const kind of ['pr-review', 'review-answer', 'arch-review', 'slack-question']) {
+    const wait = { key: `e/${kind}`, ref: 'PR #1', title: 'T', kind, since: at(0).toISOString(), picked: null, next: 'Go' };
+    let step = waitsStep([], [wait], at(0));
+    for (const m of [15, 30, 45]) step = waitsStep(step.waits, [wait], at(m), step.againAt);
+    assert.equal(step.waits[0].pushed, undefined, kind);
+    assert.deepEqual(Object.keys(step).sort(), ['added', 'again', 'againAt', 'cleared', 'opened', 'waits'], 'no push in the step result');
+    assert.equal(step.again.length, 1, `${kind} re-wakes at 45`);
+  }
+});
+
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
 test('a wait still open re-wakes the session every 15 minutes until picked up, then hourly from an hour after pickup (daily for a stale review), in one batch per check', () => {
   assert.equal(REWAKE_AFTER, 15 * 60000);

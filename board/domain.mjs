@@ -2238,7 +2238,7 @@ export function waitTone(wait, now) {
   return age >= RED_AFTER && wait.kind !== 'limbo' ? 'red' : age >= REWAKE_AFTER ? 'orange' : 'grey';
 }
 // One check of the cards idle on the orchestrator, for the stored list (data/orchestrator-waits.json) and the current
-// waits (orchestratorWaits) at now: each entry carries bumped, its last wake, and keeps pushed. A wait joins the list when
+// waits (orchestratorWaits) at now: each entry carries bumped, its last wake. A wait joins the list when
 // its key, kind and since are new, and wakes the session then unless it is already picked up. After that it wakes again
 // once REWAKE_AFTER passes since its last wake (or its since, for an entry stored before bumped), and once picked up,
 // once PICKED_REWAKE_AFTER (DAILY_REWAKE_AFTER for a daily wait) passes since the later of its pickup and its last wake.
