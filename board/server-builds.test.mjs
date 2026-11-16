@@ -54,8 +54,8 @@ test('each change signal builds the board once for every check and the page that
 // docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md
 test("a tap builds the board once: its answer's build has read the tap's own line, so the change signal that follows reuses it, and writing data/sync.json sends no signal", (t) => withBoard(t, async (ctx) => {
   const before = ctx.count();
+  // The server's own append to the events file signals the change itself.
   const { board } = await fetch(`${ctx.base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ping', title: 'A tap' }) }).then((r) => r.json());
-  ctx.changed(path.join(ctx.site, 'data', 'events.jsonl'));
   await ctx.settled();
   await Promise.all(ctx.loads);
   await ctx.settled();
@@ -66,4 +66,19 @@ test("a tap builds the board once: its answer's build has read the tap's own lin
   assert.equal(ctx.loads.length, 1, 'data/sync.json sends no signal');
   const again = await fetch(`${ctx.base}/api/board`, { headers: { 'if-none-match': `"${board.version}"` } });
   assert.equal(again.status, 304);
+}));
+
+// docs/adr/2026-11-16-0328-the-board-server-drops-its-file-watch.md
+test("with no file watch, an orchestrator wait reaches the page and leaves it once the waits check's own writes signal", (t) => withBoard(t, async (ctx) => {
+  const events = path.join(ctx.site, 'data', 'events.jsonl');
+  const tell = async (event) => {
+    fs.appendFileSync(events, JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n');
+    ctx.changed(events);
+    await ctx.settled();
+    const loads = await Promise.all(ctx.loads);
+    await ctx.settled();
+    return loads.at(-1).orchestratorWaits.map((w) => w.key);
+  };
+  assert.deepEqual(await tell({ id: 's1', kind: 'slack-question', data: { reviewer: 'Ann', from: 'reviewer' } }), ['s1']);
+  assert.deepEqual(await tell({ id: 'h1', kind: 'slack-handled', data: { id: 's1', by: 'answer' } }), []);
 }));

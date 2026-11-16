@@ -1,5 +1,5 @@
 ---
-status: superseded in part by 2026-11-03-1952-the-board-watches-each-folder-only-on-linux
+status: superseded by 2026-11-16-0328-the-board-server-drops-its-file-watch
 ---
 
 # The board watches each folder

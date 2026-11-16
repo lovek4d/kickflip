@@ -170,7 +170,7 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
   const { base, changed, settled } = await startBoard(t, { site, home });
   await settled();
   assert.equal((await readArchive(site)).length, count - DONE_KEPT - 3, 'the start archives every task past the newest 100 but the kept 3');
-  // The server sees its archive's writes to the item file once its file watch reports them.
+  // The server sees its archive's writes to the item file once it is told of them.
   changed('data/items.json');
   await settled();
   const board = await (await fetch(`${base}/api/board`)).json();

@@ -118,7 +118,7 @@ export function tellOnWrite(site, changed) {
   return () => servers.delete(path.resolve(site));
 }
 const inside = (dir, file) => file === dir || file.startsWith(dir + path.sep);
-// After each write, each board whose data/ or item file's folder holds file, the folders its file watch covers, is told:
+// After each write, each board whose data/ or item file's folder holds file is told:
 // one served in this process through its changed(file), any other by a POST of {file} to /_claude/changed on its port in
 // the hub's manifest, not waited on. A board whose server isn't up reads the write as it starts, or its minute pass
 // signals it (signalMissedWrites).

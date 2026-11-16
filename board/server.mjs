@@ -333,10 +333,10 @@ function lastLogLine(lines) {
 //                                (../hub/prompts.mjs), the count of events Claude is working on, a one-line
 //                                summary, the open cards in each lane, and whether a builder works on a card
 //                                (domain.mjs needsAnswer); the hub badges the site's row and writes its status line with them
-//   GET  /api/stream             server-sent events: `event: change` shortly after a file the board reads changes, under
-//                                the item files' folder or data/. Never gzipped
+//   GET  /api/stream             server-sent events: `event: change` shortly after a write the server makes or is told of
+//                                under the item files' folder or data/ (changed). Never gzipped
 //   POST /_claude/changed        {file}: a store write in another process wrote file, under data/ or the item files'
-//                                folder; signals a change as the file watch would (store.mjs wrote). → 204
+//                                folder; signals a change (store.mjs wrote). → 204
 //   GET  /_claude/health
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text). One the hub forwards with
 // X-Kickflip-Shared is a shared person's: only an event or upload of someone the board's share lists as Full is taken,
@@ -368,7 +368,7 @@ import { hubText } from './hub-lines.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { readClaudeModel, withdraw } from '../hub/push.mjs';
 import { buildersView } from '../shared/model-views.mjs';
-import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, watch as watchFiles } from 'node:fs';
+import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathSync } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
@@ -419,20 +419,19 @@ async function pageHeaders(html) {
 // docs/adr/2026-11-13-2210-the-board-server-starts-in-process-and-tests-await-settled.md
 // The board server for the site at site, listening on 127.0.0.1:port (0: a port the OS picks) under prefix (/<route>,
 // or '' for none), once its start passes have run. home is the HOME its own reads use; now its clock, read for each
-// time it stamps or compares; watch(changed), when given, starts the file watch that reports each write to changed,
-// before the start's last passes run; launch starts each agent the board launches, a builder, lander, planner, visual
+// time it stamps or compares; launch starts each agent the board launches, a builder, lander, planner, visual
 // agent or helper, taking agents.mjs launchAgent's arguments and answering as it does (launchAgent itself unless a test
 // passes its own); startScript starts an offered script's run, taking startScriptRunner's arguments (itself unless a
 // test passes its own). → {server, changed(file), minute(), settled(), close()}:
-// - changed(file) stands for the watch reporting a write to file (a path, relative to site or absolute), or with no
-//   file a change it can't name.
+// - changed(file) signals a write to file (a path, relative to site or absolute), or with no file a change it can't
+//   name, as a store write in this process does.
 // - minute() runs the minute's checks, which the script runs every 60 s.
 // - settled() resolves once every pass a change, a minute or a request started has finished, the passes those
 //   started included.
 // - close() waits for settled(), then stops listening and drops every connection, the page streams included.
 // describeNightly turns on the overnight triage's description check (checkTriage); the script entry below turns it on,
 // and a test opts in, so a test's board, whose manifest entry has no description, sends no triage for it at night.
-export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), watch, launch = launchAgent, startScript = startScriptRunner, describeNightly = false } = {}) {
+export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), launch = launchAgent, startScript = startScriptRunner, describeNightly = false } = {}) {
   const here = path.resolve(site);
   const roots = [path.join(here, 'public'), path.join(template, 'public'), path.join(template, '..', 'starter', 'public'), path.join(template, '..', 'shared')];
   const data = path.join(here, 'data');
@@ -537,10 +536,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const lines = list.map(([kind, data, id = newEventId()]) => ({ id, ts, kind, data }));
     await fs.mkdir(replies, { recursive: true });
     await fs.appendFile(events, lines.map((e) => JSON.stringify(e) + '\n').join(''));
-    // A check that runs again before the watcher reports this write would otherwise read the board without it and send
-    // the same event twice. So the watcher's report of this write moves no data version: it signals pages alone.
-    dataVersion++;
-    ownAppend = statOf(events);
+    // Steps the data version at once, so a check that runs next reads the board with these lines and never sends the
+    // same event twice.
+    changed(events);
     return lines.map((e) => e.id);
   }
 
@@ -641,8 +639,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return last ? new Date(last).toISOString() : null;
   }
 
-  // What the board reads from outside the folders the server watches: board.json, this board's entry in the hub's
-  // manifest (its GitHub repo, git remote and branch) and the Slack bridge's topic items.
+  // What the board reads from outside data/ and the item files' folder, whose writes signal changes: board.json, this
+  // board's entry in the hub's manifest (its GitHub repo, git remote and branch) and the Slack bridge's topic items.
   async function outsideData() {
     const self = boardAt(here);
     // hostBusy: whether the host holds new work (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md), which a bumped
@@ -1106,21 +1104,16 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   let changeTimer = null;
   let changeFirst = 0;
   let changeSent = null;
-  // The events file's size and time after the server's own last append (appendEvents), which bumped the data version
-  // itself, so a tap's answer built after it has read it (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
-  // The file still reading so when the watcher reports it means no one else wrote it since.
-  let ownAppend = null;
-  const statOf = (file) => { try { const st = statSync(file); return `${st.size}:${st.mtimeMs}`; } catch { return null; } };
-  // A write to file: data/sync.json, the server's own record of its change numbers, signals nothing. The events file as
-  // the server's own last append left it means every build from now on has read the write already, so the data version
-  // stays and the signal's reloads share the last build.
-  // changed({ read: true }), the minute's signal for a write the watch dropped, leaves the data version, which the
-  // minute stepped already.
+  // A write to file, which the server made itself, a store write told it of (store.mjs wrote), or with no file a change
+  // it can't name: the data version steps at once, and after 100 ms of quiet (500 ms at most) pages get one change
+  // signal and the change passes run. data/sync.json, the server's own record of its change numbers, signals nothing.
+  // changed({ read: true }), the minute's signal for a write no one told the server of, leaves the data version, which
+  // the minute stepped already.
   function changed(file) {
     const read = file?.read === true;
     if (file !== undefined && !read) file = path.resolve(here, String(file));
     if (file === syncFile) return;
-    if (!read && !(file === events && statOf(events) === ownAppend)) dataVersion++;
+    if (!read) dataVersion++;
     const at = performance.now();
     if (!changeTimer) {
       changeFirst = at;
@@ -1133,6 +1126,16 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       for (const pass of [fileNewAsks, settleLanes, checkArchive, markNewCards, checkActions, checkWaits, checkAuto, checkIdle]) track(pass());
       changeSent();
     }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - at)));
+  }
+  // The server's own write of value to file, a data/ file the board build reads: by a rename of a tmp file of its own, so
+  // two writes at once (a pull's launch and the minute check) each rename their own, then signalled (changed). A file
+  // only the passes read is written without a signal, since the pass that wrote it has acted on it already.
+  async function writeShown(file, value) {
+    await fs.mkdir(data, { recursive: true });
+    const tmp = `${file}.${crypto.randomUUID()}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(value) + '\n');
+    await fs.rename(tmp, file);
+    changed(file);
   }
 
   // Requests that come in while the startup passes run wait for them (ready), so none reads the board half-migrated.
@@ -1806,11 +1809,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // launches when the hold lifts (launchQueuedPlanners); another replaces it.
   // (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md)
   const queuedPlanners = path.join(data, 'queued-planners.json');
-  async function saveQueuedPlanners(queued) {
-    await fs.mkdir(data, { recursive: true });
-    await fs.writeFile(queuedPlanners + '.tmp', JSON.stringify(queued) + '\n');
-    await fs.rename(queuedPlanners + '.tmp', queuedPlanners);
-  }
+  const saveQueuedPlanners = (queued) => writeShown(queuedPlanners, queued);
   async function launchPlanner(key, kind, kept = null) {
     const gate = readUsageGate({ dir: here });
     if (heldFor(gate, 'claude')) {
@@ -1945,11 +1944,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const file = path.join(data, 'headless-builders.json');
     const tracked = await readJSON(file, {});
     if (entry) tracked[key] = entry; else delete tracked[key];
-    await fs.mkdir(data, { recursive: true });
-    // A tmp name of its own: two writes at once (a pull's launch and the minute check) each rename their own file.
-    const tmp = `${file}.${crypto.randomUUID()}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(tracked) + '\n');
-    await fs.rename(tmp, file);
+    await writeShown(file, tracked);
   }
   // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
   // At startup: a build the previous process started but died before launching (store.mjs cutOffBuilds) that
@@ -2026,11 +2021,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const paused = new Set(items.filter((c) => c.builder?.pause?.paused).map((c) => c.key));
       const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind) => heldFor(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items), paused,
         limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit });
-      if (JSON.stringify(next) !== JSON.stringify(tracked)) {
-        const tmp = `${file}.${crypto.randomUUID()}.tmp`;
-        await fs.writeFile(tmp, JSON.stringify(next) + '\n');
-        await fs.rename(tmp, file);
-      }
+      if (JSON.stringify(next) !== JSON.stringify(tracked)) await writeShown(file, next);
     } catch (err) {
       console.error('Headless builder check failed:', err.message);
     } finally {
@@ -2090,11 +2081,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const kept = Object.fromEntries(Object.entries(sent).map(([key, { alive: _, limited, ...entry }]) => [key, { ...entry, ...(limited ? { limited } : {}) }]));
     const was = JSON.stringify(await readJSON(file, {}));
     const save = async () => {
-      if (JSON.stringify(kept) === was) return;
-      await fs.writeFile(file + '.tmp', JSON.stringify(kept) + '\n');
-      await fs.rename(file + '.tmp', file);
       // The cards' land steps read it.
-      dataVersion++;
+      if (JSON.stringify(kept) !== was) await writeShown(file, kept);
     };
     let sentBack = false;
     for (const [key, entry] of Object.entries(sent)) {
@@ -2181,11 +2169,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }
     const due = byBump(items, rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base));
     if (!due.length) {
-      if (JSON.stringify(sent) === was) return;
-      await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
-      await fs.rename(file + '.tmp', file);
       // A card's alive reads it (snapshot).
-      dataVersion++;
+      if (JSON.stringify(sent) !== was) await writeShown(file, sent);
       return;
     }
     try {
@@ -2214,8 +2199,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       }
     } finally {
       // Written even when a start throws, so a run already launched in this pass isn't started again.
-      await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
-      await fs.rename(file + '.tmp', file);
+      await writeShown(file, sent);
     }
   }
 
@@ -2428,9 +2412,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (over.length) await appendEvent('long-waits', { day, waits: over.map(({ key, ref, kind, since, unpicked }) => ({ key, ref, kind, since, unpicked })) });
     }
     if (!stored || JSON.stringify(step.waits) !== JSON.stringify(previous) || step.againAt !== (stored.againAt ?? null) || stored.day !== today) {
-      await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify({ waits: step.waits, againAt: step.againAt, day: today }) + '\n');
-      await fs.rename(file + '.tmp', file);
+      await writeShown(file, { waits: step.waits, againAt: step.againAt, day: today });
     }
     const waking = step.opened.filter((w) => !w.picked);
     if (step.added.length || step.again.length) await appendEvent('orchestrator-waits', { opened: waking, again: step.again });
@@ -2561,7 +2543,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-16-0312-a-store-write-tells-its-board-server.md: a store write in this process calls changed
   // directly; one in another process POSTs /_claude/changed.
   const untell = tellOnWrite(here, changed);
-  await watch?.(changed);
   await checkPrototypeWaits();
   await checkPickUps();
   await checkAuto();
@@ -2570,9 +2551,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   track(checkIdle());
   started();
 
-  // A write the file watch dropped sends no change signal, so no page reloads and no pass runs on it. Each minute the
-  // board is stamped, and a change number that moved since the last stamp signals a change as the watch would
-  // (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md). It reads no folder, so lock folders cost nothing.
+  // A write no one told the server of (a git or hand edit, a write outside store.mjs, a lost POST) sends no change signal,
+  // so no page reloads and no pass runs on it. Each minute the board is stamped, and a change number that moved since
+  // the last stamp signals a change (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md). It reads no folder.
   async function signalMissedWrites() {
     const stamped = sync.n;
     await pageBoard({ method: 'GET' });
@@ -2609,84 +2590,14 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   return { server, changed, minute, settled, close };
 }
 
-// Lock folders, installs and build output churn and never hold board files: a path with a segment starting with "." or
-// named for build output, or a .tmp file, sends no change, and the per-folder watch never watches such a folder.
-const BUILD_OUTPUT = new Set(['node_modules', 'dd', 'DerivedData']);
-const ignored = (name) => String(name).endsWith('.tmp') || String(name).split(/[\\/]/).some((s) => s.startsWith('.') || BUILD_OUTPUT.has(s));
-// A write the watch reports in root, named name, to changed(file).
-const heard = (changed, root, name) => (!name ? changed() : ignored(name) ? undefined : changed(path.join(root, String(name))));
-const isFolder = (dir) => { try { return statSync(dir).isDirectory(); } catch { return false; } };
-// On macOS and Windows one recursive watch covers the tree; on Linux each folder has its own watch, since Node's
-// recursive watch there loses a file once a rename replaces it (docs/adr/2026-11-03-1952-the-board-watches-each-folder-only-on-linux.md).
-// A root that doesn't exist yet, that goes, or whose watch fails is retried; the first watch after a retry signals,
-// since a write may have landed meanwhile.
-function watchTree(root, changed) {
-  let stop = () => {};
-  let retried = false;
-  let retryTimer = null;
-  const retry = () => {
-    if (retryTimer) return;
-    stop();
-    retried = true;
-    retryTimer = setTimeout(() => { retryTimer = null; start(); }, 2000).unref();
-  };
-  const start = () => {
-    try { stop = (process.platform === 'linux' ? watchEachFolder : watchRecursive)(root, changed, retry); } catch { retry(); return; }
-    if (retried) changed();
-  };
-  start();
-}
-function watchRecursive(root, changed, retry) {
-  const w = watchFiles(root, { recursive: true }, (_, name) => {
-    heard(changed, root, name);
-    if (!isFolder(root)) retry();
-  });
-  w.on('error', retry);
-  return () => w.close();
-}
-// A folder's watch sees every write to a file in it, including a file a rename replaced; a folder that appears is
-// watched and one that goes is dropped.
-function watchEachFolder(root, changed, retry) {
-  const watches = new Map();
-  const unwatch = (folder) => {
-    for (const [dir, w] of watches) if (dir === folder || dir.startsWith(folder + path.sep)) { w.close(); watches.delete(dir); }
-  };
-  const watchFolder = (folder) => {
-    if (watches.has(folder)) return;
-    const w = watchFiles(folder, (_, name) => {
-      heard(changed, folder, name);
-      if (folder === root && !isFolder(root)) return retry();
-      if (!name || ignored(name)) return;
-      const entry = path.join(folder, String(name));
-      if (!isFolder(entry)) unwatch(entry);
-      else try { watchFolder(entry); } catch { unwatch(entry); }
-    });
-    watches.set(folder, w);
-    w.on('error', () => (folder === root ? retry() : unwatch(folder)));
-    for (const entry of readdirSync(folder, { withFileTypes: true })) {
-      if (!entry.isDirectory() || ignored(entry.name)) continue;
-      try { watchFolder(path.join(folder, entry.name)); } catch { unwatch(path.join(folder, entry.name)); }
-    }
-  };
-  try { watchFolder(root); } catch (error) { unwatch(root); throw error; }
-  return () => unwatch(root);
-}
-// The site's watch, which reports each write to changed: data/ and each item file's folder (every wave's for "waves"),
-// a folder inside another watched folder watched only by it.
-async function watchBoard(site, changed) {
-  const sources = (await boardConfig(site)).items === 'waves' ? [wavesDir()] : (await itemSources(site)).map((s) => s.dir);
-  const dirs = [...new Set([path.join(site, 'data'), ...sources].map((d) => path.resolve(d)))];
-  for (const dir of dirs.filter((d) => !dirs.some((o) => o !== d && d.startsWith(o + path.sep)))) watchTree(dir, changed);
-}
-
-// Run as a script: the board for the site dir argv[2] (else the working folder) on PORT (4600) under PREFIX, its watch
-// on, and its minute's checks every 60 s. SIGTERM, the hub's stop, exits once the passes and requests it started have
+// Run as a script: the board for the site dir argv[2] (else the working folder) on PORT (4600) under PREFIX, with its
+// minute's checks every 60 s. SIGTERM, the hub's stop, exits once the passes and requests it started have
 // finished (close()), so a restart for new code lands between writes; the hub's SIGKILL after its grace bounds the wait
 // (docs/adr/2026-11-16-1500-new-code-restarts-on-a-busy-board-once-no-land-is-landing.md).
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const site = path.resolve(process.argv[2] || process.cwd());
   const prefix = (process.env.PREFIX || '').replace(/\/+$/, '');
-  const board = await startServer({ site, port: Number(process.env.PORT || 4600), prefix, watch: (changed) => watchBoard(site, changed), describeNightly: true });
+  const board = await startServer({ site, port: Number(process.env.PORT || 4600), prefix, describeNightly: true });
   process.once('SIGTERM', () => board.close().then(() => process.exit(0), () => process.exit(1)));
   setInterval(board.minute, 60000).unref();
   console.log(`site on http://127.0.0.1:${board.server.address().port}/ (prefix ${prefix || 'none'})`);

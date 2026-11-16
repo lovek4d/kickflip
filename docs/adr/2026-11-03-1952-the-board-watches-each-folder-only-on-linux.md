@@ -1,3 +1,7 @@
+---
+status: superseded by 2026-11-16-0328-the-board-server-drops-its-file-watch
+---
+
 # The board watches each folder only on Linux, and never lock folders or build output
 
 This supersedes in part [the board watches each folder](2026-11-03-1517-the-board-watches-each-folder.md): the per-folder watch stays, on Linux only.

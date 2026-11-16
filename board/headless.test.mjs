@@ -24,8 +24,8 @@ function emptyHome() {
   return home;
 }
 
-// Stands for the watch hearing the test's writes to files (with none, a change it can't name), and resolves once the
-// passes they started have finished.
+// Tells the server of the test's writes to files as a store write does (with none, a change it can't name), and
+// resolves once the passes they started have finished.
 async function wrote(board, ...files) {
   if (!files.length) board.changed();
   for (const file of files) board.changed(file);
@@ -825,8 +825,8 @@ test('of two board servers started on one site at once, one launches each cut-of
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
 // A local board over a git repo and its wave's items, its server in this process launching agents through launcher's
-// launch; start() starts it, and its send(kind, body) posts a page event and resolves, with the answer, once the watch
-// would have heard the event's writes and the passes they started have finished.
+// launch; start() starts it, and its send(kind, body) posts a page event and resolves, with the answer, once the server
+// has heard the event's writes and the passes they started have finished.
 function oneLaunchBoard(t, items) {
   const home = emptyHome();
   const site = path.join(home, 'site');

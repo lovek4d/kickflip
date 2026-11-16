@@ -35,7 +35,7 @@ async function boardServer(t, { items = 'data/items.json', site: entry = {}, ski
   const { base, changed, settled } = await startBoard(t, { site, now: () => today });
   return {
     home, site, base,
-    // A write to the site's file, as the server's watch reports it.
+    // A write to the site's file, told to the server as a store write is.
     sees: async (file) => { changed(file); await settled(); },
     // The hub's check of each PR, as board/server.mjs reads it (hub/github.mjs summarize).
     checked: (prs) => fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'github-state.json'), JSON.stringify({ prs })),

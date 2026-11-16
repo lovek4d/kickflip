@@ -9,12 +9,12 @@ import { fileURLToPath } from 'node:url';
 // The main suite waits on state, never on time: a test file may hold no more timer waits than TIMED lists for it,
 // and a file TIMED doesn't list holds none. A timer wait is a line, outside a // comment, that:
 // - sleeps (setTimeout, sleep or delay called),
-// - polls against a wall-clock ceiling (until, untilHeard or boardSees called),
+// - polls against a wall-clock ceiling (until called),
 // - measures elapsed time (Date.now() less a variable, performance.now, process.hrtime), or
 // - sets a time limit (timeout: a number, or AbortSignal.timeout).
 // docs/test-determinism-audit.md lists each one and the seam that replaces it; a fix task that removes some lowers its
 // file's count here, and timing checks move to the perf bench, outside the main suite.
-const WAIT = /\b(?:setTimeout|sleep|delay|until|untilHeard|boardSees)\s*\(|\bDate\.now\(\)\s*-\s*[A-Za-z_$]|\bperformance\.now\(|\bprocess\.hrtime\b|\bAbortSignal\.timeout\(|\btimeout\s*:\s*\d/g;
+const WAIT = /\b(?:setTimeout|sleep|delay|until)\s*\(|\bDate\.now\(\)\s*-\s*[A-Za-z_$]|\bperformance\.now\(|\bprocess\.hrtime\b|\bAbortSignal\.timeout\(|\btimeout\s*:\s*\d/g;
 
 const timerWaits = (source) => source.split('\n').reduce((n, line) =>
   (line.trimStart().startsWith('//') ? n : n + (line.match(WAIT)?.length ?? 0)), 0);

@@ -1,3 +1,7 @@
+---
+status: amended by 2026-11-16-0328-the-board-server-drops-its-file-watch
+---
+
 # A store write tells its board server
 
 A board server learned of a write made outside its own requests only through its file watch, which macOS drops under

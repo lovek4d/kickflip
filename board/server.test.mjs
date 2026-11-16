@@ -18,7 +18,7 @@ import { watch as watchEvents } from '../bin/wait-events.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 // docs/adr/2026-11-14-0013-server-test-runs-its-board-and-watchers-in-process.md
-// One board server for the file, in this process with no file watch: a test that writes a file the server would hear
+// One board server for the file, in this process: a test that writes a file the server would hear
 // of has it hear the write (heard), and awaits settled() for the passes it started.
 let site, board, base, slackWorldOf, slackServer, ghDir;
 const uploads = () => path.join(site, 'data', 'uploads');
@@ -93,7 +93,7 @@ afterEach(async () => {
 });
 after(async () => { await board?.close(); await slackServer?.close(); });
 
-// Has the server hear writes to files, as its file watch would report them, then waits for every pass they started.
+// Has the server hear writes to files, as a store write tells it of them, then waits for every pass they started.
 const heard = async (...files) => {
   for (const file of files) board.changed(file);
   await board.settled();
@@ -152,7 +152,7 @@ test("what waits on the owner is one live notification for the board: its first 
     fs.mkdirSync(path.dirname(queue), { recursive: true });
     const keep = [{ tag: 'board-site', url: '/site-other/' }, { tag: 'unrelated', url: '/site/' }];
     fs.writeFileSync(queue, JSON.stringify({ items: [{ tag: 'board-site', url: '/site/questions.html?from=push' }, ...keep] }));
-    // The answer resolves p3 in owner.json, a write the server's checks run on once its watch reports it.
+    // The answer resolves p3 in owner.json, a write the server's checks run on once it is told of it.
     await ok200(answer('p3'));
     await heard(ownerFile);
     assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), { items: keep });
@@ -929,7 +929,7 @@ test("a new task is a New T-<n> card from the moment it arrives, whose thread ho
   const reply = await post('/_claude/events', { kind: 'item-message', key: `ask:${id}`, text: 'Also the footer' });
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'threads', `ask__${id}.jsonl`), JSON.stringify({ ts: new Date(Date.now() + 60000).toISOString(), who: 'claude', text: 'Footer too.' }) + '\n');
-  // A card's thread comes from the board build, which reads a write once the watch reports it
+  // A card's thread comes from the board build, which reads a write once the server is told of it
   // (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md).
   await heard(path.join(site, 'data', 'threads', `ask__${id}.jsonl`));
   assert.deepEqual(await thread(`ask:${id}`), [[id, 'Fix the header', 'answered'], ['#selectedCard=t%2FAK2', 'Became AK2', undefined], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
@@ -1326,7 +1326,6 @@ test('the board, a thread and the static files come gzipped when the browser acc
   }
 });
 
-// Which writes the real file watch reports, a rename's and a new folder's among them, is server.bench.mjs's.
 test('the stream sends a change, uncompressed, for each write to a thread or a wave file the server hears', async () => {
   const req = http.get(`${base}/api/stream`, { headers: { 'accept-encoding': 'gzip' } });
   const res = await new Promise((resolve, reject) => req.once('response', resolve).once('error', reject));

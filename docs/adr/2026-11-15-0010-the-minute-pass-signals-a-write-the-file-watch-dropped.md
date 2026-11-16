@@ -1,3 +1,7 @@
+---
+status: amended by 2026-11-16-0328-the-board-server-drops-its-file-watch
+---
+
 # The minute pass signals a write the file watch dropped
 
 Under load macOS FSEvents drops writes (T-279's measurements). The server rebuilt the board each minute, so the board saw a dropped write, but `changed()` never ran: no `event: change` to pages and no `checkAuto`, `settleLanes`, `fileNewAsks`, `checkArchive` or `markNewCards`, so a card readied by a dropped write was never pulled.

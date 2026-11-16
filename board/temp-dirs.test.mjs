@@ -56,7 +56,6 @@ test('the test sources are the test and bench files and the modules only test so
   const sources = testSources();
   assert.ok(sources.includes('board/board-fixture.mjs'), 'a fixture only tests import');
   assert.ok(sources.includes('shared/test-helpers.mjs'));
-  assert.ok(sources.includes('board/server.bench.mjs'));
   assert.ok(!sources.includes('board/worktree.mjs'), 'a module the product imports is not a test source');
 });
 

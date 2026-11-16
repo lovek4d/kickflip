@@ -1,3 +1,7 @@
+---
+status: superseded by 2026-11-16-0328-the-board-server-drops-its-file-watch
+---
+
 # The remaining write-then-wait tests nudge until the server acts
 
 Card #640, after #638 (docs/adr/2026-11-13-0045-a-test-waiting-on-the-board-to-hear-a-write-writes-again-until-it-acts.md). Loaded full runs and lands still failed tests of the same shape: a write, then a wait on a board server's reaction to the event its file watch reports. A watch that drops the write leaves the wait to fail.

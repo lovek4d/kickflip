@@ -1,3 +1,7 @@
+---
+status: superseded by 2026-11-16-0328-the-board-server-drops-its-file-watch
+---
+
 # A test waiting on the board to hear a write writes again until it acts
 
 Card #638. Four server-reaction tests failed in every full-suite land and passed alone: headless.test.mjs "the server launches the builder for a tap and a pull…" and "a lander whose process is gone…", server-builds.test.mjs's probe in `withBoard`, and server-stale.test.mjs "with auto implement on…". Each wrote a file once and waited for the board server, child of the test, to act on the event its file watch reports.

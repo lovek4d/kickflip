@@ -1,3 +1,7 @@
+---
+status: superseded by 2026-11-16-0328-the-board-server-drops-its-file-watch
+---
+
 # The folder-churn test builds its site aside and bounds its churn
 
 Card #637. Since T-258 (434b095b) the folder-churn test in `board/server.test.mjs` timed out at 300 s in every full-suite land, yet passed when its file ran alone. T-258 had it write a marker file the server ignores and wait for a watch of its own to hear it, once after the setup's folders and again once the lock churn had stopped. That assumed the OS delivers file events in order.

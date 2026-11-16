@@ -10,7 +10,7 @@ import { until, startBoard, untilTestEnds } from '../shared/test-helpers.mjs';
 // docs/adr/2026-11-13-2210-the-board-server-starts-in-process-and-tests-await-settled.md
 // Each test runs the board server in this process (startBoard) on a clock it sets: Date is frozen at clock.at, since
 // the store's functions read their own, and moved with clock.set. The test runs the minute's checks with b.minute(),
-// stands for the file watch with b.changed(file), and awaits b.settled() instead of waiting on time.
+// tells it of a write with b.changed(file), as a store write does, and awaits b.settled() instead of waiting on time.
 
 // Writes a file the running server may be reading the way the board does (write aside, then rename), so the server
 // never reads it half-written.
@@ -35,8 +35,8 @@ function scratch(t, name, at, env = {}) {
 }
 
 // The server for siteDir, and the way a test restarts it on the same files: stop() closes it, start() runs it again.
-// minute() runs the minute's checks and awaits every pass they started; changed(...files) reports each write to the
-// server as its watch would and awaits the passes it started.
+// minute() runs the minute's checks and awaits every pass they started; changed(...files) tells the server of each
+// write as a store write does and awaits the passes it started.
 function server(t, siteDir, options = {}) {
   const run = { b: null };
   return {
@@ -712,7 +712,7 @@ test('an event no task holds stays on the orchestrator list past its wake, wakes
 });
 
 // docs/adr/2026-11-15-0010-the-minute-pass-signals-a-write-the-file-watch-dropped.md
-test('a write the file watch never reports is signalled to pages at the next minute pass, once', async (t) => {
+test('a write no one tells the server of is signalled to pages at the next minute pass, once', async (t) => {
   const { siteDir, dataDir, clock } = scratch(t, 'dropped-write', Date.parse('2026-11-14T10:00:00Z'));
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
@@ -732,7 +732,7 @@ test('a write the file watch never reports is signalled to pages at the next min
   const quiet = changes;
   put(itemsFile, JSON.stringify({ items: [{ id: 'A1', lane: 'todo', title: 'Renamed' }] }));
   await minute();
-  assert.equal(changes, quiet + 1, 'the minute pass signals the write the watch never reported');
+  assert.equal(changes, quiet + 1, 'the minute pass signals the write no one told');
   // The passes the signal runs mark the card they saw arrive, a write the next minute stamps; after it, nothing moves.
   await minute();
   const settled = changes;
