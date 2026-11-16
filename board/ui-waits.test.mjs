@@ -36,9 +36,9 @@ test("one row per card, for its oldest wait the orchestrator owes now, saying ho
 test('a freshly triaged card reads one row and counts one, and a card with two waits counts one', () => {
   const triaged = waitsRows([wait('T-458', 'investigate', 0)]);
   assert.equal(text(waitsList(triaged, [{ key: 'b/T-458' }])), 'T-458 Task T-458 investigate the task');
-  assert.match(waitsChip(triaged), /aria-label="1 waiting on the orchestrator"[^]*1 waiting<\/button>$/);
+  assert.match(waitsChip(triaged), /aria-label="1 waiting on the orchestrator"[^]*<span class="q-badge tone-grey">1<\/span><\/button>$/);
   const two = waitsRows([wait('T-458', 'investigate', 1), wait('T-458', 'answer', 0)]);
-  assert.match(waitsChip(two), /1 waiting<\/button>$/);
+  assert.match(waitsChip(two), /<span class="q-badge tone-grey">1<\/span><\/button>$/);
   assert.equal(text(waitsList(two, [{ key: 'b/T-458' }])), "T-458 Task T-458 act on the owner's answer");
   assert.equal(text(waitsList(waitsRows([wait('T-1', 'answer', 9), wait('T-1', 'reply', 3)]), [{ key: 'b/T-1' }])), "T-1 Task T-1 act on the owner's answer (9m) +1 more");
 });
@@ -52,13 +52,16 @@ test("the count takes the strongest tone the server sent, red over orange over g
   assert.match(waitsList([wait('T-1', 'limbo', 3000)], []), /class="waits-step it-grey"/);
 });
 
-test('the chip is gone at 0, and otherwise counts the rows as "n waiting" at every width, in the strongest colour', () => {
-  assert.equal(waitsChip([]), '');
+test('the hourglass always shows, with no badge at 0, and otherwise badges the row count in the strongest tone', () => {
+  const none = waitsChip([]);
+  assert.match(none, /^<button type="button" class="ghost icon pages-switch waits-chip" data-waits aria-haspopup="dialog" aria-label="Nothing waiting on the orchestrator"/);
+  assert.match(none, /<svg[^]*<\/svg><\/button>$/);
+  assert.doesNotMatch(none, /q-badge/);
   const chip = waitsChip([wait('T-1', 'intake', 2), wait('T-2', 'calls', 34), wait('T-3', 'answer', 18)]);
-  assert.match(chip, /^<button type="button" class="waits-chip" data-waits aria-haspopup="dialog" aria-label="3 waiting on the orchestrator"/);
-  assert.match(chip, /<span class="it it-red"><span class="it-i it-dot" aria-hidden="true"><\/span><\/span>/);
-  assert.match(chip, /<span class="it-i it-dot" aria-hidden="true"><\/span><\/span>3 waiting<\/button>$/);
-  assert.doesNotMatch(chip, /on orchestrator<\/|class="(short|full)"/);
+  assert.match(chip, /^<button type="button" class="ghost icon pages-switch waits-chip" data-waits aria-haspopup="dialog" aria-label="3 waiting on the orchestrator"/);
+  assert.match(chip, /<svg[^]*<\/svg><span class="q-badge tone-red">3<\/span><\/button>$/);
+  assert.doesNotMatch(chip, /waiting<\/button>|it-dot/);
+  assert.match(waitsChip([wait('T-1', 'calls', 20)]), /q-badge tone-orange/);
   assert.equal(waitsTitle(3), 'Waiting on the orchestrator · 3');
 });
 

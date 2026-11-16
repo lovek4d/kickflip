@@ -7467,7 +7467,7 @@ test("at every width the board header's ? carries the queue's count as a badge, 
 });
 
 // docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md
-test("the board header's chip counts what waits on the orchestrator, its tap opens the list in the file's order, a card's row opens the card, and at 0 the chip is gone", async () => {
+test("the board header's chip counts what waits on the orchestrator, its tap opens the list in the file's order, a card's row opens the card, and at 0 the hourglass stays without a badge", async () => {
   const ago = (m) => new Date(NOW - m * 60000).toISOString();
   const orchestratorWaits = [
     { key: 'w/T2', ref: 'T2', title: 'Work T2', kind: 'calls', since: ago(34), tone: 'red' },
@@ -7479,7 +7479,8 @@ test("the board header's chip counts what waits on the orchestrator, its tap ope
   const chip = () => b.root.querySelector('.top .nav #waitsChip [data-waits]');
   const sheet = b.root.querySelector('#waitsSheet');
   assert.equal(chip().getAttribute('aria-label'), '3 waiting on the orchestrator');
-  assert.ok(chip().querySelector('.it-red'), 'one wait is past the 30-minute push');
+  assert.equal(chip().querySelector('.q-badge').textContent, '3');
+  assert.ok(chip().querySelector('.q-badge.tone-red'), 'one wait is past the 30-minute push');
   b.page.fire(b.root.querySelector('#waitsChip'), 'click', { target: chip() });
   assert.equal(sheet.open, true);
   assert.equal(b.root.querySelector('#waitsTitle').textContent, 'Waiting on the orchestrator · 3');
@@ -7487,7 +7488,10 @@ test("the board header's chip counts what waits on the orchestrator, its tap ope
   b.page.fire(sheet, 'click', { target: sheet.querySelector('[data-wait-open="w/T1"]') });
   assert.deepEqual([sheet.open, b.page.win.location.hash], [false, '#selectedCard=w%2FT1']);
   await b.change({ board: { ...b.server.board, orchestratorWaits: [], version: undefined } });
-  assert.equal(chip(), null);
+  assert.ok(chip(), 'the hourglass stays at 0');
+  assert.equal(chip().querySelector('.q-badge'), null);
+  b.page.fire(b.root.querySelector('#waitsChip'), 'click', { target: chip() });
+  assert.equal(sheet.open, false, 'a tap at 0 has no list to open');
   b.view.unmount();
 });
 

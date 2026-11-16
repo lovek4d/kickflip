@@ -610,8 +610,8 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 /* The header's chip counting what waits on the orchestrator, short under the desktop width, and its sheet's list
    (docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md; ui-waits.js). */
 #waitsChip:empty { display: none; }
-.top .nav .waits-chip { display: inline-flex; align-items: center; gap: 4px; margin: 0 6px 0 0; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px;
-  background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; line-height: 1.2; white-space: nowrap; }
+.pages-switch .q-badge.tone-red { background: var(--color-danger); color: #fff; }
+.pages-switch .q-badge.tone-grey { background: var(--color-quiet); color: #fff; }
 .waits-list { list-style: none; margin: 0; padding: 0 0 6px; }
 .waits-row + .waits-row { border-top: 1px solid var(--line); }
 .waits-open { display: flex; gap: 10px; width: 100%; margin: 0; padding: 9px 0; border: 0; border-radius: 0; background: none; color: inherit; font: inherit; text-align: left; }

@@ -546,7 +546,7 @@ window.BoardView = (function () {
   }
   function markup({ title = '', shared = null } = {}) {
     const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
-    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true, navStart: '<span id="waitsChip"></span>' })}
+    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true, navAfter: '<span id="waitsChip"></span>' })}
 <div class="split">
 <main>
 ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>

@@ -1,6 +1,6 @@
 // What waits on the orchestrator, as the board header draws it
 // (docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md): the sheet's rows from
-// /api/board's orchestratorWaits (waitsRows), a chip counting them, gone at 0, and the sheet's list of them. The count
+// /api/board's orchestratorWaits (waitsRows), an hourglass badged with their count, always drawn, and the sheet's list of them. The count
 // and each row take their colour from the tone the server sends on each wait (domain.mjs waitTone; AGENTS.md's colour
 // priority). Needs ui.js, ui-progress-bar.js and ui-icon-text.js.
 (function () {
@@ -31,11 +31,14 @@
   const TONES = ['red', 'orange', 'grey'];
   const waitsTone = (rows) => TONES.find((t) => rows.some((w) => w.tone === t)) || 'grey';
   const waitsTitle = (count) => `Waiting on the orchestrator · ${count}`;
+  const HOURGLASS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/>'
+    + '<path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>';
+  // The hourglass beside the ?, always drawn; its badge is the row count in the strongest tone, none at 0.
   function waitsChip(rows) {
-    if (!rows.length) return '';
     const n = rows.length;
-    return `<button type="button" class="waits-chip" data-waits aria-haspopup="dialog" aria-label="${n} waiting on the orchestrator">`
-      + `${BoardUI.iconText('dot', waitsTone(rows), '')}${n} waiting</button>`;
+    return `<button type="button" class="ghost icon pages-switch waits-chip" data-waits aria-haspopup="dialog" aria-label="${n ? `${n} waiting on the orchestrator` : 'Nothing waiting on the orchestrator'}" title="Waiting on the orchestrator">`
+      + `${HOURGLASS}${n ? `<span class="q-badge tone-${waitsTone(rows)}">${n}</span>` : ''}</button>`;
   }
   // rows from waitsRows; items is the board's cards: a row on one of them opens it; a row with no card (an overnight
   // triage, another board's question) names its event and opens nothing. The step and its duration take the row's tone.

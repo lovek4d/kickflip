@@ -345,6 +345,9 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   // docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md
   const board = ui.header({ lead: 'logo', title: 'Board', pages: 'questions' });
   assert.match(board, /<\/span><a href="questions\.html" id="questionsLink" class="ghost icon pages-switch" aria-label="Open questions" title="Open questions"><svg[^>]*><path d="M6\.5 8\.5a5\.5 5\.5 0 1 1 8\.2 4\.8[^"]*"\/><path d="M12 21h\.01"\/><\/svg><span class="q-badge" hidden><\/span><\/a><\/nav>/);
+  // navAfter's slot is right of the refresh and its time, left of the ?: the waiting hourglass, which on a desktop with no ? ends the nav.
+  const withSlot = ui.header({ lead: 'logo', title: 'Board', pages: 'questions', navAfter: '<span id="waitsChip"></span>' });
+  assert.match(withSlot, /id="refresh"[^]*id="status"[^]*<\/span><span id="waitsChip"><\/span><a href="questions\.html" id="questionsLink"/);
   const questions = ui.header({ lead: 'logo', title: 'Waiting on you', controls: false, trail: '<span id="progress"></span>', pages: 'board' });
   assert.match(questions, /<span id="progress"><\/span><a class="ghost icon pages-switch back" href="\.\/" aria-label="Back to the board" title="Back to the board"><svg[^>]*><path d="M20 6 9 17l-5-5"\/><\/svg><\/a><\/header>$/);
 
