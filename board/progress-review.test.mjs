@@ -33,7 +33,7 @@ test('the review page lays out every bar and status line the board draws, in the
   assert.match(drawn.build, /class="line3 sub agent in-progress"/);
   assert.match(drawn.check, /aria-label="Orchestrator review, step 3 of 4"/);
   assert.match(drawn.start, /class="sb-steps"><span class="phase-bars"/);
-  assert.match(drawn.rebase, /class="line3 sub agent in-review"><span class="working-dot" aria-hidden="true"><\/span>Rebasing onto main/);
+  assert.match(drawn.rebase, /class="line3 sub agent in-review"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>Rebasing onto main/);
   assert.doesNotMatch(drawn.rebase, /phase-bars/);
   assert.match(drawn.merging, /Next: Merging/);
   assert.match(drawn.stopped, /Land stopped/);

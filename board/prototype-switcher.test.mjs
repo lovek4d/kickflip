@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const context = vm.createContext({});
-for (const file of ['ui.js', 'ui-links.js', 'ui-questions.js', 'prototype-switcher.js']) {
+for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-questions.js', 'prototype-switcher.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
 const sw = context.PrototypeSwitcher;
@@ -131,7 +131,7 @@ function prototypePage(url, { framed = false, pane = false, owner, resolved = []
   if (pane) win.frameElement = { closest: (sel) => (sel === '.board-pane' ? {} : null) };
   win.top = framed || pane ? { AppShell: { open: (to, opts) => { moves.push(['app', to, { ...opts }]); return true; } } } : win;
   vm.createContext(win);
-  for (const file of ['ui.js', 'ui-links.js', 'ui-questions.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-questions.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
   const loaded = [];
   win.document.head.append = (script) => { loaded.push(script.src); script.onload?.(); };
   vm.runInContext(fs.readFileSync(new URL('./public/prototype-switcher.js', import.meta.url), 'utf8'), win);

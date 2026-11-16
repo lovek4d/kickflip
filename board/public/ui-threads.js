@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), the board's status lines, its builders'
 // asks, the owner's messages and their replies. Needs ui.js, ui-links.js, ui-enums.js and ui-markdown.js.
 (function () {
-  const { esc, escText, time, etaLine, replyBody, attachments, sendButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, cardRef } = globalThis.BoardUI;
+  const { esc, escText, time, etaLine, replyBody, attachments, sendButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, cardRef, WORKING_DOT, AGENT_DOT } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // ui-markdown.js loads after this file, so markdown is looked up when a thread draws.
   const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
@@ -80,7 +80,7 @@
   const SCRIPT_TAIL = {
     waiting: (s) => `<div class="script-actions"><button type="button" class="script-run resolves" data-script-run="${esc(s.id)}" data-sha="${esc(s.sha)}"><span class="script-hold" aria-hidden="true"></span>Hold to run</button><button type="button" data-script-decline="${esc(s.id)}">Decline</button></div>
       <div class="small muted script-note">Nothing runs until you hold Run.</div><div class="small muted script-shared">Only the board’s owner can run it.</div>`,
-    running: (s) => `<div class="script-status work"><span class="working-dot"></span>Running on ${esc(s.host)}… ${logLink(s.log, 'Live output')}</div>`,
+    running: (s) => `<div class="script-status work">${WORKING_DOT}Running on ${esc(s.host)}… ${logLink(s.log, 'Live output')}</div>`,
     finished: (s) => `<div class="script-status ok">✓ Finished · exit 0${seconds(s.ms)}</div>${s.output ? `<details class="script-fold"><summary>Output · ${linesOf(s.output).length} lines</summary><pre class="script-pre">${esc(s.output)}</pre></details>` : ''}${logLink(s.log, 'Full output')}`,
     failed: (s) => `<div class="script-status bad">✕ Failed · ${s.died ? 'its runner died' : `exit ${esc(s.exit)}`}${seconds(s.ms)}${s.timedOut ? ' · stopped at its time limit' : ''}</div>${s.output ? `<pre class="script-pre script-out">${esc(linesOf(s.output).slice(-TAIL_LINES).join('\n'))}</pre>` : ''}${logLink(s.log, 'Full output')}`,
     declined: () => '<div class="script-status mute">Declined · nothing ran</div>',
@@ -108,13 +108,13 @@
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? statusLine('request move', statusMark('move') + escText(m.text), m.ts)
     : m.folded ? foldedRun(m, links)
-    : m.kind === 'status' ? statusLine(`builder-status${m.planner ? ' planner' : ''}`, mark(folded ? '' : '<span class="working-dot"></span>') + linkText(m.text, links), m.ts)
+    : m.kind === 'status' ? statusLine(`builder-status${m.planner ? ' planner' : ''}`, mark(folded ? '' : WORKING_DOT) + linkText(m.text, links), m.ts)
     // A builder's judgment calls: their posted time, then whether the session verified them and when.
     : m.kind === 'calls' ? statusLine('calls', `${statusMark('judgment calls')}${escText(m.text)}'s judgment calls · ${m.calls.length}`, m.ts, {
       after: m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet',
       rest: `<ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}`,
     })
-    : m.kind === 'agent' ? statusLine(`agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}`, mark('<span class="agent-dot"></span>') + escText(m.text), m.ts, { after: m.eta && esc(etaLine(m.eta)) }) : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
+    : m.kind === 'agent' ? statusLine(`agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}`, mark(AGENT_DOT) + escText(m.text), m.ts, { after: m.eta && esc(etaLine(m.eta)) }) : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
         <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}</div>
         <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${m.note ? `<blockquote class="quote">${linkText(m.note, links)}</blockquote>` : ''}${attachments(m.files)}${m.script ? scriptCard(m.script) : ''}
         ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">View transcript</a></div>` : ''}

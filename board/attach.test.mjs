@@ -37,7 +37,7 @@ function attachPage() {
   };
   win.window = win;
   vm.createContext(win);
-  for (const file of ['ui.js', 'attach.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
+  for (const file of ['ui-icon-text.js', 'ui.js','attach.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
   document.body.innerHTML = `<div data-site="/board-a"><form data-composer="ask">${win.BoardUI.dropZone('<textarea></textarea>')}
     <div class="pending-files" data-files></div><div class="row">${win.BoardUI.attachButton()}</div></form><p class="outside">Not a box</p></div>`;
   const composer = document.body.querySelector('[data-composer]');

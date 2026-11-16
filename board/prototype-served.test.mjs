@@ -115,7 +115,7 @@ test("the frame listener reads ?variant= and ?state= first, then each of the vie
 
 test('the viewer bar lists the round’s states as a row of chips, the current one pressed, and the page opens on ?state= else the first', async () => {
   const context = vm.createContext({});
-  for (const file of ['ui.js', 'ui-links.js', 'ui-questions.js', 'prototype-switcher.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-questions.js', 'prototype-switcher.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
   const sw = context.PrototypeSwitcher;
   const html = sw.pillHtml({ name: 'Chips', states: { empty: 'No tasks', busy: 'Ten <running>' }, state: 'busy' });
   assert.match(html, /<div class="ps-row ps-states">.*data-ps-state="empty" aria-pressed="false">No tasks<\/button>.*data-ps-state="busy" aria-pressed="true">Ten &lt;running&gt;<\/button>/);

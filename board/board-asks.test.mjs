@@ -124,7 +124,7 @@ test('the answering board draws each unanswered question as a New strip entry fr
   assert.equal(withHub(built, { listen: 'asleep' }).boardAsks[0].state, 'waiting');
 
   const context = vm.createContext({ Date, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
   const ui = context.BoardUI;
   const entries = ui.newEntries({ items: [], merges: [], boardAsks: withHub(built, { listen: 'asleep' }).boardAsks }, {});
   assert.deepEqual([...entries.map((x) => x.id)], ['q1']);
@@ -145,7 +145,7 @@ test("a builder's and a planner's brief say to ask another board when the repo d
 
 test("the asking card draws the answer as an ordinary message named for the answering board, its links rendered", () => {
   const context = vm.createContext({ Date, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-cards.js', 'ui-threads.js', 'ui-markdown.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-cards.js', 'ui-threads.js', 'ui-markdown.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
   const html = context.BoardUI.threadMessages([
     { ts: '2026-11-15T00:30:00.000Z', who: 'claude', kind: 'hub', line: 'board-asked', text: `Asked audit: ${QUESTION}`, mark: 'ask-link', tone: 'grey' },
     { ts: '2026-11-15T00:40:00.000Z', who: 'audit', via: 'board', text: 'So the tests run on what lands: [the ADR](https://example.com/adr)' },

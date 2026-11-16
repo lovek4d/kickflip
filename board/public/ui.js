@@ -109,38 +109,35 @@
   // A thread status line's leading mark, its icon or dot centred in one fixed box so every line's text starts at the
   // same place: a command line's icon by its words (domain.mjs COMMANDS: the request's eye, fire or image, Implement's
   // code brackets, Block's barred circle, Unblock's play, Done's circled check), Reply's arrow, answers' check, a Questions added line's plain question mark, a builder's dot.
-  const mini = (body, cls = '') => `<svg class="mark-icon${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
-  const LINK = mini('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>');
-  const BLOCKED = mini('<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>');
-  const PLAY = mini('<path d="M7 4v16l13-8z"/>');
-  const CREATED = mini('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/>');
+  // Each is ui-icon-text.js's shape in the line's own colour (iconText 'current').
+  const shape = (name) => globalThis.BoardUI.iconText(name, 'current', '');
   const MARK_ICONS = {
-    'Prototype requested': mini('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
-    'Grill requested': mini('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/>'),
-    'Visual requested': mini(IMAGE_PATHS),
-    'Re-ask requested': mini('<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>'),
-    visual: mini(IMAGE_PATHS),
-    'ask-link': mini('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>'),
-    move: mini('<path d="M3 7h14"/><path d="m13 3 4 4-4 4"/><path d="M21 17H7"/><path d="m11 13-4 4 4 4"/>'),
-    'Marked as discussing': mini('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
+    'Prototype requested': shape('eye'),
+    'Grill requested': shape('flame'),
+    'Visual requested': shape('image'),
+    'Re-ask requested': shape('retry'),
+    visual: shape('image'),
+    'ask-link': shape('arrow'),
+    move: shape('move'),
+    'Marked as discussing': shape('chat'),
     // The board's hub lines (board/hub-lines.mjs BUILD) still draw as "Implementation requested", with staging's icon.
-    'Marked as staged': mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
-    'Implementation requested': mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
-    'Marked as ready': mini('<path d="M4 22V4"/><path d="M4 4h13l-2 4 2 4H4"/>'),
-    Held: mini('<path d="M9 5v14"/><path d="M15 5v14"/>'),
-    Resumed: PLAY, Unblocked: PLAY,
+    'Marked as staged': shape('code'),
+    'Implementation requested': shape('code'),
+    'Marked as ready': shape('flag'),
+    Held: shape('pause'),
+    Resumed: shape('play'), Unblocked: shape('play'),
     // The board's status lines (board/hub-lines.mjs): a block's circle with a bar, a fault's warning triangle.
-    Blocked: BLOCKED, 'Blocked by': BLOCKED, Unblocks: BLOCKED,
-    Fault: mini('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
-    'Related to': LINK, 'Unrelated from': LINK, 'Follow-up': LINK, 'Follow-up of': LINK, 'Created ticket': CREATED, 'Created from': CREATED,
-    'Marked done': mini('<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>'),
-    Reopened: mini('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>'),
-    Reply: mini('<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>'),
-    Implement: mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
-    'answers submitted': mini('<path d="M20 6 9 17l-5-5"/>'),
-    'judgment calls': mini('<path d="m9 6 6 6-6 6"/>'),
-    'status lines': mini('<path d="m9 6 6 6-6 6"/>'),
-    questions: mini('<path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>', ' big'),
+    Blocked: shape('blocked'), 'Blocked by': shape('blocked'), Unblocks: shape('blocked'),
+    Fault: shape('warn'),
+    'Related to': shape('link'), 'Unrelated from': shape('link'), 'Follow-up': shape('link'), 'Follow-up of': shape('link'), 'Created ticket': shape('created'), 'Created from': shape('created'),
+    'Marked done': shape('circle-check'),
+    Reopened: shape('reopen'),
+    Reply: shape('reply'),
+    Implement: shape('code'),
+    'answers submitted': shape('check'),
+    'judgment calls': shape('chevron'),
+    'status lines': shape('chevron'),
+    questions: shape('question'),
   };
   const mark = (inner = '') => `<span class="mark" aria-hidden="true">${inner}</span>`;
   const statusMark = (words) => mark(MARK_ICONS[words] || '');
@@ -155,14 +152,17 @@
   const cardBumpButton = (key, bumped) => (bumped
     ? `<button class="ghost icon bumped" data-card-bump="${esc(key)}" data-bumped aria-pressed="true" aria-label="Unbump" title="Bumped. Tap to unbump">${BUMP}</button>`
     : `<button class="ghost icon" data-card-bump="${esc(key)}" aria-pressed="false" aria-label="Bump to top" title="Bump to top">${BUMP}</button>`);
-  const workingLine = '<span class="thinking"><span class="working-dot" aria-hidden="true"></span>thinking…</span>';
+  // A working dot beats on every pulse's one clock; an agent's dot is still. Both take their line's colour.
+  const WORKING_DOT = globalThis.BoardUI.iconText('pulse', 'current', '');
+  const AGENT_DOT = globalThis.BoardUI.iconText('dot', 'current', '');
+  const workingLine = `<span class="thinking">${WORKING_DOT}thinking…</span>`;
   // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
   // The count after a working word is liveFor (ui-icon-text.js). Each element drawn with it holds the time it counts
   // from (data-since) and its word (data-word), and app-header.js repaints their text each half-minute, so a repaint
   // of the board is no part of the count.
   const withCount = (word, since, now) => [word, globalThis.BoardUI.liveFor(since, now)].filter(Boolean).join(' ');
   const thinkingFor = (since, now) => withCount('thinking…', since, now);
-  const counted = (cls, word, since) => `<span class="${cls}" data-since="${esc(since)}" data-word="${word}"><span class="working-dot" aria-hidden="true"></span>${withCount(word, since)}</span>`;
+  const counted = (cls, word, since) => `<span class="${cls}" data-since="${esc(since)}" data-word="${word}">${WORKING_DOT}${withCount(word, since)}</span>`;
   const recount = (root, now = Date.now()) => {
     for (const el of root.querySelectorAll('[data-since][data-word]')) {
       const dot = el.firstElementChild;
@@ -551,9 +551,11 @@
     return stop;
   }
 
+  // After ui-icon-text.js, whose iconText, ICON_SHAPES and ICON_COLOURS stay on BoardUI.
   globalThis.BoardUI = {
+    ...globalThis.BoardUI,
     LINK_ARROW, escText, onBackdrop, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, protoButton, grillButton, visualButton, requestIcons, requestOf, slashOf, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, protoButton, grillButton, visualButton, requestIcons, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

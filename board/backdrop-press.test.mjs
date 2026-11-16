@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const listeners = {};
 const document = { addEventListener: (type, fn, capture) => { listeners[type] = { fn, capture }; } };
 const context = vm.createContext({ document, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
-vm.runInContext(fs.readFileSync(new URL('./public/ui.js', import.meta.url), 'utf8'), context);
+for (const file of ['ui-icon-text.js', 'ui.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 const { onBackdrop } = context.BoardUI;
 
 const backdrop = {};

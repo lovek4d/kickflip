@@ -9,7 +9,7 @@ import { fixedDate } from '../shared/fixed-clock.mjs';
 const NOW = new Date(2026, 10, 13, 12).getTime();
 const PageDate = fixedDate(() => NOW);
 const context = vm.createContext({ Date: PageDate, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
-for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-hub.js']) {
+for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
 const ui = context.BoardUI;
@@ -1056,7 +1056,7 @@ test("a thread's Done is the box's second send button, on ⌥↵, never disabled
 // docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md
 test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a ready card's Implement is filled orange", () => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const clicks = [], later = [];
   const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
@@ -1099,7 +1099,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
 // docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md
 test("an open PR's card reads its merge state in a Merge row, after the card links and Risk and before Branch, with no CI or Review row; an unread merge state draws no row", () => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, later() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -1117,7 +1117,7 @@ test("an open PR's card reads its merge state in a Merge row, after the card lin
 
 test("a card with a worktree opens it in VS Code from its Links line, live on the host and muted with a tooltip off it",() => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, later() {}, store: {}, state: { board: { items: [], onHost: true } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -1139,7 +1139,7 @@ test("a card with a worktree opens it in VS Code from its Links line, live on th
 // docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md
 test("the open card's details list shows Parent, Children, Related to, Blocked by and Blocks as rows of tappable labels, leaving out empty rows and drawing no Status row; the workflow row has no follow-up Build", () => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   // The linked cards are on the board, so each label reads the ref its card has now.
   const onBoard = [53, 75, 80, 94, 95, 99].map((n) => ({ key: `w/GH-${n}`, id: `GH-${n}`, ref: `#${n}`, file: 'w' }));
   const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, store: {}, state: { board: { items: onBoard } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext(onBoard, key) };
@@ -1177,7 +1177,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
 // docs/adr/2026-11-13-1120-every-task-reference-links-and-shows-its-lane-ring.md
 test('every task reference the board draws is a link ending with its lane ring: the footer, the open card rows and the Done list', () => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -1315,7 +1315,7 @@ test("the Merge button keeps its colour from idle through the tap and the merge"
 test("an open card's action row has no Implement, which lives in a Todo card's thread box, nor Grill or Prototype; a card the owner blocked shows Unblock", () => {
   assert.equal(ui.buildButton, undefined);
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -1357,8 +1357,8 @@ test('the New strip counts processing... up the same way', () => {
   const since = new Date(NOW - 4 * 60000).toISOString();
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: ago(1), ask: { eventId: 'a1', askedAt: ago(1), canEdit: true, text: 'Fix', files: [], state: 'working', ...extra } });
   const strip = (extra) => ui.newStrip(ui.newEntries({ items: [ask(extra)], merges: [] }, {}), new Map());
-  assert.match(strip({ since }), /<span class="processing" data-since="[^"]+" data-word="processing\.\.\."><span class="working-dot" aria-hidden="true"><\/span>processing\.\.\. \(4m\)<\/span>/);
-  assert.match(strip({}), /<span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing\.\.\.<\/span>/);
+  assert.match(strip({ since }), /<span class="processing" data-since="[^"]+" data-word="processing\.\.\."><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>processing\.\.\. \(4m\)<\/span>/);
+  assert.match(strip({}), /<span class="processing"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>processing\.\.\.<\/span>/);
 });
 
 // docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md
@@ -1450,12 +1450,12 @@ test("a bare tap's line reads its words and time, then sending…, waiting… or
 test('a stale builder has no badge and no nudge: its status line and bars keep their colour, and only the footer reads stale', () => {
   const builder = { progress: 'Running tests', phase: 'building', at: null, stale: true };
   const html = ui.workLines({ ...workCard, lane: 'progress', stale: true, builder });
-  assert.match(html, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/div>/);
+  assert.match(html, /<div class="line3 sub agent in-progress"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>Running tests<\/div>/);
   assert.doesNotMatch(html, /<button[^>]*line3|data-confirm="nudge"|Stalled|tone-danger|phase-bars dim/);
   assert.match(html, /<span class="card-stale">stale<\/span>/);
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a builder whose process is gone
   // reads stopped at once, in its lane colour.
-  assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, alive: false } }), /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>stopped · Running tests<\/div>/);
+  assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, alive: false } }), /<div class="line3 sub agent in-progress"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>stopped · Running tests<\/div>/);
   for (const next of [{ ...builder, stale: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /stale/);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /class="[^"]*\bstale\b/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
@@ -1479,7 +1479,7 @@ test("a run the orchestrator stopped reads the stop's words as its status, plain
   const builder = { progress: 'Running tests', at: ago(1), stale: true, alive: false, silentSince: ago(0.05), stopped: 'build stopped by orchestrator' };
   const html = ui.workLines({ ...workCard, lane: 'progress', builder });
   assert.match(html, /<div class="line3 sub agent in-progress">build stopped by orchestrator \(\d+m\)<\/div>/);
-  assert.doesNotMatch(html, /working-dot|Running tests/);
+  assert.doesNotMatch(html, /it-pulse|Running tests/);
   const review = ui.workLines({ ...workCard, lane: 'review', builder: null, next: 'Verified: tap Merge to land it on main', landStopped: { words: 'land stopped by orchestrator', at: ago(0.05) } });
   assert.match(review, /<div class="line3 sub">land stopped by orchestrator \(\d+m\)<\/div>/);
 });
@@ -1566,7 +1566,7 @@ test('every In Progress card shows its four phase bars: empty before a phase, fi
   }
   assert.match(ui.workLines(card, { unread: 1 }), /<\/time><span class="sep"> · <\/span><span class="phase-bars dim"[^>]*>.*<\/span><\/div><div class="line6 sub card-alert"><span class="card-unread">1 new message<\/span><\/div>/);
   const drawn = ui.workLines({ ...card, builder: building }, { unread: 2 });
-  assert.match(drawn, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Building · the limiter<\/div>/);
+  assert.match(drawn, /<div class="line3 sub agent in-progress"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>Building · the limiter<\/div>/);
   assert.equal(drawn.match(/phase-bars/g).length, 1);
 });
 
@@ -1576,7 +1576,7 @@ test("a planner's line on a card is marked planner, keeping its dot, where a run
   const planner = { progress: 'Prototyping · the takes', kind: 'prototype', phase: null, at: null, planner: true };
   for (const [lane, tone] of [['todo', 'in-todo'], ['progress', 'in-progress']]) {
     const html = ui.workLines({ ...workCard, lane, sortAt: '2020-01-01T10:00:00.000Z', builder: planner });
-    assert.match(html, new RegExp(`<div class="line3 sub agent planner ${tone}"><span class="working-dot" aria-hidden="true"></span>Prototyping · the takes</div>`));
+    assert.match(html, new RegExp(`<div class="line3 sub agent planner ${tone}"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"></span></span>Prototyping · the takes</div>`));
     assert.doesNotMatch(html, /Building/);
   }
   // docs/adr/2026-11-11-1200-every-lane-has-phases.md: a Todo card's grill or prototype reads as its phase word instead.
@@ -1584,7 +1584,7 @@ test("a planner's line on a card is marked planner, keeping its dot, where a run
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'progress', sortAt: '2020-01-01T10:00:00.000Z', builder: planner }), /phase-bars/, 'no dashes in In Progress');
   const line = (it) => /<div class="line3 sub agent planner in-todo">.*?<\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
   // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
-  const blue = (it) => /<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"><\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
+  const blue = (it) => /<div class="line3 sub agent planner"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
   for (const word of ['preheating', 'planning prototype', 'planning visual', 'generating visual']) {
     assert.equal(blue({ planning: word, orchestrator: { kind: 'brief', since: '2020-01-01T10:00:00.000Z', picked: null, next: 'x' } }), word, 'before the wait on the orchestrator');
   }
@@ -1602,11 +1602,11 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   const waiting = { kind: 'calls', since: minutes(14), picked: null, next: 'x' };
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: waiting }), ['in-progress waiting-gray', 'waiting for orchestrator (14m)']);
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
-    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review (3m)']);
+    ['in-progress', '<span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"></span></span>orchestrator review (3m)']);
   // The browser never reads the usage pause: the orchestrator's marks read the same under it.
   ui.usagePause = () => ({ state: 'paused' });
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
-    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review (3m)']);
+    ['in-progress', '<span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"></span></span>orchestrator review (3m)']);
   assert.doesNotMatch(ui.threadMessages([{ ts: '2020-01-01T10:00:00Z', who: 'love', kind: 'item-message', text: 'x', eventId: 'e1', state: 'working' }]), /paused/);
   ui.usagePause = null;
   assert.deepEqual(status({ lane: 'todo', refusal: 'Couldn’t start', orchestrator: { ...waiting, kind: 'refused' } }), ['in-todo waiting-gray', 'waiting for orchestrator (14m)']);
@@ -1614,7 +1614,7 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   assert.deepEqual(status({ lane: 'progress', orchestrator: { ...waiting, kind: 'implement' } }), ['in-progress waiting-gray', 'waiting for orchestrator (14m)']);
   // A running builder keeps its own line while its ask waits.
   assert.deepEqual(status({ lane: 'progress', builder: { progress: 'Building · x', phase: 'building', at: minutes(2) }, orchestrator: { ...waiting, kind: 'ask' } }),
-    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Building · x (2m)']);
+    ['in-progress', '<span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"></span></span>Building · x (2m)']);
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: a rebase run's hand-back, In
   // Review, reads its own failure line above the wait.
   const failed = ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'review', waitsOn: 'checking', orchestrator: waiting, rebaseFailed: 'Rebase failed in 2 files · <both sides>' });
@@ -1627,7 +1627,7 @@ test('a card waiting on the orchestrator reads thinking, counting from when its 
   const html = (it) => ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'todo', ...it });
   const reply = { kind: 'reply', since: minutes(14), picked: minutes(3), next: 'x' };
   assert.match(html({ orchestrator: reply, working: true, workingSince: minutes(3) }),
-    /<div class="line3 sub agent"><span class="thinking" data-since="[^"]+" data-word="thinking…"><span class="working-dot" aria-hidden="true"><\/span>thinking… \(3m\)<\/span><\/div>/);
+    /<div class="line3 sub agent"><span class="thinking" data-since="[^"]+" data-word="thinking…"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>thinking… \(3m\)<\/span><\/div>/);
   // Not handed over yet: waiting for orchestrator, grey.
   assert.match(html({ orchestrator: { ...reply, picked: null } }), /waiting-gray">waiting for orchestrator \(14m\)/);
   // Handed over and written on, the wait still open: orchestrator review.
@@ -1663,10 +1663,10 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   const entryText = (html) => text(html.split('<div class="new-list">')[1]);
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: grey "waiting…", its
   // dot still, counting up from the ask, until the orchestrator picks the task up, then the blue "processing...".
-  const triaging = '<span class="pickup-wait" data-since="[^"]+" data-word="waiting…"><span class="working-dot" aria-hidden="true"></span>waiting…(?: \\([^)]+\\))?</span>';
+  const triaging = '<span class="pickup-wait" data-since="[^"]+" data-word="waiting…"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"></span></span>waiting…(?: \\([^)]+\\))?</span>';
   assert.match(strip([ask({ state: 'waiting' })]), /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div>/);
   assert.match(strip([ask({ state: 'waiting' })]), new RegExp(triaging));
-  assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub"><span class="new-time">[^<]+<\/span> · Edited · <span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing...<\/span><\/div>/);
+  assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub"><span class="new-time">[^<]+<\/span> · Edited · <span class="processing"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>processing...<\/span><\/div>/);
   // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md: a handed ask's source
   // line links the card it came from, and the sender's note is quoted under the message.
   const handed = strip([ask({ state: 'waiting', from: { words: '/orch · A1', link: '/orch/#selectedCard=w%2FA1' }, note: 'Yours <now>' })]);
@@ -1798,7 +1798,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.deepEqual(lines(landing('held', 'Landing held: host busy')).slice(0, 2), ['INT-3 Five', 'Landing held: host busy']);
   assert.match(landing('held', 'Landing held: host busy'), /class="line3 sub agent waiting-gray">Landing held/);
   assert.match(landing('fault', 'Lander exited twice without landing'), /class="line3 sub refused">Lander exited twice/);
-  assert.match(landing('running', 'Lander running'), /class="line3 sub agent in-progress"><span class="working-dot"[^>]*><\/span>Lander running/);
+  assert.match(landing('running', 'Lander running'), /class="line3 sub agent in-progress"><span class="it it-current"><span class="it-i it-pulse"[^>]*><\/span><\/span>Lander running/);
   const followup = { ...workCard, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, prs: [], reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five']);
   assert.doesNotMatch(ui.workLines(followup), /follow-up/);
@@ -2047,7 +2047,7 @@ test('a builder status line, and an agent starting or finishing, reads as one li
     { ts: ago(0.8), who: 'claude', kind: 'agent', text: 'Opus builder started', finished: false, eta: null },
     { ts: ago(0.5), who: 'claude', kind: 'agent', text: 'Opus builder <b>finished</b>', finished: true, eta: null },
   ]);
-  const dot = '<span class="mark" aria-hidden="true"><span class="agent-dot"><\\/span><\\/span>';
+  const dot = '<span class="mark" aria-hidden="true"><span class="it it-current"><span class="it-i it-dot" aria-hidden="true"><\\/span><\\/span><\\/span>';
   assert.match(agents, new RegExp(`^<div class="msg status-line agent started">${dot}Codex started`));
   assert.match(agents, new RegExp(`<div class="msg status-line agent started">${dot}Opus builder started`));
   assert.match(agents, new RegExp(`<div class="msg status-line agent finished">${dot}Opus builder &lt;b&gt;finished`));
@@ -2057,8 +2057,8 @@ test('a builder status line, and an agent starting or finishing, reads as one li
     { ts: ago(1), who: 'claude', kind: 'agent', text: 'Claude Sonnet prototype started', finished: false, eta: null, planner: true },
     { ts: ago(0.8), who: 'claude', kind: 'status', text: 'Reading: the notes', planner: true },
   ]);
-  assert.match(planner, /<div class="msg status-line agent started planner"><span class="mark" aria-hidden="true"><span class="agent-dot"><\/span><\/span>Claude Sonnet prototype started/);
-  assert.match(planner, /<div class="msg status-line builder-status planner"><span class="mark" aria-hidden="true"><span class="working-dot"><\/span><\/span>Reading: the notes/);
+  assert.match(planner, /<div class="msg status-line agent started planner"><span class="mark" aria-hidden="true"><span class="it it-current"><span class="it-i it-dot" aria-hidden="true"><\/span><\/span><\/span>Claude Sonnet prototype started/);
+  assert.match(planner, /<div class="msg status-line builder-status planner"><span class="mark" aria-hidden="true"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span><\/span>Reading: the notes/);
   // A bare Grill or Prototype tap, and a New task sent with Implement, are a muted request entry, not a message from the
   // owner, led by its icon in the same box as the dots; a Full person's names them
   // (docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md). A request's event line reads
@@ -2111,7 +2111,7 @@ test("a Questions added line keeps its words, orange while its batch has an open
   assert.match(ui.threadMessages([added(true)]), new RegExp(`^<div class="msg status-line request hub tone-orange">${lead}`));
   assert.match(ui.threadMessages([added(false)]), new RegExp(`^<div class="msg status-line request hub">${lead}`));
   assert.ok(!('newQuestionsLine' in ui));
-  assert.match(ui.MARK_ICONS.questions, /class="mark-icon big"/);
+  assert.match(ui.MARK_ICONS.questions, /class="it-i it-question"/);
   assert.doesNotMatch(ui.MARK_ICONS.questions, /<circle/);
 });
 
@@ -2123,12 +2123,12 @@ test("one agent run folds into one closed line with a caret holding its started 
   const live = run('main', true);
   const html = ui.threadMessages([ln(0), agentLine(1, false, live), ln(2, live), { ts: ago(7.5), who: 'claude', text: 'Between' }, ln(3, live), { ts: ago(6), who: 'love', text: 'Owner says' }]);
   assert.equal(html.match(/<details/g).length, 1);
-  assert.match(html, /<details class="msg status-line calls status-fold"><summary><span class="mark" aria-hidden="true"><svg/);
+  assert.match(html, /<details class="msg status-line calls status-fold"><summary><span class="mark" aria-hidden="true"><span class="it it-current"><span class="it-i it-chevron" aria-hidden="true"><svg/);
   assert.match(text(html), /^Step 0 · \S.* Claude main · running · \S.* Claude main started/);
   assert.match(text(html), /Claude main started · \S.* Step 2 · \S.* Step 3 · \S.* Between .*Owner says/);
   assert.doesNotMatch(html, /<details[^>]* open/);
-  assert.equal(html.match(/working-dot/g).length, 1, 'only the line outside the run draws a dot, none inside the fold');
-  assert.match(ui.threadMessages([ln(0)]), /working-dot/, 'a lone status line keeps its dot');
+  assert.equal(html.match(/it-pulse/g).length, 1, 'only the line outside the run draws a dot, none inside the fold');
+  assert.match(ui.threadMessages([ln(0)]), /it-pulse/, 'a lone status line keeps its dot');
   const p = run('grill', false, true);
   const done = ui.threadMessages([agentLine(1, false, p), ln(2, p), ln(3, p), agentLine(4, true, p)]);
   assert.match(done, /<details class="msg status-line calls status-fold planner"><summary class="finished">/);
@@ -2826,7 +2826,7 @@ test("a Todo thread message's footer leads with an icon for Implement, a Reply's
     { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staged', text: 'Marked as staged', tone: 'orange' },
   ]);
   assert.equal(html.split('class="foot-status"').length - 1, 1);
-  assert.match(ui.MARK_ICONS.Implement, /^<svg class="mark-icon"/);
+  assert.match(ui.MARK_ICONS.Implement, /^<span class="it it-current"><span class="it-i it-code"/);
   assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implement</span>`));
   assert.equal(ui.MARK_ICONS['Marked as staged'], ui.MARK_ICONS.Implement);
   assert.equal(ui.MARK_ICONS['Implementation requested'], ui.MARK_ICONS['Marked as staged']);
@@ -2877,7 +2877,7 @@ test('a Created ticket, a Created from and a ticket-made line are blue; a Relate
   assert.match(made, /class="msg status-line request hub tone-blue"/);
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: the router's line is info the owner reads.
   const routed = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ask-routed', mark: 'ask-link', text: 'Routed here from Slack: the shop', link: 'https://slack.com/x', fault: false, tone: 'blue' }]);
-  assert.match(routed, /class="msg status-line request hub tone-blue"><span class="mark" aria-hidden="true"><svg[^]*<a href="https:\/\/slack.com\/x">Routed here from Slack: the shop<\/a>/);
+  assert.match(routed, /class="msg status-line request hub tone-blue"><span class="mark" aria-hidden="true"><span class="it it-current"><span class="it-i it-arrow"[^]*<a href="https:\/\/slack.com\/x">Routed here from Slack: the shop<\/a>/);
 });
 
 // docs/adr/2026-11-12-2000-a-status-line-has-one-tone-for-its-icon-words-and-link.md
@@ -2900,24 +2900,24 @@ test('every kind of thread status or system line leads with an icon, so a new ki
   const { ACTION_LABELS, INTENT_LABELS, COMMANDS, ANSWERS_SUBMITTED } = await import('./domain.mjs');
   // Each word domain.mjs puts on a request line or a message footer has an icon: every command key's among them.
   const words = [...Object.values(ACTION_LABELS).filter((w) => w !== ACTION_LABELS['mark-ready']), ...Object.values(INTENT_LABELS), ...Object.values(COMMANDS), ANSWERS_SUBMITTED];
-  for (const w of words) assert.match(ui.MARK_ICONS[w] || '', /class="mark-icon/, `${w} has an icon`);
+  for (const w of words) assert.match(ui.MARK_ICONS[w] || '', /class="it-i it-[a-z-]+"[^>]*><svg/, `${w} has an icon`);
   // Each system line kind renders a mark holding an icon, or the dot of a builder or agent that is running.
   const sample = { ts: ago(1), who: 'claude', text: 'x', link: '#selectedCard=a', calls: ['c'], verified: null };
   for (const kind of ui.SYSTEM_KINDS) {
     const html = ui.threadMessages([{ ...sample, kind, ...(kind === 'command' ? { command: 'hold', mark: COMMANDS.hold, text: 'Held until Fri', request: true } : {}), ...(kind === 'hub' ? { mark: 'Held' } : {}), ...(kind === 'ask-link' ? { words: 'Became', card: 'w/a' } : {}) }]);
-    assert.match(html, /<span class="mark" aria-hidden="true">(<svg class="mark-icon|<span class="(working|agent)-dot")/, `${kind} line has a mark`);
+    assert.match(html, /<span class="mark" aria-hidden="true"><span class="it it-current"><span class="it-i it-[a-z-]+"/, `${kind} line has a mark`);
   }
   // A request line with no icon for its words renders an empty mark, which this catches.
   for (const text of words.filter((w) => !INTENT_LABELS.reply || w !== INTENT_LABELS.reply)) {
     const html = ui.threadMessages([{ ts: ago(1), who: 'love', kind: 'grill-more', request: true, text }]);
-    assert.match(html, /<span class="mark" aria-hidden="true"><svg class="mark-icon/, `${text} request line has an icon`);
+    assert.match(html, /<span class="mark" aria-hidden="true"><span class="it it-current"><span class="it-i it-[a-z-]+" aria-hidden="true"><svg/, `${text} request line has an icon`);
   }
 });
 
 test("a link's thread line is one link icon, its words and the other card's ref linked with its lane ring, and is never unread", () => {
   const links = ui.linkContext([{ key: 'w/A2', id: 'A2', ref: '#12', file: 'w', lane: 'progress' }], 'w/A1');
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'command', command: 'followup', request: true, mark: 'Follow-up', words: 'Follow-up', text: 'Follow-up #12', link: '#selectedCard=w%2FA2', card: 'w/A2' }], links, { seenAt: ago(5) });
-  assert.match(html, /^<div class="msg status-line request"><span class="mark" aria-hidden="true"><svg class="mark-icon"/);
+  assert.match(html, /^<div class="msg status-line request"><span class="mark" aria-hidden="true"><span class="it it-current"><span class="it-i it-link"/);
   assert.ok(html.includes('Follow-up <a href="#selectedCard=w%2FA2">#12<span class="status link-lane progress"></span></a>'));
   assert.doesNotMatch(html, /unread/);
 });
@@ -2967,11 +2967,11 @@ test("the board's line is a status line with its mark, never an Orchestrator mes
   const quiet = { ts: ago(1), who: 'claude', kind: 'hub', line: 'host-busy', mark: 'Held', fault: false, text: 'Host is busy, work will resume when the host recovers' };
   const fault = { ts: ago(1), who: 'claude', kind: 'hub', line: 'relaunch-failed', mark: 'Fault', fault: true, tone: 'red', text: "Couldn't relaunch the builder headless: spawn ENOENT" };
   const html = ui.threadMessages([quiet]);
-  assert.match(html, /<div class="msg status-line request hub"><span class="mark" aria-hidden="true"><svg class="mark-icon/);
+  assert.match(html, /<div class="msg status-line request hub"><span class="mark" aria-hidden="true"><span class="it it-current"><span class="it-i it-pause"/);
   assert.doesNotMatch(html, /Orchestrator/);
   assert.match(ui.threadMessages([fault]), /<div class="msg status-line request hub tone-red">/);
   assert.match(ui.MARK_ICONS.Blocked, /circle/);
-  assert.match(ui.MARK_ICONS.Fault, /mark-icon/);
+  assert.match(ui.MARK_ICONS.Fault, /it-warn/);
   // The window opens from the oldest unread line: a fault reaches past the last three messages, a quiet line doesn't.
   const msg = (h) => ({ ts: ago(h), who: 'love', text: `m${h}` });
   const older = [{ ...fault, ts: ago(9) }, msg(8), msg(7), msg(6), msg(5)];

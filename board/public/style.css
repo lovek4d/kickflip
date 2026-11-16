@@ -330,8 +330,10 @@ a.hub { display: inline-flex; flex: none; }
   .item button[data-card-bump]:not(.bumped, [aria-busy="true"]) { opacity: 0; }
   .item:hover button[data-card-bump]:not(.bumped), .item:focus-within button[data-card-bump]:not(.bumped) { opacity: 1; }
 }
-.working-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-notice); margin-right: 5px; vertical-align: 1px; }
-@media (prefers-reduced-motion: no-preference) { .working-dot { animation: pulse 1.4s ease-in-out infinite; } }
+/* A working dot (ui.js WORKING_DOT) is the orange one unless its line sets a colour, which the dot then takes: the
+   lines below set `color: inherit` on it. */
+.it-pulse.it-current { color: var(--color-notice); margin-right: 5px; vertical-align: 1px; }
+.it-dot.it-current { margin-right: 5px; vertical-align: 1px; }
 /* A thread box's row: What's left? at the left, the eye, fire and attach at the right, then Send, or a pair below
    (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md). */
 form[data-reply] .row .quick { margin: 0; }
@@ -376,10 +378,10 @@ button.attach:disabled { opacity: .35; }
 .brand .hub { grid-row: 1 / span 2; align-self: center; }
 /* The session's working line, "thinking", is the owner's blue with one font, size, weight and pulse on the card and in the thread. */
 .thinking { color: var(--accent); font-size: 12px; font-weight: 600; }
-.thinking .working-dot { background: currentColor; }
+.thinking .it-pulse, .planner .it-pulse, .new-entry .processing .it-pulse { color: inherit; }
 /* A New card's "waiting", until the orchestrator picks it up: grey, its dot still. */
 .pickup-wait { color: var(--muted); font-size: 12px; font-weight: 600; }
-.pickup-wait .working-dot { background: currentColor; animation: none; }
+.pickup-wait .it-pulse { color: inherit; animation: none; }
 /* Every status line shares this spacing and gutter: the mark sits in the first 23px, and wrapped text hangs under the
    first line's text, never under the mark. A fold's summary hangs the same way inside its box. Each kind keeps only its colour. */
 .status-line { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
@@ -388,7 +390,7 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 .status-line > ol { text-indent: 0; }
 .status-line a { color: inherit; }
 .msg.builder-status { color: var(--color-notice); }
-.msg.builder-status .working-dot { animation: none; }
+.msg.builder-status .it-pulse { animation: none; }
 .msg.request { color: var(--muted); }
 .msg.request.tone-red { color: var(--color-danger); }
 .msg.request.tone-orange { color: var(--color-notice); }
@@ -401,14 +403,13 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 /* A planner's line in the thread, dot included, is the owner's blue; its finish stays green
    (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md). On the card it is blue too (.sub.agent.planner below). */
 .msg.builder-status.planner, .msg.agent.started.planner { color: var(--accent); }
-.planner .working-dot { background: currentColor; }
 /* A builder run's status line, dot included, takes its card's lane colour: grey in Todo, the phase-bar orange in
    In Progress, blue in In Review; a Todo card's planner dashes are its grey, the running one pulsing
    (docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md). */
 .sub.agent.in-todo { color: var(--muted); }
 .sub.agent.in-progress { color: var(--color-notice); }
 .sub.agent.in-review { color: var(--color-info); }
-.sub.agent.in-todo .working-dot, .sub.agent.in-progress .working-dot, .sub.agent.in-review .working-dot { background: currentColor; }
+.sub.agent.in-todo .it-pulse, .sub.agent.in-progress .it-pulse, .sub.agent.in-review .it-pulse { color: inherit; }
 /* docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a grill, prototype or visual's status
    line, its brief's and its agent's, is blue in every lane, after the lane colours so it wins. */
 .sub.agent.planner { color: var(--color-info); }
@@ -417,7 +418,7 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 .paused { color: var(--muted); font-weight: 600; }
 .msg.calls summary { cursor: pointer; color: var(--muted); list-style: none; }
 .msg.calls summary::-webkit-details-marker { display: none; }
-.msg.calls[open] summary .mark-icon { transform: rotate(90deg); }
+.msg.calls[open] summary .mark .it-i { transform: rotate(90deg); }
 .msg.calls.status-fold summary { color: var(--color-notice); overflow-wrap: anywhere; }
 .msg.calls.status-fold.planner summary { color: var(--accent); }
 /* Only a run's finished line is green: the fold's summary mirrors its last line, green once the run has finished, else the
@@ -425,20 +426,16 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 .msg.calls.status-fold summary.finished { color: var(--color-success); }
 .msg.fault-detail summary { cursor: pointer; list-style: none; overflow-wrap: anywhere; }
 .msg.fault-detail summary::-webkit-details-marker { display: none; }
-.msg.fault-detail[open] summary .mark-icon { transform: rotate(90deg); }
+.msg.fault-detail[open] summary .mark .it-i { transform: rotate(90deg); }
 /* The whole error of a fault line, monospace, wrapping at any width. */
 .fault-error { margin: 4px 0 4px 23px; padding: 8px; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-soft, rgba(127,127,127,.12)); border-radius: 6px; color: var(--fg, inherit); }
 .msg.calls ol { margin: 4px 0; padding-left: 23px; }
-.agent-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 5px; vertical-align: 1px; }
 /* Every thread status line's leading mark, icon or dot, sits centred in one 18px box, so the text after it always starts
    at the same place; the box is 12px tall so line heights stay
    (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md). */
 .mark { display: inline-block; position: relative; width: 18px; height: 12px; margin-right: 5px; vertical-align: -1px; flex: none; }
 .mark > * { position: absolute; inset: 0; margin: auto; }
-.mark .working-dot, .mark .agent-dot { margin: auto; vertical-align: 0; }
-.mark-icon { width: 12px; height: 12px; }
-/* A Questions added line's plain question mark is a size up from its siblings. */
-.mark-icon.big { width: 18px; height: 18px; }
+.mark > .it { margin: auto; vertical-align: 0; justify-content: center; }
 /* An owner's message's footer: its time, the tap it came from, then where it is (sending…, waiting…, thinking…, or a
    failed send's red not sent with Retry and X at the right), each after a ·. */
 .msg .reply { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 2px; }
@@ -486,7 +483,6 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .new-msg { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .new-entry .new-line { margin-top: 4px; }
 .new-entry .processing { color: var(--color-info); font-size: 12px; font-weight: 600; }
-.new-entry .processing .working-dot { background: currentColor; }
 .new-done, .new-link { color: var(--color-info); font-size: 12px; font-weight: 600; text-decoration: none; }
 .new-entry .new-time { color: var(--muted); font-weight: 400; }
 .new-entry .new-source { color: inherit; }

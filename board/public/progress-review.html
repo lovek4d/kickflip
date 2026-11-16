@@ -7,6 +7,7 @@
 <script>try { if (localStorage.getItem('hub:oled') === '1') document.documentElement.dataset.oled = ''; } catch {}</script>
 <link rel="stylesheet" href="colors.css">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="sidebar.css">
 <style>
   /* The progress-bar review (progress-review.js): the board's lanes, each card one bar or status line drawn by the real
      renderers, its colour the lane's --lane, which the lane's colour pick sets; the open card's editor beneath. */
@@ -35,6 +36,7 @@
   <p class="muted">Every progress bar and status line the board draws, in the lane it shows in. Tap one to rename it, move it to another lane or rename and reorder its steps; pick each lane's colour; then Send.</p>
   <div id="review"></div>
 </main>
+<script src="ui-icon-text.js"></script>
 <script src="ui.js"></script>
 <script src="ui-links.js"></script>
 <script src="ui-enums.js"></script>

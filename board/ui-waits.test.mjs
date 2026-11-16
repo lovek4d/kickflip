@@ -7,7 +7,7 @@ import { fixedDate } from '../shared/fixed-clock.mjs';
 // docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md
 const NOW = new Date(2026, 10, 15, 12).getTime();
 const context = vm.createContext({ Date: fixedDate(() => NOW), location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
-for (const file of ['ui.js', 'ui-progress-bar.js', 'ui-icon-text.js', 'ui-waits.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
+for (const file of ['ui-icon-text.js', 'ui.js','ui-progress-bar.js', 'ui-icon-text.js', 'ui-waits.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 const { WAIT_WORDS, waitsTone, waitsChip, waitsList, waitsTitle } = context.BoardUI;
 
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };

@@ -238,7 +238,7 @@
   // A run's status line takes its card's lane colour (style.css): grey in Todo, the phase-bar orange in In Progress, blue in
   // In Review (docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md). A Done card's line keeps the plain orange.
   const tone = (it) => (['todo', 'progress', 'review'].includes(it.lane) ? ` in-${it.lane}` : '');
-  const DOT = '<span class="working-dot" aria-hidden="true"></span>';
+  const DOT = globalThis.BoardUI.WORKING_DOT;
   // A card idle on the orchestrator (domain.mjs orchestratorWaitOf) reads waiting for orchestrator, then orchestrator
   // review with its dot once the session picks it up, each with how long ago.
   // docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md: while the
@@ -368,7 +368,7 @@
   // dot still, until the orchestrator picks it up (the watcher's or the PostToolUse hook's working mark), then
   // "processing...", the owner's word, while the orchestrator triages it. Another board's question reads a grey
   // "waiting…" until then.
-  const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting…</span>';
+  const PICKUP_WAIT = `<span class="pickup-wait">${DOT}waiting…</span>`;
   const PROCESSING = `<span class="processing">${DOT}processing...</span>`;
   const processing = (since) => (since ? globalThis.BoardUI.counted('processing', 'processing...', since) : PROCESSING);
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: a New task waiting for
@@ -478,7 +478,7 @@
   function reviewCard(c, open) {
     return `<details class="rv-card" data-review="${c.number}"${open ? ' open' : ''}><summary><span class="status ${REVIEW_DOTS[c.state]}"></span><div class="title-wrap">
       <div class="line1 title">${badge('normal', `PR #${c.number}`)} ${escText(c.title)}</div>
-      <div class="line3 sub${c.state === 'reviewing' ? ' agent' : ''}">${c.state === 'reviewing' ? '<span class="working-dot" aria-hidden="true"></span>' : ''}<span class="rv-word s-${c.state}">${REVIEW_WORDS[c.state]}</span> · ${esc(reviewWhen(c))}</div>
+      <div class="line3 sub${c.state === 'reviewing' ? ' agent' : ''}">${c.state === 'reviewing' ? DOT : ''}<span class="rv-word s-${c.state}">${REVIEW_WORDS[c.state]}</span> · ${esc(reviewWhen(c))}</div>
       <div class="line2 meta">${reviewChipsOf(c)}</div></div></summary>${reviewDetail(c)}</details>`;
   }
   const reviewLine = (c, open) => `<details class="rv-line" data-review="${c.number}"${open ? ' open' : ''}><summary><div class="title">${badge('normal', `PR #${c.number}`)} ${escText(c.title)}</div>

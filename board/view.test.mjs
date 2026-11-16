@@ -22,7 +22,7 @@ function boardPatch(from, to, threads = { from: {}, to: {} }, notes = { from: {}
   return { ...patchSince(now.sync, now.board, held.sync.n, map(threads.to), notesOf(to, notes.to)), since: from.version, version: to.version };
 }
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-waits.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
+const SCRIPTS = ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-waits.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
