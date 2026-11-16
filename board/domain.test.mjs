@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { footerOf, buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone } from './domain.mjs';
+import { queuedPlannerKey, queuedPlannerCard } from './domain.mjs';
+import { footerOf,buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -3142,9 +3143,20 @@ test("an owner event's thread line, an answer's included, carries the sendId of 
   assert.deepEqual(threadOf('w/A1', { events, owner }).map((m) => m.sendId), ['s-1', 'p-1', undefined, 'a-1']);
 });
 
+test('a reviewer and a prototype queued on one card keep separate entries', () => {
+  const reviewer = queuedPlannerKey('w/A1', 'reviewer');
+  const prototype = queuedPlannerKey('w/A1', 'prototype');
+  assert.notEqual(reviewer, prototype);
+  assert.equal(queuedPlannerCard(reviewer), 'w/A1');
+  assert.equal(queuedPlannerCard(prototype), 'w/A1');
+  const queued = { ...{ [reviewer]: { kind: 'reviewer' } }, [prototype]: { kind: 'prototype' } };
+  assert.deepEqual(Object.values(queued).map((q) => q.kind), ['reviewer', 'prototype']);
+});
+
 test('a card whose planner waits in the queue for a launch hold carries plannerQueued, from the server only', () => {
   const built = (queuedPlanners) => buildBoard({ now: Date.parse('2026-11-14T06:00:00Z'), owner: {}, events: [], threads: {}, working: {}, queuedPlanners,
     files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'todo' }, { id: 'A2', title: 'Two', lane: 'todo' }] } }] });
+  assert.deepEqual(built({ [queuedPlannerKey('w/A1', 'grill')]: { kind: 'grill' } }).items.map((i) => i.plannerQueued), [true, false]);
   assert.deepEqual(built({ 'w/A1': { kind: 'grill' } }).items.map((i) => i.plannerQueued), [true, false]);
   assert.deepEqual(built(undefined).items.map((i) => i.plannerQueued), [false, false]);
 });

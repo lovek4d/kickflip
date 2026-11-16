@@ -360,7 +360,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, beside, REVIEWER, VISUAL, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, beside, queuedPlannerKey, queuedPlannerCard, REVIEWER, VISUAL, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -1651,7 +1651,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       limited: (record) => (record.session.log ? runLimit(path.join(home, '.claude', 'kickflip', 'logs', record.session.log)) : null),
     });
     for (const c of gone) {
-      if (c.limited) await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [c.key]: { kind: c.kind, kept: c.limited.brief, until: c.limited.until } });
+      if (c.limited) await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [queuedPlannerKey(c.key, c.kind)]: { kind: c.kind, kept: c.limited.brief, until: c.limited.until } });
       logCall({ call: 'planner-gone', key: c.key, result: c.limited ? 'queued' : c.failed ? 'failed' : 'closed', reason: c.limited ? `Its ${c.kind} run stopped at the usage limit, which resets at ${c.limited.until}; it relaunches then.` : `Its ${c.kind} planner's process was gone with its record open.`, inputs: c });
     }
     if (gone.length) dataVersion++;
@@ -1805,8 +1805,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // A planner, kind grill or prototype, opens on the card from its written brief, or from kept, the briefs entry of the
   // run a Block stopped, and launches headless in the board's repo (store.mjs startPlanner), unless an agent already works
   // on it. One that can't start or launch leaves a thread line and its record closed. One due while the board's launches
-  // are held (heldFor) waits in data/queued-planners.json {<key>: {kind, kept}}, with a thread line saying so, and
-  // launches when the hold lifts (launchQueuedPlanners); another replaces it.
+  // are held (heldFor) waits in data/queued-planners.json {<key>#<kind>: {kind, kept}}, with a thread line saying so, and
+  // launches when the hold lifts (launchQueuedPlanners); another of the same kind on the card replaces it.
   // (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md)
   const queuedPlanners = path.join(data, 'queued-planners.json');
   const saveQueuedPlanners = (queued) => writeShown(queuedPlanners, queued);
@@ -1814,7 +1814,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const gate = readUsageGate({ dir: here });
     if (heldFor(gate, 'claude')) {
       heldByPause = true;
-      await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [key]: { kind, ...(kept ? { kept } : {}) } });
+      await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [queuedPlannerKey(key, kind)]: { kind, ...(kept ? { kept } : {}) } });
       logCall({ call: 'planner-queued', key, result: kind, reason: pauseReasonFor(gate, 'claude'), inputs: { kind, gate } });
       await appendStatus(here, key, gate.machine.state === 'busy' ? 'host-busy' : 'planner-held', { kind });
       return;
@@ -1924,10 +1924,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // The planners launchPlanner queued during a hold, oldest asked first, each once, until a launch is held again.
   async function launchQueuedPlanners() {
-    for (const [key, { kind, kept, until }] of Object.entries(await readJSON(queuedPlanners, {}))) {
+    for (const [queuedKey, { kind, kept, until }] of Object.entries(await readJSON(queuedPlanners, {}))) {
+      const key = queuedPlannerCard(queuedKey);
       if (launchHeldNow()) return;
       if (until && Date.parse(until) > Date.now()) continue;
-      const { [key]: _, ...rest } = await readJSON(queuedPlanners, {});
+      const { [queuedKey]: _, ...rest } = await readJSON(queuedPlanners, {});
       await saveQueuedPlanners(rest);
       logCall({ call: 'planner-queued', key, result: 'launching', reason: 'The hold it waited on has lifted.', inputs: { kind } });
       if (beside({ kind })) await restoreBrief(here, key, kept);

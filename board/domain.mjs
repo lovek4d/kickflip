@@ -702,6 +702,10 @@ export const REVIEWER = 'reviewer';
 // staged questions, one of each at a time per card.
 const BESIDE = new Set([VISUAL, REVIEWER]);
 export const beside = (agent) => BESIDE.has(agent.kind);
+
+// data/queued-planners.json keys a waiting agent by its card and kind, so a reviewer and a grill on one card both wait.
+export const queuedPlannerKey = (card, kind) => `${card}#${kind}`;
+export const queuedPlannerCard = (queuedKey) => queuedKey.split('#')[0];
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
 // A helper is an agent another agent on the card asked for (board.mjs agent launch), with a task, under its own name:
 // an implementer, which takes a slot only when it writes (in its own worktree off the card's branch).
@@ -1381,7 +1385,7 @@ export function buildBoard(snapshot) {
         said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
         askedAt: (index.questions.get(`item:${key}`) || []).filter((q) => q.asked_at).map((q) => q.asked_at),
         topicItems, prSlack: snapshot.prSlack || {}, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
-        mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets, landers: snapshot.landers || {}, landHeld: snapshot.landHeld || {}, landSkips: snapshot.landSkips || {}, plannerQueued: routeRecord(snapshot.queuedPlanners || {}, key) !== undefined,
+        mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets, landers: snapshot.landers || {}, landHeld: snapshot.landHeld || {}, landSkips: snapshot.landSkips || {}, plannerQueued: Object.keys(snapshot.queuedPlanners || {}).some((queued) => queuedPlannerCard(queued) === key),
       }));
       const card = items[items.length - 1];
       // An offered script waits on the owner's Run or Decline (actionOf).
