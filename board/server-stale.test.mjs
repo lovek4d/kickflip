@@ -37,10 +37,10 @@ function scratch(t, name, at, env = {}) {
 // The server for siteDir, and the way a test restarts it on the same files: stop() closes it, start() runs it again.
 // minute() runs the minute's checks and awaits every pass they started; changed(...files) reports each write to the
 // server as its watch would and awaits the passes it started.
-function server(t, siteDir) {
+function server(t, siteDir, options = {}) {
   const run = { b: null };
   return {
-    start: async () => { run.b = await startBoard(t, { site: siteDir }); await run.b.settled(); },
+    start: async () => { run.b = await startBoard(t, { site: siteDir, ...options }); await run.b.settled(); },
     stop: () => run.b.close(),
     minute: async () => { run.b.minute(); await run.b.settled(); },
     changed: async (...files) => { for (const file of files) run.b.changed(file); await run.b.settled(); },
@@ -408,6 +408,61 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   await board.minute();
   assert.equal(triages().length, 3, 'the triage goes once the pause lifts');
   assert.equal(triages()[2].data.date, '2026-11-06');
+});
+
+// docs/adr/2026-11-16-2100-overnight-triage-proposes-a-stale-board-description.md
+test('a board with no description, or none checked in 7 days, sends the overnight triage alone, naming no cards, so the pull goes on', async (t) => {
+  const { dir, siteDir, dataDir, clock } = scratch(t, 'description-triage', Date.parse('2026-11-03T03:00:00Z'), { TZ: 'UTC' });
+  const waveFile = path.join(dataDir, 'items.json');
+  const eventsFile = path.join(dataDir, 'events.jsonl');
+  fs.mkdirSync(dataDir, { recursive: true });
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', max_implementers: 2 }));
+  put(waveFile, JSON.stringify({ items: [{ id: 'A1', title: 'feat: one', lane: 'todo' }] }));
+  fs.writeFileSync(path.join(dataDir, 'owner.json'), JSON.stringify({ topics: [], items: [] }));
+  fs.writeFileSync(eventsFile, '');
+  const { claude, launched } = launchingBoard(dir, siteDir);
+  Object.assign(process.env, { KICKFLIP_CODEX: 'true', KICKFLIP_CLAUDE: claude });
+  const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  const describe = (fields) => {
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+    const { description, description_checked_at, description_at, ...entry } = manifest.sites.t;
+    put(manifestFile, JSON.stringify({ sites: { t: { ...entry, ...fields } } }));
+  };
+  describe({});
+  const triages = () => lines(eventsFile).filter((e) => e.kind === 'overnight-triage');
+  // A server started without describeNightly, as every other test's is, never sends one.
+  const unopted = server(t, siteDir);
+  await unopted.start();
+  await unopted.minute();
+  assert.deepEqual(triages(), [], 'off unless the server is started with describeNightly');
+  await unopted.stop();
+  const board = server(t, siteDir, { describeNightly: true });
+  await board.start();
+  await board.minute();
+  assert.deepEqual(triages().map((e) => e.data), [{ date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: [], description: true }], 'no description: tonight\'s triage, naming no cards');
+
+  // The unanswered triage names no cards, so it holds no pull.
+  put(waveFile, JSON.stringify({ items: [{ id: 'A1', title: 'feat: one', lane: 'todo', phase: 'ready' }] }));
+  await board.changed(waveFile);
+  assert.deepEqual(launched('build'), ['t/A1']);
+  fs.mkdirSync(path.join(dataDir, 'replies'), { recursive: true });
+  put(path.join(dataDir, 'replies', `${triages()[0].id}.md`), 'Proposed one.');
+  await board.changed(path.join(dataDir, 'replies', `${triages()[0].id}.md`));
+  // A1 lands, so the board is idle again for the nights below.
+  put(waveFile, JSON.stringify({ items: [{ id: 'A1', title: 'feat: one', lane: 'done' }] }));
+  await board.changed(waveFile);
+
+  describe({ description: 'The shop', description_checked_at: '2026-11-03T03:30:00.000Z' });
+  clock.set(Date.parse('2026-11-04T03:00:00Z'));
+  await board.minute();
+  assert.equal(triages().length, 1, 'checked last night: none');
+  clock.set(Date.parse('2026-11-10T03:00:00Z'));
+  await board.minute();
+  assert.equal(triages().length, 1, 'just under 7 days since the check: none');
+  clock.set(Date.parse('2026-11-11T03:00:00Z'));
+  await board.minute();
+  assert.equal(triages().length, 2, 'more than 7 days since the check');
+  assert.equal(triages()[1].data.description, true);
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md

@@ -36,7 +36,7 @@ export const PLAIN = {
   'owner-answer': (e) => `answer received to question ${e.data?.id}: ${e.data?.prototype_again ? `it picks no take, so the task owes you the next prototype round's brief: item brief ${e.data?.key || '<key>'} --kind prototype --file <draft.md>` : 'act on it on its task'}`,
   ping: (e) => `ping ${e.id} from the hub answered`,
   hello: (e) => `ping ${e.id} from the hub answered`,
-  'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${e.data?.cards?.length} tasks wait on open questions; run the triage, then board.mjs reply ${e.id}`,
+  'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${[e.data?.cards?.length && `${e.data.cards.length} tasks wait on open questions`, e.data?.description && 'the board\'s description is due a check (board.mjs description)'].filter(Boolean).join('; ')}; run the triage, then board.mjs reply ${e.id}`,
   // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: pr-review, review-answer,
   // arch-review and slack-question each wait on the orchestrator until the command its line names runs.
   'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle; read its diff and review post it, or review record it`,

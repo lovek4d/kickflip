@@ -218,7 +218,9 @@
 //                                With the hub's Triage overnight on, once a night from the middle of the hub's quiet hours to their
 //                                end, an idle board with two or more cards waiting on open questions (domain.mjs
 //                                triageOf) gets overnight-triage {date, topic, cards} first, unless nothing changed
-//                                since the last triage, tracked in data/triaged.json; until Claude
+//                                since the last triage, tracked in data/triaged.json. A board due a description check
+//                                (store.mjs descriptionDue) gets it too, with description: true, and cards [] when
+//                                no two cards wait. Until Claude
 //                                replies to it the pull leaves the cards it names, to the end of quiet hours, and it is an
 //                                orchestrator wait of kind triage
 //                                With auto_review on, an idle board with nothing pulled sends pr-review {pr, head, repo,
@@ -364,7 +366,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -422,7 +424,9 @@ async function pageHeaders(html) {
 // - settled() resolves once every pass a change, a minute or a request started has finished, the passes those
 //   started included.
 // - close() waits for settled(), then stops listening and drops every connection, the page streams included.
-export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), watch, launch = launchAgent, startScript = startScriptRunner } = {}) {
+// describeNightly turns on the overnight triage's description check (checkTriage); the script entry below turns it on,
+// and a test opts in, so a test's board, whose manifest entry has no description, sends no triage for it at night.
+export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), watch, launch = launchAgent, startScript = startScriptRunner, describeNightly = false } = {}) {
   const here = path.resolve(site);
   const roots = [path.join(here, 'public'), path.join(template, 'public'), path.join(template, '..', 'starter', 'public'), path.join(template, '..', 'shared')];
   const data = path.join(here, 'data');
@@ -2224,14 +2228,21 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     };
     const last = log.filter((e) => e.kind === 'overnight-triage').at(-1);
     if (last && !(await withReply(last)).reply) { if (marker.seen !== seen) await save(); return; }
-    if (!(await triageOn()) || !ready || waiting.length < 2 || seen === marker.seen) return;
+    if (!(await triageOn()) || !ready) return;
+    // docs/adr/2026-11-16-2100-overnight-triage-proposes-a-stale-board-description.md: a description due a check sends
+    // the triage alone, naming no cards, so it holds no pull.
+    const answers = waiting.length >= 2 && seen !== marker.seen;
+    const description = describeNightly && await descriptionDue(here, now());
+    if (!answers && !description) return;
     const date = await triageNight();
     if (!date || last?.data?.date === date) return;
     const topic = `overnight-triage-${date}`;
     const owner = await readJSON(path.join(data, 'owner.json'), { topics: [] });
     if (!(owner.topics || []).some((t) => t.id === topic)) await addTopic(here, { id: topic, title: `Overnight triage ${date}` });
-    logCall({ call: 'triage', result: 'sent', reason: `Auto triage is on, ${waiting.length} tasks wait on answers, and tonight's triage hadn't gone out.`, inputs: { date, cards: waiting } });
-    await appendEvent('overnight-triage', { date, topic, cards: waiting });
+    const cards = answers ? waiting : [];
+    const why = [answers && `${waiting.length} tasks wait on answers`, description && 'the board\'s description is due a check'].filter(Boolean).join(' and ');
+    logCall({ call: 'triage', result: 'sent', reason: `Auto triage is on, ${why}, and tonight's triage hadn't gone out.`, inputs: { date, cards } });
+    await appendEvent('overnight-triage', { date, topic, cards, ...(description ? { description: true } : {}) });
     await save();
   }
 
@@ -2658,7 +2669,7 @@ async function watchBoard(site, changed) {
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const site = path.resolve(process.argv[2] || process.cwd());
   const prefix = (process.env.PREFIX || '').replace(/\/+$/, '');
-  const board = await startServer({ site, port: Number(process.env.PORT || 4600), prefix, watch: (changed) => watchBoard(site, changed) });
+  const board = await startServer({ site, port: Number(process.env.PORT || 4600), prefix, watch: (changed) => watchBoard(site, changed), describeNightly: true });
   process.once('SIGTERM', () => board.close().then(() => process.exit(0), () => process.exit(1)));
   setInterval(board.minute, 60000).unref();
   console.log(`site on http://127.0.0.1:${board.server.address().port}/ (prefix ${prefix || 'none'})`);

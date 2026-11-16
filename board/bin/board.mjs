@@ -503,7 +503,21 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          "auto_review": false, "idle_notification": false,
                                                          "skip_draft": false, "prs": true,
                                                          "github_login": "owner"}
-  settings set auto-merge on|off                         on: the hub's tick merges an approved PR once CI is green and
+  description                                            the board's description as JSON, from the hub's manifest,
+                                                         which the router routes requests by: {"description",
+                                                         "source": "new-board"|"triage"|"settings"|"", "at",
+                                                         "checked", "proposal"}: checked is when a triage last
+                                                         judged it, proposal the open proposal's task, else null.
+                                                         item add of "chore(board): update /<route>'s description"
+                                                         records that task as the proposal and is refused while
+                                                         one is open; it ends when its task closes. An overnight
+                                                         triage judges it when it is empty or neither set nor
+                                                         checked in 7 days
+  description checked                                    records that a triage judged the description still right
+  description set <text>                                 writes the description an overnight triage proposed, at
+                                                         most 240 characters, as from triage. Only on the owner's
+                                                         Use this on the proposal's question, or their note's words
+  settings set auto-merge on|off                        on: the hub's tick merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the task
                                                          shows the owner a Merge button, and the board server merges
                                                          when it is tapped. Board Settings' toggle writes it too
@@ -1115,6 +1129,9 @@ const COMMANDS = {
   'rules edit': [['id'], ['text', 'hub'], (site, [id], f) => store.editRuleIn(site, id, f)],
   'rules remove': [['id'], ['hub'], (site, [id], f) => store.removeRuleFrom(site, id, f)],
   settings: [[], [], async (site) => ({ lines: [JSON.stringify(await store.readBoardSettings(site))] })],
+  description: [[], [], async (site) => ({ lines: [JSON.stringify(await store.describeBoard(needSite(site, 'description')))] })],
+  'description checked': [[], [], async (site) => ({ lines: [JSON.stringify(await store.checkedDescription(needSite(site, 'description checked')))] })],
+  'description set': [['text'], [], async (site, [text]) => ({ lines: [JSON.stringify(await store.saveBoardDescription(needSite(site, 'description set'), text, 'triage'))] })],
   build: [['file/id'], ['asked'], async (site, [key], f) => {
     if (!site) throw new store.BoardError('build needs --site <route>');
     store.parseKey(key);

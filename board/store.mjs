@@ -1889,13 +1889,58 @@ export async function saveBoardDescription(site, text, source = 'settings', now 
   if (!description) fail('A board needs a description');
   if (description.length > DESCRIPTION_LIMIT) fail(`A description is at most ${DESCRIPTION_LIMIT} characters`);
   if (!['settings', 'triage'].includes(source)) fail('a description is set from settings or triage');
+  await markDescription(site, { description, description_source: source, description_at: now.toISOString() });
+  return readBoardDescription(site);
+}
+
+// docs/adr/2026-11-16-2100-overnight-triage-proposes-a-stale-board-description.md
+// An overnight triage's proposal to change a board's description is the task titled descriptionProposalTitle(route).
+// The manifest entry keeps description_proposal, that task's key, and description_checked_at, when a triage last judged
+// the description. A proposal is open while its task isn't Done; closing the task ends it, with nothing to clear.
+const DESCRIPTION_CHECK_DAYS = 7;
+const descriptionProposalTitle = (route) => `chore(board): update /${route}'s description`;
+async function openProposal(site, entry) {
+  const key = entry.description_proposal;
+  if (!key) return null;
+  try { return (await loadItem(site, key)).item.lane === 'done' ? null : key; } catch (e) { if (e instanceof BoardError) return null; throw e; }
+}
+// → {description, source, at, checked, proposal}: checked is when a triage last judged it ('' never), proposal the open
+// proposal's task key, else null.
+export async function describeBoard(site) {
+  const entry = readManifest().sites?.[manifestRoute(site)] || {};
+  return { ...readBoardDescription(site), checked: entry.description_checked_at || '', proposal: await openProposal(site, entry) };
+}
+// Whether tonight's overnight triage judges the description: the board is in the hub's manifest, no proposal is open,
+// and the description is empty or neither set nor checked in DESCRIPTION_CHECK_DAYS.
+export async function descriptionDue(site, now = new Date()) {
+  if (!manifestRoute(site)) return false;
+  const { description, at, checked, proposal } = await describeBoard(site);
+  if (proposal) return false;
+  if (!description) return true;
+  const last = Math.max(Date.parse(at) || 0, Date.parse(checked) || 0);
+  return now.getTime() - last >= DESCRIPTION_CHECK_DAYS * 86400000;
+}
+async function markDescription(site, fields) {
   const route = manifestRoute(site) || fail('this board isn’t in the hub’s manifest');
   await withManifestLock(async () => {
     const manifest = readManifest();
-    manifest.sites[route] = { ...manifest.sites[route], description, description_source: source, description_at: now.toISOString() };
+    manifest.sites[route] = { ...manifest.sites[route], ...fields };
     await writeManifest(manifest);
   });
-  return readBoardDescription(site);
+}
+// A triage that judged the description still right records when, so the next check is DESCRIPTION_CHECK_DAYS away.
+export async function checkedDescription(site, now = new Date()) {
+  await markDescription(site, { description_checked_at: now.toISOString() });
+  return describeBoard(site);
+}
+// item add of a proposal's title: refused while one is open; → the board's route when the title is this board's proposal.
+async function refuseSecondProposal(site, title) {
+  const route = site && manifestRoute(site);
+  if (!route || String(title).trim() !== descriptionProposalTitle(route)) return null;
+  const entry = readManifest().sites[route];
+  const open = await openProposal(site, entry);
+  if (open) fail(`/${route} already has an open description proposal, ${open}; it ends when that task closes`);
+  return route;
 }
 // Whether cards on a board open PRs: a board on GitHub that builds from its shared clone, not its folder
 // (hub/boards.mjs buildsLocally), or the hub board, which builds from its folder, with its PRs setting on (Landing is
@@ -4389,6 +4434,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   if (intake && site && phase === undefined && !hold) fail('item add files a task on a board: pass --phase discussing, grilling or prototyping, or --blocked to file it for later');
   // A card an agent files stands alone from the start; an ask-born card starts from the ask's text instead.
   if (intake && site && !ask && !(notes ?? '').trim() && notesFrom === undefined) fail('item add files a task with notes: pass --notes "<text>" or --notes-from <draft.md>, so the card stands alone; a split takes its slice of the parent\'s proposed split');
+  const proposes = await refuseSecondProposal(site, title);
   const { source, itemFile } = await loadItemFile(site, slug);
   if (id !== undefined && itemFile.items.some((it) => it.id === id)) fail(`item file "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();
@@ -4447,6 +4493,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   if (madeAtReady && site) await appendStatus(site, added, 'ticket-made', { ticket: item.ticket });
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), { spunOut: true });
   if (said !== undefined && !ask) await appendMessage(site, added, { text: said });
+  if (proposes) await markDescription(site, { description_proposal: added, description_checked_at: created });
   return { file: source.file, key: added, lines: [] };
 }
 
