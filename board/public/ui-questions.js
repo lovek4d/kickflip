@@ -1,6 +1,6 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
-  const { esc, escText, time, ago, replyBody, attachments, dropZone, requestIcons, linkText, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, escText, time, ago, replyBody, attachments, dropZone, requestRow, linkText, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
   // ui-markdown.js loads after this file, so markdown is looked up when a question draws.
   const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it.
@@ -68,6 +68,8 @@
     });
     on(root, 'keydown', (ev) => {
       if (ev.target.tagName !== 'TEXTAREA') return;
+      const request = globalThis.BoardUI.keyedRequest(ev, ev.target.closest('.composer'));
+      if (request) { ev.preventDefault(); request.click(); return; }
       const form = ev.target.closest('form');
       if (!form || !globalThis.BoardUI.keyedSend(ev, form)) return;
       ev.preventDefault();
@@ -78,13 +80,13 @@
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-  // Under the note box, the thread reply's row without What's left?: the files at the left, and at the right the eye,
-  // fire, image and attach (ui.js requestIcons). The eye sends `prototype-request {key?, question, note, choice}` for that
-  // question alone, which then reads requested until its prototype round arrives; the fire sends `grill-more` the same
-  // way, which reads requested, Grilling deeper, until the grill's next questions resolve it, and the image `visual-request`,
+  // Under the note box, the thread reply's row without What's left?: the files, then the request words
+  // and attach (ui.js requestRow). Prototype sends `prototype-request {key?, question, note, choice}` for that
+  // question alone, which then reads requested until its prototype round arrives; Grill sends `grill-more` the same
+  // way, which reads requested, Grilling deeper, until the grill's next questions resolve it, and Visual `visual-request`,
   // the question staying open (app-questions-sheet.js).
   const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`, { attach: false })}
-      <div class="note-tools"><div class="pending-files" data-files></div>${requestIcons('q:' + q.id, { protoLabel: 'Ask for a prototype instead' })}</div></div>`;
+      <div class="note-tools"><div class="pending-files" data-files></div>${requestRow('q:' + q.id, { protoLabel: 'Ask for a prototype instead' })}</div></div>`;
 
   const QUESTION_STATE = {
     open: { label: 'open', tone: 'normal' },

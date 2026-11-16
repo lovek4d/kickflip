@@ -965,16 +965,28 @@ test('a question asked for a prototype reads prototype requested with a spinner,
 
 // docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
 test('an open question has its eye on and nothing locked, a resolved one has no eye; a confirm opens the viewer on its one take and says why it is asked', () => {
-  assert.match(ui.questionCard(question), /<button type="button" class="attach proto-ask" data-proto="q:q1" aria-label="Ask for a prototype instead" title="Ask for a prototype instead">/);
+  assert.match(ui.questionCard(question), /<button type="button" class="req" data-proto="q:q1" aria-label="Ask for a prototype instead" title="Ask for a prototype instead">/);
   assert.doesNotMatch(ui.questionCard(question), /disabled|pr-busy|try-spin/);
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved' }), /data-proto/);
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: under the note box, right-aligned, the thread
   // reply's row without What's left?: the eye, fire, image and attach, the attach out of the box.
   const card = ui.questionCard(question);
   assert.match(card, /<div class="dz bare"><textarea class="note"[^>]*><\/textarea><div class="dz-hint"/);
-  assert.ok(card.includes(`<div class="note-tools"><div class="pending-files" data-files></div>${ui.requestIcons('q:q1', { protoLabel: 'Ask for a prototype instead' })}</div>`));
-  assert.deepEqual([...ui.requestIcons('q:q1').matchAll(/data-(proto|grill|visual|attach)/g)].map((m) => m[1]), ['proto', 'grill', 'visual', 'attach']);
-  assert.match(ui.requestIcons('q:q1'), /^<span class="icons">/);
+  assert.ok(card.includes(`<div class="note-tools"><div class="pending-files" data-files></div>${ui.requestRow('q:q1', { protoLabel: 'Ask for a prototype instead' })}</div>`));
+  assert.deepEqual([...ui.requestRow('q:q1').matchAll(/data-(proto|grill|visual|attach)/g)].map((m) => m[1]), ['proto', 'grill', 'visual', 'attach']);
+  assert.deepEqual([...ui.requestRow('q:q1', { quick: true }).matchAll(/data-(quick|proto|grill|visual|attach)/g)].map((m) => m[1]), ['quick', 'proto', 'grill', 'visual', 'attach']);
+  assert.match(ui.requestRow('q:q1'), /^<span class="request-row">/);
+  // Each word carries its key hint, ⌥ on a Mac and Alt+ elsewhere (style.css shows it where there is a keyboard).
+  assert.match(ui.requestRow('q:q1', { quick: true }), /What's left\?<span class="key-hint" aria-hidden="true">(⌥|Alt\+)L<\/span>/);
+  assert.match(ui.requestRow('q:q1'), /Grill<span class="key-hint" aria-hidden="true">(⌥|Alt\+)G<\/span>/);
+  // Alt+letter presses its word's button within a scope: not with Ctrl or ⌘, not a button that is disabled or absent.
+  const grill = { disabled: false };
+  const scope = { querySelector: (sel) => ({ 'button[data-grill]': grill, 'button[data-visual]': { disabled: true } })[sel] ?? null };
+  assert.equal(ui.keyedRequest({ altKey: true, code: 'KeyG' }, scope), grill);
+  assert.equal(ui.keyedRequest({ altKey: true, code: 'KeyL' }, scope), null);
+  assert.equal(ui.keyedRequest({ altKey: true, ctrlKey: true, code: 'KeyG' }, scope), null);
+  assert.equal(ui.keyedRequest({ code: 'KeyG' }, scope), null);
+  assert.equal(ui.keyedRequest({ altKey: true, code: 'KeyV' }, scope), null);
 
   const confirm = { ...question, id: 'c1', question: 'Is this it?', url: 'prototype-search.html?q=c1', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'q1' };
   const open = ui.questionCard(confirm);

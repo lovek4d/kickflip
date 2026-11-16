@@ -83,23 +83,33 @@
   const LINK_ARROW = icon('<path d="M7 17 17 7"/><path d="M7 7h10v10"/>', '1em', ' class="link-arrow" style="vertical-align:-0.125em"');
   // Escaped text with each ↗ (and a trailing U+FE0E) drawn as LINK_ARROW; for owner-facing text, never an attribute.
   const escText = (s) => esc(s).replace(/\u2197\uFE0E?/g, LINK_ARROW);
-  const EYE = icon('<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>');
   const TRASH = icon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
-  const FIRE = icon('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/>');
-  const IMAGE_PATHS = '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>';
-  // Asks Claude for throwaway prototypes of one item (docs/adr/2026-10-29-1639-prototypes-come-on-request.md): a
-  // question's eye sends at once; a thread's eye is a toggle that Send carries (app-threads.js).
-  const protoButton = (id, { label = 'Ask for prototypes' } = {}) => `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" aria-label="${esc(label)}" title="${esc(label)}">${EYE}</button>`;
-  // The thread's fire, the eye's twin for a grill.
-  const grillButton = (id) => `<button type="button" class="attach proto-ask" data-grill="${esc(id)}" aria-label="Ask for a grill" title="Ask for a grill">${FIRE}</button>`;
-  // The thread's image, asking for a visual: a page an agent draws to answer in the thread (app-threads.js;
+  // docs/adr/2026-11-16-0630-the-request-row-is-outlined-buttons-spread-with-key-hints.md
+  // The request row's words: What's left? (a thread's reply box only), Prototype, Grill and Visual, small outlined
+  // buttons spread evenly, each with its Alt+letter (⌥ on a Mac) as a faint hint at the right where style.css shows
+  // key hints. A thread's reply box, each open question and the New task box draw the row through requestRow.
+  const REQUEST_KEYS = { KeyL: 'data-quick', KeyP: 'data-proto', KeyG: 'data-grill', KeyV: 'data-visual' };
+  const ALT = MAC ? '⌥' : 'Alt+';
+  const requestButton = (attr, word, letter, label, extra = '') => `<button type="button" class="req" ${attr}${extra} aria-label="${esc(label)}" title="${esc(label)}">${word}<span class="key-hint" aria-hidden="true">${ALT}${letter}</span></button>`;
+  // A question's Prototype asks for one instead of the pick; a thread's and the New task's ask for prototypes.
+  const protoButton = (id, { label = 'Ask for prototypes' } = {}) => requestButton(`data-proto="${esc(id)}"`, 'Prototype', 'P', label);
+  const grillButton = (id) => requestButton(`data-grill="${esc(id)}"`, 'Grill', 'G', 'Ask for a grill');
+  // The visual: a page an agent draws to answer in the thread (app-threads.js;
   // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
-  const visualButton = (id) => `<button type="button" class="attach proto-ask" data-visual="${esc(id)}" aria-label="Ask for a visual" title="Ask for a visual">${icon(IMAGE_PATHS)}</button>`;
+  const visualButton = (id) => requestButton(`data-visual="${esc(id)}"`, 'Visual', 'V', 'Ask for a visual');
+  const quickButton = () => requestButton('data-quick="What\'s left?"', "What's left?", 'L', "Ask what's left");
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-  // The request row's icons, one helper for a thread's reply box, each open question and the New task box: the eye,
-  // fire, image and attach, right-aligned by its row. requests: false leaves the attach alone (the questions sheet).
-  const requestIcons = (id, { protoLabel, requests = true } = {}) =>
-    `<span class="icons">${requests ? protoButton(id, protoLabel ? { label: protoLabel } : {}) + grillButton(id) + visualButton(id) : ''}${attachButton()}</span>`;
+  // The request row, one helper for a thread's reply box (quick: What's left? first), each open question and the New
+  // task box: the words spread across, the attach icon at the right. requests: false leaves the attach alone (the
+  // questions sheet).
+  const requestRow = (id, { protoLabel, requests = true, quick = false } = {}) =>
+    `<span class="request-row">${requests ? (quick ? quickButton() : '') + protoButton(id, protoLabel ? { label: protoLabel } : {}) + grillButton(id) + visualButton(id) : ''}${attachButton()}</span>`;
+  // The request button an Alt+letter keydown presses within scope, or null.
+  const keyedRequest = (ev, scope) => {
+    const attr = ev.altKey && !ev.metaKey && !ev.ctrlKey && !ev.isComposing ? REQUEST_KEYS[ev.code] : null;
+    const button = attr && scope?.querySelector(`button[${attr}]`);
+    return button && !button.disabled ? button : null;
+  };
   // The request a row's icon asks for: prototype, grill or visual.
   const requestOf = (button) => (button.hasAttribute('data-proto') ? 'prototype' : button.hasAttribute('data-grill') ? 'grill' : 'visual');
   // A /prototype, /grill or /visual word in a message, the last one winning, and the message without it: {flag, text}.
@@ -556,6 +566,6 @@
     ...globalThis.BoardUI,
     LINK_ARROW, escText, onBackdrop, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, protoButton, grillButton, visualButton, requestIcons, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, protoButton, grillButton, visualButton, requestRow, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

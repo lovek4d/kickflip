@@ -3097,8 +3097,9 @@ test("the New task box has the thread's eye, fire, image and attach at the right
   const b = boardOnDom({ board: boardOf([]), threads: {} });
   await b.settle();
   const form = b.root.querySelector('#askForm');
-  assert.deepEqual(form.querySelector('.note-tools').children.map((c) => c.getAttribute('class')), ['pending-files', 'icons']);
-  assert.deepEqual(form.querySelector('.note-tools .icons').children.map((c) => c.getAttribute('title')), ['Ask for prototypes', 'Ask for a grill', 'Ask for a visual', 'Attach files']);
+  assert.deepEqual(form.querySelector('.note-tools').children.map((c) => c.getAttribute('class')), ['pending-files', 'request-row']);
+  assert.deepEqual(form.querySelector('.note-tools .request-row').children.map((c) => c.getAttribute('title')), ['Ask for prototypes', 'Ask for a grill', 'Ask for a visual', 'Attach files']);
+  assert.deepEqual(form.querySelector('.request-row').children.slice(0, 3).map((c) => c.textContent), ['Prototype⌥P', 'Grill⌥G', 'Visual⌥V']);
   assert.equal(form.querySelector('.dz .attach'), null);
   const tap = async (text, sel) => {
     b.page.fire(b.root.querySelector('#compose'), 'click');
@@ -3610,12 +3611,12 @@ test("a thread box's row has What's left? at the left and the eye, fire, image a
   const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
-  const row = (key) => [...form(key).querySelector('.row').children].map((el) => el.matches('.quick') ? 'chip' : el.matches('.icons') ? 'icons' : el.dataset.sends);
-  const icons = (key) => [...form(key).querySelector('.icons').children].map((el) => ['proto', 'grill', 'visual'].find((k) => el.hasAttribute('data-' + k)) || (el.matches('label.attach') ? 'attach' : '?'));
-  assert.deepEqual(row('w/T1'), ['chip', 'icons', 'todo']);
-  assert.deepEqual(row('w/P1'), ['chip', 'icons', 'progress']);
+  const row = (key) => [...form(key).querySelector('.row').children].map((el) => el.matches('.request-row') ? 'request-row' : el.dataset.sends);
+  const icons = (key) => [...form(key).querySelector('.request-row').children].map((el) => ['quick', 'proto', 'grill', 'visual'].find((k) => el.hasAttribute('data-' + k)) || (el.matches('label.attach') ? 'attach' : '?'));
+  assert.deepEqual(row('w/T1'), ['request-row', 'todo']);
+  assert.deepEqual(row('w/P1'), ['request-row', 'progress']);
   for (const key of ['w/T1', 'w/P1']) {
-    assert.deepEqual(icons(key), ['proto', 'grill', 'visual', 'attach']);
+    assert.deepEqual(icons(key), ['quick', 'proto', 'grill', 'visual', 'attach']);
     assert.equal(form(key).querySelector('.dz .attach'), null);
     assert.ok(form(key).querySelector('.dz .dz-hint'));
   }
@@ -4819,7 +4820,7 @@ test("Done closes the card and holds the card still on screen as the card moves 
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-80]]);
+    ['done', false, '[]', [-70]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
@@ -7080,7 +7081,7 @@ test("the thread's image button, after the eye and fire and before attach, asks 
   const form = () => b.root.querySelector('form[data-reply="w/A1"]');
   const image = () => form().querySelector('button[data-visual]');
   const box = () => form().querySelector('textarea');
-  const icons = [...form().querySelector('.icons').children];
+  const icons = [...form().querySelector('.request-row').children];
   assert.equal(icons.at(-2), image(), 'the image follows the eye and fire');
   assert.ok(icons.at(-1).matches('label.attach'), 'attach follows the image');
   assert.equal(image().getAttribute('aria-label'), 'Ask for a visual');
@@ -7282,4 +7283,21 @@ test("a catch-up that finds the saved copy replaced meanwhile, by the board's ow
   });
   assert.equal(result, null);
   assert.equal(idb.rows.get(key).board.version, 9);
+});
+
+// docs/adr/2026-11-16-0630-the-request-row-is-outlined-buttons-spread-with-key-hints.md
+test("Alt+L, Alt+G in a thread's box press What's left? and Grill, the typed text going with Grill", async () => {
+  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] } });
+  await b.settle();
+  const form = () => b.root.querySelector('form[data-reply="w/A1"]');
+  const box = () => form().querySelector('textarea');
+  // The mini DOM's elements have no click(): a button's click reaches the board's root as a tap does.
+  for (const btn of form().querySelectorAll('button[data-quick], button[data-grill]')) btn.click = () => b.page.fire(b.root, 'click', { target: btn });
+  const key = (target, code) => b.page.fire(b.root, 'keydown', { key: 'x', code, altKey: true, target }).defaultPrevented;
+  assert.equal(key(box(), 'KeyL'), true);
+  box().value = 'Go deeper on the sync';
+  assert.equal(key(box(), 'KeyG'), true);
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [['item-message', { key: 'w/A1', text: "What's left?" }], ['grill-more', { key: 'w/A1', text: 'Go deeper on the sync' }]]);
+  b.view.unmount();
 });

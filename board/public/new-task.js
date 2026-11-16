@@ -7,7 +7,7 @@ globalThis.BoardNewTask = (function () {
   <form id="askForm" data-composer="ask">
     <div class="sheet-head"><h2 id="sheetTitle">New task</h2><button type="button" class="ghost" id="sheetClose" aria-label="Close">✕</button></div>
     ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>', { attach: false })}
-    <div class="note-tools"><div class="pending-files" data-files></div>${BoardUI.requestIcons('ask')}</div>
+    <div class="note-tools"><div class="pending-files" data-files></div>${BoardUI.requestRow('ask')}</div>
     <div class="send-actions">${BoardUI.sendButton('Implement', 1, ' data-intent="quick"')}${BoardUI.sendButton('Discuss', 0, ' data-intent="discuss"')}</div>
   </form>
 </dialog>`;
@@ -26,6 +26,8 @@ globalThis.BoardNewTask = (function () {
     BoardAttach.paint('ask', B.site.root);
     // ⌘↵ sends the ask as Discuss and ⌥↵ as Implement (ui.js keyedSend).
     B.on($('#askText'), 'keydown', (ev) => {
+      const request = BoardUI.keyedRequest(ev, $('#askForm'));
+      if (request) { ev.preventDefault(); request.click(); return; }
       const button = keyedSend(ev, $('#askForm'));
       if (!button) return;
       ev.preventDefault();

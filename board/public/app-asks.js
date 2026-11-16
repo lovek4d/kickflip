@@ -26,6 +26,8 @@ BoardView.part((B) => {
   // ⌘↵ and ⌥↵ press a thread reply's or an edit's send buttons from its box (ui.js keyedSend); the ask's own are new-task.js's.
   B.on(B.root, 'keydown', (ev) => {
     const form = ev.target.tagName === 'TEXTAREA' ? ev.target.closest('form[data-reply], form.edit-form') : null;
+    const request = form && BoardUI.keyedRequest(ev, form);
+    if (request) { ev.preventDefault(); request.click(); return; }
     const button = form && keyedSend(ev, form);
     if (!button) return;
     ev.preventDefault();

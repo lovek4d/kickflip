@@ -2,7 +2,7 @@
 // (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). Needs app-core.js and ui-patch.js.
 BoardView.part((B) => {
   const { $, store, state, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, dropZone, sendButton, requestIcons, requestOf, slashOf, doneButton, doneTone, BUTTON } = BoardUI;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, requestRow, requestOf, slashOf, doneButton, doneTone, BUTTON } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request' };
 
@@ -170,11 +170,11 @@ BoardView.part((B) => {
     // The reply form is built once per card, so a refresh never drops what is being typed.
     if (!el.querySelector('.msgs')) {
       const draft = store.get('draft:' + key, '');
-      // The row: What's left? at the left, the eye, fire, image and attach at its right, and the send buttons
+      // The row: the request words, What's left? first, with the attach at their right, and the send buttons
       // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`, { attach: false })}
         <div class="pending-files" data-files></div>
-        <div class="row"><button class="chip quick" type="button" data-quick="What's left?">What's left?</button>${requestIcons(key)}${sends('one')}</div></form>`;
+        <div class="row">${requestRow(key, { quick: true })}${sends('one')}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncSends(el, key);
