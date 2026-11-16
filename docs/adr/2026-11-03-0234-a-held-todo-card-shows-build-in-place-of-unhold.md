@@ -2,6 +2,8 @@
 
 Superseded in part by [the owner's hold is a block](2026-11-15-2230-the-owners-hold-is-a-block.md): an owner-blocked Todo card shows Implement in place of Unblock, its confirm "Unblock and implement".
 
+Superseded by [Implement stages a blocked card and keeps the block](2026-11-16-1030-implement-stages-a-blocked-card-and-keeps-the-block.md): Implement on a blocked card no longer unblocks it.
+
 This supersedes in part [a Build tap starts the build in the board server](2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md), which refused a Build tap on a held card, and [a card can be held, and every card button confirms](2026-10-29-1639-a-card-can-be-held-and-every-card-button-confirms.md), on Unhold being a held card's only way back.
 
 The owner on #78: "Held to do items should still have a build button and the build button will take it out of held and just build it. In fact, if it's already held, we can only have the build button instead of a resume or unhold."

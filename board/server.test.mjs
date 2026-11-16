@@ -715,7 +715,7 @@ test("an Implement message stages a Todo card where it is, its words in the note
     const card = sent.board.items.find((i) => i.id === 'IMP1');
     const staged = item('IMP1').staged_at;
     assert.ok(staged);
-    assert.deepEqual([card.lane, card.ownerBlock, card.staging, card.orchestrator.kind, item('IMP1').phase, item('IMP1').plan], ['todo', null, true, 'staging', 'staging', 'imp1-notes.md']);
+    assert.deepEqual([card.lane, card.ownerBlock !== null, card.staging, item('IMP1').held, item('IMP1').phase, item('IMP1').plan], ['todo', true, true, true, 'staging', 'imp1-notes.md']);
     assert.match(notes('IMP1'), /^# Implement\n\n## Implement \(owner, \d\d\/\d\d \d\d:\d\d\), verbatim\nUse the blue\n$/);
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items[0].resolved, 'Skipped: you tapped Implement');
     assert.deepEqual(log().filter((e) => e.kind === 'item-message').at(-1).data, { key: 't/IMP1', text: 'Use the blue', intent: 'build' });

@@ -2794,13 +2794,11 @@ async function endPlanners(site, key) {
   return stopped;
 }
 
-// An Implement message on a Todo card, in the board server before its event: a card the owner blocked is unblocked, as the Build tap
-// does; its planners end (endPlanners); its words go into the notes; and it is staged in Todo.
+// An Implement message on a Todo card, in the board server before its event: a card the owner blocked, or that waits on a task,
+// stays blocked (docs/adr/2026-11-16-1030-implement-stages-a-blocked-card-and-keeps-the-block.md); its planners end (endPlanners); its words go into the notes; and it is staged in Todo.
 // → the planners it closed, for the board server to stop.
 export async function stageImplement(site, key, message) {
   await clearOwnerWait(site, key);
-  const { item } = await loadItem(site, key);
-  if (item.held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
   const stopped = await endPlanners(site, key);
   const words = messageWords(message);
   if (words) await appendNotes(site, key, `Implement (owner, ${noteStamp()}), verbatim`, words);
@@ -5138,7 +5136,7 @@ const onlyRebased = (item, approved, head) => {
 };
 
 // The refusals of a build's start that the owner can act on, worded for the card; startBuilder still makes every check.
-// A card the owner blocked that hasn't started is no refusal: the tap unblocks it (docs/adr/2026-11-03-0234-a-held-todo-card-shows-build-in-place-of-unhold.md),
+// A card the owner blocked that hasn't started is no refusal: the tap leaves the block (docs/adr/2026-11-16-1030-implement-stages-a-blocked-card-and-keeps-the-block.md),
 // and nor is a blocked one: the tap bumps it (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 // → {held: the owner's block as stored, or null, blockers: the names of its unfinished deps and its blocked-until condition (blockerNames)}.
 async function tapRefusals(site, key) {

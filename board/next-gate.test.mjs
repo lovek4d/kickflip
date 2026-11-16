@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addQuestions, settleAnswers, stageImplement, stopPlanner } from './store.mjs';
+import { addQuestions, recordOwnerTap, settleAnswers, stageImplement, stopPlanner } from './store.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const choices = [{ id: 'implement', label: 'Implement', recommended: true }, { id: 'prototype', label: 'Prototype first' }, { id: 'discuss', label: 'Keep discussing' }];
@@ -105,4 +105,18 @@ test("an Implement tap after Keep discussing stages the card and spends the disc
   await stageImplement(w.site, 't/A1', { text: '' });
   assert.equal(w.read().phase, 'staging');
   assert.equal(w.read().gates, undefined);
+});
+
+// docs/adr/2026-11-16-1030-implement-stages-a-blocked-card-and-keeps-the-block.md
+test('an Implement on a held card stages it and keeps the block and its pick-up time, with no Unblocked line; Unblock still lifts it', async () => {
+  const w = world({ phase: 'discussing', held: true, pick_up_at: '2026-11-18T00:00:00.000Z' });
+  await stageImplement(w.site, 't/A1', { text: '' });
+  assert.equal(w.read().phase, 'staging');
+  assert.equal(w.read().held, true);
+  assert.equal(w.read().pick_up_at, '2026-11-18T00:00:00.000Z');
+  const thread = path.join(w.site, 'data', 'threads', 't__A1.jsonl');
+  assert.doesNotMatch(fs.existsSync(thread) ? fs.readFileSync(thread, 'utf8') : '', /Unblocked/);
+  await recordOwnerTap(w.site, 'card-hold', { key: 't/A1', hold: false });
+  assert.equal(w.read().held, undefined);
+  assert.equal(w.read().phase, 'staging');
 });
