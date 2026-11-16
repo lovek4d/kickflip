@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
 import { moveCard, migratePhases } from './store.mjs';
-import { buildBoard, movesOf, PHASES } from './domain.mjs';
+import { footerOf, buildBoard, movesOf, PHASES } from './domain.mjs';
 
 const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
 const auditThread = (id = 'A1') => { try { return lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)); } catch { return []; } };
@@ -168,7 +168,10 @@ test('the settle pass writes each In Progress and In Review phase change quietly
 const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
 for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 const ui = context.BoardUI;
-const card = (it) => ui.workLines({ key: 'w/A1', id: 'A1', kind: 'work', ref: '#1', title: 'One', sortAt: '2020-01-01T10:00:00.000Z', deps: [], blockedBy: [], reviewers: [], review: {}, pr: null, builder: null, next: null, ...it });
+const card = (it) => {
+  const full = { key: 'w/A1', id: 'A1', kind: 'work', ref: '#1', title: 'One', sortAt: '2020-01-01T10:00:00.000Z', deps: [], blockedBy: [], reviewers: [], review: {}, pr: null, builder: null, next: null, ...it };
+  return ui.workLines({ footer: footerOf(full), ...full });
+};
 const phaseWord = (html) => [...html.matchAll(/<span class="card-phase ph-(\w+)">([^<]+)<\/span>/g)].map((m) => [m[2], m[1]]);
 
 test("Todo, In Review and Done end a card's last line with its phase word, toned by who acts next; In Progress shows only its bar", async () => {

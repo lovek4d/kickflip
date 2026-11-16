@@ -94,7 +94,7 @@
     }),
     items: () => [
       { lane: 'review', title: 'Audit log keeps the actor on bulk updates', ref: 'INT-41', pr: { url: 'https://github.com/o/app/pull/312', number: 312, state: 'OPEN', isDraft: false, checks: { state: 'pass' } }, reviewers: ['Quinn'], review: { Quinn: { state: 'sent', since: at(-200 * 60_000) } } },
-      { lane: 'progress', title: 'Rate limits per API key', ref: 'INT-43', builder: { progress: 'Writing the limiter test', at: at(-4 * 60_000) } },
+      { lane: 'progress', title: 'Rate limits per API key', ref: 'INT-43', builder: { progress: 'Writing the limiter test', words: 'Writing the limiter test', at: at(-4 * 60_000) } },
       { lane: 'todo', title: 'Drop the unused lead_sources index', ref: 'INT-44', next: 'Ready to start' },
     ],
   };

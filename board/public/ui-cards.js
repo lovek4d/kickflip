@@ -80,15 +80,12 @@
     const word = open ? 'Open items' : 'Action needed';
     return `<a class="card-action${open ? ' card-open-items' : ''}" href="${esc(it.action.url)}" title="${esc(it.action.label)}" aria-label="${esc(`${word}: ${it.action.label}`)}"${external}>${word}</a>`;
   }
-  // Each unfinished dep, linking to its card: "blocked by #53, #54", bumped or not; then its condition, "blocked
-  // until <condition>" ("and until <condition>" after deps), then ", <reason>"
+  // The server's blocked entry (domain.mjs footerOf): each unfinished dep linking to its card after the lead
+  // ("blocked by #53, #54"), then its tail's words
   // (docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md).
-  function blockedWords(it) {
-    const deps = it.blockedBy || [];
-    const refs = deps.map((d, i) => globalThis.BoardUI.taskLink(d.key, d.ref, d.lane, { cls: 'card-blocked', lead: i ? '' : 'blocked by ' })).join('<span class="sep">, </span>');
-    const until = it.blockedUntil ? `${deps.length ? ' and until' : 'blocked until'} ${it.blockedUntil}` : '';
-    const tail = until + (it.blockReason && (refs || until) ? `, ${it.blockReason}` : '');
-    return refs + (tail ? `<span class="card-blocked">${esc(tail)}</span>` : '');
+  function blockedWords(e) {
+    const refs = e.deps.map((d, i) => globalThis.BoardUI.taskLink(d.key, d.ref, d.lane, { cls: 'card-blocked', lead: i ? '' : e.lead })).join('<span class="sep">, </span>');
+    return refs + (e.tail ? `<span class="card-blocked">${esc(e.tail)}</span>` : '');
   }
   const tryWords = (kind) => kind === 'app' ? {
     go: 'Serve', going: 'serving…', done: 'Install', failed: 'serve failed',
@@ -195,8 +192,7 @@
   // is silent keeps its words and colour (domain.mjs builderOf; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
   // One the orchestrator stopped reads the stop's words and how long ago it stopped
   // (docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md).
-  const builderLine = (b) => (b.stopped ? withCount(b.stopped, b.silentSince)
-    : withCount([b.alive === false && 'stopped', b.progress || (b.alive === false ? null : 'starting')].filter(Boolean).join(' · '), b.at));
+  const builderLine = (b) => withCount(b.words, b.stopped ? b.silentSince : b.at);
   // Five bars at the end of an In Progress card's time row: reached phases filled, a running one marked. The phases are
   // store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
@@ -277,14 +273,13 @@
     if (days > 0 && days < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${clock(d)}`;
     return `${d.toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(d)}`;
   }
-  // docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md: the owner's block reads blocked, or blocked until its time,
-  // in grey, ahead of what else blocks the card (blockedWords).
-  function ownerBlockWords(it) {
-    if (!it.ownerBlock) return '';
-    const d = it.ownerBlock.until && new Date(it.ownerBlock.until);
+  // docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md: the owner's block reads blocked, or blocked until its time
+  // (formatted on this device), in grey, ahead of what else blocks the card (blockedWords).
+  function ownerBlockWords(e) {
+    const d = e.until && new Date(e.until);
     const title = !d ? 'Blocked until you unblock it.'
-      : `Blocked until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.'}`;
-    return `<span class="card-owner-block" title="${esc(title)}">${esc(d ? `blocked until ${heldUntilWords(it.ownerBlock.until)}` : 'blocked')}</span>`;
+      : `Blocked until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${e.then}`;
+    return `<span class="card-owner-block" title="${esc(title)}">${esc(d ? `blocked until ${heldUntilWords(e.until)}` : 'blocked')}</span>`;
   }
   // docs/adr/2026-11-11-1200-every-lane-has-phases.md
   // A Todo, In Review or Done card's phase as a word: blue for a New card, grey while a planner or machine waits
@@ -304,12 +299,17 @@
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
   // A paused build's word and cause, which stand in for the block that caused it: "pausing · blocked by #61" in
   // orange while its builder runs on to its stopping point, then "paused · blocked by #61" in grey.
-  const pauseOf = (it) => (it.lane === 'progress' ? it.builder?.pause ?? null : null);
-  const pauseWords = (pause) => pause && `<span class="card-${pause.paused ? 'paused' : 'pausing'}">${pause.paused ? 'paused' : 'pausing'} · ${esc(pause.words)}</span>`;
+  // A card's footer words, each drawn by its kind from the entry the server sends (domain.mjs footerOf), which is also what
+  // a bumped ready card a busy host holds reads (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md).
+  const footerWord = (e) => ({
+    'owner-block': ownerBlockWords,
+    blocked: blockedWords,
+    'host-held': (x) => `<span class="card-host-held">${esc(x.words)}</span>`,
+    stale: (x) => `<span class="card-stale">${esc(x.words)}</span>`,
+    pause: (x) => `<span class="card-${x.paused ? 'paused' : 'pausing'}">${esc(x.words)}</span>`,
+  })[e.kind](e);
   // A card's last two rows. The footer: the time its lane sorts by (domain.mjs sortAt), then its phase word (phaseWord),
-  // then the owner's block and what else blocks it, then a build's stale in grey, held while host recovers on a bumped
-  // ready card a busy host holds, in grey (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md),
-  // a paused build's words (pauseWords), then an In Progress card's phase bars
+  // then the server's footer words (footerWord), then an In Progress card's phase bars
   // (docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md). The row under it, drawn only when it has
   // something: Action needed and the unread messages in bold orange, new questions counting as one (app-cards.js takes
   // the count away when the card opens), then stalled in red, rightmost
@@ -320,11 +320,7 @@
   const newWords = (n, word) => n && `${n} new ${word}${n === 1 ? '' : 's'}`;
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
-    const pause = pauseOf(it);
-    const blocks = [pause?.cause !== 'held' && ownerBlockWords(it), pause?.cause !== 'blocked' && blockedWords(it)].filter(Boolean);
-    const footer = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, phaseWord(it), ...blocks,
-      it.hostHeld && '<span class="card-host-held">held while host recovers</span>',
-      !it.stalled && it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', pauseWords(pause), bars].filter(Boolean);
+    const footer = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, phaseWord(it), ...(it.footer || []).map(footerWord), bars].filter(Boolean);
     const news = newWords(unread, 'message');
     const alert = [actionWords(it), news && `<span class="card-unread">${news}</span>`, it.stalled && '<span class="card-stalled">stalled</span>', it.plannerQueued && PAUSED].filter(Boolean);
     return [footer.length && `<div class="line6 sub card-time">${footer.join(SEP)}</div>`,
@@ -507,5 +503,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane });
 })();

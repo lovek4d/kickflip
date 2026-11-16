@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone } from './domain.mjs';
+import { footerOf, buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -156,12 +156,12 @@ test('a green draft waits on Ready in In Review until a builder works on it', ()
   const record = { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Record line', progress_at: '2026-10-23T10:06:00Z' };
   const earlier = { ts: '2026-10-23T09:00:00Z', who: 'claude', kind: 'status', text: 'Previous run' };
   const fresh = board({ now: Date.parse(record.started), agents: { A1: { main: record } }, threads: { 'w/A1': [earlier] } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(fresh.builder, { progress: null, phase: null, at: record.started, kind: null, planner: false, stale: false, silentSince: record.started, alive: null, held: false, stopped: null });
+  assert.deepEqual(fresh.builder, { progress: null, words: 'starting', phase: null, at: record.started, kind: null, planner: false, stale: false, silentSince: record.started, alive: null, held: false, stopped: null });
   const lines = [earlier, { ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'status', text: 'Running tests' }, { ts: '2026-10-23T10:07:00Z', who: 'claude', text: 'Halfway.' }];
   const busy = board({ now: Date.parse('2026-10-23T10:07:00Z'), agents: { A1: { main: record } }, threads: { 'w/A1': lines } });
   const item = busy.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([item.lane, item.waitsOn, item.action], ['progress', 'builder', null]);
-  assert.deepEqual(item.builder, { progress: 'Running tests', phase: null, at: '2026-10-23T10:05:00Z', kind: null, planner: false, stale: false, silentSince: '2026-10-23T10:05:00Z', alive: null, held: false, stopped: null });
+  assert.deepEqual(item.builder, { progress: 'Running tests', words: 'Running tests', phase: null, at: '2026-10-23T10:05:00Z', kind: null, planner: false, stale: false, silentSince: '2026-10-23T10:05:00Z', alive: null, held: false, stopped: null });
   const finished = board({ agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Running tests', progress_at: '2026-10-23T10:05:00Z', eta: '2026-10-23T11:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   const after = finished.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([after.lane, after.waitsOn, after.builder, after.eta], ['review', 'ready', null, null]);
@@ -3178,4 +3178,43 @@ test("a ready Todo card whose refused start is its newest line isn't pulled unti
   assert.deepEqual(pullOf([card([])]).pullable, ['w/T-1']);
   assert.deepEqual(pullOf([card([refused])]).pullable, []);
   assert.deepEqual(pullOf([card([refused, { ...refused, ts: '2026-11-16T01:05:00.000Z', line: 'refusal-cleared', text: 'Cleared' }])]).pullable, ['w/T-1']);
+});
+
+// docs/adr/2026-11-16-1200-the-server-sends-a-cards-footer-and-builder-words.md
+test("a card's footer is one ordered list of words from the server: the owner's block, what else blocks it, held, stale, then a pause", () => {
+  const deps = [{ key: 'w/B1', ref: '#61', lane: 'progress' }];
+  const card = { lane: 'todo', ownerBlock: { until: '2026-11-16T09:00:00.000Z' }, blockedBy: deps, blockedUntil: 'CI is green', blockReason: 'the suite is red', hostHeld: true, stale: true, phase: 'ready' };
+  assert.deepEqual(footerOf(card), [
+    { kind: 'owner-block', until: '2026-11-16T09:00:00.000Z', then: 'It starts on its own then, once nothing else blocks it.' },
+    { kind: 'blocked', lead: 'blocked by ', deps, tail: ' and until CI is green, the suite is red' },
+    { kind: 'host-held', words: 'held while host recovers' },
+    { kind: 'stale', words: 'stale' },
+  ]);
+  assert.deepEqual(footerOf({ lane: 'todo', blockedBy: [], blockedUntil: 'CI is green', blockReason: 'x' }).map((e) => [e.kind, e.tail]), [['blocked', 'blocked until CI is green, x']]);
+  assert.deepEqual(footerOf({ lane: 'todo', blockedBy: [], blockReason: 'a reason alone says nothing' }), []);
+  assert.equal(footerOf({ lane: 'progress', ownerBlock: { until: null }, blockedBy: [] })[0].then, 'Claude picks it up again then.');
+  // A stalled card or one whose phase already reads stale shows no stale word.
+  assert.deepEqual(footerOf({ lane: 'review', blockedBy: [], stale: true, stalled: 'Crashed' }), []);
+  assert.deepEqual(footerOf({ lane: 'review', blockedBy: [], stale: true, phase: 'stale' }), []);
+});
+
+test("a pause stands in for the block that caused it in the footer, and only In Progress shows one", () => {
+  const deps = [{ key: 'w/B1', ref: '#61', lane: 'progress' }];
+  const base = { lane: 'progress', blockedBy: deps, ownerBlock: { until: null } };
+  const pause = (cause, paused) => ({ builder: { pause: { cause, words: `${cause} words`, paused } } });
+  assert.deepEqual(footerOf({ ...base, ...pause('blocked', false) }).map((e) => e.kind), ['owner-block', 'pause']);
+  assert.deepEqual(footerOf({ ...base, ...pause('held', true) }).map((e) => e.kind), ['blocked', 'pause']);
+  assert.deepEqual(footerOf({ ...base, ...pause('usage', true) }).slice(-1), [{ kind: 'pause', paused: true, words: 'paused · usage words' }]);
+  assert.deepEqual(footerOf({ ...base, ...pause('usage', false) }).slice(-1), [{ kind: 'pause', paused: false, words: 'pausing · usage words' }]);
+  assert.deepEqual(footerOf({ ...base, lane: 'review', ...pause('usage', true) }).map((e) => e.kind), ['owner-block', 'blocked']);
+});
+
+test("a built work card carries its footer, and its builder the words of its line: starting, stopped, or the progress", () => {
+  const at = (m) => `2026-11-06T10:${String(m).padStart(2, '0')}:00.000Z`;
+  const built = (more = {}) => buildBoard({ fromWaves: false, now: Date.parse(at(30)), events: [], ...more,
+    files: [{ slug: 'w', agents: runningBuilders('B1'), itemFile: { internal: true, items: [{ id: 'B1', title: 'One', lane: 'progress' }, { id: 'T1', title: 'Held', lane: 'todo', phase: 'ready', block_reason: 'x', blocked_until: 'CI is green' }] } }] }).items;
+  const [one, two] = ['B1', 'T1'].map((id) => built().find((i) => i.id === id));
+  assert.equal(one.builder.words, 'starting');
+  assert.deepEqual(two.footer, [{ kind: 'blocked', lead: 'blocked by ', deps: [], tail: 'blocked until CI is green, x' }]);
+  assert.equal(built({ alive: { 'w/B1': false } }).find((i) => i.id === 'B1').builder.words, 'stopped');
 });

@@ -608,6 +608,26 @@ const RESOLVED_BY = Object.freeze({
 // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: a blocked card's Merge shows disabled,
 // mergeBlocked its tooltip naming what blocks it, with no Action needed.
 const MERGE_BLOCKED_NEXT = 'Merges once unblocked';
+// A work card's footer words between its phase and its bars, in the order they draw: the owner's block, what else blocks it, a
+// bumped ready card a busy host holds, a stale build or review, and a paused build's words. The browser draws each entry by its
+// kind and compares none of the card's fields (docs/adr/2026-11-16-1200-the-server-sends-a-cards-footer-and-builder-words.md).
+// A pause stands in for the block that caused it, so its cause's block is left out.
+export function footerOf(it) {
+  const pause = it.lane === 'progress' ? it.builder?.pause ?? null : null;
+  const footer = [];
+  if (it.ownerBlock && pause?.cause !== 'held') {
+    footer.push({ kind: 'owner-block', until: it.ownerBlock.until, then: it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.' });
+  }
+  if (pause?.cause !== 'blocked') {
+    const until = it.blockedUntil ? `${it.blockedBy.length ? ' and until' : 'blocked until'} ${it.blockedUntil}` : '';
+    const tail = until + (it.blockReason && (it.blockedBy.length || until) ? `, ${it.blockReason}` : '');
+    if (it.blockedBy.length || tail) footer.push({ kind: 'blocked', lead: 'blocked by ', deps: it.blockedBy, tail });
+  }
+  if (it.hostHeld) footer.push({ kind: 'host-held', words: 'held while host recovers' });
+  if (!it.stalled && it.stale && it.phase !== 'stale') footer.push({ kind: 'stale', words: 'stale' });
+  if (pause) footer.push({ kind: 'pause', paused: Boolean(pause.paused), words: `${pause.paused ? 'paused' : 'pausing'} · ${pause.words}` });
+  return footer;
+}
 const mergeBlockedWords = (it) => `Blocked ${[it.blockedBy.length && `by ${it.blockedBy.map((d) => d.ref).join(', ')}`, it.blockedUntil && `until ${it.blockedUntil}`].filter(Boolean).join(' and ')}`;
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
@@ -783,7 +803,9 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
   const held = !planner && !stop && (alive === 'held' || Boolean(pause?.paused));
   const live = planner || held ? null : stop ? false : alive;
   const stale = held ? false : live === null ? silent >= BUILDER_STALE_AFTER : !live;
-  return { progress, phase: stepOf(line?.phase) || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, stopped: stop ? stoppedWords(stop.run) : null,
+  // The builder line's words, before its age: a stop's words, else stopped (a gone process) then the progress line, or starting until the first one.
+  const words = stop ? stoppedWords(stop.run) : [live === false && 'stopped', progress || (live === false ? null : 'starting')].filter(Boolean).join(' · ');
+  return { progress, words, phase: stepOf(line?.phase) || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, stopped: stop ? stoppedWords(stop.run) : null,
     ...(pause ? { pause: { cause: pause.cause, words: pause.words, paused: Boolean(pause.paused) } } : {}) };
 }
 
@@ -1457,7 +1479,10 @@ export function buildBoard(snapshot) {
     it.staging = unstarted && it.phase === 'staging';
     // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped ready card a busy host holds
     // reads held.
-    if (it.kind === 'work') it.hostHeld = Boolean(snapshot.hostBusy) && it.ready && Boolean(it.bumpedAt);
+    if (it.kind === 'work') {
+      it.hostHeld = Boolean(snapshot.hostBusy) && it.ready && Boolean(it.bumpedAt);
+      it.footer = footerOf(it);
+    }
   }
   linkCards(items, byKey, storedLinks);
   // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that

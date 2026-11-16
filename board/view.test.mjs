@@ -7,7 +7,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fixedDate } from '../shared/fixed-clock.mjs';
 import { miniDom } from './mini-dom.mjs';
-import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
+import { footerOf, buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 import { freshSync, stamp, patchSince } from './sync.mjs';
 import { transcriptChunk } from './transcript.mjs';
 
@@ -2895,7 +2895,10 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, 
 // The work card an ask became (from_ask; docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
 const askCard = (id, lane) => ({ key: `w/${id}`, id, kind: 'work', lane, title: `Task ${id}`, ref: `T-${id}`, fromAsk: id, deps: [], manualSteps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, files: [], needs: [], answers: [], owner: [], ownerTopics: [], doneArchived: 0 });
-const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], othersAt: [], ...extra });
+const workCard = (id, extra) => {
+  const it = { key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], othersAt: [], ...extra };
+  return { footer: footerOf({ blockedBy: [], ...it }), ...it };
+};
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
 test("the board reloads naming the version it shows, so an unchanged board downloads nothing, and a tap's own change signal finds the POST's board current: one tap, one download", async () => {
@@ -4520,7 +4523,7 @@ test('Block opens a sheet of the shared duration picker in place of a confirm, w
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 test("a stale card's status line is no button, closed or open, and a stalled card's Send is the orange control that clears its Action needed", async () => {
   for (const open of [[], ['w/S1']]) {
-    const item = workCard('S1', { lane: 'progress', stale: true, builder: { stale: true, progress: 'Running tests', at: null } });
+    const item = workCard('S1', { lane: 'progress', stale: true, builder: { stale: true, progress: 'Running tests', words: 'Running tests', at: null } });
     const b = boardOnDom({ open, board: boardOf([item]), threads: { 'w/S1': [] } });
     await b.settle();
     const line = b.root.querySelector('summary .line3.agent');
