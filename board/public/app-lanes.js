@@ -14,7 +14,7 @@ BoardView.part((B) => {
   const cardsHtml = (cards) => cards.map((it) => B.card(it)).join('');
   // docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md
   // A capped lane shows STEP cards, and each Show more tap adds STEP more, kept in memory per lane. A card the owner opened
-  // this visit stays shown past the cap; one open from before a reload does not (state.restored). Show more says how many are left (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
+  // this visit stays shown past the cap; one open from before a reload does not (state.restored), and when Show more reaches one past the first STEP it comes in collapsed. Show more says how many are left (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
   // older is how many cards wait past `cards` in the archive; the tap that would show past `cards` fetches them first.
   const STEP = 10;
   const moreTaps = new Map();
@@ -25,6 +25,12 @@ BoardView.part((B) => {
   function cappedRows(laneId, cards, older = 0) {
     const shown = shownCount(laneId, cards);
     const left = Math.max(0, cards.length - shown);
+    // A card open from before a reload that Show more reaches past the first STEP comes in collapsed.
+    const closed = cards.slice(STEP, shown).filter((it) => state.restored.has(it.key) && state.openItems.has(it.key));
+    if (closed.length) {
+      for (const it of closed) state.openItems.delete(it.key);
+      store.set('openItems', [...state.openItems]);
+    }
     const n = left + (older || 0);
     const words = `${n} older task${n === 1 ? '' : 's'}`;
     const fetches = older !== 0 && shown + STEP > cards.length;

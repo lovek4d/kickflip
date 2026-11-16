@@ -5741,6 +5741,25 @@ test('answered asks sit in the one Done list among the work cards by time, 10 sh
   assert.deepEqual([keys('done'), more('done')], [all.map((c) => c.key), null]);
 });
 
+test('a Done card open from before a reload and past the first 10 comes in collapsed when Show more loads it, and a card opened this visit stays open', async () => {
+  const day = (n) => `2026-10-${String(30 - n).padStart(2, '0')}T08:00:00.000Z`;
+  const work = Array.from({ length: 25 }, (_, n) => workCard(`D${n}`, { lane: 'done', sortAt: day(n) }));
+  const b = boardOnDom({ open: ['w/D3', 'w/D15'], board: boardOf(work), threads: {} });
+  await b.settle();
+  const lane = () => b.root.querySelector('#lanes details.lane[data-lane="done"]');
+  const card = (id) => lane().querySelector(`details.item[data-key="w/${id}"]`);
+  const more = () => lane().querySelector('[data-lane-more]');
+  assert.deepEqual([card('D3').open, card('D15')], [true, null]);
+  b.page.fire(b.root, 'click', { target: more() });
+  await b.settle();
+  assert.deepEqual([card('D3').open, card('D15').open, b.page.win.localStorage.getItem('site:board-a:openItems')], [true, false, '["w/D3"]']);
+  card('D12').open = true;
+  b.page.fire(card('D12'), 'toggle');
+  b.page.fire(b.root, 'click', { target: more() });
+  await b.settle();
+  assert.deepEqual([card('D12').open, card('D15').open, card('D22').open], [true, false, false]);
+});
+
 test("a finished wave's cards sit in Done's one newest-first list, and Done draws no fold", async () => {
   const cards = [['A', 'w', 3], ['B', 'w', 1], ['C', 'v', 2]].map(([id, file, n]) => workCard(id, { key: `${file}/${id}`, file, lane: 'done', sortAt: `2026-10-0${n}T08:00:00.000Z` }));
   const b = boardOnDom({ board: boardOf(cards), threads: {} });
