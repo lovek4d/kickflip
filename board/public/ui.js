@@ -60,7 +60,7 @@
   }
   const CLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
   const attachButton = () => `<label class="attach" title="Attach files"><input type="file" multiple data-attach aria-label="Attach files">${CLIP}</label>`;
-  // A composer's text box with its attach button inside at the bottom left, like a chat composer, which attach.js outlines
+  // A composer's text box with its attach button inside at the bottom right, which attach.js outlines
   // with Drop to attach while files are dragged over the composer.
   const dropZone = (textarea) => `<div class="dz">${textarea}${attachButton()}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
   // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
@@ -504,6 +504,9 @@
   let pressedOn = null;
   if (typeof document !== 'undefined') document.addEventListener('pointerdown', (e) => { pressedOn = e.target; }, true);
   const onBackdrop = (ev, backdrop) => ev.target === backdrop && pressedOn === backdrop;
+  // Whether a click's point is outside the modal's own box. A bottom sheet is its own backdrop target, so a tap on its
+  // padding reads as a backdrop click; only the dim area around the box counts as one.
+  const outsideBox = (ev, box) => { const r = box.getBoundingClientRect(); return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom; };
 
   // Swiping a sheet down drags it to dismiss (docs/adr/2026-11-14-1700-swiping-a-sheet-down-drags-it-to-dismiss.md).
   // A release past a third of the sheet's height, or a flick, counts as Escape: the sheet's own cancel handler runs.
@@ -565,7 +568,7 @@
   // After ui-icon-text.js, whose iconText, ICON_SHAPES and ICON_COLOURS stay on BoardUI.
   globalThis.BoardUI = {
     ...globalThis.BoardUI,
-    LINK_ARROW, escText, onBackdrop, swipeToDismiss, swipeVerdict,
+    LINK_ARROW, escText, onBackdrop, outsideBox, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, requestRow, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };

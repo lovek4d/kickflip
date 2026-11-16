@@ -1,4 +1,4 @@
-// The attach icon sits inside the text box at its bottom-left corner, and the typed text keeps clear of it, on a phone
+// The attach icon sits inside the text box at its bottom-right corner, and the typed text keeps clear of it, on a phone
 // and on desktop (docs/adr/2026-11-16-0730-the-attach-icon-sits-inside-the-text-box.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,16 +19,16 @@ const FIXTURE = `<!doctype html><html><head><meta name="viewport" content="width
   const box = r(document.querySelector('textarea')), a = r(document.querySelector('.attach'));
   const pad = parseFloat(getComputedStyle(document.querySelector('textarea')).paddingBottom);
   const probe = document.createElement('pre'); probe.id = 'probe';
-  probe.textContent = JSON.stringify({ left: a.left - box.left, bottom: box.bottom - a.bottom, inside: a.top >= box.top, textClear: pad >= box.bottom - a.top });
+  probe.textContent = JSON.stringify({ right: box.right - a.right, bottom: box.bottom - a.bottom, inside: a.top >= box.top, textClear: pad >= box.bottom - a.top });
   document.body.append(probe);
 }</script></body></html>`;
 
 for (const width of [390, 1280]) {
-  test(`at ${width}px the attach icon is at the text box's bottom left and the text clears it`, { skip: !chromeInstalled }, async () => {
+  test(`at ${width}px the attach icon is at the text box's bottom right and the text clears it`, { skip: !chromeInstalled }, async () => {
     const file = path.join(tempDir('attach-in-'), 'page.html');
     fs.writeFileSync(file, FIXTURE);
     const got = await chrome.probe(`file://${file}`, width);
-    assert.ok(got.left >= 0 && got.left < 12, `left ${got.left}px`);
+    assert.ok(got.right >= 0 && got.right < 12, `right ${got.right}px`);
     assert.ok(got.bottom >= 0 && got.bottom < 12, `bottom ${got.bottom}px`);
     assert.ok(got.inside && got.textClear, JSON.stringify(got));
   });

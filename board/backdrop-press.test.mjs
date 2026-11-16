@@ -31,3 +31,11 @@ test('a click inside the modal never dismisses it', () => {
   press(inside);
   assert.equal(onBackdrop({ target: inside }, backdrop), false);
 });
+
+test('a click is outside a sheet only beyond its box, not on its padding', () => {
+  const box = { getBoundingClientRect: () => ({ left: 100, right: 400, top: 300, bottom: 700 }) };
+  const { outsideBox } = context.BoardUI;
+  assert.equal(outsideBox({ clientX: 250, clientY: 650 }, box), false);
+  assert.equal(outsideBox({ clientX: 50, clientY: 650 }, box), true);
+  assert.equal(outsideBox({ clientX: 250, clientY: 100 }, box), true);
+});

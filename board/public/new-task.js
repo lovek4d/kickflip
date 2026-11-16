@@ -75,7 +75,7 @@ globalThis.BoardNewTask = (function () {
     B.newTaskKey = newTaskKey;
     B.on(document, 'keydown', newTaskKey);
     B.on($('#sheetClose'), 'click', closeSheet);
-    B.on(sheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, sheet)) closeSheet(); });
+    B.on(sheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, sheet) && BoardUI.outsideBox(ev, sheet)) closeSheet(); });
     B.atUnmount(BoardUI.swipeToDismiss(sheet));
     B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); closeSheet(); });
     // Discuss has the session reply to the task, starting its discussion; Implement sends the ask with quick: true, and

@@ -181,12 +181,12 @@ code { overflow-wrap: anywhere; }
 /* A file input draws its "Choose File" text at the 16px coarse-pointer size, wider than the button; iOS Safari widens the page to fit it. */
 .attach input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; padding: 0; border: 0; font-size: 0; }
 .row > .attach + .muted { flex: 1; min-width: 0; }
-/* A composer's text box (BoardUI.dropZone), its attach button inside at the bottom left with the text kept clear of it:
+/* A composer's text box (BoardUI.dropZone), its attach button inside at the bottom right with the text kept clear of it:
    while files are dragged over the composer, attach.js marks it .dragging and the box gets a dashed accent outline
    with Drop to attach over it. */
 .dz { position: relative; clear: both; border-radius: 8px; }
 .dz > textarea { display: block; padding-bottom: 40px; }
-.dz > .attach { position: absolute; left: 6px; bottom: 6px; width: 32px; height: 32px; z-index: 1; }
+.dz > .attach { position: absolute; right: 6px; bottom: 6px; width: 32px; height: 32px; z-index: 1; }
 .dz-hint { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; border-radius: 8px; pointer-events: none;
   background: color-mix(in srgb, var(--panel) 80%, transparent); color: var(--accent); font-weight: 600; font-size: 15px; }
 [data-composer].dragging .dz { outline: 2px dashed var(--accent); outline-offset: 3px; }
