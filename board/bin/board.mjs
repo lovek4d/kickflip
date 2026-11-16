@@ -715,7 +715,18 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          "ask": "<ask>"; builder verified refuses until then
   builder asks <file>/<id> [--wait] [--timeout <min>]    prints each ask, then its answer, its deferral or "waiting on
                                                          the orchestrator"; --wait blocks until none is waiting, and
-                                                         after --timeout (9) minutes says so and fails: run it again
+                                                         after --timeout (9) minutes says so and fails: run it again.
+                                                         News for the builder or a pause ends the wait early
+  builder resume <file>/<id> --text <t>                  the session's words for the task's builder, In Progress.
+                                                         To a running one they are news: its next command (progress,
+                                                         call, ask, asks --wait), its tool-call hook or its builder
+                                                         done's refusal prints "New on <key> while you build: …", and
+                                                         the thread reads "Passed to the builder: <t>". On a handed-back
+                                                         build the board server resumes the builder's own Claude
+                                                         session with them and every news since its hand-back, the
+                                                         card building again; its calls come back on its next
+                                                         hand-back. The owner's thread message and item notes reach a
+                                                         running builder as news by themselves
   builder verified <file>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
          [--note <t>] [--title <t>]                      refuses while any record on the task has a call after it.
                                                          On a handed-back build (not done, no builder open, every
@@ -896,6 +907,7 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ti
   if (check !== undefined && ownerStep === undefined) throw new UsageError('--check goes with --owner-step: it is the code check that closes the task once the step is done');
   if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep, check });
   const onBoard = site && !f.dir;
+  if (onBoard && (f.agent ?? 'main') === 'main') await store.refuseNews(site, key);
   const handed = onBoard && await store.handBackCalls(site, key, f);
   if (handed) return handed;
   if (onBoard && f.next === undefined && await store.finishesCard(site, key, f)) {
@@ -1085,6 +1097,7 @@ const COMMANDS = {
   'builder answer': [['file/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text)],
   'builder defer': [['file/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text, { deferred: true })],
   'builder asks': [['file/id'], ['wait', 'timeout'], (site, [key], f) => store.listAsks(site, key, f)],
+  'builder resume': [['file/id'], ['text'], (site, [key], f) => store.builderResume(site, key, f.text)],
   'builder verified': [['file/id'], ['dir', 'agent', 'note', 'title'], async (site, [key], f) => {
     await store.verifyCalls(site, key, f);
     const next = site && !f.dir ? await store.verifiedFinish(site, key) : null;
@@ -1218,6 +1231,7 @@ const SAID = {
   'builder done': async (site, [key], f, result) => `${await card(site, key)}: ${result?.said ?? `${builderOf(f)} done${f['owner-step'] === undefined ? '' : `; owner step "${f['owner-step'].trim()}"`}`}`,
   'builder call': async (site, [key]) => `judgment call recorded on ${await card(site, key)}`,
   'builder ask': async (site, [key], f, { id }) => `${await card(site, key)}: asked the orchestrator, ${id}`,
+  'builder resume': async (site, [key], f, { running }) => `${await card(site, key)}: ${running ? 'passed to its running builder, which reads it at its next command' : 'the board resumes its builder in its own session'}`,
   'builder answer': async (site, [key, id]) => `${await card(site, key)}: ${id} answered`,
   'builder defer': async (site, [key, id]) => `${await card(site, key)}: ${id} deferred to the owner`,
   'builder verified': async (site, [key], f, result) => `${await card(site, key)}: judgment calls verified${result?.said ? `; ${result.said}` : ''}`,

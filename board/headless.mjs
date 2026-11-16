@@ -73,7 +73,7 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     ...helperSteps(b, key),
     '',
     notes ? `Spec: the task's notes, ${notes}, all sections, where later sections override earlier ones.` : `The task has no notes file: build from its title, and record what you had to decide as calls.`,
-    `${threadLine(thread)} Read it with the notes: a message of the owner's is an instruction, but where it contradicts the notes, the notes win; that contradiction counts as blocked (step 3), so ask with \`${b} builder ask ${key} "<question>"\` and wait as step 3 says. Read the thread again in checking, before you finish, for anything the owner wrote during the build.`,
+    `${threadLine(thread)} Read it with the notes: a message of the owner's is an instruction, but where it contradicts the notes, the notes win; that contradiction counts as blocked (step 3), so ask with \`${b} builder ask ${key} "<question>"\` and wait as step 3 says. Read the thread again in checking, before you finish, for anything the owner wrote during the build. What reaches the task while you build (the orchestrator's words, the owner's messages, a new notes section) prints after a command or tool call as "New on ${key} while you build: …": take it in before you hand back.`,
     `In checking, list the deliverables the card asks for (the notes and the thread name them: a table, a before/after timing, a doc, a test) and tick each against evidence in your diff or output. A deliverable you could not produce, such as one that needs a local stack a headless run lacks, is a call "Missing: <deliverable>, <why>" (\`${b} builder call ${key} "<call>"\`), never a quiet gap.`,
     `A timing you measure while the host is busy (other builds, tests or lands running) is provisional: say so wherever you report it, and record the call as "Provisional: <timing>, taken while the host was busy".`,
     askBoardLine(b, key),
@@ -408,6 +408,14 @@ export function runFailure(file) {
 // docs/adr/2026-11-09-1500-a-builder-resumes-to-land-its-own-conflict.md
 // The words a paused builder's own session is resumed with, once its pause cleared ("nothing blocks it").
 export const resumeBrief = ({ ref, worktree, cleared }) => `The board paused your build of task ${ref}, and the pause has cleared: ${cleared}. Carry on where you stopped, in ${worktree}, following your brief as before. Your builder record is still open, so don't run builder start again.`;
+
+// docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
+// The words a handed-back builder's own session is resumed with on the orchestrator's builder resume: the news since its
+// hand-back (store.mjs takeRerun's lines), the orchestrator's last.
+export const rerunBrief = ({ ref, worktree, news }) => [
+  `The orchestrator resumes your handed-back build of task ${ref} to change it. Carry on in ${worktree}, on the same branch, following your brief as before: amend your build to what follows, record your calls, and finish with builder done again. Your builder record is open again, so don't run builder start.`,
+  ...news,
+].join('\n');
 
 // docs/adr/2026-11-15-0040-a-cold-resume-past-150k-starts-a-fresh-agent-with-a-handoff.md
 // A resume reads the session's whole context again, and once the prompt cache (an hour) has gone cold it pays for all of

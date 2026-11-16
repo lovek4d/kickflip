@@ -722,7 +722,7 @@ function agentsOf(records = {}, withPast = false) {
   return Object.entries(records).filter(([name, r]) => r && typeof r === 'object' && (withPast || !name.startsWith('past-'))).map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
     // pid: the headless process the board launched for it (store.mjs recordSession), none for a session's own agent.
-    log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null, ...(r.pause ? { pause: r.pause } : {}),
+    log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null, ...(r.pause ? { pause: r.pause } : {}), ...(r.rerun ? { rerun: r.rerun } : {}),
     ...(r.kind === HELPER ? { writes: Boolean(r.writes), requested: r.requested || null } : {}), ...(r.waits ? { waits: r.waits } : {}),
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }

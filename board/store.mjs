@@ -2473,6 +2473,7 @@ export async function addNotes(site, key, { heading, file, from }) {
   }
   if (!body.trim()) fail(`${from ?? file} is empty`);
   const name = await appendNotes(site, key, heading, body);
+  await passNews(site, key, { from: 'notes', text: `the section "${heading}"; read it in ${path.resolve((await loadItem(site, key)).source.dir, name)}` });
   const lines = await resolveAnswered(site, key, "Recorded in the task's notes");
   return { file: name, heading, lines };
 }
@@ -4841,7 +4842,7 @@ async function bumpBlocked(site, key, blockers) {
 // A card pause rides on the card's open main build record as pause {cause, words, at, by?, until?, paused?, phase?}:
 // cause blocked, held, usage or bumped (domain.mjs PAUSE_CLEARS), words what the card reads after "pausing · "
 // ("blocked by #61"), by the card a bump-out made room for, until the reset of the usage limit that stopped the run.
-// The builder's next progress report, call or ask is its stopping point (pauseReply): the record reads paused at its
+// The builder's next progress report, call or ask is its stopping point (builderReply): the record reads paused at its
 // phase, and the reply tells it to commit and stop. The board server resumes it once nothing pauses it (server.mjs).
 async function openBuild(site, key) {
   const file = await builderFile(site, key);
@@ -4871,12 +4872,97 @@ export async function markPaused(site, key) {
   return paused;
 }
 
-// The reply that stops the card's main builder at a stopping point it reached while a pause was asked, its record
-// marked paused (markPaused). → its lines, none while no pause is asked
-async function pauseReply(site, key, { dir, agent = 'main' }) {
+// What the board says to the card's main builder after its own command (progress, call, ask, asks --wait): the news
+// waiting for it (takeNews), then, at a stopping point it reached while a pause was asked, the reply that stops it, its
+// record marked paused (markPaused). → its lines, none while neither waits
+async function builderReply(site, key, { dir, agent = 'main' }) {
   if (!site || dir || agent !== 'main') return [];
+  const news = await takeNews(site, key);
   const pause = await markPaused(site, key);
-  return pause ? [`Paused: ${pause.words}. Commit what you have now with \`git -c core.commentChar=';' commit -F <file>\`, then stop: end your turn and run nothing else. The board resumes this session, telling it so, once the pause clears.`] : [];
+  return [...news, ...(pause ? [`Paused: ${pause.words}. Commit what you have now with \`git -c core.commentChar=';' commit -F <file>\`, then stop: end your turn and run nothing else. The board resumes this session, telling it so, once the pause clears.`] : [])];
+}
+
+// docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
+// News is what reached a card In Progress for its builder after the build started: the orchestrator's builder resume,
+// the owner's thread message, a notes section added. It waits on the card's main build record, running or handed back,
+// as news [{at, from: orchestrator|owner|notes, text}], until it reaches the builder: a running one at its next command
+// (builderReply), its PostToolUse hook (hooks-plugin board-messages.mjs, through data/builder-news/<session id>.json,
+// which names the card), or the refusal of its builder done; a handed-back one in the brief it is resumed with (takeRerun).
+const NEWS_FROM = { orchestrator: 'the orchestrator wrote: ', owner: 'the owner wrote: ', notes: 'its notes gained ' };
+const newsPointer = (site, session) => path.join(site, 'data', 'builder-news', `${session}.json`);
+const newsLines = (key, news) => [...news.map((n) => `New on ${key} while you build: ${NEWS_FROM[n.from]}${n.text}`),
+  'Take it in before you hand back: build to it, and where it contradicts your notes, ask with builder ask.'];
+
+// The card's main build record news reaches: one running, or one handed back. → {file, record} or null
+async function newsBuild(site, key) {
+  const { item } = await loadItem(site, key);
+  if (item.lane !== 'progress') return null;
+  const file = await builderFile(site, key);
+  const record = await readJSON(file, null);
+  return record?.started && builds(record) && (!record.done || record.handed_back) ? { file, record } : null;
+}
+
+// Adds news for the card's builder, when it has a running or handed-back build. → whether it did
+export async function passNews(site, key, { from, text: said }) {
+  const build = await newsBuild(site, key);
+  if (!build) return false;
+  const { file, record } = build;
+  await writeJSON(file, { ...record, news: [...(record.news || []), { at: new Date().toISOString(), from, text: said }] });
+  if (!record.done && record.session?.id) await writeJSON(newsPointer(site, record.session.id), { key });
+  return true;
+}
+
+// The news waiting for the card's running build, taken off its record. → its lines, none while none waits
+export async function takeNews(site, key) {
+  const open = await openBuild(site, key);
+  if (!open?.record.news) return [];
+  const { news, ...rest } = open.record;
+  await writeJSON(open.file, rest);
+  if (rest.session?.id) await fs.rm(newsPointer(site, rest.session.id), { force: true });
+  return newsLines(key, news);
+}
+
+// builder done refuses the main build while news waits for it, the refusal delivering it.
+export async function refuseNews(site, key) {
+  const lines = await takeNews(site, key);
+  if (lines.length) fail(`${lines.join('\n')}\nRun builder done again once your build takes it in.`);
+}
+
+// `builder resume <key> --text <t>`, the orchestrator's: on a running build the text is news for it, with a thread line
+// saying so; on a handed-back build it is news too, and the record is marked rerun {at, text} for the board server to
+// resume the builder's own session with it (takeRerun). → {running}
+export async function builderResume(site, key, said) {
+  needSite(site);
+  const words = text(said, '--text');
+  const { item } = await loadItem(site, key);
+  const name = await cardName(site, key);
+  if (item.lane !== 'progress') fail(`builder resume takes a task In Progress; ${name} is in ${item.lane ?? 'todo'}`);
+  const build = await newsBuild(site, key);
+  if (!build) fail(`${name} has no running or handed-back build to resume`);
+  const { file, record } = build;
+  if (!record.done) {
+    await passNews(site, key, { from: 'orchestrator', text: words });
+    await appendStatus(site, key, 'builder-told', { text: words });
+    return { running: true };
+  }
+  if (providerOf(record.kind ?? 'claude') !== 'claude' || !record.session?.id) fail(`${name}'s build has no Claude session the board launched to resume; start a new build instead`);
+  if (record.rerun) fail(`${name} already waits on the board to resume its builder`);
+  await passNews(site, key, { from: 'orchestrator', text: words });
+  await writeJSON(file, { ...(await readJSON(file, null)), rerun: { at: new Date().toISOString(), text: words } });
+  return { running: false };
+}
+
+// The board server's take of a handed-back build marked rerun: the record opens again, its hand-back, rerun mark and
+// news off it, the card's Next cleared, and a "Resumed: <text>" line. → {record: the record it now is, news: the news's
+// lines for the resume's brief}, or null when no build is marked
+export async function takeRerun(site, key) {
+  const build = await newsBuild(site, key);
+  if (!build?.record.rerun) return null;
+  const { file, record: { done, handed_back, rerun, news = [], ...rest } } = build;
+  await writeJSON(file, rest);
+  await clearNext(site, key);
+  await appendStatus(site, key, 'builder-rerun', { text: rerun.text });
+  return { record: rest, news: newsLines(key, news) };
 }
 
 // The card's paused build resumes: its pause comes off its record, and the thread says why. → {pause: the pause it had,
@@ -5277,7 +5363,7 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
   if (clearEta) delete record.eta;
   if (eta !== undefined || clearEta) await writeJSON(file, record);
   await statusToThread(site, key, agent, record, line, new Date().toISOString());
-  return { file, lines: await pauseReply(site, key, { dir, agent }) };
+  return { file, lines: await builderReply(site, key, { dir, agent }) };
 }
 
 // The finish step's own landing line, so the card's fifth bar lights while it rebases and lands, whoever finishes it.
@@ -5304,7 +5390,7 @@ export async function recordCall(site, key, call, { dir, agent = 'main' }) {
   const record = await readJSON(file, null);
   if (!record?.started || record.done) fail(`builder call needs an open builder record on ${key}; run builder start first`);
   await writeJSON(file, { ...record, calls: [...(record.calls || []), { at: new Date().toISOString(), text: words }] });
-  return { file, lines: await pauseReply(site, key, { dir, agent }) };
+  return { file, lines: await builderReply(site, key, { dir, agent }) };
 }
 
 // docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md
@@ -5335,7 +5421,7 @@ export async function askOrchestrator(site, key, question, { agent = 'main' }) {
   const id = `ask${(await builderAsks(site, key)).length + 1}`;
   await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: `${modelName(record) || record.kind || 'Claude'} builder`, kind: BUILDER_ASK.ask, ask: id, agent, text: words });
   await appendEvent(boardTarget(site), 'builder-ask', { key, ask: id, agent, text: words });
-  return { id, lines: await pauseReply(site, key, { agent }) };
+  return { id, lines: await builderReply(site, key, { agent }) };
 }
 
 // The session's reply to a builder's ask: an answer, or with deferred its deferral to the owner.
@@ -5356,8 +5442,8 @@ export async function answerBuilder(site, key, id, reply, { deferred = false } =
 
 // → {lines}: each ask, then its answer, deferral or "waiting on the orchestrator". With wait it blocks until no ask is
 // waiting on the orchestrator, giving up after timeout minutes (9, under a Bash tool call's 10) so the builder runs it again.
-// It polls every ms, its deadline read off now(). A builder waiting is at a stopping point, so a pause asked meanwhile
-// ends the wait with its reply (pauseReply).
+// It polls every ms, its deadline read off now(). A builder waiting is at a stopping point, so news for it or a pause
+// asked meanwhile ends the wait with its reply (builderReply).
 export async function listAsks(site, key, { wait = false, timeout = 9, every = 2000, now = Date.now } = {}) {
   needSite(site);
   const minutes = Number(timeout);
@@ -5369,8 +5455,8 @@ export async function listAsks(site, key, { wait = false, timeout = 9, every = 2
     const waiting = asks.filter((a) => !a.answer);
     const lines = asks.flatMap((a) => [`${a.id}. ${a.text}`, `  ${!a.answer ? 'waiting on the orchestrator' : `${a.deferred ? 'deferred' : 'answered'}: ${a.answer.text}`}`]);
     if (!wait || !waiting.length) return { lines };
-    const paused = await pauseReply(site, key, {});
-    if (paused.length) return { lines: [...lines, ...paused] };
+    const reply = await builderReply(site, key, {});
+    if (reply.length) return { lines: [...lines, ...reply] };
     if (now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on the orchestrator after ${minutes} minutes; run builder asks ${key} --wait again`);
     await new Promise((resolve) => setTimeout(resolve, every));
   }

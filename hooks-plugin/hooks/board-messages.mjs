@@ -44,13 +44,24 @@ async function shownOn(board, session, now) {
   return out;
 }
 
+// docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
+// A board-launched builder's session gets the news its card holds for it (store.mjs takeNews), found by the pointer
+// data/builder-news/<session id>.json that names the card.
+async function newsOn(board, session) {
+  const key = readJSON(path.join(board.dir, 'data', 'builder-news', `${session}.json`))?.key;
+  if (!key) return [];
+  const { takeNews } = await import('../../board/store.mjs');
+  return takeNews(board.dir, key);
+}
+
 try {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   if (input.hook_event_name === 'PostToolUse' && !input.agent_id && typeof input.session_id === 'string' && input.session_id) {
     const { listBoards } = await import('../../hub/boards.mjs');
-    const owned = listBoards().filter((b) => b.owner?.session === input.session_id);
+    const boards = listBoards();
+    const owned = boards.filter((b) => b.owner?.session === input.session_id);
     const now = Date.now();
-    const lines = (await Promise.all(owned.map((b) => shownOn(b, input.session_id, now).catch(() => [])))).flat();
+    const lines = (await Promise.all([...owned.map((b) => shownOn(b, input.session_id, now).catch(() => [])), ...boards.map((b) => newsOn(b, input.session_id).catch(() => []))])).flat();
     if (lines.length) console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: lines.join('\n') } }));
   }
 } catch {}

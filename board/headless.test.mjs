@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { freePorts, startBoard } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI, CONTEXT_CAP, handoffLines, landByBuilder, resumeChoice, sessionState } from './headless.mjs';
-import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, verifyCalls, writeBrief } from './store.mjs';
+import { briefFacts, archiveCards, builderProgress, builderResume, handBackCalls, readArchive, recordCall, threadFile, verifyCalls, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
@@ -86,7 +86,7 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
   for (const want of [
     'ENG-1', 'Make it go', '/s/waves/w/a1.md', 'Work only in /wt/A1', 'Use Node 22+',
     `${b} builder start w/A1 --kind build`, `${b} builder progress w/A1 --phase`, `${b} builder call w/A1`, `${b} builder ask w/A1`,
-    `${b} builder asks w/A1`, `${b} builder done w/A1 --risk low|medium|high --text`, "git -c core.commentChar=';' rebase main", 'Never push',
+    `${b} builder asks w/A1`, `${b} builder done w/A1 --risk low|medium|high --text`, 'New on w/A1 while you build: …": take it in before you hand back.', "git -c core.commentChar=';' rebase main", 'Never push',
   ]) assert.ok(brief.includes(want), `the brief has ${want}`);
   assert.ok(!brief.includes('node --test'), 'the brief runs the affected tests, not the full suite');
   for (const phase of ['reading', 'building', 'checking', 'landing']) assert.ok(brief.includes(`- ${phase}:`), `the brief says what ${phase} means`);
@@ -1015,6 +1015,35 @@ test("the owner's Block pauses the card's running builder at its next progress r
   assert.equal(again.cwd, b.record('H1').worktree.path);
   assert.deepEqual([b.record('H1').pause, b.record('H1').done], [undefined, undefined]);
   assert.ok(b.thread('H1').some((m) => m.text === 'Resumed: unblocked.'));
+});
+
+// docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
+test("the owner's message reaches the running builder at its next command, and builder resume on its hand-back resumes its own session with every word since", async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'H1', title: 'feat: sheet', phase: 'ready', size: 'large' }]);
+  const { board, send } = await b.start();
+  const { pid, id: session } = b.record('H1').session;
+  await send('item-message', { key: 't/H1', text: 'Use the blue' });
+  assert.ok(b.record('H1').news, 'the message waits on its record');
+  assert.ok((await builderProgress(b.site, 't/H1', 'Writing the sheet', { phase: 'building' })).lines.includes('New on t/H1 while you build: the owner wrote: Use the blue'));
+
+  await recordCall(b.site, 't/H1', 'Kept the sheet', {});
+  await handBackCalls(b.site, 't/H1', {});
+  await b.gone(pid);
+  await send('item-message', { key: 't/H1', text: 'Also the red' });
+  await builderResume(b.site, 't/H1', 'Make it a button');
+  await wrote(board, path.join(b.data, 'agents', 'H1.json'));
+  assert.equal(b.runs.length, 2, 'the resume launches its session again');
+  const [, again] = b.runs;
+  assert.equal(again.resume, session);
+  assert.equal(again.cwd, b.record('H1').worktree.path);
+  assert.match(again.prompt, /^The orchestrator resumes your handed-back build of task H1 to change it\./);
+  for (const said of ['the owner wrote: Also the red', 'the orchestrator wrote: Make it a button']) assert.ok(again.prompt.includes(`New on t/H1 while you build: ${said}`), said);
+  assert.ok(!again.prompt.includes('Use the blue'), 'its session read that one already');
+  const rec = b.record('H1');
+  assert.deepEqual([rec.done, rec.handed_back, rec.rerun, rec.news, rec.session.pid], [undefined, undefined, undefined, undefined, again.pid]);
+  assert.deepEqual(rec.calls.map((c) => c.text), ['Kept the sheet'], 'its calls come back with its next hand-back');
+  assert.equal(b.item('H1').next, undefined, 'it reads building again');
+  assert.ok(b.thread('H1').some((m) => m.text === 'Resumed: Make it a button'));
 });
 
 // docs/adr/2026-11-15-0040-a-cold-resume-past-150k-starts-a-fresh-agent-with-a-handoff.md

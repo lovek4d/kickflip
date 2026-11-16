@@ -88,6 +88,30 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
   assert.equal(run({ hook_event_name: 'PreToolUse' }), null);
 });
 
+// docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
+test("the hook shows a board-launched builder the news its card holds for it, once, and nothing to a subagent", () => {
+  const home = tempDir('board-messages-');
+  const dir = path.join(home, '.claude', 'kickflip', 'sites', 'orch');
+  write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { sites: { orch: { dir, port: 1, cmd: [process.execPath, '/skill/board/server.mjs', dir], owner: { session: 'o1' } } } });
+  write(path.join(dir, 'board.json'), { title: 'Orch', items: 'data/items.json', slug: 't' });
+  write(path.join(dir, 'data', 'items.json'), { items: [{ id: 'A1', title: 'feat: sheet', lane: 'progress' }] });
+  const news = [{ at: new Date(NOW).toISOString(), from: 'owner', text: 'Use the blue' }];
+  write(path.join(dir, 'data', 'agents', 'A1.json'), { started: new Date(NOW - 60_000).toISOString(), kind: 'claude', session: { id: 'b1', pid: null }, news });
+  write(path.join(dir, 'data', 'builder-news', 'b1.json'), { key: 't/A1' });
+  const run = (input) => {
+    const r = spawnSync(process.execPath, ['--import', fixedClock, hook], { input: JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'Bash', session_id: 'b1', ...input }), env: { ...process.env, HOME: home, KICKFLIP_TEST_NOW: String(NOW) }, encoding: 'utf8' });
+    assert.deepEqual([r.status, r.stderr], [0, '']);
+    return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
+  };
+  assert.equal(run({ agent_id: 'a1' }), null);
+  const shown = run();
+  assert.equal(shown.hookEventName, 'PostToolUse');
+  assert.match(shown.additionalContext, /^New on t\/A1 while you build: the owner wrote: Use the blue\nTake it in before you hand back/);
+  assert.equal(fs.existsSync(path.join(dir, 'data', 'builder-news', 'b1.json')), false);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'agents', 'A1.json'), 'utf8')).news, undefined);
+  assert.equal(run(), null);
+});
+
 test('the plugin runs the hook after every tool call, through the skills link', () => {
   const plugin = JSON.parse(fs.readFileSync(fileURLToPath(new URL('./hooks.json', import.meta.url)), 'utf8'));
   assert.deepEqual(plugin.hooks.PostToolUse, [{ hooks: [{ type: 'command', command: 'node "$HOME/.claude/skills/kickflip/hooks-plugin/hooks/board-messages.mjs"' }] }]);

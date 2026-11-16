@@ -356,8 +356,8 @@ import { withdraw } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
-import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
+import { HAD_IMPLEMENT, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -1242,6 +1242,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           // orchestrator stalled clears the stall, and reaches the orchestrator as any message does.
           if (card?.stalled) await clearStall(here, key);
           if (card?.ownerWait) await clearOwnerWait(here, key);
+          // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
+          if (card?.lane === 'progress' && !bare) await passNews(here, key, { from: 'owner', text: String(body.text || '').trim() || 'see the files on its thread' });
           // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement stages the
           // card as it is, with no event; one on a ready card was refused above.
           if (bare && (card?.ready || card?.lane === 'todo')) {
@@ -1612,6 +1614,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (!heldByPause) await launchRebases(items, stoppedKeys(items));
     const resumes = await checkPauses(items, gate, cap);
     if (!heldByPause) for (const key of resumes) await resumeBuild(key);
+    if (!heldByPause) for (const it of items.filter((i) => i.kind === 'work' && i.lane === 'progress' && i.agents?.some((a) => a.name === 'main' && a.rerun))) await rerunBuild(it.key);
     const { idle, pullable, retitle, waiting, pulls, helpers } = pullOf(items, { cap, pulled, hold });
     const ready = idle && !heldByPause;
     // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: the pull refuses a ready card it can't title its PR by,
@@ -1839,6 +1842,26 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const why = `The board paused this build, and the pause has cleared: ${cleared}.`;
       const { pid, log, resumed } = await resumeBuilder(here, { key, kind, model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => resumeBrief({ ...facts, cleared }), why, launch });
       await trackLaunch(key, { kind, model: record.model, pid, log, relaunched: false });
+      logCall({ ...entry, result: resumed ? 'resumed' : 'fresh builder' });
+    } catch (e) {
+      logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
+      await appendStatus(here, key, 'resume-failed', { error: e.message });
+    }
+  }
+
+  // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
+  // A handed-back build the orchestrator's builder resume marked rerun opens again (store.mjs takeRerun) and its
+  // builder's own session resumes with the news since its hand-back (headless.mjs resumeBuilder), tracked as a fresh
+  // launch, as a cleared pause's resume is.
+  async function rerunBuild(key) {
+    const taken = await takeRerun(here, key);
+    if (!taken) return;
+    const { record, news } = taken;
+    dataVersion++;
+    const entry = { call: 'rerun', key, reason: "The orchestrator's builder resume on its handed-back build.", inputs: { news } };
+    try {
+      const { pid, log, resumed } = await resumeBuilder(here, { key, kind: 'claude', model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => rerunBrief({ ...facts, news }), why: news.join(' '), launch });
+      await trackLaunch(key, { kind: 'claude', model: record.model, pid, log, relaunched: false });
       logCall({ ...entry, result: resumed ? 'resumed' : 'fresh builder' });
     } catch (e) {
       logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
