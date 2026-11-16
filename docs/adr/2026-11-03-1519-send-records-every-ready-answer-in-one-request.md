@@ -15,3 +15,5 @@ Considered:
 - a new route such as `POST /api/answers`: the events POST already handles owner answers, their side effects and the board reply, and `ClaudeSite.send` already reaches it;
 - refusing a single `owner-answer` for an unknown question too: the prototype switcher and older pages send it, and until now it always recorded, so it keeps recording;
 - clearing each draft as the answers are sent: the owner asked for no marking before the server confirms the write.
+
+Superseded in part by [each answered question shows at once as sending](2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md): the questions sheet sends each answer on its own, through the browser's answer outbox, and marks it sending at once. The server still records a batch all or none.

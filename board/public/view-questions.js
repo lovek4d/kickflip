@@ -64,7 +64,7 @@
     }
     // The badge's rows in the board's order, an urgent question's topic first.
     function rows() {
-      const list = BoardUI.queueRows(board.queue, cardTopics(board.ownerTopics, board.items), B.store.get('outbox', [])).map(rowOf);
+      const list = BoardUI.queueRows(board.queue, cardTopics(board.ownerTopics, board.items), B.store.get('outbox', []), BoardUI.unsentAnswers(board.owner, B.store)).map(rowOf);
       return [...list.filter((r) => r.urgent), ...list.filter((r) => !r.urgent)];
     }
     // An arrival slides in with a glow and settles (style.css .arrived).
@@ -87,6 +87,7 @@
     // while one runs shares it. → true when the board's answer landed in this view.
     let loading = null;
     let loaded = false;
+    let resent = false;
     const load = () => (ctx.embedded ? ctx.host.reload() : (loading ||= fetchBoard().finally(() => { loading = null; })));
     // While the board can't be reached, the page holds its sending buttons and shows the board's copy here, painted live,
     // or with none and nothing landed the landing for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
@@ -110,6 +111,8 @@
         if (!B.alive()) return false;
         root.classList.remove('offline');
         if (d) land(d, !loaded);
+        // The board's first answer sends again what a reload left in the answer outbox (app-questions-sheet.js).
+        if (!resent && board) { resent = true; sheet().resend(); }
         repaint();
         return true;
       } catch (e) {
@@ -139,7 +142,7 @@
         repaint();
         return sent;
       },
-      toast: (text) => B.toast(text), on: B.on, atUnmount: B.atUnmount, siteRoot: site.root,
+      toast: (text) => B.toast(text), on: B.on, atUnmount: B.atUnmount, alive: B.alive, store: B.store, siteRoot: site.root,
     }));
     const openSheet = (id) => (ctx.embedded ? ctx.openSheet(id) : sheet().open(id));
     // A link to an open question opens its sheet; one to a topic, or to a question already answered, marks its row.

@@ -120,7 +120,8 @@
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
 //                                recorded with prototype_again: true: the card reads prototyping with Next "Prototype
 //                                again", and the board launches the next round's planner itself (domain.mjs picksNoTake).
-//                                owner-answers {answers: [owner-answer data]} is Waiting on you's Send: one owner-answer
+//                                owner-answers {answers: [owner-answer data]} is the questions sheet's Send, one answer
+//                                to a request, each carrying its sendId (docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md): one owner-answer
 //                                line per answer, appended in one write with each answer's side effects → {ids, board};
 //                                an answer naming no question in owner.json, or none at all, → 400 {error} and nothing
 //                                recorded (docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md).

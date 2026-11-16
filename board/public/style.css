@@ -719,6 +719,12 @@ main > * { transition: opacity .25s ease; }
 .view-questions .q.pr-busy .opt { opacity: .55; cursor: default; }
 .view-questions .q.pr-busy .opt:has(input:checked) { opacity: 1; }
 .view-questions .q.resolved .sent-line { margin: 6px 0; font-size: 13px; color: var(--color-success); }
+/* An answer on its way: its sent line is a thread footer's grammar, the time · sending…, or a red not sent with Retry
+   and X at the right (docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md). */
+.view-questions .q.resolved .sent-line.sending { display: flex; flex-wrap: wrap; align-items: center; column-gap: 4px; color: var(--muted); }
+.view-questions .sent-line .not-sent { color: var(--color-danger); font-weight: 600; }
+.view-questions .sent-line .send-again { margin: -6px 0 -6px auto; display: inline-flex; gap: 2px; }
+.view-questions .sent-line .send-again .icon { width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; color: var(--color-danger); }
 .view-questions .q h3 { font-size: 15px; margin: 6px 0 4px; line-height: 1.3; }
 .view-questions .ctx { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
 .view-questions .opt { display: grid; grid-template-columns: 22px 1fr; gap: 6px; padding: 8px; border: 1px solid var(--line);

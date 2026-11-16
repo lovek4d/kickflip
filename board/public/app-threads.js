@@ -136,8 +136,22 @@ BoardView.part((B) => {
   // The taps the board has recorded whose thread hasn't loaded since, by sendId: {m, at}, at the thread load count when
   // the board answered. The board's line carries the tap's sendId, so a thread holding it takes the tap's place at once,
   // whichever load it came from; a tap whose line has no sendId waits for a load started after the answer.
+  // An answer from the questions sheet lands here too, as {m, line, at}, line its answer line reading waiting….
   const landed = new Map();
-  const landedFor = (key, have) => [...landed.values()].filter((l) => l.m.key === key && !have.has(l.m.sendId)).map((l) => unsent(l.m, true));
+  const landedFor = (key, have) => [...landed.values()].filter((l) => l.m.key === key && !have.has(l.m.sendId)).map((l) => l.line || unsent(l.m, true));
+  // docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md
+  // The questions sheet's answer outbox (app-questions-sheet.js): each answer to a card's question is that card's answer
+  // line, in the board's words, until the board's own line, carrying its sendId, takes its place.
+  const answersFor = (key) => store.get(BoardUI.ANSWER_OUTBOX, []).filter((m) => m.key === key);
+  const answerLine = (m, state = m.failed ? 'failed' : 'sending') => ({ ts: m.ts, who: 'love', via: 'questions', kind: 'owner-answer', text: m.text, files: m.answer.files || [], status: 'answers submitted', sendId: m.sendId, state });
+  // After answer m changed in the outbox, its card's thread draws it; sent, the thread loads with the board's line,
+  // the answer reading waiting… until then.
+  function answerChanged(m, sent) {
+    if (!m.key) return;
+    if (sent && !(state.threadCache.get(m.key) || []).some((x) => x.sendId === m.sendId)) landed.set(m.sendId, { m, line: answerLine(m, 'waiting'), at: seq });
+    B.repaintThread(m.key);
+    if (sent) loadThread(m.key, { force: true });
+  }
 
   function renderThread(key, msgs) {
     const el = $(`[data-thread="${CSS.escape(key)}"]`);
@@ -149,7 +163,7 @@ BoardView.part((B) => {
     const view = viewOf(key);
     // The landed taps and then the outbox's follow everything the board has, in the order they were sent.
     const have = new Set(msgs.map((m) => m.sendId).filter(Boolean));
-    const lines = [...msgs, ...landedFor(key, have), ...queuedFor(key).filter((m) => !have.has(m.sendId)).map((m) => unsent(m))];
+    const lines = [...msgs, ...landedFor(key, have), ...[...answersFor(key).map((m) => answerLine(m)), ...queuedFor(key).map((m) => unsent(m))].filter((m) => !have.has(m.sendId)).sort((a, b) => a.ts.localeCompare(b.ts))];
     const sig = JSON.stringify([lines, view]);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
@@ -332,6 +346,8 @@ BoardView.part((B) => {
     if (!b) return;
     const retry = b.hasAttribute('data-resend');
     const sendId = retry ? b.dataset.resend : b.dataset.unsend;
+    // An answer's Retry and X are the questions sheet's, with no confirm: X loses nothing, its question opening again.
+    if (B.holdsAnswer(sendId)) { if (retry) B.retryAnswer(sendId); else B.dropAnswer(sendId); return; }
     const tapped = outbox().find((o) => o.sendId === sendId);
     const words = tapped && tapOf(tapped).words;
     const ask = tapped?.kind === 'ask' ? (retry ? 'Send this task again?' : 'Dismiss this task? Its text and files go back in the New task box.')
@@ -438,7 +454,7 @@ BoardView.part((B) => {
   });
 
   Object.assign(B, {
-    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, enqueue, unsentAsks, sendBox,
+    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, enqueue, unsentAsks, sendBox, answerChanged,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
     syncSends: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncSends(el, key); },
   });

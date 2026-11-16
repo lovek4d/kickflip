@@ -19,9 +19,10 @@ BoardView.part((B) => {
     if ($('#linksSheet').open) $('#linksList').innerHTML = linksList(d.links);
     renderBadge(d);
   }
-  // The ? badge counts the rows Waiting on you draws, which an Implement or Done in the outbox drops at once.
+  // The ? badge counts the rows Waiting on you draws, which an Implement or Done in the outbox drops at once, and an
+  // answer in the answer outbox too.
   function renderBadge(d) {
-    const open = BoardUI.queueRows(d.queue, BoardUI.cardTopics(d.ownerTopics || [], d.items || []), B.store.get('outbox', [])).length;
+    const open = BoardUI.queueRows(d.queue, BoardUI.cardTopics(d.ownerTopics || [], d.items || []), B.store.get('outbox', []), BoardUI.unsentAnswers(d.owner, B.store)).length;
     const ask = $('#questionsLink');
     const badge = ask.querySelector('.q-badge');
     badge.hidden = !open;

@@ -430,7 +430,7 @@ window.BoardView = (function () {
       if (!hashRead || (first && focusKey)) { readHash(); hashRead = true; }
       B.linkUp();
       try { render(load); } catch (e) { drawFailed(e); return true; }
-      if (first) B.resendOutbox();
+      if (first) { B.resendOutbox(); B.resendAnswers(); }
       filling = B.fillThreads({ whole: answer.since === undefined });
       if (answer.since === undefined) B.fillNotes();
       scrollToFocus();

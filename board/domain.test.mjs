@@ -3061,13 +3061,16 @@ test("every thread line that names a card carries its key and words, reads its c
   for (const m of [...b.items.flatMap((i) => threadOf(i.key, { lines: threads[i.key] || [], cards })), ...asked]) assert.doesNotMatch(m.text, /\b[\w-]+\/[A-Z]+-\d+\b/, m.text);
 });
 
-test("an owner event's thread line carries the sendId of the tap that wrote it, so the page can match its own copy", () => {
+test("an owner event's thread line, an answer's included, carries the sendId of the tap that wrote it, so the page can match its own copy", () => {
   const events = [
     { id: 'e1', ts: '2026-10-23T10:01:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Hi', sendId: 's-1' }, reply: null },
     { id: 'e2', ts: '2026-10-23T10:02:00Z', kind: 'prototype-request', data: { key: 'w/A1', sendId: 'p-1' }, reply: null },
     { id: 'e3', ts: '2026-10-23T10:03:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'No id' }, reply: null },
+    // An answer the questions sheet sent carries its own (docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md).
+    { id: 'e4', ts: '2026-10-23T10:04:00Z', kind: 'owner-answer', data: { id: 'q1', label: 'A. Keep it', sendId: 'a-1' }, reply: null },
   ];
-  assert.deepEqual(threadOf('w/A1', { events }).map((m) => m.sendId), ['s-1', 'p-1', undefined]);
+  const owner = { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Keep it?' }] };
+  assert.deepEqual(threadOf('w/A1', { events, owner }).map((m) => m.sendId), ['s-1', 'p-1', undefined, 'a-1']);
 });
 
 test('a card whose planner waits in the queue for a launch hold carries plannerQueued, from the server only', () => {
