@@ -70,17 +70,18 @@ test('item add without --ask refuses a task filed from another on a board, point
   }
 });
 
-test("an ask the orchestrator filed opens with a blue line naming who asked, and its message is theirs, not the owner's", () => {
+test("an ask the orchestrator filed opens with a blue line naming who asked, and its message is drawn as theirs (who: claude), not the owner's", () => {
   const at = (id, asked) => ({ id, ts: '2026-11-16T10:00:00Z', kind: 'ask', data: { text: 'Cache the config', asked }, reply: null });
   const view = (e) => threadOf('w/T-9', { events: [e], fromAsk: e.id }).map(({ who, line, text, link, by, tone }) => [who, line, text, link, by, tone]);
   assert.deepEqual(view(at('a1', { by: 'orchestrator' })), [
     ['claude', 'asked-from', 'From the orchestrator', null, undefined, 'blue'],
-    ['love', undefined, 'Cache the config', undefined, 'Orchestrator', undefined],
+    ['claude', undefined, 'Cache the config', undefined, 'Orchestrator', undefined],
   ]);
   assert.deepEqual(view(at('a2', { by: 'builder', key: 'w/T-4', ref: 'T-4' })), [
     ['claude', 'asked-from', "From T-4's builder", '#selectedCard=w%2FT-4', undefined, 'blue'],
-    ['love', undefined, 'Cache the config', undefined, "T-4's builder", undefined],
+    ['claude', undefined, 'Cache the config', undefined, "T-4's builder", undefined],
   ]);
+  assert.deepEqual(view(at('a3', undefined)), [['love', undefined, 'Cache the config', undefined, undefined, undefined]], "the owner's own ask stays theirs");
 });
 
 // An asked ask is not the owner's: where the board quotes an ask to the orchestrator, it names who asked, and its words

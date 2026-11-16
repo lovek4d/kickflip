@@ -252,10 +252,13 @@ window.BoardView = (function () {
         return;
       }
       focusKey = key;
+      const it = state.board?.items.find((i) => i.key === focusKey);
+      // docs/adr/2026-11-16-0946-a-link-onto-a-card-awaiting-a-reply-needs-that-reply-first.md: a task still in New has
+      // no card to open, so its link goes to its New strip row (scrollToFocus).
+      if (it?.isNew) { replyKey = null; return; }
       replyKey = reply ? focusKey : null;
       state.openItems.add(focusKey);
       state.restored.delete(focusKey);
-      const it = state.board?.items.find((i) => i.key === focusKey);
       if (it) { const s = store.get('lanes', {}); s[it.lane] = true; store.set('lanes', s); }
     }
     // The owner's own moves rewrite the fragment in place, with no history entry and no hashchange.
@@ -290,6 +293,13 @@ window.BoardView = (function () {
     // A card missing from the last visit's board waits for the fresh one, which is final.
     function scrollToFocus(final = true) {
       if (!focusKey) return;
+      const row = state.board?.items.find((i) => i.key === focusKey)?.isNew && $(`#newStrip .new-entry[data-key="${CSS.escape(focusKey)}"]`);
+      if (row) {
+        row.scrollIntoView({ block: 'center' });
+        B.highlight(row);
+        focusKey = replyKey = null;
+        return;
+      }
       const el = $(`details.item[data-key="${CSS.escape(focusKey)}"]`);
       // The desktop header, or below 900px the status bar, would cover the card's title row.
       if (el) {

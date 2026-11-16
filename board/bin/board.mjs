@@ -987,11 +987,15 @@ const COMMANDS = {
     const md = f.text ?? readInput(f.file);
     if (f.file !== undefined) await store.refuseQuestionIds(site, [md]);
     store.refuseUnflaggedTap(md, f);
+    await store.refuseUnborn(site, md);
     await store.refuseUnreadEdit(site, id);
     return withQuestions(site, f, () => (id.includes('/') ? store.answerCard(site, id, md, f.title, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined }) : store.writeReply(site, id, md, f.title)));
   }],
-  thread: [['file/id'], ['text', 'link', 'who', 'via', 'close', 'implement', 'questions', 'script'], (site, [key], f) => {
-    if ((f.who ?? 'claude') === 'claude' && f.via === undefined) store.refuseUnflaggedTap(f.text, f);
+  thread: [['file/id'], ['text', 'link', 'who', 'via', 'close', 'implement', 'questions', 'script'], async (site, [key], f) => {
+    if ((f.who ?? 'claude') === 'claude' && f.via === undefined) {
+      store.refuseUnflaggedTap(f.text, f);
+      await store.refuseUnborn(site, f.text);
+    }
     return withQuestions(site, f, () => store.appendMessage(site, key, f));
   }],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
@@ -1013,25 +1017,27 @@ const COMMANDS = {
   'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['file/id'], ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check'], async (site, [key], f, options) => {
+  'item set': [['file/id'], ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check', 'reply-on'], async (site, [key], f, options) => {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
+    await store.refuseUnborn(site, f.text);
     if (f.done && site) await store.checkNotReopened(site, key);
     if (site && [f.phase, f.title, f.ticket, f['new-ticket']].some((v) => v !== undefined)) await store.refuseUnreadEdit(site, key);
     return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f['blocked-by'], blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check }, options);
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check, replyOn: f['reply-on'] }, options);
   }],
-  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'blocks', 'blocked-by', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'split', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by'], (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'blocks', 'blocked-by', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'split', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by', 'reply-on'], async (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new task\'s notes with item add --notes-from <draft.md>');
+    await store.refuseUnborn(site, f.text);
     // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
     if (f.ask !== undefined) {
       const decided = ['title', 'notes', 'notes-from', 'phase', 'state', 'size', 'model', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'from-ask', 'text'].find((k) => f[k] !== undefined);
       if (decided) throw new UsageError(`--ask files the orchestrator's request as an ask; triage titles, notes and sorts it, so drop --${decided}`);
-      return store.askItem(needSite(site, 'item add --ask'), key, { text: f.ask, parent: f.parent, split: f.split, relate: f.relate, deps: f['blocked-by'], before: f.blocks, by: f.by }, options);
+      return store.askItem(needSite(site, 'item add --ask'), key, { text: f.ask, parent: f.parent, split: f.split, relate: f.relate, deps: f['blocked-by'], before: f.blocks, by: f.by, replyOn: f['reply-on'] }, options);
     }
     if (f.by !== undefined) throw new UsageError('--by names who asked, with --ask');
     if (f.phase === 'discussing' && f.text === undefined && f['from-ask'] === undefined) throw new UsageError('item add --phase discussing needs --text "<first message>": the task opens with it, after Created from, and reads the owner\'s turn');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], before: f.blocks, deps: f['blocked-by'], ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], block: f.blocked, parent: f.parent, split: f.split, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true, filed: Boolean(site) }, options);
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], before: f.blocks, deps: f['blocked-by'], ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], block: f.blocked, parent: f.parent, split: f.split, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true, filed: Boolean(site), replyOn: f['reply-on'] }, options);
   }],
   'item notes': [['file/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');
@@ -1039,9 +1045,10 @@ const COMMANDS = {
     return store.addNotes(site, key, f);
   }],
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
-  'item triage': [['file/id'], ['title', 'phase', 'relate', 'parent', 'split', 'blocked-by', 'ticket', 'text', 'fold-into'], async (site, [key], f, options) => {
+  'item triage': [['file/id'], ['title', 'phase', 'relate', 'parent', 'split', 'blocked-by', 'ticket', 'text', 'fold-into', 'reply-on'], async (site, [key], f, options) => {
     await store.refuseUnreadEdit(needSite(site, 'item triage'), key);
-    return store.triageItem(site, key, { title: f.title, phase: f.phase, relate: f.relate, parent: f.parent, split: f.split, deps: f['blocked-by'], ticket: f.ticket, text: f.text, foldInto: f['fold-into'] }, options);
+    await store.refuseUnborn(site, f.text);
+    return store.triageItem(site, key, { title: f.title, phase: f.phase, relate: f.relate, parent: f.parent, split: f.split, deps: f['blocked-by'], ticket: f.ticket, text: f.text, foldInto: f['fold-into'], replyOn: f['reply-on'] }, options);
   }],
   'item relate-ask': [['eventId', 'file/id'], ['summary'], async (site, [id, key], f) => {
     await store.refuseUnreadEdit(site, id);

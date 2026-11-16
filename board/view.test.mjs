@@ -4347,6 +4347,25 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
 });
 
 // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
+// docs/adr/2026-11-16-0946-a-link-onto-a-card-awaiting-a-reply-needs-that-reply-first.md
+test("a link to a task still in New opens its row in the New strip, tinted, and opens no card; once triaged the same link opens its card", async () => {
+  const b = boardOnDom({ board: boardOf([newAsk('a1', '2026-10-30T09:00:00.000Z'), workCard('T1')]), threads: {}, width: 1280 });
+  await b.settle();
+  const scrolled = [];
+  b.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.new ? `new:${this.dataset.new}` : this.dataset.key); };
+  const follow = async (hash) => { b.page.win.location.hash = hash; b.page.fire(vm.runInContext('window', b.page.win), 'hashchange'); await b.settle(); };
+  await follow('#selectedCard=w%2Fa1');
+  const row = b.root.querySelector('#newStrip .new-entry[data-new="a1"]');
+  assert.deepEqual([scrolled, row.classList.contains('tint')], [['new:a1'], true]);
+  assert.equal(JSON.parse(b.storage.get('site:board-a:openItems') || '[]').includes('w/a1'), false, 'no card opens for it');
+  scrolled.length = 0;
+  await b.change({ board: boardOf([{ ...newAsk('a1', '2026-10-30T09:00:00.000Z'), isNew: false, phase: 'grilling' }, workCard('T1')]) });
+  await follow('#selectedCard=w%2FT1');
+  await follow('#selectedCard=w%2Fa1');
+  assert.deepEqual(scrolled, ['w/T1', 'w/a1']);
+  b.view.unmount();
+});
+
 test('a New task waiting for pick-up counts its waiting… up from when it was asked, through the shared duration', async () => {
   const askedAt = new Date(NOW - 12 * 60000 - 5000).toISOString();
   const waiting = newAsk('a1', askedAt);

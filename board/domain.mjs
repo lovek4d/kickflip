@@ -1221,7 +1221,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
         ...(e.data.sendId ? { sendId: e.data.sendId } : {}), ...byOf(e) };
     }),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
-      .flatMap((e) => [...routedLine(e), ...handedLine(e), ...askedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
+      // An ask the orchestrator filed (data.asked) is its message, under its From line; any other is the owner's.
+      .flatMap((e) => [...routedLine(e), ...handedLine(e), ...askedLine(e), { ts: e.ts, who: e.data?.asked ? 'claude' : 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}), ...(BRIEF_KINDS.includes(e.data?.request) ? { status: COMMANDS[e.data.request] } : {}) },
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
