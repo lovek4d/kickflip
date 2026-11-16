@@ -5490,14 +5490,14 @@ test("tapping a topic of no card's row opens the questions sheet over the list w
   v.answer('q1');
   v.answer('q2');
   await v.send();
-  assert.deepEqual(v.answersSent(), [[{ id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }], [{ id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }]]);
+  assert.deepEqual(v.answersSent(), [[{ id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }, { id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }]]);
   v.page.runTimers();
   assert.deepEqual([v.sheet().open, v.moves], [false, []]);
   assert.deepEqual(v.shown().rows.map(([id]) => id).filter((id) => id.startsWith('topic:triage')), ['topic:triage-2'], 'the answered topic leaves the list');
   await v.tap('topic:triage-2');
   v.page.fire(v.sheet(), 'click', { target: v.sheet().querySelector('[data-qs="close"]') });
   v.page.runTimers();
-  assert.deepEqual([v.sheet().open, v.sent.length, v.shown().rows.length], [false, 2, 2]);
+  assert.deepEqual([v.sheet().open, v.sent.length, v.shown().rows.length], [false, 1, 2]);
   v.unmount();
 });
 
@@ -5622,54 +5622,62 @@ test("the questions sheet's Send sends a suggested option pre-checked, and a pic
   v.unmount();
 });
 
-// docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md
-test("Send sends each answered question on its own, which reads <time> · sending… in its footer at once, its row's count dropping, while the others stay open and answerable; it reads Sent. once the board has it, and the sheet stays on the topic until every question on it is sent", async () => {
-  const question = (id) => rowQuestion(id, 'item:w/T1');
+// docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md
+// A topic of no card, whose row opens the sheet again on this page.
+const TRIAGE = [{ id: 'triage-1', title: 'Overnight triage' }];
+test("Send sends the answered questions as one set and closes the sheet, its row's count dropping; opened again, each reads <time> · sending… in its footer while the unanswered stay open and answerable, then Sent. once the board has the set", async () => {
+  const question = (id) => rowQuestion(id, 'triage-1');
   let release;
   const gate = { promise: new Promise((r) => { release = r; }) };
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2'), question('q3')], at: 'q1', gate });
+  const v = questionsOnDom({ topics: TRIAGE, questions: [question('q1'), question('q2'), question('q3')], at: 'q1', gate });
   await v.settle();
   const $ = (sel) => v.sheet().querySelector(sel);
   const draft = (id) => JSON.parse(v.page.win.localStorage.getItem(`qdraft:${id}`) || '{}');
   v.answer('q1');
   v.answer('q2');
   await v.send();
-  assert.deepEqual(v.answersSent(), [[{ id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }]], 'one question to a send, one send at a time');
-  assert.equal(v.sheet().open, true, 'the sheet stays on the topic');
-  assert.match(v.footer('q1'), /^\S.* · sending…$/, 'the time, then sending…');
+  assert.deepEqual(v.answersSent(), [[{ id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }, { id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }]], 'one send for the set');
+  assert.equal(new Set(v.sent.at(-1)[1].answers.map((a) => a.sendId)).size, 1, 'under one send id');
+  // The send is still out, so its 15 s limit is not run down: the sheet is closing.
+  assert.equal(v.sheet().classList.contains('closing'), true, 'Send closes the sheet, whatever is left unanswered');
+  assert.deepEqual(v.shown().rows.map(([, , , action]) => action), ['Answer 1'], 'the row counts only what is left to answer');
+  assert.deepEqual([draft('q1'), draft('q2')], [{ choice: 'A' }, { choice: 'A' }], 'the drafts stay until the board has them');
+  await v.tap('topic:triage-1');
+  assert.match(v.footer('q1'), /^\S.* · sending…$/, 'opened again: the time, then sending…');
   assert.match(v.footer('q2'), / · sending…$/);
   assert.deepEqual([v.footer('q3'), $('section.q[data-q="q3"] textarea.note') !== null], [null, true], 'an unanswered question stays open and answerable');
   assert.deepEqual([$('section.q[data-q="q1"] textarea.note'), $('section.q[data-q="q1"] .badge')?.textContent ?? ''], [null, ''], 'a question being sent is locked, with no Resolved badge yet');
   assert.deepEqual([$('#send').disabled, $('#send').getAttribute('aria-busy')], [true, null], 'Send never spins: nothing else is ready to send');
-  assert.deepEqual(v.shown().rows.map(([, , , action]) => action), ['Answer 1'], 'the row counts only what is left to answer');
-  assert.deepEqual([draft('q1'), draft('q2')], [{ choice: 'A' }, { choice: 'A' }], 'the drafts stay until the board has them');
   release();
   await v.settle();
-  assert.deepEqual(v.answersSent().map((a) => a.map((x) => x.id)), [['q1'], ['q2']]);
   assert.deepEqual([v.footer('q1'), v.footer('q2'), v.sheet().open], ['Sent.', 'Sent.', true], 'sent, and the sheet waits on q3');
   assert.deepEqual([draft('q1'), draft('q2')], [{}, {}]);
   assert.deepEqual(v.shown().questions, ['q1', 'q2', 'q3'], 'the sent questions stay in the sheet while it is open');
   v.answer('q3');
   await v.send();
   v.page.runTimers();
-  assert.deepEqual([v.answersSent().length, v.sheet().open, v.moves], [3, false, []], 'every question sent, the topic moves on');
+  assert.deepEqual([v.answersSent().length, v.sheet().open, v.moves], [2, false, []], 'every question sent, the topic moves on');
   assert.deepEqual(v.shown().rows, []);
   v.unmount();
 });
 
 // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md
-test("on Waiting on you, an answer whose send gets no answer at all reads waiting for the host with no Retry, the page goes out of reach, and the answer goes out on its own once a load reaches the board", async () => {
+test("on Waiting on you, a set whose send gets no answer at all reads waiting for the host with no Retry, the page goes out of reach, and the set goes out on its own once a load reaches the board", async () => {
   const gate = { promise: Promise.resolve(), unreachable: true };
-  // q3 stays unanswered, so the sheet stays on the topic once q1 and q2 are sent.
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: ['q1', 'q2', 'q3'].map((id) => rowQuestion(id, 'item:w/T1')), at: 'q1', gate });
+  // q3 stays unanswered, so the topic keeps its row and the sheet once q1 and q2 are sent.
+  const v = questionsOnDom({ topics: TRIAGE, questions: ['q1', 'q2', 'q3'].map((id) => rowQuestion(id, 'triage-1')), at: 'q1', gate });
   await v.settle();
   v.answer('q1');
   await v.send();
+  v.page.runTimers();
+  await v.tap('topic:triage-1');
   assert.match(v.footer('q1'), / · waiting for the host$/);
   assert.deepEqual([v.sheet().querySelector('[data-resend]'), v.root.classList.contains('offline'), v.answersSent().length], [null, true, 1]);
   v.answer('q2');
   await v.send();
+  v.page.runTimers();
   assert.equal(v.answersSent().length, 1, 'nothing sends while the board is out of reach');
+  await v.tap('topic:triage-1');
   assert.match(v.footer('q2'), / · waiting for the host$/);
   gate.unreachable = false;
   v.page.runIntervals(15000);
@@ -5678,48 +5686,57 @@ test("on Waiting on you, an answer whose send gets no answer at all reads waitin
   v.unmount();
 });
 
-test("a Send the board answers with an error reads not sent with Retry and X in the question's footer; Retry sends it again, X opens the question again with its pick and note; a refusal opens it again and says why", async () => {
-  const question = (id) => rowQuestion(id, 'item:w/T1');
+test("a Send the board answers with an error turns its topic's row to Not sent in red, and opened again its questions read not sent with Retry and X; Retry sends it again, X opens them again with their picks and notes; a refusal opens them again and says why", async () => {
+  const question = (id) => rowQuestion(id, 'triage-1');
   const gate = { promise: Promise.resolve(), down: true };
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2')], at: 'q1', gate });
+  const v = questionsOnDom({ topics: TRIAGE, questions: [question('q1'), question('q2')], at: 'q1', gate });
   await v.settle();
   const $ = (sel) => v.sheet().querySelector(sel);
   const tapIn = async (sel) => { v.page.fire(v.sheet(), 'click', { target: $(sel) }); await v.settle(); };
+  const row = () => v.shown().rows.map(([, , , action, tone]) => [action, tone]);
   v.answer('q1');
   await v.send();
+  v.page.runTimers();
+  assert.deepEqual(row(), [['Not sent', 'tone-danger']], 'the set that was not sent is back on the list, red');
+  await v.tap('topic:triage-1');
   assert.match(v.footer('q1'), / · not sent$/);
   assert.ok($('section.q[data-q="q1"] .sent-line [data-resend]') && $('section.q[data-q="q1"] .sent-line [data-unsend]'), 'Retry and X in its footer');
-  assert.deepEqual([v.sheet().open, v.shown().rows.map(([, , , action]) => action)], [true, ['Answer 1']], 'the failed one stays out of the count');
 
   gate.down = false;
   await tapIn('section.q[data-q="q1"] [data-resend]');
-  assert.deepEqual([v.answersSent().map((a) => a[0].id), v.footer('q1')], [['q1', 'q1'], 'Sent.']);
+  assert.deepEqual([v.answersSent().map((a) => a[0].id), v.footer('q1'), row()], [['q1', 'q1'], 'Sent.', [['Answer 1', 'tone-notice']]]);
 
   gate.down = true;
   v.answer('q2');
   await v.send();
+  v.page.runTimers();
+  await v.tap('topic:triage-1');
   assert.match(v.footer('q2'), / · not sent$/);
   await tapIn('section.q[data-q="q2"] [data-unsend]');
   assert.deepEqual([v.footer('q2'), $('section.q[data-q="q2"] input[value="A"]').hasAttribute('checked'), $('section.q[data-q="q2"] textarea.note') !== null], [null, true, true], 'X: open again, its pick kept');
-  assert.deepEqual([$('#send').disabled, v.shown().rows.map(([, , , action]) => action)], [false, ['Answer 1']]);
+  assert.deepEqual([$('#send').disabled, row()], [false, [['Answer 1', 'tone-notice']]]);
 
   gate.down = false;
   gate.refuse = 'q2 is no longer asked here. Reload to see what is, then send again.';
   await v.send();
-  assert.deepEqual([v.footer('q2'), v.toast()], [null, 'Nothing was sent: q2 is no longer asked here. Reload to see what is, then send again.'], 'a refusal reopens it and says why');
-  assert.equal($('section.q[data-q="q2"] input[value="A"]').hasAttribute('checked'), true);
+  v.page.runTimers();
+  assert.equal(v.toast(), 'Nothing was sent: q2 is no longer asked here. Reload to see what is, then send again.', 'a refusal says why');
+  await v.tap('topic:triage-1');
+  assert.deepEqual([v.footer('q2'), $('section.q[data-q="q2"] input[value="A"]').hasAttribute('checked')], [null, true], 'and opens it again with its pick');
   v.unmount();
 });
 
-test('answers a reload left unsent, a failed one included, go out again once the page has its board', async () => {
-  const topics = [{ id: 'item:w/T1', title: 'INT-1: Search' }];
-  const v = questionsOnDom({ topics, questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1')], at: 'q1', gate: { promise: Promise.resolve(), down: true } });
+test('a set a reload left unsent, a failed one included, goes out again once the page has its board', async () => {
+  const topics = TRIAGE;
+  const v = questionsOnDom({ topics, questions: [rowQuestion('q1', 'triage-1'), rowQuestion('q2', 'triage-1')], at: 'q1', gate: { promise: Promise.resolve(), down: true } });
   await v.settle();
   v.answer('q1');
   await v.send();
+  v.page.runTimers();
+  await v.tap('topic:triage-1');
   assert.match(v.footer('q1'), / · not sent$/);
   v.unmount();
-  const w = questionsOnDom({ topics, questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1')], at: 'q1', storage: v.storage });
+  const w = questionsOnDom({ topics, questions: [rowQuestion('q1', 'triage-1'), rowQuestion('q2', 'triage-1')], at: 'q1', storage: v.storage });
   await w.settle();
   assert.deepEqual(w.answersSent().map((a) => a.map((x) => x.id)), [['q1']]);
   assert.equal(w.footer('q1'), 'Sent.');
@@ -7092,7 +7109,8 @@ test('a topic picked in the questions pane, by a row or a questions URL, closes 
 // docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md
 // Card A1 asked qa, then qb; card B1 asked qc; the thread's two Questions added lines name qa and qb.
 // gate: an owner-answers send waits on gate.promise, and with gate.down can't reach the board; once through, as
-// board/server.mjs records it, each answer's question reads answered and the card's thread gains its line, with its sendId.
+// board/server.mjs records it, each answer's question reads answered and the card's thread gains the set's one line, its
+// answers folded as board/domain.mjs foldSubmits folds one write's, with the set's sendId.
 function sheetOnDom({ width = 390, board = null, gate = null, lines = null } = {}) {
   const added = (ts, ids) => ({ ts, who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', text: `${ids.length} question added`, link: `questions.html#${ids[0]}`, questions: ids, open: true });
   const base = questionsBoard([openQuestion('qa', 'item:w/A1'), openQuestion('qb', 'item:w/A1'), openQuestion('qc', 'item:w/B1')], []);
@@ -7100,15 +7118,17 @@ function sheetOnDom({ width = 390, board = null, gate = null, lines = null } = {
     await gate?.promise;
     if (gate?.down) throw Object.assign(new Error('send failed'), { status: 0 });
     if (kind !== 'owner-answers') return { id: 'e0', board: structuredClone(server.board) };
-    for (const a of data.answers) {
+    const texts = data.answers.map((a) => {
       const q = server.board.owner.find((x) => x.id === a.id);
       Object.assign(q, { state: 'answered', answers: [...q.answers, { ts: '2026-11-14T11:00:00.000Z', choice: a.choice, note: a.note, files: [] }] });
       const t = server.board.ownerTopics.find((x) => x.id === q.topic);
       t.open -= 1;
       t.answered += 1;
-      server.threads[q.topic.slice(5)]?.push({ ts: '2026-11-14T11:00:00.000Z', who: 'love', via: 'questions', kind: 'owner-answer', text: `Question ${t.questions.indexOf(q.id) + 1} · ${q.question}\n→ ${a.label}`,
-        files: [], eventId: `e-${a.id}`, status: 'answers submitted', state: 'waiting', sendId: a.sendId });
-    }
+      return `Question ${t.questions.indexOf(q.id) + 1} · ${q.question}\n→ ${a.label}`;
+    });
+    const key = server.board.owner.find((x) => x.id === data.answers[0].id).topic.slice(5);
+    server.threads[key]?.push({ ts: '2026-11-14T11:00:00.000Z', who: 'love', via: 'questions', kind: 'owner-answer', text: texts.join('\n\n'),
+      files: [], eventId: `e-${data.answers[0].id}`, status: 'answers submitted', state: 'waiting', sendId: data.answers[0].sendId });
     return { ids: data.answers.map((a) => `e-${a.id}`), board: structuredClone(server.board) };
   };
   const b = boardOnDom({ open: ['w/A1'], width, send, board: board || { ...base, items: [workCard('A1', { lane: 'progress', questions: { topic: 'item:w/A1', first: 'qa', open: 2, state: 'open' } }), workCard('B1')] },
@@ -7168,7 +7188,8 @@ test("a card's Questions button opens that topic's questions sheet in place, wit
   s.view.unmount();
 });
 
-test("the questions sheet's Send sends the answers as Waiting on you does, closing the sheet once all are sent and leaving the page where it was", async () => {
+// docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md
+test("the questions sheet's Send sends the answered questions as one owner-answers under one send id and closes the sheet at once, leaving the page where it was", async () => {
   const s = sheetOnDom();
   await s.settle();
   s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
@@ -7178,47 +7199,60 @@ test("the questions sheet's Send sends the answers as Waiting on you does, closi
   assert.equal(s.sheet().querySelector('#send').disabled, false);
   s.page.win.scrollY = 700;
   s.page.fire(s.sheet(), 'submit', { target: s.sheet().querySelector('form') });
+  s.page.runTimers();
+  assert.equal(s.sheet().open, false, 'Send closes the sheet at once');
   await s.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(s.sent.map(([kind, data]) => [kind, data.answers.map(({ sendId, ...a }) => a)]))),
-    [['owner-answers', [{ id: 'qa', question: 'Question qa?', choice: 'B', label: 'B. No', note: '' }]], ['owner-answers', [{ id: 'qb', question: 'Question qb?', choice: 'B', label: 'B. No', note: '' }]]]);
-  s.page.runTimers();
-  assert.equal(s.sheet().open, false, 'every question sent, the sheet hides');
+    [['owner-answers', [{ id: 'qa', question: 'Question qa?', choice: 'B', label: 'B. No', note: '' }, { id: 'qb', question: 'Question qb?', choice: 'B', label: 'B. No', note: '' }]]], 'one request for the set');
+  const sendIds = new Set(s.sent[0][1].answers.map((a) => a.sendId));
+  assert.deepEqual([sendIds.size, typeof [...sendIds][0]], [1, 'string'], 'every answer carries the one send id');
   assert.equal(s.page.win.scrollY, 700, 'the page did not move');
   assert.deepEqual(s.moves, [], 'no history entry is made or spent');
   s.view.unmount();
 });
 
-// docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md
-test("an answer sent from the sheet shows at once in its card's thread as the board words it, sending…, gives way to the board's own line, and one that fails reads not sent there with Retry and X", async () => {
+// docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md
+test("a set sent from the sheet shows at once in its card's thread as one message, its answers numbered as the board words them, with one footer, sending…, gives way to the board's own line, and one that fails reads not sent there with one Retry and X, X dismissing it and the sheet keeping its picks", async () => {
   let release;
   const gate = { promise: new Promise((r) => { release = r; }) };
   const s = sheetOnDom({ gate });
   await s.settle();
   const msgs = () => s.root.querySelector('[data-thread="w/A1"] .msgs');
-  const answerLines = () => msgs().querySelectorAll('.msg').filter((m) => m.textContent.includes('Question 2 · Question qb?'));
+  const answerLines = () => msgs().querySelectorAll('.msg').filter((m) => m.textContent.includes('Question qb?'));
+  const reopen = () => { s.page.runTimers(); s.page.fire(s.root, 'click', { target: s.line(), button: 0 }); };
   s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
   s.pick('qb');
+  s.pick('qa', 'A');
   s.page.fire(s.sheet(), 'submit', { target: s.sheet().querySelector('form') });
   await s.settle();
-  assert.equal(answerLines().length, 1, 'its line is in the thread at once');
-  assert.match(answerLines()[0].textContent, /→ B\. No/);
+  assert.equal(answerLines().length, 1, 'one line for the set, in the thread at once');
+  assert.match(answerLines()[0].textContent, /Question 1 · Question qa\?\s*→ A\. Yes[\s\S]*Question 2 · Question qb\?\s*→ B\. No/);
+  assert.equal(answerLines()[0].querySelectorAll('.msg-foot').length, 1, 'one footer');
   assert.match(answerLines()[0].querySelector('.msg-foot').textContent, /answers submitted·sending…$/);
-  assert.equal(s.sheet().open, true, 'qa is still open, so the sheet stays');
+  assert.equal(s.sheet().classList.contains('closing'), true, 'the sheet closes on Send');
 
   gate.down = true;
   release();
   await s.settle();
   assert.match(answerLines()[0].querySelector('.msg-foot').textContent, /not sent$/);
-  const retry = answerLines()[0].querySelector('[data-resend]');
-  assert.ok(retry && answerLines()[0].querySelector('[data-unsend]'), 'Retry and X in the thread too');
-  assert.match(s.sheet().querySelector('section.q[data-q="qb"] .sent-line').textContent, /not sent/);
+  assert.deepEqual([answerLines()[0].querySelectorAll('[data-resend]').length, answerLines()[0].querySelectorAll('[data-unsend]').length], [1, 1], 'one Retry and one X for the set');
+  reopen();
+  assert.deepEqual(['qa', 'qb'].map((id) => /not sent/.test(s.sheet().querySelector(`section.q[data-q="${id}"] .sent-line`).textContent)), [true, true], 'opened again, the sheet shows the set not sent');
+
+  s.page.fire(s.root, 'click', { target: answerLines()[0].querySelector('[data-unsend]') });
+  await s.settle();
+  assert.equal(answerLines().length, 0, 'X dismisses the message');
+  assert.deepEqual([s.sent.length, s.sheet().querySelector('section.q[data-q="qb"] input[value="B"]').hasAttribute('checked'), s.sheet().querySelector('section.q[data-q="qa"] input[value="A"]').hasAttribute('checked')], [1, true, true],
+    'nothing sent again, and the open sheet keeps the picks made before the send');
+  s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('[data-qs="close"]') });
+  reopen();
+  assert.equal(s.sheet().querySelector('section.q[data-q="qb"] input[value="B"]').hasAttribute('checked'), true, 'and so does the sheet opened again');
 
   gate.down = false;
-  s.page.fire(s.root, 'click', { target: retry });
+  s.page.fire(s.sheet(), 'submit', { target: s.sheet().querySelector('form') });
   await s.settle();
   assert.deepEqual([s.sent.filter(([kind]) => kind === 'owner-answers').length, answerLines().length], [2, 1], "sent again, and the board's line takes the page's place");
   assert.match(answerLines()[0].querySelector('.msg-foot').textContent, /waiting…$/);
-  assert.equal(s.sheet().querySelector('section.q[data-q="qb"] .sent-line').textContent.trim(), 'Sent.');
   s.view.unmount();
 });
 
@@ -8110,6 +8144,8 @@ test("an answer on the questions sheet with a file still uploading sends once ev
   s.page.fire(s.sheet(), 'submit', { target: s.sheet().querySelector('form') });
   await s.settle();
   assert.equal(s.sent.length, 0, 'nothing is sent while a file uploads');
+  const reopen = () => { s.page.runTimers(); s.page.fire(s.root, 'click', { target: s.line(), button: 0 }); };
+  reopen();
   const cardTiles = () => s.sheet().querySelectorAll('section.q[data-q="qb"] [data-uploads] .file-thumb, section.q[data-q="qb"] [data-uploads] .file-link').map((el) => [el.getAttribute('title'), el.getAttribute('class').split(' ')[1]]);
   assert.deepEqual([cardTiles(), replyTiles(s, 'w/A1')], [[['shot.png', 'done'], ['run.log', 'uploading']], [['shot.png', 'done'], ['run.log', 'uploading']]]);
   boxes.finish('run.log', false);
@@ -8131,9 +8167,31 @@ test("an answer on the questions sheet with a file still uploading sends once ev
   await s.settle();
   boxes.finish('run.log', false);
   await s.settle();
+  reopen();
   s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('section.q[data-q="qa"] [data-unsend]') });
   await s.settle();
   assert.deepEqual([[...s.page.win.BoardAttach.list('q:qa')].map((p) => [p.name, p.status]), s.sent.length], [[['run.log', 'error']], 1]);
+  s.view.unmount();
+});
+
+// docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md
+test("a set whose answers each carry files sends once all are up, as one owner-answers with each answer's own files, and its one thread line shows every answer's tiles meanwhile", async () => {
+  const s = sheetOnDom();
+  await s.settle();
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
+  const log = { name: 'run.log', url: 'uploads/2-run.log', type: 'text/plain' };
+  const boxes = boxesOn(s.page.win);
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
+  s.pick('qa');
+  s.pick('qb');
+  boxes.put('q:qa', [boxes.up(shot)]);
+  boxes.put('q:qb', [boxes.uploading(log)]);
+  s.page.fire(s.sheet(), 'submit', { target: s.sheet().querySelector('form') });
+  await s.settle();
+  assert.deepEqual([s.sent.length, replyTiles(s, 'w/A1')], [0, [['shot.png', 'done'], ['run.log', 'uploading']]], 'one line, both answers\' tiles, nothing sent yet');
+  boxes.finish('run.log', true);
+  await s.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(s.sent.map(([kind, d]) => [kind, d.answers.map((a) => [a.id, a.files])]))), [['owner-answers', [['qa', [shot]], ['qb', [log]]]]]);
   s.view.unmount();
 });
 

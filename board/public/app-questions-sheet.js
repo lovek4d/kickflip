@@ -5,11 +5,13 @@
 // its options and its View prototypes link. The questions group by the batch that asked them, the newest batch first,
 // where the thread is at hand; one batch shows no heading. It is the reader sheet's shape (app-reader.js): modal below
 // 900px, over the pane and not modal from it, closed by its ✕, Escape, the dim area and a swipe down. It makes no history entry.
-// docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md: Send puts each answered question in the
-// answer outbox on its own and sends them one at a time, each its own owner-answers. Each reads "<time> · sending…" in
-// its footer at once while the others stay open and answerable, then Sent. once the board has it, or "not sent" with
-// Retry and X, X opening it again with its pick and note. The sheet keeps the questions it opened with, sent ones
-// included, and closes once the board has every question of its topic answered, leaving the page where it was.
+// docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md: Send puts the answered questions in the answer
+// outbox as one set, sends it as one owner-answers and closes the sheet at once; the unanswered questions stay open
+// with their picks and notes. The set reads as one message in the card's thread, "sending…" at once, or "not sent" with
+// Retry and X, X dropping the set, its questions open again with their picks and notes. Opened again meanwhile, the
+// sheet draws each question of the set read-only, "<time> · sending…" or not sent in its footer, then Sent. The sheet
+// keeps the questions it opened with, sent ones included, and closes once the board has every question of its topic
+// answered, leaving the page where it was.
 // BoardQuestionsSheet(dialog, deps) makes one: the board's (the part below), opened by a thread's "N questions added"
 // line, a question link (shell.js, app-pane.js) and a row in the desktop pane's Waiting on you; and the phone's Waiting
 // on you page's own (view-questions.js), opened by its rows and a link to a question.
@@ -23,7 +25,7 @@
 // mounted on a phone, never send one twice at once.
 const answersInFlight = new Set();
 globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, online, unreachable, toast, on, atUnmount, alive, store, changed = () => {}, siteRoot }) => {
-  const { esc, time, questionCard, getDraft, setDraft, noteOf, choiceOf, linkContext, ANSWER_OUTBOX } = BoardUI;
+  const { esc, time, questionCard, getDraft, setDraft, noteOf, choiceOf, linkContext, ANSWER_OUTBOX, idsOf, answerBox } = BoardUI;
   const body = sheet.querySelector('.reader-body');
   let topic = null;
   // The view's timer: a close still playing when the view goes is dropped with it.
@@ -49,24 +51,31 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     return [...groups.filter((g) => g.qs.length), ...(rest.length ? [{ line: null, qs: rest }] : [])];
   }
 
-  // The answer outbox, in send order: each {sendId, id, topic, key?, ts, answer, text, failed?}, answer the owner-answers
-  // answer it sends and text its line in the card's thread, in the board's words (domain.mjs threadOf). A question's
-  // prototype, grill or visual request goes through it too, as {sendId, id, topic, key?, ts, request: {kind, said, data},
-  // failed?}: no answer, it sends its kind with data and its footer reads said.
+  // The answer outbox, in send order: each answer set {sendId, topic, key?, ts, answers, text, uploads?, failed?},
+  // answers the owner-answers answers it sends, each carrying the set's sendId, and text its one line in the card's
+  // thread, in the board's words (domain.mjs threadOf, foldSubmits). A question's prototype, grill or visual request
+  // goes through it too, as {sendId, id, topic, key?, ts, request: {kind, said, data}, failed?}: it sends its kind with
+  // data and its footer reads said.
   const queued = () => store.get(ANSWER_OUTBOX, []);
   const setQueued = (list) => { store.set(ANSWER_OUTBOX, list); BoardUI.outboxChanged(); };
-  const entryOf = (id) => queued().find((m) => m.id === id);
+  const entryOf = (id) => queued().find((m) => idsOf(m).includes(id));
 
-  // A question's attached files, up or not: an answer takes them into its own box, sent once every one is up.
+  // A question's attached files, up or not: a set takes each answer's into that answer's own box (answerBox), kept
+  // for a reload in its uploads by question id, and sends once every one is up.
   const attachedOf = (q) => BoardAttach.list('q:' + q.id, siteRoot);
-  const boxOf = (m) => `send:${m.sendId}`;
+  const boxOf = (m, id) => answerBox(m.sendId, id);
+  const boxesOf = (m) => Object.keys(m.uploads || {});
   const pending = () => BoardUI.pendingAnswers(openOf().filter((q) => !entryOf(q.id)), attachedOf);
   const numberOf = (q) => (board().ownerTopics.find((t) => t.id === q.topic)?.questions.indexOf(q.id) ?? -1) + 1;
   const status = (text) => { const st = sheet.querySelector('#qstatus'); if (st) st.textContent = text; };
   const refusal = (e) => (e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?');
+  // A question's entry in the outbox as its card draws it: a set's with that question's answer and files.
   const sendingOf = (q) => {
     const m = q.state === 'open' ? entryOf(q.id) : null;
-    return m && { ...m, held: !online(), ...(m.uploads ? { uploads: { box: boxOf(m), list: BoardAttach.list(boxOf(m), siteRoot) } } : {}) };
+    if (!m) return null;
+    const { uploads, answers, ...rest } = m;
+    return { ...rest, held: !online(), ...(answers ? { answer: answers.find((a) => a.id === q.id) } : {}),
+      ...(uploads?.[q.id] ? { uploads: { box: boxOf(m, q.id), list: BoardAttach.list(boxOf(m, q.id), siteRoot) } } : {}) };
   };
   const card = (q, links) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links, sending: sendingOf(q) });
 
@@ -100,9 +109,15 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   }
   // After a recorded tap: the sheet draws the board it landed, or closes once the topic has no open question.
   const redraw = () => { if (!sheet.open) return; if (openOf().length) draw(); else close(); };
-  // After question id's answer changed in the outbox: its card draws again, or the sheet closes once the board has every
-  // question of the topic answered.
-  const settle = (id) => { if (!sheet.open) return; if (!openOf().length) close(); else if (shownOf().some((q) => q.id === id)) drawOne(id); else draw(); };
+  // After entry m changed in the outbox: each of its questions' cards draws again, or the sheet closes once the board has
+  // every question of the topic answered.
+  const settle = (m) => {
+    for (const id of idsOf(m)) {
+      if (!sheet.open) return;
+      if (!openOf().length) { close(); return; }
+      if (shownOf().some((q) => q.id === id)) drawOne(id); else draw();
+    }
+  };
 
   // id: a question's or a topic's. auto: the sheet follows the opened card (followCard); otherwise the owner opened it,
   // and followCard leaves it. → false for one the board doesn't have, or a topic with no open question.
@@ -132,8 +147,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     BoardUI.closeSheet(sheet, later, () => { topic = null; });
   }
 
-  // Sends the answer outbox in order, one at a time, while the board is in reach. Each leaves it once the board has it,
-  // its draft and files cleared; one that got no answer at all marks the board out of reach and waits for it to come
+  // Sends the answer outbox in order, one entry at a time, while the board is in reach. Each leaves it once the board has
+  // it, its drafts and files cleared; one that got no answer at all marks the board out of reach and waits for it to come
   // back (linkChanged); one the board answers with an error, or that has no answer in 15 s (ui.js sendWithin), stays as
   // not sent, holding none behind it; one the board refuses leaves it, its question open again with its pick and note,
   // and a toast says why.
@@ -147,34 +162,36 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
         answersInFlight.add(m.sendId);
         let failure = null;
         try {
-          // An answer with files waits for every one to be up and sends with them; an upload that failed sends nothing.
+          // A set with files waits for every one to be up and sends each answer with its own; an upload that failed sends
+          // nothing.
           if (m.uploads) {
-            if (!(await BoardAttach.settled(boxOf(m), siteRoot))) throw new Error('Upload failed');
+            const boxed = boxesOf(m);
+            for (const id of boxed) if (!(await BoardAttach.settled(boxOf(m, id), siteRoot))) throw new Error('Upload failed');
             const { uploads, ...rest } = m;
-            m = { ...rest, answer: { ...m.answer, files: BoardAttach.files(boxOf(m), siteRoot) } };
+            m = { ...rest, answers: m.answers.map((a) => (boxed.includes(a.id) ? { ...a, files: BoardAttach.files(boxOf(m, a.id), siteRoot) } : a)) };
             setQueued(queued().map((o) => (o.sendId === m.sendId ? m : o)));
-            BoardAttach.clear(boxOf(m), siteRoot);
+            for (const id of boxed) BoardAttach.clear(boxOf(m, id), siteRoot);
           }
-          await BoardUI.sendWithin((signal) => (m.request ? send(m.request.kind, m.request.data, signal) : send('owner-answers', { answers: [m.answer] }, signal)));
+          await BoardUI.sendWithin((signal) => (m.request ? send(m.request.kind, m.request.data, signal) : send('owner-answers', { answers: m.answers }, signal)));
         } catch (e) { failure = e; } finally { answersInFlight.delete(m.sendId); }
         if (!alive()) return;
         if (failure?.unreachable) {
           unreachable();
           changed(m, false);
-          settle(m.id);
+          settle(m);
           break;
         }
         if (!failure) {
           setQueued(queued().filter((o) => o.sendId !== m.sendId));
           // A sent prototype request takes its question out of the sheet; a grill's and a visual's keep their draft.
           if (m.request?.kind === 'prototype-request') kept.delete(m.id);
-          if (!m.request || m.request.kind === 'prototype-request') setDraft(m.id, {});
+          if (!m.request || m.request.kind === 'prototype-request') for (const id of idsOf(m)) setDraft(id, {});
         } else if (failure.status === 400) {
           setQueued(queued().filter((o) => o.sendId !== m.sendId));
           toast(refusal(failure));
         } else setQueued(queued().map((o) => (o.sendId === m.sendId ? { ...o, failed: true } : o)));
         changed(m, !failure);
-        settle(m.id);
+        settle(m);
       }
     } finally { flushing = false; }
   }
@@ -182,33 +199,33 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   function resend() {
     if (queued().some((m) => m.failed)) setQueued(queued().map(({ failed, ...m }) => m));
     // A file a reload left in an answer's box goes back in it (attach.js restore): one still uploading was lost.
-    for (const m of queued()) if (m.uploads && !BoardAttach.list(boxOf(m), siteRoot).length) BoardAttach.restore(boxOf(m), m.uploads, siteRoot);
+    for (const m of queued()) for (const id of boxesOf(m)) if (!BoardAttach.list(boxOf(m, id), siteRoot).length) BoardAttach.restore(boxOf(m, id), m.uploads[id], siteRoot);
     for (const m of queued()) changed(m, false);
     flush();
   }
-  // Retry sends a failed answer again in place; X drops it, its question open again with its pick and note.
+  // Retry sends a failed entry again in place; X drops it, its questions open again with their picks, notes and files.
   function retry(sendId) {
     const m = queued().find((o) => o.sendId === sendId);
     if (!m) return;
     setQueued(queued().map((o) => (o.sendId === sendId ? { ...o, failed: false } : o)));
-    if (m.uploads) BoardAttach.retryFailed(boxOf(m), siteRoot);
+    for (const id of boxesOf(m)) BoardAttach.retryFailed(boxOf(m, id), siteRoot);
     changed(m, false);
-    settle(m.id);
+    settle(m);
     flush();
   }
   function drop(sendId) {
     const m = queued().find((o) => o.sendId === sendId);
     if (!m) return;
     setQueued(queued().filter((o) => o.sendId !== sendId));
-    if (m.uploads) BoardAttach.move(boxOf(m), 'q:' + m.id, siteRoot);
+    for (const id of boxesOf(m)) BoardAttach.move(boxOf(m, id), 'q:' + id, siteRoot);
     changed(m, false);
-    settle(m.id);
+    settle(m);
   }
   const holds = (sendId) => queued().some((m) => m.sendId === sendId);
   // The board going out of reach or coming back redraws the open answers, sending… or waiting for the host, and once it
   // is back sends them.
   function linkChanged() {
-    for (const m of queued()) settle(m.id);
+    for (const m of queued()) settle(m);
     flush();
   }
 
@@ -219,19 +236,17 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     const list = pending();
     if (!list.length) { status('Pick an option or write a note first.'); return; }
     status('');
-    const ts = new Date().toISOString();
-    const entries = list.map((q) => {
-      const sendId = newSendId();
-      const answer = { ...BoardUI.answerOf(q, []), sendId };
-      const key = keyOf(q.topic);
-      const entry = { sendId, id: q.id, topic: q.topic, ...(key ? { key } : {}), ts, answer,
-        text: `Question ${numberOf(q)} · ${q.question}\n→ ${[answer.label || answer.choice, answer.note].filter(Boolean).join(' · ')}` };
-      if (!attachedOf(q).length) return entry;
-      BoardAttach.move('q:' + q.id, boxOf(entry), siteRoot);
-      return { ...entry, uploads: BoardAttach.saved(boxOf(entry), siteRoot) };
-    });
-    setQueued([...queued(), ...entries]);
-    for (const m of entries) { changed(m, false); drawOne(m.id); }
+    const sendId = newSendId();
+    const key = keyOf(topic);
+    const answers = list.map((q) => ({ ...BoardUI.answerOf(q, []), sendId }));
+    const entry = { sendId, topic, ...(key ? { key } : {}), ts: new Date().toISOString(), answers,
+      text: list.map((q, n) => `Question ${numberOf(q)} · ${q.question}\n→ ${[answers[n].label || answers[n].choice, answers[n].note].filter(Boolean).join(' · ')}`).join('\n\n') };
+    const filed = list.filter((q) => attachedOf(q).length);
+    for (const q of filed) BoardAttach.move('q:' + q.id, boxOf(entry, q.id), siteRoot);
+    if (filed.length) entry.uploads = Object.fromEntries(filed.map((q) => [q.id, BoardAttach.saved(boxOf(entry, q.id), siteRoot)]));
+    setQueued([...queued(), entry]);
+    changed(entry, false);
+    close();
     flush();
   });
 
@@ -259,13 +274,14 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   on(sheet, 'attach-change', updateBar);
   // An answer's box changing, an upload's progress, its end or an X on a failed file, draws its card again and keeps the
   // box for a reload.
-  atUnmount(BoardAttach.onChange((id) => {
-    const m = queued().find((o) => o.uploads && boxOf(o) === id);
+  atUnmount(BoardAttach.onChange((box) => {
+    const m = queued().find((o) => boxesOf(o).some((id) => boxOf(o, id) === box));
     if (!m) return;
-    const uploads = BoardAttach.saved(id, siteRoot);
-    if (JSON.stringify(uploads) !== JSON.stringify(m.uploads)) setQueued(queued().map((o) => (o.sendId === m.sendId ? { ...o, uploads } : o)));
+    const id = boxesOf(m).find((x) => boxOf(m, x) === box);
+    const saved = BoardAttach.saved(box, siteRoot);
+    if (JSON.stringify(saved) !== JSON.stringify(m.uploads[id])) setQueued(queued().map((o) => (o.sendId === m.sendId ? { ...o, uploads: { ...o.uploads, [id]: saved } } : o)));
     changed(m, false);
-    settle(m.id);
+    settle(m);
   }));
   on(sheet, 'click', (ev) => {
     if (BoardUI.onBackdrop(ev, sheet) || ev.target.closest?.('[data-qs="close"]')) { close(); return; }

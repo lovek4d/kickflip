@@ -1,5 +1,7 @@
 # Each answered question shows at once as sending
 
+Superseded in part by [A question set's answers send as one](2026-11-16-2100-a-question-sets-answers-send-as-one.md): a Send is one outbox entry and one request, and closes the sheet.
+
 Supersedes, for the questions sheet's Send, [Send records every ready answer in one request, all or none](2026-11-03-1519-send-records-every-ready-answer-in-one-request.md) (its one request and "No optimistic marking"), and replaces T-246's move-on once Send's POST succeeds. Extends [a thread message shows at once, and the browser keeps it until it is sent](2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md) and [every reply-box tap shows its line at once and retries in place](2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md) to answers.
 
 The owner on T-234: "Also a separate task to pull this pattern into open questions for responsiveness". After the prototype (take A, sending… in the question's footer line): "Would like to push this further to be how all open questions are handled. And once all on the page are resolved only then does the topic move on."

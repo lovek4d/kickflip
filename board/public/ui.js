@@ -224,9 +224,9 @@
       ? `<span class="file-thumb ${esc(p.status)}" title="${esc(title)}"><img src="${esc(p.preview)}" alt="${esc(p.name)}">${uploadBar(p)}${failed}</span>`
       : `<span class="file-link ${esc(p.status)}" title="${esc(title)}">${esc(p.name)}${uploadBar(p)}${failed}</span>`;
   }).join('')}</div>`;
-  // A sent message's files, or, while the page still sends it (an outbox entry's uploads {box, list}), its box's tiles
-  // inside the [data-uploads] wrapper attach.js's X reads.
-  const sentFiles = (files, uploads) => (uploads ? `<div data-uploads="${esc(uploads.box)}">${uploadTiles(uploads.list)}</div>` : attachments(files));
+  // A sent message's files, or, while the page still sends it (an outbox entry's uploads {box, list}, or a list of them
+  // for an answer set's boxes), each box's tiles inside the [data-uploads] wrapper attach.js's X reads.
+  const sentFiles = (files, uploads) => (uploads ? [].concat(uploads).map((u) => `<div data-uploads="${esc(u.box)}">${uploadTiles(u.list)}</div>`).join('') : attachments(files));
 
   // Replacing innerHTML would close every <details> inside, collapsing what the reader had open, and replace the field
   // being typed in, dropping its text, cursor and focus, and on iOS the keyboard. So setHTML patches el in place: a

@@ -6,7 +6,7 @@
 // The rows are what the header's badge counts (BoardUI.queueRows,
 // docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md), with "N need you" over them
 // and, with none, "Nothing is waiting on you". A topic with open questions reads Answer N, or Pick a take when all of
-// them are prototype picks; a tap reads its action's words (Tap Implement, Hold Run, a fault's reason); a held review,
+// them are prototype picks, or Not sent in red when an answer set for it failed; a tap reads its action's words (Tap Implement, Hold Run, a fault's reason); a held review,
 // keyed PR, reads Review held.
 // Tapping a row opens its place, and closing that returns to the list: a card's topic row opens the board with the card
 // open under the board's questions sheet, another topic's row opens this page's questions sheet
@@ -60,8 +60,8 @@
       const card = board.items.find((i) => `item:${i.key}` === topic.id);
       const pick = open.length > 0 && open.every((q) => isPrototype(q.url));
       const urgent = open.some((q) => q.urgent);
-      return { id: `topic:${topic.id}`, topic: topic.id, key: card ? card.ref : 'Q', title: card ? card.title : topic.title, action: pick ? 'Pick a take' : `Answer ${topic.open}`,
-        tone: urgent ? 'danger' : 'notice', urgent, prototype: pick ? open[0].url : null };
+      return { id: `topic:${topic.id}`, topic: topic.id, key: card ? card.ref : 'Q', title: card ? card.title : topic.title, action: topic.failed ? 'Not sent' : pick ? 'Pick a take' : `Answer ${topic.open}`,
+        tone: urgent || topic.failed ? 'danger' : 'notice', urgent, prototype: pick && !topic.failed ? open[0].url : null };
     }
     // The badge's rows in the board's order, an urgent question's topic first.
     function rows() {

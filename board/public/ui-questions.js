@@ -208,11 +208,14 @@
   // outbox: this browser's unsent taps (app-threads.js); a card whose Implement or Done is in it, queued or in flight,
   // has no tap row, the row following the tap rather than the board's answer, and returns if the board refuses the
   // tap and it leaves the outbox (docs/adr/2026-11-15-1400-waiting-on-you-follows-the-tap-not-the-board.md).
-  // answering: the answer outbox's entries whose question is still open on the board (unsentAnswers): a topic counts
-  // only its open questions not among them, and with none has no row
-  // (docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md).
+  // answering: the answer outbox's entries whose questions are still open on the board (unsentAnswers): a topic counts
+  // only its open questions not among them, and with none has no row; a failed one's questions count again and its
+  // topic reads failed, so a set that wasn't sent is back on the list
+  // (docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md).
   function queueRows(queue, topics, outbox = [], answering = []) {
-    const open = topics.map((t) => ({ ...t, open: t.open - answering.filter((m) => m.topic === t.id).length })).filter((t) => t.state !== 'resolved' && t.open > 0);
+    const sending = (t) => answering.filter((m) => m.topic === t.id && !m.failed).reduce((n, m) => n + idsOf(m).length, 0);
+    const failed = (t) => answering.some((m) => m.topic === t.id && m.failed);
+    const open = topics.map((t) => ({ ...t, open: t.open - sending(t), ...(failed(t) ? { failed: true } : {}) })).filter((t) => t.state !== 'resolved' && t.open > 0);
     const tapped = new Set(outbox.filter((m) => m.intent === 'build' || m.kind === 'card-done').map((m) => m.key));
     const rows = [];
     for (const entry of queue || []) {
@@ -240,11 +243,15 @@
   const outboxListeners = new Set();
   const onOutbox = (fn) => { outboxListeners.add(fn); return () => outboxListeners.delete(fn); };
   const outboxChanged = () => outboxListeners.forEach((fn) => fn());
-  // The answer outbox: the questions sheet's answers the board hasn't recorded yet, kept in this browser under the board's
-  // own keys (app-questions-sheet.js). unsentAnswers: its entries whose question owner (/api/board's) still has open.
-  const ANSWER_OUTBOX = 'answer-outbox';
+  // The answer outbox: the questions sheet's answer sets and requests the board hasn't recorded yet, kept in this browser
+  // under the board's own keys (app-questions-sheet.js). unsentAnswers: its entries whose questions owner (/api/board's)
+  // still has open. idsOf: the questions an entry is for, a set's each answer's, a request's its one. answerBox: where a
+  // set's answer to question id keeps its files until the set sends (attach.js).
+  const ANSWER_OUTBOX = 'answer-sets';
+  const idsOf = (m) => (m.answers ? m.answers.map((a) => a.id) : [m.id]);
+  const answerBox = (sendId, id) => `send:${sendId}:${id}`;
   // A visual request leaves its question open, so it is no answer.
-  const unsentAnswers = (owner, store) => store.get(ANSWER_OUTBOX, []).filter((m) => m.request?.kind !== 'visual-request' && (owner || []).some((q) => q.id === m.id && q.state === 'open'));
+  const unsentAnswers = (owner, store) => store.get(ANSWER_OUTBOX, []).filter((m) => m.request?.kind !== 'visual-request' && (owner || []).some((q) => idsOf(m).includes(q.id) && q.state === 'open'));
 
-  Object.assign(globalThis.BoardUI, { onOutbox, outboxChanged, ANSWER_OUTBOX, unsentAnswers, isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet, cardTopics, queueRows });
+  Object.assign(globalThis.BoardUI, { onOutbox, outboxChanged, ANSWER_OUTBOX, idsOf, answerBox, unsentAnswers, isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet, cardTopics, queueRows });
 })();

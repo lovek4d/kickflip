@@ -154,13 +154,15 @@ BoardView.part((B) => {
   // An answer from the questions sheet lands here too, as {m, line, at}, line its answer line reading waiting….
   const landed = new Map();
   const landedFor = (key, have) => [...landed.values()].filter((l) => l.m.key === key && !have.has(l.m.sendId)).map((l) => l.line || unsent(l.m, true));
-  // docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md
-  // The questions sheet's answer outbox (app-questions-sheet.js): each answer to a card's question is that card's answer
-  // line, in the board's words, until the board's own line, carrying its sendId, takes its place.
+  // docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md
+  // The questions sheet's answer outbox (app-questions-sheet.js): each answer set to a card's questions is that card's one
+  // answer line, in the board's words, its answers' files as tiles from each answer's box, until the board's own line,
+  // carrying its sendId, takes its place.
   const answersFor = (key) => store.get(BoardUI.ANSWER_OUTBOX, []).filter((m) => m.key === key);
   // A question's prototype, grill or visual request in that outbox reads as the card's own request line.
   const requestLine = (m, state) => unsent({ ...m, kind: m.request.kind, text: m.request.data.note, files: [], fields: {} }, state === 'waiting');
-  const answerLine = (m, state = pendingOf(m)) => m.request ? requestLine(m, state) : ({ ts: m.ts, who: 'love', via: 'questions', kind: 'owner-answer', text: m.text, files: m.answer.files || [], ...(m.uploads ? { uploads: uploadsOf(m) } : {}), status: 'answers submitted', sendId: m.sendId, state });
+  const answerUploads = (m) => Object.keys(m.uploads).map((id) => ({ box: BoardUI.answerBox(m.sendId, id), list: BoardAttach.list(BoardUI.answerBox(m.sendId, id), B.site.root) }));
+  const answerLine = (m, state = pendingOf(m)) => m.request ? requestLine(m, state) : ({ ts: m.ts, who: 'love', via: 'questions', kind: 'owner-answer', text: m.text, files: m.answers.flatMap((a) => a.files || []), ...(m.uploads ? { uploads: answerUploads(m) } : {}), status: 'answers submitted', sendId: m.sendId, state });
   // After answer m changed in the outbox, its card's thread draws it; sent, the thread loads with the board's line,
   // the answer reading waiting… until then.
   function answerChanged(m, sent) {
@@ -376,7 +378,8 @@ BoardView.part((B) => {
     if (!b) return;
     const retry = b.hasAttribute('data-resend');
     const sendId = retry ? b.dataset.resend : b.dataset.unsend;
-    // An answer's Retry and X are the questions sheet's, with no confirm: X loses nothing, its question opening again.
+    // An answer set's Retry and X are the questions sheet's, with no confirm: X loses nothing, its questions open again
+    // with their picks and notes.
     if (B.holdsAnswer(sendId)) { if (retry) B.retryAnswer(sendId); else B.dropAnswer(sendId); return; }
     const tapped = outbox().find((o) => o.sendId === sendId);
     const words = tapped && (tapped.said || tapOf(tapped).words);
