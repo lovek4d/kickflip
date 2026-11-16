@@ -141,6 +141,11 @@ BoardView.part((B) => {
     }
   }, true);
 
+  // The open menu closes on a click anywhere but the funnel and the menu, and on Escape. The click goes on to what it hit.
+  const closeFilter = () => { if (filterOpen) { filterOpen = false; B.render(); } };
+  B.on(document, 'click', (ev) => { if (!ev.target.closest?.('.lane-filter, .lane-filter-menu')) closeFilter(); }, true);
+  B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape') closeFilter(); });
+
   B.on(B.root, 'click', async (ev) => {
     const answer = ev.target.closest('button[data-review-answer]');
     if (answer) {

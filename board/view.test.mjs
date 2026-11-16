@@ -7148,6 +7148,27 @@ test('the Todo header filter lists four boxes, all checked; unchecking one hides
   assert.equal(todo().querySelector('summary .count').textContent, '9');
 });
 
+test('the open Todo filter menu closes on a click outside it and on Escape, stays open while boxes are ticked, and the outside click still lands', async () => {
+  const b = boardOnDom({ board: boardOf([workCard('R1', { phase: 'ready', ready: true })]), threads: {} });
+  await b.settle();
+  const doc = b.page.win.document;
+  const menu = () => b.root.querySelector('.lane-filter-menu');
+  const tap = async (el) => { b.page.fire(doc, 'click', { target: el }); b.page.fire(b.root, 'click', { target: el }); await b.settle(); };
+  const open = () => tap(b.root.querySelector('button.lane-filter'));
+  await open();
+  assert.ok(menu());
+  await tap(b.root.querySelector('[data-todo-filter="blocked"]'));
+  assert.ok(menu(), 'ticking a box keeps it open');
+  await open();
+  assert.equal(menu(), null, 'the funnel still closes it');
+  await open();
+  await tap(b.root.querySelector('details.item summary'));
+  assert.equal(menu(), null, 'a click elsewhere closes it');
+  await open();
+  b.page.fire(doc, 'keydown', { key: 'Escape' }); await b.settle();
+  assert.equal(menu(), null, 'Escape closes it');
+});
+
 test('the Todo filter is remembered on this device', async () => {
   const cards = [workCard('R1', { phase: 'ready', ready: true }), workCard('H1', { phase: 'grilling', ownerBlock: { until: null }, blocked: true })];
   const first = boardOnDom({ board: boardOf(cards), threads: {} });
