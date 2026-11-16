@@ -6,13 +6,13 @@
   // minute old, which style.css turns orange with the arrow (docs/adr/2026-11-12-1000-the-logo-dot-carries-the-hub-state.md). watcher is
   // /api/board's checks.watcher (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
   // link is 'online', 'offline' (the last board load failed) or 'reconnecting' (a refresh tap is retrying it, and the icon spins).
-  const statusLine = (at, { link = 'online', watcher, pause, waking = false } = {}) => {
+  const statusLine = (at, { link = 'online', watcher, pause } = {}) => {
     const paused = pause?.state === 'paused';
     const reason = link === 'offline' ? "Offline: can't reach the host"
       : watcher === 'stopped' ? 'Claude not listening'
       : paused ? `Paused ${BoardUI.pauseUntilWords(pause.resets_at)}`
       : link === 'reconnecting' ? 'Reconnecting…'
-      : watcher === 'waking' || (waking && watcher === 'asleep') ? 'Waking: the hub is resuming its session'
+      : watcher === 'waking' ? 'Waking: the hub is resuming its session'
       : watcher === 'asleep' ? 'Asleep: its session idled out. Refresh, or any tap on the page, wakes it' : '';
     if (!at && !reason) return '';
     const title = [reason, at && `Updated ${since(at)}: the last change from the host, or your last refresh`].filter(Boolean).join('. ');
@@ -46,10 +46,10 @@
   // (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   const REMOTE_MARK = '<svg class="gh-mark" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 6"/></svg>';
   const remoteLine = (remote, { links = null } = {}) => `<span class="github remote" title="This board’s repo">${linksMark(links, REMOTE_MARK)} <span class="remote-name">${esc(remote.name)}</span></span>`;
-  // The In Review header's right end; pending is whether a check-github request is waiting.
-  const githubLine = (checks, { pending = false, links = null } = {}) => {
+  // The In Review header's right end; checks.requested says whether a check-github request is waiting.
+  const githubLine = (checks, { links = null } = {}) => {
     const mark = linksMark(links);
-    if (pending) return `<span class="github">${mark} Checking…</span>`;
+    if (pendingCheck(checks)) return `<span class="github">${mark} Checking…</span>`;
     if (!checks?.at) return `<span class="github idle" title="GitHub not checked yet">${mark} not checked</span>`;
     const title = `GitHub checked ${since(checks.at)}${checks.idle ? '; no task shows an open PR' : checks.late ? '; checks are late' : ''}`;
     const note = checks.late && !checks.idle ? ' · checks are late' : '';
@@ -80,11 +80,12 @@
       ${setup.github === undefined ? '' : step(setup.github, 'GitHub checks reach this board', 'Waiting for the hub\'s next GitHub check')}
     </ul>`;
   };
-  const checkLanded = (checks, pendingSince) => Boolean(checks?.at) && Date.parse(checks.at) >= pendingSince;
+  // The server's checks.requested says whether a page's check-github request is waiting (domain.mjs checksOf).
+  const pendingCheck = (checks) => checks?.requested?.state === 'pending';
   const refreshIcon = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>`;
   // The GitHub line's own refresh, spinning and resting while a request is pending. It sits in the lane's summary, so
   // it is aria-disabled, not disabled: a resting tap must still reach app-header.js's handler, which keeps the lane from folding.
-  const githubRefresh = (checks, pendingSince) => `<button class="ghost gh-refresh${pendingSince ? ' spinning' : ''}" type="button" data-check-github aria-label="Check GitHub" title="Check GitHub"${pendingSince ? ' aria-disabled="true"' : ''}>${refreshIcon(14)}</button>`;
+  const githubRefresh = (checks) => `<button class="ghost gh-refresh${pendingCheck(checks) ? ' spinning' : ''}" type="button" data-check-github aria-label="Check GitHub" title="Check GitHub"${pendingCheck(checks) ? ' aria-disabled="true"' : ''}>${refreshIcon(14)}</button>`;
 
   // Which header controls take taps, and whether refresh spins. The header paints them disabled with refresh spinning;
   // both turn on together once the first board load has answered or failed.
@@ -95,5 +96,5 @@
     return { refresh: ready, settings: ready, spin: !boardSettled || reloading };
   };
 
-  Object.assign(globalThis.BoardUI, { statusLine, freshSig, nextFresh, githubLine, remoteLine, brokenLinks, linksList, setupCard, checkLanded, githubRefresh, refreshIcon, headerControls });
+  Object.assign(globalThis.BoardUI, { statusLine, freshSig, nextFresh, githubLine, remoteLine, brokenLinks, linksList, setupCard, pendingCheck, githubRefresh, refreshIcon, headerControls });
 })();

@@ -1624,13 +1624,31 @@ test('the board says when GitHub was last checked, late past twice the interval 
   const now = Date.parse('2026-10-23T12:00:00Z');
   const checks = (checked, listening) => buildBoard({ now, fromWaves: false, files: [], checked, listen: listening === true ? 'listening' : listening === false ? 'deaf' : listening }).checks;
   const at = (min) => new Date(now - min * 60000).toISOString();
-  assert.deepEqual(checks(null, true), { at: null, every: 30, idle: false, late: false, watcher: 'running', claudeAt: null });
-  assert.deepEqual(checks({ at: at(12), every: 30 }, true), { at: at(12), every: 30, idle: false, late: false, watcher: 'running', claudeAt: null });
-  assert.deepEqual(checks({ at: at(61), every: 30 }, true), { at: at(61), every: 30, idle: false, late: true, watcher: 'running', claudeAt: null });
-  assert.deepEqual(checks({ at: at(61), every: 60 }, false), { at: at(61), every: 60, idle: false, late: false, watcher: 'stopped', claudeAt: null });
+  assert.deepEqual(checks(null, true), { at: null, every: 30, idle: false, late: false, watcher: 'running', claudeAt: null, requested: null });
+  assert.deepEqual(checks({ at: at(12), every: 30 }, true), { at: at(12), every: 30, idle: false, late: false, watcher: 'running', claudeAt: null, requested: null });
+  assert.deepEqual(checks({ at: at(61), every: 30 }, true), { at: at(61), every: 30, idle: false, late: true, watcher: 'running', claudeAt: null, requested: null });
+  assert.deepEqual(checks({ at: at(61), every: 60 }, false), { at: at(61), every: 60, idle: false, late: false, watcher: 'stopped', claudeAt: null, requested: null });
   assert.equal(checks({ at: at(12), every: 30 }, 'asleep').watcher, 'asleep');
   assert.equal(checks({ at: at(12), every: 30 }, 'waking').watcher, 'waking');
-  assert.deepEqual(checks({ at: at(300), every: null, idle: true }, true), { at: at(300), every: null, idle: true, late: false, watcher: 'running', claudeAt: null });
+  assert.deepEqual(checks({ at: at(300), every: null, idle: true }, true), { at: at(300), every: null, idle: true, late: false, watcher: 'running', claudeAt: null, requested: null });
+});
+
+test("the board reads a page's GitHub check request from its event: pending until a check lands at or after it, gave-up five minutes on, and a daily wake's check-github is no request", () => {
+  const now = Date.parse('2026-10-23T12:00:00Z');
+  const at = (min) => new Date(now - min * 60000).toISOString();
+  const ev = (min, data = {}) => ({ id: `e${min}`, ts: at(min), kind: 'check-github', data });
+  const requested = (events, checked) => buildBoard({ now, fromWaves: false, files: [], events, checked, listen: 'listening' }).checks.requested;
+  assert.equal(requested([], { at: at(3) }), null);
+  assert.equal(requested([ev(1, { reason: 'morning' })], { at: at(3) }), null);
+  assert.deepEqual(requested([ev(1)], { at: at(3) }), { at: at(1), state: 'pending' });
+  assert.deepEqual(requested([ev(1)], null), { at: at(1), state: 'pending' });
+  assert.deepEqual(requested([ev(1)], { at: at(0.5) }), { at: at(1), state: 'landed' });
+  assert.deepEqual(requested([ev(4), ev(1)], { at: at(3) }), { at: at(1), state: 'pending' }, 'the newest request counts');
+  assert.deepEqual(requested([ev(6)], { at: at(10) }), { at: at(6), state: 'gave-up' });
+  assert.deepEqual(requested([ev(6)], { at: at(2) }), { at: at(6), state: 'landed' });
+  const built = buildBoard({ now, fromWaves: false, files: [], events: [ev(4)], checked: { at: at(10) } });
+  assert.equal(withHub(built, { now }).checks.requested.state, 'pending');
+  assert.equal(withHub(built, { now: now + 2 * 60000 }).checks.requested.state, 'gave-up', 'the shared build is read later: the five minutes run from the request');
 });
 
 test("the board dates Claude's newest write it can see: a reply, a Claude thread line, a working mark, a builder record or a watcher start, not the hub's check", () => {

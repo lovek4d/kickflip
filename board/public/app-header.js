@@ -7,12 +7,9 @@
 // (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md). Needs app-core.js.
 BoardView.part((B) => {
   const { $, state, toast } = B;
-  const { statusLine, freshSig, nextFresh, githubLine, remoteLine, linksList, setupCard, checkLanded, githubRefresh, headerControls } = BoardUI;
-  // A request no check answers stops showing after this.
-  const GITHUB_GIVE_UP = 5 * 60000;
+  const { statusLine, freshSig, nextFresh, githubLine, remoteLine, linksList, setupCard, pendingCheck, githubRefresh, headerControls } = BoardUI;
 
   function renderHeader(d) {
-    if (state.githubPending && (checkLanded(d.checks, state.githubPending) || Date.now() - state.githubPending > GITHUB_GIVE_UP)) state.githubPending = null;
     renderStatus();
     $('#setup').hidden = !d.setup;
     $('#setup').innerHTML = setupCard(d.setup);
@@ -33,7 +30,7 @@ BoardView.part((B) => {
   B.atUnmount(BoardUI.onOutbox(() => { if (state.board) renderBadge(state.board); }));
   // The status line, and the moon right of the title while the owner reads away (hub/presence.mjs ownerTracker).
   const renderStatus = () => {
-    $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.(), waking: state.waking });
+    $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.() });
     renderPause(B.pause?.());
     const moon = $('.away-moon');
     const away = Boolean(B.away?.());
@@ -71,7 +68,7 @@ BoardView.part((B) => {
   // thinking… and processing... count up in place (ui.js recount).
   B.every(30000, () => { if (!document.hidden) BoardUI.recount(document); });
   const githubHeader = (d) => (d.remote ? `<span class="lane-github">${remoteLine(d.remote, { links: d.links })}</span>`
-    : `<span class="lane-github">${githubLine(d.checks, { pending: Boolean(state.githubPending), links: d.links })}${githubRefresh(d.checks, state.githubPending)}</span>`);
+    : `<span class="lane-github">${githubLine(d.checks, { links: d.links })}${githubRefresh(d.checks)}</span>`);
 
   // The Hub links sheet: the GitHub mark opens it, from inside the lane's summary, so the tap must not fold the lane.
   const linksSheet = $('#linksSheet');
@@ -94,29 +91,25 @@ BoardView.part((B) => {
   B.on(linksSheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, linksSheet)) closeLinks(); });
   B.atUnmount(BoardUI.swipeToDismiss(linksSheet));
   B.on(linksSheet, 'cancel', (ev) => { ev.preventDefault(); closeLinks(); });
-  function askGitHub() {
-    state.githubPending = Date.now();
-    B.render();
-    B.send('check-github', {}).catch(() => { state.githubPending = null; B.render(); toast('Could not ask Claude to check GitHub'); });
-  }
+  // The send's answer carries the board with the request on it, which draws the spinner.
+  const askGitHub = () => B.send('check-github', {}).catch(() => toast('Could not ask Claude to check GitHub'));
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('[data-check-github]');
     if (!b) return;
     ev.preventDefault();
-    if (state.link === 'online' && state.board && !state.githubPending) askGitHub();
+    if (state.link === 'online' && state.board && !pendingCheck(state.board.checks)) askGitHub();
   });
 
-  // The wake: the header reads waking… from the tap until the board's reload says the hub took it up.
+  // The wake: a tap asks the hub once, and the header reads waking… when the board's reload says (checks.watcher) the hub took it up.
   state.waking = false;
   async function wake() {
     state.waking = true;
-    renderStatus();
     try {
       const r = await fetch('/_hub/wake', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route: B.route }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `the hub answered ${r.status}`);
       await B.loadBoard();
     } catch (e) { toast(`Couldn't wake this board's session: ${e.message}`); }
-    finally { state.waking = false; if (B.alive()) renderStatus(); }
+    finally { state.waking = false; }
   }
   // A shared person's tap never wakes the owner's session (shell.js .shared-view).
   const wakeOnTap = () => { if (state.board?.checks?.watcher === 'asleep' && !state.waking && state.link === 'online' && !document.documentElement.classList.contains('shared-view')) wake(); };
@@ -170,7 +163,7 @@ BoardView.part((B) => {
     if (state.link === 'offline') { reconnect(); return; }
     reloading(() => B.loadBoard({ via: 'refresh' }));
   });
-  B.every(5000, () => { if (state.githubPending && !document.hidden) B.loadBoard(); });
+  B.every(5000, () => { if (pendingCheck(state.board?.checks) && !document.hidden) B.loadBoard(); });
 
   Object.assign(B, { renderHeader, renderStatus, landed, githubHeader, linkUp, linkDown, headerWired });
 });

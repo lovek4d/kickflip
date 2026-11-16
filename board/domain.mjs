@@ -1531,12 +1531,16 @@ export function buildBoard(snapshot) {
 // pulls and waits read, keeps its working marks. So does a session that is idle (busy false): the owner's message reads
 // thinking only while the session works. A listen the caller didn't name leaves the build as built.
 const notListening = (listen, busy) => (Boolean(listen) && listen !== 'listening') || busy === false;
+// A page's GitHub check request reads pending until a check lands or GITHUB_GIVE_UP passes; checksOf names it pending or landed
+// and this, read each time since the shared build is cached, gives a pending one up.
+const GITHUB_GIVE_UP = 5 * 60000;
+const requestedAt = (requested, now) => (requested?.state === 'pending' && now - Date.parse(requested.at) > GITHUB_GIVE_UP ? { ...requested, state: 'gave-up' } : requested);
 const ASK_WAITS = ({ since, ...ask }) => ({ ...ask, state: ask.state === 'working' ? 'waiting' : ask.state });
-export function withHub(built, { listen, busy, prompts } = {}) {
+export function withHub(built, { listen, busy, prompts, now = Date.now() } = {}) {
   const needs = [...promptLines(prompts), ...built.needs];
   const items = notListening(listen, busy) ? built.items.map((it) => (it.working || it.ask?.state === 'working' ? { ...it, working: false, ...(it.ask ? { ask: ASK_WAITS(it.ask) } : {}) } : it)) : built.items;
   const boardAsks = notListening(listen, busy) ? built.boardAsks.map(ASK_WAITS) : built.boardAsks;
-  return { ...built, items, boardAsks, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped' } };
+  return { ...built, items, boardAsks, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped', requested: requestedAt(built.checks.requested, now) } };
 }
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
@@ -1585,7 +1589,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md). claudeAt is the newest write of Claude's the
 // board can see: a reply, a Claude thread line, a working mark, a builder record or a watcher start. checked.json
 // doesn't count, since the hub writes it on every poll (hub/github.mjs).
-function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, files = [] }, now) {
+function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, files = [], events = [] }, now) {
   const every = Number(checked?.every) || 30;
   const writes = [
     replyAt, watcher?.since, ...Object.values(working),
@@ -1594,9 +1598,13 @@ function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, files
   ].filter((t) => typeof t === 'string' && !Number.isNaN(Date.parse(t)));
   const claudeAt = writes.reduce((latest, t) => (latest && Date.parse(latest) > Date.parse(t) ? latest : t), null);
   const idle = Boolean(checked?.idle);
+  // The newest check-github a page sent; the daily wake's and auto-merge's carry a reason and aren't requests. It is
+  // answered once a check lands at or after it (data/checked.json at).
+  const request = events.filter((e) => e.kind === 'check-github' && !e.data?.reason).pop();
+  const requested = request ? { at: request.ts, state: checked?.at && Date.parse(checked.at) >= Date.parse(request.ts) ? 'landed' : 'pending' } : null;
   return {
     at: checked?.at || null, every: idle ? null : every, idle, late: !idle && Boolean(checked?.at) && now - Date.parse(checked.at) > 2 * every * 60000,
-    claudeAt,
+    claudeAt, requested,
   };
 }
 

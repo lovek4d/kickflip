@@ -859,7 +859,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const { title, reviewers } = await config();
     const self = boardAt(here);
     const listen = self ? listenState(self) : 'deaf';
-    const built = withHub(await sharedBoard(), { listen, busy: self ? sessionBusy(self) : true, prompts: self ? pendingFor(self.route).map(shown) : [] });
+    const built = withHub(await sharedBoard(), { listen, busy: self ? sessionBusy(self) : true, prompts: self ? pendingFor(self.route).map(shown) : [], now: now().getTime() });
     built.items = built.items.map((it) => (it.worktree && !existsSync(it.worktree) ? { ...it, worktree: null } : it));
     const links = self ? linksOf(self, { listen }) : null;
     return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), reviewerGithub: Object.fromEntries((reviewers || []).filter((r) => typeof r?.name === 'string').map((r) => [r.name, r.github])), ...built, links, setup: await setupOf(links),

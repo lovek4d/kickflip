@@ -2950,7 +2950,7 @@ test('a tap anywhere on an asleep board, refresh included, asks the hub to wake 
   assert.match(title(), /^Asleep/);
   b.page.fire(b.root, 'click', { target: b.root.querySelector('#refresh') });
   assert.equal(status(), 'now');
-  assert.match(title(), /^Waking/);
+  assert.match(title(), /^Asleep/, 'the header says waking only when the server does');
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.lane') });
   assert.deepEqual(b.posts.filter(([p]) => p === '/_hub/wake'), [['/_hub/wake', { route: 'board-a' }]]);
   await b.change({ board: { ...b.view.B.state.board, checks: checks('waking') } });

@@ -216,7 +216,7 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(ui.statusLine(null), '');
   // The time never changes to words: only the span's class (red, orange) and title move.
   const cls = (html) => /class="([^"]*)"/.exec(html)[1];
-  for (const opts of [{ watcher: 'stopped' }, { link: 'offline' }, { link: 'reconnecting' }, { watcher: 'asleep' }, { watcher: 'asleep', waking: true }, { watcher: 'waking' }, { pause: { state: 'paused', resets_at: ago(-1) } }, { watcher: 'stopped', waking: true }]) {
+  for (const opts of [{ watcher: 'stopped' }, { link: 'offline' }, { link: 'reconnecting' }, { watcher: 'asleep' }, { watcher: 'waking' }, { pause: { state: 'paused', resets_at: ago(-1) } }, { watcher: 'stopped' }]) {
     assert.equal(text(ui.statusLine(fresh, opts)), 'now', JSON.stringify(opts));
   }
   assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped' })), 'fresh', 'never coloured: the logo dot says it');
@@ -227,7 +227,8 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(cls(ui.statusLine(fresh, { link: 'reconnecting' })), 'fresh');
   assert.match(ui.statusLine(fresh, { link: 'reconnecting' }), /title="Reconnecting…\. Updated /);
   assert.match(ui.statusLine(fresh, { watcher: 'asleep' }), /title="Asleep: [^"]*wakes it\. Updated /);
-  assert.equal(text(ui.statusLine(fresh, { watcher: 'running', waking: true })), 'now');
+  assert.match(ui.statusLine(fresh, { watcher: 'waking' }), /title="Waking: /);
+  assert.match(ui.statusLine(fresh, { watcher: 'asleep', waking: true }), /title="Asleep: /, 'a client flag no longer says waking');
   // The time and the arrow go orange (class late) only once the data is more than 60 s old, whatever else the header says.
   const sec = (n) => new Date(NOW - n * 1000).toISOString();
   assert.equal(cls(ui.statusLine(sec(59))), 'fresh');
@@ -237,7 +238,7 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(text(ui.statusLine(undefined, { link: 'offline' })), '');
   assert.equal(text(ui.githubLine(checks)), 'GitHub 4 min');
   assert.match(ui.githubLine(checks), /<svg class="gh-mark"[^>]*aria-label="GitHub"/);
-  assert.equal(text(ui.githubLine(checks, { pending: true })), 'GitHub Checking…');
+  assert.equal(text(ui.githubLine({ ...checks, requested: { at: checks.at, state: 'pending' } })), 'GitHub Checking…');
   assert.equal(text(ui.githubLine({ ...checks, at: null })), 'GitHub not checked');
   const late = ui.githubLine({ ...checks, at: ago(2), late: true });
   assert.match(late, /^<span class="github late" title="GitHub checked 2 h ago; checks are late">/);
@@ -265,16 +266,16 @@ test('the header time moves on a refresh, the first load and a change signal tha
   assert.deepEqual(plain(ui.nextFresh(landed, { via: 'refresh', at: 't2', sig })), { at: 't2', sig });
 });
 
-test('the GitHub refresh spins and rests only while a check is pending', () => {
-  const now = Date.parse('2026-10-23T12:00:00Z');
-  const checks = (s) => ({ at: new Date(now - s * 1000).toISOString() });
-  assert.equal(ui.checkLanded(checks(20), now - 1000), false);
-  assert.equal(ui.checkLanded({ at: new Date(now).toISOString() }, now - 1000), true);
+test("the GitHub refresh spins and rests only while the server's checks.requested reads pending", () => {
+  const checks = (state) => ({ at: '2026-10-23T11:59:00.000Z', requested: state && { at: '2026-10-23T12:00:00.000Z', state } });
   const spinning = (html) => /aria-disabled="true"/.test(html) && /class="[^"]*\bspinning\b/.test(html);
-  assert.equal(spinning(ui.githubRefresh(checks(1), null)), false);
-  assert.equal(spinning(ui.githubRefresh(checks(20), now - 1000)), true);
-  assert.match(ui.githubRefresh({ at: null }, null), /data-check-github/);
-  assert.match(ui.githubRefresh(null, null), /data-check-github/);
+  for (const [state, pending] of [[null, false], ['landed', false], ['gave-up', false], ['pending', true]]) {
+    assert.equal(spinning(ui.githubRefresh(checks(state))), pending, String(state));
+    assert.equal(/Checking…/.test(ui.githubLine(checks(state))), pending, String(state));
+  }
+  assert.match(ui.githubRefresh({ at: null }), /data-check-github/);
+  assert.match(ui.githubRefresh(null), /data-check-github/);
+  assert.equal(ui.checkLanded, undefined);
 });
 
 test('header controls turn on together once the first board load lands, refresh spinning until then', () => {
