@@ -653,3 +653,16 @@ test('a land records the commit it fast-forwarded main to on the card', async ()
   assert.equal(landed.code, 0, landed.err);
   assert.equal(itemOf('A1').landed_sha, git(repo, 'rev-parse', 'main'));
 });
+
+// docs/adr/2026-11-16-1930-test-repos-run-no-background-git-maintenance.md
+test('a commit in a scratch repo starts no background git maintenance, so a copy of the repo never meets its lock', () => {
+  const repo = scratchRepo();
+  const objects = path.join(repo, '.git', 'objects');
+  const strays = new Set();
+  for (let n = 0; n < 5; n++) {
+    commit(repo, 'a.txt', `${n}\n`);
+    const end = Date.now() + 100;
+    while (Date.now() < end) for (const e of fs.readdirSync(objects)) if (!/^([0-9a-f]{2}|info|pack)$/.test(e)) strays.add(e);
+  }
+  assert.deepEqual([...strays], []);
+});

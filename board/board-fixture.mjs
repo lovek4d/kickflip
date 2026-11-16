@@ -158,6 +158,9 @@ function makeBaseRepo() {
   git(repo, 'init', '--quiet', '-b', 'main');
   git(repo, 'config', 'user.name', 'Test');
   git(repo, 'config', 'user.email', 'test@example.com');
+  // docs/adr/2026-11-16-1930-test-repos-run-no-background-git-maintenance.md: a commit otherwise starts a detached
+  // git maintenance whose objects/maintenance.lock a copy of the repo can list and then miss.
+  git(repo, 'config', 'maintenance.auto', 'false');
   write(path.join(repo, 'hub', 'hub.mjs'), "import { a } from '../shared/lib.mjs';\n");
   write(path.join(repo, 'shared', 'lib.mjs'), 'export const a = 1;\n');
   write(path.join(repo, 'shared', 'notes.md'), 'a\n');
