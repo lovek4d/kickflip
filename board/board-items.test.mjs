@@ -386,13 +386,14 @@ test('item set --install records a device build with when it was built, takes on
 });
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
-test('a follow-up is item add --parent; item set sets or clears a Parent and replaces Related to on both sides', async () => {
+test('item set sets or clears a Parent and replaces Related to on both sides; item add --ask --parent refuses a missing Parent', async () => {
   const item = (id) => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
-  const added = await board('item', 'add', 'audit/ENG-7', '--phase', 'grilling', '--site', 'audit', '--title', 'feat: tidy', '--parent', 'A1');
+  assert.equal((await board('item', 'add', 'audit/ENG-7', '--phase', 'grilling', '--site', 'audit', '--title', 'feat: tidy')).code, 0);
+  const added = await board('item', 'set', 'audit/ENG-7', '--site', 'audit', '--parent', 'A1');
   assert.deepEqual([added.code, added.err], [0, '']);
   assert.deepEqual([item('ENG-7').parent, item('ENG-7').lane], ['audit/A1', 'todo']);
   for (const [args, err] of [
-    [['item', 'add', 'audit/X1', '--phase', 'grilling', '--title', 'feat: x', '--parent', 'NOPE'], /^item file "audit" has no item "NOPE"/],
+    [['item', 'add', 'audit', '--ask', 'feat: x', '--parent', 'NOPE'], /^item file "audit" has no item "NOPE"/],
     [['item', 'set', 'audit/ENG-7', '--parent', 'ENG-7'], /^--parent: a task can't be its own Parent/],
     [['item', 'set', 'audit/A1', '--parent', 'ENG-7'], /^--parent: audit\/ENG-7 is a child of audit\/A1, so it can't be its Parent/],
     [['item', 'set', 'audit/A1', '--related', 'A1'], /^--related: a task can't be related to itself/],
@@ -445,9 +446,9 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
   const item = (id) => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
   const events = () => (fs.existsSync(site('audit', 'data', 'events.jsonl')) ? fs.readFileSync(site('audit', 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((e) => e.kind === 'card-added');
   const before = events().length;
-  const stateless = await board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'feat: follow it up', '--parent', 'A1');
+  const stateless = await board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'feat: follow it up');
   assert.deepEqual([stateless.code, stateless.err, item('F1')], [1, 'item add files a task on a board: pass --phase discussing, grilling or prototyping, or --blocked to file it for later\n', undefined]);
-  const filed = await board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'feat: follow it up', '--parent', 'A1', '--phase', 'grilling', '--relate', 'A1');
+  const filed = await board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'feat: follow it up', '--phase', 'grilling', '--relate', 'A1');
   assert.deepEqual([filed.code, filed.err], [0, '']);
   assert.deepEqual([item('F1').phase, 'unfiled' in item('F1'), item('F1').related], ['grilling', false, ['audit/A1']]);
   assert.deepEqual([item('F1').briefs?.map((b) => b.kind)], [['grill']], 'filed grilling, it owes the orchestrator its grill brief');

@@ -30,25 +30,34 @@ test('a new link posts a keyed line naming the other card in both threads, once;
   assert.deepEqual(thread('L2').at(-1), line('unrelated', 'audit/L3'));
 });
 
+// docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md: a task filed from another
+// comes in as an ask, born with its Parent. → the key's id.
+const askFrom = async (...args) => {
+  const r = await board('item', 'add', 'audit', '--site', 'audit', '--ask', 'A follow-up', ...args);
+  assert.equal(r.code, 0, r.err);
+  return /added as audit\/(T-\d+)/.exec(r.out)[1];
+};
+
 test('a Parent link posts Follow-up in the parent and Follow-up of in the child, once', async () => {
   await add('P1');
-  await add('P2', '--parent', 'P1');
-  assert.deepEqual(thread('P1'), [line('followup', 'audit/P2')]);
-  assert.deepEqual(thread('P2'), [line('followup-of', 'audit/P1')]);
-  await set('P2', '--parent', 'P1');
+  const child = await askFrom('--parent', 'P1');
+  assert.deepEqual(thread('P1'), [line('followup', `audit/${child}`)]);
+  assert.deepEqual(thread(child), [line('followup-of', 'audit/P1')]);
+  await set(child, '--parent', 'P1');
   assert.equal(thread('P1').length, 1);
-  assert.equal(thread('P2').length, 1);
+  assert.equal(thread(child).length, 1);
 });
 
-test('item add --from sets the Parent and posts Created ticket in the source and Created from in the new card, once; --from beside --parent is refused', async () => {
+test('item add --ask --from sets the Parent and posts Created ticket in the source and Created from in the new card, once; --from beside --parent is refused', async () => {
   await add('S1');
-  await add('S2', '--from', 'S1');
-  assert.deepEqual(thread('S1'), [line('created', 'audit/S2')]);
-  assert.deepEqual(thread('S2'), [line('created-from', 'audit/S1')]);
-  await set('S2', '--parent', 'S1');
+  const child = await askFrom('--from', 'S1');
+  assert.deepEqual(thread('S1'), [line('created', `audit/${child}`)]);
+  assert.deepEqual(thread(child), [line('created-from', 'audit/S1')]);
+  await set(child, '--parent', 'S1');
   assert.equal(thread('S1').length, 1);
-  assert.equal(thread('S2').length, 1);
-  assert.notEqual((await board('item', 'add', 'audit/S3', '--site', 'audit', '--title', 'feat: s3', '--phase', 'grilling', '--from', 'S1', '--parent', 'S1')).code, 0);
+  assert.equal(thread(child).length, 1);
+  const both = await board('item', 'add', 'audit', '--site', 'audit', '--ask', 'Another', '--from', 'S1', '--parent', 'S1');
+  assert.match(both.err, /--from and --parent each set the Parent; pass one/);
 });
 
 test('item add --before blocks the other task on the new one, --after makes the new one wait, each with a line in both threads; neither links nothing', async () => {

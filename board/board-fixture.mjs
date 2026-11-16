@@ -43,7 +43,7 @@ export async function boardWith(args, env = {}) {
 // tests spawn the CLI with run, which adds nothing.
 export const withNotes = (args) => {
   const i = args.findIndex((a, n) => a === 'item' && args[n + 1] === 'add');
-  return i < 0 || args.some((a) => ['--notes', '--notes-from', '--from-ask'].includes(a)) ? args : [...args, '--notes', 'Notes.'];
+  return i < 0 || args.some((a) => ['--notes', '--notes-from', '--from-ask', '--ask'].includes(a)) ? args : [...args, '--notes', 'Notes.'];
 };
 async function boardAs(args, env) {
   const set = cliEnv(env);

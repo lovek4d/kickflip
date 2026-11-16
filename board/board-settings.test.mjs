@@ -40,7 +40,7 @@ test('tickets link or are made in the board source through the CLI and an inject
   assert.equal(await cli('item', 'set', 'audit/I9', '--from-ask', 'e1', '--phase', 'grilling', '--text', 'On it.'), 0);
   assert.equal(read(waveFile).items.at(-1).ticket, undefined);
   assert.equal(await cli('item', 'set', 'audit/I9', '--new-ticket'), 0);
-  assert.equal(await cli('item', 'add', 'audit/github-follow', '--phase', 'grilling', '--title', 'feat: another follow', '--parent', 'audit/A1', '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit/github-follow', '--phase', 'grilling', '--title', 'feat: another follow', '--new-ticket'), 0);
   assert.deepEqual(calls, [
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
@@ -162,7 +162,7 @@ test("a board still on Linear after Hub's key went refuses new tickets and links
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'D4', title: 'Asked' }] });
   const before = fs.readFileSync(waveFile, 'utf8');
-  for (const args of [['item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'feat: three', '--new-ticket'], ['item', 'add', 'audit', '--phase', 'grilling', '--title', 'feat: unnamed', '--new-ticket'], ['item', 'add', 'audit/later', '--phase', 'grilling', '--title', 'feat: later', '--parent', 'A1', '--new-ticket'],
+  for (const args of [['item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'feat: three', '--new-ticket'], ['item', 'add', 'audit', '--phase', 'grilling', '--title', 'feat: unnamed', '--new-ticket'], ['item', 'add', 'audit/later', '--phase', 'grilling', '--title', 'feat: later', '--new-ticket'],
     ['item', 'set', 'audit/B2', '--ticket', 'ENG-4'], ['item', 'set', 'audit/D4', '--new-ticket']]) {
     assert.equal(await cli(...args), 1, args.join(' '));
     assert.equal(err.at(-1), noKey);

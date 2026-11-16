@@ -703,24 +703,76 @@ function askTitle(ask, events) {
 // Files ask eventId as a New T-<n> card in the board's first item file: from_ask, titled by its first line, no phase,
 // no thread line (its thread opens with the ask; domain.mjs threadOf). The board server runs it as an ask arrives, with
 // pending, the ask event it is about to write, filed first so the watcher's line names its card. → its key, or null
-// when the ask already has a card or isn't New: deleted, moved, folded or answered (askNotNew).
-export const fileAsk = (site, eventId, pending) => ticketWrite(site, async () => {
+// when the ask already has a card or isn't New: deleted, moved, folded or answered (askNotNew). An ask the orchestrator
+// filed (askItem) goes in the item file it names and is born with the links it carries.
+export const fileAsk = (site, eventId, pending, options) => ticketWrite(site, async () => {
   needSite(site);
   const events = await readLog(path.join(site, 'data', 'events.jsonl'));
   const ask = pending || events.find((e) => e.id === eventId && e.kind === 'ask') || fail(`no ask "${eventId}" in this site's data/events.jsonl`);
   if (await askCardOf(site, eventId) || await askNotNew(site, eventId, events)) return null;
-  const { source, itemFile } = await askFile(site);
+  const { source, itemFile } = await askFile(site, ask.data?.file);
   const item = await newAskCard(site, source, ask, askTitle(ask, events));
   itemFile.items.push(item);
   await writeJSON(source.file, itemFile);
-  return `${source.slug}/${item.id}`;
+  const key = `${source.slug}/${item.id}`;
+  await postAskLinks(site, key, ask.data?.links, options);
+  return key;
 });
 
-// The item file an ask's card goes in, {source, itemFile}: the first there is; a file-items board starts its one file.
+// docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
+// item add --ask: the orchestrator's plain-text request filed as an ask on its own board, as the owner's New task is,
+// so the task it becomes waits in intake and is triaged, investigated and answered like theirs. The ask event carries
+// asked {by, key?, ref?}, who asked (the orchestrator, or the builder or planner of the task it comes from), which
+// opens its thread (domain.mjs askedLine); file, the item file its card goes in; and links {parent?, via?, related?,
+// deps?, before?}, as keys, which its card is born with (askLinks). Every link is checked before the event is
+// written. Filed at once, as handoff files on a board that may be down. → its card's key.
+export const ASKERS = ['orchestrator', 'builder', 'planner'];
+const PARENT_FLAGS = { '--from': 'from', '--parent': 'parent', '--split-of': 'split' };
+export async function askItem(site, file, { text: request, from, parent, splitOf, relate, deps, before, by = 'orchestrator' }, options) {
+  needSite(site);
+  if (file.includes('/')) fail(`item add --ask files a task keyed by the board's next number; pass the item file alone, ${file.split('/')[0]}`);
+  const words = text(request, '--ask');
+  if (!ASKERS.includes(by)) fail('--by takes orchestrator, builder or planner');
+  const given = [['--from', from], ['--parent', parent], ['--split-of', splitOf]].filter(([, v]) => v !== undefined);
+  if (given.length > 1) fail(`${given[0][0]} and ${given[1][0]} each set the Parent; pass one`);
+  const [flag, source] = given[0] || [];
+  if (by !== 'orchestrator' && !source) fail(`--by ${by} names the task whose ${by} asked: pass --from, --parent or --split-of`);
+  await loadItemFile(site, file);
+  const links = {};
+  if (source) Object.assign(links, { parent: await parentKey(site, file, null, source) || fail(`${flag} takes a task, such as <file>/<id>`), via: PARENT_FLAGS[flag] });
+  if (relate !== undefined) links.related = await relatedKeys(site, file, relate, '--relate');
+  if (deps !== undefined) links.deps = (await depList(site, file, deps)).map((d) => depKey(file, d));
+  if (before !== undefined) links.before = (await depList(site, file, before)).map((d) => depKey(file, d));
+  const asked = by === 'orchestrator' ? { by } : { by, key: links.parent, ref: await cardName(site, links.parent) };
+  const id = await appendEvent(boardTarget(site), 'ask', { text: words, asked, file, ...(Object.keys(links).length ? { links } : {}) });
+  // A running board may file it first, as it takes the event.
+  const key = await fileAsk(site, id, undefined, options) || (await askCardOf(site, id)).key;
+  return { key, lines: [] };
+}
+// The links an ask carries, set on its card as it is made: its Parent, with a split's gates, its Related to and its
+// deps, a dep in the card's own item file by its id alone.
+async function askLinks(site, item, slug, links = {}) {
+  if (links.parent) item.parent = links.parent;
+  if (links.via === 'split') {
+    const { gates } = (await loadItem(site, links.parent)).item;
+    if (gates) item.gates = { ...gates };
+  }
+  if (links.related?.length) item.related = links.related;
+  if (links.deps?.length) item.deps = links.deps.map((k) => (parseKey(k).file === slug ? parseKey(k).id : k));
+}
+// Once its card is written: the tasks it blocks gain it as a dep, and each link posts its line in both threads.
+async function postAskLinks(site, key, links = {}, options) {
+  const { item } = await loadItem(site, key);
+  await blockLines(site, key, links.before || [], item.deps || [], options);
+  await postLinkLines(site, key, { related: new Set(), parent: null }, await linksOf(site, key), links.via === 'from');
+}
+
+// The item file an ask's card goes in, {source, itemFile}: the one named slug, else the first there is; a file-items
+// board starts its one file.
 // A board over ~/.claude/waves with no item file yet has nowhere to file it, and filing never makes one, so the ask is refused.
-async function askFile(site) {
+async function askFile(site, slug) {
   const sources = await itemSources(site);
-  for (const source of sources) {
+  for (const source of sources.filter((s) => slug === undefined || s.slug === slug)) {
     const itemFile = await readJSON(source.file, null);
     if (!itemFile) continue;
     if (!Array.isArray(itemFile.items)) fail(`${source.file} is not an item file with items[]`);
@@ -734,6 +786,7 @@ async function askFile(site) {
 async function newAskCard(site, source, ask, title) {
   const created = new Date().toISOString();
   const item = { id: await nextTaskId(site), title, created, lane: 'todo', lane_at: created, from_ask: ask.id };
+  await askLinks(site, item, source.slug, ask.data?.links);
   item.plan = freeNotesName(source.dir, item.id);
   await writeNotesFile(path.join(source.dir, item.plan), `# ${item.title}\n`);
   return item;
@@ -778,6 +831,7 @@ export const fileAsks = (site) => ticketWrite(site, async () => {
     // Each card is written as it is made, so the next one's number counts it.
     await writeJSON(target.source.file, target.itemFile);
     carded.set(ask.id, `${target.source.slug}/${item.id}`);
+    await postAskLinks(site, carded.get(ask.id), ask.data?.links);
     filed.push(carded.get(ask.id));
   }
   const cardOf = (topic) => carded.get(/^item:ask:(.+)$/.exec(topic || '')?.[1]);
@@ -3042,11 +3096,12 @@ const clip = (s) => (s.length > 120 ? `${s.slice(0, 119)}…` : s);
 
 // docs/adr/2026-11-02-1806-only-the-owner-or-auto-build-starts-a-card-run.md
 // The owner's words on this board that can ask for a card run: an ask, an edit to one, a card message, an answer's note.
+// An ask the orchestrator filed (askItem, data.asked) is not the owner's.
 const OWNER_WORDS = { ask: 'text', 'ask-edited': 'text', 'item-message': 'text', 'owner-answer': 'note' };
 // → words, once they quote what the owner wrote on this board; else it refuses, naming flag.
 async function ownerQuote(site, words, flag) {
   const quoted = text(words, flag).replace(/\s+/g, ' ');
-  const said = (await readLog(path.join(site, 'data', 'events.jsonl'))).map((e) => String(e.data?.[OWNER_WORDS[e.kind]] ?? '').replace(/\s+/g, ' ').toLowerCase());
+  const said = (await readLog(path.join(site, 'data', 'events.jsonl'))).filter((e) => !e.data?.asked).map((e) => String(e.data?.[OWNER_WORDS[e.kind]] ?? '').replace(/\s+/g, ' ').toLowerCase());
   if (!said.some((t) => t.includes(quoted.toLowerCase()))) fail(`${flag} must quote the owner's words in an ask, task message or answer note on this board`);
   return quoted;
 }
@@ -4054,6 +4109,25 @@ export const setItem = (site, key, changes, options) => (changes.ticket !== unde
   ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
 
+// Card added, just written, blocks each of blocked (ids in its item file, or keys), which gains it as a dep, and waits
+// on each of deps: on a site, an Unblocks and a Blocked by line, one in each thread, for each.
+async function blockLines(site, added, blocked, deps, options) {
+  const { file: slug, id } = parseKey(added);
+  for (const other of blocked) {
+    const target = depKey(slug, other);
+    const { item: waiting } = await loadItem(site, target);
+    await changeItem(site, target, { deps: [...(waiting.deps || []), parseKey(target).file === slug ? id : added].join(',') }, options);
+    if (site) {
+      await appendCommand(site, added, { command: 'unblocks', card: target });
+      await appendCommand(site, target, { command: 'blocked-by', card: added });
+    }
+  }
+  for (const other of site ? deps : []) {
+    await appendCommand(site, added, { command: 'blocked-by', card: depKey(slug, other) });
+    await appendCommand(site, depKey(slug, other), { command: 'unblocks', card: added });
+  }
+}
+
 // → {file, key}. A new card starts in Todo, placed as it is made, as a task with no ticket unless ticket links one or
 // newTicket makes one (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md). key is <file>/<id>, or
 // <file> alone, which names the card from its ticket, or T-<n> for a task. parent is the card it was spun out of
@@ -4071,6 +4145,9 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   if (said !== undefined && fromAsk === undefined && phase !== 'discussing') fail('--text goes with --from-ask, or with --phase discussing');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (ticket !== undefined && newTicket) fail('pass --ticket <id> to link a ticket or --new-ticket to make one, not both');
+  // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
+  const sourced = [['--from', from], ['--parent', parent], ['--split-of', splitOf]].find(([, v]) => v !== undefined);
+  if (intake && site && sourced) fail(`a task filed from another comes in as an ask: item add ${slug} --ask "<the request>" ${sourced.join(' ')}, which triage titles, notes and sorts`);
   // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
@@ -4138,19 +4215,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   const added = `${slug}/${item.id}`;
   itemFile.items.push(item);
   await writeJSON(source.file, itemFile);
-  for (const other of blocked) {
-    const target = depKey(slug, other);
-    const { item: waiting } = await loadItem(site, target);
-    await changeItem(site, target, { deps: [...(waiting.deps || []), parseKey(target).file === slug ? item.id : added].join(',') }, options);
-    if (site) {
-      await appendCommand(site, added, { command: 'unblocks', card: target });
-      await appendCommand(site, target, { command: 'blocked-by', card: added });
-    }
-  }
-  for (const other of intake && site ? item.deps || [] : []) {
-    await appendCommand(site, added, { command: 'blocked-by', card: depKey(slug, other) });
-    await appendCommand(site, depKey(slug, other), { command: 'unblocks', card: added });
-  }
+  await blockLines(site, added, blocked, intake ? item.deps || [] : [], options);
   if (ask) {
     await appendMessage(site, added, { text: said });
     // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.

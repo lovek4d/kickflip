@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // A Claude Code PostToolUse hook that shows a board's session the owner's new words while it works, after its next tool
-// call, instead of only at its watcher's next wake: each thread message, ask and ask edit (OWNER_WORDS) past the
+// call, instead of only at its watcher's next wake: each thread message, ask and ask edit (ownerWords: never an ask the
+// orchestrator filed itself) past the
 // watcher's cursor that it hasn't shown yet, with its sent time and age, its plain line and its event line. It marks
 // the ones the watcher marks working (WORKING_KINDS), so they read thinking… on the board at once, stamps each delivered
 // as the watcher does (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md), moves the mark of an
@@ -23,13 +24,13 @@ function age(ts, now) {
 }
 
 async function shownOn(board, session, now) {
-  const { OWNER_WORDS, plainLine, shownFile } = await import('../../bin/event-lines.mjs');
+  const { ownerWords, plainLine, shownFile } = await import('../../bin/event-lines.mjs');
   const { editedAsks, markDelivered, markWorking, restampWorking, WORKING_KINDS } = await import('../../board/store.mjs');
   const cursor = readJSON(path.join(board.dir, 'data', `.watch-cursor-${session}.json`));
   if (!Number.isInteger(cursor?.[EVENTS])) return [];
   let lines = [];
   try { lines = fs.readFileSync(path.join(board.dir, EVENTS), 'utf8').split('\n').filter(Boolean).slice(cursor[EVENTS]); } catch {}
-  const pending = lines.map((line) => ({ line, e: parsed(line) })).filter(({ e }) => OWNER_WORDS.includes(e?.kind) && typeof e.id === 'string');
+  const pending = lines.map((line) => ({ line, e: parsed(line) })).filter(({ e }) => ownerWords(e) && typeof e.id === 'string');
   const file = shownFile(board.dir, session);
   // Ids the watcher has since woken past drop out.
   const before = (readJSON(file)?.ids || []).filter((id) => pending.some(({ e }) => e.id === id));

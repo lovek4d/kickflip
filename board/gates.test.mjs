@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addItem, addQuestions, briefFacts, migrateGates, settleAnswers, stopPlanner } from './store.mjs';
+import { askItem, addQuestions, briefFacts, migrateGates, settleAnswers, stopPlanner } from './store.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const yesNo = [{ id: 'yes', label: 'Yes', recommended: true }, { id: 'no', label: 'No' }];
@@ -89,15 +89,16 @@ test("a grill that ends asking nothing on a card whose prototype answer is kept 
   assert.ok(unset.thread().some((l) => l.line === 'planner-unasked'));
 });
 
-test('item add --split-of sets the Parent and copies its gates; it refuses --parent beside it', async () => {
+// docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md: a split comes in as an ask.
+test('item add --ask --split-of sets the Parent and copies its gates; it refuses --parent beside it', async () => {
   const w = world({ gates: { prototype: 'no' } }, [{ id: 'B1', title: 'Bare', lane: 'todo', phase: 'grilling' }]);
-  const { key } = await addItem(w.site, 't/C1', { title: 'feat: slice one', splitOf: 't/A1', phase: 'grilling', notes: 'Slice.', intake: true });
-  assert.equal(key, 't/C1');
-  assert.deepEqual([w.read('C1').parent, w.read('C1').gates], ['t/A1', { prototype: 'no' }]);
-  await addItem(w.site, 't/C2', { title: 'feat: slice of a bare task', splitOf: 't/B1', phase: 'grilling', notes: 'Slice.', intake: true });
-  assert.deepEqual([w.read('C2').parent, 'gates' in w.read('C2')], ['t/B1', false]);
-  await assert.rejects(addItem(w.site, 't/C3', { title: 'feat: both', splitOf: 't/A1', parent: 't/A1', phase: 'grilling', notes: 'Slice.', intake: true }), /--split-of sets the Parent; drop --parent/);
-  await assert.rejects(addItem(w.site, 't/C4', { title: 'feat: gone', splitOf: 't/Z9', phase: 'grilling', notes: 'Slice.', intake: true }), /Z9/);
+  const { key } = await askItem(w.site, 't', { text: 'Slice one', splitOf: 't/A1' });
+  const id = key.split('/')[1];
+  assert.deepEqual([w.read(id).parent, w.read(id).gates], ['t/A1', { prototype: 'no' }]);
+  const bare = (await askItem(w.site, 't', { text: 'Slice of a bare task', splitOf: 't/B1' })).key.split('/')[1];
+  assert.deepEqual([w.read(bare).parent, 'gates' in w.read(bare)], ['t/B1', false]);
+  await assert.rejects(askItem(w.site, 't', { text: 'Both', splitOf: 't/A1', parent: 't/A1' }), /--parent and --split-of each set the Parent; pass one/);
+  await assert.rejects(askItem(w.site, 't', { text: 'Gone', splitOf: 't/Z9' }), /Z9/);
 });
 
 // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a card's ticket is made at ready, so no question asks for one.

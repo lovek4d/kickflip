@@ -150,11 +150,11 @@ test('item set --new-ticket gives a task a ticket in the source, keeping its key
   assert.match(errors.at(-1), /already has ticket ENG-\d+/);
 });
 
-test('a follow-up, item add --parent, is a task too', async (t) => {
+test('a follow-up, item add --ask --parent, is a task too', async (t) => {
   quiet(t);
   const b = board('follow');
   await saveBoardSettings(b.site, { tickets: { source: 'github' } });
-  assert.equal(await cli('follow', 'item', 'add', 'follow', '--phase', 'grilling', '--title', 'feat: later', '--parent', 'INT-1'), 0);
+  assert.equal(await cli('follow', 'item', 'add', 'follow', '--ask', 'Do it later', '--parent', 'INT-1'), 0);
   assert.deepEqual([b.item('T-1').parent, b.item('T-1').ticket], ['follow/INT-1', undefined]);
 });
 

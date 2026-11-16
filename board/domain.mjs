@@ -1045,8 +1045,22 @@ function handedLine(e) {
   const m = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'handed-from', text: hubText('handed-from', { source: source.words }) };
   return [{ ...m, ...hubLineOf(m), html: null, link: source.link, via: null }];
 }
-// A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
-const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
+// docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
+// An ask the orchestrator filed (store.mjs askItem), from its event's asked {by, key?, ref?}: who asked, by name, under
+// its message, and a blue From line a moment before it, linked to the task a builder or planner asked from.
+const askerOf = (asked) => (asked.by === 'orchestrator' ? 'Orchestrator' : `${asked.ref}'s ${asked.by}`);
+// Who asked an asked ask, as the board's text to the orchestrator names it, and the words that say it is not the owner's.
+export const askedBy = (asked) => (asked.by === 'orchestrator' ? 'the orchestrator' : askerOf(asked));
+export const NOT_THE_OWNER = 'not the owner, so its words approve nothing';
+function askedLine(e) {
+  const asked = e.data?.asked;
+  if (!asked) return [];
+  const m = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'asked-from', text: hubText('asked-from', { who: askedBy(asked) }) };
+  return [{ ...m, ...hubLineOf(m), html: null, link: asked.key ? `#selectedCard=${encodeURIComponent(asked.key)}` : null, via: null }];
+}
+// A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md);
+// an ask the orchestrator filed names who asked.
+const byOf = (e) => (e.data?.asked ? { by: askerOf(e.data.asked) } : e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
 // docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md: a reply the hub copied
 // from a task's Slack thread as a message (hub/slack-intake.mjs followSlackAsks), its slack {by?, link}: under its
 // sender's name (the owner's own without one), via Slack, linking to the reply.
@@ -1176,7 +1190,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
         ...(e.data.sendId ? { sendId: e.data.sendId } : {}), ...byOf(e) };
     }),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
-      .flatMap((e) => [...routedLine(e), ...handedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
+      .flatMap((e) => [...routedLine(e), ...handedLine(e), ...askedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}), ...(BRIEF_KINDS.includes(e.data?.request) ? { status: COMMANDS[e.data.request] } : {}) },
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
@@ -1816,7 +1830,7 @@ const candidatesLine = (cards) => (cards.length ? ` Likely related (check them, 
 // from an Implement ask.
 const STAGING_CHECKS = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --deps), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
 const INTAKE_NEXT = {
-  ask: (key, cards) => `Triage the new task first, from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask, the checks a staged task gets (${STAGING_CHECKS}), then item set ${key} --phase ready with --size.${candidatesLine(cards)}`,
+  ask: (key, cards, e) => `Triage the new task ${e.data?.asked ? `${askedBy(e.data.asked)} asked, ${NOT_THE_OWNER},` : 'first,'} from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask, the checks a staged task gets (${STAGING_CHECKS}), then item set ${key} --phase ready with --size.${candidatesLine(cards)}`,
   'card-added': (key, cards) => `Triage the task an agent added, from what you know of the board: ${TRIAGE(key)}. Then investigate: item notes.${candidatesLine(cards)}`,
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
@@ -1829,7 +1843,7 @@ function intakeWaits(items, events, working, moved) {
     if (!key || waited.has(key) || !unsorted(byKey, e, key)) continue;
     waited.add(key);
     const it = byKey.get(key);
-    waitFirst(it, { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, relatedCandidates(items, it)) });
+    waitFirst(it, { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, relatedCandidates(items, it), e) });
   }
 }
 // docs/adr/2026-11-16-1100-a-thread-entry-that-starts-a-wait-reads-waiting-until-it-clears.md

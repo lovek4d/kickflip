@@ -306,6 +306,15 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          notes file, live, done or archived, naming that task
          [--pick-up-at <time> | --blocked]               blocks it until then, or until unblocked, as item set's
          [--size small|large] [--model opus|sonnet]      as item set's
+         On a board, --parent, --from and --split-of go only with --ask: a task filed from another comes in as an ask
+  item add <file> --ask <request>                       a task you file comes in as an ask through New, as the
+         [--parent | --from | --split-of <file>/<id>]    owner's do: an ask event, your plain-text request, filed at
+         [--relate <ids>] [--after <ids>]                once as a New T-<n> task in <file>, born with the links it
+         [--before <ids>] [--by builder|planner]         carries; it waits in intake for your triage, investigation
+                                                         and one reply. Its thread opens with a blue "From the
+                                                         orchestrator", or with --by and a source "From <ref>'s
+                                                         builder". Refuses --title, --notes, --phase and the rest
+                                                         triage decides. Prints "<label> added as <key>: an ask in New"
          [--parent <file>/<id>]                          the task it was spun out of, such as one filed from
                                                          another task's thread, grill or answer: it reads as a
                                                          follow-up, and its Parent lists it in Children. A task
@@ -977,8 +986,15 @@ const COMMANDS = {
     return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check }, options);
   }],
-  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'before', 'after', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'from', 'split-of', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'before', 'after', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'from', 'split-of', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new task\'s notes with item add --notes-from <draft.md>');
+    // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
+    if (f.ask !== undefined) {
+      const decided = ['title', 'notes', 'notes-from', 'phase', 'state', 'size', 'model', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'from-ask', 'text'].find((k) => f[k] !== undefined);
+      if (decided) throw new UsageError(`--ask files the orchestrator's request as an ask; triage titles, notes and sorts it, so drop --${decided}`);
+      return store.askItem(needSite(site, 'item add --ask'), key, { text: f.ask, from: f.from, parent: f.parent, splitOf: f['split-of'], relate: f.relate, deps: f.after, before: f.before, by: f.by }, options);
+    }
+    if (f.by !== undefined) throw new UsageError('--by names who asked, with --ask');
     if (f.phase === 'discussing' && f.text === undefined && f['from-ask'] === undefined) throw new UsageError('item add --phase discussing needs --text "<first message>": the task opens with it, after Created from, and reads the owner\'s turn');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
     return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], before: f.before, deps: f.after, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], block: f.blocked, parent: f.parent, from: f.from, splitOf: f['split-of'], size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
@@ -1211,7 +1227,7 @@ const SAID = {
   'prototype add': async (site, [topic], f) => `prototype ${topic} recorded${f.card ? ` for ${await card(site, f.card)}` : ''}`,
   'prototype rm': (site, [topic]) => `prototype ${topic} removed`,
   'item set': async (site, [key], f) => `${await card(site, key)}: ${itemChanges(f)}`,
-  'item add': async (site, _, f, { key }) => `${await card(site, key)} added as ${key}`,
+  'item add': async (site, _, f, { key }) => `${await card(site, key)} added as ${key}${f.ask !== undefined ? ': an ask in New; triage it as you do the owner\'s' : ''}`,
   'item notes': async (site, [key], f, { file, heading }) => `${await card(site, key)}: notes section "${heading}" added to ${file}`,
   'item triage': async (site, [key], f) => (f['fold-into'] !== undefined ? `${key} folded into ${await card(site, f['fold-into'])}` : `${await card(site, key)}: triaged ${f.phase}`),
   'item relate-ask': async (site, [id, key]) => `ask ${id} folded into ${await card(site, key)}`,

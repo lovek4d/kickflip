@@ -83,6 +83,9 @@ export const HUB_LINES = {
   // event (domain.mjs threadOf), never written, above the ask on the receiving board; blue, as created.
   'handed-to': { tone: 'grey', mark: MOVE, text: ({ route, ref }) => fit('Handed to ', `/${route} · ${ref}`) },
   'handed-from': { tone: 'blue', mark: 'ask-link', text: ({ source }) => fit('Handed from ', source) },
+  // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md: drawn from an ask the
+  // orchestrator filed (domain.mjs askedLine), never written, above the ask; blue, as created.
+  'asked-from': { tone: 'blue', mark: 'ask-link', text: ({ who }) => fit('From ', who) },
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: on the asking card, grey and
   // quiet, the question the card's agent put to another board (store.mjs askBoard); the answer follows as that board's
   // message.

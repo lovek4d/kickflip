@@ -2,13 +2,16 @@
 // other kind the board writes has an action line here and an entry in SKILL.md
 // (docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md; bin/event-lines.test.mjs keeps it so).
 import path from 'node:path';
-import { waitsAgainLine } from '../board/domain.mjs';
+import { askedBy, NOT_THE_OWNER, waitsAgainLine } from '../board/domain.mjs';
 import { cardName } from '../board/store.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 
 // The owner's own words, which hooks-plugin/hooks/board-messages.mjs shows mid-task and the next wake prints again,
 // tagged (docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md).
 export const OWNER_WORDS = ['item-message', 'ask', 'ask-edited'];
+// Whether event e is the owner's own words: an ask the orchestrator filed (item add --ask, data.asked) is not
+// (docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md).
+export const ownerWords = (e) => OWNER_WORDS.includes(e?.kind) && !(e.kind === 'ask' && e.data?.asked);
 // The ids of those the hook showed a session since its watcher's last wake: {ids: [event id]}.
 export const shownFile = (dir, session) => path.join(dir, 'data', `.shown-${session}.json`);
 
@@ -87,7 +90,7 @@ export const ON_CARD = {
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: c is the New card the board filed
   // for the ask; its waits line carries its key and the cards it likely relates to.
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
-  ask: (c, e) => `new task ${e.id} received as ${c}: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate`,
+  ask: (c, e) => `new task ${e.id}${e.data?.asked ? `, asked by ${askedBy(e.data.asked)}, ${NOT_THE_OWNER},` : ''} received as ${c}: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate`,
 };
 
 // One plain line per event line, from its kind and card (data.key, data.id for an ask-* event, or an ask's own id), or null for a
