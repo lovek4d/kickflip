@@ -186,12 +186,12 @@
     const x = (i) => (samples.length > 1 ? tenth((i * 120) / (samples.length - 1)) : 120);
     return `<svg class="ls-spark" viewBox="0 0 120 ${h}" preserveAspectRatio="none" aria-hidden="true">`
       + `<line x1="0" x2="120" y1="${y(cores)}" y2="${y(cores)}" stroke="var(--line)" stroke-dasharray="3 3"/>`
-      + `<polyline fill="none" stroke="var(--color-notice)" stroke-width="2" vector-effect="non-scaling-stroke" points="${samples.map((s, i) => `${x(i)},${y(s.load)}`).join(' ')}"/></svg>`;
+      + `<polyline fill="none" stroke-width="2" vector-effect="non-scaling-stroke" points="${samples.map((s, i) => `${x(i)},${y(s.load)}`).join(' ')}"/></svg>`;
   }
   function loadSheet(data, { open = new Set() } = {}) {
     const head = `<div class="sheet-head"><h2 id="loadSheetTitle">What's loading the host</h2><button type="button" data-load-close aria-label="Close sheet">✕</button></div>`;
     if (!data) return `<div class="sheet-body">${head}<p class="ls-note" role="status">Reading the host…</p></div>`;
-    const load = `<div class="ls-load"><div><b>${tenth(data.load)}</b><span> now, ${data.cores} cores</span></div>`
+    const load = `<div class="ls-load${data.busy ? ' ls-busy' : ''}"><div><b>${tenth(data.load)}</b><span> now, ${data.cores} cores</span></div>`
       + (data.samples.length
         ? `<div><b class="ls-avg">${tenth(data.average)}</b><span> hour average</span></div><div class="ls-sparkbox">${loadLine(data)}<span class="ls-axis"><i>60 min ago</i><i>now</i></span></div>`
         : '<div><span>No samples yet</span></div>')

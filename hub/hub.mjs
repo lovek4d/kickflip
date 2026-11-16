@@ -240,6 +240,7 @@ import { hubStream } from './stream.mjs';
 import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing, setHubPause, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { checkMachine, readMachine as readMac } from '../shared/machine-gate.mjs';
+import { logHostLoad } from './host-load-log.mjs';
 import { machineLoad, stopOrphan, boardBuilders, claudeSessions } from './machine-load.mjs';
 import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, killBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
@@ -808,6 +809,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return track(routing);
   }
 
+  const loadOwners = () => { const manifest = loadManifest(); return { builders: boardBuilders(manifest), sessions: claudeSessions(manifest) }; };
+
   // The 15-second tick. Its poll runs only on the hub's own timer (ticks); without it, polls run when asked.
   function tick() {
     return track(Promise.allSettled([
@@ -815,6 +818,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       runRoutes(),
       checkUsageGate().catch((e) => log('usage gate failed:', e.message)),
       (async () => { try { checkMachine({ reading: readMachine() }); } catch (e) { log('machine check failed:', e.message); } })(),
+      machineLoad(loadOwners()).then((data) => logHostLoad(data), (e) => log('host load log failed:', e.message)),
       owner.check().then(presenceChanged, (e) => log('presence check failed:', e.message)).finally(() => {
         if (ticks && !polls.running && clock() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
       }),
@@ -1306,7 +1310,6 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if (p === '/_hub/hub.css') return send(200, 'text/css; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, 'hub.css')));
     // docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md
-    const loadOwners = () => { const manifest = loadManifest(); return { builders: boardBuilders(manifest), sessions: claudeSessions(manifest) }; };
     if (p === '/_hub/machine.json' && req.method === 'GET') return sendJSON(200, await machineLoad(loadOwners()));
     if (p === '/_hub/machine/stop' && req.method === 'POST') {
       try { return sendJSON(200, await stopOrphan(Number((await readJSONBody(req)).pid), loadOwners())); }

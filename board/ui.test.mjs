@@ -3217,6 +3217,10 @@ test("the Hub row's status opens what's loading the host at any load: the load n
   assert.equal([...sheet.matchAll(/<div class="ls-confirm" hidden>/g)].length, 2);
   assert.match(sheet, /class="ls-cpu hot">212%/);
 
+  assert.doesNotMatch(sheet, /ls-busy/, 'green while the hub does not read busy');
+  assert.match(ui.loadSheet({ ...data, busy: true }), /<div class="ls-load ls-busy">/, 'orange while it reads busy');
+  assert.doesNotMatch(sheet, /<polyline [^>]*stroke="/, 'the line takes its colour from the sheet');
+
   assert.match(text(ui.loadSheet({ ...data, groups: [] })), /Nothing is loading the host\.$/);
   assert.match(text(ui.loadSheet({ ...data, groups: null })), /ps gave no answer in time, as happens on a busy host\. Try again in a moment\.$/);
   assert.match(text(ui.loadSheet({ ...data, average: null, samples: [] })), /58 now, 10 cores No samples yet/);

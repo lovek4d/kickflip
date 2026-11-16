@@ -15,7 +15,7 @@ import path from 'node:path';
 import { ps as runPs, sessionRecords } from './live.mjs';
 import { listBoards } from './boards.mjs';
 import { openBoardBuilders } from '../board/store.mjs';
-import { readMachine, readMachineSamples } from '../shared/machine-gate.mjs';
+import { readMachine, readMachineSamples, readMachineState } from '../shared/machine-gate.mjs';
 import { audit as writeAudit, hubAudit } from '../shared/audit.mjs';
 
 export const ORPHAN_AGE = 86400;
@@ -60,7 +60,7 @@ const isHot = (p) => !p.tty && p.age >= HOT_AGE && p.cpu >= HOT_CPU && !isSystem
 const isOrphan = (p, { uid, keep }) => p.ppid === 1 && p.uid === uid && !keep.has(p.pid) && ((p.age >= ORPHAN_AGE && isNode(p)) || isHot(p));
 
 // procs: parsePs's rows. builders: Map pid → {label, board}; sessions: Map pid → {label, owner}; keep: the pids that are
-// never orphans (the hub); uid: this user's. → [{key, title, rows: [{pid, cmd, age, cpu, owner}]}], GROUPS' order,
+// never orphans (the hub); uid: this user's. → [{key, title, rows: [{pid, ppid, command (ps's), cmd (as a row shows it), age, cpu, owner}]}], GROUPS' order,
 // each group's rows busiest first, without the groups that have none.
 export function loadGroups(procs, { builders, sessions, keep, uid, home = os.homedir() }) {
   const byPid = new Map(procs.map((p) => [p.pid, p]));
@@ -93,7 +93,7 @@ export function loadGroups(procs, { builders, sessions, keep, uid, home = os.hom
     return up ? (builders.get(up.pid) || sessions.get(up.pid)).label : NO_OWNER;
   };
   const rowOf = (p, g) => ({
-    pid: p.pid, age: p.age, cpu: Math.round((g === 'other' ? p.cpu : cpu.get(p.pid)) * 10) / 10,
+    pid: p.pid, ppid: p.ppid, command: p.command, age: p.age, cpu: Math.round((g === 'other' ? p.cpu : cpu.get(p.pid)) * 10) / 10,
     cmd: g === 'builder' ? builders.get(p.pid).label : g === 'session' ? sessions.get(p.pid).label : shortCommand(p.command, home),
     owner: g === 'builder' ? builders.get(p.pid).board : g === 'session' ? sessions.get(p.pid).owner : g === 'other' ? '' : g === 'orphan' ? NO_OWNER : ownerOf(p),
   });
@@ -131,13 +131,13 @@ async function groupsNow({ ps = () => runPs(PS_COLUMNS), builders, sessions, kee
   return text === null ? null : loadGroups(parsePs(text), { builders: await builders, sessions: await sessions, keep, uid, home });
 }
 
-// What /_hub/machine.json serves: {load, cores, average (of the samples, null without any), samples: [{at, load}],
+// What /_hub/machine.json serves: {load, cores, busy (the state the hub's tick kept), average (of the samples, null without any), samples: [{at, load}],
 // groups (loadGroups', or null when ps gave no answer)}.
-export async function machineLoad({ reading = readMachine, samples = readMachineSamples, ...deps }) {
+export async function machineLoad({ reading = readMachine, samples = readMachineSamples, state = readMachineState, ...deps }) {
   const now = reading();
   const kept = samples();
   return {
-    load: now.load, cores: now.cores,
+    load: now.load, cores: now.cores, busy: state().state === 'busy',
     average: kept.length ? kept.reduce((n, s) => n + s.load, 0) / kept.length : null,
     samples: kept,
     groups: await groupsNow(deps),

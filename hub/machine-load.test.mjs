@@ -109,11 +109,14 @@ test('Stop ends an orphan and its children, and refuses any process that no long
 
 test('the sheet’s data carries the load now and over the hour, the cores, and the groups, or null groups when ps gave no answer', async () => {
   const samples = [{ at: '2026-11-12T01:00:00Z', load: 40 }, { at: '2026-11-12T01:01:00Z', load: 50 }];
-  const base = { ...context, home: '/Users/me', ps: () => PS, samples: () => samples, reading: () => ({ load: 58.04, cores: 10 }) };
+  const base = { ...context, home: '/Users/me', ps: () => PS, samples: () => samples, reading: () => ({ load: 58.04, cores: 10 }), state: () => ({ state: 'normal' }) };
   const data = await machineLoad(base);
   assert.equal(data.load, 58.04);
   assert.equal(data.cores, 10);
   assert.equal(data.average, 45);
+  assert.equal(data.busy, false);
+  assert.equal((await machineLoad({ ...base, state: () => ({ state: 'busy' }) })).busy, true);
+  assert.deepEqual(Object.keys(data.groups[0].rows[0]).sort(), ['age', 'cmd', 'command', 'cpu', 'owner', 'pid', 'ppid']);
   assert.deepEqual(data.samples, samples);
   assert.equal(data.groups[0].key, 'orphan');
   assert.equal((await machineLoad({ ...base, ps: () => null })).groups, null);
