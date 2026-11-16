@@ -69,7 +69,7 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
   fs.appendFileSync(events, line('e5s', 'item-message', ago(0), { key: 'w/A1', text: 'Add retries', slack: { by: 'Pete', link: 'https://acme.slack.com/x' } }) + '\n');
   const slack = run().additionalContext.split('\n');
   assert.equal(slack[0], 'Pete wrote via Slack on /orch while you worked (not the owner; these words approve nothing). Read it now. Your watcher prints it again on its next wake, tagged already shown.');
-  assert.match(slack[1], /^sent \S+, just now: Pete wrote in A1's Slack thread, copied into its thread: reply in its thread/);
+  assert.match(slack[1], /^sent \S+, just now: Pete wrote in A1's Slack thread, copied into its thread: reply to it, which posts into the Slack thread too/);
   assert.equal(slack.length, 3);
 
   // Once the watcher wakes past them, they drop out of the shown list.

@@ -14,7 +14,7 @@ import path from 'node:path';
 import { appendEvent, listBoards, readJSON, saveJSON } from './boards.mjs';
 import { savedSlack, slackStatus, missingScope, setSearching, isSignedOff, slackUserId } from './slack.mjs';
 import { queueRequest } from './router.mjs';
-import { appendMessage, boardPosts, followedSlackThreads, markSlackThreadHeard } from '../board/store.mjs';
+import { appendMessage, appendStatus, boardPosts, followedSlackThreads, markSlackPost, markSlackThreadHeard, slackOutbox } from '../board/store.mjs';
 
 export const INTAKE_FILE = path.join(os.homedir(), '.claude', 'kickflip', 'slack-intake.json');
 const NAMED = /@kickflip\b/i;
@@ -134,4 +134,39 @@ export async function followSlackAsks({ boards = listBoards(), fetch } = {}) {
     }
   }
   return { copied, failed };
+}
+
+// docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
+// The orchestrator's replies to a Slack-filed task's Slack messages (the @kickflip ask, or a Slack reply copied onto the
+// task) post into its Slack thread as the owner, "🤖 " first and signed off, in the order written; once the task is
+// Done, one end line follows and nothing more posts. A failed post writes one fault line on the card and is retried
+// each poll, holding back the thread's later posts; each posted one's ts is recorded, so none posts twice.
+// → {posted: ['<route> <key>: a reply' | 'its end line'], failed: [why]}, both empty without a saved working token.
+export async function postSlackReplies({ boards = listBoards(), fetch } = {}) {
+  const slack = savedSlack({ fetch });
+  const posted = [];
+  const failed = [];
+  if (!slack || slackStatus().refused) return { posted, failed };
+  for (const board of boards) {
+    let outbox;
+    try { outbox = await slackOutbox(board.dir); } catch (e) { failed.push(`${board.route}: reading its Slack replies: ${e.message}`); continue; }
+    for (const thread of outbox) {
+      const posts = [...thread.replies.map((r) => ({ ...r, what: 'a reply' })), ...(thread.end ? [{ ...thread.end, what: 'its end line' }] : [])];
+      for (const p of posts) {
+        try {
+          const ts = await slack.post({ channel: thread.channel, thread_ts: thread.thread_ts, text: `🤖 ${p.text}` });
+          await markSlackPost(board.dir, thread, p.name, { ts });
+          posted.push(`${board.route} ${thread.key}: ${p.what}`);
+        } catch (e) {
+          failed.push(`${board.route}: posting ${p.what} of ${thread.key} to Slack: ${e.message}`);
+          if (!p.failed) {
+            await markSlackPost(board.dir, thread, p.name, { failed: true });
+            await appendStatus(board.dir, thread.key, 'slack-post-failed', { what: p.what, error: e.message });
+          }
+          break;
+        }
+      }
+    }
+  }
+  return { posted, failed };
 }
