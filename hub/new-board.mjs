@@ -12,7 +12,7 @@ function details(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)
     || Object.keys(input).some((k) => !['name', 'github', 'remote', 'branch', 'purpose', 'tickets', 'model'].includes(k))) refuse('Send only name, github or remote, branch, purpose, tickets and model.');
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 60) refuse('Name must be 1–60 characters.');
-  if (input.purpose !== undefined && (typeof input.purpose !== 'string' || input.purpose.length > 240)) refuse('Purpose must be at most 240 characters.');
+  if (typeof input.purpose !== 'string' || !input.purpose.trim() || input.purpose.length > 240) refuse('Description must be 1–240 characters.');
   if (input.model !== undefined && !MODELS.includes(input.model)) refuse('Model must be opus or sonnet.');
   const title = input.name.trim().replace(/\s+/g, ' ');
   const route = routeFromName(title);
@@ -28,7 +28,7 @@ function details(input) {
     if (!newProject || newProject.length > 80) refuse('Name the new Linear project.');
     tickets = { ...rest, project: newProject };
   }
-  return { route, title, github, remote, branch, tickets: ticketSource(tickets), model: input.model || DEFAULT_MODEL, newProject, purpose: (input.purpose || '').trim().replace(/\s+/g, ' ') };
+  return { route, title, github, remote, branch, tickets: ticketSource(tickets), model: input.model || DEFAULT_MODEL, newProject, purpose: input.purpose.trim().replace(/\s+/g, ' ') };
 }
 
 // A board's repo from a request: {github} on GitHub, or {remote} on any other git host

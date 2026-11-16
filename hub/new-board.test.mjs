@@ -37,7 +37,7 @@ const noEvents = () => {
   for (const d of [dir, decoyDir]) assert.equal(fs.existsSync(path.join(d, 'data', 'events.jsonl')), false);
 };
 const live = () => new Map();
-const input = (name, github = 'owner/project', branch = 'main') => ({ name, github, branch, purpose: '' });
+const input = (name, github = 'owner/project', branch = 'main') => ({ name, github, branch, purpose: 'Routes requests' });
 const cloneCalls = [];
 const repoRun = async (command, argv, options) => {
   assert.equal(command, 'git');
@@ -118,7 +118,7 @@ test('concurrent boards share one clone without switching its branch and need no
   await Promise.all(requests.map((r) => r.started));
   assert.equal(cloneCalls.length - before, 1);
   assert.deepEqual(calls.map((c) => c.cwd), [path.join(base, 'owner/shared'), path.join(base, 'owner/shared')]);
-  assert.equal(calls[0].argv.at(-1), "/kickflip board 'Shared 0'");
+  assert.equal(calls[0].argv.at(-1), "/kickflip board 'Shared 0' --description 'Routes requests'");
   assert.deepEqual(Object.values(readManifest().starting).map((r) => r.branch), ['main', 'develop']);
   const another = await requestBoard(input('Shared again', 'owner/shared'), { run, live, repos });
   assert.ok((await another.started).session);
@@ -350,7 +350,7 @@ test('invalid repo identities, branches, fields and reserved routes are refused 
     { github: '../escape' }, { github: 'o/../../escape' }, { github: '/tmp/escape' }, { github: 'owner/repo;ls' }, { github: '-owner/repo' },
     { github: 'https://github.com/o/r' }, { github: 'o/.git' }, { github: null }, { repo: home },
     { branch: '-main' }, { branch: '../main' }, { branch: 'a.lock' }, { branch: 'a/.hidden' }, { branch: 'a@{b' }, { branch: 'a b' }, { branch: 'a\\b' }, { branch: null },
-    { purpose: 'p'.repeat(241) }, { purpose: null }, { tickets: { source: 'internal', prefix: 'BAD1' } }, { tickets: { source: 'other' } }, { tickets: { source: 'linear', team: 'ENG' } },
+    { purpose: 'p'.repeat(241) }, { purpose: null }, { purpose: '' }, { purpose: '   ' }, { purpose: undefined }, { tickets: { source: 'internal', prefix: 'BAD1' } }, { tickets: { source: 'other' } }, { tickets: { source: 'linear', team: 'ENG' } },
     { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', new_project: ' ' } }, { tickets: { source: 'linear', workspace: 'acme', team: 'eng', new_project: 'Board' } }]) {
     await assert.rejects(requestBoard({ ...input('New board'), ...change }, { run, live, repos }), { status: 400 });
   }
@@ -538,7 +538,7 @@ test('a New board on another git host reserves remote and no github, refuses Git
   const clone = path.join(base, 'gitlab.com/acme/firmware');
   const ensured = [];
   const service = { base, path: (repo) => repoPath(repo, base), cloned: () => false, ensure: async (repo, branch) => { ensured.push([repo, branch]); fs.mkdirSync(path.join(clone, '.git'), { recursive: true }); return clone; } };
-  const firmware = { name: 'Firmware', remote: link, branch: 'main', purpose: '' };
+  const firmware = { name: 'Firmware', remote: link, branch: 'main', purpose: 'Firmware work' };
   await assert.rejects(requestBoard({ ...firmware, tickets: { source: 'github' } }, { run: claude().run, live, repos: service }), { status: 400, message: /GitHub issues need a repo on GitHub/ });
   await assert.rejects(requestBoard({ ...firmware, github: 'acme/firmware' }, { run: claude().run, live, repos: service }), { status: 400 });
   await assert.rejects(requestBoard({ ...firmware, remote: '/srv/git/firmware.git' }, { run: claude().run, live, repos: service }), { status: 400 });

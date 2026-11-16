@@ -139,7 +139,7 @@ test('an unlisted public repo lists branches and prepares a verified clone with 
   saveJSON(manifestFile, manifest);
   const result = await changeBoardRepo('board', { github: 'outside/public', branch: 'release/next' }, { repos, event: async () => 'event' });
   assert.equal(result.repo, path.join(base, 'outside/public'));
-  const request = await requestBoard({ name: 'Unlisted public', github: 'outside/public', branch: 'trunk' }, { repos, run: async () => ({ status: 1, stderr: 'test session' }) });
+  const request = await requestBoard({ name: 'Unlisted public', github: 'outside/public', branch: 'trunk', purpose: 'Public work' }, { repos, run: async () => ({ status: 1, stderr: 'test session' }) });
   assert.equal((await request.started).error, 'claude --bg failed (1): test session');
   assert.equal(calls.filter(([command, argv]) => command === 'git' && argv.includes('clone')).length, 1);
   assert.equal(calls.some(([, argv]) => argv.includes('list')), false);
@@ -255,7 +255,7 @@ for (const kind of ['wrong-origin', 'empty-metadata', 'symlink-metadata', 'gitdi
     const settings = changeBoardRepo('board', { github: 'owner/project', branch: 'main' }, { repos });
     await assert.rejects(settings, /clone path.*(?:repo|origin|metadata|work tree)/i);
     assert.deepEqual(readManifest(), manifest);
-    const request = await requestBoard({ name: `Bad ${kind}`, github: 'owner/project', branch: 'main' }, {
+    const request = await requestBoard({ name: `Bad ${kind}`, github: 'owner/project', branch: 'main', purpose: 'Project work' }, {
       repos, run: async () => { assert.fail('session must not start'); },
     });
     assert.match((await request.started).error, /clone path.*(?:repo|origin|metadata|work tree)/i);
@@ -297,7 +297,7 @@ for (const url of [origin, 'git@github.com:Owner/Project.git', 'ssh://git@github
     const saved = readManifest();
     await assert.rejects(changeBoardRepo('board', { github: 'owner/project', branch: 'missing' }, { repos }), /missing/);
     assert.deepEqual(readManifest(), saved);
-    const request = await requestBoard({ name: 'Missing branch', github: 'owner/project', branch: 'missing' }, {
+    const request = await requestBoard({ name: 'Missing branch', github: 'owner/project', branch: 'missing', purpose: 'Project work' }, {
       repos, run: async () => { assert.fail('session must not start'); },
     });
     assert.match((await request.started).error, /missing/);

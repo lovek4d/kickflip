@@ -2244,13 +2244,18 @@ test('New board chooses a searchable repo before board details, defaults its bra
     const start = sheet.querySelector('[type="submit"]');
     assert.equal(field('name').value, 'project');
     assert.equal(field('branch').value, 'trunk');
-    assert.equal(start.disabled, false);
+    assert.equal(start.disabled, true, 'Start is off while Description is empty');
     assert.match(sheet.textContent, /Clones to.*\/clone\/.repos\/owner\/project/);
     assert.match(sheet.textContent, /implementers work in separate worktrees/);
     field('name').value = '';
     page.fire(form, 'input', { target: field('name') });
     assert.equal(start.disabled, true);
     field('name').value = 'Backend audit';
+    page.fire(form, 'input', { target: field('name') });
+    assert.equal(start.disabled, true, 'Start waits for a Description');
+    assert.match(sheet.textContent, /Description/);
+    assert.match(sheet.textContent, /Used by the hub for request routing/);
+    assert.match(sheet.innerHTML, /name="purpose"[^>]* required=""/);
     field('purpose').value = 'Review changes';
     page.fire(form, 'input', { target: field('name') });
     page.fire(form, 'input', { target: field('purpose') });
@@ -2405,10 +2410,15 @@ test('pasted unlisted repos use the normal branch and save steps in New board an
     page.fire(form, 'click', { target: row });
     await tick();
     assert.equal(sheet.querySelector('[name="branch"]').value, 'canary');
+    if (!current) {
+      assert.equal(sheet.querySelector('[type="submit"]').disabled, true, 'Start waits for a Description');
+      sheet.querySelector('[name="purpose"]').value = 'Outside work';
+      page.fire(form, 'input', { target: sheet.querySelector('[name="purpose"]') });
+    }
     assert.equal(sheet.querySelector('[type="submit"]').disabled, false);
     page.fire(form, 'submit');
     await tick();
-    assert.deepEqual(saved, [current ? { github: 'outside/project', branch: 'canary' } : { github: 'outside/project', branch: 'canary', name: 'project', purpose: '', tickets: { source: 'none' }, model: 'opus' }]);
+    assert.deepEqual(saved, [current ? { github: 'outside/project', branch: 'canary' } : { github: 'outside/project', branch: 'canary', name: 'project', purpose: 'Outside work', tickets: { source: 'none' }, model: 'opus' }]);
     assert.deepEqual(urls, ['/_hub/repos', '/_hub/repo?github=outside%2Fproject', '/_hub/branches?github=outside%2Fproject']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
   }
@@ -2494,9 +2504,11 @@ test('a pasted git link on another host picks its host-labelled row, lists branc
   page.fire(sheet.querySelector('[data-board-tickets]'), 'click', { target: github });
   assert.equal(sheet.querySelector('[data-tk-source="github"]').getAttribute('aria-pressed'), 'false');
   assert.match(sheet.querySelector('[data-board-tickets] [role="status"]').textContent, /GitHub issues need a repo on GitHub, and the repo chosen above isn’t on GitHub/);
+  sheet.querySelector('[name="purpose"]').value = 'Firmware work';
+  page.fire(form, 'input', { target: sheet.querySelector('[name="purpose"]') });
   page.fire(form, 'submit');
   await tick();
-  assert.deepEqual(saved, [{ name: 'firmware', purpose: '', remote: link, branch: 'main', tickets: { source: 'none' }, model: 'opus' }]);
+  assert.deepEqual(saved, [{ name: 'firmware', purpose: 'Firmware work', remote: link, branch: 'main', tickets: { source: 'none' }, model: 'opus' }]);
   assert.deepEqual(urls, ['/_hub/repos', `/_hub/repo?remote=${encodeURIComponent(link)}`, `/_hub/branches?remote=${encodeURIComponent(link)}`]);
 });
 

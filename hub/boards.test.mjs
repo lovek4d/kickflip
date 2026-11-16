@@ -800,7 +800,7 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
       { ...request, name: null }, { ...request, name: '!!!' }, { ...request, name: 'ORCH' }, { ...request, name: 'Reserved' },
       { ...request, github: '../escape' }, { ...request, github: 'o/../../escape' }, { ...request, github: '/tmp' },
       { ...request, branch: '-main' }, { ...request, branch: 'a..b' }, { ...request, branch: 'bad branch' },
-      { ...request, purpose: 'p'.repeat(241) }, { ...request, purpose: null }, [], null,
+      { ...request, purpose: 'p'.repeat(241) }, { ...request, purpose: null }, { ...request, purpose: '' }, { ...request, purpose: ' ' }, [], null,
     ]) {
       const response = await post(input);
       assert.equal(response.status, 400, JSON.stringify(input));
