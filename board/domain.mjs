@@ -906,6 +906,8 @@ function agentName(a) {
 // until its next thread line, not on a resolution (docs/adr/2026-11-15-1200-an-answered-question-folds-on-send.md).
 export const ANSWERED = 'Answered';
 const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || String(q.resolved_at) >= String(ts));
+// Whether the orchestrator acted on an owner answer at ts by resolving its question: Send's ANSWERED is not its act.
+const actedBy = (q, ts) => resolvedSince(q, ts) && q.resolved !== ANSWERED;
 // A question's state: open (no answer yet), answered (waiting for Claude), replied (Claude answered), requested (a
 // prototype was asked for it), resolved (owner.json sets `resolved` and `resolved_at`). An answer newer than
 // `resolved_at` reopens it; without `resolved_at` it stays resolved. Each answer is acted on once the question's
@@ -1177,17 +1179,29 @@ const handedAt = (delivered, working, id, ts) => routeRecord(delivered.events ||
 // On a tie in threadOf a message sorts above the status line it causes (the sort is stable, so an agent start still sorts above
 // the status line `builder start` writes).
 const isStatusLine = (m) => Boolean(m.request) || [MOVE, HUB, 'status', 'ask-link'].includes(m.kind);
+// docs/adr/2026-11-16-1900-every-pending-thread-message-reads-its-state-from-one-seam.md
+// Where a thread entry the orchestrator owes a response to stands, for every kind the owner sends (a reply, an ask, a
+// submitted set of answers, a request line, a tap's status line): replied once its reply is in; answered once cleared
+// (acted on, linked, the card closed) or once the orchestrator wrote (answeredAt) after it was handed over; working
+// (thinking…, since picked) once picked up while the orchestrator listens; else waiting. public/ui-threads.js PICK_UP
+// draws it.
+export function pendingState({ replied = false, cleared = false, handed = '', answeredAt = '', picked = '', listening = true }) {
+  if (replied) return { state: 'replied' };
+  if (cleared || (handed && String(answeredAt) > String(handed))) return { state: 'answered' };
+  return listening && picked ? { state: 'working', since: picked } : { state: 'waiting' };
+}
 export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, delivered = {}, listening = true, actedAt = '', clearedAt = '', fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
   const asked = new Map((index.questions.get(`item:${key}`) || []).map((q) => [q.id, q]));
   const answers = index.answers.get(`item:${key}`) || [];
   // An answer is acted on, and waits on Claude no more, once its question is resolved after it, a later prototype
-  // round names its question (round_of), or a build starts on the card after it.
+  // round names its question (round_of), or a build starts on the card after it. Send's own resolution (ANSWERED,
+  // store.mjs resolveSentAnswers) acts on nothing: the answer waits until the orchestrator's next line, as a reply does.
   const rounded = new Set([...asked.values()].map((q) => q.round_of).filter(Boolean));
   const buildsFrom = agentsOf(agents, true).filter(builds).map((a) => String(a.started || '')).filter(Boolean);
   const acted = new Set(answers
-    .filter((e) => resolvedSince(asked.get(e.data.id), e.ts) || rounded.has(e.data.id) || buildsFrom.some((s) => s > String(e.ts))).map((e) => e.id));
+    .filter((e) => actedBy(asked.get(e.data.id), e.ts) || rounded.has(e.data.id) || buildsFrom.some((s) => s > String(e.ts))).map((e) => e.id));
   const agentList = agentsOf(agents, true);
   // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: a questions-added line is
   // open while any question it holds is.
@@ -1240,8 +1254,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved) || (sorted && m.eventId === fromAsk));
     m.handed = handedAt(delivered, working, m.eventId, m.ts);
     const mark = routeRecord(working, m.eventId) || routeRecord(delivered.events || {}, m.eventId);
-    m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || String(clearedAt || '') > String(m.ts) || (m.handed && lastClaude > m.handed) ? 'answered' : listening && mark ? 'working' : 'waiting';
-    if (m.state === 'working') m.since = mark;
+    Object.assign(m, pendingState({ replied: Boolean(m.reply), cleared: linked || acted.has(m.eventId) || String(clearedAt || '') > String(m.ts),
+      handed: m.handed, answeredAt: lastClaude, picked: mark, listening }));
   }
   return foldSubmits(msgs);
 }
@@ -1889,7 +1903,7 @@ function intakeWaits(items, events, working, moved) {
 function markWaitStarts(thread, waits) {
   for (const m of thread) {
     const w = m.command && !m.state && waits.find((x) => x.since === String(m.ts));
-    if (w) Object.assign(m, w.picked ? { state: 'working', since: w.picked } : { state: 'waiting' });
+    if (w) Object.assign(m, pendingState({ picked: w.picked }));
   }
 }
 // Puts wait on the card ahead of the waits it already has, which stay on its list, but for a limbo wait: a card
