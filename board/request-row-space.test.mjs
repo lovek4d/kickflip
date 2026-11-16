@@ -41,3 +41,21 @@ for (const width of [390, 1280]) {
     });
   }
 }
+
+// Outside New and Todo the request row is hidden; the thread box keeps its gap between the text box and Send.
+const HIDDEN = `<!doctype html><html data-request-words="hidden"><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="${pub}style.css"></head><body><div id="box" style="width:340px">${BOXES.thread}</div>
+<script>{
+  const r = (el) => el.getBoundingClientRect();
+  const gap = r(document.querySelector('.send-actions')).top - r(document.querySelector('.dz')).bottom;
+  const probe = document.createElement('pre'); probe.id = 'probe'; probe.textContent = JSON.stringify({ gap }); document.body.append(probe);
+}</script></body></html>`;
+
+for (const width of [390, 1280]) {
+  test(`at ${width}px a thread box with its request row hidden keeps the gap above Send`, { skip: !chromeInstalled }, async () => {
+    const file = path.join(tempDir('rrow-'), 'page.html');
+    fs.writeFileSync(file, HIDDEN);
+    const got = await chrome.probe(`file://${file}`, width);
+    assert.ok(got.gap >= 8, `gap above Send: ${got.gap}px`);
+  });
+}

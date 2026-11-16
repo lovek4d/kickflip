@@ -339,7 +339,9 @@ a.hub { display: inline-flex; flex: none; }
 .request-row { display: flex; align-items: center; gap: 6px; flex: 1 1 100%; min-width: 0; margin: var(--request-gap) 0; }
 /* The row has the same space above (the text box) and below (Send, or the box's edge) wherever it shows. */
 :root { --request-gap: 8px; }
-form[data-reply] .row { gap: 0; margin-top: 0; }
+/* A thread box's gap above its buttons belongs to the .row, so it holds whether the request row shows or is hidden. */
+form[data-reply] .row { gap: 0; margin-top: var(--request-gap); }
+form[data-reply] .request-row { margin-top: 0; }
 form[data-reply] .row > .send-actions, .note-tools + .send-actions { margin-top: 0; }
 [data-request-words="hidden"] .request-row { display: none; }
 .request-row .req { flex: 1 1 0; min-width: 0; margin: 0; padding: 6px 8px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
