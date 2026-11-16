@@ -2,8 +2,8 @@
 // docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md
 // `node scripts/release.mjs <x.y.z> --ref <ref>`, run by a release card's builder in its worktree: bumps package.json and
 // package-lock.json to x.y.z and commits them, the message "chore(release): <x.y.z>" with the subjects landed since the
-// last v* tag listed below it, oldest first, and the card's Refs trailer. It makes no tag: land tags the commit as it
-// lands.
+// last v* tag listed below it, oldest first, and the card's Refs trailer. It makes no tag: .kickflip/release ship tags
+// the commit once it lands.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import { releaseMessage } from '../board/commit-message.mjs';

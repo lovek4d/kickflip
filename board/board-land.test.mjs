@@ -582,52 +582,23 @@ test('land refuses a rebase that conflicts, naming the files, and leaves the bra
   assert.deepEqual(restarts(), []);
 });
 
-// docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md
 // docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md
-test("in a repo with no .kickflip/release, a land tags a release commit as it landed, after the rebase, and leaves the tag local; it refuses a release whose package.json disagrees or whose tag is on another commit", async () => {
+test('land refuses a release task in a repo with no .kickflip/release, landing and tagging nothing', async () => {
   const repo = scratchRepo();
-  const ids = ['A1', 'A2', 'A3'];
-  write(at('waves', 'w', 'wave.json'), { title: 'W', items: ids.map((id) => ({ id, title: `chore(release): ${id}` })) });
-  const origin = path.join(home, 'origin.git');
-  git(home, 'init', '--quiet', '--bare', origin);
-  git(repo, 'remote', 'add', 'origin', origin);
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'chore(release): A1' }] });
   commit(repo, 'package.json', JSON.stringify({ name: 'x', version: '0.1.0' }) + '\n', 'chore(release): 0.1.0');
-  git(repo, 'push', '--quiet', 'origin', 'main');
   const manifest = read(at('kickflip', 'manifest.json'));
   manifest.sites.orch.owner = { repo };
   write(at('kickflip', 'manifest.json'), manifest);
-  const allow = (...rules) => write(path.join(repo, '.claude', 'settings.local.json'), { permissions: { allow: rules } });
-  write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
-  allow('Bash(git push origin main)', 'Bash(.kickflip/release *)');
-  const release = async (id, version, subject = `chore(release): ${version}`) => {
-    assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
-    commit(at('kickflip', 'worktrees', id), 'package.json', JSON.stringify({ name: 'x', version }) + '\n', `${subject}\n\n- feat: work\n\nRefs: ${id}`);
-    return await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
-  };
-  const tagged = (where, tag) => git(where, 'tag', '--list', tag) && git(where, 'rev-parse', `${tag}^{commit}`);
+  const main = git(repo, 'rev-parse', 'main');
 
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(at('kickflip', 'worktrees', 'A1'), 'package.json', JSON.stringify({ name: 'x', version: '0.2.0' }) + '\n', 'chore(release): 0.2.0\n\nRefs: A1');
-  commit(repo, 'other.txt', 'moved\n', 'feat: main moved\n\nRefs: A0');
-  git(repo, 'push', '--quiet', 'origin', 'main');
-  const landed = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
-  assert.equal(landed.code, 0, landed.err);
-  assert.match(landed.out, /\npushed main to origin\nv0\.2\.0 stays local; push it with git -C .+ push origin v0\.2\.0, or give this repo a \.kickflip\/release to ship it\n/);
-  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'chore(release): 0.2.0');
-  assert.equal(tagged(repo, 'v0.2.0'), git(repo, 'rev-parse', 'main'), 'the tag is on the landed commit, after the rebase');
-  assert.equal(tagged(origin, 'v0.2.0'), '', 'land pushes no tag of its own');
-
-  const mismatch = await release('A2', '0.2.5', 'chore(release): 0.3.0');
-  assert.equal(mismatch.code, 1);
-  assert.match(mismatch.err, /^land: "chore\(release\): 0\.3\.0" is a release, but package\.json's version there is 0\.2\.5; bump it to 0\.3\.0 with node scripts\/release\.mjs and land again/);
-  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'chore(release): 0.2.0', 'nothing landed');
-
-  git(repo, 'tag', 'v0.4.0', 'main~1');
-  const taken = await release('A3', '0.4.0');
-  assert.equal(taken.code, 1);
-  assert.match(taken.err, new RegExp(`^land: tag v0\\.4\\.0 is already on ${git(repo, 'rev-parse', '--short', 'main~1')}, not this release; release another version, or delete the tag if it was never pushed \\(git -C .+ tag -d v0\\.4\\.0\\), and land again`));
-  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'chore(release): 0.2.0', 'nothing landed');
-
+  const refused = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /^land: "chore\(release\): 0\.2\.0" is a release\. This repo has no \.kickflip\/release, so land can't ship it; add one and land again\n/);
+  assert.equal(git(repo, 'rev-parse', 'main'), main, 'nothing landed');
+  assert.equal(git(repo, 'tag', '--list'), '', 'land makes no tag of its own');
 });
 
 // docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md
@@ -670,7 +641,7 @@ test("a repo's .kickflip/release replaces land's release: check before landing r
   const landed = git(repo, 'rev-parse', 'main');
   assert.ok(shipped.out.includes('\npushed main to origin\nshipped release 0.7.0 with .kickflip/release\nship ok\n'), shipped.out);
   assert.deepEqual(called(), [`check 0.7.0 ${landed}`, `ship 0.7.0 ${landed}`]);
-  assert.equal(git(repo, 'tag', '--list'), '', 'the script replaces the built-in tag');
+  assert.equal(git(repo, 'tag', '--list'), '', 'land makes no tag of its own');
 
   const refused = await release('A2', '9.9.9');
   assert.equal(refused.code, 1);

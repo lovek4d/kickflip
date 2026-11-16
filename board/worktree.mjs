@@ -708,8 +708,7 @@ export function landPrepared({ path: dir, branch, repo, base }, tested, { say = 
 
   const failed = [];
   // docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md: the release is the commit as it landed.
-  const { release, err: untagged } = landRelease(repo, tested);
-  if (untagged) failed.push(untagged); else if (release?.tag) say(`tagged ${release.tag}`);
+  const release = landRelease(repo, tested);
 
   const removed = git(repo, 'worktree', 'remove', dir);
   if (removed.ok) say(`worktree removed: ${dir}`); else failed.push(`could not remove ${dir} (${removed.err})`);

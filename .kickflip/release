@@ -1,0 +1,41 @@
+#!/usr/bin/env node
+// docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md
+// Kickflip's release, run by land (board/release.mjs) from a checkout of this repo:
+// - `check <version> <commit>` refuses unless package.json at commit reads version and tag v<version> is on neither
+//   this checkout nor origin;
+// - `ship <version> <commit>` tags commit v<version> and pushes the tag to origin, whose v* tag publishes kickflip to
+//   npm (.github/workflows/release.yml). A tag a failed push left on commit is reused.
+import { spawnSync } from 'node:child_process';
+
+const [verb, version, commit] = process.argv.slice(2);
+const tag = `v${version}`;
+
+function git(...args) {
+  const r = spawnSync('git', args, { encoding: 'utf8' });
+  return { ok: r.status === 0, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
+}
+function refuse(message, code = 1) {
+  process.stderr.write(`${message}\n`);
+  process.exit(code);
+}
+
+if (!['check', 'ship'].includes(verb) || !version || !commit) refuse('usage: .kickflip/release check|ship <version> <commit>', 2);
+
+if (verb === 'check') {
+  let found = null;
+  try { found = JSON.parse(git('show', `${commit}:package.json`).out).version ?? null; } catch {}
+  if (found !== version) refuse(`package.json's version at ${commit} is ${found ?? 'missing'}, not ${version}; bump it with node scripts/release.mjs ${version} --ref <ref>`);
+  if (git('rev-parse', '--verify', '--quiet', `refs/tags/${tag}`).ok) refuse(`tag ${tag} already exists here; release another version`);
+  const remote = git('ls-remote', '--tags', 'origin', `refs/tags/${tag}`);
+  if (!remote.ok) refuse(`could not read origin's tags: ${remote.err}`);
+  if (remote.out) refuse(`tag ${tag} already exists on origin; release another version`);
+} else {
+  const on = git('rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`).out;
+  if (on !== git('rev-parse', commit).out) {
+    const made = git('tag', tag, commit);
+    if (!made.ok) refuse(`could not tag ${tag}: ${made.err}`);
+  }
+  const pushed = git('push', '--quiet', 'origin', `refs/tags/${tag}`);
+  if (!pushed.ok) refuse(`could not push ${tag} to origin: ${pushed.err}`);
+  console.log(`tagged ${tag} at ${commit} and pushed it to origin`);
+}

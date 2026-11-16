@@ -3,13 +3,12 @@
 // commit holds an executable `.kickflip/release`, that script is the repo's release: land runs
 // `.kickflip/release check <version> <commit>` before landing, refusing on a non-zero exit, and
 // `.kickflip/release ship <version> <commit>` once main reached origin while the board's Run release script box is on.
-// With no script, land's built-in tag release (release-tag.mjs) checks and tags v<version>, which stays local.
+// Land has no release of its own: a release in a repo with no script is refused.
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { BoardError } from './store.mjs';
 import { releaseVersion } from './commit-message.mjs';
 import { buildScriptError } from './build-script.mjs';
-import { releaseTag, tagRelease, localRelease } from './release-tag.mjs';
 
 export const RELEASE_SCRIPT = '.kickflip/release';
 const SCRIPT_TIME_LIMIT_MS = 10 * 60_000;
@@ -42,31 +41,26 @@ function runScript(dir, verb, version, commit) {
   return { ok: true, output: printed };
 }
 
-// Before landing commit, checked out in dir: refuses a release the repo's script, or land's built-in check, refuses.
+// Before landing commit, checked out in dir: refuses a release in a repo with no script, or one its script refuses.
 export function checkRelease(repo, dir, commit) {
   const { subject, version } = versionOf(repo, commit);
   if (!version) return;
-  if (!hasReleaseScript(repo, commit)) { releaseTag(repo, commit); return; }
+  if (!hasReleaseScript(repo, commit)) fail(`land: "${subject}" is a release. This repo has no ${RELEASE_SCRIPT}, so land can't ship it; add one and land again`);
   const checked = runScript(dir, 'check', version, commit);
   if (!checked.ok) fail(`land: "${subject}" is a release, and ${RELEASE_SCRIPT} check refused it:\n${checked.output}`);
 }
 
-// Under the land lock, once base was fast-forwarded to commit. → {release, err}: release null for no release, else
-// {version, commit, script: true} for the repo's script or {version, commit, tag} for the built-in tag it made; err
-// when the built-in tag couldn't be made.
+// Under the land lock, once base was fast-forwarded to commit, which checkRelease passed. → {version, commit} for
+// shipRelease, or null when commit isn't a release.
 export function landRelease(repo, commit) {
   const { version } = versionOf(repo, commit);
-  if (!version) return { release: null };
-  if (hasReleaseScript(repo, commit)) return { release: { version, commit, script: true } };
-  const { tag, err } = tagRelease(repo, commit);
-  return { release: tag ? { version, commit, tag } : null, err };
+  return version ? { version, commit } : null;
 }
 
 // After base reached origin: ships release, landRelease's. runRelease is the board's Run release script box
 // (permissions.mjs). The script runs from repo's checkout of base, which the fast-forward left at release.commit.
 // → {line} for the land's output, and failed, what went wrong, when the release didn't ship.
 export function shipRelease(repo, release, { runRelease }) {
-  if (!release.script) return localRelease(repo, release.tag);
   const how = `run ${RELEASE_SCRIPT} ship ${release.version} ${release.commit} in ${repo}`;
   if (!runRelease) return { line: `release ${release.version} waits while Run release script is off; turn it on in Board Settings, then ${how}` };
   if (!git(repo, 'diff', '--quiet', release.commit, '--', RELEASE_SCRIPT).ok) {

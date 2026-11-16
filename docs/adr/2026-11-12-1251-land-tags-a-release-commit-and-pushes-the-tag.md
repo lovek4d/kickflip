@@ -1,6 +1,6 @@
 # Land tags a release commit and pushes the tag
 
-Amended 2026-11-16 ([a repo's .kickflip/release replaces land's tag release](2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md)): a repo's `.kickflip/release` replaces this step, Push release tags is gone, and with no script the tag stays local.
+Amended 2026-11-16 ([a repo's .kickflip/release replaces land's tag release](2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md)): a repo's `.kickflip/release` replaces this step and Push release tags is gone. Land's built-in tag release is gone too (T-534): kickflip tags and pushes `v<version>` from its own `.kickflip/release`, and a release in a repo with no script is refused.
 
 The owner (T-137, T-138) wants a release to be an ordinary card: "release should be a normal flow if possible … not some middle half baked implementation outside the main flow". Before this, `scripts/release.mjs` ran `npm version`, which made the release commit and a local `v` tag in the builder's worktree. Builders never push, land pushed only main, and the commit carried no `Refs:` trailer, so land refused it. The tag was also cut on the pre-rebase commit, which land replaces when main has moved.
 
