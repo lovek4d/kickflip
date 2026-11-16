@@ -1211,7 +1211,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   assert.match(B.detail(doneBlocker), /<dt>Blocked by<\/dt><dd><a class="card-link" href="#selectedCard=w%2FGH-80">#80<span class="status link-lane done"><\/span><\/a><\/dd>/);
   assert.doesNotMatch(app.BoardUI.workLines({ ...doneBlocker, footer: footerOf(doneBlocker), linear: [], ticket: null }), /blocked by/);
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on/);
-  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, footer: footerOf(card), linear: [], ticket: null })).slice(0, 2), ['Task Five', 'blocked by #80']);
+  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, footer: footerOf(card), linear: [], ticket: null })).slice(0, 2), ['#93 Five', 'blocked by #80']);
   assert.doesNotMatch(app.BoardUI.workLines(card), /follow-up/);
 });
 
@@ -1839,8 +1839,8 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.match(workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
   // The card an ask became, once sorted, reads as any task: Task where its ticket would be, and no asked line.
   const fromAsk = { kind: 'work', key: 'w/T-3', id: 'T-3', ref: 'T-3', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
-  assert.deepEqual(lines(workLines(fromAsk)), ['Task Fix it', 'thinking…']);
-  assert.deepEqual(lines(workLines(fromAsk, { unread: 2 })), ['Task Fix it', 'thinking…', '2 new messages']);
+  assert.deepEqual(lines(workLines(fromAsk)), ['T-3 Fix it', 'thinking…']);
+  assert.deepEqual(lines(workLines(fromAsk, { unread: 2 })), ['T-3 Fix it', 'thinking…', '2 new messages']);
   assert.deepEqual(lines(workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
   // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md: a verified card reads its land step, over
   // the orchestrator's wait: a hold in grey, a fault in red.
@@ -3094,11 +3094,11 @@ test('every status line kind line() draws carries its time, a folded run its new
   assert.ok(verified.includes(`· ${at(1)} · verified ${at(0.5)}`), verified);
 });
 
-// docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: a card with no ticket wears a quiet Task badge
-// in the ticket slot, its T-<n> only in the badge's title; a ticket replaces it.
-test('a task wears a Task badge where a ticket would be, and a ticketed card its ticket', () => {
+// docs/adr/2026-11-17-0300-a-task-with-no-ticket-shows-its-t-n-on-the-badge.md: a card with no ticket wears a quiet badge
+// of its T-<n> in the ticket slot; a ticket replaces it.
+test('a task wears its T-number where a ticket would be, and a ticketed card its ticket', () => {
   const task = { ...workCard, key: 'w/T-8', id: 'T-8', ref: 'T-8', linear: [], ticket: null, pr: null, prs: [] };
-  assert.match(workLines(task), /<span class="chip tone-quiet" title="T-8 · a task, no ticket">Task<\/span>/);
+  assert.match(workLines(task), /<span class="chip tone-quiet" title="T-8 · a task, no ticket">T-8<\/span>/);
   const ticketed = { ...task, ref: '#451', ticket: { id: '#451', url: 'https://github.com/o/r/issues/451', source: 'github' } };
   assert.doesNotMatch(workLines(ticketed), />Task</);
   assert.match(workLines(ticketed), />#451</);

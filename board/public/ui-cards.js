@@ -37,9 +37,9 @@
   const commitChip = (it) => !it.commit ? '' : badge('merged', `<code>${esc(it.commit.sha)}</code>`, { href: it.commit.url, title: 'Landed commit', attrs: it.commit.url ? EXTERNAL : {} });
   const linearChips = (it) => (it.linear || []).map((l) => badge('quiet', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
   const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge('quiet', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: EXTERNAL });
-  // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: a card with no ticket is a task, its T-<n>
-  // only in the badge's title.
-  const taskChip = (it) => badge('quiet', 'Task', { title: `${it.ref} · a task, no ticket` });
+  // docs/adr/2026-11-17-0300-a-task-with-no-ticket-shows-its-t-n-on-the-badge.md: a card with no ticket is a task, its
+  // T-<n> on the quiet badge.
+  const taskChip = (it) => badge('quiet', esc(it.ref), { title: `${it.ref} · a task, no ticket` });
   // docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: gray ● pending,
   // orange ● commented, red ✗ changes, green ✓ approved.
   const REVIEW = {
