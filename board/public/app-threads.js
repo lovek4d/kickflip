@@ -4,7 +4,7 @@ BoardView.part((B) => {
   const { $, store, state, quieted, sendDraft, links } = B;
   const { esc, setHTML, threadMessages, dropZone, sendButton, requestRow, requestOf, requestShown, slashOf, doneButton, doneTone, BUTTON } = BoardUI;
 
-  const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request' };
+  const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request', review: 'review-request' };
 
   const thread = (key) => `<div class="thread" data-thread="${esc(key)}"><div class="muted small">Loading thread…</div></div>`;
 
@@ -135,7 +135,7 @@ BoardView.part((B) => {
   // whether a session picks the board's line up, so it reads waiting… once the board has it; the board applies a Block,
   // Unblock, Done, Reopen and bare Implement itself. A Merge has no line of the board's: its own words stand until a
   // thread load after the answer.
-  const REQUESTED = { 'prototype-request': 'Prototype requested', 'grill-more': 'Grill requested', 'visual-request': 'Visual requested' };
+  const REQUESTED = { 'prototype-request': 'Prototype requested', 'grill-more': 'Grill requested', 'visual-request': 'Visual requested', 'review-request': 'Review requested' };
   const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Blocked' : 'Unblocked'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened', 'card-merge': () => 'Merge requested' };
   function tapOf(m) {
     if (m.text || m.files.length || m.uploads) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
@@ -204,8 +204,9 @@ BoardView.part((B) => {
   // docs/adr/2026-11-05-0430-the-eye-and-fire-send-their-request-at-once.md
   // The composer's eye asks for a prototype, its fire for a grill and its image for a visual: a tap sends the request at
   // once, with whatever is typed, as /prototype, /grill or /visual in the text does on Reply. Nothing typed sends the
-  // bare request (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
-  const PLACEHOLDER = 'Reply in this thread… (/prototype, /grill or /visual asks for one)';
+  // bare request (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md). /review asks for a
+  // reviewer, typed only for now (docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md).
+  const PLACEHOLDER = 'Reply in this thread… (/prototype, /grill, /visual or /review asks for one)';
 
   // docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md: every card's thread rides the board's sync, so the page
   // holds them all (state.threadCache, saved with the board's copy) and opening a card loads nothing. A board patch's
@@ -416,7 +417,7 @@ BoardView.part((B) => {
   async function post(f, flag, button) {
     const ta = f.querySelector('textarea');
     ta.blur();
-    const text = flag ? slashOf(ta.value).text : ta.value.trim();
+    const text = flag ? slashOf(ta.value, { thread: true }).text : ta.value.trim();
     const id = f.dataset.composer;
     const attached = BoardAttach.list(id, B.site.root).length > 0;
     // An empty box still sends Implement, the card's build action: the board server stages the card for the
@@ -437,7 +438,7 @@ BoardView.part((B) => {
     ev.preventDefault();
     // Block, Unblock, Done or Reopen on ⌥↵ (app-asks.js) does what its tap does (app-cards.js confirmTap).
     if (ev.submitter?.dataset.confirm) { B.confirmTap(ev.submitter); return; }
-    post(f, slashOf(f.querySelector('textarea').value).flag, ev.submitter);
+    post(f, slashOf(f.querySelector('textarea').value, { thread: true }).flag, ev.submitter);
   });
   // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
   // A script offer's Run sends only after a hold of HOLD_MS, its bar filling meanwhile; letting go sooner sends nothing.

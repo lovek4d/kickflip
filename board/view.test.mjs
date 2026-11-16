@@ -3244,7 +3244,7 @@ test("the thread's eye and fire send their request at once: nothing typed sends 
   const box = () => form().querySelector('textarea');
   const tap = async (button, text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: button }); await b.settle(); };
   const send = async (text) => { box().value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-nth="0"]') }); await b.settle(); };
-  assert.match(box().getAttribute('placeholder'), /\/prototype, \/grill or \/visual/);
+  assert.match(box().getAttribute('placeholder'), /\/prototype, \/grill, \/visual or \/review/);
   assert.equal(form().querySelector('[data-hint]'), null);
   assert.deepEqual([eye().getAttribute('aria-pressed'), fire().getAttribute('aria-pressed')], [null, null]);
   await tap(eye());
@@ -7778,7 +7778,7 @@ test("the thread's image button, after the eye and fire, asks for a visual at on
   const icons = [...form().querySelector('.request-row').children];
   assert.equal(icons.at(-1), image(), 'the image follows the eye and fire');
   assert.equal(image().getAttribute('aria-label'), 'Ask for a visual');
-  assert.match(box().getAttribute('placeholder'), /\/prototype, \/grill or \/visual asks for one/);
+  assert.match(box().getAttribute('placeholder'), /\/prototype, \/grill, \/visual or \/review asks for one/);
   const tap = async (text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: image() }); await b.settle(); };
   await tap();
   await tap('Draw the land queue');

@@ -131,7 +131,7 @@ test("item brief writes the orchestrator's brief into the notes as \"Brief for <
   assert.equal((await board('item', 'brief', 'audit/T-1', '--kind', 'prototype', '--file', draft, '--site', 'audit')).code, 0);
   assert.equal(t1().phase, 'prototyping');
 
-  assert.match((await board('item', 'brief', 'audit/T-1', '--kind', 'build', '--file', draft, '--site', 'audit')).err, /--kind grill, prototype or visual/);
+  assert.match((await board('item', 'brief', 'audit/T-1', '--kind', 'build', '--file', draft, '--site', 'audit')).err, /--kind grill, prototype, visual or reviewer/);
   assert.match((await board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--site', 'audit')).err, /--file <draft.md>/);
   assert.match((await board('item', 'brief', 'audit/T-9', '--kind', 'grill', '--file', draft, '--site', 'audit')).err, /T-9/);
   assert.match((await board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--file', path.join(audit('data'), t1().plan), '--site', 'audit')).err, /notes file of/);

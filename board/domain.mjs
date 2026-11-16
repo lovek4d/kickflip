@@ -32,7 +32,7 @@ for (const file of ['ui-enums.js', 'ui-order.js']) vm.runInContext(fs.readFileSy
 export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES } = enums.BoardUI;
 const { laneOrder, isMessage } = enums.BoardUI;
 
-export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'visual-request', 'reask-request'];
+export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'visual-request', 'review-request', 'reask-request'];
 // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
 // The events of a script offer on a card, each {key, id}: the owner's Run (with the script's sha), its result (exit,
 // output, timedOut, log, ms), written when the run ends, and the owner's Decline.
@@ -358,7 +358,8 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // A rebase run that handed back: its newest judgment call says why (headless.mjs rebaseBrief).
   const rebaseFailed = rebasing && waitsOn === 'checking'
     ? agents.flatMap((a) => a.calls).sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1)?.text ?? null : null;
-  const briefing = lane === 'done' ? null : BRIEF_KINDS.find((k) => (it.briefs || []).some((b) => b.kind === k && !b.brief)) ?? null;
+  // A reviewer's owed brief is the orchestrator's wait alone: the card's status line stays what its work says.
+  const briefing = lane === 'done' ? null : BRIEF_KINDS.find((k) => k !== REVIEWER && (it.briefs || []).some((b) => b.kind === k && !b.brief)) ?? null;
   // A checked card with nothing left to verify waits to land: its land step (landStep), read from the server's lander
   // for it (landers {<key>: {...entry, alive, limited}}), what holds a launch of its kind (landHeld {<kind>: words}) and
   // what store.mjs landable skips it for (landSkips {<key>: skip}), as the server's launchLanders reads them.
@@ -411,6 +412,9 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     // the brief's while it is owed, else generating visual while a visual agent draws.
     briefs: lane === 'done' ? [] : it.briefs || [], briefing,
     planning: briefing ? BRIEF_WORD[briefing] : agents.some((a) => a.kind === VISUAL && a.started && !a.done) ? PLANNER_WORD[VISUAL] : null,
+    // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: the running reviewer's grey row, what it
+    // reviews (diff or plan) and since when.
+    reviewer: reviewerOf(agents),
     storedPhase: it.phase || null, phase: null, recheckAt: it.recheck_at || null,
     // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: whose turn a discussing card is, the orchestrator's
     // while an owner message or answer on it is unanswered, otherwise the owner's.
@@ -690,11 +694,19 @@ export function owesNext(item, records) {
 // card's work, so the card's status and its arrival for a grill pass it by
 // (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
 export const VISUAL = 'visual';
+// docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md
+// A reviewer is a planner too: the owner's /review has it attack the card's diff, or its plan before there is one, and
+// post its findings in the thread, beside whatever else runs on the card, moving nothing.
+export const REVIEWER = 'reviewer';
+// The kinds that run beside a card's work rather than as it: not the card's status line, no hold on its grill or its
+// staged questions, one of each at a time per card.
+const BESIDE = new Set([VISUAL, REVIEWER]);
+export const beside = (agent) => BESIDE.has(agent.kind);
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
 // A helper is an agent another agent on the card asked for (board.mjs agent launch), with a task, under its own name:
 // an implementer, which takes a slot only when it writes (in its own worktree off the card's branch).
 export const HELPER = 'helper';
-const PLANNERS = new Set(['grill', 'prototype', VISUAL]);
+const PLANNERS = new Set(['grill', 'prototype', VISUAL, REVIEWER]);
 export const plans = (agent) => PLANNERS.has(agent.kind);
 export const builds = (agent) => !plans(agent);
 // A planner's word, never a builder phase: its card reads it before the planner's first line and leads each line with
@@ -703,8 +715,8 @@ export const builds = (agent) => !plans(agent);
 export const PLANNER_WORD = { grill: 'grilling', prototype: 'prototyping', [VISUAL]: 'generating visual' };
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
 // The kinds of agent the board launches only from the orchestrator's brief, and a card's status word while the
-// orchestrator owes that brief.
-export const BRIEF_KINDS = ['grill', 'prototype', VISUAL];
+// orchestrator owes that brief (a reviewer's has none).
+export const BRIEF_KINDS = ['grill', 'prototype', VISUAL, REVIEWER];
 export const BRIEF_WORD = { grill: 'preheating', prototype: 'planning prototype', [VISUAL]: 'planning visual' };
 
 // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md
@@ -750,6 +762,7 @@ function agentsOf(records = {}, withPast = false) {
     // pid: the headless process the board launched for it (store.mjs recordSession), none for a session's own agent.
     log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], summary: r.summary || null, verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null, ...(r.pause ? { pause: r.pause } : {}), ...(r.rerun ? { rerun: r.rerun } : {}),
     ...(r.kind === HELPER ? { writes: Boolean(r.writes), requested: r.requested || null } : {}), ...(r.waits ? { waits: r.waits } : {}),
+    ...(r.kind === REVIEWER ? { target: r.target || 'plan' } : {}),
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
 // The worktree path the newest builder record keeping one names (board/worktree.mjs makeWorktree), or null. The board
@@ -785,8 +798,13 @@ const stepOf = (phase) => (phase === 'testing' ? 'building' : phase);
 // (docs/adr/2026-11-13-2030-stale-is-a-footer-word-after-15-minutes.md).
 // A run the orchestrator stopped (a record's stopped {run, at}, written since that record last started) reads stopped
 // with its words from the stop, gone and waiting on the orchestrator from then.
+// The card's running reviewer as its row reads it, {target: 'diff' | 'plan', since}, or null while none runs.
+function reviewerOf(agents) {
+  const running = agents.filter((a) => a.kind === REVIEWER && a.started && !a.done).at(-1);
+  return running ? { target: running.target || 'plan', since: running.started } : null;
+}
 function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
-  const open = agents.filter((a) => a.started && !a.done && a.kind !== VISUAL);
+  const open = agents.filter((a) => a.started && !a.done && !beside(a));
   const planner = open.every(plans);
   const running = planner ? open : open.filter(builds);
   const since = running.map((a) => String(a.started || '')).sort()[0];
@@ -888,6 +906,8 @@ export const providerOf = (kind) => (kind === 'opus' || kind === 'sonnet' ? 'cla
 // means the package (docs/adr/2026-11-03-1549-a-todo-cards-button-reads-implement.md). A planner with a model is named by its
 // kind: "Claude Sonnet prototype", "Claude Opus grill". A kind that is no model keeps its own word ("Prototype sketch").
 function agentName(a) {
+  // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: the owner's prototype pick names it Reviewer.
+  if (a.kind === REVIEWER) return 'Reviewer';
   const model = modelName(a);
   const { kind } = a;
   const label = a.label?.replace(/\bbuilder\b/, 'implementer').replace(/\bBuilder\b/, 'Implementer');
@@ -1016,8 +1036,8 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // with a request and an answer are the owner's messages, with the tap's words as their footer's status
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 export const COMMANDS = {
-  prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
-  'prototype-started': 'Prototype started', 'grill-started': 'Grill started', 'visual-started': 'Visual started',
+  prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested', [REVIEWER]: 'Review requested',
+  'prototype-started': 'Prototype started', 'grill-started': 'Grill started', 'visual-started': 'Visual started', [`${REVIEWER}-started`]: 'Review started',
   reask: 'Re-ask requested', hold: 'Blocked', resume: 'Unblocked', done: 'Marked done', reopened: 'Reopened',
   discussing: 'Marked as discussing', staged: 'Marked as staged', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
@@ -1025,13 +1045,13 @@ export const COMMANDS = {
 };
 // Each tap command's tone (hub-lines.mjs TONES): a request for a planner is blue like a planner's own lines.
 export const COMMAND_TONES = {
-  prototype: 'blue', grill: 'blue', visual: 'blue', 'prototype-started': 'blue', 'grill-started': 'blue', 'visual-started': 'blue', reask: 'blue', hold: 'grey', resume: 'orange', done: 'green', reopened: 'grey',
+  prototype: 'blue', grill: 'blue', visual: 'blue', [REVIEWER]: 'blue', 'prototype-started': 'blue', 'grill-started': 'blue', 'visual-started': 'blue', [`${REVIEWER}-started`]: 'blue', reask: 'blue', hold: 'grey', resume: 'orange', done: 'green', reopened: 'grey',
   discussing: 'grey', staged: 'orange', readied: 'green', related: 'grey', unrelated: 'grey', followup: 'grey', 'followup-of': 'grey',
   created: 'blue', 'created-from': 'blue', 'blocked-by': 'grey', unblocks: 'grey',
 };
-const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'reask-request': 'reask' };
+const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'review-request': REVIEWER, 'reask-request': 'reask' };
 export const ACTION_LABELS = { 'mark-ready': 'Mark ready', ...Object.fromEntries(Object.entries(REQUEST_COMMANDS).map(([kind, key]) => [kind, COMMANDS[key]])) };
-const REQUESTS = ['grill-more', 'prototype-request', 'visual-request'];
+const REQUESTS = ['grill-more', 'prototype-request', 'visual-request', 'review-request'];
 export const ANSWERS_SUBMITTED = 'answers submitted';
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
 // A Todo card's thread box sends with Reply (intent: 'reply') or Implement (intent: 'build'), and its message's footer
@@ -1191,6 +1211,7 @@ export function pendingState({ replied = false, cleared = false, handed = '', an
   if (cleared || (handed && String(answeredAt) > String(handed))) return { state: 'answered' };
   return listening && picked ? { state: 'working', since: picked } : { state: 'waiting' };
 }
+const voiceOf = (a) => (a.kind === REVIEWER ? { reviewer: a.target } : plans(a) ? { planner: true } : {});
 export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, delivered = {}, listening = true, actedAt = '', clearedAt = '', fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
@@ -1213,10 +1234,11 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   const scriptView = (s) => ({ id: s.id, body: s.body, sha: s.sha, host: s.host, user: s.user, ...scriptStateOf(s, scriptEvents, liveScript) });
   const msgs = [
     // First, so a start sorts above the status line `builder start` writes at the same moment.
-    // A planner's lines are marked planner, which the thread draws in the owner's blue.
+    // A planner's lines are marked planner, which the thread draws in the owner's blue; a reviewer's carry what it
+    // reviews instead, drawn grey (docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md).
     ...agentList.flatMap((a) => [
-      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: sectionOf(agentList, a), finished: false, eta: a.done ? null : a.eta, ...(a.log ? { log: a.log } : {}), ...(plans(a) ? { planner: true } : {}) }] : []),
-      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: sectionOf(agentList, a), finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
+      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: sectionOf(agentList, a), finished: false, eta: a.done ? null : a.eta, ...(a.log ? { log: a.log } : {}), ...voiceOf(a) }] : []),
+      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: sectionOf(agentList, a), finished: true, eta: null, ...voiceOf(a) }] : []),
       // docs/adr/2026-11-16-0830-a-builder-hands-back-with-a-summary-message.md: a finished build's summary, the
       // Builder's message at its finish, directly above its judgment calls.
       ...(a.done && a.summary ? [{ ts: a.done, who: 'builder', kind: 'builder-summary', text: a.summary }] : []),
@@ -1224,7 +1246,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen), ...(m.questions.some(isOpen) ? { tone: 'orange' } : {}) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
+    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === REVIEWER ? { kind: m.kind, findings: m.findings || [] } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen), ...(m.questions.some(isOpen) ? { tone: 'orange' } : {}) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}), ...(m.script ? { script: scriptView(m.script) } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.
@@ -1554,7 +1576,7 @@ export function buildBoard(snapshot) {
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered' || (q.resolved === ANSWERED && q.state === 'resolved' && q.answers.length && !q.answers.at(-1).reply)).map((q) => q.answers.at(-1).ts).sort().pop();
     // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
     // Review (laneOf, workItem); a card the orchestrator stalled waits on the owner alone.
-    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince }) : [];
+    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.briefs.some((b) => b.kind === REVIEWER && !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince }) : [];
     // The card shows its first wait; the waits list (orchestratorWaits) names every one.
     it.orchestrator = waits[0] || null;
     it.moreWaits = waits.slice(1);
@@ -1823,17 +1845,18 @@ export function rebasesDue(items, sent, base) {
 export const MAX_SERVES = 10;
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
 // For built items: the agents due to launch, one per open card and kind with a written brief: a grill or prototype on a
-// Todo card while no agent other than a visual one runs there, a visual beside anything but another visual
-// (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md), so a card's visuals draw one after
-// another. A visual agent is named visual-<its brief's time in ms>. → [{key, kind}]
-export const visualAgent = (brief) => `${VISUAL}-${Date.parse(brief.at)}`;
+// Todo card while no agent other than a visual or reviewer runs there, a visual or reviewer beside anything but another
+// of its kind (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md,
+// docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md), so a card's visuals, and its reviews, run one
+// after another. Such an agent is named <kind>-<its brief's time in ms>. → [{key, kind}]
+export const besideAgent = (kind, brief) => `${kind}-${Date.parse(brief.at)}`;
 export function briefsDue(items) {
   const out = [];
   for (const it of items.filter((i) => i.kind === 'work' && !closedLane(i))) {
     const running = (it.agents || []).filter((a) => a.started && !a.done);
     for (const kind of BRIEF_KINDS) {
       if (!(it.briefs || []).some((b) => b.kind === kind && b.brief)) continue;
-      const busy = kind === VISUAL ? running.some((a) => a.kind === VISUAL) : it.lane !== 'todo' || running.some((a) => a.kind !== VISUAL);
+      const busy = beside({ kind }) ? running.some((a) => a.kind === kind) : it.lane !== 'todo' || running.some((a) => !beside(a));
       if (!busy) out.push({ key: it.key, kind });
     }
   }
@@ -2095,8 +2118,9 @@ const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPha
   && !it.briefs.length && !it.plannerQueued && !it.agents.some((a) => a.started && !a.done);
 function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
-  // A brief is owed only in Todo: a card past it has its build under way.
-  const owed = it.lane === 'todo' && it.briefing ? it.briefs.find((b) => b.kind === it.briefing && !b.brief) : null;
+  // A brief is owed only in Todo: a card past it has its build under way. A reviewer's is owed in any open lane, since
+  // a review of the diff comes once the build is under way.
+  const owed = it.lane === 'todo' && it.briefing ? it.briefs.find((b) => b.kind === it.briefing && !b.brief) : it.briefs.find((b) => b.kind === REVIEWER && !b.brief) ?? null;
   const briefed = (kind) => it.briefs.some((b) => b.kind === kind);
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
   const unasked = facts.unasked && it.storedPhase === { grill: 'grilling', prototype: 'prototyping' }[facts.unasked.kind]
@@ -2114,7 +2138,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     facts.ownerWord && { kind: 'reply', since: facts.ownerWord.at, picked: facts.ownerWord.picked, next: "Act on the owner's reply: answer it in the thread, or act and let the action's line answer it" },
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
     // prototype or visual agent until the orchestrator writes its brief, whatever else the card asks of the owner.
-    owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page' }[owed.kind]} should cover and the files that matter${owed.kind === 'prototype' ? PROTOTYPE_ROUNDS : ''}` },
+    owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page', [REVIEWER]: 'review' }[owed.kind]} should cover and the files that matter${owed.kind === 'prototype' ? PROTOTYPE_ROUNDS : ''}` },
     // While the owner owes the card an answer, the waits below are theirs to unblock.
     ...(ASKING.has(it.action?.kind) ? [] : [
       // One stale wait: a stopped or silent builder, else a review past seven days. A builder waiting on its own ask is

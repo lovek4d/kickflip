@@ -464,12 +464,15 @@
       : it.landStopped ? `<div class="line3 sub">${escText(withCount(it.landStopped.words, it.landStopped.at))}</div>`
       : it.working ? `<div class="line3 sub agent">${thinkingLine(it.workingSince)}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.ownerBlock ? ' idle' : ''}">Next: ${escText(it.next)}</div>` : '';
+    // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: a running reviewer's grey row under the status
+    // line, whatever else the card shows: what it reviews and for how long.
+    const reviewer = it.reviewer ? `<div class="line3 sub agent waiting-gray reviewer">${globalThis.BoardUI.counted('reviewing', `Reviewer · Reviewing the ${it.reviewer.target}`, it.reviewer.since)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${escText(etaLine(it.eta))}</div>` : '';
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
     const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${escText(`Check can't run: ${it.ownerCheck.broken}`)}</div>`
       : `<div class="line3 sub check">${escText(`Checks: ${it.ownerCheck.words}`)}</div>`;
     return `${cardActions(it)}<div class="line1 title">${ids ? `${ids} ` : ''}${escText(it.title)}</div>
-      ${status}${check}${eta}
+      ${status}${reviewer}${check}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${timeLine(it, unread, progressBar(phaseStrip(it)))}`;
   }

@@ -84,12 +84,16 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   visual add <file>/<id> --file <page.html> --title <t>  a visual agent's page: copied to public/visuals/<id>/<slug>.html
                                                          (a new name each time), linked by a visual line in the
                                                          item's thread; prints the page's link
-  item brief <file>/<id> --kind grill|prototype|visual   the orchestrator's brief for the task's next agent of that
-         --file <draft.md>                               kind: what the discussion settled, what is still open,
-                                                         what the questions, takes or page should cover and the
-                                                         files that matter. Appended to its notes as "Brief for
-                                                         <kind> round N"; the board launches the agent from it, and
-                                                         from nothing else. A grill or prototype brief moves the
+  reviewer post <file>/<id> --file <findings.json>       a reviewer's findings, a JSON list of {severity:
+                                                         high|medium|low, at?: "<file>:<line>", text}: one Reviewer
+                                                         message in the task's thread, most severe first
+  item brief <file>/<id> --kind grill|prototype|visual|reviewer
+         --file <draft.md>                               the orchestrator's brief for the task's next agent of that
+                                                         kind: what the discussion settled, what is still open,
+                                                         what the questions, takes, page or review should cover
+                                                         and the files that matter. Appended to its notes as "Brief
+                                                         for <kind> round N"; the board launches the agent from it,
+                                                         and from nothing else. A grill or prototype brief moves the
                                                          Todo task to grilling or prototyping
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
@@ -732,7 +736,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          a task, only that task's. The hub's own: kickflip audit
   agent launch <file>/<id> --name <n> --task <t>         any session's helper on an open task, an agent the board server
          [--writes] [--model <opus|sonnet>]              launches headless with the task as its brief, under its own
-                                                         name (lowercase, "-", not main or visual-…), its record
+                                                         name (lowercase, "-", not main, visual-… or reviewer-…), its record
                                                          <id>@<name> requested until then. It launches at once,
                                                          on its task's implementer slot; one with --writes works
                                                          in its own worktree, branch <id>-<name> from the
@@ -1016,6 +1020,7 @@ const COMMANDS = {
     return withQuestions(site, f, () => store.appendMessage(site, key, f));
   }],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
+  'reviewer post': [['file/id'], ['file'], (site, [key], f) => store.postFindings(site, key, f)],
   'item brief': [['file/id'], ['kind', 'file'], (site, [key], f) => store.writeBrief(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {

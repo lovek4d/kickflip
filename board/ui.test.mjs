@@ -2200,7 +2200,7 @@ test("a builder's summary and its asks read Builder in a grey message, the orche
   assert.match(ask, /^<div class="msg builder">\s*<div class="who">Builder<\/div>/);
   assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Hi' }]), /^<div class="msg claude">\s*<div class="who">Orchestrator<\/div>/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /\.msg\.slack, \.msg\.builder, \.msg\.other \{ background: var\(--chip\); \}/);
+  assert.match(css, /\.msg\.slack, \.msg\.builder, \.msg\.reviewer, \.msg\.other \{ background: var\(--chip\); \}/);
 });
 
 test("an open card's thread shows its newest 3 messages with the lines between them, from its oldest unread one when more are unread, and Show more saying how many messages it hides", () => {

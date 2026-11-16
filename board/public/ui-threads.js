@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), the board's status lines, its builders'
 // asks, the owner's messages and their replies. Needs ui.js, ui-links.js, ui-enums.js and ui-markdown.js.
 (function () {
-  const { esc, escText, time, etaLine, replyBody, sentFiles, sendButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, cardRef, WORKING_DOT, AGENT_DOT } = globalThis.BoardUI;
+  const { esc, escText, time, etaLine, replyBody, sentFiles, sendButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, cardRef, counted, badge, WORKING_DOT, AGENT_DOT } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // A reply the hub copied from a task's Slack thread (domain.mjs slackOf), written by someone other than the owner: its
   // own grey tint, headed "<name> · via Slack".
@@ -98,6 +98,18 @@
   const scriptCard = (s) => `<div class="script-offer ${esc(s.state)}" data-script="${esc(s.id)}">
       <div class="script-warn">⚠ Runs on ${esc(s.host)} as ${esc(s.user)}</div>
       <div class="small muted">Shell script · ${linesOf(s.body).length} lines</div><pre class="script-pre">${esc(s.body)}</pre>${SCRIPT_TAIL[s.state](s)}</div>`;
+  // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md
+  // A reviewer's findings (board.mjs reviewer post): one grey Reviewer message, its count and target, then each finding
+  // ranked, severity badge, file:line and its sentence; the top three show and the rest fold under Show all.
+  const SEVERITY_TONES = { high: 'danger', medium: 'notice', low: 'normal' };
+  const TOP_FINDINGS = 3;
+  const findingItem = (f, links) => `<li>${badge(SEVERITY_TONES[f.severity], esc(f.severity))}${f.at ? `<span class="finding-at">${esc(f.at)}</span>` : ''}<span class="finding-text">${linkText(f.text, links)}</span></li>`;
+  const findingList = (list, links, start = 1) => `<ol class="findings"${start > 1 ? ` start="${start}"` : ''}>${list.map((f) => findingItem(f, links)).join('')}</ol>`;
+  const reviewerMessage = (m, links) => {
+    const top = m.findings.slice(0, TOP_FINDINGS);
+    const rest = m.findings.slice(TOP_FINDINGS);
+    return `<div class="msg reviewer"><div class="who">Reviewer</div><div class="body"><p>${escText(m.text)}</p>${top.length ? findingList(top, links) : ''}${rest.length ? `<details class="findings-more"><summary>Show all ${m.findings.length}</summary>${findingList(rest, links, TOP_FINDINGS + 1)}</details>` : ''}</div>${msgFooter(m, [])}</div>`;
+  };
   // A line naming a card (domain.mjs namedLine): its words, then the card's reference as it stands (ui-links.js cardRef).
   const named = (m, links) => `${escText(m.words)} ${cardRef(m.card, links)}`;
   const line = (m, links, folded = false) => (m.kind === 'reply'
@@ -123,6 +135,7 @@
       after: m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet',
       rest: `<ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}`,
     })
+    : m.kind === 'reviewer' ? reviewerMessage(m, links)
     : m.kind === 'agent' ? statusLine(`agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}`, mark(AGENT_DOT) + escText(m.text), m.ts, { after: m.eta && esc(etaLine(m.eta)) }) : `<div class="msg ${copiedSlack(m) ? 'slack' : fromBuilder(m) ? 'builder' : m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
         <div class="who">${copiedSlack(m) ? `${esc(m.by)} · via Slack` : fromBuilder(m) ? 'Builder' : m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}</div>
         <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${m.note ? `<blockquote class="quote">${linkText(m.note, links)}</blockquote>` : ''}${sentFiles(m.files, m.uploads)}${m.script ? scriptCard(m.script) : ''}
@@ -135,12 +148,14 @@
   // closed details line at its first line's place: the action, then its status, finished when its newest line is a finished
   // line and running otherwise, then its newest line's time;
   // expanding it shows the run's lines, a status line there leaving its dot's place empty so its text stays level, and, when the run has a log, a View transcript link.
+  // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: a reviewer's run is grey, and while it runs reads
+  // what it reviews and for how long, "Reviewer · Reviewing the diff (2m)", counted live.
   function foldedRun(m, links) {
     const newest = m.folded.at(-1);
-    const tail = newest.finished ? 'finished' : 'running';
+    const tail = newest.finished ? 'finished' : m.reviewer ? counted('reviewing', `Reviewing the ${m.reviewer}`, m.ts) : 'running';
     const log = m.folded.find((f) => f.log)?.log;
     const logLine = log ? `<div class="small fold-log"><a href="log.html?file=${encodeURIComponent(log)}">View transcript</a></div>` : '';
-    return statusLine(`calls status-fold${m.planner ? ' planner' : ''}`, `${statusMark('status lines')}${escText(m.agent)} · ${tail}`, newest.ts, {
+    return statusLine(`calls status-fold${m.planner ? ' planner' : m.reviewer ? ' reviewer' : ''}`, `${statusMark('status lines')}${escText(m.agent)} · ${tail}`, newest.ts, {
       summary: tail === 'finished' ? ' class="finished"' : '', rest: m.folded.map((f) => line(f, links, true)).join('') + logLine,
     });
   }

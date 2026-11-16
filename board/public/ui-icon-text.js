@@ -34,6 +34,7 @@
     reply: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>',
     chevron: '<path d="m9 6 6 6-6 6"/>',
     question: '<path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
   };
   const ICON_SHAPES = Object.freeze(Object.keys(PATHS));
   const ICON_COLOURS = Object.freeze(['red', 'orange', 'blue', 'green', 'purple', 'grey']);

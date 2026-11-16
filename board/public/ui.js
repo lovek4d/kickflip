@@ -121,8 +121,14 @@
   // The request a row's icon asks for: prototype, grill or visual.
   const requestOf = (button) => (button.hasAttribute('data-proto') ? 'prototype' : button.hasAttribute('data-grill') ? 'grill' : 'visual');
   // A /prototype, /grill or /visual word in a message, the last one winning, and the message without it: {flag, text}.
+  // A card's thread also takes /review (docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md); a New task
+  // has nothing to review yet.
   const SLASH = /(^|\s)\/(grill|prototype|visual)(?=\s|$)/g;
-  const slashOf = (value) => ({ flag: [...value.matchAll(SLASH)].pop()?.[2] ?? null, text: value.replace(SLASH, '$1').replace(/ {2,}/g, ' ').trim() });
+  const THREAD_SLASH = /(^|\s)\/(grill|prototype|visual|review)(?=\s|$)/g;
+  const slashOf = (value, { thread = false } = {}) => {
+    const words = thread ? THREAD_SLASH : SLASH;
+    return { flag: [...value.matchAll(words)].pop()?.[2] ?? null, text: value.replace(words, '$1').replace(/ {2,}/g, ' ').trim() };
+  };
   // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
   // A thread status line's leading mark, its icon or dot centred in one fixed box so every line's text starts at the
   // same place: a command line's icon by its words (domain.mjs COMMANDS: the request's eye, fire or image, Implement's
@@ -133,9 +139,11 @@
     'Prototype requested': shape('eye'),
     'Grill requested': shape('flame'),
     'Visual requested': shape('image'),
+    'Review requested': shape('search'),
     'Prototype started': shape('eye'),
     'Grill started': shape('flame'),
     'Visual started': shape('image'),
+    'Review started': shape('search'),
     'Re-ask requested': shape('retry'),
     visual: shape('image'),
     'ask-link': shape('arrow'),

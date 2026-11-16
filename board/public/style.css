@@ -138,7 +138,16 @@ button.chip { border: 0; }
 .msg.claude { background: var(--claude); }
 .msg.love { background: var(--accent-soft); }
 /* Grey is every voice neither the owner's nor the orchestrator's: a teammate's Slack reply, a builder, any other; its header names it. */
-.msg.slack, .msg.builder, .msg.other { background: var(--chip); }
+.msg.slack, .msg.builder, .msg.reviewer, .msg.other { background: var(--chip); }
+/* docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: a reviewer's findings, ranked, each its severity,
+   file:line and sentence; the top three shown, the rest under Show all. */
+.msg.reviewer .body { white-space: normal; }
+.msg.reviewer .body p { margin: 0 0 4px; }
+.findings { margin: 4px 0 0; padding-left: 20px; }
+.findings li { margin: 6px 0; }
+.findings .finding-at { margin-left: 6px; font: 12px ui-monospace, monospace; color: var(--muted); overflow-wrap: anywhere; }
+.findings .finding-text { display: block; overflow-wrap: anywhere; }
+.findings-more summary { cursor: pointer; font-size: 13px; color: var(--muted); margin-top: 4px; }
 .msg .who { font-size: 12px; color: var(--muted); margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg .reply { margin-top: 6px; }
@@ -434,6 +443,9 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 /* Only a run's finished line is green: the fold's summary mirrors its last line, green once the run has finished, else the
    started and status lines' orange or a planner's blue (docs/adr/2026-11-07-1600-only-a-runs-finished-line-is-green.md). */
 .msg.calls.status-fold summary.finished { color: var(--color-success); }
+/* A reviewer's run is grey from start to finish, on the card too (.sub.agent.reviewer), its pulse included. */
+.msg.calls.status-fold.reviewer summary { color: var(--muted); }
+.reviewer .it-pulse { color: inherit; }
 .msg.fault-detail summary { cursor: pointer; list-style: none; overflow-wrap: anywhere; }
 .msg.fault-detail summary::-webkit-details-marker { display: none; }
 .msg.fault-detail[open] summary .mark .it-i { transform: rotate(90deg); }

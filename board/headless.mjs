@@ -18,7 +18,7 @@ import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo, git } from './worktree.mjs';
 import { standardWords } from './commit-message.mjs';
 import { appendBuilderResumed, appendStatus, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
-import { HELPER, plans, SUMMARY_HINT, VISUAL } from './domain.mjs';
+import { HELPER, plans, REVIEWER, SUMMARY_HINT, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
 const cli = (route) => `node ${BOARD_CLI} --site ${route}`;
@@ -228,6 +228,37 @@ export function visualBrief({ route, key, ref, title, notes, thread, repo, agent
   ].join('\n');
 }
 
+// docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md
+// The brief for a reviewer: an adversarial review of the card's diff (target diff, in its worktree against base) or of
+// its plan (target plan, its notes), its verified findings posted as one ranked thread message with reviewer post. card as
+// visualBrief's, with target, worktree and base.
+export function reviewerBrief({ route, key, ref, title, notes, thread, repo, agent, brief, target, worktree, base, rules = [], links = [], text, files = [] }) {
+  const b = cli(route);
+  const diff = target === 'diff';
+  return [
+    `You are the headless reviewer for task ${ref} (${key}, "${title}") on the kickflip board /${route}. The owner asked for a review in the task's thread: attack ${diff ? 'its diff' : 'its plan'} and report what is wrong with it. The board launched you; nobody watches this session, so never wait on a person. Read and run in ${repo}; write no code anywhere, never commit, never restart the hub or a board server, and never push.`,
+    '',
+    ...orchestratorsBrief(brief, 'review'),
+    `1. Run \`${b} builder start ${key} --kind ${REVIEWER} --agent ${agent}\`. If it refuses, stop.`,
+    `2. Read what the task is for: ${notes ? `its notes, ${notes}, all sections, where later sections override earlier ones; ` : ''}its thread, ${thread}, and the repo's CONTEXT.md and docs/adr where they bear on it.`,
+    ...(text ? [`   The owner wrote, asking for it: "${text}"`] : []),
+    ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
+    diff
+      ? `3. Review the diff: \`git -C ${worktree} diff ${base}\` (the branch's commits and any uncommitted work against ${base}), and read the code around each change in ${worktree}. Look for bugs, a broken caller, a state the change doesn't handle, a race, a test that doesn't test what it says, and anything the notes ask for that the diff misses or contradicts.`
+      : '3. Review the plan: the notes and the thread, against the code they name. Look for a contradiction, a decision left open, a case the plan misses, a step the code makes harder than the plan assumes, and a cheaper way to the same end.',
+    '   Verify each finding before you keep it: read the code or run a read-only command that shows it. Drop what you cannot show; a short list of real findings beats a long one.',
+    `4. Write the findings as a JSON list in a file outside the repo, each {"severity": "high" | "medium" | "low", "at": "<file>:<line>", "text": "<the concrete failure, one sentence>"}, "at" left out where no line holds it. Post them with \`${b} reviewer post ${key} --file <findings.json>\`, which ranks them and posts one message in the thread; post an empty list when you find nothing.`,
+    '',
+    'Write nothing else: no notes, questions, task state, Next or progress lines.',
+    '',
+    ...linkLines(links),
+    ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, restart the hub or a board server, or do the orchestrator's work, it isn't yours; you never push or restart:"),
+    `To finish, run \`${b} builder done ${key} --agent ${agent}\`.`,
+    '',
+    'Never push.',
+  ].join('\n');
+}
+
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
 // The brief for a helper another agent on the card asked for (store.mjs requestHelper): its task, in cwd, its own
 // worktree when it writes, else the card's or the board's repo read-only. card as builderBrief's, with agent its name,
@@ -368,7 +399,7 @@ const logFile = (id, role) => path.join(logsDir(), `${role}-${id}-${new Date().t
 // stat against the base. The session id it names goes on the agent's builder record
 // and, with the log, in a thread line saying so.
 // → {pid, sessionId, log}; rejects when the agent can't start.
-export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, asks, task, writes, worktree }, { lander = false, handoff, launch = launchAgent } = {}) {
+export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, asks, task, writes, worktree, target }, { lander = false, handoff, launch = launchAgent } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
@@ -378,9 +409,10 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const rebase = !planner && !helper && !lander && facts.rebasePR !== null;
   const visual = kind === VISUAL;
   const cwd = planner ? repo : helper ? worktree ?? facts.worktree ?? repo : facts.worktree;
-  const card = { ...facts, route, base, repo, rules, kind, agent, brief, text, files, asks, task, writes, cwd, pr: facts.rebasePR };
-  const role = visual ? 'Visual agent' : helper ? `Helper ${agent}` : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
-  const roleBrief = visual ? visualBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
+  const reviewer = kind === REVIEWER;
+  const card = { ...facts, route, base, repo, rules, kind, agent, brief, text, files, asks, task, writes, cwd, target, pr: facts.rebasePR };
+  const role = visual ? 'Visual agent' : reviewer ? 'Reviewer' : helper ? `Helper ${agent}` : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
+  const roleBrief = visual ? visualBrief(card) : reviewer ? reviewerBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
   const prompt = handoff
     ? [roleBrief, ...handoffLines({ ...handoff, commits: git(cwd, 'log', '--oneline', `${base}..HEAD`).out, stat: git(cwd, 'diff', '--stat', `${base}...HEAD`).out })].join('\n')
     : roleBrief;

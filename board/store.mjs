@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
 import { githubStateFile, appendEvent, isBoardSite, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd, boardClaudeModel, claudeModelFor } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel, readLandTests, setLandTests, CLAUDE_MODEL_VALUES } from '../hub/push.mjs';
@@ -2368,13 +2368,13 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
   return { questions, owner, items, staged };
 }
 
-// The kind of the card's open planner record (grill or prototype), or null while none runs. A visual agent posts no
-// questions, so it holds none back.
+// The kind of the card's open planner record (grill or prototype), or null while none runs. A visual agent or a
+// reviewer posts no questions, so it holds none back.
 async function runningPlanner(site, key) {
   const { source } = await loadItem(site, key);
   for (const file of await builderFiles(source.dir, parseKey(key).id)) {
     const record = await readJSON(file, null);
-    if (record?.started && !record.done && plans(record) && record.kind !== VISUAL) return record.kind;
+    if (record?.started && !record.done && plans(record) && !beside(record)) return record.kind;
   }
   return null;
 }
@@ -2804,7 +2804,7 @@ async function stageable(site, key) {
   const { source, item } = await loadItem(site, key);
   if (leftTodo(item) || hasPR(item) || item.pushed) return false;
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
-  if (records.some((r) => r?.started && !r.done && r.kind !== VISUAL)) return false;
+  if (records.some((r) => r?.started && !r.done && !beside(r))) return false;
   if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open')) return false;
   if ((await readJSON(stagedFile(site), {}))[key]) return false;
   return !(await unpickedPrototype(site, key));
@@ -2956,14 +2956,15 @@ export async function stageReply(site, key, message) {
   await stage(site, key);
 }
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
-// A card's briefs, item.briefs [{kind, at, ask?, asks?, brief?: {heading, text, at}}], kind grill, prototype or visual.
+// A card's briefs, item.briefs [{kind, at, ask?, asks?, brief?: {heading, text, at}}], kind grill, prototype, visual or
+// reviewer.
 // An entry with no brief is owed: the orchestrator writes it (item brief, writeBrief). One with a brief waits for the
 // board server to launch its agent (domain.mjs briefsDue), which takes the entry off the card onto the agent's record
-// (startPlanner, startVisual). An owner's request it answers is {text?, files?, question?, note?, choice?}: a prototype
-// entry keeps each in asks, every one its own round; a grill or visual entry keeps the newest as ask. A kind owed again
+// (startPlanner, startBeside). An owner's request it answers is {text?, files?, question?, note?, choice?}: a prototype
+// entry keeps each in asks, every one its own round; any other entry keeps the newest as ask. A kind owed again
 // keeps its first time.
 // (docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md)
-const BRIEF_KINDS = ['grill', 'prototype', VISUAL];
+const BRIEF_KINDS = ['grill', 'prototype', VISUAL, REVIEWER];
 const PLANNER_PHASE = { grill: 'grilling', prototype: 'prototyping' };
 function owe(item, kind, ask = {}, at = new Date().toISOString(), tap = false) {
   const briefs = item.briefs || [];
@@ -2979,12 +2980,12 @@ function dropOwed(item) {
   if (!item.briefs.length) delete item.briefs;
 }
 // The owner's Grill or Prototype tap (kind grill or prototype) on a Todo card: the card owes the orchestrator's brief for
-// it, and a discussing, ready or staging card moves to grilling or prototyping. A Visual tap (kind visual) owes a
-// visual's brief on any open card and moves no phase.
+// it, and a discussing, ready or staging card moves to grilling or prototyping. A Visual or Review tap (kind visual or
+// reviewer) owes that agent's brief on any open card and moves no phase.
 export async function planAgain(site, key, kind, ask = {}) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (closed(item) || (kind !== VISUAL && leftTodo(item))) return;
-  if (kind !== VISUAL && ['discussing', 'ready', 'staging'].includes(item.phase)) {
+  if (closed(item) || (!beside({ kind }) && leftTodo(item))) return;
+  if (!beside({ kind }) && ['discussing', 'ready', 'staging'].includes(item.phase)) {
     item.phase = PLANNER_PHASE[kind];
     delete item.staged_at;
   }
@@ -3003,12 +3004,12 @@ export async function oweBrief(site, key, kind) {
 // board server launches the agent from it. → {heading, lines}
 export async function writeBrief(site, key, { kind, file }) {
   needSite(site);
-  if (!BRIEF_KINDS.includes(kind)) fail(`item brief needs --kind grill, prototype or ${VISUAL}`);
+  if (!BRIEF_KINDS.includes(kind)) fail(`item brief needs --kind grill, prototype, ${VISUAL} or ${REVIEWER}`);
   if (file === undefined) fail('item brief needs --file <draft.md>: what the discussion settled, what is still open, what the agent should cover and the files that matter');
   const name = await cardName(site, key);
   const { item } = await loadItem(site, key);
   if (closed(item)) fail(`${name} is done; there is nothing to brief`);
-  if (kind !== VISUAL && leftTodo(item)) fail(`${name} is past Todo, so it gets no ${kind}`);
+  if (!beside({ kind }) && leftTodo(item)) fail(`${name} is past Todo, so it gets no ${kind}`);
   const body = (await refuseCardNotes(site, file, '--file', () => `${DRAFT_HINT}, holding only the brief`)).trim();
   if (!body) fail(`${file} is empty`);
   const notes = item.plan ? (await readNotes(site, key)).markdown : '';
@@ -3019,7 +3020,7 @@ export async function writeBrief(site, key, { kind, file }) {
   const tapped = (briefed.briefs || []).some((b) => b.kind === kind && !b.brief && b.tap);
   if (!(briefed.briefs || []).some((b) => b.kind === kind && !b.brief)) owe(briefed, kind, {}, at);
   briefed.briefs = briefed.briefs.map((b) => (b.kind === kind && !b.brief ? { ...b, brief: { heading, text: body, at } } : b));
-  if (kind !== VISUAL && briefed.phase !== PLANNER_PHASE[kind]) {
+  if (!beside({ kind }) && briefed.phase !== PLANNER_PHASE[kind]) {
     leaveNew(briefed);
     briefed.phase = PLANNER_PHASE[kind];
     delete briefed.staged_at;
@@ -3029,7 +3030,7 @@ export async function writeBrief(site, key, { kind, file }) {
   // board's auto pass, which launches the agent.
   if (!tapped) await appendCommand(site, key, { command: `${kind}-started` });
   await appendEvent({ dir: site }, 'brief-written', { key, kind });
-  return { heading, lines: [`${name}: "${heading}" added to its notes; the board launches its ${kind === VISUAL ? 'visual agent' : `${kind} planner`} from it`] };
+  return { heading, lines: [`${name}: "${heading}" added to its notes; the board launches its ${{ [VISUAL]: 'visual agent', [REVIEWER]: 'reviewer' }[kind] ?? `${kind} planner`} from it`] };
 }
 // The card's oldest written brief of kind taken off the card, once the agent's record holds it (startPlanner, startVisual).
 async function dropBrief(site, key, kind) {
@@ -5034,8 +5035,9 @@ export async function cardOfWorktree(site, dir) {
 }
 
 // The model a planner runs without --model (owner, #111's grill).
-// A visual agent writes one page and should come back fast (owner, gh298-agent).
-const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus', [VISUAL]: 'sonnet' };
+// A visual agent writes one page and should come back fast (owner, gh298-agent). A reviewer hunts for what is wrong,
+// which takes the stronger model.
+const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus', [VISUAL]: 'sonnet', [REVIEWER]: 'opus' };
 
 // worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree), told
 // the worktrees the card's other open builder records keep ({busy: [path]}), and returns {path, branch, repo}, which the
@@ -5060,7 +5062,7 @@ const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus', [VISUAL]: 'sonnet' }
 // the pick's, which reads the card's size and model (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
 // → {file, lines, kind, model, reason, worktree}: model is the Claude model or null, reason the pick's, worktree the path or null;
 // {file, alreadyOpen: true, lines: []} for a session's dispatch on a record the tap opened.
-export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, ownWorktree, dispatch, brief }) {
+export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, ownWorktree, dispatch, brief, target }) {
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
   const asLine = optional(progress, (v) => progressLine(site, phase, v, '--progress'));
   const file = await builderFile(site, key, dir, agent);
@@ -5074,8 +5076,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const before = await readJSON(file, null);
   const tapOpen = (record) => ['tap', 'hub'].includes(record?.dispatched) && !record.done;
   if (dispatch === 'session' && tapOpen(before)) return { file, alreadyOpen: true, lines: [] };
-  // A visual agent or a helper runs beside any other, the tap's record included.
-  if (agent !== 'main' && given !== VISUAL && given !== HELPER && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
+  // A visual agent, a reviewer or a helper runs beside any other, the tap's record included.
+  if (agent !== 'main' && !beside({ kind: given }) && given !== HELPER && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
   const takeUp = before?.dispatched && !before.done ? before : null;
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   const marking = build && !dir && !closed(was) && was.lane !== 'progress';
@@ -5109,6 +5111,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     ...(launchedSession(before) ? { session: before.session } : {}),
     // A planner's or visual agent's record keeps the brief the board launched it from (startPlanner, startVisual).
     ...((brief ?? takeUp?.brief) && plans({ kind: k }) ? { brief: brief ?? takeUp.brief } : {}),
+    // A reviewer's record keeps what it reviews, diff or plan (startReviewer).
+    ...((target ?? takeUp?.target) && k === REVIEWER ? { target: target ?? takeUp.target } : {}),
     // A helper's record keeps what agent launch asked of it.
     ...(k === HELPER && before?.kind === HELPER ? { label: before.label, task: before.task, writes: before.writes, requested: before.requested } : {}),
   };
@@ -5144,7 +5148,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   }
   if (remade && site) await appendStatus(site, key, 'worktree-remade');
   if (line) await statusToThread(site, key, agent, record, line, now);
-  const resolved = given === VISUAL || given === HELPER ? [] : await resolveAnswered(site, key, 'Acted on: builder started');
+  const resolved = beside({ kind: given }) || given === HELPER ? [] : await resolveAnswered(site, key, 'Acted on: builder started');
   if (site && build) await clearNext(site, key);
   return {
     file, kind: k ?? null, model: claude ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
@@ -5551,26 +5555,31 @@ export async function startPlanner(site, key, kind, kept = null) {
 }
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
-// The board server's start of the visual agent for the card's oldest written visual brief (domain.mjs briefsDue): its
-// own record, agent visual-<the brief's time in ms>, opens dispatched 'hub' beside any other agent on the card, and the
-// brief moves onto it. → {key, kind, model, agent, brief, ...its ask}, or null while a visual agent runs on the card; a
-// card with no visual brief is refused.
-export async function startVisual(site, key) {
+// docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md
+// The board server's start of the visual agent or reviewer (kind) for the card's oldest written brief of that kind
+// (domain.mjs briefsDue): its own record, agent <kind>-<the brief's time in ms>, opens dispatched 'hub' beside any other
+// agent on the card, and the brief moves onto it. A reviewer reviews the diff while the card's newest worktree is on
+// disk, else the plan, and its record keeps which as target. → {key, kind, model, agent, brief, target?, ...its ask}, or
+// null while one of its kind runs on the card; a card with no brief of the kind is refused.
+async function startBeside(site, key, kind) {
   const { source } = await loadItem(site, key);
   const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
-  if (records.some((r) => r?.kind === VISUAL && r.started && !r.done)) return null;
-  const waiting = await briefOn(site, key, VISUAL) ?? await noBrief(site, key, VISUAL);
-  const agent = visualAgent(waiting.brief);
-  const started = await startBuilder(site, key, { kind: VISUAL, agent, dispatch: 'hub', brief: waiting });
-  await dropBrief(site, key, VISUAL);
-  const entry = waiting;
-  return { key, kind: VISUAL, model: started.model, agent, brief: entry.brief, ...entry.ask };
+  if (records.some((r) => r?.kind === kind && r.started && !r.done)) return null;
+  const waiting = await briefOn(site, key, kind) ?? await noBrief(site, key, kind);
+  const agent = besideAgent(kind, waiting.brief);
+  const worktree = records.filter((r) => r?.worktree?.path).sort((a, b) => String(a.started || '').localeCompare(String(b.started || ''))).at(-1)?.worktree.path;
+  const target = kind === REVIEWER ? (worktree && existsSync(worktree) ? 'diff' : 'plan') : undefined;
+  const started = await startBuilder(site, key, { kind, agent, dispatch: 'hub', brief: waiting, target });
+  await dropBrief(site, key, kind);
+  return { key, kind, model: started.model, agent, brief: waiting.brief, ...(target ? { target } : {}), ...waiting.ask };
 }
+export const startVisual = (site, key) => startBeside(site, key, VISUAL);
+export const startReviewer = (site, key) => startBeside(site, key, REVIEWER);
 
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
-// A helper's name: lowercase words joined by "-", never main nor a visual agent's.
-const helperName = (name) => (typeof name === 'string' && /^[a-z][a-z0-9-]{0,29}$/.test(name) && name !== 'main' && !name.startsWith(`${VISUAL}-`) ? name
-  : fail('--name takes a short lowercase name such as tests or docs-pass: letters, digits and "-", not main or visual-…'));
+// A helper's name: lowercase words joined by "-", never main nor a visual agent's or reviewer's.
+const helperName = (name) => (typeof name === 'string' && /^[a-z][a-z0-9-]{0,29}$/.test(name) && name !== 'main' && !name.startsWith(`${VISUAL}-`) && !name.startsWith(`${REVIEWER}-`) ? name
+  : fail('--name takes a short lowercase name such as tests or docs-pass: letters, digits and "-", not main, visual-… or reviewer-…'));
 // The worktree the card's build works in, its main record's, else the one the card got on entering In Progress, while
 // it is on disk; null when it has none.
 async function cardWorktree(site, key) {
@@ -5711,6 +5720,33 @@ export async function addVisual(site, key, { file, title }) {
   const link = `visuals/${id}/${page}`;
   await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: VISUAL, text: text(name, '--name'), link: pageUrl(link, '--link') });
   return { lines: [link] };
+}
+
+// docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md
+// `reviewer post <file/id> --file <findings.json>`: the reviewer's findings, a JSON list of {severity: high|medium|low,
+// at?: "<file>:<line>", text}, as one Reviewer message in the card's thread, most severe first (a stable sort, so the
+// reviewer's order holds within a severity), headed by how many and what it reviewed, its newest reviewer record's target.
+const SEVERITIES = ['high', 'medium', 'low'];
+function finding(f, n) {
+  const name = `finding ${n + 1}`;
+  if (!f || typeof f !== 'object' || !SEVERITIES.includes(f.severity)) fail(`${name} needs severity high, medium or low`);
+  return { severity: f.severity, ...(f.at === undefined ? {} : { at: text(f.at, `${name}'s at`) }), text: text(f.text, `${name}'s text`) };
+}
+export async function postFindings(site, key, { file }) {
+  needSite(site);
+  if (typeof file !== 'string') fail('reviewer post needs --file <findings.json>');
+  const raw = await fs.readFile(path.resolve(file), 'utf8').catch(() => fail(`--file ${file} can't be read`));
+  let list;
+  try { list = JSON.parse(raw); } catch (e) { fail(`--file ${file} isn't JSON: ${e.message}`); }
+  if (!Array.isArray(list)) fail(`--file ${file} holds a JSON list of findings: [{"severity": "high", "at": "<file>:<line>", "text": "<one sentence>"}]`);
+  const findings = list.map(finding).map((f, i) => [f, i]).sort(([a, i], [b, j]) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity) || i - j).map(([f]) => f);
+  const { source } = await loadItem(site, key);
+  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
+  const target = records.filter((r) => r?.kind === REVIEWER && r.started).sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1)?.target || 'plan';
+  const n = findings.length;
+  const words = n ? `${n} finding${n === 1 ? '' : 's'} on the ${target}${n > 1 ? ', most severe first' : ''}` : `No findings on the ${target}`;
+  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: REVIEWER, kind: REVIEWER, text: words, findings });
+  return { lines: [`${await cardName(site, key)}: ${words}, posted in its thread`] };
 }
 
 // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md

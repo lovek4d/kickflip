@@ -140,6 +140,10 @@
 //                                brief), the server launches its agent, a planner while no other agent but a visual
 //                                one works on the card, a visual agent beside any other once no other visual runs
 //                                there (launchBriefs; docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md)
+//                                review-request {key, text?, files?} is /review in a task's thread: it owes the orchestrator's
+//                                reviewer brief on any open card, and once written the server launches a reviewer beside
+//                                any other agent once no other reviewer runs there
+//                                (docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md)
 //                                reask-request {key?, question} asks the session to ask a resolved question again from the
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
@@ -356,7 +360,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, beside, REVIEWER, VISUAL, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -368,7 +372,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -509,7 +513,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // never carries it. board.json is read again here, so a level changed since the hub's check holds. Full takes answers,
   // thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
   // the header's GitHub check stay the owner's, as does any kind not listed.
-  const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request','grill-more', 'visual-request', 'item-message',
+  const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request','grill-more', 'visual-request', 'review-request', 'item-message',
     'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-bump', 'card-unbump']);
   // The taps that move a card, which carry the card's version (docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md).
   const CARD_TAPS = new Set(['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-merge']);
@@ -732,7 +736,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         for (const p of cardPRs(it, repo)) prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? null : prViewOf(routeRecord(checked, prKeyOf(p)), limited);
       }
     }
-    const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'item-message', 'overnight-triage']);
+    const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'review-request', 'item-message', 'overnight-triage']);
     const replyIndex = await readReplyIndex(replies);
     const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e, replyIndex) : { ...e, reply: null, replies: [] })));
     await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
@@ -1392,7 +1396,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         if (kind === 'card-bump' || kind === 'card-unbump') moveQueuedLand(here, String(body.key || ''), kind === 'card-bump' ? now().toISOString() : null);
         // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a tap owes the orchestrator's
         // brief; the agent launches from the brief.
-        const tapped = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual' }[kind];
+        const tapped = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'review-request': REVIEWER }[kind];
         if (tapped && body.key) {
           // docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md: the tap ends an Implement or Close mark.
           await clearOwnerWait(here, String(body.key));
@@ -1780,16 +1784,17 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     for (const { key, kind } of briefsDue(items)) {
       if (launchHeldNow()) return;
       dataVersion++;
-      if (kind !== 'visual') { await launchPlanner(key, kind); continue; }
+      if (!beside({ kind })) { await launchPlanner(key, kind); continue; }
+      const named = kind === VISUAL ? 'visual agent' : kind;
       try {
-        const started = await startVisual(here, key);
+        const started = await (kind === VISUAL ? startVisual : startReviewer)(here, key);
         if (!started) continue;
         try { await launchBuilder(here, started, { launch }); } catch (e) {
-          await abandonPlanner(here, key, ['planner-failed', { kind: 'visual agent', error: e.message }], started.agent);
+          await abandonPlanner(here, key, ['planner-failed', { kind: named, error: e.message }], started.agent);
         }
       } catch (e) {
         if (!(e instanceof BoardError)) throw e;
-        await appendStatus(here, key, 'planner-failed', { kind: 'visual agent', error: e.message });
+        await appendStatus(here, key, 'planner-failed', { kind: named, error: e.message });
       }
     }
   }
@@ -1926,7 +1931,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const { [key]: _, ...rest } = await readJSON(queuedPlanners, {});
       await saveQueuedPlanners(rest);
       logCall({ call: 'planner-queued', key, result: 'launching', reason: 'The hold it waited on has lifted.', inputs: { kind } });
-      if (kind === 'visual') await restoreBrief(here, key, kept);
+      if (beside({ kind })) await restoreBrief(here, key, kept);
       else await launchPlanner(key, kind, kept);
       dataVersion++;
     }
