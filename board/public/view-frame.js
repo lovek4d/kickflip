@@ -1,29 +1,24 @@
-// Any other page on the hub as a view of the app shell (shell.js): another site, a prototype, or a board page that isn't
-// a view of its own, in a same-origin frame beside the board header (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). The
+// Any other page on the hub as a view of the app shell (shell.js): another site, or a board page that isn't a view of its
+// own and no card page (router.js isCardPage, which opens in the board's sheet), in a same-origin frame beside the board
+// header (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). The
 // header's title follows the page's, and Open alone ↗ loads the page by itself (?alone=1, hub/shell.mjs pageOf). A
-// page that draws the board header itself, such as a prototype or another site's page, hides this one; its logo then
+// page that draws the board header itself, such as another site's page, hides this one; its logo then
 // toggles the sidebar as this one's would, and hides while the rail shows. The page's own navigations stay in the frame
 // and in the browser's history; each load hands its URL and title to the shell. A tap in the frame on a link to any
 // other view, the page's own back arrow included, goes to the shell.
 // ctx, from shell.js: {view, siteTitle, boards() → board routes, open(href) shows a URL in the shell or loads it,
-// toggleSidebar(), keydown(e) and pointerdown(e) for switch mode, loaded(url, title) after each load, up() → true when
-// the shown page is in the page tree and the router took it up a level (router.js)}.
+// toggleSidebar(), keydown(e) and pointerdown(e) for switch mode, loaded(url, title) after each load}.
 (function () {
   // sidebar.js's rail.
   const RAIL = '(min-width: 900px)';
   const LOGO_CSS = '<style id="hub-frame-logo">html.hub-rail body > header.top a.hub { display: none; }</style>';
-  const alone = (url) => {
-    const u = new URL(url, location.href);
-    u.searchParams.set('alone', '1');
-    return u.pathname + u.search + u.hash;
-  };
 
   (globalThis.AppViews ||= {}).frame = {
     className: 'view-frame',
     title: (view, { siteTitle }) => siteTitle,
     markup: (view, { siteTitle }) => {
-      const { esc, header, LINK_ARROW } = BoardUI;
-      const open = `<nav class="nav"><a class="alone" href="${esc(alone(view.url))}" target="_blank" rel="noopener">Open alone ${LINK_ARROW}</a></nav>`;
+      const { esc, header, LINK_ARROW, aloneHref } = BoardUI;
+      const open = `<nav class="nav"><a class="alone" href="${esc(aloneHref(view.url))}" target="_blank" rel="noopener">Open alone ${LINK_ARROW}</a></nav>`;
       return `${header({ lead: 'logo', title: siteTitle, logoSrc: '/_hub/kickflip.png', controls: false, trail: open })}
 <iframe class="frame-page" src="${esc(view.url)}" title="${esc(siteTitle)}"></iframe>`;
     },
@@ -51,17 +46,10 @@
         if (to.pathname === win.location.pathname && to.search === win.location.search && to.hash) return;
         // The page's own back arrow (ui-page-header.js) already went back when a page before it is in this frame.
         const back = a.classList.contains('back') && Boolean(a.closest('header.top'));
-        if (!back && view.kind === 'frame' && (a.target || '_self') === '_self') return;
+        if (!back && view.kind === 'frame' && !AppRouter.isCardPage(view, ctx.boards()) && (a.target || '_self') === '_self') return;
         e.preventDefault();
         if (back && BoardUI.backStep({ pushed: history.state?.pushed === true, href: location.href, idx: history.state?.idx }) === 'back') history.back();
         else ctx.open(a.href);
-      }
-      // A prototype's back arrow goes up to Waiting on you whatever its own backHref says, so the shell takes it before
-      // the page's own header script (ui-page-header.js wireBack) can.
-      function upTap(e) {
-        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || !e.target.closest?.('header.top a.back') || !ctx.up?.()) return;
-        e.preventDefault();
-        e.stopPropagation();
       }
 
       B.on(frame, 'load', () => {
@@ -76,12 +64,11 @@
         heading.textContent = title;
         frame.title = title;
         const url = win.location.pathname + win.location.search + win.location.hash;
-        openAlone.href = alone(url);
+        openAlone.href = BoardUI.aloneHref(url);
         root.classList.toggle('own-header', Boolean(doc.querySelector('body > header.top')));
         if (!doc.getElementById('hub-frame-logo')) doc.head?.insertAdjacentHTML('beforeend', LOGO_CSS);
         shown = doc;
         syncLogo();
-        B.on(win, 'click', upTap, true);
         B.on(doc, 'click', (e) => tap(e, win));
         // Switch mode (sidebar.js) answers keys and clicks in the frame as it does the shell's own.
         if (ctx.keydown) B.on(doc, 'keydown', ctx.keydown, true);

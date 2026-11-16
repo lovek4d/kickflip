@@ -70,11 +70,8 @@ test('cutClose ends a close in progress, so the sheet can open again; the timer 
 
 const src = (f) => fs.readFileSync(new URL(`./public/${f}`, import.meta.url), 'utf8');
 
-test('the reader leaves the notes already shown in place', () => {
-  const s = src('app-reader.js');
-  assert.match(s, /if \(sheet\.open && !sheet\.classList\.contains\('closing'\) && notesKey === key\) return;/);
-  assert.match(s, /BoardUI\.closeSheet\(sheet, B\.later\)/);
-});
+// The reader leaving the notes already shown in place, and its close-out, are tested by behaviour in view.test.mjs ("a
+// card's notes the board's sync carried open in the sheet").
 
 test('the questions sheet closes through the shared helper', () => {
   assert.match(src('app-questions-sheet.js'), /closeSheet\(sheet, later, \(\) => \{ topic = null; \}\)/);

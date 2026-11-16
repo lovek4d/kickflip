@@ -843,7 +843,7 @@ main > * { transition: opacity .25s ease; }
 .view-notes .md-table th { background: var(--bg); font-weight: 600; }
 .view-notes .md-table tr:last-child td { border-bottom: 0; }
 /* The sidebar and every pane never scroll sideways: content wraps at the pane's width, overflow-x hidden is the last guard. */
-.view-questions, .view-notes, .reader-sheet, .pane-viewer { overflow-x: hidden; }
+.view-questions, .view-notes, .reader-sheet { overflow-x: hidden; }
 /* A framed page (view-frame.js) fills the space beside the header, and scrolls inside its frame. */
 .view-frame { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .view-frame > .top { flex: none; }
@@ -986,6 +986,17 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 @keyframes reader-pulse { 50% { opacity: .35; } }
 .reader-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 6px 0 max(12px, env(safe-area-inset-bottom)); }
 .reader-body > .muted { padding: 8px 14px; margin: 0; }
+/* A card page (app-reader.js openPage): the page fills the body in a frame, and on a phone the sheet stands near full
+   height. Its header holds the Round pill, whose rounds drop over the page, and Open alone ↗. */
+.reader-sheet.reader-page { height: calc(100dvh - max(12px, env(safe-area-inset-top))); max-height: calc(100dvh - max(12px, env(safe-area-inset-top))); }
+.reader-page .reader-body { position: relative; display: flex; padding: 0; overflow: hidden; }
+.reader-frame { flex: 1; min-height: 0; width: 100%; border: 0; display: block; background: var(--panel); }
+.reader-tools .ps-chip { height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; }
+.reader-alone { font-size: 13px; white-space: nowrap; }
+.reader-sheet .ps-sheet { position: absolute; left: 8px; right: 8px; top: 52px; z-index: 2; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+.reader-sheet .ps-sheet h3 { margin: 0 0 6px; font-size: 14px; }
+.reader-sheet .ps-sheet button { display: flex; justify-content: space-between; gap: 12px; width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--text); padding: 10px 2px; text-align: left; }
+.reader-sheet .ps-sheet button span + span { color: var(--muted); }
 /* The questions sheet (app-questions-sheet.js) draws Waiting on you's question cards in the reader sheet's frame. */
 .qs-body { padding: 0; }
 .qs-round { margin: 14px 0 0; font-size: 13px; font-weight: 600; }
@@ -1047,7 +1058,6 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   .col-handle:focus-visible { outline: none; }
   html.col-dragging, html.col-dragging * { cursor: col-resize !important; user-select: none; }
   .split > .col-handle { right: calc(var(--pane-w, 50%) - 4px); }
-  .split:has(.board-pane.widened) > .col-handle { display: none; }
   /* The reader sheet (app-reader.js) is a panel over the pane's half, at the width the seam gives it, while it is open. */
   .sheet.reader-sheet { position: fixed; z-index: 30; inset: 56px 0 0 auto; margin: 0; width: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); max-width: none;
     height: auto; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
@@ -1061,25 +1071,10 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   .board-pane * { min-width: 0; overflow-wrap: anywhere; }
   .board-pane pre, .board-pane code { white-space: pre-wrap; }
   .board-pane :is(.row, .actions, .btns) { flex-wrap: wrap; }
-  /* A prototype in the pane (app-pane.js openViewer): a top bar over the framed page, whose footer ends the pane; ⤢
-     (.widened) lays the pane over the lanes, from the sidebar's edge. */
-  .board-pane.viewing { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
-  .board-pane.viewing > :not(.pane-viewer) { display: none; }
-  .board-pane.viewing.widened { position: fixed; top: 56px; left: var(--sidebar-w, 0px); right: 0; bottom: 0; height: auto; z-index: 7; border-left: 0; background: var(--bg); }
-  .pane-viewer { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .pv-top { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
-  .pv-top .pv-grow { flex: 1; }
-  .pv-top button { min-height: 36px; border-radius: 8px; font-weight: 600; }
-  .pv-top .pv-back { border: 0; background: transparent; color: var(--text); padding: 6px 8px; }
-  .pv-top .pv-back:hover { background: var(--line); }
-  .pv-top .pv-widen { width: 36px; padding: 0; font-size: 17px; }
-  .pv-top .pv-widen[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-  .pv-top .ps-chip { border-radius: 999px; padding: 0 14px; }
-  .pv-frame { flex: 1; min-height: 0; width: 100%; border: 0; display: block; background: var(--panel); }
-  .pane-viewer .ps-sheet { position: absolute; left: 8px; right: 8px; top: 56px; z-index: 2; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
-  .pane-viewer .ps-sheet h3 { margin: 0 0 6px; font-size: 14px; }
-  .pane-viewer .ps-sheet button { display: flex; justify-content: space-between; gap: 12px; width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--text); padding: 10px 2px; text-align: left; }
-  .pane-viewer .ps-sheet button span + span { color: var(--muted); }
+  /* A card page in the reader sheet (app-reader.js openPage) widens it to 60% of the room right of the sidebar, or the
+     pane's width when that is wider, the lanes still beside it. It lies over a questions sheet its View prototypes
+     opened it from, which shows again when it closes. */
+  .sheet.reader-sheet.reader-page { z-index: 31; width: max(var(--pane-w, 0px), calc((100vw - var(--sidebar-w, 0px)) * .6)); }
 }
 /* The Send bar is the last thing on its page: only the phone nav under it is left clear, so its background runs to the edge. */
 body .view-questions.view-questions main { padding-bottom: var(--app-bottom, 0px); }

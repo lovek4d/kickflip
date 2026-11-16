@@ -282,7 +282,7 @@ window.AppShell = (function () {
         v = BoardView.create(root, siteRoot, { signal: signalFor(route), streaming, pause: () => data?.sites?.find((s) => s.route === route)?.pause || data?.pause, away: () => data?.away });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
-          reload: () => go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'reload'), closeSidebar: sidebar.close, up: () => router.up(),
+          reload: () => go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'reload'), closeSidebar: sidebar.close,
           loaded: (url, title) => { if (current?.v === v) framed(url, title); }, sidebarChanged: refreshSidebar, signal: signalFor(route), streaming });
       }
       current = { view, route, root, v };
@@ -293,11 +293,11 @@ window.AppShell = (function () {
     }
 
     // A framed page loaded url in the frame: the top's URL and title follow it, without a history entry of their own,
-    // since the frame's navigation made one. Any other view shows in the top instead.
+    // since the frame's navigation made one. Any other view, a board's card page included, shows in the top instead.
     function framed(url, title) {
       const { href } = AppRouter.entryOf(url);
       const view = AppRouter.viewOf(href, { boards: boards() });
-      if (view && view.kind !== 'frame') { if (!opener(href, { replace: true })) location.replace(href); return; }
+      if (view && (view.kind !== 'frame' || AppRouter.isCardPage(view, boards()))) { if (!opener(href, { replace: true })) location.replace(href); return; }
       document.title = title;
       if (!view) return;
       history.replaceState(history.state, '', href);
@@ -318,13 +318,13 @@ window.AppShell = (function () {
     // Board and Waiting on you are a board's two pages (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md):
     // from 900px the board shows Waiting on you in its pane, so every view of the questions page, a link, a push, a
     // hand-off, a history entry or a cold load, shows the board at its own URL and opens the question's topic there (id,
-    // or null for none). A board's prototype page does the same and opens in the pane
-    // (docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md).
-    const inPane = (view) => wide.matches && (view?.kind === 'questions' || AppRouter.isPrototype(view, boards()));
-    // ask(B) → true once the board's pane did what the view asks. A board just shown takes a moment to fill its pane, so
-    // the pane is asked again until it has.
+    // or null for none). A board's card page, a prototype or a visual, does the same at every width and opens in the
+    // board's reader sheet (docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md).
+    const inPane = (view) => (wide.matches && view?.kind === 'questions') || AppRouter.isCardPage(view, boards());
+    // ask(B) → true once the board did what the view asks. A board just shown takes a moment to fill its pane, so it is
+    // asked again until it has.
     // An open question also opens its questions sheet (app-questions-sheet.js).
-    const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openViewer?.(href));
+    const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openPage?.(href));
     // A newer ask drops the retries of an older one, so a late retry never sets an earlier pick over the later one.
     let asked = 0;
     function askPane(ask, tries = 50, mine = ++asked) {
@@ -408,8 +408,8 @@ window.AppShell = (function () {
       first = { kind: 'board', route: first.route, hash: '' };
       history.replaceState(history.state, '', AppRouter.urlOf(first));
     }
-    router = AppRouter.listen({ boards, go, wide: () => wide.matches });
-    // Widening past 900px on Waiting on you or a prototype swaps to the board with it open in the pane.
+    router = AppRouter.listen({ boards, go });
+    // Widening past 900px on Waiting on you swaps to the board with it open in the pane.
     wide.addEventListener('change', () => {
       if (current && inPane(current.view)) go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'replace');
     });

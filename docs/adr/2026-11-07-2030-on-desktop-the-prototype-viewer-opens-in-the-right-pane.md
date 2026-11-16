@@ -19,3 +19,5 @@ While the viewer is open, the window's URL stays the board's, as it does for a q
 Superseded by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): a prototype opens its own page at every width.
 
 Restored by [the desktop pane is back without the Needs you deck](2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md).
+
+Superseded by [prototypes and visuals open in the reader sheet](2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md): a prototype opens in the board's reader sheet at every width; the footer at every width stands.

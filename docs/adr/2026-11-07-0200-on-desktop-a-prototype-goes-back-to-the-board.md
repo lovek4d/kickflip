@@ -6,3 +6,5 @@ The owner, on #339: "returning from a prototype page on desktop should go back t
 - **Choose this** replaces the prototype with the questions URL, as before. `shell.js` `go` turns any view of `questions.html` at that width into the board and picks the question's pill in the pane (`app-needs.js` `focusQuestion`, #312's focus), waiting for the pane to fill. A cold load or a history entry of `questions.html` is rewritten the same way.
 - **Phone**: unchanged; the tree stays board, Waiting on you, prototype.
 - #323 makes this one rule for every link; this card covers the prototype's return paths and the shell rewrite they need.
+
+Superseded by [prototypes and visuals open in the reader sheet](2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md): a prototype is no level of the page tree; it opens in the board's reader sheet.

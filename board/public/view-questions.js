@@ -9,10 +9,10 @@
 // them are prototype picks; a tap reads its action's words (Tap Implement, Hold Run, a fault's reason); a held review,
 // keyed PR, reads Review held.
 // Tapping a row opens its place, and closing that returns to the list: a topic's row opens the questions sheet
-// (app-questions-sheet.js) with that topic's open questions; a Pick a take opens its prototype; a held review opens in
+// (app-questions-sheet.js) with that topic's open questions; a Pick a take opens its prototype in the board's reader sheet; a held review opens in
 // the Auto Review lane; any other row opens its card's thread. A link to an open question opens its sheet too; a link to a topic marks its row.
 // markup({embedded: true}) and ctx.embedded mount it in the board's desktop pane (app-pane.js): no header and no sheet
-// of its own, as the board's sheet opens over the pane (ctx.openSheet), and the board's URL and scroll are left alone; it
+// of its own, as the board's sheets open over the pane (ctx.openSheet, ctx.openPage), and the board's URL and scroll are left alone; it
 // holds no board of its own: the lanes' board paints it (ctx.host,
 // docs/adr/2026-11-14-2230-the-desktop-pane-shows-the-lanes-board.md). Alone it paints at once from the board's saved
 // copy, then asks only for the changes since its number (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md,
@@ -163,9 +163,11 @@
       const href = new URL(`./#${kind}=${encodeURIComponent(rest)}`, location.href).href;
       if (!AppShell.open(href)) location.assign(href);
     }
+    // A prototype opens in the board's reader sheet (app-reader.js openPage): embedded, the board's beside the pane; alone,
+    // the shell shows the board under it (shell.js go).
     function openPrototype(url) {
       const href = new URL(url, location.href).href;
-      if (!AppShell.open(href)) location.assign(href);
+      if (ctx.embedded) ctx.openPage(href); else AppShell.open(href);
     }
     B.on(root, 'click', (ev) => {
       const button = ev.target.closest?.('[data-row]');

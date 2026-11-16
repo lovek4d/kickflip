@@ -8,6 +8,11 @@
 // raw toggle for the file as it is (docs/adr/2026-11-07-1224-view-transcript-reads-the-whole-run-as-rows.md); any other
 // log reads as its text. Every 3 seconds until the run's result arrives it reads on from where it left off, and follows
 // new lines while read at its end.
+// docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md: a card page, a prototype round's page or a
+// visual (router.js isCardPage), opens here too (openPage), whatever way it was reached: its body the page in a frame,
+// its header the kind, the card's ref and the page's title, the card's Round pill for a prototype, and Open alone ↗.
+// From 900px the sheet widens for a page (.reader-page); on a phone it is the modal sheet near full height. A link in
+// the page to another card page of this board opens in its place; one to any other view closes the sheet first.
 BoardView.part((B) => {
   const { $, state } = B;
   const { esc, markdown, linkContext } = BoardUI;
@@ -23,6 +28,8 @@ BoardView.part((B) => {
   let stopReading = null;
   // The card whose notes the sheet shows, else null.
   let notesKey = null;
+  // The card page the sheet shows, {url, q, rounds}, rounds whether the Round sheet is out, else null.
+  let page = null;
 
   // A row of the transcript (transcript.mjs); a call with its output opens it on a tap of its line. What Claude says,
   // its text rows and its result, is markdown in compact styles, linking the board's refs
@@ -109,15 +116,22 @@ BoardView.part((B) => {
     stopReading?.();
     log = null;
     notesKey = null;
+    page = null;
+    sheet.classList.remove('reader-page');
     sheet.querySelector('#readerTitle').textContent = title;
     sheet.querySelector('.reader-ref').textContent = ref;
     tools.innerHTML = '';
     more.hidden = true;
     body.innerHTML = '<p class="muted">Loading…</p>';
-    modal = !matchMedia('(min-width: 900px)').matches;
-    if (modal) sheet.showModal(); else sheet.show();
-    history.pushState({ ...history.state, idx: history.state.idx + 1, reader: true }, '', location.href);
-    pushed = true;
+    if (!sheet.open) {
+      modal = !matchMedia('(min-width: 900px)').matches;
+      if (modal) sheet.showModal(); else sheet.show();
+    }
+    // One entry for the open sheet, whatever it shows next, so Back and a close take it back once.
+    if (!pushed) {
+      history.pushState({ ...history.state, idx: history.state.idx + 1, reader: true }, '', location.href);
+      pushed = true;
+    }
     return opened;
   }
   function openLog(file) {
@@ -155,6 +169,71 @@ BoardView.part((B) => {
     if (sheet.open && notesKey !== null && keys.includes(notesKey) && state.notesCache.has(notesKey)) paintNotes(notesKey, state.notesCache.get(notesKey), refOf(notesKey));
   }
 
+  // A card page: the board's route, whose card pages open here (router.js isCardPage); the card a page belongs to, a
+  // prototype's by its question's round or topic, a visual's by the card id in its path (board/store.mjs addVisual).
+  const here = new Set([decodeURIComponent(new URL(B.site.url(''), location.href).pathname.split('/')[1])]);
+  const isCardPage = (href) => AppRouter.isCardPage(AppRouter.viewOf(href, { boards: here }), here);
+  function cardOfPage(url) {
+    const items = state.board?.items || [];
+    const visual = /\/visuals\/([\w-]+)\/[\w-]+\.html$/.exec(url.pathname)?.[1];
+    if (visual) return items.find((i) => i.key.split('/').pop() === visual) || null;
+    const q = url.searchParams.get('q');
+    const topic = state.board?.owner.find((x) => x.id === q)?.topic;
+    return items.find((i) => i.prototypes?.rounds?.some((r) => r.q === q) || `item:${i.key}` === topic) || null;
+  }
+  function paintPage(title = page.title) {
+    page.title = title;
+    const url = new URL(page.url);
+    const card = cardOfPage(url);
+    const rounds = card?.prototypes?.rounds;
+    sheet.querySelector('#readerTitle').textContent = /\/visuals\//.test(url.pathname) ? 'visual' : 'prototype';
+    sheet.querySelector('.reader-ref').textContent = [card?.ref, title].filter(Boolean).join(' · ');
+    tools.innerHTML = `${BoardUI.roundPill(rounds, page.q)}<a class="reader-alone" href="${esc(BoardUI.aloneHref(page.url))}" target="_blank" rel="noopener">Open alone ${BoardUI.LINK_ARROW}</a>`;
+    sheet.querySelector('.ps-sheet')?.remove();
+    if (page.rounds && rounds) body.insertAdjacentHTML('beforebegin', BoardUI.roundSheet({ ref: card.ref, rounds, qid: page.q }));
+  }
+  // href: the page's URL. A page already open stays put. → true, the shell's sign that the board took it (shell.js go).
+  function openPage(href) {
+    const url = new URL(href, location.href).href;
+    if (sheet.open && !sheet.classList.contains('closing') && page?.url === url) return true;
+    show('', '');
+    page = { url, q: new URL(url).searchParams.get('q'), rounds: false, title: '' };
+    sheet.classList.add('reader-page');
+    body.innerHTML = `<iframe class="reader-frame" src="${esc(url)}" title="Card page"></iframe>`;
+    const frame = body.querySelector('iframe.reader-frame');
+    B.on(frame, 'load', () => framedPage(frame));
+    paintPage();
+    return true;
+  }
+  // Each load of the page: its title in the header, and its links' taps here (a page of another origin is its own).
+  function framedPage(frame) {
+    let win;
+    try { win = frame.contentWindow; if (!win || win.location.href === 'about:blank') return; } catch { return; }
+    if (page?.url) paintPage(win.document.title || '');
+    B.on(win.document, 'click', (ev) => {
+      if (!plainTap(ev)) return;
+      const a = ev.target.closest?.('a[href]');
+      if (!a || a.hasAttribute('download') || !['', '_self', '_top', '_parent'].includes(a.target)) return;
+      const to = new URL(a.href, win.location.href);
+      if (!AppRouter.viewOf(to.href, { boards: here }) || (to.pathname === win.location.pathname && to.search === win.location.search && to.hash)) return;
+      ev.preventDefault();
+      if (isCardPage(to.href)) openPage(to.href); else leave(to.href);
+    });
+  }
+  // Closes the sheet, then opens href through the shell (the popstate below).
+  function leave(href) {
+    pending = new URL(href, location.href).href;
+    close();
+  }
+  // The page's frame goes once the sheet has closed, so nothing runs in it unseen.
+  function dropPage() {
+    if (!page) return;
+    page = null;
+    body.innerHTML = '';
+    sheet.querySelector('.ps-sheet')?.remove();
+    sheet.classList.remove('reader-page');
+  }
+
   // A board patch's notes ({<key>: markdown, or null for none}) into the cache. Each fill running keeps the keys, so its
   // answer, which may be older, leaves them as the patch did.
   const fills = new Set();
@@ -182,13 +261,13 @@ BoardView.part((B) => {
   }
   function close() {
     if (!sheet.open) return;
-    BoardUI.closeSheet(sheet, B.later);
+    BoardUI.closeSheet(sheet, B.later, dropPage);
     opened++;
     stopReading?.();
     if (pushed) { pushed = false; history.back(); }
   }
 
-  Object.assign(B, { closeReader: close, takeNotes, fillNotes });
+  Object.assign(B, { closeReader: close, takeNotes, fillNotes, openPage });
 
   const plainTap = (ev) => !ev.defaultPrevented && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey;
   B.on(B.root, 'click', (ev) => {
@@ -212,12 +291,19 @@ BoardView.part((B) => {
       if (!log.opened.delete(i)) log.opened.add(i);
       drawLog();
     }
+    // A prototype's Round pill opens its card's rounds, and a round opens in the pill's place.
+    const round = ev.target.closest('[data-ps-round]')?.dataset.psRound;
+    if (round) { openPage(B.site.url(round)); return; }
+    if (page && ev.target.closest('[data-ps-top="rounds"]')) { page.rounds = !page.rounds; paintPage(); return; }
     const a = ev.target.closest('a[href]');
     if (!a || !plainTap(ev) || (a.target && a.target !== '_self')) return;
     ev.preventDefault();
-    pending = new URL(a.getAttribute('href'), location.href).href;
-    close();
+    const href = new URL(a.getAttribute('href'), location.href).href;
+    if (isCardPage(href)) openPage(href); else leave(href);
   });
+  // A prototype's Choose this, or its push sending a picked question on to its card's thread (prototype-switcher.js
+  // replaceWith), leaves through the sheet.
+  B.on(sheet, 'reader-leave', (ev) => leave(ev.detail));
   // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it.
   B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal) close(); });
   B.atUnmount(BoardUI.swipeToDismiss(sheet));
@@ -231,7 +317,7 @@ BoardView.part((B) => {
   });
   // Back while it's open: the router has kept the board, as the entry under it holds the same URL.
   B.on(window, 'popstate', () => {
-    if (pushed) { pushed = false; sheet.close(); opened++; stopReading?.(); }
+    if (pushed) { pushed = false; sheet.close(); opened++; stopReading?.(); dropPage(); }
     if (!pending) return;
     const href = pending;
     pending = null;

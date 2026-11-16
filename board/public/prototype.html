@@ -23,15 +23,15 @@
   #stage .top { position: static; }
   #stage .hub-view main { padding-bottom: 16px; }
   /* A served round's page, framed from the board's base prototype worktree, edge to edge from under the ✕ row to the
-     viewer's footer; in the board's right pane (.ps-pane) there is no ✕ row, so it starts at the top. */
+     viewer's footer; in the board's reader sheet (.ps-in-sheet) there is no ✕ row, so it starts at the top. */
   #stage:has(> .kit-served) { max-width: none; padding: 0; }
   .kit-served { display: block; width: 100%; min-height: 320px; height: calc(100dvh - 60px - var(--ps-footer-h, 150px) - var(--app-bottom, 0px) - env(safe-area-inset-top)); border: 0; background: var(--panel); }
-  .ps-pane .kit-served { height: calc(100dvh - var(--ps-footer-h, 150px)); }
+  .ps-in-sheet .kit-served { height: calc(100dvh - var(--ps-footer-h, 150px)); }
   /* A served round's landing while its site starts (prototype-kit.js servedStatus), centred in the frame's place: the
      start steps' bars with a caption under each, grey but for the running one's orange and a failed one's red. */
   .kit-landing { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; box-sizing: border-box; padding: 16px;
     min-height: calc(100dvh - 60px - var(--ps-footer-h, 150px) - var(--app-bottom, 0px) - env(safe-area-inset-top)); text-align: center; color: var(--muted); font-size: 13px; }
-  .ps-pane .kit-landing { min-height: calc(100dvh - var(--ps-footer-h, 150px)); }
+  .ps-in-sheet .kit-landing { min-height: calc(100dvh - var(--ps-footer-h, 150px)); }
   .kit-landing > p { margin: 0; max-width: 100%; }
   .kit-landing-steps { width: min(100%, 320px); }
   .kit-landing-steps .phase-bars { display: flex; gap: 4px; }

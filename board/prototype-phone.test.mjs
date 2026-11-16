@@ -27,8 +27,8 @@ test('the viewer bar is a full-width footer on the bottom edge at every width, a
   // The footer's measured height already includes its bottom inset, so neither subtracts the inset again.
   assert.doesNotMatch(served, /safe-area-inset-bottom/);
   assert.doesNotMatch(page.match(/main\.proto-main \{[^}]*\}/)?.[0] ?? '', /safe-area-inset-bottom/);
-  // In the board's right pane there is no ✕ row above the page, so the frame runs from the top to the footer.
-  assert.match(page, /\.ps-pane \.kit-served \{ height: calc\(100dvh - var\(--ps-footer-h, 150px\)\); \}/);
+  // In the board's reader sheet there is no ✕ row above the page, so the frame runs from the top to the footer.
+  assert.match(page, /\.ps-in-sheet \.kit-served \{ height: calc\(100dvh - var\(--ps-footer-h, 150px\)\); \}/);
 });
 
 test('the viewer footer and Round pill stay hidden until the first load settles, then show once', () => {

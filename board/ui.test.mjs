@@ -625,7 +625,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
       '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });
 
-function appHistory(url, state = null, { wide = false } = {}) {
+function appHistory(url, state = null) {
   let entries = [{ url: new URL(url), state }];
   let at = 0;
   let backs = 0;
@@ -650,7 +650,7 @@ function appHistory(url, state = null, { wide = false } = {}) {
     addEventListener: (type, fn) => { handlers[type] = fn; } });
   for (const file of ['ui-page-header.js', 'router.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
   const shown = [];
-  const router = context.AppRouter.listen({ boards: () => new Set(['orch']), wide: () => wide,
+  const router = context.AppRouter.listen({ boards: () => new Set(['orch']),
     go: (view, href, how, from) => {
       shown.push(`${how} ${view.kind}`);
       if (how === 'push') router.push(href, from);
@@ -692,39 +692,20 @@ test("in the app, a view's back arrow goes one step back after a view, and to it
   assert.equal(app('https://mac.ts.net/orch/settings.html').tap('./', 'back'), 'push board');
 });
 
-test("in the app, back follows the page tree: a prototype goes up to Waiting on you on its question, which goes up to the board, with the card open when the owner came from its thread, however the page was reached", () => {
-  const cold = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
-  assert.deepEqual(cold.stack(), ['', 'questions.html#q1', 'prototype-x.html?q=q1']);
-  assert.deepEqual(plain(cold.history.state), { idx: 2, up: 2, pushed: true });
-  assert.equal(cold.tap('./#selectedCard=w%2FA1', { cls: 'back' }), 'back');
-  assert.deepEqual([cold.stack(), cold.shown.at(-1)], [['', 'questions.html#q1'], 'pop questions']);
+test("in the app, back follows the page tree: Waiting on you goes up to the board, with the card open when the owner came from its thread, however the page was reached", () => {
+  const cold = appHistory('https://mac.ts.net/orch/questions.html?from=push#q1');
+  assert.deepEqual([cold.stack(), plain(cold.history.state)], [['', 'questions.html#q1'], { idx: 1, up: 1, pushed: true }]);
   assert.equal(cold.tap('./', { cls: 'back' }), 'back');
   assert.deepEqual([cold.stack(), cold.shown.at(-1)], [[''], 'pop board']);
 
-  const swipe = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
-  swipe.history.back();
-  swipe.history.back();
-  assert.deepEqual([swipe.stack(), swipe.shown], [[''], ['pop questions', 'pop board']]);
-
-  const reloaded = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1', { idx: 2, up: 2 });
-  assert.deepEqual(reloaded.stack(), ['prototype-x.html?q=q1']);
-  assert.deepEqual(appHistory('https://mac.ts.net/orch/questions.html?from=push#q1').stack(), ['', 'questions.html#q1']);
+  const reloaded = appHistory('https://mac.ts.net/orch/questions.html#q1', { idx: 1, up: 1 });
+  assert.deepEqual(reloaded.stack(), ['questions.html#q1']);
 
   const thread = appHistory('https://mac.ts.net/orch/');
   thread.tap('questions.html#q1', { card: 'w/A1' });
   assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1', 'questions.html#q1']);
-  thread.tap('prototype-x.html?q=q2&variant=B');
-  assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1', 'questions.html#q2', 'prototype-x.html?q=q2&variant=B']);
-  thread.router.replace('https://mac.ts.net/orch/prototype-y.html?q=q3');
-  assert.deepEqual([thread.stack(), plain(thread.history.state)], [['#selectedCard=w%2FA1', 'questions.html#q2', 'prototype-y.html?q=q3'], { idx: 2, up: 2 }]);
-  assert.equal(thread.router.replace('https://mac.ts.net/orch/questions.html#q4'), 'up');
-  assert.deepEqual([thread.stack(), thread.shown.at(-1)], [['#selectedCard=w%2FA1', 'questions.html#q4'], 'pop questions']);
   assert.equal(thread.tap('./', { cls: 'back' }), 'back');
   assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1']);
-
-  const line = appHistory('https://mac.ts.net/orch/');
-  line.tap('prototype-x.html?q=q1', { card: 'w/A1' });
-  assert.deepEqual(line.stack(), ['#selectedCard=w%2FA1', 'questions.html#q1', 'prototype-x.html?q=q1']);
 
   const needs = appHistory('https://mac.ts.net/orch/#selectedCard=w%2FA1&reply');
   needs.tap('questions.html#q1');
@@ -734,22 +715,20 @@ test("in the app, back follows the page tree: a prototype goes up to Waiting on 
   assert.equal(needs.tap('./', { cls: 'back' }), 'back');
   assert.deepEqual(needs.stack(), ['']);
 
-  const picked = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
-  picked.router.replace('https://mac.ts.net/orch/#selectedCard=w%2FA1&reply');
+  const picked = appHistory('https://mac.ts.net/orch/questions.html#q1');
+  assert.equal(picked.router.replace('https://mac.ts.net/orch/#selectedCard=w%2FA1&reply'), 'up');
   assert.deepEqual([picked.stack(), picked.shown.at(-1)], [['#selectedCard=w%2FA1&reply'], 'pop board']);
 });
 
-test("from 900px, back from a prototype goes to the board, since Waiting on you is the board's pane and no page of its own sits between", () => {
-  const cold = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push', null, { wide: true });
-  assert.deepEqual(cold.stack(), ['', 'prototype-x.html?q=q1']);
-  assert.equal(cold.tap('./', { cls: 'back' }), 'back');
-  assert.deepEqual([cold.stack(), cold.shown.at(-1)], [[''], 'pop board']);
-
-  const thread = appHistory('https://mac.ts.net/orch/', null, { wide: true });
-  thread.tap('prototype-x.html?q=q2&variant=B', { card: 'w/A1' });
-  assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1', 'prototype-x.html?q=q2&variant=B']);
-  assert.equal(thread.router.replace('https://mac.ts.net/orch/'), 'up');
-  assert.deepEqual([thread.stack(), thread.shown.at(-1)], [[''], 'pop board']);
+// docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md
+test("a board's prototype or visual page is a card page, which opens in the board's sheet, and no other page is", () => {
+  const routerContext = vm.createContext({ Date: PageDate, URL });
+  vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
+  const { viewOf, isCardPage } = routerContext.AppRouter;
+  const boards = new Set(['orch']);
+  const card = (url) => isCardPage(viewOf(`https://mac.ts.net${url}`, { boards, base: 'https://mac.ts.net/orch/' }), boards);
+  assert.deepEqual(['/orch/prototype-x.html?q=q1&from=push', '/orch/prototype-snooze-2.html', '/orch/visuals/A1/flow-2.html'].map(card), [true, true, true]);
+  assert.deepEqual(['/orch/', '/orch/questions.html#q1', '/orch/shots-gallery.html', '/orch/visuals/flow.html', '/learn/prototype-x.html', '/orch/uploads/prototype-x.html'].map(card), [false, false, false, false, false, false]);
 });
 
 test('Action needed shows only while the card waits on the owner, as orange words that link to what they act on', () => {

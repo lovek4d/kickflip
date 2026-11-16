@@ -10,8 +10,8 @@
 //   hub {hash}                  /_hub/ with a settings modal named by hash; legacy /_hub/settings opens the same modals
 //                               ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)),
 //                               and the old Polling page, /_hub/settings/polling, opens Quiet hours
-//   frame {route, url}          any other page under a route, a folder or an .html file: other sites, prototypes and
-//                               every other board page, shown in a frame
+//   frame {route, url}          any other page under a route, a folder or an .html file: other sites and every other
+//                               board page, shown in a frame, but a board's card page (isCardPage) opens in its sheet
 // Any other URL, such as an image or another origin, is no view (null) and loads as itself.
 // A push's from=push mark (entryOf) is no part of the view, so a push link reads as the view its page shows.
 globalThis.AppRouter = (function () {
@@ -78,26 +78,22 @@ globalThis.AppRouter = (function () {
     return { href: u.href, pushed };
   }
 
-  // The page tree (docs/adr/2026-10-30-1125-back-follows-the-page-tree.md): a board, its Waiting on you, and a prototype page tied
-  // to one of its questions by ?q=, framed. levelOf → 0, 1 or 2 down the tree, or null for a view outside it.
-  // A board's prototype page, which from 900px opens in the board's right pane (shell.js go).
-  const isPrototype = (view, boards) => view?.kind === 'frame' && boards.has(view.route) && /^\/[^/]+\/prototype-[\w-]+\.html$/.test(new URL(view.url, 'http://hub').pathname);
-  function questionOf(view, boards) {
-    return isPrototype(view, boards) ? new URL(view.url, 'http://hub').searchParams.get('q') || null : null;
-  }
-  // wide: from 900px Waiting on you is the board's pane, so a prototype's parent is the board itself.
-  function levelOf(view, { boards = new Set(), wide = false } = {}) {
+  // A board's card page: a prototype round's page or a visual (board/store.mjs PROTOTYPE_PAGE, VISUAL_PAGE). It opens in
+  // the board's reader sheet at every width (shell.js go, app-reader.js openPage), never as a view of its own
+  // (docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md).
+  const CARD_PAGE = /^\/[^/]+\/(?:prototype-[\w-]+|visuals\/[\w-]+\/[\w-]+)\.html$/;
+  const isCardPage = (view, boards) => view?.kind === 'frame' && boards.has(view.route) && CARD_PAGE.test(new URL(view.url, 'http://hub').pathname);
+
+  // The page tree (docs/adr/2026-10-30-1125-back-follows-the-page-tree.md): a board and its Waiting on you. levelOf → 0
+  // or 1 down the tree, or null for a view outside it.
+  function levelOf(view) {
     if (view?.kind === 'board') return 0;
-    if (view?.kind === 'questions') return 1;
-    return questionOf(view, boards) ? (wide ? 1 : 2) : null;
+    return view?.kind === 'questions' ? 1 : null;
   }
-  // → the views above view in the tree, its board first. card: the card whose thread the owner left the board from,
-  // which the board keeps open.
-  function parentsOf(view, { boards = new Set(), card = null, wide = false } = {}) {
-    const q = questionOf(view, boards);
-    if (!q && view?.kind !== 'questions') return [];
-    const board = { kind: 'board', route: view.route, hash: card ? `#selectedCard=${encodeURIComponent(card)}` : '' };
-    return q && !wide ? [board, { kind: 'questions', route: view.route, id: q }] : [board];
+  // → the views above view in the tree. card: the card whose thread the owner left the board from, which the board keeps open.
+  function parentsOf(view, { card = null } = {}) {
+    if (view?.kind !== 'questions') return [];
+    return [{ kind: 'board', route: view.route, hash: card ? `#selectedCard=${encodeURIComponent(card)}` : '' }];
   }
 
   // Each history entry carries {idx}, its distance from the shell's first entry, pushed when a push opened it, and on a
@@ -110,8 +106,8 @@ globalThis.AppRouter = (function () {
   // boards() → the board routes now.
   // → {push(href, from), replace(href), up()}: push and replace write an entry for a view go is showing; replace answers
   // 'up' when it went back to a parent instead, which then takes href, and go shows it on that pop.
-  function listen({ boards, go, wide = () => false }) {
-    const b = () => ({ boards: boards(), wide: wide() });
+  function listen({ boards, go }) {
+    const b = () => ({ boards: boards() });
     const mark = (pushed) => (pushed ? { pushed: true } : {});
     let idx = Number.isInteger(history.state?.idx) ? history.state.idx : 0;
     let landing = null;
@@ -128,9 +124,9 @@ globalThis.AppRouter = (function () {
 
     const first = entryOf(location.href);
     const start = viewOf(first.href, b());
-    const depth = levelOf(start, b());
+    const depth = levelOf(start);
     if (depth && !(history.state?.up >= depth)) {
-      const parents = parentsOf(start, b());
+      const parents = parentsOf(start);
       put('replace', urlOf(parents[0]), {});
       climb(parents.slice(1), first.href, first.pushed, 0);
     } else history.replaceState({ ...(history.state || {}), idx, ...mark(first.pushed) }, '', first.href);
@@ -140,8 +136,8 @@ globalThis.AppRouter = (function () {
       if (how === 'push' && url === location.href) return;
       const view = viewOf(url, b());
       const here = viewOf(location.href, b());
-      const level = levelOf(view, b());
-      const at = here && view && here.route === view.route ? levelOf(here, b()) : null;
+      const level = levelOf(view);
+      const at = here && view && here.route === view.route ? levelOf(here) : null;
       const below = history.state?.up || 0;
       const keep = level !== null && level === at && below ? { up: below } : {};
       if (how === 'replace') {
@@ -155,7 +151,7 @@ globalThis.AppRouter = (function () {
       }
       // Another question on Waiting on you takes this one's place, so back still goes to the board.
       if (level === 1 && at === 1) { put('replace', url, { ...keep, ...mark(pushed) }); return; }
-      const parents = parentsOf(view, { ...b(), card });
+      const parents = parentsOf(view, { card });
       if (level !== null && at !== null && at < level) {
         history.replaceState(history.state, '', urlOf(parents[at]));
         climb(parents.slice(at + 1), url, pushed, below);
@@ -165,7 +161,7 @@ globalThis.AppRouter = (function () {
     // A back arrow's tap on a view in the tree: back when its parent is the entry under it, else on to the parent.
     // → false for a view outside the tree.
     function up() {
-      const parents = parentsOf(viewOf(location.href, b()), b());
+      const parents = parentsOf(viewOf(location.href, b()));
       if (!parents.length) return false;
       if (history.state?.up > 0) history.back();
       else go(parents.at(-1), new URL(urlOf(parents.at(-1)), location.href).href, 'push');
@@ -251,5 +247,5 @@ globalThis.AppRouter = (function () {
     return parts.length ? '#' + parts.join('&') : '';
   }
 
-  return { viewOf, urlOf, mounted, entryOf, isPrototype, listen, fragmentOf, hashWith };
+  return { viewOf, urlOf, mounted, entryOf, isCardPage, listen, fragmentOf, hashWith };
 })();

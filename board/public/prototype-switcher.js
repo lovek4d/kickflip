@@ -1,14 +1,14 @@
 // The full-bleed prototype viewer's controls (docs/adr/2026-10-29-1639-prototypes-come-on-request.md,
 // docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md,
 // docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md,
-// docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md).
+// docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md).
 // Load it with a relative src after claude.js, on a page whose header leads with the back arrow, then call
 //   const sw = PrototypeSwitcher.mount({ takes: { A: 'A. Name', … }, states: { empty: 'No cards', … }?, initial: 'A', render(take, state) {…}, above: el? })
 // render runs at mount and on each switch of take or state; sw.take is the current key. A served round's named states
 // (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md) are a row of chips above the
 // pager, the state kept in ?state=, else the first. The page's header is hidden: a ✕ at the top
 // right goes back as its back arrow does, and the footer, full width on the bottom edge at every width, holds the
-// ‹ take › pager. Framed in the board's right pane, the pane's top bar takes the ✕'s and the Round pill's place. ←/→
+// ‹ take › pager. Framed in the board's reader sheet, the sheet's header takes the ✕'s and the Round pill's place. ←/→
 // and a sideways swipe switch unless a field has focus, and the take stays in ?variant=. With ?q=<owner question id>, the bar's second row offers
 // the take as that question's pick: a take is pickable when an option's id equals its key. Choose this drafts it, with
 // the note typed above the bar, in the {choice, note} questions.html keeps for that question, and goes back to the
@@ -48,9 +48,12 @@
   const draftKey = (qid) => 'qdraft:' + qid;
   const readDraft = (qid) => { try { return JSON.parse(localStorage.getItem(draftKey(qid)) || '{}'); } catch { return {}; } };
   const writeDraft = (qid, draft) => { try { localStorage.setItem(draftKey(qid), JSON.stringify(draft)); } catch { /* nothing kept */ } };
-  // In place of this page: framed in the app shell, the shell shows the URL's view in place, going up to the question
-  // the viewer sits under (board/public/shell.js AppShell.open, router.js); alone, the page loads it.
+  // In place of this page: framed in the board's reader sheet, the sheet closes and the shell shows the URL's view
+  // (app-reader.js reader-leave); framed in the app shell, the shell shows it in place (board/public/shell.js
+  // AppShell.open); alone, the page loads it.
   function replaceWith(url) {
+    const sheet = window.frameElement?.closest('.reader-sheet');
+    if (sheet) { sheet.dispatchEvent(new sheet.ownerDocument.defaultView.CustomEvent('reader-leave', { detail: String(url) })); return; }
     let app = null;
     try { app = window.top !== window ? window.top.AppShell : null; } catch { app = null; }
     if (!app?.open?.(String(url), { replace: true })) location.replace(url);
@@ -119,9 +122,9 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
   .ps-switch .ps-text { width:min(640px, 100%); }
   .ps-states { flex-wrap:wrap; overflow-x:visible; }
 }
-.ps-pane main.proto-main { padding-top:0; }
-.ps-pane .ps-top { display:none; }
-.ps-pane .ps-states { flex-wrap:wrap; overflow-x:visible; justify-content:center; }`;
+.ps-in-sheet main.proto-main { padding-top:0; }
+.ps-in-sheet .ps-top { display:none; }
+.ps-in-sheet .ps-states { flex-wrap:wrap; overflow-x:visible; justify-content:center; }`;
 
   const typing = (el) => Boolean(el?.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])'));
 
@@ -132,8 +135,8 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     const qid = params.get('q');
     const site = globalThis.ClaudeSite;
     if (!document.getElementById('ps-style')) document.head.insertAdjacentHTML('beforeend', `<style id="ps-style">${CSS}</style>`);
-    // Framed in the board's right pane (app-pane.js openViewer), whose top bar holds the way back and the Round pill.
-    if (window.frameElement?.closest('.board-pane')) document.documentElement.classList.add('ps-pane');
+    // Framed in the board's reader sheet (app-reader.js openPage), whose header holds the ✕ and the Round pill.
+    if (window.frameElement?.closest('.reader-sheet')) document.documentElement.classList.add('ps-in-sheet');
     let take = startTake(keys, params.get('variant'), initial);
     let question = null;
     // A push opened this page (board/store.mjs pushUrl). Read once and dropped from the URL, so a reload stays on the
