@@ -938,10 +938,21 @@ const renderCheck = () => (process.env.KICKFLIP_RENDER_CHECK === 'off' ? undefin
 // docs/adr/2026-11-12-2330-a-reply-posts-its-questions-after-it-in-one-command.md: with --questions <json>, post()
 // writes the message and the file's questions are added after it, so the thread reads message then questions. The
 // file is checked before the message posts.
-async function withQuestions(site, f, post) {
+// A reply names its task, so its questions default to that task's topic and may sit on no other.
+async function withQuestions(site, f, post, task) {
   if (f.questions === undefined) return post();
   if (f.implement || f.close) throw new store.BoardError('--questions asks open questions, so it takes no --implement or --close: the task is not waiting on that');
-  const input = readJSONInput(f.questions);
+  let input = readJSONInput(f.questions);
+  if (task) {
+    input = [input].flat().map((q) => (q?.topic === undefined ? { ...q, topic: `item:${task}` } : q));
+    for (const q of input) {
+      if (q?.topic === `item:${task}`) continue;
+      const instead = typeof q?.topic === 'string' && q.topic.startsWith('item:')
+        ? `for that task use: thread ${q.topic.slice(5)} --questions <file>`
+        : 'for a declared topic use: question add --file <file>';
+      throw new store.BoardError(`question ${q?.id ?? '?'}.topic ${JSON.stringify(q?.topic)}: reply ${task} --questions puts questions on item:${task} only; ${instead}`);
+    }
+  }
   await store.checkQuestions(site, input, renderCheck());
   const posted = await post();
   const added = await store.addQuestions(site, input, renderCheck());
@@ -1057,7 +1068,7 @@ const COMMANDS = {
     store.refuseUnflaggedTap(md, f);
     await store.refuseUnborn(site, md);
     await store.refuseUnreadEdit(site, id);
-    return withQuestions(site, f, () => (id.includes('/') ? store.answerCard(site, id, md, f.title, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined }) : store.writeReply(site, id, md, f.title)));
+    return withQuestions(site, f, () => (id.includes('/') ? store.answerCard(site, id, md, f.title, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined }) : store.writeReply(site, id, md, f.title)), id.includes('/') ? id : undefined);
   }],
   thread: [['file/id'], ['text', 'link', 'who', 'via', 'close', 'implement', 'questions', 'script'], async (site, [key], f) => {
     if ((f.who ?? 'claude') === 'claude' && f.via === undefined) {

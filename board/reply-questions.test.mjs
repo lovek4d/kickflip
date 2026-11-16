@@ -62,3 +62,24 @@ test('--questions is refused beside --implement and --close, and posts nothing',
   }
   assert.deepEqual(owned(), []);
 });
+
+test('reply --questions puts a question with no topic on the task it replies on', async () => {
+  await askCard();
+  const { topic, ...bare } = auditAsk('q1');
+  const r = await board('reply', 'audit/T-1', '--text', 'One point.', '--questions', file(bare), '--site', 'audit');
+  assert.deepEqual([r.code, r.err], [0, '']);
+  assert.equal(auditOwned()[0].topic, 'item:audit/T-1');
+});
+
+test('reply --questions refuses a question on another topic, and posts nothing', async () => {
+  await askCard();
+  const other = await board('reply', 'audit/T-1', '--text', 'Never posted.', '--questions', file(question('q1', { topic: 'item:w/A1' })), '--site', 'audit');
+  assert.equal(other.code, 1);
+  assert.match(other.err, /item:audit\/T-1/);
+  assert.match(other.err, /thread w\/A1 --questions/);
+  const plain = await board('reply', 'audit/T-1', '--text', 'Never posted.', '--questions', file(question('q2', { topic: 'wave' })), '--site', 'audit');
+  assert.equal(plain.code, 1);
+  assert.match(plain.err, /question add/);
+  assert.equal(fs.existsSync(site('audit', 'data', 'owner.json')), false);
+  assert.equal(fs.existsSync(auditThread()) && lines(auditThread()).some((l) => l.text === 'Never posted.'), false);
+});
