@@ -171,6 +171,20 @@ test("a stray copy of a board's server holding its port is stopped, and the hub 
   assert.ok(!hub.lines.some((l) => l.startsWith('shop exited')), 'no start lost the port');
 });
 
+test("a port held by another board's server whose folder path merely contains this board's is left alone", async (t) => {
+  const signal = await signals(t);
+  const { dir, shopPort } = await shopSite(signal.port);
+  const { sites: { shop } } = JSON.parse(fs.readFileSync(path.join(web, 'manifest.json'), 'utf8'));
+  const sibling = spawn(shop.cmd[0], [...shop.cmd.slice(1, -1), dir + '-two'], { cwd: dir, env: { ...process.env, PORT: String(shopPort), SIGNALS: String(signal.port) }, stdio: 'ignore' });
+  t.after(() => sibling.kill('SIGKILL'));
+  assert.equal(await signal.up(), sibling.pid);
+  const hub = await inProcessHub(t, { codeRestarts: false });
+  await hub.reconcile();
+  assert.ok(hub.lines.some((l) => l.startsWith(`shop not started: port ${shopPort} is held by pid ${sibling.pid} `)), hub.lines.join('\n'));
+  assert.ok(!hub.lines.some((l) => l.startsWith('stopped stray shop')));
+  assert.equal(sibling.exitCode, null);
+});
+
 test("a port held by a process that isn't the board's server keeps the board from starting, and the hub says who holds it", async (t) => {
   const signal = await signals(t);
   const { shopPort } = await shopSite(signal.port);

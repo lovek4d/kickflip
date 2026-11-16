@@ -271,6 +271,12 @@ function portHolder(port) {
   } catch { return null; }
 }
 
+// Whether a process's command line ends in the site's own last argument (its dir), exactly: a server for a folder whose
+// path merely contains this one's is another board's.
+function runsSite(command, site) {
+  return command.endsWith(' ' + site.cmd[site.cmd.length - 1]);
+}
+
 function tcpProbe(port) {
   return new Promise((resolve) => {
     const s = net.connect({ port, host: '127.0.0.1' });
@@ -371,7 +377,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     try {
       const pid = Number(fs.readFileSync(pidFile(route), 'utf8'));
       const cmdline = pid ? execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim() : '';
-      if (cmdline && cmdline.includes(site.cmd[site.cmd.length - 1])) { process.kill(-pid, 'SIGTERM'); log(`stopped stale ${route} (pgid ${pid})`); }
+      if (cmdline && runsSite(cmdline, site)) { process.kill(-pid, 'SIGTERM'); log(`stopped stale ${route} (pgid ${pid})`); }
     } catch {}
     try { fs.unlinkSync(pidFile(route)); } catch {}
   }
@@ -384,7 +390,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   async function portFree(route, site) {
     if (!(await probe(site.port))) return true;
     const holder = portHolder(site.port);
-    if (holder?.command.includes(site.cmd[site.cmd.length - 1])) {
+    if (holder && runsSite(holder.command, site)) {
       log(`stopped stray ${route} on port ${site.port} (pid ${holder.pid})`);
       try { process.kill(holder.pid, 'SIGTERM'); } catch {}
       const deadline = Date.now() + KILL_AFTER;
