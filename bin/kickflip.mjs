@@ -192,7 +192,7 @@ import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { joinName, routeFromName, routeRecord, validRoute } from '../hub/routes.mjs';
 import { defaultBranch, githubFromOrigin } from '../hub/repos.mjs';
-import { hasBuildScript, onboardingItems } from '../board/onboarding.mjs';
+import { repoHas, onboardingItems } from '../board/onboarding.mjs';
 import { uninstallStatusLine, storedPath, nodeBin, watcherCommand, tailnetUrl } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { tailscaleBin } from '../shared/tailscale.mjs';
@@ -347,7 +347,7 @@ function takeName(command) {
 
 // The board template's files in dir: board.json with its title, items ("waves" or an item file, made when
 // missing with the onboarding cards, board/onboarding.mjs) and, when given, tickets. repo and ref are where main's
-// build script is looked for. → the board server's cmd for dir
+// build and release scripts, CONTEXT.md and ADRs are looked for. → the board server's cmd for dir
 function boardFiles(dir, { title, items, tickets, repo, ref }) {
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
   const cfgFile = path.join(dir, 'board.json');
@@ -359,7 +359,7 @@ function boardFiles(dir, { title, items, tickets, repo, ref }) {
   const itemsFile = cfg.items === 'waves' ? null : path.resolve(dir, cfg.items);
   if (itemsFile && !fs.existsSync(itemsFile)) {
     fs.mkdirSync(path.dirname(itemsFile), { recursive: true });
-    const cards = onboardingItems(itemsFile, { hasBuild: hasBuildScript(repo, ref) });
+    const cards = onboardingItems(itemsFile, { has: repoHas(repo, ref) });
     fs.writeFileSync(itemsFile, JSON.stringify({ title: cfg.title, items: cards }, null, 2) + '\n');
   }
   return [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), dir];

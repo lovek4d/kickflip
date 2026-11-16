@@ -281,7 +281,7 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   assert.equal(claudeCalls().length, 1);
 });
 
-test('a board for a repo whose main already has a build script starts without the build to-do', async () => {
+test('a board for a repo whose main already has a build script starts with a release to-do but no build one', async () => {
   const repo = gitRepo('built app');
   fs.mkdirSync(path.join(repo, '.kickflip'));
   fs.writeFileSync(path.join(repo, '.kickflip', 'build-web'), '#!/bin/sh\necho port 3000\n', { mode: 0o755 });
@@ -290,8 +290,9 @@ test('a board for a repo whose main already has a build script starts without th
   const r = await cliIn(repo, ['join', '--name', 'Built app']);
   assert.equal(r.status, 0, r.stderr);
   const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'items.json'), 'utf8'));
-  assert.deepEqual(wave.items.map((i) => [i.id, i.ticket]), [['T-1', undefined]]);
-  assert.match(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'T-1-notes.md'), 'utf8'), /^# Write CONTEXT\.md/);
+  assert.deepEqual(wave.items.map((i) => [i.id, i.ticket]), [['T-1', undefined], ['T-2', undefined]]);
+  assert.match(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'T-1-notes.md'), 'utf8'), /^# Prepare \.kickflip\/release\n/);
+  assert.match(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'T-2-notes.md'), 'utf8'), /^# Write CONTEXT\.md/);
 });
 
 test("kickflip join records origin's default branch over the checked-out one, and running it again picks up a renamed default", async () => {
