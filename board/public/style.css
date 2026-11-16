@@ -653,13 +653,12 @@ main > * { transition: opacity .25s ease; }
 .hub-links li { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); min-width: 0; }
 .hub-links li:first-child { border-top: 0; }
 .hub-links li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
-.hub-links .dot { flex: none; transform: translateY(-1px); }
+.hub-links .it { transform: translateY(-1px); }
 .hub-links strong, .hub-links .sub { display: block; }
 .setup { background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
 .setup h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 6px; color: var(--accent); }
 .setup-steps { list-style: none; margin: 0; padding: 0; }
-.setup-steps li { display: flex; align-items: baseline; gap: 8px; margin: 3px 0; overflow-wrap: anywhere; }
-.setup-steps .dot { flex: none; }
+.setup-steps li { margin: 3px 0; overflow-wrap: anywhere; }
 
 /* The board's other views (view-settings.js, view-questions.js, view-notes.js) each scope their rules by the class on their root. */
 .view-settings .set h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 0 6px; }
@@ -894,11 +893,7 @@ main > * { transition: opacity .25s ease; }
 
 .tk-section { margin: 10px 0; }
 /* The Tickets source row's live state (dialogs.js ticketsControl keyState). */
-.tk-status { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; font-size: 13px; color: var(--muted); }
-.tk-status b { font-weight: 600; color: var(--text); }
-.tk-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
-.tk-status.on .dot { background: var(--accent); }
-.tk-status.on b { color: var(--accent); }
+.tk-status { margin: 8px 0 0; font-size: 13px; }
 .tk-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 8px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--chip); }
 .tk-seg button { min-width: 0; min-height: 44px; padding: 6px 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
 .tk-seg button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }

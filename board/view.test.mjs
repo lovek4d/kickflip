@@ -2580,6 +2580,7 @@ test("Board Settings' Tickets source row reads its live state as a status word, 
     const status = root.querySelector('[data-tk-status]');
     words.push([status.textContent, status.getAttribute('role'), status.classList.contains('on')]);
     assert.equal(word, status.textContent);
+    assert.match(status.innerHTML, /it-(grey|green)/);
     control.destroy();
   }
   assert.deepEqual(words.map(([, role, on]) => [role, on]), Array(4).fill(['status', false]));

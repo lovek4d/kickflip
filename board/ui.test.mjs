@@ -2446,15 +2446,16 @@ test('the GitHub mark opens the Hub links sheet, with a red dot while a link is 
   assert.equal(text(broken), 'GitHub 4 min');
   const list = ui.linksList(links);
   assert.equal(text(list), 'GitHub polling 1 open PR, all in the last check. Events No watcher is running <now>.');
-  assert.match(list, /<span class="dot pass" role="img" aria-label="Working">[^]*<span class="dot fail" role="img" aria-label="Not working">/);
+  assert.match(list, /<span class="it it-green"><span class="it-i it-dot" role="img" aria-label="Working">[^]*<span class="it it-red"><span class="it-i it-dot" role="img" aria-label="Not working">/);
   assert.match(ui.linksList(null), /doesn't list this board/);
   const settling = [links[0], { ...links[1], state: 'settling' }];
   assert.doesNotMatch(ui.githubLine(checks, { links: settling }), /links-dot/);
-  assert.match(ui.linksList(settling), /<span class="dot" role="img" aria-label="Settling">[^]*Settling: No watcher/);
+  assert.match(ui.linksList(settling), /<span class="it it-grey"><span class="it-i it-dot" role="img" aria-label="Settling">[^]*Settling: No watcher/);
   assert.match(ui.githubLine(checks, { links: [links[0], { ...links[1], state: 'broken' }] }), /links-dot/);
   assert.equal(ui.setupCard(null), '');
   const setup = ui.setupCard({ events: false, github: true });
   assert.equal(text(setup), 'Connecting this board Waiting for Claude to answer the ping GitHub checks reach this board');
+  assert.match(setup, /it-orange"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">Waiting for Claude[^]*it-green"[^]*GitHub checks reach/);
   assert.equal(text(ui.setupCard({ events: false })), 'Connecting this board Waiting for Claude to answer the ping');
   const remote = ui.remoteLine({ host: 'gitlab.com', name: 'gitlab.com/acme/firmware' }, { links });
   assert.match(remote, /data-hub-links[^>]*aria-label="Hub links: 1 not working"/);

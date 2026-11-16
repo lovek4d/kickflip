@@ -21,7 +21,7 @@
     function status() {
       if (!key) return '';
       const on = draft.source === 'linear' && keyWorks();
-      return `<div class="tk-status${on ? ' on' : ''}" data-tk-status role="status"><span class="dot" aria-hidden="true"></span><b>${esc(statusWord())}</b></div>`;
+      return `<div class="tk-status${on ? ' on' : ''}" data-tk-status role="status">${BoardUI.iconText('dot', on ? 'green' : 'grey', statusWord())}</div>`;
     }
     async function load() {
       linear = { loading: true };

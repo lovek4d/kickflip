@@ -59,12 +59,12 @@
   const LINK_NAMES = { github: 'GitHub polling', 'repo-fetch': 'Repo fetch', events: 'Events', wakes: 'Daily wakes', slack: 'Reviewer links' };
   // The Hub links sheet's list, one row per link with a green dot, a muted one while settling, or a red one
   // (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md).
-  const LINK_DOTS = { ok: ['pass', 'Working'], settling: ['', 'Settling'], broken: ['fail', 'Not working'] };
+  const LINK_DOTS = { ok: ['green', 'Working'], settling: ['grey', 'Settling'], broken: ['red', 'Not working'] };
   const linkRow = (l) => {
     const st = linkState(l);
-    const [cls, label] = LINK_DOTS[st] || LINK_DOTS.broken;
+    const [colour, label] = LINK_DOTS[st] || LINK_DOTS.broken;
     const detail = st === 'settling' ? `Settling: ${l.detail}` : l.detail;
-    return `<li><span class="dot${cls ? ` ${cls}` : ''}" role="img" aria-label="${label}"></span><span><strong>${esc(LINK_NAMES[l.link] || l.link)}</strong><span class="sub">${esc(detail)}</span></span></li>`;
+    return `<li>${globalThis.BoardUI.iconText('dot', colour, '', { label })}<span><strong>${esc(LINK_NAMES[l.link] || l.link)}</strong><span class="sub">${esc(detail)}</span></span></li>`;
   };
   const linksList = (links) => (links?.length
     ? `<ul class="hub-links">${links.map(linkRow).join('')}</ul>`
@@ -74,7 +74,7 @@
   // is /api/board's, null once both pass. Cards can start meanwhile.
   const setupCard = (setup) => {
     if (!setup) return '';
-    const step = (ok, done, waiting) => `<li><span class="dot ${ok ? 'pass' : 'pending'}" aria-hidden="true"></span>${ok ? done : waiting}</li>`;
+    const step = (ok, done, waiting) => `<li>${globalThis.BoardUI.iconText('dot', ok ? 'green' : 'orange', ok ? done : waiting)}</li>`;
     return `<h2>Connecting this board</h2><ul class="setup-steps">
       ${step(setup.events, 'Claude answered the ping', 'Waiting for Claude to answer the ping')}
       ${setup.github === undefined ? '' : step(setup.github, 'GitHub checks reach this board', 'Waiting for the hub\'s next GitHub check')}
