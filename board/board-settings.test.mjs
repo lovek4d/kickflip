@@ -608,7 +608,7 @@ test('review digest lists one item per hub-checked PR awaiting review, dates old
   assert.deepEqual(digest.reviewers[0].items.map((i) => i.key), ['w/old', 'w/edge', 'w/recent', 'w/ci', 'w/liked']);
   const ann = digest.reviewers.find((r) => r.name === 'Ann');
   assert.deepEqual([ann.slack_user, ann.dm, ann.items.map((i) => i.key)], ['U1', 'D1', ['w/old', 'w/edge', 'w/recent', 'w/ci']]);
-  assert.deepEqual(ann.items[0], { key: 'w/old', pr: 'o/r#1', title: 'old', url: 'https://github.com/o/r/pull/1', sent_ts: ts(73), days_old: 3, text: 'https://github.com/o/r/pull/1 · old (3 days old)' });
+  assert.deepEqual(ann.items[0], { key: 'w/old', pr: 'o/r#1', title: 'old', url: 'https://github.com/o/r/pull/1', sent_ts: ts(73), days_old: 3, message: { text: '', attachments: [{ color: '#9e9e9e', title: 'old', title_link: 'https://github.com/o/r/pull/1', text: '_(3 days old)_', fallback: 'r#1 old · (3 days old)' }] } });
   for (const item of ann.items.slice(1)) assert.equal(Object.hasOwn(item, 'days_old'), false);
   // Before 09:00 and on a Sunday it is due as the owed links open the day's threads; past 17:00 the day still gets it.
   assert.equal(digestCommand([], '2026-11-02T16:59:00Z').due, true);

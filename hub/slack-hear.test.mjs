@@ -50,8 +50,8 @@ async function opened() {
 
 test("each new message in an open day thread wakes its board once with a slack-question event: a reviewer's always expects an answer, the owner's only when it names @kickflip, and the board's own posts wake nobody", async () => {
   const { world, slack, poll, day } = await opened();
-  assert.deepEqual(world.messages.map((m) => m.text), ['Orch Digest\n1 PR pending review\n- :claude_kickflip:', '<@U1> https://github.com/o/r/pull/1 · Limits\n- :claude_kickflip:', '']);
-  assert.equal(world.messages.at(-1).attachments.at(-1).text, '+84/-12 · 5 files\n- :claude_kickflip:');
+  assert.deepEqual(world.messages.map((m) => m.text), ['Orch Digest\n1 PR pending review\n- :claude_kickflip:', '', '']);
+  assert.deepEqual(world.messages.slice(1).map((m) => m.attachments[0].text), ['+84/-12 · 5 files\n- :claude_kickflip:', '+84/-12 · 5 files\n- :claude_kickflip:']);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
   assert.deepEqual(questions(), []);
 
@@ -116,8 +116,7 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
     'board: Orch Digest',
     '    1 PR pending review',
     '    - :claude_kickflip:',
-    'board: <@U1> https://github.com/o/r/pull/1 · Limits',
-    '    - :claude_kickflip:',
+    'board: r#1 Fix limiter · +84/-12 · 5 files',
     'board: r#1 Fix limiter · +84/-12 · 5 files',
     '→ Ann: Could the digest skip drafts?',
     '    They clutter it.',
@@ -164,7 +163,7 @@ test("slack say posts the words signed off in the reviewer's day thread, opening
   await slackSay(site, 'Ann', 'Merged.', { now: days(1) }, client);
   const [header, listed, said] = world.messages;
   assert.deepEqual([header.channel, header.text, header.thread_ts], ['D1', 'Orch Digest\n1 PR pending review\n- :claude_kickflip:', undefined]);
-  assert.deepEqual([listed.text, listed.thread_ts], ['<@U1> https://github.com/o/r/pull/1 · Limits (9 days old)\n- :claude_kickflip:', header.ts]);
+  assert.deepEqual([listed.attachments[0].title, listed.attachments[0].text, listed.thread_ts], ['Fix limiter', '+84/-12 · 5 files\n_(9 days old)_\n- :claude_kickflip:', header.ts]);
   assert.deepEqual([said.text, said.thread_ts], ['Merged.\n- :claude_kickflip:', header.ts]);
   await poll(days(1));
   assert.deepEqual(questions(), []);

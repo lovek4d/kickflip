@@ -60,11 +60,10 @@ test("review posts go into one thread per board in each reviewer's DM each day, 
   // Sunday has no scheduled digest, so the first link opens each reviewer's thread with it.
   assert.deepEqual((await poll()).sent, ['orch: digest to Ann', 'orch: digest to Bob', 'orch: link to Ann on o/r#1', 'orch: link to Bob on o/r#1']);
   const link1 = (u) => linkTo(u, 1, 'Fix limiter', '+84/-12 · 5 files');
-  const listed = (u, n) => `<@${u}> https://github.com/o/r/pull/${n} · Limits`;
   const opener = 'Orch Digest\n1 PR pending review';
   const [annDay, annListed, bobDay, bobListed, ann1, bob1] = world.messages.map((m) => m.ts);
   assert.deepEqual(pairs(world.messages), [
-    ['D1', opener, null], ['D1', listed('U1', 1), annDay], ['D9', opener, null], ['D9', listed('U2', 1), bobDay],
+    ['D1', opener, null], ['D1', link1('U1'), annDay], ['D9', opener, null], ['D9', link1('U2'), bobDay],
     ['D1', link1('U1'), annDay], ['D9', link1('U2'), bobDay],
   ]);
   assert.deepEqual(prSlack()['o/r#1'].links, { Ann: { reactions: [], channel: 'D1', thread_ts: annDay, ts: ann1 }, Bob: { reactions: [], channel: 'D9', thread_ts: bobDay, ts: bob1 } });
@@ -110,7 +109,7 @@ test("review posts go into one thread per board in each reviewer's DM each day, 
   const [annNext, , bobNext] = world.messages.slice(since).map((m) => m.ts);
   const link3 = (u) => linkTo(u, 3, 'Tests', '+1/-1 · 1 file');
   assert.deepEqual(pairs(world.messages.slice(since)), [
-    ['D1', opener, null], ['D1', listed('U1', 3), annNext], ['D9', opener, null], ['D9', listed('U2', 3), bobNext],
+    ['D1', opener, null], ['D1', link3('U1'), annNext], ['D9', opener, null], ['D9', link3('U2'), bobNext],
     ['D1', link3('U1'), annNext], ['D9', link3('U2'), bobNext],
   ]);
   assert.deepEqual(digests().map((d) => [d.date, d.reviewer]), [['2026-11-01', 'Ann'], ['2026-11-01', 'Bob'], ['2026-11-02', 'Ann'], ['2026-11-02', 'Bob']]);
@@ -137,18 +136,20 @@ test("a PR's link is one bar with no mention, coloured by the builder's risk hol
   setPRs({ 'o/r#1': pr({ title: 'fix(board): bug no longer occurs', additions: 13, deletions: 45, files: 1 }), 'o/r#2': pr({ title: 'Two' }), 'o/r#3': pr({ title: 'Three' }), 'o/r#4': pr({ title: 'Four' }) });
   await sendReviews({ boards, fetch: slack.fetch, now: sunday });
   const links = world.messages.filter((m) => m.attachments);
-  assert.deepEqual(links.map((m) => m.text), Array(4).fill(''));
+  assert.deepEqual(links.map((m) => m.text), Array(8).fill(''));
   assert.ok(links.every((m) => isSignedOff(m.text, m.attachments)));
   assert.deepEqual(links[0].attachments, [{
     color: COLOURS.low, title: 'fix(board): bug no longer occurs', title_link: 'https://github.com/o/r/pull/1', text: '+13/-45 · 1 file · low risk\n- :claude_kickflip:', mrkdwn_in: ['text'],
     fallback: 'r#1 fix(board): bug no longer occurs · +13/-45 · 1 file · low risk',
   }]);
-  assert.deepEqual(links.map(shown), [
+  // The digest's replies and the links are the same four bars.
+  const bars = [
     linkTo('U1', 1, 'fix(board): bug no longer occurs', '+13/-45 · 1 file · low risk', 'low'),
     linkTo('U1', 2, 'Two', '+84/-12 · 5 files · medium risk', 'medium'),
     linkTo('U1', 3, 'Three', '+84/-12 · 5 files · high risk', 'high'),
     linkTo('U1', 4, 'Four', '+84/-12 · 5 files'),
-  ]);
+  ];
+  assert.deepEqual(links.map(shown), [...bars, ...bars]);
 });
 
 test('a link posted top-level before the day threads, and a bump sent before bumps stopped, keep getting reactions', async () => {
@@ -217,7 +218,7 @@ test("a link before 09:00 opens the day's thread with the digest, and the weekda
   await sendReviews({ boards, fetch: slack.fetch, now: new Date('2026-11-02T16:00:00Z') });
   const [day] = world.messages.map((m) => m.ts);
   assert.deepEqual(pairs(world.messages), [
-    ['D1', 'Orch Digest\n1 PR pending review', null], ['D1', '<@U1> https://github.com/o/r/pull/1 · Open', day],
+    ['D1', 'Orch Digest\n1 PR pending review', null], ['D1', linkTo('U1', 1, 'Fix limiter', '+84/-12 · 5 files'), day],
     ['D1', linkTo('U1', 1, 'Fix limiter', '+84/-12 · 5 files'), day],
   ]);
   setPRs({ 'o/r#1': pr(), 'o/r#2': pr({ title: 'Docs' }) });
@@ -227,7 +228,7 @@ test("a link before 09:00 opens the day's thread with the digest, and the weekda
   assert.equal((await reviewDigest(site, { now: monday })).due, false);
 });
 
-test("a digest due in a thread an earlier build opened with a header line goes in it as one reply listing the PRs, its count live", async () => {
+test("a digest due in a thread an earlier build opened with a header line goes in it as one bar per PR, with no header of its own", async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);
   saveToken(world);
@@ -236,17 +237,32 @@ test("a digest due in a thread an earlier build opened with a header line goes i
   const day = slack.say({ channel: 'D1', user: 'U0', text: 'Orch reviews\n- :claude_kickflip:' });
   write(path.join(site, 'data', 'review-digests.json'), { digests: [{ date: '2026-11-02', reviewer: 'Ann', channel: 'D1', ts: day }] });
   await sendReviews({ boards, fetch: slack.fetch, now: monday });
-  const listed = '\nhttps://github.com/o/r/pull/1 · Open\nhttps://github.com/o/r/pull/2 · Open';
   assert.deepEqual(pairs(world.messages.slice(1)), [
-    ['D1', `<@U1> Orch Digest\n2 PRs pending review${listed}`, day],
+    ['D1', linkTo('U1', 1, 'Fix limiter', '+84/-12 · 5 files'), day],
+    ['D1', linkTo('U1', 2, 'Docs', '+84/-12 · 5 files'), day],
     ['D1', linkTo('U1', 1, 'Fix limiter', '+84/-12 · 5 files'), day],
     ['D1', linkTo('U1', 2, 'Docs', '+84/-12 · 5 files'), day],
   ]);
   assert.equal((await reviewDigest(site, { now: monday })).due, false);
-  setPRs({ 'o/r#1': pr({ state: 'MERGED' }), 'o/r#2': pr({ title: 'Docs' }) });
+  assert.equal(world.messages.length, 5);
+});
+
+test("a digest reply is the PR's bar: the card's ticket linked above the title, and from two days old its age on its own line; a PR with no ticket or under two days has neither", async () => {
+  const world = slackWorld();
+  const slack = fakeSlack(world);
+  saveToken(world);
+  write(path.join(site, 'board.json'), { title: 'Orch', items: 'waves', reviewers: [ann], tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'P' } });
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Old', pr: 1, ticket: 'ENG-5', risk: 'low' }, { id: 'A2', title: 'No ticket', pr: 2 }, { id: 'A3', title: 'New', pr: 3, ticket: 'ENG-6' }] });
+  setPRs({ 'o/r#1': pr(), 'o/r#2': pr({ title: 'Two' }), 'o/r#3': pr({ title: 'Three' }) });
+  const ago = (days) => String((monday.getTime() - days * 86400000) / 1000);
+  const sentTo = (ts) => ({ head: 'a', links: { Ann: { channel: 'D1', ts, reactions: [] } }, replies: [] });
+  write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': sentTo(ago(6.5)), 'o/r#2': sentTo(ago(6.5)), 'o/r#3': sentTo(ago(1)) });
   await sendReviews({ boards, fetch: slack.fetch, now: monday });
-  assert.equal(world.messages[1].text, `<@U1> Orch Digest\n1 PR pending review${listed}${SIGN_OFF} · _updated 09:00_`);
-  assert.equal(world.messages.length, 4);
+  const [one, two, three] = world.messages.slice(1).map((m) => m.attachments[0]);
+  assert.deepEqual(one, { color: COLOURS.low, author_name: 'ENG-5', author_link: 'https://linear.app/acme/issue/ENG-5', title: 'Fix limiter', title_link: 'https://github.com/o/r/pull/1', text: `+84/-12 · 5 files · low risk\n_(6 days old)_${SIGN_OFF}`, fallback: 'ENG-5 · r#1 Fix limiter · +84/-12 · 5 files · low risk · (6 days old)', mrkdwn_in: ['text'] });
+  assert.deepEqual([two.author_name, two.text], [undefined, `+84/-12 · 5 files\n_(6 days old)_${SIGN_OFF}`]);
+  assert.deepEqual([three.author_link, three.text], ['https://linear.app/acme/issue/ENG-6', `+84/-12 · 5 files${SIGN_OFF}`]);
+  assert.ok(world.messages.slice(1).every((m) => m.text === ''));
 });
 
 test("one reviewer's failed send leaves the others sent and goes again next poll, and a post whose record fails is never posted twice", async () => {
@@ -305,9 +321,8 @@ test("a link on a day with no thread opens it with the same digest the weekday m
   setPRs({ 'o/r#1': pr(), 'o/r#2': pr(), 'o/r#3': pr() });
   await sendReviews({ boards, fetch: slack.fetch, now: new Date('2026-11-07T17:00:00Z') });
   const [day] = world.messages.map((m) => m.ts);
-  const listed = (n) => ['D1', `<@U1> https://github.com/o/r/pull/${n} · Open`, day];
   const link = (n) => ['D1', linkTo('U1', n, 'Fix limiter', '+84/-12 · 5 files'), day];
-  assert.deepEqual(pairs(world.messages), [['D1', 'Orch Digest\n3 PRs pending review', null], listed(1), listed(2), listed(3), link(1), link(2), link(3)]);
+  assert.deepEqual(pairs(world.messages), [['D1', 'Orch Digest\n3 PRs pending review', null], link(1), link(2), link(3), link(1), link(2), link(3)]);
   const onDemand = world.messages.slice(0, 4);
 
   // Monday 09:00, every link sent: the schedule opens that day's thread with the same digest, its PRs now days old.
@@ -315,9 +330,9 @@ test("a link on a day with no thread opens it with the same digest the weekday m
   await sendReviews({ boards, fetch: slack.fetch, now: new Date('2026-11-09T17:00:00Z') });
   const scheduled = world.messages.slice(since);
   assert.ok(scheduled.slice(1).every((m) => m.thread_ts === scheduled[0].ts));
-  const words = (list) => pairs(list).map(([channel, text]) => [channel, text.replace(/ \(\d+ days old\)$/, '')]);
+  const words = (list) => pairs(list).map(([channel, text]) => [channel, text.replace(/\n_\(\d+ days old\)_$/, '')]);
   assert.deepEqual(words(scheduled), words(onDemand));
-  assert.match(scheduled[1].text, /· Open \(\d+ days old\)\n/);
+  assert.match(scheduled[1].attachments[0].text, /^\+84\/-12 · 5 files\n_\(\d+ days old\)_\n/);
 });
 
 test('the digest is owed to each reviewer until its header and every reply are posted, and resumes without a second header', async () => {
@@ -349,8 +364,8 @@ test('the digest is owed to each reviewer until its header and every reply are p
   const bobDigest = digests().find((d) => d.reviewer === 'Bob').ts;
   const fix = (u, n) => linkTo(u, n, 'Fix limiter', '+84/-12 · 5 files');
   assert.deepEqual(pairs(world.messages), [
-    ['D1', 'Orch Digest\n2 PRs pending review', null], ['D1', '<@U1> https://github.com/o/r/pull/1 · Open', annDigest], ['D1', '<@U1> https://github.com/o/r/pull/2 · Open', annDigest],
-    ['D2', '<@U2> https://github.com/o/r/pull/1 · Open', bobDigest], ['D2', '<@U2> https://github.com/o/r/pull/2 · Open', bobDigest],
+    ['D1', 'Orch Digest\n2 PRs pending review', null], ['D1', fix('U1', 1), annDigest], ['D1', fix('U1', 2), annDigest],
+    ['D2', fix('U2', 1), bobDigest], ['D2', fix('U2', 2), bobDigest],
     ['D1', fix('U1', 1), annDigest], ['D2', fix('U2', 1), bobDigest], ['D1', fix('U1', 2), annDigest], ['D2', fix('U2', 2), bobDigest],
   ]);
   assert.deepEqual(digests().map((d) => [d.date, d.reviewer, d.replies.every((r) => r.ts)]).sort(), [['2026-11-02', 'Ann', true], ['2026-11-02', 'Bob', true]]);

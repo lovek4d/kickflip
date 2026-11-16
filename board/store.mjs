@@ -16,7 +16,7 @@ import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builder
 import { reviseQueued, pushKindError, readClaudeModel, readLandTests, setLandTests, CLAUDE_MODEL_VALUES } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { ticketSource, resolveTicket, ticketNamed, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
+import { ticketSource, ticketBadge, resolveTicket, ticketNamed, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
 import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
@@ -1393,26 +1393,33 @@ export const recordReaction = (site, due) => editJSON(prSlackFile(site), (all) =
 
 // docs/adr/2026-11-14-0451-a-prs-slack-link-is-a-bar-coloured-by-the-builders-risk.md
 // docs/adr/2026-11-14-2300-every-pr-message-is-the-bar-with-no-mention.md
-// A PR's link in a day thread, the one PR message format: no text, and one attachment whose colour bar is the card's
-// risk (grey with none), titled by the PR's title linking the PR, then “+N/-M · K files · <risk> risk”, the size from
-// GitHub and the risk word repeating the colour. The Slack client signs off the attachment's text, so the sign-off
-// stays the message's last line. → {text, attachments}
+// A PR's message in a day thread, the one PR message format every sender uses (the first-day link, each digest reply, a
+// session's `slack link`): no text, and one attachment whose colour bar is the card's risk (grey with none), headed by
+// the card's ticket id linking its issue (the attachment's small author line; none without a ticket), titled by the
+// PR's title linking the PR, then “+N/-M · K files · <risk> risk”, the size from GitHub and the risk word repeating the
+// colour, then from two days old its own line, “_(N days old)_”. The Slack client signs off the attachment's text, so
+// the sign-off stays the message's last line. ticket: ticketBadge's {id, url}; old: whole days since the PR's first
+// link to that reviewer, when over two. → {text, attachments}
 const RISKS = ['low', 'medium', 'high'];
 const RISK_COLOURS = { low: '#2eb67d', medium: '#e8912d', high: '#e01e5a' };
 const NO_RISK_COLOUR = '#9e9e9e';
-function prLink(pr, gh, item) {
+function prLink(pr, gh, item, { ticket, old } = {}) {
   const [repo, number] = pr.split('#');
   const title = gh.title || item.title;
   const size = Number.isInteger(gh.additions) ? [`+${gh.additions}/-${gh.deletions}`, `${gh.files} file${gh.files === 1 ? '' : 's'}`] : [];
   const line = [...size, item.risk && `${item.risk} risk`].filter(Boolean).join(' · ');
+  const age = old && `(${old} days old)`;
   return {
     text: '',
     attachments: [{
-      color: RISK_COLOURS[item.risk] || NO_RISK_COLOUR, title, title_link: prURL({ repo, number }), text: line,
-      fallback: [`${repo.split('/').pop()}#${number} ${title}`, line].filter(Boolean).join(' · '),
+      color: RISK_COLOURS[item.risk] || NO_RISK_COLOUR, ...(ticket ? { author_name: ticket.id, author_link: ticket.url } : {}),
+      title, title_link: prURL({ repo, number }), text: [line, age && `_${age}_`].filter(Boolean).join('\n'),
+      fallback: [ticket?.id, `${repo.split('/').pop()}#${number} ${title}`, line, age].filter(Boolean).join(' · '),
     }],
   };
 }
+// A card's ticket for its PR's message, null without one.
+const ticketOfCard = (cfg, item, repo) => (cfg.tickets ? ticketBadge(storedTickets(cfg.tickets), item.ticket, { repo }) : null);
 // docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: a PR is approved on
 // GitHub's review decision, which counts a code owner's approval when the branch asks for one; on a branch that asks
 // for no review (no decision) any human approval does (hub/pr-report.mjs leaves a bot's out of `approved`). The digest,
@@ -1452,7 +1459,7 @@ export async function reviewDue(site, options) {
         const gh = routeRecord(cache.prs, pr);
         for (const r of people) {
           if (!linkOwed(gh, record, pr, r.name) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;
-          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, ...prLink(pr, gh, item) });
+          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, ...prLink(pr, gh, item, { ticket: ticketOfCard(cfg, item, boardRepoOf(site, itemFile)) }) });
         }
       }
     }
@@ -1469,13 +1476,13 @@ export async function reviewDue(site, options) {
     rec.replies.forEach((reply, at) => { for (const [name, sent] of Object.entries(reply.to)) react(name, sent, at); });
   }
   // headers: each posted digest header whose count of PRs still pending that reviewer differs from the count it shows,
-  // with the header's text at the new count.
+  // with the header's text at the new count. A header an earlier build put in a reply carries that reply's lead and tail.
   const headers = [];
   for (const d of (await readJSON(digestFile(site), {})).digests || []) {
     const ts = d.live && (d.live.reply === undefined ? d.ts : d.replies?.[d.live.reply]?.ts);
     if (!ts) continue;
     const n = d.live.prs.filter((pr) => { const gh = routeRecord(cache.prs, pr); return gh?.state === 'OPEN' && waitsOn(gh, githubOf.get(d.reviewer)); }).length;
-    if (n !== d.live.shown) headers.push({ date: d.date, reviewer: d.reviewer, channel: d.channel, ts, n, text: `${d.live.lead}${digestHeader(cfg.title, n)}${d.live.tail}` });
+    if (n !== d.live.shown) headers.push({ date: d.date, reviewer: d.reviewer, channel: d.channel, ts, n, text: `${d.live.lead ?? ''}${digestHeader(cfg.title, n)}${d.live.tail ?? ''}` });
   }
   const digest = await reviewDigest(site, options);
   return { date: slackDay(options?.now).date, links, reactions, headers, digest: digest.due ? digest : null };
@@ -1486,8 +1493,8 @@ export const recordHeader = (site, due) => editJSON(digestFile(site), (all) => {
 const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.json');
 
 // `review digest`: each reviewer's PRs the hub last read open, out of draft and not approved (failing checks included), one item per PR
-// with its digest reply's text, “<PR link> · <card title>” plus “ (<n> days old)” for a link over two days old.
-// data/review-digests.json {digests: [{date, reviewer, channel, ts, heard?, replies?: [{pr | prs, text, ts}]}]} holds
+// with its digest reply's message, the PR's bar (prLink) with its age for a link over two days old.
+// data/review-digests.json {digests: [{date, reviewer, channel, ts, heard?, replies?: [{pr, text, attachments, ts}]}]} holds
 // each reviewer's thread for each day, posted as postOnce posts: ts is its opener, the digest's header or the header
 // line an earlier build posted, and replies are the digest's. heard is the newest message in the thread the hub has
 // read (docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md). The day's digest opens each reviewer's
@@ -1520,7 +1527,7 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
           const age = ts ? (now.getTime() - Number(ts) * 1000) / 86400000 : null;
           const old = age > 2 ? Math.floor(age) : null;
           reviewers.get(r.name).items.push({ key, pr, title: item.title, url: prURL(p), sent_ts: ts, ...(old ? { days_old: old } : {}),
-            text: `${prURL(p)} · ${item.title}${old ? ` (${old} days old)` : ''}` });
+            message: prLink(pr, gh, item, { ticket: ticketOfCard(cfg, item, boardRepoOf(site, itemFile)), old }) });
         }
       }
     }
@@ -1738,14 +1745,17 @@ export async function slackLink(site, pr, to, { now = new Date(), readPR = prSiz
   const key = prKeyOf({ repo, number: ref.number });
   const reviewer = await reviewerNamed(site, to);
   const client = throughSlack(slack);
+  const cfg = await boardConfig(site);
   let card = {};
+  let ticket = null;
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, {});
-    card = (itemFile.items || []).find((i) => cardPRs(i, boardRepoOf(site, itemFile)).some((p) => prKeyOf(p) === key)) || card;
+    const found = (itemFile.items || []).find((i) => cardPRs(i, boardRepoOf(site, itemFile)).some((p) => prKeyOf(p) === key));
+    if (found) { card = found; ticket = ticketOfCard(cfg, found, boardRepoOf(site, itemFile)); }
   }
   let size;
-  try { size = await readPR({ repo, pr: ref.number, login: settingsOf(await boardConfig(site)).github_login }); } catch (e) { fail(e.message); }
-  const message = prLink(key, size, card);
+  try { size = await readPR({ repo, pr: ref.number, login: settingsOf(cfg).github_login }); } catch (e) { fail(e.message); }
+  const message = prLink(key, size, card, { ticket });
   const thread = await openDayThread(site, client, reviewer, now);
   await slackCall(postLink(site, { pr: key, reviewer: reviewer.name }, thread, () => client.post({ channel: thread.channel, thread_ts: thread.ts, ...message })));
   return { lines: [`sent ${key} to ${reviewer.name}'s day thread`] };
@@ -1774,14 +1784,13 @@ export async function dayThread(site, date, name) {
 }
 
 // Posts a reviewer's owed digest for date, one of review digest's reviewers. Opening the day's thread, it is the
-// header, then one reply per PR; in a thread an earlier build opened, it is one reply listing the PRs. Each reply opens
-// with the reviewer's mention, and a digest already begun keeps the PRs it began with. The entry's live holds the
+// header, then one reply per PR, each the PR's bar (prLink) and nothing mentions the reviewer; a thread an earlier
+// build opened gets the replies alone. A digest already begun keeps the PRs it began with. The entry's live holds the
 // header's PRs and the count it shows, which review due finds to edit. post({channel, text, thread_ts?}) → ts.
 // → the day thread, {channel, ts}
 export async function postDigest(site, date, reviewer, { channel, post }) {
   const file = digestFile(site);
   const entry = dayEntry(date, reviewer.name);
-  const mention = `<@${reviewer.slack_user}>`;
   const { title } = await boardConfig(site);
   const header = (n) => digestHeader(title, n);
   await editJSON(file, (all) => {
@@ -1789,19 +1798,14 @@ export async function postDigest(site, date, reviewer, { channel, post }) {
     const opened = entry(all);
     if (opened.replies) return;
     const prs = reviewer.items.map((i) => i.pr);
-    if (opened.ts) {
-      const tail = reviewer.items.map((i) => `\n${i.text}`).join('');
-      opened.replies = [{ prs, text: `${mention} ${header(prs.length)}${tail}` }];
-      opened.live = { prs, shown: prs.length, reply: 0, lead: `${mention} `, tail };
-    } else {
-      opened.replies = reviewer.items.map((i) => ({ pr: i.pr, text: `${mention} ${i.text}` }));
-      opened.live = { prs, shown: prs.length, lead: '', tail: '' };
-    }
+    opened.replies = reviewer.items.map((i) => ({ pr: i.pr, ...i.message }));
+    // A thread an earlier build opened has a header line that isn't the digest's, so it has no count to edit.
+    if (!opened.ts) opened.live = { prs, shown: prs.length };
   });
   const sent = entry(await readJSON(file, {}));
   const top = sent.ts || await postOnce(file, entry, () => post({ channel: sent.channel, text: header(sent.live.prs.length) }));
   for (const [i, reply] of sent.replies.entries()) {
-    if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text }));
+    if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text, attachments: reply.attachments }));
   }
   // A one-PR reply is a message about that PR, so it joins the PR's posted replies and gets its reactions (the digest
   // file keeps only the days still heard); a reply naming several PRs gets none.
