@@ -19,6 +19,9 @@ BoardView.part((B) => {
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('[data-dismiss-new]');
     if (!b) return;
+    // A link to a card the filter hides stays in the strip until its card opens (app.js showHidden).
+    const card = b.tagName === 'A' && state.board?.items.find((i) => i.key === b.dataset.dismissNew);
+    if (card && B.hiddenOnBoard(card)) return;
     markRead([[b.dataset.dismissNew, b.dataset.at]]);
     B.later(0, () => renderNew(state.board));
   });

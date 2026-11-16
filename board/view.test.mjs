@@ -7182,6 +7182,44 @@ test('the Todo filter is remembered on this device', async () => {
   assert.ok(again.root.querySelector('button.lane-filter').classList.contains('on'));
 });
 
+// A card the Todo filter hides opens only on the owner's yes, which clears the filter; no leaves the filter, the address and the New strip's row as they were.
+test('opening a card the Todo filter hides asks to reset the filter: yes clears it and opens the card, no leaves the filter and the New strip row', async () => {
+  const ASK = 'This task is not currently visible, reset filters?';
+  const mk = (n, ask, at) => ({ ...askCard(ask, 'todo'), id: `T-${n}`, key: `w/T-${n}`, ref: `T-${n}`, title: `feat: ticket ${n}`, phase: 'discussing', turn: 'owner', created: '2026-10-30T08:00:00.000Z', ingested: { at, text: `Ask ${n}` } });
+  const stored = [['site:board-a:todoFilter', JSON.stringify(['discussing'])]];
+  const setup = (answer) => {
+    const b = boardOnDom({ board: boardOf([mk(7, 'a3', '2026-10-30T09:20:00.000Z')]), seen: {}, threads: {}, width: 1280, stored, confirm: answer });
+    return b;
+  };
+  const item = (b) => b.root.querySelector('details.item[data-key="w/T-7"]');
+  const filter = (b) => b.page.win.localStorage.getItem('site:board-a:todoFilter');
+
+  // No, from the New strip's link.
+  const no = setup(false);
+  await no.settle();
+  assert.equal(item(no), null, 'the filter hides the card');
+  no.page.win.location.hash = '#selectedCard=w%2FT-7';
+  no.page.fire(no.root, 'click', { target: no.root.querySelector('#newStrip a.new-link') });
+  await no.settle(); no.page.runTimers(0); await no.settle();
+  assert.deepEqual(no.confirms, [ASK]);
+  assert.equal(item(no), null);
+  assert.equal(filter(no), JSON.stringify(['discussing']));
+  assert.ok(no.root.querySelector('#newStrip a.new-link'), 'the row stays');
+  assert.equal(no.posts.filter(([path]) => path.endsWith('/api/read')).length, 0, 'the row is not marked read');
+  no.view.unmount();
+
+  // Yes, from a link in the address.
+  const yes = setup(true);
+  await yes.settle();
+  yes.page.win.location.hash = '#selectedCard=w%2FT-7';
+  yes.page.fire(vm.runInContext('window', yes.page.win), 'hashchange');
+  await yes.settle();
+  assert.deepEqual(yes.confirms, [ASK]);
+  assert.equal(filter(yes), '[]');
+  assert.ok(item(yes).hasAttribute('open'), 'the card opens');
+  yes.view.unmount();
+});
+
 test('a project made with New project… lands A–Z among the team’s projects, with New project… last', async () => {
   const page = repoPage(true);
   const root = page.doc.body.appendChild(new page.Element('div'));

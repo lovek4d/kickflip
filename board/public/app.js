@@ -239,7 +239,14 @@ window.BoardView = (function () {
       if (review && state.board) { B.openReview(review); return; }
       if (pill) B.replayTopic(openItemsCard);
       if (!selectedCard) return;
-      focusKey = BoardUI.record(state.board?.moved, selectedCard) || selectedCard;
+      const key = BoardUI.record(state.board?.moved, selectedCard) || selectedCard;
+      const hidden = state.board?.items.find((i) => i.key === key);
+      if (hidden && B.hiddenOnBoard(hidden)) {
+        // The address stays until the owner answers; a no drops the card from it.
+        showHidden(() => { readHash({ pill: false }); render(); scrollToFocus(); }, () => B.saveFragment({ selectedCard: null }));
+        return;
+      }
+      focusKey = key;
       replyKey = reply ? focusKey : null;
       state.openItems.add(focusKey);
       state.restored.delete(focusKey);
@@ -263,12 +270,17 @@ window.BoardView = (function () {
     // Opens and scrolls to the card key on the board, the fragment's changes set in the same write → whether the board
     // shows it. The write replaces the page's entry: a pick adds none.
     function focusOnBoard({ key, changes }) {
-      if (!state.board?.items.some((i) => i.key === key)) return false;
-      B.saveFragment(changes);
-      readHash({ pill: false });
-      render();
-      scrollToFocus();
+      const it = state.board?.items.find((i) => i.key === key);
+      if (!it) return false;
+      const open = () => { B.saveFragment(changes); readHash({ pill: false }); render(); scrollToFocus(); };
+      if (B.hiddenOnBoard(it)) showHidden(open);
+      else open();
       return true;
+    }
+    // A card the Todo filter hides opens on the owner's yes to resetting the filter; a no leaves everything as it was
+    // (declined runs then, for what the address must drop).
+    async function showHidden(open, declined = () => {}) {
+      if (await B.resetFilterToShow()) open(); else declined();
     }
     // A card missing from the last visit's board waits for the fresh one, which is final.
     function scrollToFocus(final = true) {

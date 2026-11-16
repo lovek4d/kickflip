@@ -104,6 +104,14 @@ BoardView.part((B) => {
   let filterOpen = false;
   const unchecked = () => store.get('todoFilter', []);
   const hiddenByFilter = (it) => unchecked().includes(filterBoxOf(it));
+  // A card the Todo filter keeps off the board: in Todo, not in the New strip, under an unchecked box.
+  const hiddenOnBoard = (it) => it.lane === 'todo' && !it.isNew && hiddenByFilter(it);
+  // Asks before opening a card the filter hides → true once the owner has reset the filter, so the card shows.
+  async function resetFilterToShow() {
+    if (!(await B.confirm('This task is not currently visible, reset filters?')) || !B.alive()) return false;
+    store.set('todoFilter', []);
+    return true;
+  }
   const filterHtml = () => {
     const off = unchecked();
     const menu = filterOpen ? `<div class="lane-filter-menu" role="group" aria-label="Show in Todo">${FILTER_BOXES.map(([id, name]) =>
@@ -175,5 +183,5 @@ BoardView.part((B) => {
     }
   });
 
-  Object.assign(B, { FOLDS, lanesHtml, openReview });
+  Object.assign(B, { FOLDS, lanesHtml, openReview, hiddenOnBoard, resetFilterToShow });
 });
