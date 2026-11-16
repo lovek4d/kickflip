@@ -217,8 +217,13 @@ test("item add makes the card's own read-only <id>-notes.md, from --notes-from o
   assert.throws(() => fs.writeFileSync(notesOf('B2'), 'over'), { code: 'EACCES' });
   assert.equal((await board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: three', '--notes', 'Short note')).code, 0);
   assert.equal(fs.readFileSync(notesOf('C3'), 'utf8'), '# feat: three\n\nShort note\n');
-  assert.equal((await board('item', 'add', 'w/D4', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: four')).code, 0);
-  assert.equal(fs.readFileSync(notesOf('D4'), 'utf8'), '# feat: four\n');
+  // docs/adr/2026-11-16-0200-item-add-refuses-a-task-with-no-notes.md
+  const bare = run('board.mjs', ['--site', 'orch', 'item', 'add', 'w/D4', '--phase', 'grilling', '--title', 'feat: four']);
+  assert.equal(bare.code, 1);
+  assert.match(bare.err, /item add files a task with notes: pass --notes "<text>" or --notes-from <draft.md>/);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.some((it) => it.id === 'D4'), false);
+  const blank = run('board.mjs', ['--site', 'orch', 'item', 'add', 'w/D4', '--phase', 'grilling', '--title', 'feat: four', '--blocked', '--notes', '  ']);
+  assert.equal(blank.code, 1);
   assert.equal((await board('item', 'add', 'w/E5', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: five', '--notes', 'x', '--notes-from', path.join(home, 'draft.md'))).code, 2);
   for (const flag of ['--notes-file', '--plan']) {
     const added = await board('item', 'add', 'w/E5', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: five', flag, 'draft.md');

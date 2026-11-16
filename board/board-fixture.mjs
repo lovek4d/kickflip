@@ -37,6 +37,15 @@ export function run(script, args, input, env = {}) {
 // Runs board.mjs's main in this process with the test's HOME and env, and returns what a node process of it would:
 // its exit code and what it printed. A thrown error exits 1 with its stack, as node does.
 export async function boardWith(args, env = {}) {
+  return boardAs(withNotes(args), env);
+}
+// item add refuses a task with no notes, so the tests that file cards for another purpose get a stub; the refusal's own
+// tests spawn the CLI with run, which adds nothing.
+export const withNotes = (args) => {
+  const i = args.findIndex((a, n) => a === 'item' && args[n + 1] === 'add');
+  return i < 0 || args.some((a) => ['--notes', '--notes-from', '--from-ask'].includes(a)) ? args : [...args, '--notes', 'Notes.'];
+};
+async function boardAs(args, env) {
   const set = cliEnv(env);
   const saved = Object.fromEntries(Object.keys(set).map((k) => [k, process.env[k]]));
   Object.assign(process.env, set);
@@ -107,7 +116,7 @@ export async function ticketCli(t) {
     if (argv[1] === 'close') return { status: 0, stdout: '' };
     return { status: 0, stdout: `https://github.com/${repo}/issues/42\n` };
   };
-  const cli = (...args) => main(['--site', 'audit', ...args], { linearFetch: linear.fetch, run });
+  const cli = (...args) => main(withNotes(['--site', 'audit', ...args]), { linearFetch: linear.fetch, run });
   const item = (id) => read(site('audit', 'data', 'items.json')).items.find((it) => it.id === id);
   return { saveBoardSettings, main, out, err, world, linear, gh, ghAnswers, cli, item };
 }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fakeGh, prView, writePR, writeIssueComments, writeReviews, writeUser, writeAccounts, calls, tokens } from '../shared/fake-gh.mjs';
-import { boardWith, bin, home, at, site, write, read, lines, run, board, runAsync, wave, ticketCli, record, annReviewer, bobReviewer, reviewState, slackToken, digestCommand } from './board-fixture.mjs';
+import { withNotes, boardWith, bin, home, at, site, write, read, lines, run, board, runAsync, wave, ticketCli, record, annReviewer, bobReviewer, reviewState, slackToken, digestCommand } from './board-fixture.mjs';
 
 test('tickets link or are made in the board source through the CLI and an injected GitHub runner, and a board with none has none', async (t) => {
   const { saveBoardSettings } = await import('./store.mjs');
@@ -16,7 +16,7 @@ test('tickets link or are made in the board source through the CLI and an inject
   const out = [], err = [], calls = [];
   t.mock.method(console, 'log', (...args) => out.push(args.join(' ')));
   t.mock.method(console, 'error', (...args) => err.push(args.join(' ')));
-  const cli = (...args) => main(['--site', 'audit', ...args], { run: async (cmd, argv) => {
+  const cli = (...args) => main(withNotes(['--site', 'audit', ...args]), { run: async (cmd, argv) => {
     calls.push([cmd, argv]);
     const repo = argv[argv.indexOf('--repo') + 1];
     if (argv[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: 41, url: `https://github.com/${repo}/issues/41` }) };
@@ -47,7 +47,7 @@ test('tickets link or are made in the board source through the CLI and an inject
     ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: seven', '--body', 'Why this matters']],
     ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: eight', '--body', '# Full notes']],
     ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'From ask', '--body', 'Asked why']],
-    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: another follow', '--body', '']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: another follow', '--body', 'Notes.']],
   ]);
   assert.equal(read(waveFile).items.at(-1).ticket, '#42');
   assert.equal(await cli('item', 'set', 'audit/F6', '--next', 'Then this'), 0);

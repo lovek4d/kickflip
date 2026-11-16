@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fakeLinear, linearWorld, startBoard } from '../shared/test-helpers.mjs';
 import { fakeGh } from '../shared/fake-gh.mjs';
+import { withNotes } from './board-fixture.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
@@ -37,7 +38,7 @@ const run = async (cmd, argv) => {
   if (argv[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: Number(argv[2]), url: `https://github.com/${repo}/issues/${argv[2]}` }) };
   return { status: 1, stderr: `no fake for gh ${argv.join(' ')}` };
 };
-const cli = (route, ...args) => main(['--site', route, ...args], { run, linearFetch: linear.fetch });
+const cli = (route, ...args) => main(withNotes(['--site', route, ...args]), { run, linearFetch: linear.fetch });
 
 // The sources a board moves through, each with the pattern a ticket it makes takes; none makes none.
 const SOURCES = [

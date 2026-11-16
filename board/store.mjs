@@ -4035,6 +4035,8 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   // are complete once they hold more than its title.
   if (phase === 'ready' && !(notes ?? '').trim() && notesFrom === undefined) fail('a new ready task has no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready');
   if (intake && site && phase === undefined && !hold) fail('item add files a task on a board: pass --phase discussing, grilling or prototyping, or --blocked to file it for later');
+  // A card an agent files stands alone from the start; an ask-born card starts from the ask's text instead.
+  if (intake && site && !ask && !(notes ?? '').trim() && notesFrom === undefined) fail('item add files a task with notes: pass --notes "<text>" or --notes-from <draft.md>, so the card stands alone; a split takes its slice of the parent\'s proposed split');
   const { source, itemFile } = await loadItemFile(site, slug);
   if (id !== undefined && itemFile.items.some((it) => it.id === id)) fail(`item file "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();

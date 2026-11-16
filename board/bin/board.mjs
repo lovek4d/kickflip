@@ -300,7 +300,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--ticket <id> | --new-ticket]                  hand-edit the item file to add one. Refuses an id the file has.
          [--deps <id>,<file>/<id>]                       A task with no ticket unless --ticket links one or
                                                          --new-ticket makes one from the title and notes
-         [--notes <t> | --notes-from <draft.md>]         the board makes the task's own notes, <id>-notes.md beside
+         (--notes <t> | --notes-from <draft.md>)         required on a board, except with --from-ask; the board makes the task's own notes, <id>-notes.md beside
                                                          its item file, read-only: the draft verbatim, or "# <title>"
                                                          then the --notes text. Refuses a draft that is any task's
                                                          notes file, live, done or archived, naming that task
