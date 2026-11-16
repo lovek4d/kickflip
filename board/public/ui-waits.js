@@ -10,7 +10,7 @@
     answer: "act on the owner's answer", investigate: 'investigate the task', reply: "act on the owner's reply", brief: 'write the planner brief',
     stale: 'find out why it stalled', calls: "verify the builder's calls", checking: 'land the checked build', grill: 'start the grill',
     prototype: 'draw the prototype', unasked: "post the planner's question", visual: "place the visual's page", recheck: 'recheck the ready task',
-    refused: 'sort out the refused build', unowned: 'set what happens next', unblocked: 'act on the ended block', triage: 'run the overnight triage',
+    refused: 'sort out the refused build', unowned: 'set what happens next', unblocked: 'act on the ended block', script: 'read the script result', triage: 'run the overnight triage',
     'pr-review': 'review the pull request', 'review-answer': "act on the held review's answer", 'arch-review': 'run the architecture review',
     'slack-question': 'answer the Slack message', limbo: 'ask Implement, ask questions or close it',
   });

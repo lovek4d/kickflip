@@ -237,7 +237,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github' || m.via =
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 // The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
 const STILL_MERGING = ['lander-handoff', 'land-waiting', 'test-waiting'];
-function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
+function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, scriptEvents, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
   // An archived PR the board no longer reads the hub's check for draws what it kept (store.mjs keptPRs). A hub record
   // read without its url (a Done card's PR) keeps the one its repo and number give.
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, ...(p.gh || p.kept || {}), url: (p.gh || p.kept)?.url || prURL(p), status: prStateOf(p.gh, p.merged_at) }));
@@ -421,7 +421,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     turn: lane === 'todo' && it.phase === 'discussing' ? (said.some((m) => m.state === 'waiting' || m.state === 'working') ? 'claude' : 'owner') : undefined,
     updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
-    waitFacts: waitFactsOf(it, { agents, thread, events, said, refusedAt: refusal ? newest.ts : null, closed: lane === 'done' ? null : doneAt }),
+    waitFacts: waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt: refusal ? newest.ts : null, closed: lane === 'done' ? null : doneAt }),
   };
 }
 
@@ -451,7 +451,7 @@ const unverifiedOf = (agents) => agents.some((a) => a.calls.some((c) => !a.verif
 // (limboFrom), whether its records hold unverified calls, and the session's writes on it: a thread line of Claude's
 // other than a status, agent, move, refusal or board command line (staged, related, followup: the board writes those,
 // not the session), a verify and a builder start. closed is when the card last closed, null on a Done card.
-function waitFactsOf(it, { agents, thread, events, said, refusedAt, closed }) {
+function waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt, closed }) {
   const answered = new Set(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => m.ask));
   const ask = thread.filter((m) => m.kind === BUILDER_ASK.ask && !answered.has(m.ask)).sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
   const requestAt = (kind) => events.filter((e) => isRequest(e, kind)).pop()?.ts || null;
@@ -463,6 +463,8 @@ function waitFactsOf(it, { agents, thread, events, said, refusedAt, closed }) {
     pages: thread.filter((m) => m.kind === VISUAL).map((m) => m.ts),
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, unblockedAt: it.unblocked_at || null,
     ownerWord: closed === null ? null : ownerWordOf(said, thread, events, closed),
+    // When the newest script run ended or was declined: the orchestrator owes its next line on it.
+    scriptAt: scriptEvents.filter((e) => e.kind !== SCRIPT_EVENTS.run).map((e) => String(e.ts)).sort().pop() || null,
     // A lapsed mark, a planner's end, a board or command line (a phase change, a question added) or an owner's answer
     // changes the card's state; chat doesn't.
     limboFrom: [it.created, it.sorted_at, it.waits_on_owner?.at, ...agents.map((a) => a.done),
@@ -1380,6 +1382,7 @@ export function buildBoard(snapshot) {
         ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null, routeRecord(snapshot.alive, key) ?? null), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)) ?? it.worktree?.path ?? null,
         thread: lines,
+        scriptEvents: index.scripts.get(key) || [],
         events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => stateEntries(m).some(([, state]) => state === 'working')),
         said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
@@ -1581,7 +1584,7 @@ export function buildBoard(snapshot) {
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered' || (q.resolved === ANSWERED && q.state === 'resolved' && q.answers.length && !q.answers.at(-1).reply)).map((q) => q.answers.at(-1).ts).sort().pop();
     // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
     // Review (laneOf, workItem); a card the orchestrator stalled waits on the owner alone.
-    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.briefs.some((b) => !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince })
+    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.waitFacts.scriptAt || it.briefs.some((b) => !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince })
       // A requested brief is owed in every lane: Done owes that wait alone.
       : it.briefs.some((b) => !b.brief) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince }).filter((w) => w.kind === 'brief') : [];
     // The card shows its first wait; the waits list (orchestratorWaits) names every one.
@@ -2146,6 +2149,8 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     // owner's word last on the card is owed, whatever else the card waits on, until the orchestrator's next line.
     // It is picked up when the message was handed over, not at a line written before that.
     facts.ownerWord && { kind: 'reply', since: facts.ownerWord.at, picked: facts.ownerWord.picked, next: "Act on the owner's reply: answer it in the thread, or act and let the action's line answer it" },
+    // docs/adr/2026-11-17-0300-a-finished-script-run-waits-on-the-orchestrator.md: held until the orchestrator writes on the card.
+    facts.scriptAt && !facts.writes.some((t) => t > facts.scriptAt) && { kind: 'script', since: facts.scriptAt, next: "Read the script's result (the owner ran or declined it): answer it in the thread, or act on it" },
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
     // prototype or visual agent until the orchestrator writes its brief, whatever else the card asks of the owner.
     owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page', [REVIEWER]: 'review' }[owed.kind]} should cover and the files that matter${owed.kind === 'prototype' ? PROTOTYPE_ROUNDS : ''}` },
