@@ -2244,3 +2244,21 @@ test("a Full person's answers, messages, uploads and card taps are recorded name
     if (before) await putWave(before); else fs.rmSync(waveFile);
   }
 });
+
+// docs/adr/2026-11-16-2000-board-settings-edits-the-boards-description.md
+test("Board Settings' description reads and saves the manifest's, with how it was set, refusing an empty or over-long one", async () => {
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], description: 'Old words', description_source: 'new-board', description_at: '2026-11-12T10:00:00.000Z' } } }));
+  const post = (description) => fetch(`${base}/api/description`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ description }) });
+  try {
+    assert.deepEqual(await (await fetch(`${base}/api/description`)).json(), { description: 'Old words', source: 'new-board', at: '2026-11-12T10:00:00.000Z' });
+    const saved = await (await post('  The shop board  ')).json();
+    assert.deepEqual([saved.description, saved.source, typeof saved.at], ['The shop board', 'settings', 'string']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(manifest, 'utf8')).sites.site, { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], description: 'The shop board', description_source: 'settings', description_at: saved.at });
+    for (const bad of ['', '   ', 'x'.repeat(241)]) assert.equal((await post(bad)).status, 400, bad.length.toString());
+    assert.equal((await (await post('')).json()).error, 'A board needs a description');
+    assert.equal((await (await fetch(`${base}/api/description`)).json()).description, 'The shop board');
+    assert.equal((await post('x'.repeat(240))).status, 200);
+  } finally { fs.rmSync(manifest); }
+});

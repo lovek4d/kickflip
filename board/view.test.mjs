@@ -474,12 +474,21 @@ function settingsPage({ settings = {}, board = {}, routes = {}, ctx = {}, dom = 
   const page = fakePage(memoryStorage().localStorage);
   const Element = dom && miniDom(page.Target, page.win.document).Element;
   const root = dom ? page.win.document.body.appendChild(new Element('div')) : new page.El();
-  const s = { page, root, posts: [], confirms: [], refuse: '', saved: { ...settings }, rules: [], rulesReads: 0 };
+  const s = { page, root, posts: [], confirms: [], refuse: '', saved: { ...settings }, rules: [], rulesReads: 0,
+    descriptionPosts: [], description: { description: 'Sells shoes', source: 'new-board', at: '2026-11-12T12:00:00' } };
   const site = page.win.ClaudeSite.site;
   page.win.ClaudeSite.site = (r) => ({ ...site(r), events: async (opts) => { if (opts?.kind !== 'rules') return []; s.rulesReads++; return structuredClone(s.rules); } });
   page.win.BoardDialogs.confirm = async (text) => { s.confirms.push(text); return true; };
   page.win.fetch = async (url, opts = {}) => {
     let body = url.endsWith('/api/board') ? board : Object.entries(routes).find(([end]) => url.endsWith(end))?.[1] ?? {};
+    if (url.endsWith('/api/description')) {
+      if (opts.method === 'POST') {
+        s.descriptionPosts.push(JSON.parse(opts.body));
+        if (s.refuse) return { ok: false, status: 400, text: async () => JSON.stringify({ error: s.refuse }), json: async () => ({ error: s.refuse }) };
+        s.description = { description: JSON.parse(opts.body).description, source: 'settings', at: '2026-11-16T12:00:00' };
+      }
+      body = s.description;
+    }
     if (url.endsWith('/api/settings')) {
       if (opts.method === 'POST') {
         s.posts.push(JSON.parse(opts.body));
@@ -564,6 +573,31 @@ test('Board Settings reads Tool use from the saved setting, saves a tap at once,
   const high = await settingsPage({ settings: { tool_use: 'high' } }).mount();
   assert.deepEqual(['normal', 'high'].map((level) => high.root.querySelector(`[data-tool-use="${level}"]`).getAttribute('aria-pressed')), ['false', 'true']);
   high.view.unmount();
+});
+
+// docs/adr/2026-11-16-2000-board-settings-edits-the-boards-description.md
+test("Board Settings' Description textarea shows the saved text and how it was set, saves on blur and says how, reverts an emptied value, and sends nothing for an unchanged one", async () => {
+  const s = settingsPage({ dom: true });
+  await s.mount();
+  const box = s.root.querySelector('#boardDescription');
+  const source = () => s.root.querySelector('#boardDescriptionSource').textContent;
+  const status = () => s.root.querySelector('#boardDescriptionStatus').textContent;
+  const blur = async () => { s.page.fire(box, 'blur'); await tick(); };
+  assert.deepEqual([box.value, box.disabled, source()], ['Sells shoes', false, 'Set at New board · 11/12']);
+  await blur();
+  assert.deepEqual(s.descriptionPosts, []);
+  box.value = '';
+  await blur();
+  assert.deepEqual([box.value, status(), s.descriptionPosts], ['Sells shoes', 'A board needs a description', []]);
+  box.value = ' Sells shoes and socks ';
+  await blur();
+  assert.deepEqual(s.descriptionPosts, [{ description: 'Sells shoes and socks' }]);
+  assert.deepEqual([box.value, source(), status()], ['Sells shoes and socks', 'Edited here · 11/16', 'Saved. The hub routes by it from the next request.']);
+  s.refuse = 'A description is at most 240 characters';
+  box.value = 'Too long';
+  await blur();
+  assert.deepEqual([box.value, status()], ['Sells shoes and socks', 'A description is at most 240 characters']);
+  s.view.unmount();
 });
 
 // docs/adr/2026-11-16-0945-a-board-setting-picks-opus-or-sonnet-for-its-orchestrator.md,

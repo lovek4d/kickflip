@@ -1,0 +1,5 @@
+# Board Settings edits the board's description, and the manifest keeps how it was set
+
+Board Settings has a Description row: a textarea that saves on blur (no Save or Cancel), at most 240 characters, and an empty one is refused and the saved text comes back with "A board needs a description". Under it a line says how it was last set: "Set at New board · 11/12", "From triage, approved 11/16" or "Edited here 11/16".
+
+The description stays in the hub's manifest entry, where the router already reads it on each request (`hub/router.mjs` `routingBoards`), so a save needs no restart. Beside it the entry keeps `description_source` (`new-board`, `triage` or `settings`) and `description_at`. `kickflip join --description` sets the source to `new-board` when the text changes; `store.mjs` `saveBoardDescription` sets `settings`, and takes `triage` for a proposal's approval to call later. A board whose description predates these keys shows no source line until it is edited. The board server serves it at `GET`/`POST api/description`, not through `api/settings`, since that is board.json and wakes the session.

@@ -492,7 +492,7 @@ async function restartFolderBoard(route, site, branch) {
 }
 
 // A manifest entry's fields that hold on another host; the rest name this host's paths, port, session or restarts.
-const EXPORT_KEYS = ['title', 'description', 'icon', 'color', 'created', 'watch', 'filter', 'hub', 'github', 'remote', 'branch', 'local'];
+const EXPORT_KEYS = ['title', 'description', 'description_source', 'description_at', 'icon', 'color', 'created', 'watch', 'filter', 'hub', 'github', 'remote', 'branch', 'local'];
 // The hub settings the owner chose to carry (Notifications, Quiet hours, Codex share); never a key or an integration.
 const EXPORT_SETTINGS = ['notifications', 'quiet', 'codexShare'];
 const BUNDLE = 'kickflip-board';
@@ -570,7 +570,7 @@ async function joinPage() {
       Object.assign(site, served);
     }
     site.title = title;
-    if (args.description) site.description = args.description;
+    if (args.description && args.description !== site.description) Object.assign(site, { description: args.description, description_source: 'new-board', description_at: now });
     applyLook(site);
     site.updated = now;
     m.sites = { ...m.sites, [route]: site };
@@ -643,7 +643,7 @@ const commands = {
         created = !existing;
       }
       site.title = title;
-      if (args.description) site.description = args.description;
+      if (args.description && args.description !== site.description) Object.assign(site, { description: args.description, description_source: 'new-board', description_at: new Date().toISOString() });
       if (typeof args.watch === 'string') site.watch = args.watch.split(',').map((s) => s.trim()).filter(Boolean);
       if (args.filter !== undefined) site.filter = args.filter || undefined;
       applyLook(site);

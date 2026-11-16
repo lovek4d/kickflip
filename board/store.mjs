@@ -1873,6 +1873,30 @@ export async function readBoardSettings(site) {
   const dir = needSite(site);
   return { ...settingsOf(await readJSON(path.join(dir, 'board.json'), {}), listBoards().find((b) => samePath(b.dir, dir))), max_land_tests: readLandTests() };
 }
+// A board's description is the hub's, in its manifest entry, where the router reads it on each request
+// (hub/router.mjs routingBoards): description, with description_source, new-board, triage or settings, and
+// description_at, the ISO time it was set. → {description, source, at}; source and at are '' for a board whose
+// description was set before they were stored.
+export const DESCRIPTION_LIMIT = 240;
+const manifestRoute = (site) => listBoards().find((b) => samePath(b.dir, needSite(site)))?.route;
+export function readBoardDescription(site) {
+  const entry = readManifest().sites?.[manifestRoute(site)] || {};
+  return { description: String(entry.description || ''), source: entry.description_source || '', at: entry.description_at || '' };
+}
+// source is where the text came from: 'settings' (Board Settings) or 'triage' (an approved proposal).
+export async function saveBoardDescription(site, text, source = 'settings', now = new Date()) {
+  const description = String(text ?? '').trim();
+  if (!description) fail('A board needs a description');
+  if (description.length > DESCRIPTION_LIMIT) fail(`A description is at most ${DESCRIPTION_LIMIT} characters`);
+  if (!['settings', 'triage'].includes(source)) fail('a description is set from settings or triage');
+  const route = manifestRoute(site) || fail('this board isn’t in the hub’s manifest');
+  await withManifestLock(async () => {
+    const manifest = readManifest();
+    manifest.sites[route] = { ...manifest.sites[route], description, description_source: source, description_at: now.toISOString() };
+    await writeManifest(manifest);
+  });
+  return readBoardDescription(site);
+}
 // Whether cards on a board open PRs: a board on GitHub that builds from its shared clone, not its folder
 // (hub/boards.mjs buildsLocally), or the hub board, which builds from its folder, with its PRs setting on (Landing is
 // Draft PR or Ready PR; docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md). board is a

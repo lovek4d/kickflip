@@ -15,6 +15,12 @@
   <div class="hub-view"><div class="group" id="pauseBoard"><p class="muted small block">Loading…</p></div></div>
   <p class="muted small">Running steps finish. No new builders, planners or pulls start on this board until then, as when usage reaches the pause line.</p>
   <p class="muted small" id="pauseBoardStatus" role="status"></p>
+  <h2>Description</h2>
+  <label class="who" for="boardDescription"><span><span>Description</span>
+    <span class="muted small sub">The hub routes requests to this board by it.</span></span>
+    <textarea id="boardDescription" rows="3" maxlength="240" disabled></textarea></label>
+  <p class="muted small" id="boardDescriptionSource"></p>
+  <p class="muted small" id="boardDescriptionStatus" role="status"></p>
   <h2>Repo</h2>
   <button type="button" class="who repo-row" id="boardRepo" aria-haspopup="dialog" disabled><span id="boardRepoValue">Loading…</span><span class="muted small" id="boardRepoChange">Change ›</span></button>
   <p class="muted small" id="boardRepoStatus"></p>
@@ -664,6 +670,36 @@
     capInput('maxImplementers', 'max_implementers', (n) => `Saved. Up to ${n === 1 ? '1 card' : `${n} cards`} In Progress at once.`);
     capInput('maxServes', 'max_serves', (n) => `Saved. Up to ${n === 1 ? '1 serve stays' : `${n} serves stay`} up at once.`);
     capInput('maxLandTests', 'max_land_tests', (n) => `Saved. ${n === 1 ? 'One land tests' : `Up to ${n} lands test`} at a time.`);
+    // Description saves on blur, with no Save or Cancel; an empty one is refused and the saved text comes back. The
+    // source line says how it was last set (store.mjs readBoardDescription).
+    const descriptionBox = $('#boardDescription');
+    let savedDescription = '';
+    const SOURCES = { 'new-board': 'Set at New board', triage: 'From triage, approved', settings: 'Edited here' };
+    const showDescription = ({ description, source, at }) => {
+      descriptionBox.value = savedDescription = description;
+      descriptionBox.disabled = false;
+      const day = at ? new Date(at) : null;
+      $('#boardDescriptionSource').textContent = SOURCES[source] && day ? `${SOURCES[source]} · ${day.getMonth() + 1}/${day.getDate()}` : '';
+    };
+    get(site.url('api/description')).then(({ body }) => { if (B.alive()) showDescription(body); }, () => {});
+    B.on(descriptionBox, 'blur', async () => {
+      const status = $('#boardDescriptionStatus');
+      const want = descriptionBox.value.trim();
+      if (want === savedDescription) { descriptionBox.value = want; return; }
+      if (!want) { descriptionBox.value = savedDescription; status.textContent = 'A board needs a description'; return; }
+      try {
+        const r = await fetch(site.url('api/description'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ description: want }) });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.error);
+        if (!B.alive()) return;
+        showDescription(out);
+        status.textContent = 'Saved. The hub routes by it from the next request.';
+      } catch (e) {
+        if (!B.alive()) return;
+        descriptionBox.value = savedDescription;
+        status.textContent = e.message || 'Could not save. Is the host awake?';
+      }
+    });
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
     for (const want of Object.keys(TOOL_USE)) B.on($(`[data-tool-use="${want}"]`), 'click', async () => {

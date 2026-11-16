@@ -326,3 +326,15 @@ test('kickflip join --hub in a repo with no origin makes the hub board with no G
   assert.equal(claudeCalls().length, claudeBefore);
   assert.match(r.stdout, /It is the hub board, so its session runs in tmux, attached here\.\nattached =kickflip-second\n$/);
 });
+
+// docs/adr/2026-11-16-2000-board-settings-edits-the-boards-description.md
+test('kickflip join --description records new-board and when, and a rejoin with the same text keeps the time', async () => {
+  const repo = gitRepo('described');
+  const first = await cliIn(home, ['join', '--name', 'Described', '--session', 's-described', '--description', 'Sells shoes']);
+  assert.equal(first.status, 0, first.stderr);
+  const { description, description_source: source, description_at: at } = manifest().described;
+  assert.deepEqual([description, source, Number.isNaN(Date.parse(at))], ['Sells shoes', 'new-board', false]);
+  const again = await cliIn(home, ['join', '--name', 'Described', '--session', 's-described', '--description', 'Sells shoes']);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(manifest().described.description_at, at);
+});
