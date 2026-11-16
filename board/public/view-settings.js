@@ -759,7 +759,8 @@
     // Each switch writes or removes one allow rule in the board folder's .claude/settings.local.json through POST
     // api/permissions (docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md); the hub lets only
     // the owner reach the board (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). A tap waits on the server with the
-    // switch as it was and a spinner beside it, then draws the server's answer.
+    // switch as it was and a spinner beside it, then draws the server's answer. A switch the server calls unavailable,
+    // such as Run release script in a repo with no .kickflip/release, is disabled with the reason while it is off.
     // Sharing: each row is the person's name, then their login and when; a login Tailscale sent no name with is its own.
     // A person's row also sets them View or Full with one tap, saying what that level can do
     // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
@@ -822,8 +823,8 @@
       asked: (command) => `The session still asked before running ${command}, so it hasn’t picked the rule up yet. It applies once the session restarts.`,
     };
     const permRow = (p) => `<label class="who" for="perm-${esc(p.id)}"><span><span>${esc(p.name)}</span>
-      <span class="muted small sub">${esc(p.allows)} Writes <code>${esc(p.rule)}</code></span></span>
-      <span class="toggle-slot"><span class="try-spin toggle-spin" aria-hidden="true"></span><input type="checkbox" class="toggle" data-perm="${esc(p.id)}" id="perm-${esc(p.id)}"${p.on ? ' checked' : ''}></span></label>
+      <span class="muted small sub">${p.unavailable ? `${esc(p.unavailable)}. ` : ''}${esc(p.allows)} Writes <code>${esc(p.rule)}</code></span></span>
+      <span class="toggle-slot"><span class="try-spin toggle-spin" aria-hidden="true"></span><input type="checkbox" class="toggle" data-perm="${esc(p.id)}" id="perm-${esc(p.id)}"${p.on ? ' checked' : ''}${p.unavailable && !p.on ? ' disabled' : ''}></span></label>
       <p class="muted small" id="perm-${esc(p.id)}Status" role="status"></p>
       ${p.refused ? `<p class="muted small refused-note">${esc(REFUSED[p.refused.how](p.refused.command))}</p>` : ''}`;
     const drawPermissions = (d) => {

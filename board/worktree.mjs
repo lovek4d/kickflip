@@ -17,7 +17,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { squashMessage, subjectFault } from './commit-message.mjs';
-import { releaseTag, tagRelease } from './release-tag.mjs';
+import { checkRelease, landRelease } from './release.mjs';
 import { affectedTests } from './affected.mjs';
 import { readMachineState } from '../shared/machine-gate.mjs';
 
@@ -622,7 +622,7 @@ export async function passTests(dir, { say = console.log, runTests = nodeTests, 
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
 // The part of a land that runs outside the land lock: the checks, the squash of the branch into one commit (squash),
-// the rebase of that commit onto base when base moved, a release's check (release-tag.mjs releaseTag), and the tests
+// the rebase of that commit onto base when base moved, a release's check (release.mjs checkRelease), and the tests
 // the change affects (affectedRun).
 // title is the builder's --title, the squash commit's subject. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
 // still it, with base not moved past it, is not tested again.
@@ -648,7 +648,7 @@ export async function prepareLand({ path: dir, branch, repo, base, ref, title },
   }
 
   const head = git(repo, 'rev-parse', branch).out;
-  releaseTag(repo, head);
+  checkRelease(repo, dir, head);
   if (git(repo, 'rev-parse', '--verify', '--quiet', testedRef(branch)).out === head) {
     say(`${branch} was tested on ${base} as it is now; not testing it again`);
     return head;
@@ -673,7 +673,7 @@ function onBase(repo, base) {
 // fast-forward: the verified branch waits in its worktree for the owner's Merge
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). sync runs under the lock before the fast-forward. queue
 // {site, key, first} names the board card the land is for and its standing bump, for its place in the land queue.
-// → landPrepared's {tag} once it landed.
+// → landPrepared's {release, commit} once it landed.
 // The tests run in a test slot (holdingTestSlot): the hub's land test runs at once (push.mjs readLandTests), and
 // onTestWait(card) names the run a land waits for.
 export async function landInTurn(tree, { hold = false, onWait, onTestWait, slots = readLandTests(), sync = () => {}, queue = {}, ...opts } = {}) {
@@ -696,9 +696,9 @@ export async function land(tree, { hold = false, ...opts } = {}) {
   if (!landPrepared(tree, tested, opts)) fail(`${tree.base} moved while ${tree.branch} was tested; land again`);
 }
 
-// Under the land lock: fast-forwards base to tested, the commit prepareLand tested, tags it when it is a release
-// (release-tag.mjs), then removes the worktree and branch. → {tag, commit}, the
-// release tag it made or null and the commit it landed, or false, changing nothing, when base moved past tested or the branch moved.
+// Under the land lock: fast-forwards base to tested, the commit prepareLand tested, takes its release when it is one
+// (release.mjs landRelease), then removes the worktree and branch. → {release, commit}, landRelease's release and the
+// commit it landed, or false, changing nothing, when base moved past tested or the branch moved.
 export function landPrepared({ path: dir, branch, repo, base }, tested, { say = console.log } = {}) {
   onBase(repo, base);
   if (git(repo, 'rev-parse', branch).out !== tested || !git(repo, 'merge-base', '--is-ancestor', base, tested).ok) return false;
@@ -707,9 +707,9 @@ export function landPrepared({ path: dir, branch, repo, base }, tested, { say = 
   say(`${base} fast-forwarded to ${short(repo, base)} in ${repo}`);
 
   const failed = [];
-  // docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md: the tag goes on the commit as it landed.
-  const { tag, err: untagged } = tagRelease(repo, tested);
-  if (untagged) failed.push(untagged); else if (tag) say(`tagged ${tag}`);
+  // docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md: the release is the commit as it landed.
+  const { release, err: untagged } = landRelease(repo, tested);
+  if (untagged) failed.push(untagged); else if (release?.tag) say(`tagged ${release.tag}`);
 
   const removed = git(repo, 'worktree', 'remove', dir);
   if (removed.ok) say(`worktree removed: ${dir}`); else failed.push(`could not remove ${dir} (${removed.err})`);
@@ -717,5 +717,5 @@ export function landPrepared({ path: dir, branch, repo, base }, tested, { say = 
   if (deleted.ok) say(`branch deleted: ${branch}`); else failed.push(`could not delete branch ${branch} (${deleted.err})`);
   git(repo, 'update-ref', '-d', testedRef(branch));
   if (failed.length) fail(`landed, but ${failed.join('; ')}`);
-  return { tag, commit: tested };
+  return { release, commit: tested };
 }

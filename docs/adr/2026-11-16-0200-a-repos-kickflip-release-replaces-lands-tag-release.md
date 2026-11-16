@@ -1,0 +1,18 @@
+# A repo's .kickflip/release replaces land's tag release
+
+Land's release step ([land tags a release commit and pushes the tag](2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md)) assumed npm: it checked `package.json`'s version, tagged `v<version>` and pushed the tag, so a repo that releases elsewhere, such as Flight Control, was refused. The owner (T-138): "each repository should have some configuration for it … if we want to have someone extend this who uses kickflip and wants to release to flight control, for example, they should be able to replace this." Grilled on T-244 (11/16).
+
+- **A repo declares its release with an executable `.kickflip/release`**, like `.kickflip/build`: a regular file in the repo, executable, writable by no one but its owner (`build-script.mjs buildScriptError`), run with no shell. It lives in the repo and is read at the landed commit; Board Settings has no script path.
+- **A release is still known by its subject**, `chore(release): <version>` (`commit-message.mjs releaseVersion`). When the commit holds `.kickflip/release`, the script replaces the whole built-in step, check, tag and push (`board/release.mjs`):
+  - `.kickflip/release check <version> <commit>` runs in the task's worktree after the squash and rebase, before the suite (`worktree.mjs prepareLand`). A non-zero exit refuses the land, with the script's last lines in the refusal.
+  - `.kickflip/release ship <version> <commit>` runs from the repo's checkout of main once main reached origin (`finish.mjs pushBase`), refused when that file differs from the landed commit's. A failure is a `push-failed` line ("Landed, but release <version> didn't reach origin: …") and the land stands.
+- **Ship runs only while the board's Run release script box is on.** The owner, on the old Push release tags switch: "I think this switch wasnt quite working right anyway. We can just replace it with this new release mode and a permission checkbox for that 'Run release script'". The box (`permissions.mjs runRelease`) writes `Bash(.kickflip/release *)`, so the board's session may run the script too. Off, the land says the release waits on it and the command to run. In a repo whose HEAD has no `.kickflip/release` the box is disabled with "No .kickflip/release in this repo" while it is off, and the server refuses turning it on.
+- **Push release tags is gone.** A repo with no script keeps the built-in check and local `v<version>` tag (`release-tag.mjs`), but land pushes no tag of its own: the line says to push it by hand or add a `.kickflip/release`. No push is granted that the owner didn't switch on. Kickflip's own move to a `.kickflip/release`, and the removal of the built-in, are T-534.
+- **Onboarding's build task also sets up `.kickflip/release`** ("Prepare .kickflip/build and .kickflip/release", `board/onboarding.mjs`), in the same task, as the owner asked. Skipping or narrowing onboarding tasks a repo already has scripts for is T-533.
+- **PR boards stay out of scope:** `sendForReview` never runs land's fast-forward.
+
+Considered:
+- a manifest key or a Board Settings field naming the script: Settings' script path was dropped once before for a reviewed repo file ([board settings picks which build script a board runs](2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md));
+- replacing only tag and push, keeping the `package.json` check: it refuses every repo that isn't npm;
+- gating ship on Push release tags: the owner replaced that switch;
+- pushing the built-in tag with main now that its switch is gone: it widens what land pushes without the owner's go.

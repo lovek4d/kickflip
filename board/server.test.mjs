@@ -1709,13 +1709,15 @@ test("/api/permissions writes the board folder's settings.local.json and reads i
   const set = (body) => fetch(`${base}/api/permissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   try {
     const first = await get();
-    assert.deepEqual([first.file, first.permissions.map((p) => [p.id, p.on])], [local, [['pushMain', false], ['pushTags', false], ['draftPr', false], ['approvePr', false]]]);
-    const on = await set({ id: 'pushTags', on: true });
+    assert.deepEqual([first.file, first.permissions.map((p) => [p.id, p.on])], [local, [['pushMain', false], ['runRelease', false], ['draftPr', false], ['approvePr', false]]]);
+    const on = await set({ id: 'draftPr', on: true });
     assert.equal(on.status, 200);
-    assert.deepEqual((await on.json()).permissions.map((p) => [p.id, p.on]), [['pushMain', false], ['pushTags', true], ['draftPr', false], ['approvePr', false]]);
-    assert.deepEqual(JSON.parse(fs.readFileSync(local, 'utf8')), { permissions: { allow: ['Bash(npm test)', 'Bash(git push origin v*)'] } });
+    assert.deepEqual((await on.json()).permissions.map((p) => [p.id, p.on]), [['pushMain', false], ['runRelease', false], ['draftPr', true], ['approvePr', false]]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(local, 'utf8')), { permissions: { allow: ['Bash(npm test)', 'Bash(gh pr create --draft *)'] } });
     assert.equal((await set({ id: 'nope', on: true })).status, 400);
-    await ok200(set({ id: 'pushTags', on: false }));
+    const noScript = await set({ id: 'runRelease', on: true });
+    assert.deepEqual([noScript.status, (await noScript.json()).error], [400, 'No .kickflip/release in this repo, so Run release script stays off.']);
+    await ok200(set({ id: 'draftPr', on: false }));
     assert.deepEqual(JSON.parse(fs.readFileSync(local, 'utf8')), { permissions: { allow: ['Bash(npm test)'] } });
     fs.rmSync(manifest);
     assert.equal((await fetch(`${base}/api/permissions`)).status, 404);

@@ -6460,13 +6460,14 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
   const page = fakePage(memoryStorage().localStorage);
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   assert.ok(html.indexOf('<h2>Auto</h2>') < html.indexOf('<h2>Permissions</h2>') && html.indexOf('<h2>Permissions</h2>') < html.indexOf('<h2>Reviewers</h2>'));
-  const rules = { pushMain: 'Bash(git push origin main)', pushTags: 'Bash(git push origin v*)', draftPr: 'Bash(gh pr create --draft *)' };
-  const names = { pushMain: 'Push main after a land', pushTags: 'Push release tags', draftPr: 'Open draft PRs' };
-  const state = { pushMain: false, pushTags: true, draftPr: false };
+  const rules = { pushMain: 'Bash(git push origin main)', runRelease: 'Bash(.kickflip/release *)', draftPr: 'Bash(gh pr create --draft *)' };
+  const names = { pushMain: 'Push main after a land', runRelease: 'Run release script', draftPr: 'Open draft PRs' };
+  const state = { pushMain: false, runRelease: true, draftPr: false };
+  let unavailable = null;
   let answer = null;
   const posts = [];
-  const view = () => ({ file: '/r/.claude/settings.local.json', permissions: Object.keys(rules).map((id) => ({ id, name: names[id], allows: `Allows ${id}.`, rule: rules[id], on: state[id],
-    refused: id === 'pushTags' && state[id] ? { command: 'git push origin v0.9.0', how: 'denied', at: '2026-11-03T20:00:00.000Z' } : null })) });
+  const view = () => ({ file: '/r/.claude/settings.local.json', permissions: Object.keys(rules).map((id) => ({ id, name: names[id], allows: `Allows ${id}.`, rule: rules[id], on: state[id], unavailable: id === 'runRelease' ? unavailable : null,
+    refused: id === 'runRelease' && state[id] ? { command: '.kickflip/release ship 0.9.0 abc', how: 'denied', at: '2026-11-03T20:00:00.000Z' } : null })) });
   const reply = (body, ok = true) => ({ ok, status: ok ? 200 : 400, text: async () => JSON.stringify(body), json: async () => body });
   page.win.fetch = async (url, opts = {}) => {
     if (!url.endsWith('/api/permissions')) return reply({});
@@ -6488,8 +6489,8 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
   assert.deepEqual(Object.keys(rules).map((id) => [toggle(id).checked, toggle(id).disabled]), [[false, false], [true, false], [false, false]]);
   const rows = [...root.querySelectorAll('#permissions label.who')];
   assert.deepEqual(rows.map((r) => r.querySelector('span span').textContent), Object.values(names));
-  assert.match(rows[1].innerHTML, /Writes <code>Bash\(git push origin v\*\)<\/code>/);
-  assert.equal(root.querySelector('#permissions .refused-note').textContent, 'Auto mode still refused this once: git push origin v0.9.0. Approve it under /permissions, Recently blocked.');
+  assert.match(rows[1].innerHTML, /Writes <code>Bash\(\.kickflip\/release \*\)<\/code>/);
+  assert.equal(root.querySelector('#permissions .refused-note').textContent, 'Auto mode still refused this once: .kickflip/release ship 0.9.0 abc. Approve it under /permissions, Recently blocked.');
   assert.equal(root.querySelector('#permissionsNotOwner'), null);
 
   const change = (id) => page.fire(root.querySelector('#permissions'), 'change', { target: toggle(id) });
@@ -6504,14 +6505,25 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
   assert.deepEqual([toggle('pushMain').checked, toggle('pushMain').disabled, toggle('pushMain').classList.contains('tap-waiting')], [true, false, false]);
   assert.match(root.querySelector('#perm-pushMainStatus').textContent, /^Saved\./);
 
-  toggle('pushTags').checked = false;
-  change('pushTags');
+  toggle('runRelease').checked = false;
+  change('runRelease');
   await tick();
   answer(false);
   await tick(); await tick();
-  assert.deepEqual([toggle('pushTags').checked, toggle('pushTags').disabled], [true, false]);
-  assert.equal(root.querySelector('#perm-pushTagsStatus').textContent, 'Cannot save');
+  assert.deepEqual([toggle('runRelease').checked, toggle('runRelease').disabled], [true, false]);
+  assert.equal(root.querySelector('#perm-runReleaseStatus').textContent, 'Cannot save');
   v.unmount();
+
+  // docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md: a repo with no .kickflip/release.
+  unavailable = 'No .kickflip/release in this repo';
+  const on = await mount();
+  assert.equal(on.root.querySelector('#perm-runRelease').disabled, false, 'a switch that is on can still be turned off');
+  assert.match(on.root.querySelectorAll('#permissions label.who')[1].innerHTML, /No \.kickflip\/release in this repo\. Allows runRelease\./);
+  on.v.unmount();
+  state.runRelease = false;
+  const off = await mount();
+  assert.equal(off.root.querySelector('#perm-runRelease').disabled, true);
+  off.v.unmount();
 });
 
 // docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md

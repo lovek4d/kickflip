@@ -3,14 +3,17 @@
 // Claude Code reads for sessions in that folder alone. The hub keeps every other key and rule there, and switching one
 // off removes only its own rule. A refusal is a matching command the session was still refused or asked about while its
 // switch was on; the board's data/permission-refusals.json {<id>: {command, how: 'denied' | 'asked', at}} keeps the
-// latest, and a change to that switch clears it.
+// latest, and a change to that switch clears it. A switch that needs a release script
+// (docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md) can't be turned on while the repo's
+// HEAD has no .kickflip/release.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { BoardError } from './store.mjs';
+import { hasReleaseScript, RELEASE_SCRIPT } from './release.mjs';
 
 export const PERMISSIONS = [
   { id: 'pushMain', name: 'Push main after a land', allows: 'Pushes main to origin as each task lands, and lets the session push it.', rule: 'Bash(git push origin main)' },
-  { id: 'pushTags', name: 'Push release tags', allows: 'Pushes a release task’s v* tag after main as it lands, and lets the session push one.', rule: 'Bash(git push origin v*)' },
+  { id: 'runRelease', name: 'Run release script', allows: 'Runs the repo’s .kickflip/release ship after main as a release task lands, and lets the session run the script.', rule: 'Bash(.kickflip/release *)', needsReleaseScript: true },
   { id: 'draftPr', name: 'Open draft PRs', allows: 'Lets the session open a PR as a draft.', rule: 'Bash(gh pr create --draft *)' },
   { id: 'approvePr', name: 'Approve PRs', allows: 'Lets the session review a PR with gh: approve, request changes or comment. It reviews only PRs the owner names on the board.', rule: 'Bash(gh pr review *)' },
 ];
@@ -56,6 +59,7 @@ export async function setPermission(folder, site, id, on) {
   const settings = await readJSON(file, {}, file);
   if (settings.permissions !== undefined && (typeof settings.permissions !== 'object' || Array.isArray(settings.permissions) || settings.permissions === null)) throw new BoardError(`${file}’s permissions isn’t an object, so the hub leaves it as it is. Fix it by hand first.`);
   const allow = allowOf(settings);
+  if (on && unavailable(folder, permission)) throw new BoardError(`${unavailable(folder, permission)}, so ${permission.name} stays off.`);
   if (allow.includes(permission.rule) !== on) {
     settings.permissions = { ...settings.permissions, allow: on ? [...allow, permission.rule] : allow.filter((r) => r !== permission.rule) };
     await writeJSON(file, settings);
@@ -92,8 +96,11 @@ export async function recordRefusal(folder, site, input, now = new Date()) {
   return permission.id;
 }
 
-// GET and POST /api/permissions's answer: each switch with its state and refusal.
+// Why permission can't be turned on in folder, or null.
+const unavailable = (folder, permission) => (permission.needsReleaseScript && !hasReleaseScript(folder, 'HEAD') ? `No ${RELEASE_SCRIPT} in this repo` : null);
+
+// GET and POST /api/permissions's answer: each switch with its state, refusal, and unavailable, why it can't be turned on.
 export async function permissionsView(folder, site) {
   const [on, refusals] = await Promise.all([readPermissions(folder), readRefusals(site)]);
-  return { file: settingsFile(folder), permissions: PERMISSIONS.map((p) => ({ ...p, on: on[p.id], refused: on[p.id] ? refusals[p.id] || null : null })) };
+  return { file: settingsFile(folder), permissions: PERMISSIONS.map(({ needsReleaseScript, ...p }) => ({ ...p, on: on[p.id], refused: on[p.id] ? refusals[p.id] || null : null, unavailable: unavailable(folder, { needsReleaseScript }) })) };
 }

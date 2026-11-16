@@ -16,7 +16,7 @@ import { ghSync, limitWords } from '../shared/gh.mjs';
 import * as store from './store.mjs';
 import { affectedRun, builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
 import { readPermissions } from './permissions.mjs';
-import { pushRelease } from './release-tag.mjs';
+import { shipRelease } from './release.mjs';
 import { landByBuilder } from './headless.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
@@ -74,7 +74,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   const closed = await store.setItem(site, key, { done: true, landed: landed.commit, ...(closing ? { closing } : { text }), ownerStep, check });
   return {
     said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
-    lines: [...closed.lines, ...await pushBase(site, key, repo, base, landed.tag)],
+    lines: [...closed.lines, ...await pushBase(site, key, repo, base, landed.release)],
   };
 }
 
@@ -104,21 +104,21 @@ export async function landHeld(site, key, { launch = landByBuilder } = {}) {
 }
 
 // The card has already landed, so a push that fails is said, on the card's thread too, and leaves the land standing.
-// tag, the release tag the land made (release-tag.mjs), follows base to origin
-// (docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md).
-async function pushBase(site, key, repo, base, tag) {
+// release, the land's (release.mjs landRelease), ships once base reached origin
+// (docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md).
+async function pushBase(site, key, repo, base, release) {
   const permissions = await readPermissions(repo);
   if (!permissions.pushMain) return [];
   const pushed = git(repo, 'push', '--quiet', 'origin', base);
   if (!pushed.ok) {
-    const why = `${base} didn't reach origin: ${pushed.err}; push it with git -C ${repo} push origin ${[base, tag].filter(Boolean).join(' ')}`;
+    const why = `${base} didn't reach origin: ${pushed.err}; push it with git -C ${repo} push origin ${base}`;
     await store.appendStatus(site, key, 'push-failed', { base, error: pushed.err });
     return [`landed, but ${why}`];
   }
-  if (!tag) return [`pushed ${base} to origin`];
-  const release = pushRelease(repo, tag, permissions.pushTags);
-  if (release.failed) await store.appendStatus(site, key, 'push-failed', { base: tag, error: release.failed });
-  return [`pushed ${base} to origin`, release.line];
+  if (!release) return [`pushed ${base} to origin`];
+  const shipped = shipRelease(repo, release, permissions);
+  if (shipped.failed) await store.appendStatus(site, key, 'push-failed', { base: `release ${release.version}`, error: shipped.failed });
+  return [`pushed ${base} to origin`, shipped.line];
 }
 
 async function sendForReview(site, key, { path: dir, branch, base, title: given, text }) {

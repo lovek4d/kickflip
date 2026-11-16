@@ -1,7 +1,8 @@
 // docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md
-// The release step of a land, one seam a repo's own release step can replace (T-244): a landed commit whose subject is
-// "chore(release): <version>" (scripts/release.mjs's) is a release, tagged v<version> once it lands, and its tag goes
-// to origin after the base branch.
+// docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md
+// Land's built-in release, which release.mjs runs for a repo with no .kickflip/release: a landed commit whose subject
+// is "chore(release): <version>" (scripts/release.mjs's) is a release, tagged v<version> once it lands; the tag stays
+// local.
 import { spawnSync } from 'node:child_process';
 import { BoardError } from './store.mjs';
 import { releaseVersion } from './commit-message.mjs';
@@ -39,12 +40,6 @@ export function tagRelease(repo, commit) {
   return made.ok ? { tag } : { tag: null, err: `could not tag ${tag} (${made.err})` };
 }
 
-// After the base branch reached origin: pushes tag when the board's "Push release tags" switch (permissions.mjs
-// pushTags) is on. → {line} for the land's output, and failed, origin's refusal, when the push didn't go.
-export function pushRelease(repo, tag, on) {
-  const how = `push it with git -C ${repo} push origin ${tag}`;
-  if (!on) return { line: `${tag} stays local while Push release tags is off; ${how}` };
-  const pushed = git(repo, 'push', '--quiet', 'origin', `refs/tags/${tag}`);
-  if (pushed.ok) return { line: `pushed ${tag} to origin` };
-  return { line: `landed, but ${tag} didn't reach origin: ${pushed.err}; ${how}`, failed: pushed.err };
-}
+// After the base branch reached origin: the built-in tag stays local; land pushes no tag of its own. → {line} for the
+// land's output.
+export const localRelease = (repo, tag) => ({ line: `${tag} stays local; push it with git -C ${repo} push origin ${tag}, or give this repo a .kickflip/release to ship it` });

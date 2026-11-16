@@ -583,9 +583,10 @@ test('land refuses a rebase that conflicts, naming the files, and leaves the bra
 });
 
 // docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md
-test("a land tags a release commit as it landed, after the rebase, and pushes the tag after main when Push release tags is on; it refuses a release whose package.json disagrees or whose tag is on another commit", async () => {
+// docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md
+test("in a repo with no .kickflip/release, a land tags a release commit as it landed, after the rebase, and leaves the tag local; it refuses a release whose package.json disagrees or whose tag is on another commit", async () => {
   const repo = scratchRepo();
-  const ids = ['A1', 'A2', 'A3', 'A4', 'A5'];
+  const ids = ['A1', 'A2', 'A3'];
   write(at('waves', 'w', 'wave.json'), { title: 'W', items: ids.map((id) => ({ id, title: `chore(release): ${id}` })) });
   const origin = path.join(home, 'origin.git');
   git(home, 'init', '--quiet', '--bare', origin);
@@ -597,7 +598,7 @@ test("a land tags a release commit as it landed, after the rebase, and pushes th
   write(at('kickflip', 'manifest.json'), manifest);
   const allow = (...rules) => write(path.join(repo, '.claude', 'settings.local.json'), { permissions: { allow: rules } });
   write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
-  allow('Bash(git push origin main)', 'Bash(git push origin v*)');
+  allow('Bash(git push origin main)', 'Bash(.kickflip/release *)');
   const release = async (id, version, subject = `chore(release): ${version}`) => {
     assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
     commit(at('kickflip', 'worktrees', id), 'package.json', JSON.stringify({ name: 'x', version }) + '\n', `${subject}\n\n- feat: work\n\nRefs: ${id}`);
@@ -611,10 +612,10 @@ test("a land tags a release commit as it landed, after the rebase, and pushes th
   git(repo, 'push', '--quiet', 'origin', 'main');
   const landed = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
   assert.equal(landed.code, 0, landed.err);
-  assert.ok(landed.out.includes('\npushed main to origin\npushed v0.2.0 to origin\n'), landed.out);
+  assert.match(landed.out, /\npushed main to origin\nv0\.2\.0 stays local; push it with git -C .+ push origin v0\.2\.0, or give this repo a \.kickflip\/release to ship it\n/);
   assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'chore(release): 0.2.0');
   assert.equal(tagged(repo, 'v0.2.0'), git(repo, 'rev-parse', 'main'), 'the tag is on the landed commit, after the rebase');
-  assert.equal(tagged(origin, 'v0.2.0'), git(repo, 'rev-parse', 'main'));
+  assert.equal(tagged(origin, 'v0.2.0'), '', 'land pushes no tag of its own');
 
   const mismatch = await release('A2', '0.2.5', 'chore(release): 0.3.0');
   assert.equal(mismatch.code, 1);
@@ -627,21 +628,70 @@ test("a land tags a release commit as it landed, after the rebase, and pushes th
   assert.match(taken.err, new RegExp(`^land: tag v0\\.4\\.0 is already on ${git(repo, 'rev-parse', '--short', 'main~1')}, not this release; release another version, or delete the tag if it was never pushed \\(git -C .+ tag -d v0\\.4\\.0\\), and land again`));
   assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'chore(release): 0.2.0', 'nothing landed');
 
-  allow('Bash(git push origin main)');
-  const local = await release('A4', '0.5.0');
-  assert.equal(local.code, 0, local.err);
-  assert.match(local.out, /\npushed main to origin\nv0\.5\.0 stays local while Push release tags is off; push it with git -C .+ push origin v0\.5\.0\n/);
-  assert.equal(tagged(repo, 'v0.5.0'), git(repo, 'rev-parse', 'main'));
-  assert.equal(tagged(origin, 'v0.5.0'), '');
+});
 
-  allow('Bash(git push origin main)', 'Bash(git push origin v*)');
-  write(path.join(origin, 'hooks', 'pre-receive'), '#!/bin/sh\nwhile read old new ref; do case "$ref" in refs/tags/*) echo "no tags here" >&2; exit 1;; esac; done\n');
-  fs.chmodSync(path.join(origin, 'hooks', 'pre-receive'), 0o755);
-  const refused = await release('A5', '0.6.0');
-  assert.equal(refused.code, 0, refused.err);
-  assert.match(refused.out, /\npushed main to origin\nlanded, but v0\.6\.0 didn't reach origin: [\s\S]+; push it with git -C .+ push origin v0\.6\.0\n/);
-  assert.equal(itemOf('A5').lane, 'done');
-  assert.match(threadOf('A5').at(-1).text, /^Landed, but v0\.6\.0 didn't reach origin: /);
+// docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md
+test("a repo's .kickflip/release replaces land's release: check before landing refuses it, and ship runs after main reaches origin while Run release script is on", async () => {
+  const repo = scratchRepo();
+  const ids = ['A1', 'A2', 'A3', 'A4'];
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: ids.map((id) => ({ id, title: `chore(release): ${id}` })) });
+  const origin = path.join(home, 'origin.git');
+  git(home, 'init', '--quiet', '--bare', origin);
+  git(repo, 'remote', 'add', 'origin', origin);
+  const calls = path.join(home, 'release-calls.log');
+  write(path.join(repo, '.kickflip', 'release'), [
+    '#!/bin/sh',
+    `echo "$1 $2 $3" >> ${calls}`,
+    'case "$1 $2" in',
+    '  "check 9.9.9") echo "9.9.9 is not ready" >&2; exit 3;;',
+    '  "ship 0.9.0") echo "registry said no" >&2; exit 1;;',
+    'esac',
+    'echo "$1 ok"',
+  ].join('\n') + '\n');
+  fs.chmodSync(path.join(repo, '.kickflip', 'release'), 0o755);
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '--quiet', '-m', 'build: release script');
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  const manifest = read(at('kickflip', 'manifest.json'));
+  manifest.sites.orch.owner = { repo };
+  write(at('kickflip', 'manifest.json'), manifest);
+  const allow = (...rules) => write(path.join(repo, '.claude', 'settings.local.json'), { permissions: { allow: rules } });
+  write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
+  allow('Bash(git push origin main)', 'Bash(.kickflip/release *)');
+  const release = async (id, version) => {
+    assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
+    commit(at('kickflip', 'worktrees', id), 'CHANGELOG.md', `${version}\n`, `chore(release): ${version}\n\n- feat: work\n\nRefs: ${id}`);
+    return await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
+  };
+  const called = () => fs.readFileSync(calls, 'utf8').trim().split('\n');
+
+  const shipped = await release('A1', '0.7.0');
+  assert.equal(shipped.code, 0, shipped.err);
+  const landed = git(repo, 'rev-parse', 'main');
+  assert.ok(shipped.out.includes('\npushed main to origin\nshipped release 0.7.0 with .kickflip/release\nship ok\n'), shipped.out);
+  assert.deepEqual(called(), [`check 0.7.0 ${landed}`, `ship 0.7.0 ${landed}`]);
+  assert.equal(git(repo, 'tag', '--list'), '', 'the script replaces the built-in tag');
+
+  const refused = await release('A2', '9.9.9');
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /^land: "chore\(release\): 9\.9\.9" is a release, and \.kickflip\/release check refused it:\n\.kickflip\/release check exited 3\n9\.9\.9 is not ready\n/);
+  assert.equal(git(repo, 'rev-parse', 'main'), landed, 'nothing landed');
+  assert.deepEqual(called().slice(2).map((c) => c.split(' ').slice(0, 2).join(' ')), ['check 9.9.9']);
+  fs.rmSync(calls);
+
+  const failed = await release('A3', '0.9.0');
+  assert.equal(failed.code, 0, failed.err);
+  const head = git(repo, 'rev-parse', 'main');
+  assert.ok(failed.out.includes(`\npushed main to origin\nlanded, but release 0.9.0 didn't ship: .kickflip/release ship exited 1\nregistry said no\nrun .kickflip/release ship 0.9.0 ${head} in ${repo}\n`), failed.out);
+  assert.equal(itemOf('A3').lane, 'done');
+  assert.match(threadOf('A3').at(-1).text, /^Landed, but release 0\.9\.0 didn't reach origin: \.kickflip\/release ship exited 1/);
+  fs.rmSync(calls);
+
+  allow('Bash(git push origin main)');
+  const waiting = await release('A4', '1.0.0');
+  assert.equal(waiting.code, 0, waiting.err);
+  assert.ok(waiting.out.includes(`\npushed main to origin\nrelease 1.0.0 waits while Run release script is off; turn it on in Board Settings, then run .kickflip/release ship 1.0.0 ${git(repo, 'rev-parse', 'main')} in ${repo}\n`), waiting.out);
+  assert.deepEqual(called().map((c) => c.split(' ')[0]), ['check'], 'ship waits on the box');
 });
 
 // docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md

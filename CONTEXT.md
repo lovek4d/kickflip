@@ -370,7 +370,7 @@ Every commit a task lands has a Conventional subject of at most 100 characters, 
 _Avoid_: "#N: subject", ref prefix, Version X.Y.Z (as a release subject)
 
 **Release task**:
-An ordinary task whose commit is `chore(release): <x.y.z>`, made by `scripts/release.mjs <x.y.z> --ref <ref>`. Its land checks the version against `package.json`, tags the landed commit `v<x.y.z>` and pushes the tag after main while Push release tags is on; the tag publishes to npm.
+An ordinary task whose commit is `chore(release): <x.y.z>`, made by `scripts/release.mjs <x.y.z> --ref <ref>`. In a repo with an executable `.kickflip/release`, its land runs `.kickflip/release check <x.y.z> <commit>` before landing, refusing on a failure, and `.kickflip/release ship <x.y.z> <commit>` once main reached origin while the board's Run release script box is on. In a repo with none, its land checks the version against `package.json` and tags the landed commit `v<x.y.z>`, which stays local ([a repo's .kickflip/release replaces land's tag release](docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md)).
 _Avoid_: release step, tagging by hand
 
 **Landing**:

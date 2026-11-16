@@ -914,7 +914,7 @@ test("a command auto mode still refused, or the session still asked about, while
   const original = read(manifestFile);
   const folder = path.join(home, 'perm-shop');
   const refusals = site('shop', 'data', 'permission-refusals.json');
-  write(path.join(folder, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin v*)', 'Bash(git push origin main)'] } });
+  write(path.join(folder, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(.kickflip/release *)', 'Bash(git push origin main)'] } });
   const changed = read(manifestFile);
   changed.sites.shop.owner = { ...changed.sites.shop.owner, repo: folder };
   const denied = (command, session = 's-shop') => new Promise((resolve) => {
@@ -926,11 +926,11 @@ test("a command auto mode still refused, or the session still asked about, while
   });
   try {
     await writeManifestFile(changed);
-    assert.deepEqual(await denied('git push origin v0.9.0', 's-nobody'), { status: 0, out: '' });
+    assert.deepEqual(await denied('.kickflip/release ship 0.9.0 abc', 's-nobody'), { status: 0, out: '' });
     assert.deepEqual(await denied('npm publish'), { status: 0, out: '' });
     assert.equal(fs.existsSync(refusals), false);
-    assert.deepEqual(await denied('git push origin v0.9.0'), { status: 0, out: '' });
-    assert.deepEqual(Object.entries(read(refusals)).map(([id, r]) => [id, r.command, r.how]), [['pushTags', 'git push origin v0.9.0', 'denied']]);
+    assert.deepEqual(await denied('.kickflip/release ship 0.9.0 abc'), { status: 0, out: '' });
+    assert.deepEqual(Object.entries(read(refusals)).map(([id, r]) => [id, r.command, r.how]), [['runRelease', '.kickflip/release ship 0.9.0 abc', 'denied']]);
     const asked = await fetch(`${base}/_hub/prompts`, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ session_id: 's-shop', cwd: folder, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'git push origin main', description: 'Push' } }) });
     assert.equal(asked.status, 200);

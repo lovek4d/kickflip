@@ -272,10 +272,11 @@
 //                                docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md),
 //                                waking no session. → {share}; a bad body → 400 {error}. The hub's GET /_hub/share/<route>
 //                                answers who they are, when each was last seen and who was just refused.
-//   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
-//                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); 404 off the manifest
+//   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused, unavailable}]}: the board's session
+//                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); unavailable
+//                                says why a switch can't be turned on; 404 off the manifest
 //   POST /api/permissions        {id, on} → that rule written or removed, and the same answer; 400 {error} for a bad
-//                                body or settings file
+//                                body or settings file, or a switch turned on while it is unavailable
 //   POST /api/try                {key, anyway?}: forwards a card build, main retry or the prototype site's start (key prototypes) to the hub's loopback /_hub/build;
 //                                anyway: true starts a card's serve on a busy host
 //   POST /api/try/kill           {key}: a card's Kill, forwarded to the hub's loopback /_hub/kill

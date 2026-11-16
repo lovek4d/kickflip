@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 // The cards a new board starts with in Todo, grilling at once, so the first view is the process at work rather than an
 // empty page. Each is a card with a notes file, whose body is the instruction its grill and builder read like any card's.
 
-const BUILD_NOTES = `# Prepare .kickflip/build
+const BUILD_NOTES = `# Prepare .kickflip/build and .kickflip/release
 
 The hub builds and serves a task's version of this repo by running one script, \`.kickflip/build <file>/<id> <worktree>\`, in the task's worktree. This board has none on main yet.
 
@@ -19,7 +19,17 @@ What this task does:
 - Look at the repo for what it builds: a website or server, an iOS or Android app, a CLI, a library with nothing to serve.
 - If it finds one type, write \`.kickflip/build\` for it.
 - If it finds several, ask the owner which the board should serve, write one \`.kickflip/build-<target>\` for each type the owner wants (for example \`build-web\`, \`build-ios\`), and set this board's Build target in Board Settings to the one picked.
-- If nothing here builds, say so and write nothing.
+- If nothing here builds, say so and write no build script.
+
+A release task is one whose commit subject is \`chore(release): <version>\`. When the repo has \`.kickflip/release\`, land runs it for each release task, with no shell (docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md):
+- \`.kickflip/release check <version> <commit>\` before landing: a non-zero exit refuses the land, and what it printed goes in the land's line.
+- \`.kickflip/release ship <version> <commit>\` once main reached origin, while the board's Run release script box is on: a non-zero exit says the release didn't ship, and the land stands.
+- Like the build script, the file is a regular file in the repo, executable, writable by no one but its owner.
+
+Also in this task:
+- Look at how the repo releases: a tag CI publishes from, a package registry, an app store, a deploy.
+- If it releases, write \`.kickflip/release\` whose check confirms the version is ready (the version in the repo's manifest at <commit>, the tag or release not taken) and whose ship does the release (for example, tags <commit> and pushes the tag).
+- If it has no release, say so and write no release script.
 `;
 
 const CONTEXT_NOTES = `# Write CONTEXT.md and the first ADR
@@ -34,7 +44,7 @@ What this task does:
 `;
 
 const ONBOARDING = [
-  { title: 'Prepare .kickflip/build', notes: BUILD_NOTES, needsNoBuild: true },
+  { title: 'Prepare .kickflip/build and .kickflip/release', notes: BUILD_NOTES, needsNoBuild: true },
   { title: "Write the repo's CONTEXT.md glossary and first ADR", notes: CONTEXT_NOTES },
 ];
 
