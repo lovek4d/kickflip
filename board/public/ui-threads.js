@@ -65,8 +65,8 @@
   };
   const linked = (link, text) => `<a href="${esc(link)}">${text}</a>`;
   // A questions-added line's words, as written, open the card's questions sheet (app-questions-sheet.js) from its first
-  // question; the link to the questions page stays under it for a page that has no sheet.
-  const questionsLink = (m) => `<a href="${esc(m.link)}" data-questions="${esc(m.questions[0])}">${escText(m.text)}</a>`;
+  // question. It is a button, so the router never takes it to the questions page.
+  const questionsLink = (m) => `<button type="button" class="link-text" data-questions="${esc(m.questions[0])}">${escText(m.text)}</button>`;
 
   // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
   // A script offer under the orchestrator's message (domain.mjs threadOf's script): where it runs, the whole script, and

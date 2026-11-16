@@ -3008,7 +3008,7 @@ test("an open card shows its workflow buttons below a final details line of Note
     'w/S1': [[], ['Review on GitHub'], ['Review on GitHub']],
     'w/M1': [['Merge'], ['Review on GitHub'], ['Merge']],
   });
-  assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
+  assert.equal(row('w/A1').querySelector('button.button').dataset.questions, 'q7');
   const external = row('w/D1').querySelector('.grid .external-links');
   assert.deepEqual(external.querySelectorAll('a').map((a) => a.getAttribute('href')), [install.url, draft.url]);
   assert.equal(external.textContent, 'Install  · Review draft on GitHub ');
@@ -5079,7 +5079,7 @@ test("tapping a topic's row opens the questions sheet over the list with that to
   v.answer('q2');
   await v.send();
   assert.deepEqual(v.answersSent(), [[{ id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }], [{ id: 'q2', question: 'Question q2?', choice: 'A', label: 'A. Yes', note: '', sendId: 'string' }]]);
-  assert.deepEqual([v.sheet().open, v.moves], [false, ['push', 'back']]);
+  assert.deepEqual([v.sheet().open, v.moves], [false, []]);
   assert.deepEqual(v.shown().rows.map(([id]) => id), ['topic:item:w/T2'], 'the answered topic leaves the list');
   await v.tap('topic:item:w/T2');
   v.page.fire(v.sheet(), 'click', { target: v.sheet().querySelector('[data-qs="close"]') });
@@ -5206,7 +5206,7 @@ test("Send sends each answered question on its own, which reads <time> · sendin
   assert.deepEqual(v.shown().questions, ['q1', 'q2', 'q3'], 'the sent questions stay in the sheet while it is open');
   v.answer('q3');
   await v.send();
-  assert.deepEqual([v.answersSent().length, v.sheet().open, v.moves], [3, false, ['push', 'back']], 'every question sent, the topic moves on');
+  assert.deepEqual([v.answersSent().length, v.sheet().open, v.moves], [3, false, []], 'every question sent, the topic moves on');
   assert.deepEqual(v.shown().rows, []);
   v.unmount();
 });
@@ -6538,7 +6538,7 @@ function sheetOnDom({ width = 390, board = null, gate = null } = {}) {
   const { replaceState } = b.page.win.history;
   b.page.win.history = { state: { idx: 3 }, pushState(state, _, url) { moves.push(['push', state, url]); this.state = state; }, replaceState, back() { moves.push(['back']); } };
   const sheet = () => b.root.querySelector('#questionsSheet');
-  const line = () => b.root.querySelector('a[data-questions]');
+  const line = () => b.root.querySelector('.status-line button[data-questions]');
   const ids = () => sheet().querySelectorAll('section.q').map((s) => s.dataset.q);
   const pick = (id, option = 'B') => {
     const input = sheet().querySelector(`section.q[data-q="${id}"] input[value="${option}"]`);
@@ -6552,16 +6552,15 @@ test("a thread's Questions added line keeps its words, orange while a question o
   const s = sheetOnDom();
   await s.settle();
   assert.equal(s.line().textContent, '1 question added', 'the words stay as posted');
-  assert.equal(s.line().getAttribute('href'), 'questions.html#qa', 'the page link stays under it');
+  assert.equal(s.line().getAttribute('href'), null, 'it is a button, with no page link for the router to follow');
   assert.equal(s.sheet().open, false);
-  let prevented = false;
-  s.page.fire(s.root, 'click', { target: s.line(), button: 0, preventDefault: () => { prevented = true; } });
-  assert.deepEqual([prevented, s.sheet().open, s.sheet().modal], [true, true, true], 'a phone gets the modal sheet');
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
+  assert.deepEqual([s.sheet().open, s.sheet().modal], [true, true], 'a phone gets the modal sheet');
   assert.deepEqual(s.ids(), ['qb', 'qa'], "only card A1's open questions, the newest batch first");
   assert.equal(s.sheet().querySelectorAll('h3.qs-round').length, 2, 'two batches each get a heading');
   assert.equal(s.sheet().querySelector('#readerTitle'), null);
   assert.equal(s.sheet().querySelectorAll('[data-proto]').length, 2, 'each question has its prototype eye');
-  assert.deepEqual(s.moves.map(([kind]) => kind), ['push'], 'Back has an entry to close it with');
+  assert.deepEqual(s.moves, [], 'the sheet makes no history entry');
   s.view.unmount();
 });
 
@@ -6569,13 +6568,13 @@ test("a card's Questions button opens that topic's questions sheet in place, wit
   const base = questionsBoard([openQuestion('qa', 'item:w/A1'), openQuestion('qc', 'item:w/B1')], []);
   const s = sheetOnDom({ board: { ...base, items: [workCard('A1', { lane: 'progress', actionButton: 'openQuestions', resolvedBy: 'openQuestions', questions: { topic: 'item:w/A1', first: 'qa', open: 1, state: 'open' } }), workCard('B1')] } });
   await s.settle();
-  const button = s.root.querySelector('a.button[href="questions.html#qa"]');
+  const button = s.root.querySelector('button.button[data-questions="qa"]');
   assert.ok(button, 'the card has its Questions button');
+  assert.equal(button.getAttribute('href'), null, 'it links nowhere');
   s.page.win.scrollY = 700;
   const hash = s.page.win.location.hash;
-  let prevented = false;
-  s.page.fire(s.root, 'click', { target: button, button: 0, preventDefault: () => { prevented = true; } });
-  assert.deepEqual([prevented, s.sheet().open, s.ids()], [true, true, ['qa']], "the tap is kept from navigating and opens only card A1's questions");
+  s.page.fire(s.root, 'click', { target: button, button: 0 });
+  assert.deepEqual([s.sheet().open, s.ids()], [true, ['qa']], "the tap opens only card A1's questions");
   assert.deepEqual([s.page.win.scrollY, s.page.win.location.hash], [700, hash], 'the page under it did not move');
   s.view.unmount();
 });
@@ -6595,7 +6594,7 @@ test("the questions sheet's Send sends the answers as Waiting on you does, closi
     [['owner-answers', [{ id: 'qa', question: 'Question qa?', choice: 'B', label: 'B. No', note: '' }]], ['owner-answers', [{ id: 'qb', question: 'Question qb?', choice: 'B', label: 'B. No', note: '' }]]]);
   assert.equal(s.sheet().open, false, 'every question sent, the sheet hides');
   assert.equal(s.page.win.scrollY, 700, 'the page did not move');
-  assert.deepEqual(s.moves.map(([kind]) => kind), ['push', 'back'], 'its history entry is spent');
+  assert.deepEqual(s.moves, [], 'no history entry is made or spent');
   s.view.unmount();
 });
 
@@ -6631,6 +6630,24 @@ test("an answer sent from the sheet shows at once in its card's thread as the bo
   assert.match(answerLines()[0].querySelector('.msg-foot').textContent, /waiting…$/);
   assert.equal(s.sheet().querySelector('section.q[data-q="qb"] .sent-line').textContent.trim(), 'Sent.');
   s.view.unmount();
+});
+
+test("on a wide board a Questions button opens the sheet beside the pane on the first tap, which stays open, and its ✕ closes it with the URL and history untouched", async () => {
+  const base = questionsBoard([openQuestion('qa', 'item:w/A1')], []);
+  const s = sheetOnDom({ width: 1280, board: { ...base, items: [workCard('A1', { lane: 'progress', actionButton: 'openQuestions', resolvedBy: 'openQuestions', questions: { topic: 'item:w/A1', first: 'qa', open: 1, state: 'open' } })] } });
+  await s.settle();
+  const hash = s.page.win.location.hash;
+  s.page.fire(s.root, 'click', { target: s.root.querySelector('button.button[data-questions="qa"]'), button: 0 });
+  await s.settle();
+  assert.deepEqual([s.sheet().open, s.sheet().modal, s.page.win.location.hash], [true, false, hash]);
+  s.page.fire(s.sheet(), 'click', { target: s.sheet().querySelector('[data-qs="close"]') });
+  assert.deepEqual([s.sheet().open, s.page.win.location.hash, s.moves], [false, hash, []]);
+  s.view.unmount();
+});
+
+test("the questions sheet's content takes the sheet's own padding and no margin of its own", () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.qs-body \{ padding: 0; \}/);
 });
 
 test('a prototype question opens in the sheet with its View prototypes link, and from 900px the sheet is not modal and a row in the pane opens its topic in it', async () => {
@@ -7005,11 +7022,11 @@ test("a card with prototypes has no Prototypes button: its Questions button open
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {} });
   await b.settle();
-  const buttons = (key) => [...b.root.querySelectorAll(`details.item[data-key="${key}"] .action-row.workflow a`)];
+  const buttons = (key) => [...b.root.querySelectorAll(`details.item[data-key="${key}"] .action-row.workflow button`)];
   assert.deepEqual(buttons('w/P1').map((a) => a.textContent.trim()), ['Questions']);
-  assert.equal(buttons('w/P1')[0].getAttribute('href'), 'questions.html#q2');
+  assert.equal(buttons('w/P1')[0].dataset.questions, 'q2');
   assert.equal(buttons('w/P1')[0].getAttribute('class'), 'button resolves');
-  assert.deepEqual(buttons('w/P3').map((a) => [a.textContent.trim(), a.getAttribute('href')]), [['Questions', 'questions.html#q1']]);
+  assert.deepEqual(buttons('w/P3').map((a) => [a.textContent.trim(), a.dataset.questions]), [['Questions', 'q1']]);
   b.view.unmount();
 });
 

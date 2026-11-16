@@ -2107,7 +2107,7 @@ test("a request with text, a question's prototype request and an answer are the 
 // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md
 test("a Questions added line keeps its words, orange while its batch has an open question and gray (not blue) once none has, with a plain question mark, linking to its first and opening the questions sheet from it", () => {
   const added = (open) => ({ ts: '2026-11-04T12:00:00Z', who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', fault: false, ...(open ? { tone: 'orange' } : {}), text: '2 questions added', link: 'questions.html#q1', questions: ['q1', 'q2'], open });
-  const lead = `<span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><a href="questions.html#q1" data-questions="q1">2 questions added</a>`;
+  const lead = `<span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><button type="button" class="link-text" data-questions="q1">2 questions added</button>`;
   assert.match(ui.threadMessages([added(true)]), new RegExp(`^<div class="msg status-line request hub tone-orange">${lead}`));
   assert.match(ui.threadMessages([added(false)]), new RegExp(`^<div class="msg status-line request hub">${lead}`));
   assert.ok(!('newQuestionsLine' in ui));

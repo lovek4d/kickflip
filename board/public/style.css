@@ -12,7 +12,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(-
   border-radius: 7px; padding: 6px 10px; }
 button:disabled { opacity: .5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-a.button { display: inline-block; border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; background: var(--panel); color: var(--text); text-decoration: none; }
+a.button, button.button { display: inline-block; border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; background: var(--panel); color: var(--text); text-decoration: none; }
+button.link-text { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: inherit; cursor: pointer; }
+button.link-text:hover { text-decoration: underline; }
 /* resolves: the button that clears a card's Action needed (board/domain.mjs resolvedBy), in that badge's notice tone. */
 :is(a, button).resolves, button.unblock, button.closes { border-color: var(--color-notice); background: var(--color-notice); color: #1c1407; }
 button.ghost { border-color: transparent; background: transparent; font-size: 18px; padding: 2px 8px; }
@@ -988,7 +990,7 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .reader-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 6px 0 max(12px, env(safe-area-inset-bottom)); }
 .reader-body > .muted { padding: 8px 14px; margin: 0; }
 /* The questions sheet (app-questions-sheet.js) draws Waiting on you's question cards in the reader sheet's frame. */
-.qs-body { padding: 0 14px; }
+.qs-body { padding: 0; }
 .qs-round { margin: 14px 0 0; font-size: 13px; font-weight: 600; }
 .reader-row { padding: 5px 14px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .reader-row.text { padding-top: 9px; }

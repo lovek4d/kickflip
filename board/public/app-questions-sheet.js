@@ -4,7 +4,7 @@
 // (ui-questions.js) with each question's eye, fire, image and attach, and answered with Send. A prototype question shows
 // its options and its View prototypes link. The questions group by the batch that asked them, the newest batch first,
 // where the thread is at hand; one batch shows no heading. It is the reader sheet's shape (app-reader.js): modal below
-// 900px, over the pane and not modal from it, closed by its ✕, Escape, the dim area, a swipe down and Back.
+// 900px, over the pane and not modal from it, closed by its ✕, Escape, the dim area and a swipe down. It makes no history entry.
 // docs/adr/2026-11-16-0500-each-answered-question-shows-at-once-as-sending.md: Send puts each answered question in the
 // answer outbox on its own and sends them one at a time, each its own owner-answers. Each reads "<time> · sending…" in
 // its footer at once while the others stay open and answerable, then Sent. once the board has it, or "not sent" with
@@ -27,7 +27,6 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   // The questions the sheet opened with, which it keeps drawing once sent.
   let kept = new Set();
   let modal = true;
-  let pushed = false;
 
   const keyOf = (id) => (id?.startsWith('item:') ? id.slice(5) : null);
   // The topic a question or topic id names on the board shown, else null.
@@ -103,8 +102,6 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     if (!sheet.open) {
       modal = !matchMedia('(min-width: 900px)').matches;
       if (modal) sheet.showModal(); else sheet.show();
-      history.pushState({ ...history.state, idx: (history.state?.idx ?? 0) + 1, questions: true }, '', location.href);
-      pushed = true;
     }
     draw();
     return true;
@@ -113,7 +110,6 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
     if (!sheet.open) return;
     sheet.close();
     topic = null;
-    if (pushed) { pushed = false; history.back(); }
   }
 
   // Sends the answer outbox in order, one at a time. Each leaves it once the board has it, its draft and files cleared;
@@ -217,8 +213,6 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, toas
   on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal) close(); });
   atUnmount(BoardUI.swipeToDismiss(sheet));
   on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
-  // Back while it's open: the router keeps the view, as the entry under it holds the same URL.
-  on(window, 'popstate', () => { if (pushed) { pushed = false; sheet.close(); topic = null; } });
 
   return { open, close, redraw, resend, retry, drop, holds, isOpen: () => sheet.open };
 };
@@ -231,11 +225,11 @@ BoardView.part((B) => {
     board: () => state.board, threads: (key) => state.threadCache.get(key), send: (kind, data) => B.send(kind, data), toast: (text) => B.toast(text),
     on: B.on, atUnmount: B.atUnmount, alive: B.alive, store: B.store, changed: (m, sent) => B.answerChanged(m, sent), siteRoot: B.site.root,
   });
-  // The thread line's tap opens it from the line's first question.
+  // A card's Questions button or a thread's questions line opens it from its first question. They are buttons, not
+  // links, so the router never sees them and the page and its history stay as they were.
   B.on(B.root, 'click', (ev) => {
-    const a = ev.target.closest?.('a[data-questions]');
-    if (!a || ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
-    if (qs.open(a.dataset.questions)) ev.preventDefault();
+    const button = ev.target.closest?.('button[data-questions]');
+    if (button) qs.open(button.dataset.questions);
   });
   Object.assign(B, { openQuestionsSheet: qs.open, closeQuestionsSheet: qs.close, resendAnswers: qs.resend, retryAnswer: qs.retry, dropAnswer: qs.drop, holdsAnswer: qs.holds });
 });
