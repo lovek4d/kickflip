@@ -123,6 +123,8 @@ window.BoardView = (function () {
       board: null,
       fresh: null,
       openItems: new Set(store.get('openItems', [])),
+      // Each card's lane as last drawn, to see which cards moved.
+      laneOf: new Map(),
       // The cards open when the page loaded: Done hides those past their cap until the owner opens one this visit.
       restored: new Set(store.get('openItems', [])),
       threadCache: new Map(),
@@ -184,13 +186,19 @@ window.BoardView = (function () {
       const title = $(':scope > .top h1');
       if (d.title && title && title.textContent !== d.title) title.textContent = d.title;
       if (d.title && document.title !== d.title) document.title = d.title;
+      // An open card that changed lane since the last paint closes in its new lane, and the board forgets it as open,
+      // before steady picks its anchor, so the page keeps on a card still where it was.
+      const moved = new Set(items.filter((i) => state.openItems.has(i.key) && state.laneOf.get(i.key) !== undefined && state.laneOf.get(i.key) !== i.lane).map((i) => i.key));
+      for (const key of moved) state.openItems.delete(key);
+      if (moved.size) store.set('openItems', [...state.openItems]);
+      state.laneOf = new Map(items.map((i) => [i.key, i.lane]));
       steady(() => {
         B.renderHeader(d);
         B.renderArch(d);
         B.renderWaits(d);
         BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main, state.mainPull));
         B.renderMainLog(d.main, load);
-        for (const el of $$('details.item[open]')) state.openItems.add(el.dataset.key);
+        for (const el of $$('details.item[open]')) if (!moved.has(el.dataset.key)) state.openItems.add(el.dataset.key);
         B.takeMarks(d.items);
         for (const it of d.items) if (state.openItems.has(it.key)) markSeen(it);
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.

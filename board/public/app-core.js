@@ -46,7 +46,7 @@ BoardView.part((B) => {
   function anchorsOf() {
     const field = focusedField();
     if (field && !field.closest('dialog')) { const find = finder(field); return [{ find, top: topOf(find()) }]; }
-    const open = [...B.$$('details.item[open]')].find((d) => { const r = d.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+    const open = [...B.$$('details.item[open]')].filter((d) => state.openItems.has(d.dataset.key)).find((d) => { const r = d.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
     if (open) {
       const title = `details.item[data-key="${CSS.escape(open.dataset.key)}"] > summary`;
       return [{ find: () => $(title), top: topOf($(title)) }];

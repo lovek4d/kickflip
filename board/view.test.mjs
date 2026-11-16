@@ -3710,6 +3710,10 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   assert.deepEqual([key('w/T1', { metaKey: true }), key('w/T1', { altKey: true }), key('w/P1', { ctrlKey: true }), key('w/P1', { altKey: true })], [true, true, true, true]);
   assert.deepEqual(pressed, [['w/T1', 'reply'], ['w/T1', 'build'], ['w/P1', 'reply'], ['w/P1', 'hold']]);
   await b.change({ board: boardOf([workCard('T1', { lane: 'progress' }), workCard('P1', { lane: 'progress' })]) });
+  const moved = b.root.querySelector('details.item[data-key="w/T1"]');
+  assert.equal(moved.open, false, 'a card that changed lane comes back closed');
+  moved.open = true;
+  b.page.fire(b.root, 'toggle', { target: moved });
   assert.deepEqual(buttons('w/T1'), [[null, 'Block⌥↵'], ['reply', 'Reply⌘↵']]);
   b.view.unmount();
 });
@@ -3776,6 +3780,9 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
   assert.deepEqual(sentNoIds(b), [['item-message', { key: 'w/R1', text: 'Looks good', intent: 'reply' }], ['card-done', { key: 'w/R1' }], ['card-done', { key: 'w/T1' }]]);
   // The box follows the card's lane.
   await b.change({ board: boardOf([{ ...cards[1], lane: 'review' }, ...cards.slice(2)]) });
+  const moved = b.root.querySelector('details.item[data-key="w/P1"]');
+  moved.open = true;
+  b.page.fire(b.root, 'toggle', { target: moved });
   assert.deepEqual(sends('w/P1'), ['Done⌥↵', 'Reply⌘↵']);
   b.view.unmount();
 });
@@ -3823,6 +3830,9 @@ test('a running badge replaces its install link without confirmation and becomes
   assert.equal(b.root.querySelector('[data-install-confirm]'), null);
   assert.deepEqual(b.confirms, []);
   await b.change({ board: boardOf([workCard('R1', { install: { ...install, older: false } })]) });
+  const moved = b.root.querySelector('details.item[data-key="w/R1"]');
+  moved.open = true;
+  b.page.fire(b.root, 'toggle', { target: moved });
   assert.equal(b.root.querySelector('.external-links .install').textContent, 'Install ');
 });
 
@@ -4885,15 +4895,15 @@ test("a lane repaint while the owner types in a card's reply box moves the other
   await b.change({ board: boardOf([askCard('b1', 'progress'), askCard('a1', 'progress'), askCard('c1', 'todo')]) });
   assert.deepEqual([view.scrolls.length, top(BOX)], [1, boxTop]);
 
-  await b.change({ board: boardOf([askCard('d1', 'review'), askCard('a1', 'review'), askCard('b1', 'done'), askCard('c1', 'todo')]) });
-  assert.deepEqual([lane('d1'), lane('a1'), lane('b1')], ['review', 'review', 'done']);
+  await b.change({ board: boardOf([askCard('d1', 'review'), askCard('a1', 'progress'), askCard('b1', 'done'), askCard('c1', 'todo')]) });
+  assert.deepEqual([lane('d1'), lane('a1'), lane('b1')], ['review', 'progress', 'done']);
   assert.deepEqual(kept(), [true, 'Half a reply', 4, 6, true, 0, boxTop]);
   assert.equal(b.root.querySelector('#askText').value, 'A new task');
 
   ta.blur();
   const TITLE = 'details.item[data-key="w/a1"] > summary';
   const titleTop = top(TITLE);
-  await b.change({ board: boardOf([askCard('e1', 'review'), askCard('d1', 'review'), askCard('a1', 'review'), askCard('b1', 'done'), askCard('c1', 'todo')]) });
+  await b.change({ board: boardOf([askCard('e1', 'review'), askCard('d1', 'review'), askCard('a1', 'progress'), askCard('b1', 'done'), askCard('c1', 'todo')]) });
   assert.deepEqual([lane('e1'), top(TITLE)], ['review', titleTop]);
 });
 
@@ -4966,7 +4976,7 @@ test("Done closes the card and holds the card still on screen as the card moves 
   assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'an ingested task joining Todo takes the tint');
 });
 
-test("Done tapped with the card's thread field focused keeps the card open as it moves to Done, where the page follows it", async () => {
+test("Done tapped with the card's thread field focused moves the card to Done closed and forgotten, where the page follows it", async () => {
   const board = boardOf([{ ...askCard('a1', 'review'), finishable: true }, workCard('C1')]);
   const b = boardOnDom({ open: ['w/a1'], board, threads: {}, confirm: true });
   await b.settle();
@@ -4978,7 +4988,7 @@ test("Done tapped with the card's thread field focused keeps the card open as it
   b.page.fire(b.root, 'submit', { target: card().querySelector('form[data-reply="w/a1"]'), submitter: card().querySelector('form[data-reply="w/a1"] [data-confirm="finish"]') });
   await b.settle();
   await b.change({ board });
-  assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems')], ['done', true, '["w/a1"]']);
+  assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems')], ['done', false, '[]']);
 });
 
 // docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md
@@ -7844,4 +7854,24 @@ test("an answer on the questions sheet with a file still uploading sends once ev
   await s.settle();
   assert.deepEqual([[...s.page.win.BoardAttach.list('q:qa')].map((p) => [p.name, p.status]), s.sent.length], [[['run.log', 'error']], 1]);
   s.view.unmount();
+});
+
+test('an open card whose lane changes in a repaint comes back closed and forgotten, a card that stays in its lane stays open, and the URL still selects the moved card', async () => {
+  const v1 = { ...boardOf([workCard('A1', { lane: 'todo' }), workCard('A2', { lane: 'todo' })]), version: 'v1' };
+  const b = boardOnDom({ open: ['w/A1', 'w/A2'], board: v1, threads: { 'w/A1': [], 'w/A2': [] } });
+  await b.settle();
+  b.page.win.location.hash = '#selectedCard=w%2FA1';
+  const card = (id) => b.root.querySelector(`details.item[data-key="w/${id}"]`);
+  const lane = (id) => card(id).closest('details.lane').dataset.lane;
+  assert.deepEqual([card('A1').open, card('A2').open], [true, true]);
+  await b.change({ board: { ...boardOf([workCard('A1', { lane: 'progress' }), workCard('A2', { lane: 'todo' })]), version: 'v2' } });
+  await b.settle();
+  assert.deepEqual([lane('A1'), card('A1').open, lane('A2'), card('A2').open], ['progress', false, 'todo', true]);
+  assert.equal(b.page.win.localStorage.getItem('site:board-a:openItems'), '["w/A2"]');
+  assert.equal(b.page.win.location.hash, '#selectedCard=w%2FA1');
+  card('A1').open = true;
+  b.page.fire(b.root, 'toggle', { target: card('A1') });
+  await b.change({ board: { ...boardOf([workCard('A1', { lane: 'progress' }), workCard('A2', { lane: 'todo' })]), version: 'v3', title: 'T' } });
+  assert.equal(card('A1').open, true, 'a card the owner opened after the move stays open');
+  b.view.unmount();
 });
