@@ -3093,14 +3093,15 @@ test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the
 });
 
 // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-test("the New task box has the thread's eye, fire, image and attach at the right under its text box, the attach out of the box; each sends the task at once with its request, as /prototype, /grill or /visual in the text does", async () => {
+test("the New task box has the thread's request words spread under its text box, the attach icon inside the box; each sends the task at once with its request, as /prototype, /grill or /visual in the text does", async () => {
   const b = boardOnDom({ board: boardOf([]), threads: {} });
   await b.settle();
   const form = b.root.querySelector('#askForm');
   assert.deepEqual(form.querySelector('.note-tools').children.map((c) => c.getAttribute('class')), ['pending-files', 'request-row']);
-  assert.deepEqual(form.querySelector('.note-tools .request-row').children.map((c) => c.getAttribute('title')), ['Ask for prototypes', 'Ask for a grill', 'Ask for a visual', 'Attach files']);
+  assert.deepEqual(form.querySelector('.note-tools .request-row').children.map((c) => c.getAttribute('title')), ['Ask for prototypes', 'Ask for a grill', 'Ask for a visual']);
   assert.deepEqual(form.querySelector('.request-row').children.slice(0, 3).map((c) => c.textContent), ['Prototype⌥P', 'Grill⌥G', 'Visual⌥V']);
-  assert.equal(form.querySelector('.dz .attach'), null);
+  assert.ok(form.querySelector('.dz .attach'));
+  assert.equal(form.querySelector('.request-row .attach'), null);
   const tap = async (text, sel) => {
     b.page.fire(b.root.querySelector('#compose'), 'click');
     b.root.querySelector('#askText').value = text;
@@ -3607,7 +3608,7 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
 });
 
 // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-test("a thread box's row has What's left? at the left and the eye, fire, image and attach at its right, with no lightning and no attach in the text box, and the send pair below", async () => {
+test("a thread box's row holds only What's left?, Prototype, Grill and Visual, with the attach icon inside the text box, and the send pair below", async () => {
   const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
@@ -3616,8 +3617,9 @@ test("a thread box's row has What's left? at the left and the eye, fire, image a
   assert.deepEqual(row('w/T1'), ['request-row', 'todo']);
   assert.deepEqual(row('w/P1'), ['request-row', 'progress']);
   for (const key of ['w/T1', 'w/P1']) {
-    assert.deepEqual(icons(key), ['quick', 'proto', 'grill', 'visual', 'attach']);
-    assert.equal(form(key).querySelector('.dz .attach'), null);
+    assert.deepEqual(icons(key), ['quick', 'proto', 'grill', 'visual']);
+    assert.ok(form(key).querySelector('.dz .attach'));
+    assert.equal(form(key).querySelector('.request-row .attach'), null);
     assert.ok(form(key).querySelector('.dz .dz-hint'));
   }
   assert.equal(b.root.querySelector('[data-bolt]'), null);
@@ -7075,15 +7077,14 @@ test('a selected option and a marked row draw the one blue selected look', async
 });
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
-test("the thread's image button, after the eye and fire and before attach, asks for a visual at once, with the typed text if any, as /visual does on Reply", async () => {
+test("the thread's image button, after the eye and fire, asks for a visual at once, with the typed text if any, as /visual does on Reply", async () => {
   const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] } });
   await b.settle();
   const form = () => b.root.querySelector('form[data-reply="w/A1"]');
   const image = () => form().querySelector('button[data-visual]');
   const box = () => form().querySelector('textarea');
   const icons = [...form().querySelector('.request-row').children];
-  assert.equal(icons.at(-2), image(), 'the image follows the eye and fire');
-  assert.ok(icons.at(-1).matches('label.attach'), 'attach follows the image');
+  assert.equal(icons.at(-1), image(), 'the image follows the eye and fire');
   assert.equal(image().getAttribute('aria-label'), 'Ask for a visual');
   assert.match(box().getAttribute('placeholder'), /\/prototype, \/grill or \/visual asks for one/);
   const tap = async (text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: image() }); await b.settle(); };

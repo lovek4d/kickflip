@@ -85,7 +85,7 @@
   // question alone, which then reads requested until its prototype round arrives; Grill sends `grill-more` the same
   // way, which reads requested, Grilling deeper, until the grill's next questions resolve it, and Visual `visual-request`,
   // the question staying open (app-questions-sheet.js).
-  const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`, { attach: false })}
+  const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`)}
       <div class="note-tools"><div class="pending-files" data-files></div>${requestRow('q:' + q.id, { protoLabel: 'Ask for a prototype instead' })}</div></div>`;
 
   const QUESTION_STATE = {

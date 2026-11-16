@@ -60,10 +60,9 @@
   }
   const CLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
   const attachButton = () => `<label class="attach" title="Attach files"><input type="file" multiple data-attach aria-label="Attach files">${CLIP}</label>`;
-  // A composer's text box with its attach button inside at the bottom right, which attach.js outlines with Drop to
-  // attach while files are dragged over the composer. attach: false leaves the button out, for a composer that puts it
-  // on its row (app-threads.js).
-  const dropZone = (textarea, { attach = true } = {}) => `<div class="dz${attach ? '' : ' bare'}">${textarea}${attach ? attachButton() : ''}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
+  // A composer's text box with its attach button inside at the bottom left, like a chat composer, which attach.js outlines
+  // with Drop to attach while files are dragged over the composer.
+  const dropZone = (textarea) => `<div class="dz">${textarea}${attachButton()}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
   // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
   // A composer's send buttons: the one with nth 0 presses on ⌘↵ and the one with nth 1, where there is one, on ⌥↵,
   // wherever each sits in the row (Ctrl+↵ and
@@ -100,10 +99,9 @@
   const quickButton = () => requestButton('data-quick="What\'s left?"', "What's left?", 'L', "Ask what's left");
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
   // The request row, one helper for a thread's reply box (quick: What's left? first), each open question and the New
-  // task box: the words spread across, the attach icon at the right. requests: false leaves the attach alone (the
-  // questions sheet).
-  const requestRow = (id, { protoLabel, requests = true, quick = false } = {}) =>
-    `<span class="request-row">${requests ? (quick ? quickButton() : '') + protoButton(id, protoLabel ? { label: protoLabel } : {}) + grillButton(id) + visualButton(id) : ''}${attachButton()}</span>`;
+  // task box: only the words, spread across; the attach icon is inside the text box (dropZone).
+  const requestRow = (id, { protoLabel, quick = false } = {}) =>
+    `<span class="request-row">${(quick ? quickButton() : '') + protoButton(id, protoLabel ? { label: protoLabel } : {}) + grillButton(id) + visualButton(id)}</span>`;
   // The request button an Alt+letter keydown presses within scope, or null.
   const keyedRequest = (ev, scope) => {
     const attr = ev.altKey && !ev.metaKey && !ev.ctrlKey && !ev.isComposing ? REQUEST_KEYS[ev.code] : null;

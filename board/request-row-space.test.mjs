@@ -14,9 +14,9 @@ const pub = fileURLToPath(new URL('./public/', import.meta.url));
 const ROW = '<span class="request-row"><button class="req">Prototype</button><button class="req">Grill</button></span>';
 const SENDS = '<div class="send-actions"><button>Implement</button><button>Discuss</button></div>';
 const BOXES = {
-  thread: `<form data-reply="x"><div class="dz bare"><textarea rows="2"></textarea></div><div class="pending-files" data-files></div><div class="row">${ROW}${SENDS}</div></form>`,
-  question: `<div class="composer"><div class="dz bare"><textarea rows="2"></textarea></div><div class="note-tools"><div class="pending-files" data-files></div>${ROW}</div></div>`,
-  'new task': `<form id="askForm"><div class="dz bare"><textarea rows="4"></textarea></div><div class="note-tools"><div class="pending-files" data-files></div>${ROW}</div>${SENDS}</form>`,
+  thread: `<form data-reply="x"><div class="dz"><textarea rows="2"></textarea></div><div class="pending-files" data-files></div><div class="row">${ROW}${SENDS}</div></form>`,
+  question: `<div class="composer"><div class="dz"><textarea rows="2"></textarea></div><div class="note-tools"><div class="pending-files" data-files></div>${ROW}</div></div>`,
+  'new task': `<form id="askForm"><div class="dz"><textarea rows="4"></textarea></div><div class="note-tools"><div class="pending-files" data-files></div>${ROW}</div>${SENDS}</form>`,
 };
 
 const FIXTURE = (box) => `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">

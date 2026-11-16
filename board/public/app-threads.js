@@ -175,7 +175,7 @@ BoardView.part((B) => {
       const draft = store.get('draft:' + key, '');
       // The row: the request words, What's left? first, with the attach at their right, and the send buttons
       // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
-      el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`, { attach: false })}
+      el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`)}
         <div class="pending-files" data-files></div>
         <div class="row">${requestRow(key, { quick: true })}${sends('one')}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);

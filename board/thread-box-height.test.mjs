@@ -15,7 +15,7 @@ const pub = fileURLToPath(new URL('./public/', import.meta.url));
 const FIXTURE = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="${pub}style.css"></head>
 <body><dialog open id="sheet" class="sheet"><form id="askForm"><div class="dz"><textarea id="askText" rows="4"></textarea></div></form></dialog>
-<form data-reply="x"><div class="dz bare"><textarea id="reply" rows="2"></textarea></div></form>
+<form data-reply="x"><div class="dz"><textarea id="reply" rows="2"></textarea></div></form>
 <script>{
   const h = (id) => document.getElementById(id).getBoundingClientRect().height;
   const probe = document.createElement('pre'); probe.id = 'probe'; probe.textContent = JSON.stringify({ ask: h('askText'), reply: h('reply') }); document.body.append(probe);

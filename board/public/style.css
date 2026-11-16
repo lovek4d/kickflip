@@ -180,12 +180,12 @@ code { overflow-wrap: anywhere; }
 /* A file input draws its "Choose File" text at the 16px coarse-pointer size, wider than the button; iOS Safari widens the page to fit it. */
 .attach input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; padding: 0; border: 0; font-size: 0; }
 .row > .attach + .muted { flex: 1; min-width: 0; }
-/* A composer's text box (BoardUI.dropZone), its attach button inside at the bottom right with the text kept clear of it:
+/* A composer's text box (BoardUI.dropZone), its attach button inside at the bottom left with the text kept clear of it:
    while files are dragged over the composer, attach.js marks it .dragging and the box gets a dashed accent outline
    with Drop to attach over it. */
 .dz { position: relative; clear: both; border-radius: 8px; }
 .dz > textarea { display: block; padding-bottom: 40px; }
-.dz > .attach { position: absolute; right: 6px; bottom: 6px; width: 32px; height: 32px; z-index: 1; }
+.dz > .attach { position: absolute; left: 6px; bottom: 6px; width: 32px; height: 32px; z-index: 1; }
 .dz-hint { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; border-radius: 8px; pointer-events: none;
   background: color-mix(in srgb, var(--panel) 80%, transparent); color: var(--accent); font-weight: 600; font-size: 15px; }
 [data-composer].dragging .dz { outline: 2px dashed var(--accent); outline-offset: 3px; }
@@ -289,7 +289,7 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
   #askText { font-size: 16px; }
   /* The thread box is as tall as the New task box: 4 rows, its 8px top padding and the 40px under the text for the
      attach row (the borders sit inside the box). It grows past that as it does elsewhere. */
-  form[data-reply] .dz.bare > textarea { font-size: 16px; min-height: calc(4lh + 48px); }
+  form[data-reply] .dz > textarea { font-size: 16px; min-height: calc(4lh + 48px); }
 }
 @keyframes sheet-in { from { transform: translateY(100%); } }
 @keyframes sheet-out { to { transform: translateY(100%); } }
@@ -334,8 +334,7 @@ a.hub { display: inline-flex; flex: none; }
    lines below set `color: inherit` on it. */
 .it-pulse.it-current { color: var(--color-notice); margin-right: 5px; vertical-align: 1px; }
 .it-dot.it-current { margin-right: 5px; vertical-align: 1px; }
-/* The request row (ui.js requestRow): outlined words spread evenly, each with its key hint inside at the right, and the
-   attach icon at the end. A thread box's row puts it on its own line above Send or a pair
+/* The request row (ui.js requestRow): outlined words spread evenly, each with its key hint inside at the right. A thread box's row sits on its own line above Send or a pair
    (docs/adr/2026-11-16-0630-the-request-row-is-outlined-buttons-spread-with-key-hints.md). */
 .request-row { display: flex; align-items: center; gap: 6px; flex: 1 1 100%; min-width: 0; margin: var(--request-gap) 0; }
 /* The row has the same space above (the text box) and below (Send, or the box's edge) wherever it shows. */
@@ -347,7 +346,6 @@ form[data-reply] .row > .send-actions, .note-tools + .send-actions { margin-top:
 .request-row .req .key-hint { color: var(--muted); }
 .request-row .req:hover { background: var(--chip); }
 .request-row .req:disabled { opacity: .35; }
-.dz.bare > textarea { padding-bottom: 12px; }
 /* A composer's send buttons (ui.js sendButton), each with its key as a small gray hint where there is a keyboard and
    room. A pair takes a row of two halves; a Todo card's reply box wraps its pair under the row. */
 .send-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
