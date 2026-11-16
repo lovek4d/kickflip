@@ -87,10 +87,10 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 @media (min-width: 900px) {
   #failedStartSheet { inset: 0; margin: auto; height: fit-content; max-height: calc(100dvh - 48px); }
 }
-/* The Hub row's busy words open what's loading this Mac (ui-sidebar.js loadSheet), a sheet like a failed start's. */
-.sidebar .sb-busy { cursor: pointer; border-radius: 6px; }
-@media (hover: hover) { .sidebar .sb-busy:hover .it-w { text-decoration: underline; } }
-.sidebar .sb-busy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The Hub row's status words open what's loading the host (ui-sidebar.js loadSheet), a sheet like a failed start's. */
+.sidebar .sb-load { cursor: pointer; border-radius: 6px; }
+@media (hover: hover) { .sidebar .sb-load:hover .it-w { text-decoration: underline; } }
+.sidebar .sb-load:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Busy for more than 30 minutes, a banner at the sidebar's top that opens the same sheet, orange like the hub page's hold banner. */
 .sidebar .sb-busy-banner { display: flex; align-items: center; width: 100%; min-height: 44px; margin: 0 0 8px; padding: 6px 12px; border-radius: 10px; text-align: left; font: inherit; color: var(--text); cursor: pointer;
   border: 1px solid color-mix(in srgb, var(--color-notice) 45%, transparent); background: color-mix(in srgb, var(--color-notice) 11%, var(--panel)); }

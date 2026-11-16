@@ -1,10 +1,12 @@
-// docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md
-// What is loading this Mac, for the sheet the Hub row's busy word opens (ui-sidebar.js loadSheet): the load now and over
+// docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md,
+// docs/adr/2026-11-16-1915-the-hub-status-opens-the-load-sheet-at-any-load-collapsed.md
+// What is loading this Mac, for the sheet the Hub row's status words open (ui-sidebar.js loadSheet): the load now and over
 // the last hour (the samples the hub's tick keeps, shared/machine-gate.mjs), and this Mac's processes from one ps call,
 // sorted into groups. All of it is mechanical; no model reads any of it.
 // - builder: a board's open builder or planner record's process (board/store.mjs openBoardBuilders).
 // - session: a running Claude Code session's process (~/.claude/sessions, live.mjs), named by the board it owns.
-// - orphan: a node process of this user's, older than a day and left to launchd (parent pid 1), that isn't the hub.
+// - orphan: a process of this user's left to launchd (parent pid 1) that isn't the hub: a node process older than a
+//   day, or any process with no terminal that has burned HOT_CPU% or more for over HOT_AGE, outside an app or the system.
 // - suite: a `node --test` run inside no orphan and no other suite, owned by the builder or session above it.
 // - other: what no group holds, at OTHER_CPU% or more, the busiest OTHER_ROWS.
 // A row's CPU is its own and its children's that aren't rows themselves. Stop ends an orphan alone.
@@ -17,11 +19,13 @@ import { readMachine, readMachineSamples } from '../shared/machine-gate.mjs';
 import { audit as writeAudit, hubAudit } from '../shared/audit.mjs';
 
 export const ORPHAN_AGE = 86400;
+const HOT_AGE = 3600;
+const HOT_CPU = 50;
 const OTHER_CPU = 10;
 const OTHER_ROWS = 5;
 const COMMAND_LENGTH = 80;
-const PS_COLUMNS = ['-axo', 'pid=,ppid=,uid=,etime=,pcpu=,command='];
-export const GROUPS = [['orphan', 'Looks orphaned, older than a day'], ['suite', 'Test suites'], ['session', 'Claude sessions'], ['builder', 'Builders and planners'], ['other', 'Other']];
+const PS_COLUMNS = ['-axo', 'pid=,ppid=,uid=,tty=,etime=,pcpu=,command='];
+export const GROUPS = [['orphan', 'Looks orphaned'], ['suite', 'Test suites'], ['session', 'Claude sessions'], ['builder', 'Builders and planners'], ['other', 'Other']];
 const NO_OWNER = 'no board or session';
 
 // ps's elapsed time, [[dd-]hh:]mm:ss → seconds.
@@ -30,11 +34,12 @@ export function etimeSeconds(text) {
   return Number(days) * 86400 + clock.split(':').reduce((n, part) => n * 60 + Number(part), 0);
 }
 
-// ps -axo pid=,ppid=,uid=,etime=,pcpu=,command= → [{pid, ppid, uid, age (seconds), cpu (%), command}]
+// ps -axo pid=,ppid=,uid=,tty=,etime=,pcpu=,command= → [{pid, ppid, uid, tty (whether it has a terminal), age (seconds),
+// cpu (%), command}]. ps writes no terminal as ?? (macOS) or ? (Linux).
 export function parsePs(text) {
   return text.split('\n').flatMap((line) => {
-    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+([\d.]+)\s+(.*)$/);
-    return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), uid: Number(m[3]), age: etimeSeconds(m[4]), cpu: Number(m[5]), command: m[6] }] : [];
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+([\d.]+)\s+(.*)$/);
+    return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), uid: Number(m[3]), tty: !/^\?+$/.test(m[4]), age: etimeSeconds(m[5]), cpu: Number(m[6]), command: m[7] }] : [];
   });
 }
 
@@ -49,7 +54,10 @@ export function shortCommand(command, home = os.homedir()) {
 
 const isNode = (p) => path.basename(p.command.split(/\s/)[0]) === 'node';
 const isSuite = (p) => isNode(p) && /(^|\s)--test(\s|$)/.test(p.command);
-const isOrphan = (p, { uid, keep }) => p.ppid === 1 && p.uid === uid && p.age >= ORPHAN_AGE && isNode(p) && !keep.has(p.pid);
+// An app's or the system's own programs run under launchd with no terminal by design, so CPU alone never makes them orphans.
+const isSystem = (p) => /\.app\/|^\/(System|Library|usr\/libexec|usr\/sbin)\//.test(p.command);
+const isHot = (p) => !p.tty && p.age >= HOT_AGE && p.cpu >= HOT_CPU && !isSystem(p);
+const isOrphan = (p, { uid, keep }) => p.ppid === 1 && p.uid === uid && !keep.has(p.pid) && ((p.age >= ORPHAN_AGE && isNode(p)) || isHot(p));
 
 // procs: parsePs's rows. builders: Map pid → {label, board}; sessions: Map pid → {label, owner}; keep: the pids that are
 // never orphans (the hub); uid: this user's. → [{key, title, rows: [{pid, cmd, age, cpu, owner}]}], GROUPS' order,

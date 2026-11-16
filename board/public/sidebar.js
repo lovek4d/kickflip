@@ -252,7 +252,7 @@
         return;
       }
       if (e.target.closest?.('[data-new-board]')) { newBoard(); return; }
-      // The busy words sit inside the Hub row's link, so their tap opens the sheet and not the hub page.
+      // The status words sit inside the Hub row's link, so their tap opens the sheet and not the hub page.
       if (e.target.closest?.('[data-load-sheet]')) { e.preventDefault(); openLoad(); return; }
       const failed = e.target.closest?.('[data-failed-start]');
       if (failed) openFailed(failed.dataset.failedStart);
@@ -261,7 +261,8 @@
       if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('[data-load-sheet]')) { e.preventDefault(); openLoad(); }
     });
     // What's loading the host (ui-sidebar.js loadSheet; docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md):
-    // it reads /_hub/machine.json as it opens and again after a Stop. A fold opens or shuts its group; Stop asks in its
+    // it reads /_hub/machine.json as it opens, every group shut, and again after a Stop, keeping the groups open that
+    // were. A fold opens or shuts its group; Stop asks in its
     // row, Keep backs out, and Stop it waits (ui.js waitOn) on /_hub/machine/stop, whose refusal shows in the row.
     function openLoad() {
       if (document.getElementById('loadSheet')) return;
@@ -275,7 +276,8 @@
         try {
           const response = await fetch('/_hub/machine.json', { headers: { accept: 'application/json' } });
           if (!response.ok) throw new Error(`The hub answered ${response.status}.`);
-          el.innerHTML = loadSheet(await response.json());
+          const data = await response.json();
+          el.innerHTML = loadSheet(data, { open: new Set([...el.querySelectorAll('[data-fold][aria-expanded="true"]')].map((b) => b.dataset.fold)) });
         } catch (e) {
           const note = el.querySelector('.ls-note');
           if (note) note.textContent = `Couldn't read the host: ${e.message}`;

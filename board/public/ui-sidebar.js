@@ -172,10 +172,11 @@
       + `<div class="sheet-actions fs-actions"><button type="button" data-failed-dismiss>Dismiss</button>${s.branch && !s.joined ? '<button type="button" class="primary" data-failed-retry>Retry</button>' : ''}</div></div>`;
   }
 
-  // What's loading the host (docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md), the sheet the
-  // Hub row's busy words open, from /_hub/machine.json (hub/machine-load.mjs machineLoad), or null while it loads: the
-  // load now and its hour's average and line against the cores, then each group folded to its count and total CPU, the
-  // orphans open, each orphan with Stop and its confirm in the row.
+  // What's loading the host (docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md,
+  // docs/adr/2026-11-16-1915-the-hub-status-opens-the-load-sheet-at-any-load-collapsed.md), the sheet the Hub row's
+  // status words open, from /_hub/machine.json (hub/machine-load.mjs machineLoad), or null while it loads: the load now
+  // and its hour's average and line against the cores, then each group folded to its count and total CPU, each orphan
+  // with Stop and its confirm in the row. open: the keys of the groups shown open, none as the sheet opens.
   const ageWords = (s) => (s >= 86400 ? `${Math.floor(s / 86400)}d` : s >= 3600 ? `${Math.floor(s / 3600)}h` : s >= 60 ? `${Math.floor(s / 60)}m` : `${s}s`);
   const tenth = (n) => Math.round(n * 10) / 10;
   function loadLine({ samples, cores }) {
@@ -187,7 +188,7 @@
       + `<line x1="0" x2="120" y1="${y(cores)}" y2="${y(cores)}" stroke="var(--line)" stroke-dasharray="3 3"/>`
       + `<polyline fill="none" stroke="var(--color-notice)" stroke-width="2" vector-effect="non-scaling-stroke" points="${samples.map((s, i) => `${x(i)},${y(s.load)}`).join(' ')}"/></svg>`;
   }
-  function loadSheet(data) {
+  function loadSheet(data, { open = new Set() } = {}) {
     const head = `<div class="sheet-head"><h2 id="loadSheetTitle">What's loading the host</h2><button type="button" data-load-close aria-label="Close sheet">✕</button></div>`;
     if (!data) return `<div class="sheet-body">${head}<p class="ls-note" role="status">Reading the host…</p></div>`;
     const load = `<div class="ls-load"><div><b>${tenth(data.load)}</b><span> now, ${data.cores} cores</span></div>`
@@ -202,10 +203,10 @@
     const groups = data.groups === null ? '<p class="ls-note">ps gave no answer in time, as happens on a busy host. Try again in a moment.</p>'
       : !data.groups.length ? '<p class="ls-note">Nothing is loading the host.</p>'
       : `<div class="ls-groups">${data.groups.map((g) => {
-        const open = g.key === 'orphan';
+        const shown = open.has(g.key);
         const total = Math.round(g.rows.reduce((n, r) => n + r.cpu, 0));
-        return `<div class="ls-group"><button type="button" class="ls-fold" data-fold aria-expanded="${open}"><span class="ls-chev" aria-hidden="true">›</span><span class="ls-name">${esc(g.title)}</span><span class="ls-sum">${g.rows.length} · ${total}%</span></button>`
-          + `<div class="ls-inner"${open ? '' : ' hidden'}>${g.rows.map((r) => row(r, open)).join('')}</div></div>`;
+        return `<div class="ls-group"><button type="button" class="ls-fold" data-fold="${esc(g.key)}" aria-expanded="${shown}"><span class="ls-chev" aria-hidden="true">›</span><span class="ls-name">${esc(g.title)}</span><span class="ls-sum">${g.rows.length} · ${total}%</span></button>`
+          + `<div class="ls-inner"${shown ? '' : ' hidden'}>${g.rows.map((r) => row(r, g.key === 'orphan')).join('')}</div></div>`;
       }).join('')}</div>`;
     return `<div class="sheet-body">${head}${load}${groups}</div>`;
   }
@@ -300,7 +301,7 @@
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
     const usage = sidebarUsage(data?.usage, data?.pause?.week);
-    const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: globalThis.BoardUI.liveFor(data.pause.machine.since, now), sheet: true } : data?.hub;
+    const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: globalThis.BoardUI.liveFor(data.pause.machine.since, now) } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     // Notifications that can't reach the owner need them now: red (AGENTS.md).
@@ -310,8 +311,8 @@
     const hold = esc(`Notifications ${lower(n.text)}`);
     const moon = n.state === 'held' ? `<span class="sb-moon" role="img" aria-label="${hold}" title="${hold}">${svg(ICONS.moon, 13)}</span>` : '';
     const subs = {
-      // The busy words open what's loading the host (loadSheet; sidebar.js), and the rest of the row the hub page.
-      '/_hub/': (hub ? `<span class="sb-status${hub.sheet ? ` sb-busy" data-load-sheet role="button" tabindex="0" aria-label="${esc(`${hub.word} ${hub.detail}`)}, what's loading the host" aria-haspopup="dialog` : ''}">${iconText('dot', HUB_COLOURS[hub.tone], hub.word)}${hub.detail ? `<span>${esc(hub.detail)}</span>` : ''}</span>` : '')
+      // The status words, whatever they say, open what's loading the host (loadSheet; sidebar.js), and the rest of the row the hub page.
+      '/_hub/': (hub ? `<span class="sb-status sb-load" data-load-sheet role="button" tabindex="0" aria-label="${esc([hub.word, hub.detail].filter(Boolean).join(' '))}, what's loading the host" aria-haspopup="dialog">${iconText('dot', HUB_COLOURS[hub.tone], hub.word)}${hub.detail ? `<span>${esc(hub.detail)}</span>` : ''}</span>` : '')
         + (notify ? `<span class="sb-status">${notify}</span>` : ''),
     };
     const selected = here.startsWith('_hub') ? '/_hub' : `/${here.replace(/\/$/, '')}`;

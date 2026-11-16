@@ -1,6 +1,6 @@
 # The busy Hub row opens what's loading the host
 
-Status: accepted (owner, 11/12, card #634; prototypes busy-sheet take C and busy-hub-row take A)
+Status: accepted (owner, 11/12, card #634; prototypes busy-sheet take C and busy-hub-row take A). Amended by 2026-11-16-1915-the-hub-status-opens-the-load-sheet-at-any-load-collapsed.md: the status opens it at any load, every group starts shut, and a detached process burning CPU reads as orphaned.
 
 The Hub row reads "busy 42m" while the host is busy (2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md), but said nothing about why. The owner asked for a breakdown of what's loading it, built from the numbers alone, opened from the busy status at any time.
 

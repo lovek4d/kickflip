@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { until } from '../shared/test-helpers.mjs';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { until, untilTestEnds } from '../shared/test-helpers.mjs';
 import { opensPRs, settingsOf } from './store.mjs';
 import { SUMMARY_HINT } from './domain.mjs';
 import { fakeGh, writeLimit, calls } from '../shared/fake-gh.mjs';
@@ -68,6 +70,32 @@ test("builder done --next on a build stops it without finishing, an --agent help
   const stopped = await onOrch('builder', 'done', 'w/A1', '--next', 'Check the build');
   assert.equal(stopped.code, 0, stopped.err);
   assert.deepEqual([git(repo, 'rev-parse', 'main'), typeof record().done, itemOf().next], [main, 'string', 'Check the build']);
+});
+
+// docs/adr/2026-11-16-1915-the-hub-status-opens-the-load-sheet-at-any-load-collapsed.md: a build's done refuses while a
+// process it started runs detached in its worktree, naming it, and goes on once it ends. Orphans go to launchd, pid 1,
+// on a Mac; elsewhere a subreaper may take them.
+test("builder done refuses while a process the build left detached in its worktree still runs, naming it, and goes on once it's stopped", { skip: process.platform !== 'darwin' }, async () => {
+  const repo = scratchRepo();
+  assert.equal((await onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
+  // The shell exits at once, leaving its child to launchd; the child ends with this test at the latest. The child keeps
+  // the shell's stdout, so the pipe's end is the child's.
+  const sh = spawn('sh', ['-c', 'node -e "$0" & echo $!', untilTestEnds()], { cwd: worktree(), stdio: ['ignore', 'pipe', 'ignore'] });
+  const ended = once(sh.stdout, 'end');
+  const exited = once(sh, 'exit');
+  const [pid] = await once(sh.stdout, 'data');
+  await exited;
+  const left = Number(String(pid).trim());
+  assert.ok(left > 0);
+  const refused = await onOrch('builder', 'done', 'w/A1', '--next', 'Check the build');
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, new RegExp(`^builder done refuses while w/A1's build leaves processes running detached: ${left} node -e`));
+  assert.match(refused.err, new RegExp(`Stop them \\(kill ${left}\\) and run builder done again\\.\\n$`));
+  assert.equal(record().done, undefined);
+  process.kill(left);
+  await ended;
+  const stopped = await onOrch('builder', 'done', 'w/A1', '--next', 'Check the build');
+  assert.equal(stopped.code, 0, stopped.err);
 });
 
 test("a finish on a local board pushes its branch to origin once it lands when the board's push switch is on; off, nothing is pushed, and a push that fails is said without undoing the land", async () => {

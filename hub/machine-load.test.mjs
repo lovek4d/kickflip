@@ -5,26 +5,31 @@ import { etimeSeconds, parsePs, loadGroups, shortCommand, stopOrphan, machineLoa
 
 const UID = 501;
 const DAY = 86400;
-// ps -axo pid=,ppid=,uid=,etime=,pcpu=,command=
+// ps -axo pid=,ppid=,uid=,tty=,etime=,pcpu=,command=
 const PS = `
-    1     0     0 10-00:00:00   0.0 /sbin/launchd
-  100     1   501 2-00:00:00   6.3 /opt/homebrew/bin/node /Users/me/.claude/skills/kickflip/hub/hub.mjs
-  110   100   501 1-23:00:00   1.0 node /Users/me/.claude/kickflip/sites/hub/board/server.mjs --port 4410
-  120   110   501    48:00   2.0 claude -p You are the headless builder for card T-171
-  121   120   501    12:00   1.5 /bin/zsh -c node --test hub/hub.test.mjs
-  122   121   501    12:00  60.0 node --test hub/hub.test.mjs
-  123   122   501    11:00  36.0 node /tmp/x/hub/hub.test.mjs
-  130   110   501    31:00  14.0 claude -p You are the prototype planner for T-186
-  200     1   501 09:00:00   3.0 claude
-  210   200   501    04:00  41.0 node --test board/domain.test.mjs
- 4127     1   501 5-02:00:00 200.0 node --test board/server.test.mjs
- 4128  4127   501 5-02:00:00  12.0 node /tmp/y/board/server.test.mjs
- 5530     1   501 3-01:00:00  38.0 node board/server.mjs --port 4431
- 5600     1   501    05:00  80.0 node board/server.mjs --port 4433
- 5700     1     0 4-00:00:00  50.0 node /usr/local/lib/root-service.mjs
- 5800     1   501 6-00:00:00  20.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new about:blank
-  300     1   501 2-00:00:00  18.0 /System/Library/Frameworks/CoreServices.framework/mds_stores
-  301     1   501 2-00:00:00   4.0 /usr/sbin/cfprefsd agent
+    1     0     0 ??       10-00:00:00   0.0 /sbin/launchd
+  100     1   501 ??       2-00:00:00   6.3 /opt/homebrew/bin/node /Users/me/.claude/skills/kickflip/hub/hub.mjs
+  110   100   501 ??       1-23:00:00   1.0 node /Users/me/.claude/kickflip/sites/hub/board/server.mjs --port 4410
+  120   110   501 ??          48:00   2.0 claude -p You are the headless builder for card T-171
+  121   120   501 ??          12:00   1.5 /bin/zsh -c node --test hub/hub.test.mjs
+  122   121   501 ??          12:00  60.0 node --test hub/hub.test.mjs
+  123   122   501 ??          11:00  36.0 node /tmp/x/hub/hub.test.mjs
+  130   110   501 ??          31:00  14.0 claude -p You are the prototype planner for T-186
+  200     1   501 ttys001 09:00:00   3.0 claude
+  210   200   501 ttys001    04:00  41.0 node --test board/domain.test.mjs
+ 4127     1   501 ??       5-02:00:00 200.0 node --test board/server.test.mjs
+ 4128  4127   501 ??       5-02:00:00  12.0 node /tmp/y/board/server.test.mjs
+ 5530     1   501 ??       3-01:00:00  38.0 node board/server.mjs --port 4431
+ 5600     1   501 ??          05:00  80.0 node board/server.mjs --port 4433
+ 5700     1     0 ??       4-00:00:00  50.0 node /usr/local/lib/root-service.mjs
+ 5800     1   501 ??       6-00:00:00  60.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new about:blank
+  300     1   501 ??       2-00:00:00  58.0 /System/Library/Frameworks/CoreServices.framework/mds_stores
+  301     1   501 ??       2-00:00:00   4.0 /usr/sbin/cfprefsd agent
+ 8652     1   501 ??         07:10:00  99.8 yes
+ 8653     1   501 ??         07:10:00  99.6 /usr/bin/yes
+ 8700     1   501 ttys002    03:00:00  95.0 yes
+ 8800     1   501 ??            40:00  90.0 yes
+ 8900     1   501 ??         05:00:00  12.0 python3 poll.py
 `;
 
 const context = {
@@ -40,7 +45,8 @@ test('ps elapsed times read as seconds', () => {
 
 test('ps rows parse with their command whole', () => {
   const procs = parsePs(PS);
-  assert.deepEqual(procs.find((p) => p.pid === 4127), { pid: 4127, ppid: 1, uid: 501, age: 5 * DAY + 7200, cpu: 200, command: 'node --test board/server.test.mjs' });
+  assert.deepEqual(procs.find((p) => p.pid === 4127), { pid: 4127, ppid: 1, uid: 501, tty: false, age: 5 * DAY + 7200, cpu: 200, command: 'node --test board/server.test.mjs' });
+  assert.equal(procs.find((p) => p.pid === 200).tty, true, 'a process in a terminal');
   assert.equal(procs.find((p) => p.pid === 5800).command, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new about:blank');
 });
 
@@ -56,25 +62,30 @@ test('processes sort into orphans, test suites, Claude sessions, builders and pl
   const groups = loadGroups(parsePs(PS), { ...context, home: '/Users/me' });
   const rows = Object.fromEntries(groups.map((g) => [g.key, g.rows.map((r) => [r.pid, r.cmd, r.cpu, r.owner])]));
   assert.deepEqual(groups.map((g) => [g.key, g.title]), [
-    ['orphan', 'Looks orphaned, older than a day'], ['suite', 'Test suites'], ['session', 'Claude sessions'], ['builder', 'Builders and planners'], ['other', 'Other'],
+    ['orphan', 'Looks orphaned'], ['suite', 'Test suites'], ['session', 'Claude sessions'], ['builder', 'Builders and planners'], ['other', 'Other'],
   ]);
-  // Older than a day, left to launchd, a node process of this user's that isn't the hub: a stray suite and a stray
-  // server; the suite's own child is its CPU, not a suite of its own. A young server, root's and Chrome are not orphans.
-  assert.deepEqual(rows.orphan, [[4127, 'node --test board/server.test.mjs', 212, 'no board or session'], [5530, 'node board/server.mjs --port 4431', 38, 'no board or session']]);
+  // Left to launchd by this user and not the hub: a node process older than a day, a stray suite and a stray server,
+  // the suite's own child its CPU, not a suite of its own; and, whatever its age or program, one with no terminal that
+  // has burned CPU for over an hour, the yes a builder left. A young server, root's, Chrome and the system's mds_stores,
+  // a yes still in a terminal, a yes under an hour old, and a quiet script are not orphans.
+  assert.deepEqual(rows.orphan, [
+    [4127, 'node --test board/server.test.mjs', 212, 'no board or session'], [8652, 'yes', 99.8, 'no board or session'],
+    [8653, 'yes', 99.6, 'no board or session'], [5530, 'node board/server.mjs --port 4431', 38, 'no board or session'],
+  ]);
   // A suite under a builder or a session names it; its child test files are its CPU; the shell that ran it is the builder's.
   assert.deepEqual(rows.suite, [[122, 'node --test hub/hub.test.mjs', 96, 'T-171 build'], [210, 'node --test board/domain.test.mjs', 41, 'Hub Orchestrator']]);
   assert.deepEqual(rows.session, [[200, 'Hub Orchestrator', 3, 'orchestrator']]);
   assert.deepEqual(rows.builder, [[130, 'T-186 prototype', 14, 'Hub Orchestrator'], [120, 'T-171 build', 3.5, 'Hub Orchestrator']]);
   // Other: what no group holds at 10% CPU or more, the busiest first, five at most.
-  assert.deepEqual(rows.other.map(([pid, , cpu]) => [pid, cpu]), [[5600, 80], [5700, 50], [5800, 20], [300, 18]]);
-  assert.equal(rows.other[3][1], 'mds_stores');
+  assert.deepEqual(rows.other.map(([pid, , cpu]) => [pid, cpu]), [[8700, 95], [8800, 90], [5600, 80], [5800, 60], [300, 58]]);
+  assert.equal(rows.other[4][1], 'mds_stores');
   assert.equal(groups.find((g) => g.key === 'orphan').rows[0].age, 5 * DAY + 7200);
 });
 
 test('a group with no rows is left out, and a calm Mac may have none', () => {
   const calm = parsePs(`
-    1     0     0 10-00:00:00   0.0 /sbin/launchd
-  200     1   501 09:00:00   3.0 claude
+    1     0     0 ?? 10-00:00:00   0.0 /sbin/launchd
+  200     1   501 ttys001 09:00:00   3.0 claude
 `);
   assert.deepEqual(loadGroups(calm, { ...context, home: '/Users/me' }).map((g) => g.key), ['session']);
   assert.deepEqual(loadGroups([], { ...context, home: '/Users/me' }), []);
@@ -88,10 +99,11 @@ test('Stop ends an orphan and its children, and refuses any process that no long
   assert.deepEqual(signals, [[4127, 'SIGTERM'], [4128, 'SIGTERM']]);
   assert.equal(audits[0].call, 'machine-stop');
   assert.match(audits[0].reason, /node --test board\/server\.test\.mjs/);
-  for (const pid of [5600, 122, 100, 999]) {
+  assert.deepEqual(await stopOrphan(8652, deps), { stopped: [8652] }, 'a detached yes burning CPU stops too');
+  for (const pid of [5600, 122, 100, 999, 8700, 8800, 5800]) {
     await assert.rejects(stopOrphan(pid, deps), (e) => e.status === 409 && /no longer looks orphaned/.test(e.message));
   }
-  assert.equal(signals.length, 2, 'nothing else was signalled');
+  assert.equal(signals.length, 3, 'nothing else was signalled');
   await assert.rejects(stopOrphan(4127, { ...deps, ps: () => null }), (e) => e.status === 503 && /ps gave no answer/.test(e.message));
 });
 

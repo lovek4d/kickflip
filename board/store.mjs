@@ -6132,6 +6132,17 @@ export async function checkCallsVerified(site, key, { dir } = {}) {
 }
 
 // docs/adr/2026-11-16-0830-a-builder-hands-back-with-a-summary-message.md
+// docs/adr/2026-11-16-1915-the-hub-status-opens-the-load-sheet-at-any-load-collapsed.md: builder done refuses while
+// processes the build started still run detached in its worktree, naming them. find: detached.mjs detachedIn.
+export async function refuseDetached(site, key, { agent = 'main' }, find) {
+  const record = await readJSON(await builderFile(site, key, undefined, agent), null);
+  if (!record?.started || record.done || !record.worktree?.path) return;
+  const left = find(record.worktree.path, Date.parse(record.started));
+  if (!left.length) return;
+  fail(`builder done refuses while ${key}'s build leaves processes running detached: ${left.map((p) => `${p.pid} ${p.command}`).join('; ')}. `
+    + `Stop them (kill ${left.map((p) => p.pid).join(' ')}) and run builder done again.`);
+}
+
 // `builder done --summary`: the done that ends a build, the main record of a build (no lander, rebase run, planner or
 // install) handing back its judgment calls or finishing the worktree it keeps, owes a summary of what
 // it built, which its record keeps and the thread shows as the Builder's message above its judgment calls (domain.mjs

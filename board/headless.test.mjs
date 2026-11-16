@@ -94,6 +94,11 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
   assert.ok(!brief.includes('testing'), 'the brief has no testing step');
 });
 
+// docs/adr/2026-11-16-1915-the-hub-status-opens-the-load-sheet-at-any-load-collapsed.md
+test("a builder's brief has it stop any process it starts in the background before the command returns, never leaving one detached", () => {
+  assert.match(builderBrief(card), /A process you start in the background \(CPU load such as `yes` to reproduce a flake, a server, a watcher\) you stop before the command that started it returns, with a `trap` or an explicit `kill`: never leave one running detached\. builder done refuses while one still runs in your worktree, and names it\./);
+});
+
 // docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md
 test("a builder's brief runs only the tests it writes or changes, as it builds, and leaves the affected set and the rebase to the land", () => {
   const b = `node ${BOARD_CLI} --site shop`;

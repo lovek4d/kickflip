@@ -17,6 +17,7 @@ import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 import { checkTakesRender } from '../render-check.mjs';
 import { prototypeBase } from '../prototype-base.mjs';
+import { detachedIn } from '../detached.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
@@ -639,6 +640,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          owner's merge (item set --pushed). A finish that fails
                                                          refuses with the reason and leaves the record open; one
                                                          refused while another agent's record is open names it.
+                                                         Any done of a record that keeps a worktree refuses while
+                                                         a process it started since the build began runs
+                                                         detached there (parent pid 1), naming each to stop.
                                                          A helper's done takes --text, its hand-back, which agent
                                                          wait prints. A grill's or prototype's done takes
                                                          no --text. No done posts a line to the thread.
@@ -969,6 +973,7 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ti
   if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep, check });
   const onBoard = site && !f.dir;
   if (onBoard && (f.agent ?? 'main') === 'main') await store.refuseNews(site, key);
+  if (onBoard) await store.refuseDetached(site, key, f, detachedIn);
   if (summary !== undefined && !onBoard) throw new UsageError('--summary goes on a board task: pass --site, not --dir');
   if (onBoard) await store.recordSummary(site, key, summary, f);
   const handed = onBoard && await store.handBackCalls(site, key, f);
