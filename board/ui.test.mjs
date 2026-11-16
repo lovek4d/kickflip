@@ -1677,7 +1677,7 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   const sent = ago(1);
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix <it>\nand more', files: [], ...extra } });
   const strip = (items, merges = []) => ui.newStrip(ui.newEntries({ items, merges }, {}), new Map());
-  const entryText = (html) => text(html.split('<div class="new-list">')[1]);
+  const entryText = (html) => text(html.split('<div class="list">')[1]);
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: grey "waiting…", its
   // dot still, counting up from the ask, until the orchestrator picks the task up, then the blue "processing...".
   const triaging = '<span class="pickup-wait" data-since="[^"]+" data-word="waiting…"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"></span></span>waiting…(?: \\([^)]+\\))?</span>';
@@ -1719,7 +1719,7 @@ test("the hub's Routed section is the New strip under its own head: each row lin
     { id: 'r3', at, text: 'also this', via: 'slack', by: 'Sam', reason: 'same work', to: { route: 'shop', ref: 'T-5', title: 'Checkout 500s', href: '/shop/#selectedCard=items%2FT-5', into: true } },
   ];
   const html = ui.newStrip(rows.map((routed) => ({ id: routed.id, routed })), new Map(), { label: 'Routed', empty: 'Nothing routed yet.' });
-  assert.match(html, /<div class="new-head"><span class="lane-name">Routed<\/span><span class="count">4<\/span><\/div>/);
+  assert.match(html, /<summary><span class="lane-name">Routed<\/span><span class="count">4<\/span><\/summary>/);
   assert.match(html, /<div class="new-msg">checkout &lt;500s&gt;<\/div>/);
   assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)">(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])]), [
     ['/shop/#selectedCard=items%2FT-5', 'Routed to /shop T-5 · Checkout 500s'],
@@ -3238,4 +3238,25 @@ test("the footer draws the server's words as sent, comparing none of the card's 
   assert.equal(lines(ui.workLines({ ...card, footer: [] })).at(-1), ui.cardTime(sortAt));
   const at = new Date(NOW - 4 * 60000).toISOString();
   assert.equal(ui.builderLine({ words: 'stopped · Running tests', alive: true, progress: null, at }), 'stopped · Running tests (4m)');
+});
+
+// docs/adr/2026-11-16-1500-new-groups-the-orchestrators-asks-under-a-collapsed-orchestrator-section.md
+test("New draws an ask the orchestrator filed under a collapsed Orchestrator sub-head, apart from the owner's, and counts only the main list", () => {
+  const card = (id, ask) => ({ kind: 'work', id, key: `w/${id}`, ref: id, isNew: true, created: ago(2), ask: { eventId: id, askedAt: ago(2), canEdit: true, text: `Ask ${id}`, files: [], state: 'waiting', ...ask } });
+  const strip = (items, open) => ui.newStrip(ui.newEntries({ items, merges: [] }, {}), new Map(), { open });
+  const items = [card('T-1', {}), card('T-2', { asked: true }), card('T-3', { asked: true })];
+  const [main, group] = strip(items).split('<details class="new-orchestrator"');
+  assert.match(main, /<details class="lane new-lane" data-lane="new" open><summary><span class="lane-name">New<\/span><span class="count">1<\/span>/);
+  assert.match(main, /Ask T-1/);
+  assert.doesNotMatch(main, /Ask T-[23]/, "the orchestrator's asks leave the main list");
+  assert.match(group, /^ data-lane="new-orchestrator" ><summary><span class="lane-name">Orchestrator<\/span><span class="count">2<\/span>/, 'collapsed by default');
+  assert.match(group, /Ask T-2[^]*Ask T-3/);
+  assert.match(strip(items, { 'new-orchestrator': true }), /<details class="new-orchestrator" data-lane="new-orchestrator" open>/);
+  // Only orchestrator asks wait: New is its head and the collapsed sub-head, counting nothing, and says nothing empty.
+  const only = strip(items.slice(1));
+  assert.match(only, /<span class="count">0<\/span><\/summary><div class="list"><details class="new-orchestrator"/);
+  assert.doesNotMatch(only, /new-empty/);
+  // New collapses like a lane: its remembered state shuts it.
+  assert.match(strip(items, { new: false }), /<details class="lane new-lane" data-lane="new" >/);
+  assert.doesNotMatch(strip(items.slice(0, 1)), /new-orchestrator/);
 });

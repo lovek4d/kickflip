@@ -27,12 +27,12 @@
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: the requests the hub's router
   // filed on a board and the asks other boards put to one (hub/router.mjs routedRows), newest first, on the board's own New strip.
   // unsent: the page outbox's rows the hub doesn't list yet, first (ui-cards.js newEntry).
-  const routedHtml = (rows, unsent) => `<section class="new-strip routed" aria-label="New">${BoardUI.newStrip([...unsent, ...rows.map((routed) => ({ id: routed.id, routed }))], new Map(),
-    { label: 'New', empty: 'Nothing new yet. A Slack @kickflip request, a task from the + button or another board’s ask shows here.' })}</section>\n`;
+  const routedHtml = (rows, unsent, open) => `<section class="new-strip routed" aria-label="New">${BoardUI.newStrip([...unsent, ...rows.map((routed) => ({ id: routed.id, routed }))], new Map(),
+    { open, label: 'New', empty: 'Nothing new yet. A Slack @kickflip request, a task from the + button or another board’s ask shows here.' })}</section>\n`;
 
   // restarting: the routes whose Restart is out; routed: the Routed section's rows, drawn after the Boards group, the
   // unsent rows first.
-  function sitesHtml(groups, restarting, routed, unsent) {
+  function sitesHtml(groups, restarting, routed, unsent, open) {
     const { row, CHEVRON } = HubUI;
     const site = (s) => {
       const busy = restarting.has(s.route);
@@ -40,7 +40,7 @@
       const sub = busy ? RESTARTING : `<span class="st ${esc(s.tone)}">${esc(s.word)}</span>${lines}`;
       return (s.restart ? restartRow(s, sub, busy) : row({ icon: s.icon, title: esc(s.title), sub, wrap: true, trail: CHEVRON, href: s.href })) + rememberedHtml(s.remembered);
     };
-    return groups.map((g) => `<h2 class="label">${esc(g.label)}</h2>\n<div class="group">${g.sites.map(site).join('')}</div>\n${g.label === 'Boards' ? routedHtml(routed, unsent) : ''}`).join('');
+    return groups.map((g) => `<h2 class="label">${esc(g.label)}</h2>\n<div class="group">${g.sites.map(site).join('')}</div>\n${g.label === 'Boards' ? routedHtml(routed, unsent, open) : ''}`).join('');
   }
 
   // One helper for every integration's missing permissions (docs/adr/2026-11-15-0730-an-integration-missing-a-permission-reads-degraded.md):
@@ -93,7 +93,7 @@
   // from the tap until the hub answers with its new code and the page reloads.
   const restartHubButton = (busy) => `<button type="button" class="btn quiet restart-btn" id="restart-hub" data-restart-hub${busy ? BoardUI.BUSY : ''}>Restart hub</button>`;
 
-  function html(d, { flash, prompts, restarting, restartingHub, unsent }) {
+  function html(d, { flash, prompts, restarting, restartingHub, unsent, open }) {
     const { row, tile } = HubUI;
     const usage = HubUI.usageCard(d.usage, d.codex, d.pause, d.claude);
     // The status word is plain text, except while the hub runs older code: then it opens the Restart hub confirm and waits like that button.
@@ -106,7 +106,7 @@
 ${HubUI.machineRow(d.pause.machine)}
 ${awakeRow(d.awake)}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
-${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed || [], unsent)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>`;
+${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed || [], unsent, open)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>`;
   }
 
   // The version line is one button: a tap checks npm now and pulls what it finds (POST /_hub/check-update), answering in
@@ -319,6 +319,11 @@ ${BoardNewTask.markup()}`,
         if (opener) B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener);
       });
       B.atUnmount(BoardUI.swipeToDismiss(sheet));
+      // New and its Orchestrator sub-head remember their open state as a board's lanes do (app-lanes.js).
+      B.on(main, 'toggle', (e) => {
+        if (!e.target.matches?.('details.lane, details.new-orchestrator')) return;
+        B.store.set('lanes', { ...B.store.get('lanes', {}), [e.target.dataset.lane]: e.target.open });
+      }, true);
       B.on(main, 'click', (e) => {
         const word = e.target.closest?.('[data-permissions]');
         if (word) {
@@ -344,7 +349,7 @@ ${BoardNewTask.markup()}`,
       let scrollToAwake = ctx.view?.hash === '#keep-awake';
       const paint = () => {
         if (!last) return;
-        main.innerHTML = html(last, { flash, prompts, restarting, restartingHub, unsent: unsentRows() });
+        main.innerHTML = html(last, { flash, prompts, restarting, restartingHub, unsent: unsentRows(), open: B.store.get('lanes', {}) });
         foot.innerHTML = footer(last, updateText);
         if (scrollToAwake) { scrollToAwake = false; B.$('#keep-awake')?.scrollIntoView(); }
       };

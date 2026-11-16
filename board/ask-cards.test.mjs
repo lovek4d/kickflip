@@ -33,6 +33,16 @@ test('a card an ask became reads New with its ask state until it is sorted, and 
   assert.deepEqual([Boolean(sorted.isNew), sorted.ask ?? null, sorted.unsorted], [false, null, false]);
 });
 
+test('an ask the orchestrator filed reads asked on its New ask, and an owner ask does not', async () => {
+  assert.equal(card(built()).ask.asked, undefined);
+  const filed = buildBoard({
+    now: Date.parse('2026-11-09T12:00:00Z'), threads: {}, askLinks: {}, working: {},
+    files: [{ slug: 'hub', agents: {}, itemFile: { items: [{ id: 'T-1', title: 'Fix', created: '2026-11-09T10:00:01Z', lane: 'todo', from_ask: 'a1' }] } }],
+    prs: {}, owner: {}, events: [{ ...ask, data: { ...ask.data, asked: { by: 'orchestrator' } } }],
+  });
+  assert.equal(card(filed).ask.asked, true);
+});
+
 test('an answered card waits in In Review for the owner\'s Done with no Action needed, a reply holds it on the orchestrator, and the answer shows in the banner', async () => {
   const threads = { 'hub/T-1': [{ ts: '2026-11-09T10:05:00Z', who: 'claude', text: 'It jumps because of the sticky bar.' }] };
   const answered = built({ item: { answered_at: '2026-11-09T10:05:00Z' }, threads });

@@ -3378,7 +3378,7 @@ test("Implement or Discuss in the New task box closes it at once, its button nev
   const row = b.root.querySelector(`#newStrip .new-entry[data-send="${stored.sendId}"]`);
   assert.equal(row.querySelector('.new-time').textContent, b.page.win.BoardUI.time(stored.ts), 'the time leads the footer');
   assert.deepEqual(b.root.querySelectorAll('#newStrip .new-entry').map((el) => el.dataset.new), ['a0', stored.sendId], 'at the end of the strip');
-  assert.equal(b.root.querySelector('#newStrip .new-head .count').textContent, '2');
+  assert.equal(b.root.querySelector('#newStrip summary .count').textContent, '2');
   assert.equal(row.querySelectorAll('button[data-edit], button[data-withdraw]').length, 0);
 
   await askTap(b, 'Dark mode', 'discuss');
@@ -4386,7 +4386,7 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
   assert.equal(strip().hidden, false);
   const ids = strip().parentNode.childNodes.filter((n) => n.nodeType === 1).map((n) => n.getAttribute('id'));
   assert.equal(ids.indexOf('newStrip') + 1, ids.indexOf('lanes'), 'the strip sits directly above the lanes');
-  assert.deepEqual([strip().querySelector('.new-head .lane-name').textContent, strip().querySelector('.new-head .count').textContent], ['New', '4']);
+  assert.deepEqual([strip().querySelector('summary .lane-name').textContent, strip().querySelector('summary .count').textContent], ['New', '4']);
   assert.deepEqual(entries().map((el) => el.dataset.new), ['a3', 'a1', 'a2', 'a4']);
   assert.deepEqual(entries().map((el) => el.querySelector('.new-msg').textContent), ['Rate limits per API key', 'Fix the header\nIt jumps on scroll', 'Dark mode', 'Also the footer\nand the nav']);
   assert.deepEqual(entries().map((el) => el.querySelector('.new-line').textContent.trim().replace(/^.*?\d{1,2}:\d{2}\s?[AP]M · /i, '')), ['Ticket created: T-7', 'waiting…', 'processing...', 'Added to T-2']);

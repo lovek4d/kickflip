@@ -141,7 +141,7 @@ BoardView.part((B) => {
 
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
-    if (el.matches?.('details.lane')) {
+    if (el.matches?.('details.lane, details.new-orchestrator')) {
       const s = store.get('lanes', {}); s[el.dataset.lane] = el.open; store.set('lanes', s);
     } else if (el.matches?.('details.fold')) store.set(FOLDS[el.dataset.fold].store, el.open);
     else if (el.matches?.('details.rv-card, details.rv-line')) {

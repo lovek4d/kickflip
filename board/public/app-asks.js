@@ -12,7 +12,7 @@ BoardView.part((B) => {
     const entries = [...BoardUI.newEntries(d, seen), ...B.unsentAsks(d)];
     const el = $('#newStrip');
     el.hidden = !entries.length;
-    BoardUI.setHTML(el, entries.length ? BoardUI.newStrip(entries, state.edits) : '');
+    BoardUI.setHTML(el, entries.length ? BoardUI.newStrip(entries, state.edits, { open: B.store.get('lanes', {}) }) : '');
   }
   // Dismiss, or following the entry's link to its card, marks the card read at the ingest, on every device, so the
   // entry leaves. The strip repaints after the click, so the browser follows the link as it was drawn.

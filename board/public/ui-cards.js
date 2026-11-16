@@ -352,9 +352,9 @@
   // board asked this one until its orchestrator answers it (the board's boardAsks, domain.mjs newBoardAsks).
   const unreadSince = (seen, key, at) => String(at) > String(seen[key] || '');
   function newEntries(d, seen) {
-    const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, sent: it.created, ask: it.ask, text: it.ask.text, note: it.ask.note, files: it.ask.files }));
+    const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, sent: it.created, ask: it.ask, text: it.ask.text, note: it.ask.note, files: it.ask.files, asked: it.ask.asked }));
     const made = d.items.filter((it) => it.ingested && unreadSince(seen, it.key, it.ingested.at))
-      .map((it) => ({ id: it.fromAsk, key: it.key, sent: it.created, at: it.ingested.at, text: it.ingested.text, files: it.ingested.files, made: it, lane: it.lane }));
+      .map((it) => ({ id: it.fromAsk, key: it.key, sent: it.created, at: it.ingested.at, text: it.ingested.text, files: it.ingested.files, asked: it.ingested.asked, made: it, lane: it.lane }));
     const added = (d.merges || []).filter((m) => unreadSince(seen, m.key, m.at))
       .map((m) => ({ id: m.id, key: m.key, sent: m.askedAt, at: m.at, text: m.message, files: m.files, into: m, lane: d.items.find((it) => it.key === m.key)?.lane }));
     const questions = (d.boardAsks || []).map((q) => ({ id: q.id, sent: q.sent, text: q.text, question: q }));
@@ -433,10 +433,20 @@
     return `<div class="new-entry" data-new="${esc(r.id)}"><div class="new-msg">${esc(r.text)}</div><div class="new-line sub${answered ? ' new-done' : ''}">${newTime(r.at)} · <a class="new-link" href="${esc(to.href)}">Asked <b>/${esc(to.route)}</b></a> · ${state}</div>`
       + `<div class="new-line sub new-why">${esc(`/${from.route}${from.ref ? ` ${from.ref}` : ''} · board ask`)}</div></div>`;
   }
-  // entries: newEntries, or {id, routed} for the hub's New rows (routed requests and board asks); edits: app-asks.js's state.edits, by ask id. label
-  // heads it, New on a board; empty is what an empty strip says, which a board's never draws.
-  const newStrip = (entries, edits, { label = 'New', empty = '' } = {}) => `<div class="new-head"><span class="lane-name">${esc(label)}</span><span class="count">${entries.length}</span></div>
-    <div class="new-list">${entries.length ? entries.map((e) => (e.routed ? routedEntry(e.routed) : newEntry(e, edits.get(e.id)))).join('') : `<div class="new-entry new-empty">${esc(empty)}</div>`}</div>`;
+  // docs/adr/2026-11-16-1500-new-groups-the-orchestrators-asks-under-a-collapsed-orchestrator-section.md
+  // entries: newEntries, or {id, routed} for the hub's New rows (routed requests and board asks); edits: app-asks.js's
+  // state.edits, by ask id. label heads it, New on a board; empty is what an empty strip says, which a board's never draws.
+  // New is a lane's <details> (data-lane new) and its entries the asked ones (an ask the orchestrator filed) leave sit
+  // under an Orchestrator sub-head, a <details> too (data-lane new-orchestrator), at the bottom. open: the lanes' remembered
+  // state (app-lanes.js), New's open by default and Orchestrator's closed. The count is the main list's.
+  const newStrip = (entries, edits, { label = 'New', empty = '', open = {} } = {}) => {
+    const draw = (e) => (e.routed ? routedEntry(e.routed) : newEntry(e, edits.get(e.id)));
+    const main = entries.filter((e) => !e.asked);
+    const orchestrator = entries.filter((e) => e.asked);
+    const group = orchestrator.length ? `<details class="new-orchestrator" data-lane="new-orchestrator" ${open['new-orchestrator'] ? 'open' : ''}><summary><span class="lane-name">Orchestrator</span><span class="count">${orchestrator.length}</span></summary>${orchestrator.map(draw).join('')}</details>` : '';
+    const rows = main.length ? main.map(draw).join('') : orchestrator.length ? '' : `<div class="new-entry new-empty">${esc(empty)}</div>`;
+    return `<details class="lane new-lane" data-lane="new" ${open.new ?? true ? 'open' : ''}><summary><span class="lane-name">${esc(label)}</span><span class="count">${main.length}</span></summary><div class="list">${rows}${group}</div></details>`;
+  };
 
   const RISK_TONES = { low: 'ready', medium: 'notice', high: 'danger' };
   function workLines(it, { unread = 0 } = {}) {

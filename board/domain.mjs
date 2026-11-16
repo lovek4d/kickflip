@@ -1222,7 +1222,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     }),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       // An ask the orchestrator filed (data.asked) is its message, under its From line; any other is the owner's.
-      .flatMap((e) => [...routedLine(e), ...handedLine(e), ...askedLine(e), { ts: e.ts, who: e.data?.asked ? 'claude' : 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
+      .flatMap((e) => [...routedLine(e), ...handedLine(e), ...askedLine(e), { ts: e.ts, who: e.data?.asked ? 'claude' : 'love', via: 'ask', kind: e.kind, ...(e.data?.asked ? { asked: true } : {}), text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}), ...(BRIEF_KINDS.includes(e.data?.request) ? { status: COMMANDS[e.data.request] } : {}) },
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
@@ -1355,7 +1355,7 @@ export function buildBoard(snapshot) {
       card.askMsg = msgs.find((m) => m.kind === 'ask' && m.eventId === it.from_ask) || null;
       // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md: when the orchestrator ingested the ask
       // (store.mjs leaveNew), and the owner's message and files, for the New strip's line to the card.
-      card.ingested = it.sorted_at && card.askMsg ? { at: it.sorted_at, text: card.askMsg.text, files: card.askMsg.files } : null;
+      card.ingested = it.sorted_at && card.askMsg ? { at: it.sorted_at, text: card.askMsg.text, files: card.askMsg.files, ...(card.askMsg.asked ? { asked: true } : {}) } : null;
       storedLinks.set(key, { parent: it.parent ? linkKey(slug, it.parent) : null, related: (it.related || []).map((r) => linkKey(slug, r)) });
       if (card.lane === 'done') closedWork.set(key, card.closedAt || String(card.updatedAt || ''));
     });
@@ -1479,7 +1479,7 @@ export function buildBoard(snapshot) {
       delete it.askMsg;
       if (it.unsorted && m) {
         it.isNew = true;
-        it.ask = { eventId: m.eventId, ...(m.sendId ? { sendId: m.sendId } : {}), state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null, note: m.note || null };
+        it.ask = { eventId: m.eventId, ...(m.sendId ? { sendId: m.sendId } : {}), state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null, note: m.note || null, ...(m.asked ? { asked: true } : {}) };
       }
     }
     // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a card whose block ended waits for the

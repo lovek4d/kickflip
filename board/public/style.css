@@ -482,10 +482,13 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
    an ask's line grey while it waits, orange while it is processed, and blue once ingested. */
 .new-strip { margin-top: 14px; }
 .new-strip[hidden] { display: none; }
-.new-head { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 5px 12px; background: var(--band);
-  border: 1px solid var(--line); border-bottom: 0; border-radius: 10px 10px 0 0; font-size: 13px; font-weight: 500; color: var(--text); }
-.new-head .count { color: var(--muted); font-weight: 400; }
-.new-list { border: 1px solid var(--line); border-radius: 0 0 10px 10px; background: var(--panel); overflow: hidden; }
+.new-strip > .lane { margin-top: 0; }
+/* The Orchestrator sub-head at the bottom of New: small grey caps, closed until tapped. */
+.new-orchestrator > summary { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 12px; border-top: 1px solid var(--line);
+  list-style: none; cursor: pointer; user-select: none; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.new-orchestrator > summary::-webkit-details-marker { display: none; }
+.new-orchestrator > summary .count { font-weight: 400; }
+.new-orchestrator:first-child > summary { border-top: 0; }
 .new-entry { padding: 10px 12px; border-top: 1px solid var(--line); }
 .new-entry:first-child { border-top: 0; }
 .new-msg { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
