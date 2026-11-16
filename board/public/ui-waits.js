@@ -30,7 +30,7 @@
     if (!waits.length) return '';
     const n = waits.length;
     return `<button type="button" class="waits-chip" data-waits aria-haspopup="dialog" aria-label="${n} waiting on the orchestrator">`
-      + `${BoardUI.iconText('dot', waitsTone(waits, now), '')}<span class="short">${n} waiting</span><span class="full">${n} waiting on orchestrator</span></button>`;
+      + `${BoardUI.iconText('dot', waitsTone(waits, now), '')}${n} waiting</button>`;
   }
   // items is the board's cards: a wait on one of them opens it; a wait with no card (an overnight triage, another
   // board's question) names its event and opens nothing.

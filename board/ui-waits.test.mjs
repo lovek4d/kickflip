@@ -26,12 +26,13 @@ test('the count is grey while every wait is under the re-wake, orange once one i
   assert.equal(waitsTone([wait('T-1', 'limbo', 10)]), 'grey');
 });
 
-test('the chip is gone at 0, and otherwise counts the waits, short on a phone, in full from the desktop width, in the oldest wait\'s colour', () => {
+test('the chip is gone at 0, and otherwise counts the waits as "n waiting" at every width, in the oldest wait\'s colour', () => {
   assert.equal(waitsChip([]), '');
   const chip = waitsChip([wait('T-1', 'intake', 2), wait('T-2', 'calls', 34), wait('T-3', 'answer', 18)]);
   assert.match(chip, /^<button type="button" class="waits-chip" data-waits aria-haspopup="dialog" aria-label="3 waiting on the orchestrator"/);
   assert.match(chip, /<span class="it it-red"><span class="it-i it-dot" aria-hidden="true"><\/span><\/span>/);
-  assert.match(chip, /<span class="short">3 waiting<\/span><span class="full">3 waiting on orchestrator<\/span>/);
+  assert.match(chip, /<span class="it-i it-dot" aria-hidden="true"><\/span><\/span>3 waiting<\/button>$/);
+  assert.doesNotMatch(chip, /on orchestrator<\/|class="(short|full)"/);
   assert.equal(waitsTitle(3), 'Waiting on the orchestrator · 3');
 });
 
