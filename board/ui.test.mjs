@@ -1656,21 +1656,21 @@ test("a builder line shows the progress and its age, not who is building", () =>
 });
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
-test("an ask in the New strip reads the owner's whole message, then whether it was moved or edited and a grey triaging or a blue processing..., with edit and delete; an ingested one links to its card, in blue, with Dismiss", () => {
+test("an ask in the New strip reads the owner's whole message, then whether it was moved or edited and a grey waiting… or a blue processing..., with edit and delete; an ingested one links to its card, in blue, with Dismiss", () => {
   const sent = ago(1);
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix <it>\nand more', files: [], ...extra } });
   const strip = (items, merges = []) => ui.newStrip(ui.newEntries({ items, merges }, {}), new Map());
   const entryText = (html) => text(html.split('<div class="new-list">')[1]);
-  // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: grey "triaging", its
+  // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: grey "waiting…", its
   // dot still, counting up from the ask, until the orchestrator picks the task up, then the blue "processing...".
-  const triaging = '<span class="pickup-wait" data-since="[^"]+" data-word="triaging"><span class="working-dot" aria-hidden="true"></span>triaging(?: \\([^)]+\\))?</span>';
+  const triaging = '<span class="pickup-wait" data-since="[^"]+" data-word="waiting…"><span class="working-dot" aria-hidden="true"></span>waiting…(?: \\([^)]+\\))?</span>';
   assert.match(strip([ask({ state: 'waiting' })]), /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div>/);
   assert.match(strip([ask({ state: 'waiting' })]), new RegExp(triaging));
   assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub"><span class="new-time">[^<]+<\/span> · Edited · <span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing...<\/span><\/div>/);
   // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md: a handed ask's source
   // line links the card it came from, and the sender's note is quoted under the message.
   const handed = strip([ask({ state: 'waiting', from: { words: '/orch · A1', link: '/orch/#selectedCard=w%2FA1' }, note: 'Yours <now>' })]);
-  assert.match(entryText(handed), /From \/orch · A1 · triaging(?: \([^)]+\))?$/);
+  assert.match(entryText(handed), /From \/orch · A1 · waiting…(?: \([^)]+\))?$/);
   assert.match(handed, /<a class="new-source" href="\/orch\/#selectedCard=w%2FA1">From \/orch · A1<\/a>/);
   assert.match(handed, /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div><blockquote class="quote new-note">Yours &lt;now&gt;<\/blockquote>/);
   assert.doesNotMatch(strip([ask({ state: 'waiting' })]), /new-note|new-source/);
@@ -1679,7 +1679,7 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   assert.match(style, /\.new-entry \.processing \{ color: var\(--color-info\);/);
   assert.doesNotMatch(style, /\.new-entry \.processing \{[^}]*--color-notice/);
   // docs/adr/2026-11-13-0000-a-new-strip-entry-shows-its-time-first.md: the footer starts with the ask's time, as a thread reply's does.
-  assert.match(entryText(strip([ask({ state: 'waiting' })])), new RegExp(`${ui.time(sent)} · triaging(?: \\([^)]+\\))?$`));
+  assert.match(entryText(strip([ask({ state: 'waiting' })])), new RegExp(`${ui.time(sent)} · waiting…(?: \\([^)]+\\))?$`));
   assert.deepEqual([...strip([ask({ state: 'waiting' })]).matchAll(/data-(card-bump|edit|withdraw|dismiss-new)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['edit', 'a1'], ['withdraw', 'a1']]);
   // Ingested: a line to the card it became or was added to, and Dismiss, which carries the card's key and the ingest's time.
   const made = { kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', title: 'fix: <header>', fromAsk: 'a1', created: sent, ingested: { at: ago(0.5), text: 'Fix it' } };
