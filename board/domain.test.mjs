@@ -1876,7 +1876,10 @@ test("a card owing a brief reads the brief's word, blue, and waits on the orches
   assert.deepEqual([written.briefing, written.planning, written.orchestrator?.kind], [null, null, undefined]);
   const drawing = one({ phase: 'discussing' }, { 'visual-1': { kind: 'visual', model: 'sonnet', started: at(7) } });
   assert.deepEqual([drawing.planning, drawing.builder], ['generating visual', null]);
-  assert.equal(one({ lane: 'done', briefs: [{ kind: 'grill', at: at(5) }] }).planning, null, 'a closed task owes nothing');
+  for (const kind of ['grill', 'prototype', 'visual', 'reviewer']) for (const lane of ['progress', 'review', 'done']) {
+    const it = one({ lane, briefs: [{ kind, at: at(5) }] });
+    assert.deepEqual([it.orchestrator?.kind, it.orchestrator?.since], ['brief', at(5)], `${kind} in ${lane}`);
+  }
 });
 
 test('a card-unbump after a card-bump unbumps the card, and a later bump bumps it again', () => {
@@ -3049,17 +3052,17 @@ test("a Questions added line stays in the thread, open while any of its own batc
 });
 
 // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
-test('a card lists every wait it has on the orchestrator, so one never hides another, and a brief is owed only in Todo', () => {
+test('a card lists every wait it has on the orchestrator, so one never hides another, and a brief is owed in every lane', () => {
   const at = '2026-11-04T10:00:00Z';
   const built = ({ items, agents = {}, events = [], owner = {} }) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), owner, events, threads: {}, working: {},
     files: [{ slug: 'w', agents, itemFile: { internal: true, items } }] });
   const kinds = (b) => orchestratorWaits(b).map((w) => [w.key, w.kind, w.since]);
   const handed = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z', done: at, handed_back: at, calls: [{ at: '2026-11-04T09:30:00Z', text: 'x' }] } } };
   const stray = [{ kind: 'grill', at: '2026-11-04T08:00:00Z' }];
-  // T-182: a hand-back's calls with a stray owed brief past Todo read as calls.
+  // A brief owed past Todo waits beside a hand-back's calls, the brief first.
   const calls = built({ items: [{ id: 'A1', title: 'One', lane: 'progress', briefs: stray }], agents: handed });
-  assert.deepEqual(kinds(calls), [['w/A1', 'calls', at]]);
-  assert.equal(calls.items[0].orchestrator.kind, 'calls');
+  assert.deepEqual(kinds(calls), [['w/A1', 'brief', '2026-11-04T08:00:00Z'], ['w/A1', 'calls', at]]);
+  assert.equal(calls.items[0].orchestrator.kind, 'brief');
   // An owner answer not acted on and the calls both wait, the answer first on the card.
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which?', asked_at: '2026-11-04T08:30:00Z' };
   const answer = { id: 'e1', ts: '2026-11-04T09:45:00Z', kind: 'owner-answer', data: { id: 'q1', note: 'this' }, reply: null };

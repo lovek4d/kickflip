@@ -359,7 +359,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const rebaseFailed = rebasing && waitsOn === 'checking'
     ? agents.flatMap((a) => a.calls).sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1)?.text ?? null : null;
   // A reviewer's owed brief is the orchestrator's wait alone: the card's status line stays what its work says.
-  const briefing = lane === 'done' ? null : BRIEF_KINDS.find((k) => k !== REVIEWER && (it.briefs || []).some((b) => b.kind === k && !b.brief)) ?? null;
+  const briefing = BRIEF_KINDS.find((k) => k !== REVIEWER && (it.briefs || []).some((b) => b.kind === k && !b.brief)) ?? null;
   // A checked card with nothing left to verify waits to land: its land step (landStep), read from the server's lander
   // for it (landers {<key>: {...entry, alive, limited}}), what holds a launch of its kind (landHeld {<kind>: words}) and
   // what store.mjs landable skips it for (landSkips {<key>: skip}), as the server's launchLanders reads them.
@@ -410,7 +410,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the card's briefs, owed or
     // waiting to launch, the kind whose brief the orchestrator owes (briefing), and the card's blue status word for them:
     // the brief's while it is owed, else generating visual while a visual agent draws.
-    briefs: lane === 'done' ? [] : it.briefs || [], briefing,
+    briefs: it.briefs || [], briefing,
     planning: briefing ? BRIEF_WORD[briefing] : agents.some((a) => a.kind === VISUAL && a.started && !a.done) ? PLANNER_WORD[VISUAL] : null,
     // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: the running reviewer's grey row, what it
     // reviews (diff or plan) and since when.
@@ -1576,7 +1576,9 @@ export function buildBoard(snapshot) {
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered' || (q.resolved === ANSWERED && q.state === 'resolved' && q.answers.length && !q.answers.at(-1).reply)).map((q) => q.answers.at(-1).ts).sort().pop();
     // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
     // Review (laneOf, workItem); a card the orchestrator stalled waits on the owner alone.
-    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.briefs.some((b) => b.kind === REVIEWER && !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince }) : [];
+    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.briefs.some((b) => !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince })
+      // A requested brief is owed in every lane: Done owes that wait alone.
+      : it.briefs.some((b) => !b.brief) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince }).filter((w) => w.kind === 'brief') : [];
     // The card shows its first wait; the waits list (orchestratorWaits) names every one.
     it.orchestrator = waits[0] || null;
     it.moreWaits = waits.slice(1);
@@ -2121,9 +2123,8 @@ const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPha
   && !it.briefs.length && !it.plannerQueued && !it.agents.some((a) => a.started && !a.done);
 function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
-  // A brief is owed only in Todo: a card past it has its build under way. A reviewer's is owed in any open lane, since
-  // a review of the diff comes once the build is under way.
-  const owed = it.lane === 'todo' && it.briefing ? it.briefs.find((b) => b.kind === it.briefing && !b.brief) : it.briefs.find((b) => b.kind === REVIEWER && !b.brief) ?? null;
+  // A requested brief not yet written is owed in every lane, Done included.
+  const owed = it.briefs.find((b) => b.kind === it.briefing && !b.brief) ?? it.briefs.find((b) => b.kind === REVIEWER && !b.brief) ?? null;
   const briefed = (kind) => it.briefs.some((b) => b.kind === kind);
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
   const unasked = facts.unasked && it.storedPhase === { grill: 'grilling', prototype: 'prototyping' }[facts.unasked.kind]
