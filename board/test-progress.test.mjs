@@ -66,3 +66,26 @@ test('a test report on a worktree finds the card whose open build keeps it', asy
   assert.equal(await store.cardOfWorktree(site('audit'), '/tmp/some-worktree'), 'audit/A1');
   assert.equal(await store.cardOfWorktree(site('audit'), '/tmp/elsewhere'), null);
 });
+
+// After a failed land the card's main record is the lander's and the builder's run sits in a past record: every status
+// line the land writes still carries the run its section folds under, and a line that would carry none is refused.
+test("a land's status lines keep the card's run once a lander holds the main record", async () => {
+  const file = site('audit', 'data', 'agents', 'A1.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const lander = { kind: 'claude', label: 'Lander', started: '2026-11-16T06:09:04.924Z', session: { id: 's1' } };
+  fs.writeFileSync(file, JSON.stringify(lander));
+  await store.landingLine(site('audit'), 'audit/A1');
+  const report = await store.testReport(site('audit'), 'audit/A1', { phase: 'landing' });
+  await report.start('151 test files');
+  await report.end('2080 passed, 0 failed in 1m 2s');
+  const thread = lines(site('audit', 'data', 'threads', 'audit__A1.jsonl')).filter((m) => m.kind === 'status');
+  assert.deepEqual(thread.map((m) => m.run), Array(3).fill(lander.started));
+});
+
+test('a status line with no run to keep is an error while a run is open', async () => {
+  const file = site('audit', 'data', 'agents', 'A1.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ kind: 'grill', started: '2026-11-16T06:09:04.924Z', session: { id: 's1' } }));
+  await assert.rejects(store.landingLine(site('audit'), 'audit/A1'), /open run but no build/);
+  await assert.rejects(store.testReport(site('audit'), 'audit/A1', { phase: 'landing' }), /open run but no build/);
+});

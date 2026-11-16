@@ -4699,16 +4699,25 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
   await appendLine(file, { ts, who: 'claude', kind: 'status', run: builder.started, ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), ...(live ? { live: true } : {}), text: body });
 }
 
+// The card's newest build record, a lander's included: a lander's run folds into the build it lands (domain.mjs sectionOf),
+// and after a failed land its record is the card's only live one. A status line written with no run while a record is
+// open would draw loose, so that is an error; with no record open there is no run to keep (a card never built).
+async function newestBuild(site, key) {
+  const { source } = await loadItem(site, key);
+  const records = (await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)))).filter((r) => r?.started);
+  const newest = records.filter(builds).sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
+  if (!newest && records.some((r) => !r.done)) fail(`${key} has an open run but no build to keep a status line's run`);
+  return newest ?? {};
+}
+
 // docs/adr/2026-11-13-2030-a-test-run-reports-live-lines-the-thread-does-not-show.md
 // A test run's words for a card, under phase (building for a builder's run, landing for a land's): {start, update, end},
 // each taking words and writing them as the card's newest status line, as `builder progress` does for the card's open
 // build (or its newest, once handed back). The start and the result stay in the thread; an update is a live line, which sets the card's line and keeps a
 // running build from reading stale but is not shown in the thread (domain.mjs threadOf).
 export async function testReport(site, key, { phase }) {
-  const { source } = await loadItem(site, key);
   // Like the landing line, it joins the section of the card's newest build, which is closed once the build handed back.
-  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
-  const record = records.filter((r) => r?.started && builds(r) && r.label !== LANDER).sort((a, b) => String(b.started).localeCompare(String(a.started)))[0] ?? {};
+  const record = await newestBuild(site, key);
   const say = (live) => async (words) => {
     const line = progressLine(site, phase, words, 'a test report');
     await statusToThread(site, key, 'main', record, line, new Date().toISOString(), { live });
@@ -5508,13 +5517,9 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
 
 // The finish step's own landing line, so the card's fifth bar lights while it rebases and lands, whoever finishes it.
 export async function landingLine(site, key) {
-  const { source } = await loadItem(site, key);
   const file = threadFile(site, key);
   if ((await readLog(file)).filter((m) => m.kind === 'status').pop()?.phase === 'landing') return;
-  // It joins the section of the card's newest build, which a lander's lines join after it.
-  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
-  const run = records.filter((r) => r?.started && builds(r) && r.label !== LANDER).map((r) => r.started).sort().pop();
-  await appendLine(file, { ts: new Date().toISOString(), who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: rebasing onto main and landing', ...(run ? { run } : {}) });
+  await appendLine(file, { ts: new Date().toISOString(), who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: rebasing onto main and landing', run: (await newestBuild(site, key)).started });
 }
 
 // A judgment call is one line a builder records as it decides, kept on its record as {at, text}; the session's
