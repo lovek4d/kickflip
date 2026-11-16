@@ -1,0 +1,17 @@
+# Orchestrator waits keep a history, and waits history audits it
+
+#849. The owner asked whether "waiting on orchestrator" is logged, to audit later which tasks sat long, such as a task stuck in New. It wasn't: the server appended `orchestrator-waits {added: [key], again}` when a wait joined the list, with keys only, no kind, and nothing when a wait was picked up or cleared, so nobody could work out how long anything waited.
+
+## Decision
+
+- **Each wait logs its open and its clear in `events.jsonl`.** A wait is its key, kind and since (`domain.mjs` `waitsStep`, which already diffed the stored list with the current one). The waking `orchestrator-waits` event now carries `opened: [{key, ref, title, kind, since, picked}]`, each wait that joined not picked up, in place of `added`; its watcher line still names the keys. A new record-only `waits-history {opened, cleared}` carries the waits that joined already picked up and each that left the list, `{key, ref, title, kind, since, picked, cleared}`, `cleared` being the check's time. One event of each kind per check, not one per wait, so a check still wakes the orchestrator at most once. A clear wakes nobody: nothing is owed.
+- **`board.mjs waits history [--since <date>] [--kind <k>]` audits them** (`domain.mjs` `waitsHistory`, `waitsHistoryLines`): per kind, its count and the median and longest time from since to pickup and to clear, then each wait 15 minutes or more unpicked (`WAIT_AUDIT_AFTER`), the longest first. Intake (a task stuck in New) comes first in both. A wait still open counts to now. Events from before this change have no kind or since and are skipped.
+- **The first wait check of a new local day names the last day's long waits to the orchestrator**, not the owner: a record-only `long-waits {day, waits: [{key, ref, kind, since, unpicked}]}` event naming each wait that opened that day and sat 15 minutes or more unpicked, and nothing for a day with none. Its line prints on the orchestrator's next wake, so it costs no wake of its own. `data/orchestrator-waits.json` keeps `day`, the day it last checked, so the event goes once across restarts; a board's first check starts the count without one. The owner sees the waits through `waits history`.
+- **The waits-filter hook reads only the watcher's output.** `hooks-plugin/hooks/waits-filter-gate.mjs` refuses a filter on a background task's `.output` file or `$O`, no longer on any command naming `wait-events`, so a read of the watcher's source such as `sed -n 1,20p bin/wait-events.mjs` passes ([the watcher collapses repeat waits, and a hook refuses filtering them](2026-11-15-1930-the-watcher-collapses-repeat-waits-and-a-hook-refuses-filtering-them.md)).
+
+## Considered
+
+- **A daily push to the owner.** No: the owner's direction (T-190) is to move away from notifications that the orchestrator missed something and bump the orchestrator instead, and pushes still stack on iOS (T-509). A wait never pushes the owner; the re-wake is the reminder ([nothing waiting on the orchestrator is missed](2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md)).
+- **A status line on each long-waiting card.** No: a server-written line on a card can read as the orchestrator's and end a `reply` wait.
+- **A waking event for the day's list.** No: nothing in it needs the orchestrator at once, and a wait still open is already on its waits lines.
+- **A separate history file.** No: `events.jsonl` already holds every board signal, and the record-only list keeps the history from waking anyone.

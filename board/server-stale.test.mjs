@@ -106,6 +106,9 @@ test('a silent builder wakes the session once per silent spell through the orche
   put(thread, JSON.stringify({ ts: progress, kind: 'status', text: 'Running tests' }) + '\n');
   await board.changed(thread);
   assert.equal(waits().length, 0, 'progress ends the wait');
+  // docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md: its clear is logged.
+  assert.deepEqual(lines(path.join(dataDir, 'events.jsonl')).filter((e) => e.kind === 'waits-history').at(-1).data,
+    { opened: [], cleared: [{ key: 't/A1', ref: 'A1', title: 'One', kind: 'stale', since: started, picked: null, cleared: progress }] });
   clock.advance(31);
   await board.minute();
   assert.equal(wakes().length, 2, 'the next silent spell wakes it again');
@@ -513,7 +516,7 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   put(itemsFile, JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress', next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two', phase: 'discussing' }] }));
   await board.changed(buildFile, itemsFile);
   assert.equal(wakes().length, 1, 'the hand-back wakes the session');
-  assert.deepEqual(wakes(), [{ added: ['t/A1'], again: [] }]);
+  assert.deepEqual(wakes(), [{ opened: [{ key: 't/A1', ref: 'A1', title: 'One', kind: 'calls', since: handedAt, picked: null }], again: [] }]);
   assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since, w.picked, w.bumped]), [['t/A1', 'calls', handedAt, null, iso(clock.at)]]);
   assert.equal(pushes().length, 0, 'five minutes in, no push');
   await board.minute();
@@ -527,7 +530,7 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   clock.advance(1);
   await board.minute();
   assert.equal(wakes().length, 2, 'woken again 15 minutes on');
-  assert.deepEqual(wakes()[1], { added: [], again: [again] });
+  assert.deepEqual(wakes()[1], { opened: [], again: [again] });
   clock.advance(11);
   await board.minute();
   assert.equal(pushes().length, 0, 'no push 30 minutes on: the reminder is the re-wake');
@@ -541,7 +544,7 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   clock.advance(4);
   await board.minute();
   assert.equal(wakes().length, 3, 'the restart kept the last wake: woken 15 minutes after it');
-  assert.deepEqual(wakes()[2], { added: [], again: [again] });
+  assert.deepEqual(wakes()[2], { opened: [], again: [again] });
   // The session's thread line picks it up: it stays on the list, picked, and wakes nothing for an hour from the pickup.
   const picked = iso(clock.at);
   put(threadFile, JSON.stringify({ ts: picked, who: 'claude', text: 'Checking the calls.' }) + '\n');
@@ -553,9 +556,48 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   clock.advance(1);
   await board.minute();
   assert.equal(wakes().length, 4, 'still open an hour after the pickup');
-  assert.deepEqual(wakes()[3], { added: [], again: [again] });
+  assert.deepEqual(wakes()[3], { opened: [], again: [again] });
   await board.minute();
   assert.equal(wakes().length, 4, 'one wake per due time');
+});
+
+// docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md
+test('once a day is over the board names the waits that sat over 15 minutes unpicked that day to the orchestrator in a long-waits event, once, pushing nothing, and nothing on its first day or for a day without one', async (t) => {
+  const day = (d, h, m = 0) => new Date(2026, 10, d, h, m).getTime();
+  const { dir, siteDir, dataDir, clock } = scratch(t, 'long-waits', day(14, 10));
+  const eventsFile = path.join(dataDir, 'events.jsonl');
+  const calls = path.join(dir, 'push-calls.jsonl');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(dataDir, 'items.json'), JSON.stringify({ items: [] }));
+  fs.writeFileSync(path.join(dir, 'push-stub.mjs'), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(3)) + '\\n'); console.log('sent');");
+  Object.assign(process.env, { KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls });
+  const rec = (key, kind, since, picked, cleared) => ({ key, ref: key.slice(2), title: key, kind, since: iso(since), picked: picked && iso(picked), cleared: iso(cleared) });
+  const history = (...cleared) => cleared.map((c) => JSON.stringify({ ts: c.cleared, kind: 'waits-history', data: { opened: [], cleared: [c] } }) + '\n').join('');
+  fs.writeFileSync(eventsFile, history(rec('t/A1', 'calls', day(14, 9), day(14, 9, 3), day(14, 9, 10))));
+  const named = () => lines(eventsFile).filter((e) => e.kind === 'long-waits').map((e) => e.data);
+  const board = server(t, siteDir);
+  await board.start();
+  await board.minute();
+  assert.deepEqual(named(), [], 'the first day starts the count, naming nothing');
+  fs.appendFileSync(eventsFile, history(rec('t/T5', 'intake', day(14, 11), day(14, 11, 40), day(14, 12)), rec('t/A2', 'calls', day(14, 13), null, day(14, 13, 20))));
+  clock.set(day(14, 23, 59));
+  await board.minute();
+  assert.deepEqual(named(), [], 'not before the day is over');
+  clock.set(day(15, 0, 1));
+  await board.minute();
+  assert.deepEqual(named(), [{ day: '2026-11-14', waits: [
+    { key: 't/T5', ref: 'T5', kind: 'intake', since: iso(day(14, 11)), unpicked: 40 * 60000 },
+    { key: 't/A2', ref: 'A2', kind: 'calls', since: iso(day(14, 13)), unpicked: 20 * 60000 },
+  ] }]);
+  await board.stop();
+  await board.start();
+  await board.minute();
+  assert.equal(named().length, 1, 'once, across a restart');
+  clock.set(day(16, 0, 1));
+  await board.minute();
+  assert.equal(named().length, 1, 'a day with no long wait names nothing');
+  assert.deepEqual(lines(calls), [], 'nothing goes to the phone');
 });
 
 // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md
@@ -588,7 +630,7 @@ test('an event no task holds stays on the orchestrator list past its wake, wakes
   append({ id: 'a1', kind: 'arch-review', data: { key: 't/A1', repo: '/code/r', branch: 'main' } });
   append({ id: 's1', kind: 'slack-question', data: { reviewer: 'Ann', from: 'reviewer', answer: true } });
   await board.changed(eventsFile);
-  assert.deepEqual(wakes().at(-1), { added: ['p1', 'r1', 'a1', 's1'], again: [] });
+  assert.deepEqual(wakes().at(-1).opened.map((w) => w.key), ['p1', 'r1', 'a1', 's1']);
   assert.deepEqual(waits(), [['p1', 'pr-review', 'PR #12', null], ['r1', 'review-answer', 'PR #13', null], ['a1', 'arch-review', 'A1', null], ['s1', 'slack-question', 'Slack · Ann', null]]);
   // The watcher printing the events changes nothing: each stays until its own command runs.
   const woken = wakes().length;

@@ -70,7 +70,7 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   add('item-message', { key: 'w/A1' });
   add('item-message', { key: 'w/A1', text: 'Use the blue', intent: 'build' });
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md: a re-wake wakes a paused session too.
-  add('orchestrator-waits', { added: ['w/A3'], again: [{ key: 'w/A1', ref: 'A1', kind: 'calls', since: new Date(Date.now() - 2 * 3600_000 - 30_000).toISOString(), next: "Verify the builder's judgment calls" }] });
+  add('orchestrator-waits', { opened: [{ key: 'w/A3', ref: 'A3', title: 'Three', kind: 'intake', since: new Date().toISOString(), picked: null }, { key: 'w/A3', ref: 'A3', title: 'Three', kind: 'reply', since: new Date().toISOString(), picked: null }], again: [{ key: 'w/A1', ref: 'A1', kind: 'calls', since: new Date(Date.now() - 2 * 3600_000 - 30_000).toISOString(), next: "Verify the builder's judgment calls" }] });
   add('builder-ask', { key: 'w/A1', ask: 'ask1', agent: 'main', text: 'Stay orange?' });
   assert.equal(await first.run(), 0);
   const out = { stdout: first.out() };

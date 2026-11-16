@@ -2,7 +2,7 @@
 // other kind the board writes has an action line here and an entry in SKILL.md
 // (docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md; bin/event-lines.test.mjs keeps it so).
 import path from 'node:path';
-import { askedBy, NOT_THE_OWNER, waitsAgainLine } from '../board/domain.mjs';
+import { askedBy, longWaitsLine, NOT_THE_OWNER, waitsAgainLine } from '../board/domain.mjs';
 import { cardName } from '../board/store.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 
@@ -24,7 +24,10 @@ export const RECORD_ONLY = ['main-pulled', 'settings', 'reviewers-removed', 'rev
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: the orchestrator's own answer.
   'board-ask-answered',
   // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: a slack command's record.
-  'slack-handled'];
+  'slack-handled',
+  // docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md: the waits that cleared,
+  // and those that opened already picked up; and the day's long waits, whose line the next wake prints.
+  'waits-history', 'long-waits'];
 const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
 export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 
@@ -38,8 +41,10 @@ export const PLAIN = {
   // arch-review and slack-question each wait on the orchestrator until the command its line names runs.
   'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle; read its diff and review post it, or review record it`,
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
-  'orchestrator-waits': (e) => [e.data?.added?.length && `waiting on you now: ${e.data.added.join(', ')}`,
+  'orchestrator-waits': (e) => [e.data?.opened?.length && `waiting on you now: ${[...new Set(e.data.opened.map((w) => w.key))].join(', ')}`,
     e.data?.again?.length && waitsAgainLine(e.data.again, Date.parse(e.ts))].filter(Boolean).join(' · '),
+  // docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md
+  'long-waits': (e) => longWaitsLine(e.data),
   // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
   'check-github': (e) => (e.data?.reason === 'morning' ? 'the daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any task stuck with no wait; a thread line on each task you act on, nothing else' : 'GitHub check asked: run one GitHub tick'),
   'github-change': (e) => `${e.data?.prs?.length ?? 0} PRs changed on GitHub: run one GitHub tick`,

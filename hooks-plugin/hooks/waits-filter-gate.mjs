@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// A PreToolUse hook on Bash that refuses a command that reads the watcher's output (a wait-events output file, $O, or
-// wait-events itself) through a filter that can drop `waits` lines: rg/grep -v, head, tail, awk, sed deleting or -n,
+// A PreToolUse hook on Bash that refuses a command that reads the watcher's output (a background task's .output file
+// or $O; a command naming wait-events.mjs, such as a read of its source, is no read of its output) through a filter that can drop `waits` lines: rg/grep -v, head, tail, awk, sed deleting or -n,
 // or an rg/grep for anything but waits or events. A dropped waits line is a card left waiting on the orchestrator
 // unseen. These pass: `rg '^waits' $O` whole, with `cut` after it, and any filter after an `rg '^event'` selection,
 // which only narrows events (docs/adr/2026-11-15-1930-the-watcher-collapses-repeat-waits-and-a-hook-refuses-filtering-them.md).
@@ -26,7 +26,7 @@ function pipelines(line) {
   return out;
 }
 
-const READS_WATCHER = /\$\{?O\}?(?![\w])|wait-events|\.output\b/;
+const READS_WATCHER = /\$\{?O\}?(?![\w])|\.output\b/;
 
 // → whether the pipeline can drop a waits line before an events selection narrows it
 function drops(stages) {

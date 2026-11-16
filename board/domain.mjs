@@ -2245,15 +2245,24 @@ export function waitTone(wait, now) {
 // Each entry carries tone, restamped on every check, so the stored list changes when a wait crosses a threshold.
 // All the reminders share one clock: while the last one (lastAgain, an ISO time or null) is under REWAKE_AFTER old, due
 // waits stay due and wake nothing, and the next reminder carries every wait due by then.
-// → {waits, added: [key], again: [{key, ref, kind, since, next}], againAt}
+// added names each card a joining wait not picked up wakes the session for; opened is each wait that joined, and
+// cleared each stored one gone, with when it was picked up and the check's time
+// (docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md).
+// → {waits, added: [key], opened: [entry], cleared: [{...entry, cleared}], again: [{key, ref, kind, since, next}],
+// againAt}, each entry {key, ref, title, kind, since, picked}
 export function waitsStep(previous, current, now, lastAgain = null) {
   const at = now.toISOString();
+  const same = (a, b) => a.key === b.key && a.kind === b.kind && a.since === b.since;
+  const entry = (w) => ({ key: w.key, ref: w.ref, title: w.title, kind: w.kind, since: w.since, picked: w.picked ?? null });
   const added = [];
+  const opened = [];
+  const cleared = previous.filter((p) => !current.some((w) => same(p, w))).map((p) => ({ ...entry(p), cleared: at }));
   const again = [];
   const clockOpen = !lastAgain || now - Date.parse(lastAgain) >= REWAKE_AFTER;
   const waits = current.map((w) => {
-    const was = previous.find((p) => p.key === w.key && p.kind === w.kind && p.since === w.since);
+    const was = previous.find((p) => same(p, w));
     if (!was) {
+      opened.push(entry(w));
       if (!w.picked && !added.includes(w.key)) added.push(w.key);
       return { ...w, tone: waitTone(w, now), bumped: at };
     }
@@ -2263,20 +2272,73 @@ export function waitsStep(previous, current, now, lastAgain = null) {
     if (wakes) again.push({ key: w.key, ref: w.ref, kind: w.kind, since: w.since, next: w.next });
     return { ...w, tone: waitTone(w, now), bumped: wakes ? at : was.bumped || w.since };
   });
-  return { waits, added, again, againAt: again.length ? at : lastAgain };
+  return { waits, added, opened, cleared, again, againAt: again.length ? at : lastAgain };
 }
+// A span of ms as whole minutes: "40m", "2h", "2h 5m".
+const spanWords = (ms) => {
+  const minutes = Math.floor(ms / 60000);
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
+};
 // The plain line the watcher prints for a re-wake's cards at time at (ms):
 // "still waiting on you: <ref> <kind> for <age>: <next>", the cards joined by "; ".
 export function waitsAgainLine(again, at) {
-  const age = (since) => {
-    const minutes = Math.floor((at - Date.parse(since)) / 60000);
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
-  };
-  return `still waiting on you: ${again.map((w) => `${w.ref} ${w.kind} for ${age(w.since)}: ${w.next}`).join('; ')}`;
+  return `still waiting on you: ${again.map((w) => `${w.ref} ${w.kind} for ${spanWords(at - Date.parse(w.since))}: ${w.next}`).join('; ')}`;
 }
 
+// docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md
+// How long a wait goes unpicked before the audit names it.
+export const WAIT_AUDIT_AFTER = 15 * 60000;
+// The audit of the waits the event log records (waitsStep's opened and cleared, in orchestrator-waits and waits-history
+// events), each wait being its key, kind and since, kept when its since is at or after from and before to (ms) and its
+// kind is kind, each null for any. A wait still open counts to now, taking its pickup from open, the current waits
+// (data/orchestrator-waits.json), since the log records a later pickup only when the wait clears.
+// → {kinds: [{kind, count, picked, cleared}], over: [{...wait, unpicked}]}: picked and cleared are {median, longest}
+// in ms from since, over the waits that got there, or null with none; kinds and over put intake first (a task stuck in
+// New), then kinds by count and over by unpicked, the longest first; over holds each wait unpicked WAIT_AUDIT_AFTER or more.
+export function waitsHistory(log, { from = null, to = null, kind = null, open = [], now }) {
+  const id = (w) => `${w.key} ${w.kind} ${w.since}`;
+  const pickedNow = new Map(open.map((w) => [id(w), w.picked ?? null]));
+  const waits = new Map();
+  for (const e of log) {
+    if (e.kind !== 'orchestrator-waits' && e.kind !== 'waits-history') continue;
+    for (const w of e.data?.opened || []) waits.set(id(w), { ...w, picked: w.picked ?? pickedNow.get(id(w)) ?? null, cleared: null });
+    for (const w of e.data?.cleared || []) waits.set(id(w), w);
+  }
+  const rows = [...waits.values()]
+    .filter((w) => (from === null || Date.parse(w.since) >= from) && (to === null || Date.parse(w.since) < to) && (kind === null || w.kind === kind))
+    .map((w) => ({ ...w, unpicked: Date.parse(w.picked ?? w.cleared ?? now.toISOString()) - Date.parse(w.since) }));
+  const intakeFirst = (a, b) => (b.kind === 'intake') - (a.kind === 'intake');
+  const stats = (spans) => {
+    if (!spans.length) return null;
+    const s = spans.sort((a, b) => a - b);
+    const mid = Math.floor(s.length / 2);
+    return { median: s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2, longest: s.at(-1) };
+  };
+  const span = (w, end) => Date.parse(w[end]) - Date.parse(w.since);
+  const kinds = [...new Set(rows.map((w) => w.kind))].map((k) => {
+    const of = rows.filter((w) => w.kind === k);
+    return { kind: k, count: of.length, picked: stats(of.filter((w) => w.picked).map((w) => span(w, 'picked'))), cleared: stats(of.filter((w) => w.cleared).map((w) => span(w, 'cleared'))) };
+  }).sort((a, b) => intakeFirst(a, b) || b.count - a.count);
+  const over = rows.filter((w) => w.unpicked >= WAIT_AUDIT_AFTER).sort((a, b) => intakeFirst(a, b) || b.unpicked - a.unpicked);
+  return { kinds, over };
+}
+// The lines board.mjs waits history prints for a waitsHistory audit: one per kind, then the waits over the threshold.
+export function waitsHistoryLines({ kinds, over }) {
+  if (!kinds.length) return ['no waits recorded'];
+  const to = (word, s) => (s ? `${word} in ${spanWords(s.median)} median, ${spanWords(s.longest)} longest` : `none ${word}`);
+  return [
+    ...kinds.map((k) => `${k.kind}: ${k.count} wait${k.count === 1 ? '' : 's'} · ${to('picked up', k.picked)} · ${to('cleared', k.cleared)}`),
+    ...(over.length ? [`over ${spanWords(WAIT_AUDIT_AFTER)} unpicked, worst first:`] : []),
+    ...over.map((w) => `${w.kind} ${w.ref} ${spanWords(w.unpicked)} unpicked${w.cleared ? '' : ', still open'}, since ${w.since}: ${w.title}`),
+  ];
+}
+// The watcher's line for a long-waits {day, waits: [{key, ref, kind, since, unpicked}]} event: the day's waits
+// WAIT_AUDIT_AFTER or more unpicked, named to the orchestrator.
+export function longWaitsLine({ day, waits }) {
+  return `waits that sat ${spanWords(WAIT_AUDIT_AFTER)} or more unpicked on ${day}: ${waits.map((w) => `${w.kind} ${w.ref} ${spanWords(w.unpicked)}`).join(' · ')} (the owner audits them with waits history; act on any still in your waits lines)`;
+}
 // How long a board stays strictly idle before the idle notification pushes.
 export const IDLE_MINUTES = 15;
 // One idle check for state, data/idle.json {last, since?, pushed?}: last is when the last idle push went out, or the

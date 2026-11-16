@@ -42,6 +42,10 @@ test('reading waits whole, selecting events, cutting columns and unrelated comma
     "rg -v foo src/file.txt | head",
     "git log | head -5",
     "ls | tail -1",
+    // Reading the watcher's source is no read of its output.
+    'sed -n 1,20p bin/wait-events.mjs',
+    'head -40 bin/wait-events.test.mjs',
+    "rg -n 'added' bin/wait-events.mjs | head",
   ]) assert.equal(run(command), null, command);
   assert.equal(run("rg -v x $O", 'Read'), null);
   assert.equal(run("rg -v x $O", 'Bash', 'PostToolUse'), null);

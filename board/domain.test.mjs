@@ -2760,7 +2760,7 @@ test('a wait still open re-wakes the session every 15 minutes until picked up, t
   assert.deepEqual(keys(hour.again), ['w/A1']);
   assert.deepEqual(waitsStep(hour.waits, [picked], at(139)).again, []);
   assert.deepEqual(keys(waitsStep(hour.waits, [picked], at(140)).again), ['w/A1']);
-  assert.deepEqual(waitsStep([], [picked], at(21)), { waits: [{ ...picked, tone: 'orange', bumped: iso(21) }], added: [], again: [], againAt: null }, 'one that joins picked up wakes nothing');
+  assert.deepEqual(waitsStep([], [picked], at(21)), { waits: [{ ...picked, tone: 'orange', bumped: iso(21) }], added: [], opened: [{ key: 'w/A1', ref: 'A1', title: 'One', kind: 'calls', since: iso(0), picked: iso(20) }], cleared: [], again: [], againAt: null }, 'one that joins picked up wakes nothing');
 
   // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md: a daily wait (a stale review) re-wakes
   // every 15 minutes until picked up, then once a day from its pickup; a change on its PR wakes the session by github-change.
@@ -2779,7 +2779,7 @@ test('a wait still open re-wakes the session every 15 minutes until picked up, t
   const two = waitsStep([wait(), wait({ key: 'w/A2', ref: 'A2' })], [wait(), wait({ key: 'w/A2', ref: 'A2' })], at(20));
   assert.deepEqual([two.added, keys(two.again)], [[], ['w/A1', 'w/A2']]);
   // A wait that closes leaves the list.
-  assert.deepEqual(waitsStep(due.waits, [], at(60)), { waits: [], added: [], again: [], againAt: null });
+  assert.deepEqual(waitsStep(due.waits, [], at(60)), { waits: [], added: [], opened: [], cleared: [{ key: 'w/A1', ref: 'A1', title: 'One', kind: 'calls', since: iso(0), picked: null, cleared: iso(60) }], again: [], againAt: null });
 });
 
 test('reminders share one board-wide clock: a wait that falls due within 15 minutes of the last reminder waits for the next one, which carries every due wait', () => {

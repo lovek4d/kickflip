@@ -229,8 +229,11 @@
 //                                on a review held for them
 //                                Each card that joins the list of cards idle on the orchestrator (domain.mjs
 //                                orchestratorWaits), kept in data/orchestrator-waits.json for the watcher, appends
-//                                orchestrator-waits {added: [key], again}, again naming each still waiting 15 minutes
-//                                on from its last wake, or an hour once picked up (domain.mjs waitsStep); it never
+//                                orchestrator-waits {opened: [{key, ref, title, kind, since}], again}, again naming
+//                                each still waiting 15 minutes on from its last wake, or an hour once picked up
+//                                (domain.mjs waitsStep), and each wait that clears, or opens picked up, appends
+//                                waits-history {opened, cleared}, and the first check of a new day appends long-waits
+//                                {day, waits} naming the last day's waits 15 minutes or more unpicked; it never
 //                                pushes the owner (checkWaits), checked on every board change and each minute
 //                                Each minute it passes the owner a finished grill's questions left 15 minutes unscreened
 //                                by the orchestrator (store.mjs publishUnscreened)
@@ -347,7 +350,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -2320,13 +2323,15 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
-  // data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, tone, picked, next, bumped, pushed?, link?}], againAt}: the cards idle on
+  // data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, tone, picked, next, bumped, pushed?, link?}], againAt, day}: the cards idle on
   // the orchestrator (domain.mjs orchestratorWaits), lanes top-down, then an unanswered triage, the events no task
   // holds (domain.mjs eventWaits) and other boards' questions, which bin/wait-events.mjs prints on every wake. Each
-  // check appends at most one orchestrator-waits {added: [key], again: [{key, ref, kind, since, next}]} event once the file
-  // is written: added names each card that joins it not picked up, or waits again with a new kind or since; again each
-  // one still waiting past its re-wake time (domain.mjs waitsStep), so reading the event lines alone misses no wait.
-  // A wait never pushes the owner: the re-wake is the reminder. Each owner's-last-word wait that ends appends a line to
+  // check appends at most one orchestrator-waits {opened: [{key, ref, title, kind, since, picked}], again: [{key, ref,
+  // kind, since, next}]} event once the file is written: opened holds each wait that joins it not picked up, or waits
+  // again with a new kind or since; again each one still waiting past its re-wake time (domain.mjs waitsStep), so
+  // reading the event lines alone misses no wait. It appends at most one record-only waits-history {opened, cleared}
+  // too: the waits that joined already picked up, and each that left, with when it was picked up and cleared, which
+  // board.mjs waits history audits. A wait never pushes the owner: the re-wake is the reminder. Each owner's-last-word wait that ends appends a line to
   // data/limbo-waits.jsonl (domain.mjs ownerWordEnds). Checked on every board change and each minute; a check asked for while one runs runs again after it.
   let checkingWaits = null;
   let waitsAgain = false;
@@ -2360,12 +2365,25 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     // owner's-last-word wait that ended, for the audit of what ended it.
     const ended = ownerWordEnds(previous, current, built, now());
     if (ended.length) await fs.appendFile(path.join(data, 'limbo-waits.jsonl'), ended.map((e) => JSON.stringify(e) + '\n').join(''));
-    if (!stored || JSON.stringify(step.waits) !== JSON.stringify(previous) || step.againAt !== (stored.againAt ?? null)) {
+    // docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md: the first check of a
+    // new local day names to the orchestrator the waits WAIT_AUDIT_AFTER or more unpicked that opened from the stored
+    // day up to today, in a record-only long-waits event its next wake prints.
+    const today = localDay(now());
+    const day = stored?.day ?? today;
+    if (day !== today) {
+      const start = (d) => new Date(`${d}T00:00`).getTime();
+      const { over } = waitsHistory(log, { from: start(day), to: start(today), open: previous, now: now() });
+      if (over.length) await appendEvent('long-waits', { day, waits: over.map(({ key, ref, kind, since, unpicked }) => ({ key, ref, kind, since, unpicked })) });
+    }
+    if (!stored || JSON.stringify(step.waits) !== JSON.stringify(previous) || step.againAt !== (stored.againAt ?? null) || stored.day !== today) {
       await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify({ waits: step.waits, againAt: step.againAt }) + '\n');
+      await fs.writeFile(file + '.tmp', JSON.stringify({ waits: step.waits, againAt: step.againAt, day: today }) + '\n');
       await fs.rename(file + '.tmp', file);
     }
-    if (step.added.length || step.again.length) await appendEvent('orchestrator-waits', { added: step.added, again: step.again });
+    const waking = step.opened.filter((w) => !w.picked);
+    if (step.added.length || step.again.length) await appendEvent('orchestrator-waits', { opened: waking, again: step.again });
+    const quiet = step.opened.filter((w) => w.picked);
+    if (quiet.length || step.cleared.length) await appendEvent('waits-history', { opened: quiet, cleared: step.cleared });
   }
 
   // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
+import { waitsHistory, waitsHistoryLines } from '../domain.mjs';
 import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, worktreesDir } from '../worktree.mjs';
 import { ownTests } from '../affected.mjs';
 import { pidAlive } from '../headless.mjs';
@@ -407,6 +408,12 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          "waiting on /<route>'s orchestrator" or "queued" while
                                                          none listens there. --wait blocks until every one is
                                                          answered, giving up after --timeout minutes (9)
+  waits history [--since <date>] [--kind <k>]            audits the waits on the orchestrator events.jsonl records
+                                                         (each wait's open and clear): per kind, its count and the
+                                                         median and longest wait to pickup and to clear, then each
+                                                         wait 15m or more unpicked, worst first, intake (a task
+                                                         stuck in New) first. --since keeps the waits from a date
+                                                         (local midnight) or ISO time, --kind one kind
   answer <askId> --text <t>                              answers a question another board asked this one (its
                                                          waits line names it), from what this board knows, links
                                                          welcome: it ends the wait and its New strip entry, posts
@@ -1018,6 +1025,16 @@ const COMMANDS = {
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
   ask: [['route', '...question'], ['from'], (site, [route, ...words], f) => store.askBoard(needSite(site, 'ask'), route, words.join(' '), { from: f.from })],
   asks: [[], ['wait', 'timeout'], (site, _, f) => store.listBoardAsks(needSite(site, 'asks'), f)],
+  // docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md
+  'waits history': [[], ['since', 'kind'], async (site, _, f) => {
+    // A bare date is the host's local midnight.
+    const from = f.since === undefined ? null : Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(f.since) ? `${f.since}T00:00` : f.since);
+    if (Number.isNaN(from)) throw new UsageError(`waits history --since takes a date or an ISO time, not "${f.since}"`);
+    const data = path.join(needSite(site, 'waits history'), 'data');
+    const log = await store.readLog(path.join(data, 'events.jsonl'));
+    const open = (await store.readJSON(path.join(data, 'orchestrator-waits.json'), {})).waits || [];
+    return { lines: waitsHistoryLines(waitsHistory(log, { from, kind: f.kind ?? null, open, now: new Date() })) };
+  }],
   answer: [['askId'], ['text'], (site, [id], f) => store.answerBoardAsk(needSite(site, 'answer'), id, f.text)],
   handoff: [['file/id|eventId'], ['to', 'note', 'done'], async (site, [ref], f) => {
     if (f.done && site && ref.includes('/')) await store.checkNotReopened(site, ref);
