@@ -601,10 +601,11 @@ test('review digest lists one item per hub-checked PR awaiting review, dates old
   ] });
   write(site('orch', 'data', 'pr-slack.json'), { 'o/r#1': { head: 'a', links: { Ann: { channel: 'D1', ts: ts(73), reactions: [] } }, replies: [] } });
   write(at('waves', 'empty', 'wave.json'), { reviewers: [{ name: 'Cy', slack_user: 'U3', dm: 'D3' }], items: [] });
-  write(at('kickflip', 'github-state.json'), { prs: Object.fromEntries([1, 2, 3, 4, 5, 6, 10, 13, 14].map((pr) => [`o/r#${pr}`, { state: pr === 6 ? 'CLOSED' : 'OPEN', isDraft: pr === 5, reviewDecision: pr === 4 ? 'APPROVED' : 'REVIEW_REQUIRED', approved: pr === 14, ...(pr === 13 ? { failing: ['lint'] } : {}) }])) });
+  write(at('kickflip', 'github-state.json'), { prs: Object.fromEntries([1, 2, 3, 4, 5, 6, 10, 13, 14].map((pr) => [`o/r#${pr}`, { state: pr === 6 ? 'CLOSED' : 'OPEN', isDraft: pr === 5, reviewDecision: pr === 4 ? 'APPROVED' : 'REVIEW_REQUIRED', reviews: pr === 14 ? { ann: 'APPROVED', 'github-actions[bot]': 'APPROVED' } : {}, ...(pr === 13 ? { failing: ['lint'] } : {}) }])) });
   const digest = digestCommand([], now);
   assert.deepEqual([digest.date, digest.due, digest.reviewers.map((r) => [r.name, r.owed])], ['2026-11-02', true, [['Bob', true], ['Ann', true]]]);
-  assert.deepEqual(digest.reviewers[0].items.map((i) => i.key), ['w/old', 'w/edge', 'w/recent', 'w/ci']);
+  // Ann approved #14 herself and a bot did too: it leaves Ann's digest only; #4's decision is APPROVED, so it leaves both.
+  assert.deepEqual(digest.reviewers[0].items.map((i) => i.key), ['w/old', 'w/edge', 'w/recent', 'w/ci', 'w/liked']);
   const ann = digest.reviewers.find((r) => r.name === 'Ann');
   assert.deepEqual([ann.slack_user, ann.dm, ann.items.map((i) => i.key)], ['U1', 'D1', ['w/old', 'w/edge', 'w/recent', 'w/ci']]);
   assert.deepEqual(ann.items[0], { key: 'w/old', pr: 'o/r#1', title: 'old', url: 'https://github.com/o/r/pull/1', sent_ts: ts(73), days_old: 3, text: 'https://github.com/o/r/pull/1 · old (3 days old)' });
@@ -650,7 +651,7 @@ test("review due lists each PR's owed links, thread replies and reactions, and t
     'o/r#3': { head: 'h3', links: { Ann: link('D1', '3.1', ['git_merged']), Bob: link('D2', '3.2') }, replies: [] },
     'o/r#4': { head: 'h4', links: { Bob: link('D2', '4.2') }, replies: [] },
   });
-  write(at('kickflip', 'github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false, head: 'h1', title: 'Open PR', additions: 1, deletions: 2, files: 3 }, 'o/r#2': { state: 'OPEN', isDraft: true }, 'o/r#3': { state: 'MERGED' } } });
+  write(at('kickflip', 'github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', head: 'h1', title: 'Open PR', additions: 1, deletions: 2, files: 3 }, 'o/r#2': { state: 'OPEN', isDraft: true }, 'o/r#3': { state: 'MERGED' } } });
   const owed = due();
   assert.deepEqual(owed.links, [{ pr: 'o/r#1', key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', text: '',
     attachments: [{ color: '#9e9e9e', title: 'Open PR', title_link: 'https://github.com/o/r/pull/1', text: '+1/-2 · 3 files', fallback: 'r#1 Open PR · +1/-2 · 3 files' }] }]);
@@ -683,6 +684,28 @@ test("review due reacts git_approved once GitHub's review decision is APPROVED, 
     'o/r#4': { ...open, reviewDecision: null, approved: false },
   } });
   assert.deepEqual(due().reactions.map((r) => [r.pr, r.emoji]), [['o/r#1', 'git_approved'], ['o/r#3', 'git_approved']]);
+});
+
+test("review due reacts git_approved on a reviewer's messages once that reviewer approved or GitHub's decision is APPROVED, never for a bot's or another's approval", async () => {
+  const due = () => {
+    const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
+      process.exitCode = await main(['--site', 'orch', 'review', 'due'], {now: new Date('2026-11-02T17:00:00Z')});`;
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout);
+  };
+  slackToken();
+  assert.equal((await board('slack', 'set', '--timezone', 'America/Los_Angeles')).code, 0);
+  write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer, bobReviewer], items: [1, 2].map((pr) => ({ id: `A${pr}`, title: `PR ${pr}`, pr })) });
+  write(site('orch', 'data', 'pr-slack.json'), Object.fromEntries([1, 2].map((pr) => [`o/r#${pr}`, { head: `h${pr}`, links: { Ann: { channel: 'D1', ts: `${pr}.1`, reactions: [] }, Bob: { channel: 'D2', ts: `${pr}.2`, reactions: [] } }, replies: [] }])));
+  const open = { state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED' };
+  write(at('kickflip', 'github-state.json'), { prs: {
+    // Ann approved, and so did a bot: only Ann's message reacts.
+    'o/r#1': { ...open, approved: true, reviews: { ann: 'APPROVED', 'github-actions[bot]': 'APPROVED' } },
+    // GitHub's gate is met: every reviewer's message reacts.
+    'o/r#2': { ...open, reviewDecision: 'APPROVED' },
+  } });
+  assert.deepEqual(due().reactions.map((r) => [r.pr, r.reviewer, r.emoji]), [['o/r#1', 'Ann', 'git_approved'], ['o/r#2', 'Ann', 'git_approved'], ['o/r#2', 'Bob', 'git_approved']]);
 });
 
 test('review digest waits without changing the record while Slack is not ready', async () => {

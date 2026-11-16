@@ -166,7 +166,7 @@ export async function fetchPRs(prs, repos = []) {
       view: { state: p.state, isDraft: p.isDraft, reviewDecision: p.reviewDecision, mergeable: p.mergeable, mergeStateStatus: p.mergeStateStatus, headRefOid: p.headRefOid,
         statusCheckRollup: p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [],
         title: p.title ?? null, additions: p.additions ?? null, deletions: p.deletions ?? null, changedFiles: p.changedFiles ?? null,
-        approved: (p.latestReviews?.nodes ?? []).some((r) => r.state === 'APPROVED'),
+        approved: (p.latestReviews?.nodes ?? []).some((r) => r.state === 'APPROVED' && r.author?.__typename !== 'Bot'),
         url: p.url ?? null, mergedAt: p.mergedAt ?? null, headRefName: p.headRefName ?? null, updatedAt: p.updatedAt ?? null,
         reviews: Object.fromEntries((p.latestReviews?.nodes ?? []).filter((r) => r.author?.login).map((r) => [r.author.login, r.state])) },
       issueComments: (p.comments?.nodes ?? []).map(comment),

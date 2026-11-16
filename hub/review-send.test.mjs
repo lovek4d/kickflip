@@ -163,6 +163,24 @@ test('a link posted top-level before the day threads, and a bump sent before bum
   assert.deepEqual(world.reactions.map((r) => [r.channel, r.timestamp, r.name]).sort(), [['D1', '1792700000.000100', 'git_approved'], ['D1', '1792700000.000200', 'git_approved']]);
 });
 
+test("an approved flag under GitHub's REVIEW_REQUIRED stays in the digest and reacts nothing; reviewDecision APPROVED drops it", async () => {
+  const world = slackWorld();
+  const slack = fakeSlack(world);
+  saveToken(world);
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }] }] });
+  setPRs({ 'o/r#1': pr({ approved: true }), 'o/r#2': pr() });
+  await sendReviews({ boards, fetch: slack.fetch, now: monday });
+  const header = () => world.messages.find((m) => m.text.startsWith('Orch Digest')).text;
+  assert.equal(header(), `Orch Digest\n2 PRs pending review${SIGN_OFF}`);
+  assert.deepEqual(world.reactions, []);
+
+  setPRs({ 'o/r#1': pr({ approved: true, reviewDecision: 'APPROVED' }), 'o/r#2': pr() });
+  await sendReviews({ boards, fetch: slack.fetch, now: monday });
+  assert.equal(header(), `Orch Digest\n1 PR pending review${SIGN_OFF} · _updated 09:00_`);
+  assert.ok(world.reactions.every((r) => r.name === 'git_approved'));
+  assert.ok(world.reactions.length > 0);
+});
+
 test('a reply recorded without an id, or sharing one, is marked on its own message and not due again', async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);

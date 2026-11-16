@@ -1406,16 +1406,20 @@ function prLink(pr, gh, item) {
     }],
   };
 }
-const approved = (gh) => Boolean(gh?.approved) || gh?.reviewDecision === 'APPROVED';
-// docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: a PR's Slack
-// messages react git_approved on GitHub's review decision, which counts a code owner's approval when the branch asks
-// for one; on a branch that asks for no review (no decision) any approval does.
-const reviewApproved = (gh) => (gh?.reviewDecision ? gh.reviewDecision === 'APPROVED' : Boolean(gh?.approved));
+// docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: a PR is approved on
+// GitHub's review decision, which counts a code owner's approval when the branch asks for one; on a branch that asks
+// for no review (no decision) any human approval does (hub/pr-report.mjs leaves a bot's out of `approved`). The digest,
+// review due's headers and the git_approved reaction all ask this one test.
+// A reviewer's digest holds a PR while GitHub still needs an approval for it (its decision is neither APPROVED nor empty,
+// as on a branch that asks for no review) and that reviewer, by their github login, has not approved it themselves; the
+// approval of a bot or another person takes it out of nobody else's digest.
+const waitsOn = (gh, github) => Boolean(gh.reviewDecision) && gh.reviewDecision !== 'APPROVED' && !(github && gh.reviews?.[github] === 'APPROVED');
+const approved = (gh) => (gh?.reviewDecision ? gh.reviewDecision === 'APPROVED' : Boolean(gh?.approved));
 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `review due`: each Slack send still owed, from local state with no GitHub call; the hub sends them each poll.
 // date: the Slack day, whose thread a link goes in. links: a fresh link to each reviewer of a card's PR that the hub
-// last read open and out of draft, once per PR. reactions: git_approved once reviewApproved, then git_merged on merge
+// last read open and out of draft, once per PR. reactions: git_approved once approved, then git_merged on merge
 // or x on a close, on each posted link and reply. digest: review digest's answer while one is due, else null. While
 // Slack isn't ready → waiting and nothing owed.
 export async function reviewDue(site, options) {
@@ -1427,9 +1431,11 @@ export async function reviewDue(site, options) {
   const record = await readPRSlack(site);
   const links = [];
   const reviewersByPR = new Map();
+  const githubOf = new Map();
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, {});
     const people = reviewersOf(itemFile, cfg.reviewers);
+    for (const r of people) githubOf.set(r.name, r.github);
     for (const item of itemFile.items || []) {
       for (const p of cardPRs(item, boardRepoOf(site, itemFile))) {
         const pr = prKeyOf(p);
@@ -1447,9 +1453,9 @@ export async function reviewDue(site, options) {
   const reactions = [];
   for (const [pr, rec] of Object.entries(record)) {
     const gh = routeRecord(cache.prs, pr);
-    const wanted = [reviewApproved(gh) && 'git_approved', gh?.state === 'MERGED' ? 'git_merged' : gh?.state === 'CLOSED' && 'x'].filter(Boolean);
     const react = (name, message, reply) => {
       if (!message.ts || !reviewersByPR.get(pr)?.has(name)) return;
+      const wanted = [(approved(gh) || gh?.reviews?.[githubOf.get(name)] === 'APPROVED') && 'git_approved', gh?.state === 'MERGED' ? 'git_merged' : gh?.state === 'CLOSED' && 'x'].filter(Boolean);
       for (const emoji of wanted) if (!message.reactions?.includes(emoji)) reactions.push({ pr, reviewer: name, ...(reply === undefined ? {} : { reply }), channel: message.channel || rec.links[name].channel, ts: message.ts, emoji });
     };
     for (const [name, link] of Object.entries(rec.links)) react(name, link);
@@ -1461,7 +1467,7 @@ export async function reviewDue(site, options) {
   for (const d of (await readJSON(digestFile(site), {})).digests || []) {
     const ts = d.live && (d.live.reply === undefined ? d.ts : d.replies?.[d.live.reply]?.ts);
     if (!ts) continue;
-    const n = d.live.prs.filter((pr) => { const gh = routeRecord(cache.prs, pr); return gh?.state === 'OPEN' && !approved(gh); }).length;
+    const n = d.live.prs.filter((pr) => { const gh = routeRecord(cache.prs, pr); return gh?.state === 'OPEN' && waitsOn(gh, githubOf.get(d.reviewer)); }).length;
     if (n !== d.live.shown) headers.push({ date: d.date, reviewer: d.reviewer, channel: d.channel, ts, n, text: `${d.live.lead}${digestHeader(cfg.title, n)}${d.live.tail}` });
   }
   const digest = await reviewDigest(site, options);
@@ -1500,8 +1506,9 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
         const pr = prKeyOf(p);
         const gh = routeRecord(cache.prs, pr);
         for (const r of people) if (linkOwed(gh, record, pr, r.name)) reviewers.get(r.name).linked = true;
-        if (gh?.state !== 'OPEN' || gh.isDraft || approved(gh)) continue;
+        if (gh?.state !== 'OPEN' || gh.isDraft) continue;
         for (const r of people) {
+          if (!waitsOn(gh, r.github)) continue;
           const ts = record[pr]?.links?.[r.name]?.ts || routeRecord(legacy, r.name)?.ts || null;
           const age = ts ? (now.getTime() - Number(ts) * 1000) / 86400000 : null;
           const old = age > 2 ? Math.floor(age) : null;

@@ -214,6 +214,15 @@ test('fetchPRs reads every PR in one GraphQL query, in the shapes reportOf reads
   assert.deepEqual([site.title, site.additions, site.deletions, site.files, site.approved], ['Fix limiter', 84, 12, 5, true]);
 });
 
+test("a bot's APPROVED review does not set approved, a person's does", async () => {
+  const bot = { state: 'APPROVED', author: { __typename: 'Bot', login: 'github-actions' } };
+  const ann = { state: 'APPROVED', author: { __typename: 'User', login: 'ann' } };
+  writePR(dir, 7, prView({ latestReviews: { nodes: [bot] } }));
+  writePR(dir, 8, prView({ latestReviews: { nodes: [bot, ann] } }));
+  const { results } = await fetchPRs([{ repo: 'o/r', pr: 7 }, { repo: 'o/r', pr: 8 }]);
+  assert.deepEqual(results.map((r) => reportOf(r, { ...input, me: 'owner' }).approved), [false, true]);
+});
+
 // docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md
 test("the query brings what a board's badges draw: url, merge time, branch, update time, CI counts and each reviewer's state, Codex's bot among them", async () => {
   writeUser(dir, { login: 'owner' });
