@@ -619,6 +619,14 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          task: its PR's Slack link takes a green, orange or red bar
                                                          and the word, and its card a chip; none reads grey. Any
                                                          other word is refused before anything else happens
+         [--summary <t>]                                 what the build built, in a few plain sentences: what
+                                                         changed for the owner and what was left out. The done
+                                                         that ends a build (the main record, not a lander's,
+                                                         rebase run's, planner's or install's, handing back its
+                                                         calls or finishing its worktree; no --next) refuses
+                                                         without it; its record keeps it, and the thread shows it
+                                                         as the Builder's message above its judgment calls. Any
+                                                         other done refuses it
          [--owner-step <t>]                              a step only the owner can do once the code lands: the task
                                                          then waits in In Review with it as its Next, its ticket
                                                          open, until the owner's Done; refused on a task already
@@ -918,7 +926,7 @@ function noteOf(f) {
 }
 
 // name: [positional args, allowed flags (...<flag> may repeat, and run gets its values as a list), run(site, args, flags) → message]
-async function builderDone(site, key, { 'owner-step': ownerStep, check, text, title, risk, ...f }) {
+async function builderDone(site, key, { 'owner-step': ownerStep, check, text, title, risk, summary, ...f }) {
   if (risk !== undefined && (!site || f.dir)) throw new UsageError('--risk goes on a board task: pass --site, not --dir');
   if (risk !== undefined) await store.setItem(site, key, { risk });
   if (ownerStep !== undefined && (!site || f.dir)) throw new UsageError('--owner-step goes on a board task: pass --site, not --dir');
@@ -926,6 +934,8 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ti
   if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep, check });
   const onBoard = site && !f.dir;
   if (onBoard && (f.agent ?? 'main') === 'main') await store.refuseNews(site, key);
+  if (summary !== undefined && !onBoard) throw new UsageError('--summary goes on a board task: pass --site, not --dir');
+  if (onBoard) await store.recordSummary(site, key, summary, f);
   const handed = onBoard && await store.handBackCalls(site, key, f);
   if (handed) return handed;
   if (onBoard && f.next === undefined && await store.finishesCard(site, key, f)) {
@@ -1111,7 +1121,7 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'title', 'risk'], (site, [key], f) => builderDone(site, key, f)],
+  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'title', 'risk', 'summary'], (site, [key], f) => builderDone(site, key, f)],
   'builder pick': [['file/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   'agent launch': [['file/id'], ['name', 'task', 'writes', 'model'], (site, [key], f) => store.requestHelper(site, key, f)],
   'agent wait': [['file/id'], ['name', 'agent', 'timeout'], (site, [key], f) => store.waitHelper(site, key, { ...f, alive: pidAlive })],

@@ -42,7 +42,7 @@ test('a notes section added while it builds reaches the builder, and builder don
   const draft = path.join(home, 'draft.md');
   fs.writeFileSync(draft, 'Separate from the page.\n');
   assert.equal((await onOrch('item', 'notes', 'w/A1', '--heading', 'Separate from the page', '--file', draft)).code, 0);
-  const done = await onOrch('builder', 'done', 'w/A1', '--risk', 'low', '--text', 'Checked');
+  const done = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--risk', 'low', '--text', 'Checked');
   assert.equal(done.code, 1);
   assert.match(done.err, /New on w\/A1 while you build: its notes gained the section "Separate from the page"; read it in \S+\.md/);
   assert.match(done.err, /builder done again once your build takes it in/);

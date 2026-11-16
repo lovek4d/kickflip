@@ -115,17 +115,17 @@ test('builder call appends a one-line call to the open record, calls prints them
 
   // A hand-back closes the record; a restart of the same agent is that build resumed, its calls and worktree kept.
   write(main, { ...read(main), worktree: { path: '/wt/A1', branch: 'A1', repo: '/repo' } });
-  assert.match((await board('builder', 'done', 'w/A1', '--site', 'orch')).out, /^handed back: Next "Answer the builder's questions"$/m);
+  assert.match((await board('builder', 'done', 'w/A1', '--summary', 'Built it.', '--site', 'orch')).out, /^handed back: Next "Answer the builder's questions"$/m);
   assert.match((await board('builder', 'call', 'w/A1', 'Late')).err, /needs an open builder record/);
   assert.equal((await board('builder', 'start', 'w/A1')).code, 0);
   assert.deepEqual([read(main).calls.length, read(main).worktree.path], [2, '/wt/A1']);
   assert.equal((await board('builder', 'call', 'w/A1', 'Dropped the cap')).code, 0);
-  assert.match((await board('builder', 'done', 'w/A1', '--site', 'orch')).out, /^handed back: /m);
+  assert.match((await board('builder', 'done', 'w/A1', '--summary', 'Built it.', '--site', 'orch')).out, /^handed back: /m);
   // A dispatch on that record, and the agent's own start taking the dispatch up, keep the calls too.
   assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'claude')).code, 0);
   assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   assert.deepEqual([read(main).calls.length, 'dispatched' in read(main)], [3, false]);
-  assert.match((await board('builder', 'done', 'w/A1', '--site', 'orch')).out, /^handed back: /m);
+  assert.match((await board('builder', 'done', 'w/A1', '--summary', 'Built it.', '--site', 'orch')).out, /^handed back: /m);
 
   const verified = await board('--site', 'orch', 'builder', 'verified', 'w/A1', '--note', 'All match the notes.');
   assert.deepEqual([verified.code, verified.out], [0, "A1: judgment calls verified; A1 didn't land: the build's worktree is gone\n"]);
@@ -193,7 +193,7 @@ test('builder ask posts to the thread as the builder and wakes the orchestrator,
     'ask2. Fold Done on a new device?', '  deferred: Not sure. Carry on with folded; I put it to the owner after review.']);
   // A deferred ask is a question for the owner: the build hands back for it, and the review puts it to the owner.
   assert.deepEqual(read(main).calls.map((c) => c.text), ['Question: Fold Done on a new device? (deferred to the owner)']);
-  assert.match((await orch('builder', 'done', 'w/A1')).out, /handed back: Next "Answer the builder's questions"/);
+  assert.match((await orch('builder', 'done', 'w/A1', '--summary', 'Built it.')).out, /handed back: Next "Answer the builder's questions"/);
   assert.match((await orch('builder', 'verified', 'w/A1')).err, /^ask2 on w\/A1 was deferred to the owner; add its question with "ask": "ask2" first\n$/);
   const q = (extra) => ({ id: 'gh-fold', topic: 'item:w/A1', question: 'Fold Done on a new device?', options: [{ id: 'yes', label: 'Folded', recommended: true }, { id: 'no', label: 'Open' }], ...extra });
   write(path.join(home, 'q.json'), q({ ask: 'ask1' }));
@@ -714,7 +714,7 @@ test('builder done on a record with judgment calls hands the card back, its reco
   assert.equal((await board('builder', 'call', 'w/A1', '--site', 'orch', 'Kept the old label')).code, 0);
   const refused = await board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Land it');
   assert.deepEqual([refused.code, refused.err], [1, "builder done sets w/A1's Next itself while its record has judgment calls; run it without --next\n"]);
-  const done = await board('builder', 'done', 'w/A1', '--site', 'orch');
+  const done = await board('builder', 'done', 'w/A1', '--summary', 'Built it.', '--site', 'orch');
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out, "A1: builder done\nhanded back: Next \"Verify the builder's judgment calls\"\n");
   assert.deepEqual([typeof record().handed_back, item().next, Boolean(record().done)], ['string', "Verify the builder's judgment calls", true]);
@@ -723,7 +723,7 @@ test('builder done on a record with judgment calls hands the card back, its reco
   assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder')).code, 0);
   assert.equal((await board('builder', 'call', 'w/A1', '--site', 'orch', 'Question: keep the old label?')).code, 0);
   assert.equal((await board('builder', 'call', 'w/A1', '--site', 'orch', 'Kept the old colour')).code, 0);
-  assert.equal((await board('builder', 'done', 'w/A1', '--site', 'orch')).code, 0);
+  assert.equal((await board('builder', 'done', 'w/A1', '--summary', 'Built it.', '--site', 'orch')).code, 0);
   assert.deepEqual([typeof record().handed_back, item().next], ['string', "Answer the builder's questions"]);
 });
 
@@ -731,10 +731,10 @@ test("builder done --risk keeps the builder's risk on the card, and refuses any 
   const item = () => read(at('waves', 'w', 'wave.json')).items[0];
   assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder')).code, 0);
   assert.equal((await board('builder', 'call', 'w/A1', '--site', 'orch', 'Kept the old label')).code, 0);
-  const refused = await board('builder', 'done', 'w/A1', '--site', 'orch', '--risk', 'huge');
+  const refused = await board('builder', 'done', 'w/A1', '--summary', 'Built it.', '--site', 'orch', '--risk', 'huge');
   assert.deepEqual([refused.code, refused.err], [1, '--risk takes low, medium or high, not "huge"\n']);
   assert.equal('risk' in item(), false);
-  const done = await board('builder', 'done', 'w/A1', '--site', 'orch', '--risk', 'medium');
+  const done = await board('builder', 'done', 'w/A1', '--summary', 'Built it.', '--site', 'orch', '--risk', 'medium');
   assert.equal(done.code, 0, done.err);
   assert.equal(item().risk, 'medium');
 });
@@ -870,7 +870,7 @@ test("a grill or prototype planner's builder done leaves a fault line when the c
 });
 
 // docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
-test("a builder start over a finished record keeps that run as a past record with its label, kind, times and log, and none of its calls, worktree or hand-back; an unfinished record and another agent's are not kept", async () => {
+test("a builder start over a finished record keeps that run as a past record with its label, kind, times, log and summary, and none of its calls, worktree or hand-back; an unfinished record and another agent's are not kept", async () => {
   write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
   const main = at('waves', 'w', 'agents', 'A1.json');
   const pasts = () => fs.readdirSync(at('waves', 'w', 'agents')).filter((n) => n.startsWith('A1@past-'));
@@ -880,12 +880,12 @@ test("a builder start over a finished record keeps that run as a past record wit
   assert.equal((await board('builder', 'call', 'w/A1', 'Kept the name')).code, 0);
   write(main, { ...read(main), worktree: { path: '/wt/A1', branch: 'A1', repo: '/repo' }, session: { id: 's', pid: 1, log: 'builder-A1.log', at: '2026-11-07T10:00:00Z' } });
   const first = read(main);
-  assert.equal((await board('builder', 'done', 'w/A1', '--site', 'orch')).code, 0);
+  assert.equal((await board('builder', 'done', 'w/A1', '--site', 'orch', '--summary', 'Built it.')).code, 0);
   const done = read(main).done;
   assert.equal((await board('builder', 'start', 'w/A1', '--label', 'Lander', '--kind', 'claude')).code, 0);
   const [past] = pasts();
   assert.equal(pasts().length, 1);
-  assert.deepEqual(read(at('waves', 'w', 'agents', past)), { label: 'Again', kind: 'claude', model: first.model, started: first.started, done, session: { log: 'builder-A1.log' } });
+  assert.deepEqual(read(at('waves', 'w', 'agents', past)), { label: 'Again', kind: 'claude', model: first.model, started: first.started, done, session: { log: 'builder-A1.log' }, summary: 'Built it.' });
   assert.equal(read(main).label, 'Lander');
   assert.equal((await board('builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench')).code, 0);
   assert.equal((await board('builder', 'done', 'w/A1', '--agent', 'bench')).code, 0);
@@ -899,7 +899,7 @@ test("a lander's start over a verified record keeps the verification it lands; a
   const main = at('waves', 'w', 'agents', 'A1.json');
   assert.equal((await board('builder', 'start', 'w/A1', '--label', 'Builder', '--kind', 'claude')).code, 0);
   assert.equal((await board('builder', 'call', 'w/A1', 'Kept the name')).code, 0);
-  assert.equal((await board('builder', 'done', 'w/A1', '--site', 'orch')).code, 0);
+  assert.equal((await board('builder', 'done', 'w/A1', '--summary', 'Built it.', '--site', 'orch')).code, 0);
   const verified = await board('builder', 'verified', 'w/A1', '--site', 'orch');
   assert.equal(verified.code, 0, verified.err);
   const { verified: was } = read(main);
@@ -917,7 +917,7 @@ test("a past run's record is no agent of the card: builder list and a later done
   write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
   assert.equal((await board('builder', 'start', 'w/A1', '--label', 'Builder', '--kind', 'claude')).code, 0);
   assert.equal((await board('builder', 'call', 'w/A1', 'A call')).code, 0);
-  assert.equal((await board('builder', 'done', 'w/A1', '--site', 'orch')).code, 0);
+  assert.equal((await board('builder', 'done', 'w/A1', '--summary', 'Built it.', '--site', 'orch')).code, 0);
   assert.equal((await board('builder', 'start', 'w/A1', '--label', 'Lander', '--kind', 'claude')).code, 0);
   assert.equal(fs.readdirSync(at('waves', 'w', 'agents')).filter((n) => n.startsWith('A1@past-')).length, 1);
   const out = await board('builder', 'list', 'w/A1', '--site', 'orch');

@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
 import { githubStateFile, appendEvent, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel, readLandTests, setLandTests } from '../hub/push.mjs';
@@ -4859,13 +4859,14 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 
 // docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
 // A start over a finished main record keeps that run beside it as agents/<id>@past-<started ms>.json, so the thread still
-// folds its lines into a section. The copy holds the run's label, kind, model, times and log, never its calls, worktree
-// or hand-back, which belong to the open record.
+// folds its lines into a section. The copy holds the run's label, kind, model, times, log and summary, so its Builder
+// message stays in the thread (docs/adr/2026-11-16-0830-a-builder-hands-back-with-a-summary-message.md), never its
+// calls, worktree or hand-back, which belong to the open record.
 async function keepPastRun(file, before) {
   if (!before?.started || !before.done || !file.endsWith('.json') || path.basename(file).includes('@')) return;
-  const { label, kind, model, started, done, session } = before;
+  const { label, kind, model, started, done, session, summary } = before;
   const past = path.join(path.dirname(file), `${path.basename(file, '.json')}@past-${Date.parse(started)}.json`);
-  await writeJSON(past, { label, ...(kind ? { kind } : {}), ...(model ? { model } : {}), started, done, ...(session?.log ? { session: { log: session.log } } : {}) });
+  await writeJSON(past, { label, ...(kind ? { kind } : {}), ...(model ? { model } : {}), started, done, ...(session?.log ? { session: { log: session.log } } : {}), ...(summary ? { summary } : {}) });
 }
 
 // The owner's Build tap, in the board server: it refuses what a build's builder start refuses, in the owner's words,
@@ -5741,6 +5742,25 @@ export async function checkCallsVerified(site, key, { dir } = {}) {
   }
   if (!owing.length) return;
   fail(`land: ${key} has judgment calls nobody verified yet; check them with ${owing.map((a) => `builder calls ${key}${a}`).join(', ')}, then run ${owing.map((a) => `builder verified ${key}${a}`).join(', ')}`);
+}
+
+// docs/adr/2026-11-16-0830-a-builder-hands-back-with-a-summary-message.md
+// `builder done --summary`: the done that ends a build, the main record of a build (no lander, rebase run, planner or
+// install) handing back its judgment calls or finishing the worktree it keeps, owes a summary of what
+// it built, which its record keeps and the thread shows as the Builder's message above its judgment calls (domain.mjs
+// threadOf). Any other done refuses one.
+export async function recordSummary(site, key, summary, { agent = 'main', next }) {
+  const file = await builderFile(site, key, undefined, agent);
+  const record = await readJSON(file, null);
+  const owed = agent === 'main' && next === undefined && record?.started && !record.done && ![LANDER, REBASE_LABEL].includes(record.label) && !plans(record) && record.kind !== 'install'
+    && (unverifiedCalls(record).length > 0 || Boolean(record.worktree?.path));
+  if (!owed) {
+    if (summary !== undefined) fail("--summary goes on the build's own done, the one that hands back its calls or finishes its worktree");
+    return;
+  }
+  const words = typeof summary === 'string' ? summary.trim() : '';
+  if (!words) fail(`builder done ends ${key}'s build: pass --summary "${SUMMARY_HINT}"`);
+  await writeJSON(file, { ...record, summary: words });
 }
 
 // `builder done`'s hand-back for a record with unverified calls: its records close as handed back with the Next the calls ask

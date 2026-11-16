@@ -18,7 +18,7 @@ import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo, git } from './worktree.mjs';
 import { standardWords } from './commit-message.mjs';
 import { appendBuilderResumed, appendStatus, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
-import { HELPER, plans, VISUAL } from './domain.mjs';
+import { HELPER, plans, SUMMARY_HINT, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
 const cli = (route) => `node ${BOARD_CLI} --site ${route}`;
@@ -83,7 +83,8 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     `Write tests first, and run only the test files you write or change, with \`${b} test --dir ${worktree} --base ${base}\`, as part of building: it runs just those. Run no other test set, and don't rebase before you finish: the finish step rebases once and runs the tests your change affects once. Where the repo keeps ADRs, write one named with a timestamp: docs/adr/YYYY-MM-DD-HHMM-<slug>.md.`,
     `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape.`,
     '',
-    `To finish, run \`${b} builder done ${key} --risk low|medium|high --text "<what you checked>"\`, picking one risk word.`,
+    `To finish, run \`${b} builder done ${key} --risk low|medium|high --summary "${SUMMARY_HINT}" --text "<what you checked>"\`, picking one risk word.`,
+    "- --summary is the owner's plain account of the build: it posts as the Builder's message in the thread, above your judgment calls, and done refuses without it. --text stays the short line of what you checked.",
     "- --risk is your judgment of how likely your change is to break something, from what it touches and how well the tests cover it: it colours the PR's Slack message for its reviewers.",
     "- If you recorded a judgment call, it hands the task back for the orchestrator to verify your calls; stop there: the orchestrator's verification finishes the task.",
     ...finishSteps({ route, key, worktree, base }),

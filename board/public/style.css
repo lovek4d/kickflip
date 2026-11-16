@@ -137,7 +137,8 @@ button.chip { border: 0; }
 .msg { margin: 8px 0; padding: 7px 10px; border-radius: 10px; max-width: 100%; }
 .msg.claude { background: var(--claude); }
 .msg.love { background: var(--accent-soft); }
-.msg.slack { background: var(--chip); }
+/* Grey is every voice neither the owner's nor the orchestrator's: a teammate's Slack reply, a builder, any other; its header names it. */
+.msg.slack, .msg.builder, .msg.other { background: var(--chip); }
 .msg .who { font-size: 12px; color: var(--muted); margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg .reply { margin-top: 6px; }
@@ -168,7 +169,6 @@ button.link { background: none; border: 0; color: var(--accent); padding: 8px 12
 .refresh:has(.late) #refresh { color: var(--color-notice); }
 .lane-github { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--muted); text-align: right; }
 .lane-github .late { color: var(--color-notice); }
-.msg.other { background: transparent; border: 1px solid var(--line); }
 .msg .reply, .msg .small, .rep, .sent { overflow-wrap: anywhere; }
 code { overflow-wrap: anywhere; }
 /* iOS Safari zooms the page when a field under 16px takes focus, which shifts the page width. */

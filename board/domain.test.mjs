@@ -747,6 +747,19 @@ test("a builder's judgment calls follow its lines in the thread, as one entry wi
   assert.deepEqual([theirs.calls, theirs.verified], [['Left the cap'], null]);
 });
 
+// docs/adr/2026-11-16-0830-a-builder-hands-back-with-a-summary-message.md
+test("a build's summary is a Builder message at its finish, directly above its judgment calls, and shows only once the build is done", () => {
+  const main = { label: 'Builder', kind: 'claude', started: '2026-10-23T10:06:00Z', done: '2026-10-23T10:10:00Z', summary: 'Added the footer.', calls: [{ at: '2026-10-23T10:08:00Z', text: 'Kept the old name' }] };
+  const shape = (agents) => threadOf('w/A1', { agents }).map((m) => [m.kind, m.who, m.ts]);
+  assert.deepEqual(shape({ main }), [
+    ['agent', 'claude', '2026-10-23T10:06:00Z'], ['agent', 'claude', '2026-10-23T10:10:00Z'], ['builder-summary', 'builder', '2026-10-23T10:10:00Z'], ['calls', 'claude', '2026-10-23T10:10:00Z'],
+  ]);
+  assert.equal(threadOf('w/A1', { agents: { main } }).find((m) => m.kind === 'builder-summary').text, 'Added the footer.');
+  const { done, ...open } = main;
+  assert.ok(!shape({ main: open }).some(([kind]) => kind === 'builder-summary'), 'a reopened build shows no summary until it finishes again');
+  assert.deepEqual(shape({ main: { ...main, calls: [] } }).at(-1), ['builder-summary', 'builder', '2026-10-23T10:10:00Z'], 'a build with no calls still ends on its summary');
+});
+
 const askAt = (id, ts, extra = {}) => ({ id, ts, kind: 'ask', data: { text: `${id} first line\nmore` }, reply: null, ...extra });
 function askBoard(events, { working = {}, items = [{ id: 'A1', title: 'One', lane: 'progress' }], agents = {}, now = Date.parse('2026-10-23T12:00:00Z') } = {}) {
   return buildBoard({ fromWaves: false, now, files: [{ slug: 'w', agents, itemFile: { items } }], events, working });

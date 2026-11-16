@@ -11,6 +11,7 @@ import { freePorts, startBoard } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI, CONTEXT_CAP, handoffLines, landByBuilder, resumeChoice, sessionState } from './headless.mjs';
 import { briefFacts, archiveCards, builderProgress, builderResume, handBackCalls, readArchive, recordCall, threadFile, verifyCalls, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
+import { SUMMARY_HINT } from './domain.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 // The server tests run the board server in this process (shared/test-helpers.mjs startBoard), so the board reads its
@@ -86,7 +87,7 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
   for (const want of [
     'ENG-1', 'Make it go', '/s/waves/w/a1.md', 'Work only in /wt/A1', 'Use Node 22+',
     `${b} builder start w/A1 --kind build`, `${b} builder progress w/A1 --phase`, `${b} builder call w/A1`, `${b} builder ask w/A1`,
-    `${b} builder asks w/A1`, `${b} builder done w/A1 --risk low|medium|high --text`, 'New on w/A1 while you build: …": take it in before you hand back.', "git -c core.commentChar=';' rebase main", 'Never push',
+    `${b} builder asks w/A1`, `${b} builder done w/A1 --risk low|medium|high --summary "${SUMMARY_HINT}" --text`, 'posts as the Builder\'s message in the thread, above your judgment calls', 'New on w/A1 while you build: …": take it in before you hand back.', "git -c core.commentChar=';' rebase main", 'Never push',
   ]) assert.ok(brief.includes(want), `the brief has ${want}`);
   assert.ok(!brief.includes('node --test'), 'the brief runs the affected tests, not the full suite');
   for (const phase of ['reading', 'building', 'checking', 'landing']) assert.ok(brief.includes(`- ${phase}:`), `the brief says what ${phase} means`);

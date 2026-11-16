@@ -780,14 +780,14 @@ test("a markdown reply draws as compact markdown in the thread and under an answ
   assert.match(ui.questionCard(q, { links }), /<div class="rep md"><div class="muted small">Claude<\/div><p><strong>Kept<\/strong><\/p><\/div>/);
 });
 
-test("a thread names the board's session Orchestrator and a builder by its model", () => {
+test("a thread names the board's session Orchestrator and a builder Builder", () => {
   const html = ui.threadMessages([
     { ts: ago(3), who: 'Claude Opus builder', kind: 'builder-ask', text: 'Stay orange?' },
     { ts: ago(2), who: 'claude', kind: 'builder-answer', text: 'Go quiet.' },
     { ts: ago(1), who: 'claude', text: 'Landed.' },
   ]);
-  assert.match(text(html), /^Claude Opus builder Stay orange\? \S.* Orchestrator Go quiet\. \S.* Orchestrator Landed\. \S.*$/);
-  assert.match(html, /<div class="msg other"[^>]*>\s*<div class="who">Claude Opus builder<\/div>/);
+  assert.match(text(html), /^Builder Stay orange\? \S.* Orchestrator Go quiet\. \S.* Orchestrator Landed\. \S.*$/);
+  assert.match(html, /<div class="msg builder"[^>]*>\s*<div class="who">Builder<\/div>/);
   assert.match(html, /<div class="msg claude"[^>]*>\s*<div class="who">Orchestrator<\/div>/);
 });
 
@@ -798,7 +798,8 @@ test("every sender's message is its name alone, the body, then a footer with its
   const draw = (m) => ui.threadMessages([{ ts: at, text: 'Hi', ...m }]);
   assert.match(draw({ who: 'claude' }), footer('Orchestrator'));
   assert.match(draw({ who: 'claude', kind: 'reply', reply: { md: 'ok' } }), footer('Orchestrator'));
-  assert.match(draw({ who: 'Claude Opus builder', kind: 'builder-ask' }), footer('Claude Opus builder'));
+  assert.match(draw({ who: 'Claude Opus builder', kind: 'builder-ask' }), footer('Builder'));
+  assert.match(draw({ who: 'builder', kind: 'builder-summary' }), footer('Builder'));
   assert.match(draw({ who: 'Claude planner' }), footer('Claude planner'));
   assert.match(draw({ who: 'Jamie', via: 'github' }), footer('Jamie', '<span>·</span><span>GitHub</span>'));
   assert.match(draw({ who: 'Sam', via: 'slack' }), footer('Sam', '<span>·</span><span>Slack</span>'));
@@ -2195,6 +2196,18 @@ test("a builder's judgment calls show collapsed under its lines, with their post
   assert.match(checked, /· 2 · \S.* · verified .+ Kept <the> old name Question: every agent\? Verified: Match the notes\.$/);
   const msgs = [{ ts: ago(3), who: 'claude', text: 'One' }, { ts: ago(2), who: 'claude', text: 'Two' }, { ts: ago(1.5), who: 'claude', text: 'Three' }, open];
   assert.doesNotMatch(ui.threadMessages(msgs, {},{ seenAt: ago(9), more: 0 }), /thread-more/);
+});
+
+// docs/adr/2026-11-16-0830-a-builder-hands-back-with-a-summary-message.md
+test("a builder's summary and its asks read Builder in a grey message, the orchestrator's Orchestrator, and a teammate's Slack reply and any other voice share the grey", () => {
+  const summary = ui.threadMessages([{ ts: ago(1), who: 'builder', kind: 'builder-summary', text: 'Added the footer.' }]);
+  assert.match(summary, /^<div class="msg builder">\s*<div class="who">Builder<\/div>/);
+  assert.ok(text(summary).includes('Added the footer.'));
+  const ask = ui.threadMessages([{ ts: ago(1), who: 'Claude Opus builder', kind: 'builder-ask', ask: 'ask1', text: 'Stay orange?' }]);
+  assert.match(ask, /^<div class="msg builder">\s*<div class="who">Builder<\/div>/);
+  assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Hi' }]), /^<div class="msg claude">\s*<div class="who">Orchestrator<\/div>/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.msg\.slack, \.msg\.builder, \.msg\.other \{ background: var\(--chip\); \}/);
 });
 
 test("an open card's thread shows its newest 3 messages with the lines between them, from its oldest unread one when more are unread, and Show more saying how many messages it hides", () => {

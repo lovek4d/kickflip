@@ -105,6 +105,9 @@ function laneOf(item, pr, running, checking, pushed, reopened, skipDraft, rebasi
 
 // The label a lander's builder record carries (headless.mjs landerBrief): it lands a verified build.
 export const LANDER = 'Lander';
+// docs/adr/2026-11-16-0830-a-builder-hands-back-with-a-summary-message.md
+// What the summary a build's done owes says (store.mjs recordSummary).
+export const SUMMARY_HINT = 'what you built, in a few plain sentences: what changed for the owner, and what you left out';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 // docs/adr/2026-11-14-0031-a-land-step-reads-landables-skips.md
@@ -742,7 +745,7 @@ function agentsOf(records = {}, withPast = false) {
   return Object.entries(records).filter(([name, r]) => r && typeof r === 'object' && (withPast || !name.startsWith('past-'))).map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
     // pid: the headless process the board launched for it (store.mjs recordSession), none for a session's own agent.
-    log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null, ...(r.pause ? { pause: r.pause } : {}), ...(r.rerun ? { rerun: r.rerun } : {}),
+    log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], summary: r.summary || null, verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null, ...(r.pause ? { pause: r.pause } : {}), ...(r.rerun ? { rerun: r.rerun } : {}),
     ...(r.kind === HELPER ? { writes: Boolean(r.writes), requested: r.requested || null } : {}), ...(r.waits ? { waits: r.waits } : {}),
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
@@ -1196,6 +1199,9 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...agentList.flatMap((a) => [
       ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: sectionOf(agentList, a), finished: false, eta: a.done ? null : a.eta, ...(a.log ? { log: a.log } : {}), ...(plans(a) ? { planner: true } : {}) }] : []),
       ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: sectionOf(agentList, a), finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
+      // docs/adr/2026-11-16-0830-a-builder-hands-back-with-a-summary-message.md: a finished build's summary, the
+      // Builder's message at its finish, directly above its judgment calls.
+      ...(a.done && a.summary ? [{ ts: a.done, who: 'builder', kind: 'builder-summary', text: a.summary }] : []),
       // Its judgment calls, one entry under its lines: at its finish, or at its newest call while it runs
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),

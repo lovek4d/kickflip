@@ -594,7 +594,7 @@ test('a write that would leave a built card In Progress with nothing building an
   // A handed-back card waits on the orchestrator's check, so it needs no Next of its own.
   assert.equal((await board('builder', 'start', 'w/A1', '--label', 'Opus builder')).code, 0);
   assert.equal((await board('builder', 'call', 'w/A1', 'Kept the old header')).code, 0);
-  assert.match((await board('builder', 'done', 'w/A1', '--site', 'orch')).out, /^handed back: Next "Verify the builder's judgment calls"$/m);
+  assert.match((await board('builder', 'done', 'w/A1', '--site', 'orch', '--summary', 'Built it.')).out, /^handed back: Next "Verify the builder's judgment calls"$/m);
   assert.equal(typeof read(main).handed_back, 'string');
   assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--clear-next')).code, 0);
   assert.equal('next' in items()[0], false);
@@ -608,7 +608,7 @@ test('a write that would leave a built card In Progress with nothing building an
   assert.equal((await board('builder', 'start', 'w/A2')).code, 0);
   assert.equal((await board('item', 'set', 'w/A2', '--site', 'orch', '--unblocked')).code, 0);
   assert.equal((await board('builder', 'call', 'w/A2', 'Question: keep the header?')).code, 0);
-  assert.equal((await board('builder', 'done', 'w/A2', '--site', 'orch')).code, 0, 'handed back');
+  assert.equal((await board('builder', 'done', 'w/A2', '--site', 'orch', '--summary', 'Built it.')).code, 0, 'handed back');
 });
 
 test('item set refuses to start a blocked item, and finishing a dep prints, threads and emits each unblocking once', async () => {
@@ -675,7 +675,7 @@ test('a hand-back unblocks nothing, and closing a handed-back card unblocks as u
   const unblocked = (r) => r.out.split('\n').filter((l) => l.startsWith('unblocked'));
   assert.equal((await board('builder', 'start', 'd/A1', '--site', 'orch', '--kind', 'claude')).code, 0);
   assert.equal((await board('builder', 'call', 'd/A1', 'Kept the old header', '--site', 'orch')).code, 0);
-  const handedBack = await board('builder', 'done', 'd/A1', '--site', 'orch');
+  const handedBack = await board('builder', 'done', 'd/A1', '--summary', 'Built it.', '--site', 'orch');
   assert.equal(handedBack.code, 0, handedBack.err);
   assert.match(handedBack.out, /^handed back: Next/m);
   assert.deepEqual(unblocked(handedBack), []);
@@ -1002,7 +1002,7 @@ test('a write that takes a card out of Todo clears its hold and pick-up time', a
   // A builder still open on the held card hands it back.
   write(at('waves', 'd', 'agents', 'A2.json'), { label: 'Builder', kind: 'claude', started: new Date().toISOString() });
   assert.equal((await board('builder', 'call', 'd/A2', 'Kept the old header', '--site', 'orch')).code, 0);
-  assert.match((await board('builder', 'done', 'd/A2', '--site', 'orch')).out, /^handed back: Next/m);
+  assert.match((await board('builder', 'done', 'd/A2', '--summary', 'Built it.', '--site', 'orch')).out, /^handed back: Next/m);
   assert.equal((await board('item', 'set', 'd/A3', '--pr', '7', '--site', 'orch')).code, 0);
   assert.equal((await board('item', 'set', 'd/A4', '--done', '--site', 'orch', '--text', 'Done.')).code, 0);
   assert.deepEqual(items().slice(0, 4).map((it) => [it.held, it.pick_up_at]), Array(4).fill([undefined, undefined]));

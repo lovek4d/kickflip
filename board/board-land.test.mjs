@@ -203,12 +203,12 @@ test("every land squashes the card's branch into one commit on main: --title els
   const head = git(worktree(), 'rev-parse', 'HEAD');
   const tree = git(worktree(), 'rev-parse', 'HEAD^{tree}');
 
-  const badTitle = await onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.', '--title', 'Work');
+  const badTitle = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--title', 'Work');
   assert.equal(badTitle.code, 1);
   assert.match(badTitle.err, /^--title "Work" isn't "<type>\(<scope>\): <summary>".*; pass --title "<type>\(<scope>\): <summary>", at most 100 characters\n$/);
   assert.deepEqual([git(repo, 'rev-parse', 'main'), git(worktree(), 'rev-parse', 'HEAD')], [main, head]);
 
-  const r = await onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.', '--title', 'feat(board): the title');
+  const r = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--title', 'feat(board): the title');
   assert.equal(r.code, 0, r.err);
   assert.equal(git(repo, 'rev-parse', 'main~1'), main);
   assert.equal(git(repo, 'rev-parse', 'main^{tree}'), tree);
@@ -601,7 +601,7 @@ test("a land tags a release commit as it landed, after the rebase, and pushes th
   const release = async (id, version, subject = `chore(release): ${version}`) => {
     assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
     commit(at('kickflip', 'worktrees', id), 'package.json', JSON.stringify({ name: 'x', version }) + '\n', `${subject}\n\n- feat: work\n\nRefs: ${id}`);
-    return await onOrch('builder', 'done', `w/${id}`, '--text', 'Checked it.');
+    return await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
   };
   const tagged = (where, tag) => git(where, 'tag', '--list', tag) && git(where, 'rev-parse', `${tag}^{commit}`);
 
@@ -609,7 +609,7 @@ test("a land tags a release commit as it landed, after the rebase, and pushes th
   commit(at('kickflip', 'worktrees', 'A1'), 'package.json', JSON.stringify({ name: 'x', version: '0.2.0' }) + '\n', 'chore(release): 0.2.0\n\nRefs: A1');
   commit(repo, 'other.txt', 'moved\n', 'feat: main moved\n\nRefs: A0');
   git(repo, 'push', '--quiet', 'origin', 'main');
-  const landed = await onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  const landed = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
   assert.equal(landed.code, 0, landed.err);
   assert.ok(landed.out.includes('\npushed main to origin\npushed v0.2.0 to origin\n'), landed.out);
   assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'chore(release): 0.2.0');
