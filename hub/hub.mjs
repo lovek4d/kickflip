@@ -198,6 +198,7 @@
 // and the router's route-queue.json and routed.json: every 15 seconds the router files the requests still queued
 // (router.mjs drainRoutes; docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md), and
 // slack-intake.json, where each poll's @kickflip DM search starts (slack-intake.mjs).
+import { sweepStaleTempsUnder } from './stale-tmp.mjs';
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
@@ -345,6 +346,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   try { const routes = await migrateDropWaves(); if (routes.length) log(`boards: waves dropped on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('drop waves migration failed:', e.message); }
   try { const { routes, loginItem } = await migrateCellarNode(); if (routes.length) log(`manifest: ${routes.map((r) => `/${r}`).join(', ')} spawn node by Homebrew's link`); if (loginItem) log("hub login item file: spawns node by Homebrew's link"); } catch (e) { log('Cellar node migration failed:', e.message); }
   try { const moved = await migrateTriage(); if (moved) log(`boards: auto_triage moved to the hub's Triage overnight switch, ${moved.on ? 'on' : 'off'}`); } catch (e) { log('triage migration failed:', e.message); }
+  try { const gone = sweepStaleTempsUnder(HOME); if (gone.length) log(`swept ${gone.length} temp files left by killed writes`); } catch (e) { log('temp file sweep failed:', e.message); }
   const repos = repoService();
   const readUsage = usageReader();
   await awake.apply();
