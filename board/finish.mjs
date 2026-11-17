@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ghSync, limitWords } from '../shared/gh.mjs';
 import * as store from './store.mjs';
+import { blockWordsOf } from './domain.mjs';
 import { affectedRun, builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
 import { readPermissions } from './permissions.mjs';
 import { shipRelease } from './release.mjs';
@@ -42,14 +43,14 @@ export async function finishCard(site, key, { text, closing, ownerStep, check, r
   // that land, then finishes what it left, if anything.
   const ran = await joiningLand(ref, () => landCard(site, key, { tree: { ...tree, title }, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }), { merge });
   if (!ran.joined) return ran;
-  if (await store.isFinished(site, key)) return { said: 'landed and done', lines: [] };
+  if ((await store.shownCard(site, key)).finished) return { said: 'landed and done', lines: [] };
   return finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge, title });
 }
 
 async function landCard(site, key, { tree, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }) {
   const go = settings.auto_merge || Boolean((await store.heldMerge(site, key))?.tapped);
   // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md
-  const blocked = go && await store.blockWords(site, key);
+  const blocked = go && blockWordsOf(await store.shownCard(site, key));
   if (blocked) fail(`${ref} is blocked ${blocked}, so it can't land; it lands once nothing blocks it`);
   await store.checkClose(site, key, text, ownerStep, check);
   await store.checkCallsVerified(site, key);

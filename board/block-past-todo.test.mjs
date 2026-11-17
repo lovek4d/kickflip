@@ -8,6 +8,7 @@ import path from 'node:path';
 import { boardWith, home, at, site, write, read, lines, run, wave, commit, git, scratchRepo, worktree, itemOf, threadOf, record } from './board-fixture.mjs';
 import { fakeGh, prView, writePR, calls } from '../shared/fake-gh.mjs';
 import * as store from './store.mjs';
+import { builtCards } from './snapshot.mjs';
 
 const now = () => new Date().toISOString();
 const waveFile = () => at('waves', 'w', 'wave.json');
@@ -64,13 +65,17 @@ test("a blocked card's held Merge can't be tapped, and the lander skips its veri
   fs.mkdirSync(tree, { recursive: true });
   setA1({ merge_ready: undefined, lane: 'progress' });
   write(recordFile(), { started: now(), done: now(), handed_back: now(), kind: 'claude', worktree: { path: tree }, verified: { at: now() } });
-  assert.deepEqual((await store.landable(site('orch'))).map((c) => [c.key, c.skip]), [['w/A1', { step: 'blocked', blocked: 'by ENG-1' }]]);
-  setA1({ deps: undefined });
+  // What blocks it is the built card's (domain.mjs landSkipOf), which its land step reads.
+  const landOf = async () => { const { land } = (await builtCards(site('orch'))).get('w/A1'); return land && { step: land.step, blocked: land.blocked }; };
   assert.deepEqual((await store.landable(site('orch'))).map((c) => [c.key, c.skip]), [['w/A1', null]]);
+  assert.deepEqual(await landOf(), { step: 'blocked', blocked: 'by ENG-1' });
+  setA1({ deps: undefined });
+  assert.deepEqual(await landOf(), { step: 'launch', blocked: undefined });
   // A gone worktree is the skip a block can't hide: it needs the orchestrator.
   setA1({ deps: ['ENG-1'] });
   fs.rmSync(tree, { recursive: true });
   assert.deepEqual((await store.landable(site('orch'))).map((c) => [c.key, c.skip]), [['w/A1', { step: 'worktree-gone' }]]);
+  assert.deepEqual(await landOf(), { step: 'worktree-gone', blocked: undefined });
 });
 
 test('a finishing dep unblocks a card In Review, waking the orchestrator', async () => {

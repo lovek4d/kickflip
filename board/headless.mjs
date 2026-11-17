@@ -367,7 +367,7 @@ export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } ca
 // null: held by the usage pause or not yet launched). open is the set of keys whose builder record is still open. A tracked build whose
 // record has closed drops. One with no pid yet launches; one whose process has exited with its record still open launches
 // again once, and the second time goes to handBack, once: it stays tracked, marked handedBack, so its card reads stopped
-// (server.mjs snapshot alive). One whose kind held(kind) says its usage holds waits as it is
+// (snapshot.mjs readSnapshot alive). One whose kind held(kind) says its usage holds waits as it is
 // (docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md). One the orchestrator stopped (stopped, the keys
 // whose card reads it) is handed back at once, with no line, since the stop wrote its own. One paused (paused, the keys
 // whose build reads paused) waits as it is, since the board resumes it

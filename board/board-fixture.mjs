@@ -254,11 +254,12 @@ export function boardsManifest() {
 export const addEvents = (...events) => fs.appendFileSync(site('orch', 'data', 'events.jsonl'), events.map((e) => JSON.stringify(e) + '\n').join(''));
 
 export function reviewProbe(source) {
-  const urls = Object.fromEntries(['store', 'slack-store', 'domain', 'review'].map((name) => [name, new URL(`./${name}.mjs`, import.meta.url).href]));
+  const urls = Object.fromEntries(['store', 'slack-store', 'domain', 'review', 'snapshot'].map((name) => [name, new URL(`./${name}.mjs`, import.meta.url).href]));
   const script = `import * as store from ${JSON.stringify(urls.store)};
     import { readPRSlack } from ${JSON.stringify(urls['slack-store'])};
     import { buildBoard } from ${JSON.stringify(urls.domain)};
     import { topicItems } from ${JSON.stringify(urls.review)};
+    import { outsideData, readSnapshot } from ${JSON.stringify(urls.snapshot)};
     import { linksOf } from ${JSON.stringify(new URL('../hub/boards.mjs', import.meta.url).href)};
     const site = ${JSON.stringify(site('orch'))};
     ${source}`;
@@ -273,7 +274,7 @@ export function reviewState() {
   return reviewProbe(`
     const itemFile = await store.readJSON(${JSON.stringify(at('waves', 'w', 'wave.json'))}, {});
     const prs = { 'o/r#7': { state: 'OPEN', isDraft: false } };
-    const card = buildBoard({ files: [{slug: 'w', itemFile}], prs, topicItems: topicItems(), prSlack: await readPRSlack(site) }).items[0];
+    const card = buildBoard({ ...await readSnapshot(site, await outsideData(site)), prs }).items.find((i) => i.key === 'w/A1');
     const board = { dir: site, reviewers: ['Ann', 'Bob'], files: [{slug: 'w', itemFile}], prs: [{file: 'w', id: 'A1', pr: 7, repo: 'o/r'}] };
     console.log(JSON.stringify({ card, slack: linksOf(board, { github: {prs}, listen: 'listening', settings: { quiet: { start: '22:00', end: '08:00', hold: true } }, wakes: {}, faults: {} }).find((l) => l.link === 'slack') }));
   `);

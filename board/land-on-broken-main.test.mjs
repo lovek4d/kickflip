@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { git, commit, scratchRepo, worktree, onOrch, record, itemOf, threadOf, at, read, write, onHome, site } from './board-fixture.mjs';
 import { landable } from './store.mjs';
+import { builtCards } from './snapshot.mjs';
 
 // docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md
 // Main fails scan.test.mjs, which reads shared/list.mjs: a change to that file touches the test.
@@ -45,7 +46,9 @@ test("a land whose test fails on main too, but differently, files main's fix and
   assert.ok(threadOf().some((m) => m.line === 'land-held-on-base'), 'the thread says why it waits');
   assert.ok(record().handed_back && record().verified?.at, 'handed back, still verified');
   assert.equal(record().calls?.length ?? 0, 0, 'no call to verify again');
-  assert.deepEqual((await landable(site('orch'))).map((l) => [l.key, l.skip?.step]), [['w/A1', 'blocked']]);
+  // What blocks it is the built card's, which its land step reads (domain.mjs landSkipOf).
+  assert.deepEqual((await landable(site('orch'))).map((l) => [l.key, l.skip?.step]), [['w/A1', undefined]]);
+  assert.equal((await builtCards(site('orch'))).get('w/A1').land?.step, 'blocked');
 });
 
 test("a land whose test fails on main too blocks on an open card whose title names the test, filing none", async () => {

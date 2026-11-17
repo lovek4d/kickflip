@@ -45,7 +45,7 @@ export function summarize(out) {
     // For the PR's Slack link and its reactions (board/slack-store.mjs reviewDue)
     title: out.title ?? null, additions: out.additions ?? null, deletions: out.deletions ?? null, files: out.files ?? null,
     approved: Boolean(out.approved),
-    // What a board's badges draw, which boards read from here (board/server.mjs snapshot,
+    // What a board's badges draw, which boards read from here (board/snapshot.mjs readSnapshot,
     // docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md)
     url: out.url ?? null, mergedAt: out.mergedAt ?? null, headRefName: out.headRefName ?? null, headRefOid: out.headRefOid ?? null,
     updatedAt: out.updatedAt ?? null, checks: out.checks ?? null, reviews: out.reviews ?? {},

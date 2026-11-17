@@ -21,7 +21,7 @@
 // agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the item file. An item's parent is the key of the card it was spun out of, which makes it a follow-up, and
 // its related the keys of cards it is Related to; an item file's older followups list moves into its items as the server
 // starts (migrations.mjs migrateFollowups). Item files are storage only: deps order the cards, and parent and related group
-// them (docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md). domain.mjs decides lanes and card state from what this server reads.
+// them (docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md). domain.mjs decides lanes and card state from what snapshot.mjs reads, for this server and the CLI alike.
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
 //                                docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). /index.html redirects to /
@@ -300,25 +300,6 @@
 //                                while it starts or once it failed, its start step since stepAt and each finished step's
 //                                ms, and while it starts the log's last line, for the page's landing
 //                                (docs/adr/2026-11-14-1446-a-prototype-pages-landing-shows-its-sites-start-steps.md)
-// The last 40 lines of a hub run's log, data/try/<name>.log, from at most its last 64 KiB; [] with no log.
-async function tryLogTail(here, name) {
-  let file;
-  try {
-    file = await fs.open(path.join(here, 'data', 'try', `${name}.log`), 'r');
-    const { size } = await file.stat();
-    const start = Math.max(0, size - 64 * 1024);
-    const buffer = Buffer.alloc(size - start);
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
-    const lines = buffer.subarray(0, bytesRead).toString('utf8').split(/\r?\n/);
-    if (start) lines.shift();
-    if (lines.at(-1) === '') lines.pop();
-    return lines.slice(-40);
-  } catch (e) {
-    if (e.code === 'ENOENT') return [];
-    throw e;
-  } finally { await file?.close(); }
-}
-
 // A log's last non-empty line as a terminal last showed it: the text after its last carriage return, without escape
 // codes; null with none.
 function lastLogLine(lines) {
@@ -344,9 +325,9 @@ function lastLogLine(lines) {
 // else → 403 {error} (sharedWriter; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's replies to event <id> are data/replies/<id>.md, .html (written before markdown replies) or .json, then <id>~2.md, <id>~3.md … (store.mjs replyFilesOf).
-import { topicItems } from './review.mjs';
+import { cardNotesOf, liveFiles, loggedOutCards, outsideData as readOutside, readLanders, readSnapshot, shownEvents as readShownEvents, tryLogTail, withReply as eventWithReply } from './snapshot.mjs';
 import { boardWorktree, builderRepo, git, helperWorktree, moveQueuedLand, prWorktree } from './worktree.mjs';
-import { transcriptMovedAt, readRunTranscript } from './transcript.mjs';
+import { readRunTranscript } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { readSync, writeSync, stamp, patchSince } from './sync.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
@@ -360,12 +341,11 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, beside, queuedPlannerKey, queuedPlannerCard, REVIEWER, VISUAL, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, beside, queuedPlannerKey, queuedPlannerCard, REVIEWER, VISUAL, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, landSkipOf, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
-import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { withdraw } from '../hub/push.mjs';
 import { readClaudeModel } from '../shared/hub-settings.mjs';
 import { buildersView } from '../shared/model-views.mjs';
@@ -373,13 +353,12 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathS
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, moveCard, startPlanner, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
+import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, heldMerge, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, moveCard, startPlanner, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readMarks, readNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
 import { clearBuildPhases, discussNewCards, migrateCreated, migrateFollowups, migrateGates, migratePhases, migrateStatuses, stageImplementAsks, stripDeadFields } from './migrations.mjs';
 import { appendEvents as appendBoardEvents, appendLine, boardConfig, editJSON, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
-import { githubStateFile, boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
+import { boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { joinOf } from '../hub/sessions.mjs';
-import { limitedUntil } from '../shared/gh.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { nodeBin } from '../bin/install.mjs';
 import { routeRecord } from '../hub/routes.mjs';
@@ -389,7 +368,6 @@ import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { shareEntries } from '../hub/share.mjs';
 import { readUsageGate, heldFor, tasksInProgressCap, launchHeldWords, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { runLimit } from '../hub/usage.mjs';
-import { runLoggedOut } from '../hub/login-error.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
@@ -498,11 +476,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   const sameTag = (header, etag) => String(header || '').split(',').map((t) => t.trim().replace(/^W\//, '')).includes(etag.replace(/^W\//, ''));
   const REPEAT_WINDOW_MS = 30_000;
   const threadFile = (key) => siteThreadFile(here, key);
-  // Hidden events leave every list a page reads (docs/adr/2026-10-29-1639-dismissals-hide-on-the-server.md).
-  const shownEvents = async () => {
-    const hidden = await readHidden(here);
-    return (await readLog(events)).filter((e) => !hidden.has(e.id));
-  };
+  // Hidden events leave every list a page reads (snapshot.mjs shownEvents).
+  const shownEvents = () => readShownEvents(here);
 
   async function readBody(req, limit = 64 * 1024) {
     if (!isJSON(req.headers)) throw Object.assign(new Error('Send the body as application/json.'), { status: 403 });
@@ -598,19 +573,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return !q ? `${id} is no longer asked here. Reload to see what is.` : q.state !== 'resolved' ? `${id} isn’t resolved, so there is nothing to ask again.` : null;
   }
 
-  // e with its replies oldest first, and reply, the newest ({md|html|json, at}), or null.
-  // index, when given, is readReplyIndex's of replies: a build lists the folder once for all its events.
-  async function withReply(e, index) {
-    const replied = await Promise.all((index ? index.get(e.id) || [] : await replyFilesOf(replies, e.id)).map(async ({ name, ext }) => {
-      const f = path.join(replies, name);
-      try {
-        const [text, st] = await Promise.all([fs.readFile(f, 'utf8'), fs.stat(f)]);
-        return [{ [ext]: ext === 'json' ? JSON.parse(text) : text, at: st.mtime.toISOString() }];
-      } catch { return []; }
-    }));
-    const all = replied.flat();
-    return { ...e, reply: all.at(-1) || null, replies: all };
-  }
+  // e with its replies oldest first, and reply, the newest (snapshot.mjs withReply).
+  const withReply = (e) => eventWithReply(here, e);
 
   async function listEvents(kind, limit) {
     const working = await readWorking(here);
@@ -622,183 +586,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }));
   }
 
-  // docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md: a PR's state is the hub's last check of it,
-  // its summary in github-state.json (hub/github.mjs summarize), with the fields the board's badges draw; null before
-  // the hub has checked it. limited is when GitHub's limit on the check's GraphQL resets while it holds, else null, for the
-  // badges to dim (docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md).
-  const prViewOf = (s, limited) => (s ? { title: s.title, url: s.url, state: s.state, isDraft: s.isDraft, reviewDecision: s.reviewDecision, mergeStateStatus: s.mergeStateStatus,
-    mergeable: s.mergeable, checks: s.checks, mergedAt: s.mergedAt, headRefName: s.headRefName, headRefOid: s.headRefOid, updatedAt: s.updatedAt,
-    reviews: s.reviews, limited } : null);
-
   const config = () => boardConfig(here);
 
-  async function latestReply() {
-    const names = await fs.readdir(replies).catch(() => []);
-    const times = await Promise.all(names.map((n) => fs.stat(path.join(replies, n)).then((st) => st.mtimeMs, () => 0)));
-    const last = Math.max(0, ...times);
-    return last ? new Date(last).toISOString() : null;
-  }
-
-  // What the board reads from outside data/ and the item files' folder, whose writes signal changes: board.json, this
-  // board's entry in the hub's manifest (its GitHub repo, git remote and branch) and the Slack bridge's topic items.
-  async function outsideData() {
-    const self = boardAt(here);
-    // hostBusy: whether the host holds new work (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md), which a bumped
-    // ready card reads (domain.mjs hostHeld). landHeld {<kind>: words or null}: what holds the server's launches of each
-    // kind, which a verified card's land step reads (domain.mjs landStep).
-    const gate = readUsageGate({ dir: here });
-    return { cfg: await config(), github: self?.github, local: self?.local, hub: self?.hub, remote: self?.remote, branch: self?.branch, topicItems: topicItems(),
-      hostBusy: gate.machine.state === 'busy', landHeld: { claude: launchHeldWords(gate, 'claude'), codex: launchHeldWords(gate, 'codex') } };
-  }
-
-  // data/landers.json {<key>: {verified, pid, log, relaunched, handedBack?}}, each entry read with whether its process
-  // lives (alive) and, once gone, whether its run ended on the usage limit (limited), as landStep reads them. An entry
-  // from before landers kept their pid is a verification alone.
-  async function readLanders() {
-    return Object.fromEntries(Object.entries(await readJSON(path.join(data, 'landers.json'), {})).map(([key, v]) => {
-      const entry = typeof v === 'string' ? { verified: v, pid: null } : v;
-      const alive = Number.isInteger(entry.pid) && pidAlive(entry.pid);
-      return [key, { ...entry, alive, limited: !alive && (Boolean(entry.limited) || (Boolean(entry.log) && Boolean(runLimit(entry.log)))) }];
-    }));
-  }
-
-  // The item files the board reads, each with its builder records.
-  async function liveFiles() {
-    return (await Promise.all((await itemSources(here)).map(async (s) => {
-      const itemFile = await readJSON(s.file, null);
-      if (!itemFile || !Array.isArray(itemFile.items)) return null;
-      // A Done card's builders are finished, so the board's build reads only the other cards' records, and none of an
-      // archived card, which the item file no longer holds.
-      const open = new Set(itemFile.items.filter((it) => it.lane !== 'done').map((it) => it.id));
-      return { slug: s.slug, dir: s.dir, itemFile, agents: await readAgents(path.join(s.dir, 'agents'), open) };
-    }))).filter(Boolean);
-  }
-
-  // {<key>: true} of the cards, among the files' liveFiles', that have an open run whose log ends on Claude's login error
-  // (hub/login-error.mjs). A run that resumes after /login writes a new log, which the record names from then on.
-  async function loggedOutCards(files) {
-    const logs = path.join(home, '.claude', 'kickflip', 'logs');
-    const out = Object.create(null);
-    for (const { slug, agents } of files) {
-      for (const [id, byAgent] of Object.entries(agents || {})) {
-        if (Object.values(byAgent).some((r) => r?.started && !r.done && r.session?.log && runLoggedOut(path.join(logs, r.session.log)))) out[`${slug}/${id}`] = true;
-      }
-    }
-    return out;
-  }
-
-  // The notes of every card in the item files, files liveFiles', by key: its markdown (store.mjs itemNotes), or null with
-  // none or a notes file it can't read, which GET /api/notes answers 404.
-  async function cardNotesOf(files) {
-    return Object.fromEntries(await Promise.all(files.flatMap(({ slug, dir, itemFile }) => itemFile.items.map(async (it) => {
-      try { return [`${slug}/${it.id}`, await itemNotes(dir, it)]; } catch (e) {
-        if (e instanceof BoardError || e.code === 'ENOENT') return [`${slug}/${it.id}`, null];
-        throw e;
-      }
-    }))));
-  }
-
-  // The item files with archive entries' items (store.mjs readArchive) back among their cards, so an archived card links
-  // to the live cards it names and that name it, as it did on the board, with their builder records.
-  async function withArchived(entries) {
-    const files = await liveFiles();
-    for (const a of entries) {
-      const into = files.find((w) => w.slug === a.file);
-      if (into) into.itemFile.items.push(a.item);
-      else files.push({ slug: a.file, itemFile: { items: [a.item] }, agents: {} });
-    }
-    await Promise.all(files.filter((w) => w.dir).map(async (w) => {
-      const ids = new Set(entries.filter((a) => a.file === w.slug).map((a) => a.item.id));
-      if (ids.size) Object.assign(w.agents, await readAgents(path.join(w.dir, 'agents'), ids));
-    }));
-    return files;
-  }
-
-  // A board that opens no PRs has no reviewers on its cards; its list stays in board.json
-  // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
-  async function itemSnapshot({ cfg, github, local, hub, remote, branch }, files) {
-    const fromWaves = cfg.items === 'waves';
-    files ??= await liveFiles();
-
-    const threadLines = Object.create(null);
-    await Promise.all(files.flatMap(({ slug, itemFile }) => itemFile.items.map(async (it) => {
-      threadLines[`${slug}/${it.id}`] = await readLog(threadFile(`${slug}/${it.id}`));
-    })));
-    return { github, remote, branch, reviewers: opensPRs({ github, local, hub }, settingsOf(cfg, { hub })) ? cfg.reviewers || [] : [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, files, threads: threadLines,
-      working: await readWorking(here), delivered: await readDelivered(here), actedOn: await readActedOn(here), autoReview: settingsOf(cfg).auto_review, incoming: await readJSON(path.join(data, 'incoming.json'), null),
-      reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
-  }
-
-  // Reads every source buildBoard needs: item files and their builder records,
-  // PR state from the hub's GitHub check (prViewOf), item threads, page events with Claude's replies, owner
-  // questions and legacy review-link fallbacks; outside is outsideData's. With archive entries, it reads their cards and
-  // questions beside the item files' and owner.json's, and no PR state for them: their badges draw what they kept
-  // (store.mjs keptPRs).
-  async function snapshot(outside, archived = []) {
-    const items = await itemSnapshot(outside, archived.length ? await withArchived(archived) : undefined);
-    const { files, threads: threadLines, working } = items;
-    const prs = Object.create(null);
-    const archivedKeys = new Set(archived.map((a) => a.key));
-    const checked = (await readJSON(githubStateFile(), {})).prs || {};
-    const limited = limitedUntil({ budget: 'graphql' });
-    for (const { slug, itemFile } of files) {
-      const repo = items.github || itemFile.repo;
-      for (const it of itemFile.items) {
-        for (const p of cardPRs(it, repo)) prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? null : prViewOf(routeRecord(checked, prKeyOf(p)), limited);
-      }
-    }
-    const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'review-request', 'item-message', 'overnight-triage']);
-    const replyIndex = await readReplyIndex(replies);
-    const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e, replyIndex) : { ...e, reply: null, replies: [] })));
-    await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
-      const lines = await readLog(threadFile(`ask:${e.id}`));
-      if (lines.length) threadLines[`ask:${e.id}`] = lines;
-    }));
-
-    const moved = Object.create(null);
-    for (const { agents } of files) {
-      for (const record of Object.values(agents || {}).flatMap((byAgent) => Object.values(byAgent))) {
-        const dir = record.worktree?.path;
-        const at = dir && !record.done ? transcriptMovedAt(dir) : null;
-        if (at !== null) moved[dir] = at;
-      }
-    }
-
-    // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md
-    // alive {<key>: whether its headless process lives}: a card's tracked builder, else its lander (domain.mjs builderOf).
-    // A gone process reads false only once the board has stopped relaunching it (handedBack, reviveHeadless); before that
-    // the next minute's pass relaunches it, as launchLanders does a lander, so it reads as untracked. A builder whose launch
-    // a usage pause holds (pid null, handOff) reads 'held' until reviveHeadless launches it. A rebase run reads the same
-    // way from data/rebases.json (launchRebases).
-    const alive = Object.create(null);
-    const headless = await readJSON(path.join(data, 'headless-builders.json'), {});
-    const landers = await readLanders();
-    // landSkips {<key>: skip}: what store.mjs landable skips each verified card for, so its land step reads what
-    // launchLanders will do. Only a card with a verified record can wait to land, so with none landable isn't read.
-    const verifiedAny = files.some(({ agents }) => Object.values(agents || {}).some((byAgent) => Object.values(byAgent).some((r) => r?.verified)));
-    const landSkips = verifiedAny ? Object.fromEntries((await landable(here)).filter((c) => c.skip).map((c) => [c.key, c.skip])) : {};
-    const rebases = await readJSON(path.join(data, 'rebases.json'), {});
-    for (const [key, entry] of [...Object.entries(landers), ...Object.entries(rebases), ...Object.entries(headless)]) {
-      if (entry?.pid === null && routeRecord(headless, key) === entry) alive[key] = 'held';
-      if (!Number.isInteger(entry?.pid)) continue;
-      if (pidAlive(entry.pid)) alive[key] = true;
-      else if (entry.handedBack) alive[key] = false;
-      else delete alive[key];
-    }
-
-    const loggedOut = await loggedOutCards(files);
-
-    const tries = await readJSON(path.join(data, 'try.json'), null);
-    return {
-      // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: main's log tail rides the board while its build is failing.
-      mainLog: tries?.main?.state === 'failed' ? await tryLogTail(here, 'main') : null,
-      ...items, moved, alive, loggedOut, try: tries, main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here),
-      checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
-      owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
-      topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
-      screening: await readScreening(here), queuedPlanners: await readJSON(path.join(data, 'queued-planners.json'), {}), landers, landHeld: outside.landHeld, landSkips,
-    };
-  }
+  // What the board reads from outside data/ and the item files' folder, whose writes signal changes (snapshot.mjs).
+  const outsideData = () => readOutside(here);
+  // The board's snapshot (snapshot.mjs readSnapshot), with this server's HOME for the run logs it reads.
+  const snapshot = (outside, archived = []) => readSnapshot(here, outside, { archived, home });
 
   // docs/adr/2026-11-04-1056-archived-done-cards-are-built-as-they-page-in.md
   // A page of archive entries as the slim Done cards the page draws, built with the board's own cards as the board
@@ -1695,7 +1488,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       logCall({ call: 'planner-gone', key: c.key, result: c.limited ? 'queued' : c.failed ? 'failed' : 'closed', reason: c.limited ? `Its ${c.kind} run stopped at the usage limit, which resets at ${c.limited.until}; it relaunches then.` : `Its ${c.kind} planner's process was gone with its record open.`, inputs: c });
     }
     if (gone.length) dataVersion++;
-    for (const key of Object.keys(await loggedOutCards(await liveFiles()))) await noteLoggedOut(here, key);
+    for (const key of Object.keys(await loggedOutCards(await liveFiles(here), home))) await noteLoggedOut(here, key);
     const log = await readLog(events);
     const { items, reviews } = await sharedBoard();
     const hold = await triageHold(log);
@@ -2027,7 +1820,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const file = path.join(data, 'headless-builders.json');
       const tracked = await readJSON(file, {});
       if (!Object.keys(tracked).length) return;
-      const { items } = buildBoard(await itemSnapshot(await outsideData()));
+      const { items } = buildBoard(await readSnapshot(here, await outsideData(), { items: true }));
       const open = new Set(items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
       const handBack = async (card) => {
         logCall({ call: 'relaunch', key: card.key, result: 'handed back', reason: 'Its builder exited twice with its record open.', inputs: tracked[card.key] });
@@ -2097,7 +1890,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
   // data/landers.json (readLanders): the lander launched for each card's verification, its process and log, and how many
   // times it was relaunched for that verification. Each card whose verified build waits to land (store.mjs landable)
-  // takes the one step domain.mjs landStep gives it: running and a skip of landable's (blocked, asking, worktree-gone)
+  // takes the one step domain.mjs landStep gives it: running and a skip (domain.mjs landSkipOf: worktree-gone, blocked, asking)
   // leave it, held waits for the hold to clear (the minute check brings in the next pass), launch lands it through its builder (headless.mjs landByBuilder: the first launch resumes
   // the builder, a relaunch is a fresh lander), and fault, the first time, puts the exited-twice line on the card and marks
   // the entry handedBack, so the orchestrator's wait on it is a stale one. A lander whose process has gone while its own
@@ -2113,7 +1906,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const status = Object.fromEntries(items.map((i) => [i.key, i.waitsOn === 'checking' ? 'checking'
       : i.lane !== 'done' && i.agents?.some((a) => a.started && !a.done && a.label === LANDER) ? 'landing' : null]));
     const file = path.join(data, 'landers.json');
-    const sent = await readLanders();
+    const sent = await readLanders(here);
     // A run seen ending on the usage limit keeps that mark, since the limit's reset clears what runLimit reads.
     const kept = Object.fromEntries(Object.entries(sent).map(([key, { alive: _, limited, ...entry }]) => [key, { ...entry, ...(limited ? { limited } : {}) }]));
     const stored = await readJSON(file, {});
@@ -2132,8 +1925,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }
     if (!anyChecking && !sentBack) return save();
     const gate = readUsageGate({ dir: here });
-    for (const c of byBump(items, await landable(here))) {
-      const step = landStep({ verified: c.verified, entry: sent[c.key], alive: sent[c.key]?.alive, limited: sent[c.key]?.limited, skip: c.skip, held: launchHeldWords(gate, c.kind ?? 'claude') });
+    const cards = new Map(items.map((i) => [i.key, i]));
+    const due = (await landable(here)).filter((c) => cards.has(c.key) && !cards.get(c.key).finished);
+    for (const c of byBump(items, due)) {
+      const step = landStep({ verified: c.verified, entry: sent[c.key], alive: sent[c.key]?.alive, limited: sent[c.key]?.limited, skip: landSkipOf(cards.get(c.key), c.skip), held: launchHeldWords(gate, c.kind ?? 'claude') });
       const inputs = { verified: c.verified, before: kept[c.key] ?? null };
       if (step.step === 'held') heldByPause = true;
       if (step.step === 'fault' && !kept[c.key].handedBack) {

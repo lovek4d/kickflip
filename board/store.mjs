@@ -11,7 +11,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, LOGGED_OUT_WORDS, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState, implementAsk } from './domain.mjs';
+import { BUILD_REFUSED, LOGGED_OUT_WORDS, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, blockWordsOf, builds, mergeBlockers, modelName, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState, implementAsk } from './domain.mjs';
 import { githubStateFile, appendEvent, isBoardSite, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd, boardClaudeModel, claudeModelFor } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError } from '../hub/push.mjs';
@@ -24,6 +24,7 @@ import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
 import { appendLine, boardConfig, editJSON, itemSources, readJSON, readLog, remove, replace, sitesDir, wavesDir, writeJSON } from './files.mjs';
+import { builtCards } from './snapshot.mjs';
 // The readers the CLI calls on store.
 export { itemSources, readJSON, readLog } from './files.mjs';
 import { SCRIPT_LIMIT, runsAs, scriptLogName, scriptSha } from './scripts.mjs';
@@ -1219,9 +1220,10 @@ async function writeReviewers(site, change) {
     return { set: { reviewers }, reviewers };
   });
   const lines = [];
+  const open = await openKeys(site);
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
-    if (!(itemFile?.items || []).some((it) => !closed(it))) continue;
+    if (!(itemFile?.items || []).some((it) => open.has(`${source.slug}/${it.id}`))) continue;
     await writeJSON(source.file, { ...itemFile, reviewers });
     lines.push(`item file ${source.slug}: reviewers copied`);
   }
@@ -2272,11 +2274,13 @@ export const READY_EXPIRES_MS = 24 * 60 * 60 * 1000;
 // its notes kept, for the orchestrator's usual staging re-check. → the keys it re-staged
 export async function restageStaleReady(site, main, now = new Date()) {
   const restaged = [];
+  const cards = await builtCards(site);
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     let changed = false;
     for (const item of itemFile?.items || []) {
-      if (item.phase !== 'ready' || leftTodo(item) || closed(item)) continue;
+      const card = cards.get(`${source.slug}/${item.id}`);
+      if (item.phase !== 'ready' || card?.lane !== 'todo' || card.finished) continue;
       if (!item.ready_main) {
         item.ready_main = main;
         item.ready_at ??= now.toISOString();
@@ -2421,7 +2425,8 @@ function dropOwed(item) {
 // reviewer) owes that agent's brief on any open card and moves no phase.
 export async function planAgain(site, key, kind, ask = {}) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (closed(item) || (!beside({ kind }) && leftTodo(item))) return;
+  const card = await shownCard(site, key);
+  if (card.finished || (!beside({ kind }) && card.lane !== 'todo')) return;
   if (!beside({ kind }) && ['discussing', 'ready', 'staging'].includes(item.phase)) {
     item.phase = PLANNER_PHASE[kind];
     delete item.staged_at;
@@ -2448,8 +2453,9 @@ export async function writeBrief(site, key, { kind, file, final }) {
   if (file === undefined) fail('item brief needs --file <draft.md>: what the discussion settled, what is still open, what the agent should cover and the files that matter');
   const name = await cardName(site, key);
   const { item } = await loadItem(site, key);
-  if (closed(item)) fail(`${name} is done; there is nothing to brief`);
-  if (!beside({ kind }) && leftTodo(item)) fail(`${name} is past Todo, so it gets no ${kind}`);
+  const card = await shownCard(site, key);
+  if (card.finished) fail(`${name} is done; there is nothing to brief`);
+  if (!beside({ kind }) && card.lane !== 'todo') fail(`${name} is past Todo, so it gets no ${kind}`);
   const body = (await refuseCardNotes(site, file, '--file', () => `${DRAFT_HINT}, holding only the brief`)).trim();
   if (!body) fail(`${file} is empty`);
   const notes = item.plan ? (await readNotes(site, key)).markdown : '';
@@ -2804,12 +2810,17 @@ export async function moveCard(site, key, to, why, phase, snapshot) {
   await appendLine(threadFile(site, key), line);
   return line.text;
 }
-// docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md: a Done card, or one reopened since, has finished
-// for the cards waiting on it.
-const closed = (item) => item?.lane === 'done' || Boolean(item?.reopened_at);
-// Whether the card has left Todo: it is stored in another lane.
+// docs/adr/2026-11-17-2200-card-state-comes-from-one-snapshot-reader.md: the card at key as the board draws it
+// (snapshot.mjs builtCards), its lane, blockedBy and finished, one in the archive brought back first (loadItem).
+export async function shownCard(site, key) {
+  await loadItem(site, key);
+  return (await builtCards(site)).get(key);
+}
+// The keys of the open cards the board draws: not finished (domain.mjs workItem's finished).
+const openKeys = async (site) => new Set([...(await builtCards(site)).values()].filter((c) => !c.finished).map((c) => c.key));
+// Whether the card has left Todo: it is stored in another lane. A command writing the card's stored lane reads it; a
+// guard on the lane reads the card's (shownCard).
 export const leftTodo = (item) => Boolean(item?.lane) && item.lane !== 'todo';
-export const isFinished = async (site, key) => closed((await loadItem(site, key)).item);
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-07-0700-staging-then-ready.md,
 // docs/adr/2026-11-11-1200-every-lane-has-phases.md, docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: a Todo
 // card's phase. Staging is the board's alone, set on an owner action; --phase takes the rest. --state was its name
@@ -2840,38 +2851,17 @@ function addPRs(item, refs, repo) {
 export const depKey =(slug, dep) => (String(dep).includes('/') ? String(dep) : `${slug}/${dep}`);
 // A dep is a card, by key or by bare id in item file slug. → the keys of the cards deps waits on
 const depCards = (slug, deps) => [...new Set((deps || []).map((d) => depKey(slug, d)))];
-async function unfinishedDeps(site, slug, item) {
-  const keys = depCards(slug, item.deps);
-  const deps = await Promise.all(keys.map((k) => loadItem(site, k).then(({ item: d }) => d, () => null)));
-  return keys.filter((k, i) => deps[i] && !closed(deps[i]));
-}
-// The names of what blocks item (at key) from starting: each unfinished dep's card name, then its blocked-until condition.
-async function blockerNames(site, key, item) {
-  const deps = await Promise.all((await unfinishedDeps(site, parseKey(key).file, item)).map((k) => cardName(site, k)));
-  return item.blocked_until ? [...deps, item.blocked_until] : deps;
-}
-// What blocks the card at key (item, else its item file entry) as words after "blocked": "by #53, #54 and until <condition>",
-// or '' when nothing does.
-export async function blockWords(site, key, item) {
-  item ??= (await loadItem(site, key)).item;
-  const deps = await Promise.all((await unfinishedDeps(site, parseKey(key).file, item)).map((k) => cardName(site, k)));
-  return [deps.length && `by ${deps.join(', ')}`, item.blocked_until && `until ${item.blocked_until}`].filter(Boolean).join(' and ');
-}
+// The names of what blocks built card from starting: each dep it waits on, then its blocked-until condition.
+const blockerNames = (card) => [...card.blockedBy.map((d) => d.ref), ...(card.blockedUntil ? [card.blockedUntil] : [])];
 // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: a card In Progress is one started with
 // none of a PR, a pushed branch or a held Merge, which keep it In Review: a build runs on it, or its build handed back.
-const inProgress = (item, records) => !hasPR(item) && !item.pushed && !item.merge_ready && !closed(item)
+// finished is the built card's.
+const inProgress = (item, records, finished) => !hasPR(item) && !item.pushed && !item.merge_ready && !finished
   && (Boolean(handedBackAt(records)) || records.some((r) => r?.started && !r.done && builds(r)));
-// → the keys of the blocked cards whose last unfinished dep was key and no condition blocks.
+// → the keys of the open cards waiting on key that nothing blocks now: no dep they wait on and no condition.
 async function unblockedBy(site, key) {
-  const out = [];
-  for (const s of await itemSources(site)) {
-    const itemFile = await readJSON(s.file, null);
-    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
-      if (closed(it) || it.blocked_until || !depCards(s.slug, it.deps).includes(key)) continue;
-      if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
-    }
-  }
-  return out;
+  return [...(await builtCards(site)).values()]
+    .filter((c) => !c.finished && !c.blockedUntil && !c.blockedBy.length && c.blockers.some((d) => d.key === key)).map((c) => c.key);
 }
 
 // docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md: --split-into for card key, closing as a split: a comma
@@ -2885,10 +2875,11 @@ async function splitPlan(site, key, splitInto) {
   if (entries.includes(key)) fail(`${key} can't be split into itself`);
   const words = await Promise.all(entries.map((d) => cardName(site, d)));
   const waiters = [];
+  const open = await openKeys(site);
   for (const s of await itemSources(site)) {
     for (const it of (await readJSON(s.file, null))?.items || []) {
       const own = `${s.slug}/${it.id}`;
-      if (closed(it) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
+      if (!open.has(own) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
       if (entries.includes(own)) fail(`${own} waits on ${key} and is one of the tasks it splits into, so it would wait on itself`);
       waiters.push(own);
     }
@@ -2948,11 +2939,12 @@ async function releaseRecheck(site, key, files) {
 async function checkNextDeps(site, key, item, next) {
   const mentions = new Set(next.match(/#?[\w-]+(?:\.[\w-]+)*(?:\/[\w-]+(?:\.[\w-]+)*)*/g) || []);
   const deps = new Set(depCards(parseKey(key).file, item.deps));
+  const open = await openKeys(site);
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     for (const other of itemFile?.items || []) {
       const otherKey = `${source.slug}/${other.id}`;
-      if (otherKey === key || deps.has(otherKey) || closed(other)) continue;
+      if (otherKey === key || deps.has(otherKey) || !open.has(otherKey)) continue;
       const names = [other.id, refOf(itemFile, other), other.ticket].filter(Boolean).flatMap((id) => [id, `${source.slug}/${id}`]);
       if (names.some((name) => mentions.has(name))) fail(`--next names unfinished task ${otherKey}; add it with --blocked-by`);
     }
@@ -3097,14 +3089,18 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (ask) await refuseFiled(site, ask, key);
   if (ask && implementAsk(await readLog(path.join(site, 'data', 'events.jsonl')), ask)) fail(IMPLEMENT_NOT_FILED(ask));
   const { source, itemFile, item } = await loadItem(site, key);
+  // The card as the board draws it before this write: the guards read its lane, blockedBy and finished.
+  const shown = await shownCard(site, key);
   const file = parseKey(key).file;
   const before = { parent: item.parent, deps: (item.deps || []).map((d) => depKey(file, d)), wasNew: inIntake(item) };
   // An answered card the orchestrator sorts after all is work: it goes back to Todo in that phase.
-  if (phase !== undefined && item.answered_at && !item.closed_at) {
+  const backToTodo = phase !== undefined && Boolean(item.answered_at) && !item.closed_at;
+  if (backToTodo) {
     delete item.answered_at;
     if (leftTodo(item)) placeIn(item, 'todo', undefined, null);
   }
-  if (phase !== undefined && leftTodo(item)) fail(`--phase sets a Todo task's phase; ${key} is ${LANES[item.lane]}, where the board sets it`);
+  const lane = backToTodo ? 'todo' : shown.lane;
+  if (phase !== undefined && lane !== 'todo') fail(`--phase sets a Todo task's phase; ${key} is ${LANES[lane]}, where the board sets it`);
   // docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md: every task goes ready from staging, a Quick build
   // ask's too, which item triage stages.
   if (phase === 'ready' && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
@@ -3112,7 +3108,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
   if (ask && hold && phase !== undefined && !item.phase) fail('a task filed blocked is filed New and takes no --phase; drop --phase, or drop --blocked to file it in a phase');
   if (ask && phase === undefined && !item.phase && !hold) fail(FROM_ASK_PHASE);
-  const wasFinished = closed(item);
+  const wasFinished = shown.finished;
   if (split && wasFinished) fail(`${key} is already Done, so the tasks waiting on it were unblocked then; move them with item set <key> --blocked-by`);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
@@ -3182,7 +3178,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     delete item.recheck_at;
   }
   if (start) {
-    const blockers = await unfinishedDeps(site, parseKey(key).file, item);
+    const blockers = shown.blockedBy.map((d) => d.key);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done`);
     if (item.blocked_until) fail(`${key} is blocked until ${item.blocked_until}; start it once that holds and the block is cleared with --blocked-until ""`);
   }
@@ -3273,7 +3269,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md: a block on a card In
   // Progress keeps it there, and asks its running build, the board's or a session's, to pause at its next stopping
   // point (requestPause); one already landing lands, since land refuses a blocked card.
-  const blocked = (deps !== undefined || blockedUntil) && !done && inProgress(item, records) ? await blockWords(site, key, item) : '';
+  const blocking = (deps !== undefined || blockedUntil) && !done;
   // The moves this write makes (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a close
   // and a block write their own lines, the rest a move line.
   const repo = boardRepoOf(site, itemFile);
@@ -3282,7 +3278,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (done) moveTo('done', null);
   else if (handover && item.lane !== 'done') {
     moveTo('review', pr !== undefined ? `PR ${prNames([].concat(pr).map(parsePRRef), repo)} opened` : pushed !== undefined ? `${pushed} pushed for its merge` : 'verified, it waits for your Merge');
-  } else if (start && !closed(item)) {
+  } else if (start && !wasFinished) {
     // docs/adr/2026-11-15-1500-a-pull-and-its-build-start-are-one-status-line.md: a build the pull just started already
     // has its line, the pull's own "Moved to In Progress: slot available".
     const pulled = (await readLog(threadFile(site, key))).at(-1)?.line === 'pulled';
@@ -3295,6 +3291,9 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   const linking = ticket !== undefined || newTicket;
   if (linking) await assignTicket(site, itemFile, item, ticket, options, source.dir);
   await writeJSON(source.file, itemFile);
+  // The card as the board draws it after this write, for what a block or its lifting does.
+  const after = blocking || lifted ? await shownCard(site, key) : null;
+  const blocked = blocking && inProgress(item, records, after.finished) ? blockWordsOf(after) : '';
   await writeReply();
   if (madeAtReady) await appendStatus(site, key, 'ticket-made', { ticket: item.ticket });
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
@@ -3335,7 +3334,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
-  if (lifted && !closed(item) && !(await unfinishedDeps(site, parseKey(key).file, item)).length) {
+  if (lifted && !after.finished && !after.blockedBy.length) {
     const { line } = await appendStatus(site, key, 'unblocked', { lifted });
     await markUnblocked(site, key, line.ts);
     await appendEvent({ dir: site }, 'card-unblocked', { key });
@@ -3403,7 +3402,8 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   if (announce) {
     const at = new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     await appendStatus(site, key, 'hold-ended', { at });
-    if (!item.blocked_until && !(await unfinishedDeps(site, parseKey(key).file, item)).length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
+    const card = await shownCard(site, key);
+    if (!card.blockedUntil && !card.blockedBy.length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
   }
   setHold(item, null);
   await writeJSON(source.file, itemFile);
@@ -3763,9 +3763,10 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   needSite(site);
   const { itemFile, item } = await loadItem(site, key);
   if (!hasPR(item)) fail(`${key} has no PR`);
-  if (closed(item)) fail(`${key} is done`);
+  const card = await shownCard(site, key);
+  if (card.finished) fail(`${key} is done`);
   // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: auto-merge's refusal too.
-  const blocked = await blockWords(site, key, item);
+  const blocked = blockWordsOf(card);
   if (blocked) {
     if (tapped) await appendStatus(site, key, 'merge-blocked', { blocked });
     fail(`Not merged: blocked ${blocked}.`);
@@ -3855,8 +3856,9 @@ export async function heldMerge(site, key) {
 // finish on. → the held merge
 export async function tapMerge(site, key) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (!item.merge_ready || closed(item)) fail(`${key} isn't waiting for its Merge`);
-  const blocked = await blockWords(site, key, item);
+  const card = await shownCard(site, key);
+  if (!item.merge_ready || card.finished) fail(`${key} isn't waiting for its Merge`);
+  const blocked = blockWordsOf(card);
   if (blocked) fail(`${key} is blocked ${blocked}, so its Merge waits until nothing blocks it`);
   item.merge_ready.tapped = new Date().toISOString();
   await writeJSON(source.file, itemFile);
@@ -4279,7 +4281,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   if (agent !== 'main' && !beside({ kind: given }) && given !== HELPER && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
   const takeUp = before?.dispatched && !before.done ? before : null;
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
-  const marking = build && !dir && !closed(was) && was.lane !== 'progress';
+  const marking = build && !dir && !(await shownCard(site, key)).finished && was.lane !== 'progress';
   // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a card goes into In Progress titled as its PR will be.
   const untitled = marking && startTitleFault(key, was.title);
   if (untitled) fail(untitled, startTitleBrief(was.title));
@@ -4458,7 +4460,7 @@ async function tapRefusals(site, key) {
   const held = item.held ? { held: item.held, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
   if (held && leftTodo(item)) fail("it's blocked. Unblock it, then tap Implement.");
   if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes, so it prototypes again. Pick a take from the next round, then tap Implement.');
-  return { held, blockers: await blockerNames(site, key, item) };
+  return { held, blockers: blockerNames(await shownCard(site, key)) };
 }
 
 // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
@@ -4722,8 +4724,7 @@ export async function landFirst(site, key) {
 }
 // The orchestrator's bump (on) or unbump of a card, the event the owner's Bump sends. → the event's time
 export async function bumpCard(site, key, on) {
-  const { item } = await loadItem(site, key);
-  if (closed(item)) fail(`${await cardName(site, key)} is done; there is nothing to bump`);
+  if ((await shownCard(site, key)).finished) fail(`${await cardName(site, key)} is done; there is nothing to bump`);
   const id = await appendEvent({ dir: site }, on ? 'card-bump' : 'card-unbump', { key });
   return (await readLog(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === id).ts;
 }
@@ -4808,8 +4809,7 @@ export async function requestHelper(site, key, { name, task, writes, model }) {
   const job = text(task, '--task');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   refuseUnforced(site, model);
-  const { item } = await loadItem(site, key);
-  if (closed(item)) fail(`${await cardName(site, key)} is Done; a helper needs an open task`);
+  if ((await shownCard(site, key)).finished) fail(`${await cardName(site, key)} is Done; a helper needs an open task`);
   const file = await builderFile(site, key, undefined, agent);
   if (existsSync(file)) fail(`${key} already has an agent named ${agent}; pick another --name`);
   if (writes && !(await cardWorktree(site, key))) fail(`a helper that writes branches from ${key}'s worktree, and the task has none; start its build first, or drop --writes`);
@@ -4962,10 +4962,11 @@ export async function postFindings(site, key, { file }) {
 // → [{key, kind, model}], launchBuilder's card for each.
 export async function cutOffBuilds(site) {
   const out = [];
+  const open = await openKeys(site);
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     for (const item of itemFile?.items || []) {
-      if (closed(item)) continue;
+      if (!open.has(`${source.slug}/${item.id}`)) continue;
       const record = await readJSON(path.join(source.dir, 'agents', `${item.id}.json`), null);
       if (!record?.started || record.done || !['tap', 'hub'].includes(record.dispatched) || plans(record)) continue;
       out.push({ key: `${source.slug}/${item.id}`, kind: providerOf(record.kind), model: record.model });
@@ -4980,10 +4981,11 @@ export async function cutOffBuilds(site) {
 // and before it wrote the record leaves one. → [key]
 export async function lostLaunches(site, since) {
   const out = [];
+  const open = await openKeys(site);
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     for (const item of itemFile?.items || []) {
-      if (closed(item) || item.lane !== 'progress' || item.held || !(item.lane_at < since)) continue;
+      if (!open.has(`${source.slug}/${item.id}`) || item.lane !== 'progress' || item.held || !(item.lane_at < since)) continue;
       if ((await builderFiles(source.dir, item.id)).length) continue;
       out.push(`${source.slug}/${item.id}`);
     }
@@ -5220,10 +5222,11 @@ async function cardLinks(site, key) {
 }
 
 // docs/adr/2026-11-14-0031-a-land-step-reads-landables-skips.md
-// The cards whose verified build waits to land: handed back (domain.mjs handedBackAt) and not done, every call on their
-// records verified. A lander lands one with no skip; skip says why one gets none (domain.mjs landStep reads it as the
-// card's step): {step: 'worktree-gone'}, else {step: 'blocked', blocked: blockWords' words}, else {step: 'asking'}
-// while a question on it is open. A gone worktree goes first, as the one the orchestrator must act on.
+// The cards whose verified build waits to land: handed back (domain.mjs handedBackAt), every call on their records
+// verified. A lander lands one with no skip; skip says why one gets none (domain.mjs landStep reads it as the card's
+// step): {step: 'worktree-gone'}, else {step: 'asking'} while a question on it is open. What blocks the card, and
+// whether it has finished, are the built card's (domain.mjs landSkipOf, finished): the snapshot reader calls this
+// before any card is built (snapshot.mjs readSnapshot), so its callers apply them.
 // → [{key, verified, kind, model, skip}], verified the newest verification's time, and kind and model the newest
 // record's, so the lander runs as the agent that built the card.
 export async function landable(site) {
@@ -5231,7 +5234,6 @@ export async function landable(site) {
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     for (const item of itemFile?.items || []) {
-      if (closed(item)) continue;
       const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter(Boolean);
       if (!handedBackAt(records)) continue;
       const verified = records.map((r) => r.verified?.at).filter(Boolean).sort().at(-1);
@@ -5239,9 +5241,7 @@ export async function landable(site) {
       const key = `${source.slug}/${item.id}`;
       const builds = records.filter((r) => r.kind !== HELPER).sort((a, b) => String(b.started).localeCompare(String(a.started)));
       const newest = builds.find((r) => r.worktree?.path);
-      const blocked = await blockWords(site, key, item);
       const skip = !newest || !existsSync(newest.worktree.path) ? { step: 'worktree-gone' }
-        : blocked ? { step: 'blocked', blocked }
         : (await cardQuestions(site, key)).asked.some((q) => q.state === 'open') ? { step: 'asking' } : null;
       const built = newest ?? builds[0];
       out.push({ key, verified, kind: providerOf(built?.kind), model: built?.model, skip });
@@ -5260,9 +5260,10 @@ export async function waitOnMainFix(site, key, { files, log, base }) {
   const { file: slug } = parseKey(key);
   const names = files.flatMap((f) => [f, path.posix.basename(f).replace(/\.mjs$/, '')]);
   let fix = null;
+  const open = await openKeys(site);
   for (const s of await itemSources(site)) {
     for (const it of (await readJSON(s.file, null))?.items || []) {
-      if (!fix && `${s.slug}/${it.id}` !== key && !closed(it) && names.some((n) => String(it.title || '').includes(n))) fix = `${s.slug}/${it.id}`;
+      if (!fix && `${s.slug}/${it.id}` !== key && open.has(`${s.slug}/${it.id}`) && names.some((n) => String(it.title || '').includes(n))) fix = `${s.slug}/${it.id}`;
     }
   }
   const ref = await cardName(site, key);
@@ -5384,7 +5385,7 @@ export async function finishesCard(site, key, { agent = 'main' }) {
 // {waits: [question id]} while the card's questions are open, or {} when verifying finishes it.
 export async function verifiedFinish(site, key) {
   const { source, item } = await loadItem(site, key);
-  if (closed(item)) return null;
+  if ((await shownCard(site, key)).finished) return null;
   const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter(Boolean);
   if (!handedBackAt(records)) return { held: "the build hasn't handed back; run builder done first" };
   if (records.some((r) => unverifiedCalls(r).length)) return { held: 'a builder record still has unverified judgment calls' };

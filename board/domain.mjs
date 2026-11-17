@@ -117,8 +117,8 @@ export const SUMMARY_HINT = 'what you built, in a few plain sentences: what chan
 // (relaunched counts the launches after the first for that verification), alive whether the entry's process lives,
 // held the words for what holds the server's launches of its kind now (shared/usage-gate.mjs launchHeldWords) or null,
 // and limited whether the entry's run ended on the usage limit, which spends no relaunch. skip is what store.mjs
-// landable skips the card for, or null: {step: 'worktree-gone'}, {step: 'blocked', blocked: blockWords' words} or
-// {step: 'asking'} (a question on it is open).
+// landable skips the card for, as landSkipOf gives it with what blocks the card, or null: {step: 'worktree-gone'},
+// {step: 'blocked', blocked: blockWordsOf's words} or {step: 'asking'} (a question on it is open).
 // running: the lander launched for this verification lives. fault: a relaunched lander exited without landing too, or
 // the server already said so (handedBack). A skip: no lander launches while it stands. held: the launch waits for the
 // hold to clear. launch: the first launch for a verification resumes the card's builder, a relaunch takes a fresh
@@ -365,16 +365,19 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // what store.mjs landable skips it for (landSkips {<key>: skip}), as the server's launchLanders reads them.
   const verifiedAt = agents.map((a) => a.verified?.at).filter(Boolean).map(String).sort().at(-1) ?? null;
   const lander = routeRecord(landers, key);
-  const step = waitsOn === 'checking' && verifiedAt && !unverifiedOf(agents)
-    ? landStep({ verified: verifiedAt, entry: lander, alive: lander?.alive, limited: lander?.limited, skip: routeRecord(landSkips, key) ?? null, held: routeRecord(landHeld, providerOf(newestBuild(agents)?.kind) ?? 'claude') ?? null }) : null;
-  // The card's status line reads the step's words (public/ui-cards.js).
-  const land = step && { ...step, words: LAND_WORDS[step.step].card(step) };
+  // The step itself is taken once the board knows what blocks the card (buildBoard landOf).
+  const landFrom = waitsOn === 'checking' && verifiedAt && !unverifiedOf(agents)
+    ? { verified: verifiedAt, entry: lander, alive: lander?.alive, limited: lander?.limited, skip: routeRecord(landSkips, key) ?? null, held: routeRecord(landHeld, providerOf(newestBuild(agents)?.kind) ?? 'claude') ?? null } : null;
   return {
-    land,
+    land: null,
+    landFrom,
     key, kind: 'work', order, file: slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
     created: it.created || null, reviewSince: (idle && reopenAt) || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt) || backInTodo, answered: Boolean(answeredAt), awaitsDone,
+    // docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md: a Done card, or one reopened since, has
+    // finished for the cards waiting on it, which every process reads here (snapshot.mjs builtCards).
+    finished: lane === 'done' || Boolean(reopenedAt) || backInTodo,
     // A planner of the card waits in the server's queue for a launch hold to lift (server.mjs launchPlanner): the
     // card's footer reads paused.
     plannerQueued,
@@ -643,7 +646,21 @@ export function footerOf(it) {
   if (pause) footer.push({ kind: 'pause', paused: Boolean(pause.paused), words: `${pause.paused ? 'paused' : 'pausing'} · ${pause.words}` });
   return footer;
 }
-const mergeBlockedWords = (it) => `Blocked ${[it.blockedBy.length && `by ${it.blockedBy.map((d) => d.ref).join(', ')}`, it.blockedUntil && `until ${it.blockedUntil}`].filter(Boolean).join(' and ')}`;
+// What blocks built card it as words after "blocked": "by #53, #54 and until <condition>", or '' when nothing does. The
+// CLI's refusals (store.mjs) and the card's Merge read them.
+export const blockWordsOf = (it) => [it.blockedBy?.length && `by ${it.blockedBy.map((d) => d.ref).join(', ')}`, it.blockedUntil && `until ${it.blockedUntil}`].filter(Boolean).join(' and ');
+const mergeBlockedWords = (it) => `Blocked ${blockWordsOf(it)}`;
+// docs/adr/2026-11-14-0031-a-land-step-reads-landables-skips.md: what a verified built card's land skips for, given
+// store.mjs landable's skip: a gone worktree, which a block can't hide, else what blocks the card, else landable's.
+export const landSkipOf = (it, skip) => (skip?.step === 'worktree-gone' ? skip
+  : it.blockedBy?.length || it.blockedUntil ? { step: 'blocked', blocked: blockWordsOf(it) } : skip ?? null);
+// The card's land step from its landStep inputs (workItem landFrom) and what blocks it; the card's status line reads
+// the step's words (public/ui-cards.js).
+function landOf(it) {
+  if (!it.landFrom) return null;
+  const step = landStep({ ...it.landFrom, skip: landSkipOf(it, it.landFrom.skip) });
+  return { ...step, words: LAND_WORDS[step.step].card(step) };
+}
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
   it.mergeBlocked = it.action?.kind === ACTION_KIND.merge && it.blocked ? mergeBlockedWords(it) : null;
@@ -799,8 +816,8 @@ function reachedPhaseOf(agents, lines = []) {
 const stepOf = (phase) => (phase === 'testing' ? 'building' : phase);
 
 // A run's silence is the time since its newest progress line or movement in its worktree's Claude transcript (moved
-// {<worktree path>: ms}, server.mjs snapshot); a run with no readable transcript has its progress lines alone. alive is
-// whether the card's headless process lives (server.mjs snapshot alive), null when the board tracks none for it, or
+// {<worktree path>: ms}, snapshot.mjs readSnapshot); a run with no readable transcript has its progress lines alone. alive is
+// whether the card's headless process lives (snapshot.mjs readSnapshot alive), null when the board tracks none for it, or
 // 'held' while the board holds its launch for a usage pause: held, never stale, since the board launches it once the
 // pause lifts (server.mjs reviveHeadless), so it is no wait on the orchestrator.
 // A live one is never stale; a gone one is stale at once; an untracked one is stale after BUILDER_STALE_AFTER of silence
@@ -814,7 +831,7 @@ function reviewerOf(agents) {
 }
 // The words of a card whose run's log ends on Claude's login error, as its live line and its thread's status line.
 export const LOGGED_OUT_WORDS = 'Claude is logged out: run /login';
-// loggedOut: whether an open run of the card ends on that error (server.mjs snapshot), which reads in red until a run resumes.
+// loggedOut: whether an open run of the card ends on that error (snapshot.mjs readSnapshot), which reads in red until a run resumes.
 function builderOf(agents, lines = [], now, movedAt = null, alive = null, loggedOut = false) {
   const open = agents.filter((a) => a.started && !a.done && !beside(a));
   const planner = open.every(plans);
@@ -1508,10 +1525,14 @@ export function buildBoard(snapshot) {
     // (docs/adr/2026-11-15-0840-the-open-card-rows-start-at-its-links-and-drop-status-review-and-ci.md); blockedBy: the ones it still waits on.
     const deps = [...depKeys].map((k) => byKey.get(k)).filter(Boolean).sort(byAge);
     it.blockers = it.kind === 'work' ? deps.map(linkOf) : [];
-    it.blockedBy = open ? deps.filter((d) => d.lane !== 'done' && !d.reopened).map(linkOf) : [];
+    it.blockedBy = open ? deps.filter((d) => !d.finished).map(linkOf) : [];
     it.blockedUntil = open ? it.blockedUntil ?? null : null;
     it.blockReason = open ? it.blockReason ?? null : null;
     it.blocked = it.blockedBy.length > 0 || Boolean(it.blockedUntil) || Boolean(it.ownerBlock);
+    if (it.kind === 'work') {
+      it.land = landOf(it);
+      delete it.landFrom;
+    }
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.ownerBlock && started(it.storedLane, it.agents)) it.lane = 'progress';
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
