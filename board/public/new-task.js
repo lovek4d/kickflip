@@ -44,7 +44,7 @@ globalThis.BoardNewTask = (function () {
       stopFitting = BoardDialogs.fitSheet(sheet);
       sheet.classList.remove('closing');
       BoardUI.openSheet(sheet);
-      $('#askText').focus();
+      $('#askText').focus({ preventScroll: true });
       $('#compose').setAttribute('aria-expanded', 'true');
     }
     function closeSheet() {

@@ -18,7 +18,7 @@ BoardView.part((B) => {
   function openSearch() {
     bar.hidden = false;
     opener.setAttribute('aria-expanded', 'true');
-    field.focus();
+    field.focus({ preventScroll: true });
   }
   function endSearch() {
     field.value = '';
