@@ -22,7 +22,7 @@ test('the Polls page lists every poll under its group, fastest first, with its c
     assert.deepEqual(names, order, g.id);
   }
   const plain = text(html);
-  assert.match(plain, /Reconcile [^.]+\. Hub hub\/hub\.mjs:7 every 2 s \(2 × 1 s\)/);
+  assert.match(plain, /Reconcile [^.]+\. Hub hub\/hub\.mjs:7 every 15 s/);
   assert.match(plain, /Nightly suite check .* every 15 min \(60 × 15 s\)/);
   assert.match(plain, /Down-check, stream down [^.]+\. Each open page board\/public\/app\.js:7 every 15 s/);
   assert.match(plain, /Review digest .* quiet hours’ end/);

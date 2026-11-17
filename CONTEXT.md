@@ -59,7 +59,7 @@ The hub's status page, `/_hub/`, which the sidebar's Hub row opens: a pause or K
 _Avoid_: dashboard, console, hub home
 
 **Poll**:
-A job the hub, a board server, an open page or a hook runs again and again: a timer, a held wait such as the session prompts' long poll, or a back-off that runs only while something is down or busy. Every one has an entry in `shared/polls.mjs`, named by a `poll: <id>` comment at its timer, and the **Polls page**, `/_hub/polls`, linked last among the **hub settings** rows, lists them all, grouped by what they watch, fastest first. The hub's own run on two **clocks**, a 1 s one and a 15 s one, each every so many ticks ([every poll is in one registry and the hub runs on two clocks](docs/adr/2026-11-17-0330-every-poll-is-in-one-registry-and-the-hub-runs-on-two-clocks.md)).
+A job the hub, a board server, an open page or a hook runs again and again: a timer, a held wait such as the session prompts' long poll, or a back-off that runs only while something is down or busy. Every one has an entry in `shared/polls.mjs`, named by a `poll: <id>` comment at its timer, and the **Polls page**, `/_hub/polls`, linked last among the **hub settings** rows, lists them all, grouped by what they watch, fastest first. The hub's own run on one 15 s **clock**, each every so many ticks ([reconcile probes each board once a pass on the 15 s clock](docs/adr/2026-11-17-0500-reconcile-probes-each-board-once-a-pass-on-the-15-s-clock.md), after [every poll is in one registry and the hub runs on two clocks](docs/adr/2026-11-17-0330-every-poll-is-in-one-registry-and-the-hub-runs-on-two-clocks.md)).
 _Avoid_: timer list, cron
 
 **Hub status**:

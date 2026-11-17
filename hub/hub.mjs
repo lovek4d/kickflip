@@ -451,6 +451,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       Object.assign(p, { child: null, state: p.stopping ? 'stopped' : 'crashed', exitCode: code ?? sig, nextStart: clock() + backoff(p.restarts++), why: p.stopping ? p.why : undefined });
       p.stopping = false;
       log(`${route} exited (${code ?? sig})`);
+      // The reconcile rides the 15 s clock; a child's exit has it start the server again once its backoff is over.
+      if (ticks && !shuttingDown) setTimeout(reconcileLogged, Math.max(0, p.nextStart - clock())).unref(); // poll: none, one reconcile per exit
     };
     // A child that never spawned, such as one whose cwd is missing, emits no exit.
     child.on('error', (e) => { log(`${route} spawn error: ${e.message}`); if (!child.pid) ended(e.code, null); });
@@ -507,7 +509,12 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       else if (!runs(routeRecord(sites, route))) { log(`${route} no longer has a command; stopping it`); stop(route); procs.delete(route); }
     }
     for (const route of answering.routes()) if (servesOf(routeRecord(sites, route)) !== 'port') answering.forget(route);
-    await Promise.all(Object.entries(sites).filter(([, site]) => servesOf(site) === 'port').map(async ([route, site]) => answering.record(route, await probe(site.port))));
+    // One probe per port site a pass, which answering records and a running server's up reads.
+    const probed = new Map(await Promise.all(Object.entries(sites).filter(([, site]) => servesOf(site) === 'port').map(async ([route, site]) => {
+      const up = await probe(site.port);
+      answering.record(route, up);
+      return [route, up];
+    })));
     for (const [route, site] of Object.entries(sites)) {
       if (!runs(site)) continue;
       if (first) killStale(route, site);
@@ -538,7 +545,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     for (const [route, p] of procs) {
       const site = routeRecord(sites, route);
       if (!site) continue;
-      p.up = p.child ? await probe(site.port) : false;
+      p.up = p.child ? (probed.has(route) ? probed.get(route) : await probe(site.port)) : false;
       if (p.child && p.up) Object.assign(p, { state: 'up' }, p.stopping ? {} : { why: undefined });
     }
     endUnshared();
@@ -1832,7 +1839,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   readiness.listenOn(PORT);
   log(`hub on http://127.0.0.1:${PORT}/ (manifest ${MANIFEST})`);
   reconcileLogged();
-  // The hub's two clocks (shared/polls.mjs CLOCKS): each job runs every so many ticks of its clock, as its registry
+  // The hub's clock (shared/polls.mjs CLOCKS): each job runs every so many ticks of its clock, as its registry
   // entry says (docs/adr/2026-11-17-0330-every-poll-is-in-one-registry-and-the-hub-runs-on-two-clocks.md).
   const jobs = {
     reconcile: reconcileLogged, // poll: reconcile

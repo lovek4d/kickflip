@@ -46,21 +46,19 @@ test('entries are unique, each in a known group, run somewhere known, with a per
   }
 });
 
-test('the hub runs on a 1 s clock and a 15 s clock, each job every so many of its ticks', () => {
-  assert.deepEqual(CLOCKS, { second: 1000, quarter: 15_000 });
+test('the hub runs on one 15 s clock, each job every so many of its ticks', () => {
+  assert.deepEqual(CLOCKS, { quarter: 15_000 });
   const jobs = (clock, n) => dueOn(clock, n).map((p) => p.id).sort();
-  assert.deepEqual(jobs('second', 1), []);
-  assert.deepEqual(jobs('second', 2), ['reconcile']);
-  assert.deepEqual(jobs('quarter', 1), ['hung-check', 'self-restart', 'tick']);
-  assert.deepEqual(jobs('quarter', 4), ['hung-check', 'self-restart', 'share-save', 'tick']);
-  assert.deepEqual(jobs('quarter', 60), ['hung-check', 'nightly-suite', 'self-restart', 'share-save', 'tick']);
+  assert.deepEqual(jobs('quarter', 1), ['hung-check', 'reconcile', 'self-restart', 'tick']);
+  assert.deepEqual(jobs('quarter', 4), ['hung-check', 'reconcile', 'self-restart', 'share-save', 'tick']);
+  assert.deepEqual(jobs('quarter', 60), ['hung-check', 'nightly-suite', 'reconcile', 'self-restart', 'share-save', 'tick']);
 });
 
 test('a cadence reads as words, with a clock job’s ticks when it waits more than one', () => {
   assert.deepEqual([250, 1000, 15_000, 60_000, 15 * 60_000, 86_400_000].map(spanWords), ['250 ms', '1 s', '15 s', '1 min', '15 min', '1 day']);
   const of = (id) => cadenceOf(POLLS.find((p) => p.id === id));
   assert.equal(of('tick'), 'every 15 s');
-  assert.equal(of('reconcile'), 'every 2 s (2 × 1 s)');
+  assert.equal(of('reconcile'), 'every 15 s');
   assert.equal(of('nightly-suite'), 'every 15 min (60 × 15 s)');
   assert.equal(of('share-save'), 'every 1 min (4 × 15 s)');
   assert.equal(of('down-check'), 'every 15 s');

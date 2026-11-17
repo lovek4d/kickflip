@@ -13,8 +13,8 @@
 //   where: the repo file holding its `poll: <id>` comment, whose line the page shows;
 //   steps: [{name, what?, cadence?}], what one beat does, step by step.
 
-// The hub's two clocks: every recurring hub job runs on one of them, every `times` ticks.
-export const CLOCKS = Object.freeze({ second: 1000, quarter: 15_000 });
+// The hub's clock: every recurring hub job runs on it, every `times` ticks.
+export const CLOCKS = Object.freeze({ quarter: 15_000 });
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -49,7 +49,7 @@ export const POLLS = Object.freeze([
 
   // Sessions and prompts
   { id: 'reconcile', group: 'sessions', name: 'Reconcile', what: 'The hub’s process supervisor: starts, stops and restarts board servers (crashed, removed or changed), and ends a shared page whose share was taken away.',
-    ...on('second', 2), runs: 'Hub', where: 'hub/hub.mjs' },
+    ...on('quarter', 1), runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'hung-check', group: 'sessions', name: 'Hung boards', what: 'Restarts a board server that hasn’t answered for a minute, and pushes you if it still hasn’t 2 minutes on.',
     ...on('quarter', 1), runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'session-prompts', group: 'sessions', name: 'Session prompts', what: 'Permission prompts and questions from hub sessions. 25 s is how long one wait is held open; your answer arrives at once. Not a timer.',
