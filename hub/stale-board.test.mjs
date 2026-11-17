@@ -65,10 +65,8 @@ test('a board server whose code changed on disk waits while a land is landing, i
   const clock = { ms: Date.parse('2026-11-13T12:00:00Z') };
   const hub = await inProcessHub(t, { now: () => clock.ms, codeRestarts: true });
   const pid = () => fetch(`http://127.0.0.1:${shopPort}/`).then((r) => r.json()).then((j) => j.pid);
-  const newServer = async () => (await (await fetch(`${hub.base}/_hub/sidebar.json`)).json()).sites.find((s) => s.route === 'shop').newServer;
   const first = await signal.up();
   await hub.reconcile();
-  assert.equal(await newServer(), false);
 
   // The new code waits for the test's release before it listens, so its page can be caught while it restarts.
   write(path.join(pkg, 'board', 'dep.mjs'), `export const v = 2;\nawait fetch('http://127.0.0.1:' + process.env.SIGNALS + '/release');\n`);
@@ -76,7 +74,8 @@ test('a board server whose code changed on disk waits while a land is landing, i
   await hub.reconcile();
   assert.deepEqual(hub.lines.filter((l) => l.includes('older code')), ['shop runs older code than its files; its restart waits, since a land is landing'], 'the hub sees the stale server, waits on the land and says so once');
   assert.equal(await pid(), first, 'a land mid-flight keeps the old server');
-  assert.equal(await newServer(), true, 'the board offers Restart meanwhile');
+  assert.equal('newServer' in (await (await fetch(`${hub.base}/_hub/sidebar.json`)).json()).sites.find((s) => s.route === 'shop'), false, 'the sidebar offers no Restart meanwhile');
+  assert.equal((await fetch(`${hub.base}/_hub/restart-server`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"route":"shop"}' })).status, 404, 'there is no manual restart route');
 
   fs.rmSync(landLock);
   await hub.reconcile();
@@ -105,7 +104,6 @@ test('a board server whose code changed on disk waits while a land is landing, i
   const answer = await fetch(`${hub.base}/shop/`);
   assert.deepEqual([answer.headers.get('x-kickflip-hub'), answer.headers.get('x-kickflip-down'), (await answer.json()).pid], ['1', null, second]);
   assert.equal(await pid(), second);
-  assert.equal(await newServer(), false);
   assert.equal(hub.lines.filter((l) => l.includes('restarting it')).length, 1, 'the hub restarted the server once');
 
   // A land holds the restart for as long as it runs, with no bound of its own.

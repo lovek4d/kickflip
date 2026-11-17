@@ -555,7 +555,7 @@ test("sidebar and Hub page serve usage, the shell keeps it inside Hub, and Codex
   }
 });
 
-test('while the hub runs older code than its files, it reads healthy and the New hub version banner is the only sign', async () => {
+test('while the hub runs older code than its files, it reads healthy and the Restart hub button is the only sign', async () => {
   const running = read(hubCodeFile());
   assert.equal(running.hash, hubCode().hash);
   const sidebar = async () => (await fetch(`${base}/_hub/sidebar.json`)).json();
@@ -568,14 +568,15 @@ test('while the hub runs older code than its files, it reads healthy and the New
       assert.equal((await (await fetch(`${base}/${route}/api/links`)).json()).links.some((l) => l.link === 'hub'), false);
     }
     const side = await sidebar();
-    assert.equal(side.newHub, true);
+    assert.equal('newHub' in side, false);
+    assert.equal((await page()).hub.restart, true);
     assert.deepEqual(side.hub, before);
     assert.ok(side.sites.every((s) => !/older code|restart/i.test(JSON.stringify(s.sub))));
     const hub = await page();
     assert.equal(hub.hub.detail, side.hub.detail);
     assert.ok(hub.groups.flatMap((g) => g.sites).every((x) => x.lines.every((l) => l.link !== 'hub')));
   } finally { write(hubCodeFile(), running); }
-  assert.equal((await sidebar()).newHub, false);
+  assert.equal((await page()).hub.restart, false);
 });
 
 test("a board whose repo fetch fails gets a Repo fetch link that settles, reads degraded on Health and shows on the watcher after its grace, and clears on the next fetch", async () => {

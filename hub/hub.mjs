@@ -48,9 +48,6 @@
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
-//   /_hub/restart-server POST {route} from a board's New server version row: restarts that board's server alone, which
-//                     runs older code than its files, as the hub's own restart for new code does → {route}; 404 for no open
-//                     board, 409 while its server runs the code in its files
 //   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
 //                     the session → {route, title, session}, or {error} (restart-board.mjs)
 //   /_hub/check-update POST from the version in the hub page's footer: runs upgrade.mjs check() now and answers its result
@@ -960,7 +957,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
           : p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
       return {
         route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port ?? null, serves, state,
-        exitCode: p.exitCode ?? null, owner: s.owner || null, restart: restartable(s), newServer: Boolean(p.newCode), changedAt: changedAt(route, s) || null, created: s.created || null,
+        exitCode: p.exitCode ?? null, owner: s.owner || null, restart: restartable(s), changedAt: changedAt(route, s) || null, created: s.created || null,
         log: path.join(LOGS, route + '.log'),
       };
     });
@@ -1051,7 +1048,6 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const held = hold(now, settings);
     const data = {
       code: code.running ?? null,
-      newHub: Boolean(code.running) && code.running !== code.onDisk,
       version: VERSION,
       total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links),
       home: fs.realpathSync(os.homedir()),
@@ -1225,19 +1221,6 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         const result = await closeBoard(route, input.name);
         stream.refresh();
         return sendJSON(200, result);
-      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
-    }
-    if (p === '/_hub/restart-server' && req.method === 'POST') {
-      try {
-        const { route } = await readJSONBody(req);
-        const site = routeRecord(loadManifest().sites, route);
-        if (!site || !isBoardSite(site)) return sendJSON(404, { error: 'That board is not open.' });
-        const proc = procs.get(route);
-        if (!proc?.newCode || !proc.child || proc.stopping) return sendJSON(409, { error: `${site.title || route}’s server runs the code in its files.` });
-        log(`${route} runs older code than its files; restarting it from its Restart`);
-        restartForCode(route);
-        stream.refresh();
-        return sendJSON(200, { route });
       } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
     }
     if (p === '/_hub/restart-board' && req.method === 'POST') {

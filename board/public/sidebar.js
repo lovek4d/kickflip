@@ -51,14 +51,12 @@
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
-    const { sidebar, failedStart, loadSheet, startCaption, updateRow, restartRow, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
+    const { sidebar, failedStart, loadSheet, startCaption, updateRow, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
     const none = { setHere() {}, setData() {}, setUpdate() {}, checkDevice() {}, close() {}, toggle() {}, keydown() {}, pointerdown() {} };
     if (!aside || !sidebar) return none;
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
     let device = null;
     let update = null;
-    // Whether a restart row's tap waits (restartThenReload).
-    let restarting = false;
     // The hub's version when this page booted; the row names the version only once it differs.
     let bootVersion = data?.version ?? null;
     let updateHTML = '';
@@ -136,7 +134,7 @@
       const fresh = aside.querySelector('.sb-update');
       if (fresh) {
         if (held) fresh.replaceWith(held);
-        const row = updateRow(update, data.version && data.version !== bootVersion ? data.version : null) + restartRow(data, here, restarting);
+        const row = updateRow(update, data.version && data.version !== bootVersion ? data.version : null);
         if (!held || row !== updateHTML) (held || fresh).innerHTML = row;
         updateHTML = row;
       }
@@ -194,30 +192,6 @@
       if (!response.ok) throw new Error('Could not refresh boards.');
       setData(await response.json());
     }
-    // A restart row's tap (ui-sidebar.js restartRow): ask() asks the hub for the restart, then the row waits while
-    // /_hub/sidebar.json is read each second until back(data, its X-Hub-Code, the restart answer's) says the restarted
-    // server answers, and the app reloads. A refused ask, or none back after RESTART_WAIT tries, leaves the row to tap again.
-    const RESTART_WAIT = 120; // poll: restart-wait
-    async function restartThenReload(ask, back) {
-      if (restarting) return;
-      restarting = true;
-      paint();
-      try {
-        const asked = await ask();
-        if (asked.ok) {
-          const before = asked.headers.get('x-hub-code');
-          for (let i = 0; i < RESTART_WAIT; i++) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            try {
-              const r = await fetch('/_hub/sidebar.json', { cache: 'no-store' });
-              if (r.ok && back(await r.json(), r.headers.get('x-hub-code'), before)) return reload();
-            } catch { /* the hub is down while it restarts */ }
-          }
-        }
-      } catch { /* the host can't be reached: the row is there to tap again */ }
-      restarting = false;
-      paint();
-    }
     function newBoard() {
       close();
       BoardDialogs.repoSheet({
@@ -237,18 +211,6 @@
       const refreshApp = e.target.closest?.('[data-app-reload]');
       if (refreshApp) {
         if (!refreshApp.disabled && update !== 'reloading') { setUpdate('reloading'); reload(); }
-        return;
-      }
-      const server = e.target.closest?.('[data-server-restart]');
-      if (server) {
-        const route = server.dataset.serverRestart;
-        restartThenReload(() => fetch('/_hub/restart-server', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route }) }),
-          (next) => next.sites?.some((s) => s.route === route && !s.newServer && s.state === 'up'));
-        return;
-      }
-      if (e.target.closest?.('[data-hub-restart]')) {
-        restartThenReload(() => fetch('/_hub/restart-hub', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: '{}' }),
-          (next, code, before) => Boolean(code) && code !== before);
         return;
       }
       if (e.target.closest?.('[data-new-board]')) { newBoard(); return; }

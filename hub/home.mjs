@@ -72,7 +72,6 @@ export function holdNeeds(good, read, readAt, now) {
 // routes that are boards and each board's boards.mjs listenState (a Map by route). icon is HTML that board/public/ui-sidebar.js
 // places as given, and sub is statusLine's data, which it draws. created is when the site joined the hub, null when the manifest has no time, which ui-sidebar.js
 // switchKeys orders by. ctx is the board's owner session's context reading {percent, at} (usage.mjs), else null.
-// newServer is true while the site's server runs older code than its files, for that board's New server version row.
 export function sidebarSites(rows, waiting, boards, listens = new Map(), contexts = new Map()) {
   return rows.map((r) => {
     const needs = waiting.get(r.route) ?? null;
@@ -82,9 +81,7 @@ export function sidebarSites(rows, waiting, boards, listens = new Map(), context
     const heard = contextFull(listen, ctx) ? 'full' : listen;
     return {
       route: r.route, title: r.title, board: boards.has(r.route), state: r.state, count: needs?.count || 0,
-      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, heard), listen: heard, ctx,
-      newServer: Boolean(r.newServer),
-    };
+      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, heard), listen: heard, ctx,    };
   });
 }
 

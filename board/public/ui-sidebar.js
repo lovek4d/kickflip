@@ -274,24 +274,10 @@
       + `<span class="sb-text"><span class="sb-title">${version ? `v${esc(version)}` : 'New version'}</span></span><span class="sb-go">Reload</span></button>`;
   }
 
-  // The restart row under it, the same row worded for a restart
-  // (docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md): New server
-  // version on a board whose server runs older code than its files (its site's newServer), New hub version on the hub's
-  // pages while the hub does (data.newHub), each with Restart. here: as sidebar takes it. restarting: the tap waits
-  // (ui.js BUSY) until the restarted server answers and the app reloads.
-  function restartRow(data, here = '', restarting = false) {
-    const go = (attrs, title) => `<button type="button" class="sb-row sb-update-row" ${attrs}${restarting ? globalThis.BoardUI.BUSY : ''}>${tile('up', 'var(--accent)')}`
-      + `<span class="sb-text"><span class="sb-title">${title}</span></span><span class="sb-go">Restart</span></button>`;
-    if (here.startsWith('_hub')) return data?.newHub ? go('data-hub-restart', 'New hub version') : '';
-    const route = here.replace(/\/$/, '');
-    return data?.sites?.some((s) => s.board && s.route === route && s.newServer) ? go(`data-server-restart="${esc(route)}"`, 'New server version') : '';
-  }
-
   // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push
   // subscription as sidebar.js finds it, 'on' | 'off' | 'blocked' | 'install' (iOS outside the Home Screen app), or
   // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint on the Boards label.
-  // update: null | 'ready' | 'reloading'. restarting: restartRow's wait.
-  // now: the time a starting board's seconds count to. A shared person's data (data.shared; hub/share.mjs sharedSidebar)
+  // update: null | 'ready' | 'reloading'.  // now: the time a starting board's seconds count to. A shared person's data (data.shared; hub/share.mjs sharedSidebar)
   // draws their boards alone: no Hub row, update or notification rows, and no New board.
   // Whether the Hub row reads busy: the hub's pause.machine.busy (hub/home.mjs sidebarPause).
   const hubBusy = (data) => Boolean(data?.pause?.machine?.busy);
@@ -307,7 +293,7 @@
     return data?.pause?.paused ? 'paused' : '';
   };
 
-  function sidebar(data, { here = '', device = null, switching = false, update = null, restarting = false, now = Date.now() } = {}) {
+  function sidebar(data, { here = '', device = null, switching = false, update = null, now = Date.now() } = {}) {
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
     const paused = Boolean(data?.pause?.paused);
@@ -357,7 +343,7 @@
     const boardsLabel = `<div class="sb-label ks-label"><span class="ks-label-text">Boards</span>${hint}</div>`;
     if (data?.shared) return `${top}<div class="sb-scroll"><section class="sb-boards" aria-label="Boards">${boardsLabel}<div class="sb-group">${boards.map(siteRow).join('')}</div></section></div>`;
     return top
-      + `<div class="sb-scroll">${busyBanner}<section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update)}${restartRow(data, here, restarting)}</div><div class="sb-group">`
+      + `<div class="sb-scroll">${busyBanner}<section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update)}</div><div class="sb-group">`
       + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], mark: f.href === '/_hub/' ? moon : '', ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')
@@ -365,5 +351,5 @@
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, loadSheet, START_STEPS, startSteps, startCaption, startBanner, updateRow, restartRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords, hubDot });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, loadSheet, START_STEPS, startSteps, startCaption, startBanner, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords, hubDot });
 })();

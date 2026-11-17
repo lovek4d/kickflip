@@ -119,7 +119,6 @@ export const POLLS = Object.freeze([
   { id: 'try-group-wait', group: 'backoff', name: 'Try run stop wait', what: 'only while a stopped try run’s processes are exiting', every: 20, runs: 'Hub', where: 'hub/try.mjs' },
   { id: 'agent-session-wait', group: 'backoff', name: 'Agent session wait', what: 'only while a starting agent hasn’t named its session yet', every: 100, runs: 'Each board', where: 'board/agents.mjs' },
   { id: 'try-port-wait', group: 'backoff', name: 'Try run port wait', what: 'only while a try run starts', every: 250, runs: 'Hub', where: 'hub/try.mjs' },
-  { id: 'restart-wait', group: 'backoff', name: 'Board restart wait', what: 'only after a board’s Restart tap, until it’s back, 2 minutes at most', every: SECOND, runs: 'Each open page', where: 'board/public/sidebar.js' },
   { id: 'restart-hub-wait', group: 'backoff', name: 'Hub restart wait', what: 'only after Restart hub, until it’s back, 2 minutes at most', every: SECOND, runs: 'Each open page', where: 'board/public/view-hub.js' },
   { id: 'stream-reopen', group: 'backoff', name: 'Stream reopen', what: 'only while the page’s hub stream is closed', every: SECOND, cadence: '1 s → 30 s', runs: 'Each open page', where: 'board/public/shell.js' },
   { id: 'test-run-watch', group: 'backoff', name: 'Test run watch', what: 'only while a test run’s processes run; each exits once its run is gone', every: SECOND, runs: 'Each board', where: 'board/exit-with-run.mjs' },

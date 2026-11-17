@@ -2710,20 +2710,14 @@ test('the update row reads the new version, or New version when none is known, w
   assert.match(html, /<div class="sb-update" role="status"><\/div>/);
 });
 
-// docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md
-test("a board's new server code shows New server version · Restart on that board, the hub's on the hub pages, beside Reload, and spins while restarting", () => {
-  const data = { sites: [{ route: 'shop', title: 'Shop', board: true, newServer: true }, { route: 'calm', title: 'Calm', board: true, newServer: false }], newHub: true };
+// docs/adr/2026-11-17-1015-new-code-restarts-by-itself-with-no-restart-row.md
+test("the sidebar's update slot holds only Reload: new server or hub code adds no Restart row", () => {
+  const data = { sites: [{ route: 'shop', title: 'Shop', board: true, newServer: true }], newHub: true };
   const slot = (html) => /<div class="sb-update" role="status">(.*?)<\/div><div class="sb-group">/s.exec(html)[1];
-  const onShop = slot(ui.sidebar(data, { here: 'shop' }));
-  assert.match(onShop, /<button type="button" class="sb-row sb-update-row" data-server-restart="shop">/);
-  assert.equal(text(onShop), 'New server version Restart');
-  assert.equal(slot(ui.sidebar(data, { here: 'calm' })), '', 'a board whose server runs its files shows nothing');
-  const onHub = slot(ui.sidebar(data, { here: '_hub/' }));
-  assert.match(onHub, /data-hub-restart>/);
-  assert.equal(text(onHub), 'New hub version Restart');
-  assert.equal(slot(ui.sidebar({ ...data, newHub: false }, { here: '_hub/' })), '');
-  assert.equal(text(slot(ui.sidebar(data, { here: 'shop', update: 'ready' }))), 'New version Reload New server version Restart');
-  assert.match(slot(ui.sidebar(data, { here: 'shop', restarting: true })), /data-server-restart="shop" disabled aria-busy="true"/);
+  assert.equal(slot(ui.sidebar(data, { here: 'shop' })), '');
+  assert.equal(slot(ui.sidebar(data, { here: '_hub/' })), '');
+  assert.equal(text(slot(ui.sidebar(data, { here: 'shop', update: 'ready' }))), 'New version Reload');
+  assert.equal(ui.restartRow, undefined);
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md

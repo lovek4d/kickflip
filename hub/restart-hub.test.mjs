@@ -15,9 +15,7 @@ test("Restart hub answers, then stops the hub through close() and exits for its 
   const hub = await inProcessHub(t, { exit: (code) => { exits.push(code); exited(); } });
   const post = (headers = { 'content-type': 'application/json' }) => fetch(`${hub.base}/_hub/restart-hub`, { method: 'POST', headers, body: '{}' });
 
-  const newHub = async () => (await (await fetch(`${hub.base}/_hub/sidebar.json`)).json()).newHub;
   assert.equal((await (await fetch(`${hub.base}/_hub/api/hub`)).json()).hub.restart, false);
-  assert.equal(await newHub(), false);
   // The version tap's check: this hub runs from a clone, which never asks npm and answers with its commit.
   const checked = await fetch(`${hub.base}/_hub/check-update`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   const check = await checked.json();
@@ -28,8 +26,6 @@ test("Restart hub answers, then stops the hub through close() and exits for its 
   const stale = await fetch(`${hub.base}/_hub/api/hub`);
   assert.equal(stale.headers.get('x-hub-code'), 'old');
   assert.equal((await stale.json()).hub.restart, true);
-  // docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md: the hub pages' New hub version row.
-  assert.equal(await newHub(), true);
 
   assert.equal((await post({ 'content-type': 'text/plain' })).status, 403);
   assert.equal((await post({ 'content-type': 'application/json', origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' })).status, 403);
