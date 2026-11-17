@@ -120,3 +120,12 @@ test('an Implement on a held card stages it and keeps the block and its pick-up 
   assert.equal(w.read().held, undefined);
   assert.equal(w.read().phase, 'staging');
 });
+
+test('an Implement option is refused on any question but a next_gate', async () => {
+  const { site } = world();
+  const asks = (options) => ({ ...other(), options });
+  await assert.rejects(addQuestions(site, asks([{ id: 'implement', label: 'Build it' }, { id: 'a', label: 'A' }])), /Implement option.*next_gate/);
+  await assert.rejects(addQuestions(site, asks([{ id: 'go', label: 'Implement as shown' }])), /Implement option.*next_gate/);
+  await addQuestions(site, asks([{ id: 'a', label: 'Implementation notes first' }]));
+  await addQuestions(site, next());
+});

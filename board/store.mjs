@@ -2383,6 +2383,7 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
+    if (!q.next_gate && q.options.some((o) => o.id === 'implement' || /^implement\b/i.test(o.label))) fail(`${name} has an Implement option; only a grill's closing question, next_gate, offers Implement (choosing it stages the task), and a final visual ends on the card's Implement tap`);
     if (q.prototype_gate && q.next_gate) fail(`${name} sets prototype_gate and next_gate; a grill asks one closing question, next_gate`);
     for (const flag of Object.keys(GATES)) if (q[flag] !== undefined && checkGate(flag, q, `${name}.${flag}`)) await checkGateFact(site, q, flag, name);
     optional(q.suggested, (v) => checkSuggested(v, q.options, `${name}.suggested`));
