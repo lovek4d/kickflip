@@ -13,7 +13,8 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { readUsageGate, pauseReason, holdsWork } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { ANSWERED, unlanded } from './domain.mjs';
-import { BoardError, addItem, appendStatus, boardConfig, cardName, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
+import { BoardError, addItem, appendStatus, cardName, parseKey, resolveQuestion, setItem, startBuilder, topicQuestions } from './store.mjs';
+import { boardConfig, itemSources, readJSON, wavesDir } from './files.mjs';
 
 const recordsFile = (site) => path.join(site, 'data', 'arch-reviews.json');
 export const readReviews = async (site) => (await readJSON(recordsFile(site), { reviews: [] })).reviews || [];

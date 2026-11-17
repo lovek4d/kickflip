@@ -2,7 +2,7 @@ import { readManifest, withManifestLock, writeManifest, isBoardSite, listBoards,
 import { routeRecord } from './routes.mjs';
 import { repoService, validateBranch, runRepo, githubFromOrigin, defaultBranch } from './repos.mjs';
 import { repoInput } from './new-board.mjs';
-import { boardConfig } from '../board/store.mjs';
+import { boardConfig } from '../board/files.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 

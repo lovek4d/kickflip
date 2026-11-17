@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Shared board server for kickflip sites: node board/server.mjs <site dir>. The hub
 // runs it with PORT and PREFIX (/<route>) set, and strips the prefix before forwarding.
-// It writes page events, hidden events, uploads and the owner's card taps; agent sessions write the other files
-// below through bin/board.mjs (store.mjs):
+// It writes page events, hidden events, uploads, the owner's card taps and its own passes' files; agent sessions write
+// the other files below through bin/board.mjs (store.mjs). Every write goes through files.mjs, as every process's does:
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
 // <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
@@ -336,7 +336,7 @@ function lastLogLine(lines) {
 //   GET  /api/stream             server-sent events: `event: change` shortly after a write the server makes or is told of
 //                                under the item files' folder or data/ (changed). Never gzipped
 //   POST /_claude/changed        {file}: a store write in another process wrote file, under data/ or the item files'
-//                                folder; signals a change (store.mjs wrote). → 204
+//                                folder; signals a change (files.mjs wrote). → 204
 //   GET  /_claude/health
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text). One the hub forwards with
 // X-Kickflip-Shared is a shared person's: only an event or upload of someone the board's share lists as Full is taken,
@@ -373,7 +373,8 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathS
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
+import { appendEvents as appendBoardEvents, appendLine, boardConfig, editJSON, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { joinOf } from '../hub/sessions.mjs';
@@ -494,7 +495,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return html.replace(ASSET, (m, attr, ref) => (versions.get(ref) ? `${attr}="${ref}?v=${versions.get(ref)}"` : m));
   }
   const sameTag = (header, etag) => String(header || '').split(',').map((t) => t.trim().replace(/^W\//, '')).includes(etag.replace(/^W\//, ''));
-  const readJSON = async (f, fallback) => { try { return JSON.parse(await fs.readFile(f, 'utf8')); } catch { return fallback; } };
   const REPEAT_WINDOW_MS = 30_000;
   const threadFile = (key) => siteThreadFile(here, key);
   // Hidden events leave every list a page reads (docs/adr/2026-10-29-1639-dismissals-hide-on-the-server.md).
@@ -532,17 +532,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // Every page event, and the server's own such as a rules save, is one line here, which wakes the watcher. → its id
   const appendEvent = async (kind, data) => (await appendEvents([[kind, data]]))[0];
-  const newEventId = () => 'e' + now().getTime().toString(36) + Math.random().toString(36).slice(2, 7);
-  // [[kind, data, id?]] → their ids, every line in one append.
+  // [[kind, data, id?]] → their ids, every line in one append (files.mjs appendEvents). The append tells changed before it
+  // returns, so the data version has stepped and a check that runs next reads the board with these lines and never
+  // sends the same event twice.
+  // data/replies goes with the first event, for the replies to it.
   async function appendEvents(list) {
-    const ts = now().toISOString();
-    const lines = list.map(([kind, data, id = newEventId()]) => ({ id, ts, kind, data }));
     await fs.mkdir(replies, { recursive: true });
-    await fs.appendFile(events, lines.map((e) => JSON.stringify(e) + '\n').join(''));
-    // Steps the data version at once, so a check that runs next reads the board with these lines and never sends the
-    // same event twice.
-    changed(events);
-    return lines.map((e) => e.id);
+    return appendBoardEvents(here, list, now());
   }
 
   // Owner answers [{id, ...}] → their event ids, appended in one write. An answer to a card's prototype question that
@@ -1125,7 +1121,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   let changeTimer = null;
   let changeFirst = 0;
   let changeSent = null;
-  // A write to file, which the server made itself, a store write told it of (store.mjs wrote), or with no file a change
+  // A write to file, which the server made itself, a store write told it of (files.mjs wrote), or with no file a change
   // it can't name: the data version steps at once, and after 100 ms of quiet (500 ms at most) pages get one change
   // signal and the change passes run. data/sync.json, the server's own record of its change numbers, signals nothing.
   // changed({ read: true }), the minute's signal for a write no one told the server of, leaves the data version, which
@@ -1143,21 +1139,18 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     clearTimeout(changeTimer);
     changeTimer = setTimeout(() => {
       changeTimer = null;
-      broadcast(`event: change\ndata: ${JSON.stringify({ at: now().toISOString() })}\n\n`);
-      for (const pass of [fileNewAsks, settleLanes, checkArchive, markNewCards, checkActions, checkWaits, checkAuto, checkIdle]) track(pass());
-      changeSent();
+      const sent = changeSent;
+      // A write made while the server starts signals once the startup passes are done (ready), so no pass reads the
+      // board half-migrated.
+      ready.then(() => {
+        broadcast(`event: change\ndata: ${JSON.stringify({ at: now().toISOString() })}\n\n`);
+        for (const pass of [fileNewAsks, settleLanes, checkArchive, markNewCards, checkActions, checkWaits, checkAuto, checkIdle]) track(pass());
+        sent();
+      });
     }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - at)));
   }
-  // The server's own write of value to file, a data/ file the board build reads: by a rename of a tmp file of its own, so
-  // two writes at once (a pull's launch and the minute check) each rename their own, then signalled (changed). A file
-  // only the passes read is written without a signal, since the pass that wrote it has acted on it already.
-  async function writeShown(file, value) {
-    await fs.mkdir(data, { recursive: true });
-    const tmp = `${file}.${crypto.randomUUID()}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(value) + '\n');
-    await fs.rename(tmp, file);
-    changed(file);
-  }
+  // The server writes through files.mjs as every process does. A data/ file the board build reads is told (changed); a
+  // file only the passes read is written with told false, since the pass that wrote it has acted on it already.
 
   // Requests that come in while the startup passes run wait for them (ready), so none reads the board half-migrated.
   let started;
@@ -1219,7 +1212,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           return json(res, 200, { key, ref: refOf(itemFile, item, settingsOf(await config()).tickets), title: item.title, markdown });
         } catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
       }
-      // A store write in another process names the file it wrote (store.mjs wrote).
+      // A store write in another process names the file it wrote (files.mjs wrote).
       if (p === '/_claude/changed' && req.method === 'POST') {
         changed(String((await readBody(req)).file));
         res.writeHead(204, { 'cache-control': 'no-store' }).end();
@@ -1423,7 +1416,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         }
         // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a new task's card is filed
         // before its event is written, so the watcher's line names the card.
-        const preset = kind === 'ask' ? newEventId() : undefined;
+        const preset = kind === 'ask' ? eventId(now()) : undefined;
         const filed = preset ? await fileAsk(here, preset, { id: preset, ts: now().toISOString(), kind, data: body }) : null;
         // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: a new task sent with a request (its
         // Prototype, Grill or Visual) owes that kind's brief on its card, with the task's text and files, as the tap on a card does.
@@ -1697,7 +1690,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       limited: (record) => (record.session.log ? runLimit(path.join(home, '.claude', 'kickflip', 'logs', record.session.log)) : null),
     });
     for (const c of gone) {
-      if (c.limited) await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [queuedPlannerKey(c.key, c.kind)]: { kind: c.kind, kept: c.limited.brief, until: c.limited.until } });
+      if (c.limited) await editJSON(queuedPlanners, (queued) => { queued[queuedPlannerKey(c.key, c.kind)] = { kind: c.kind, kept: c.limited.brief, until: c.limited.until }; });
       logCall({ call: 'planner-gone', key: c.key, result: c.limited ? 'queued' : c.failed ? 'failed' : 'closed', reason: c.limited ? `Its ${c.kind} run stopped at the usage limit, which resets at ${c.limited.until}; it relaunches then.` : `Its ${c.kind} planner's process was gone with its record open.`, inputs: c });
     }
     if (gone.length) dataVersion++;
@@ -1856,12 +1849,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // launches when the hold lifts (launchQueuedPlanners); another of the same kind on the card replaces it.
   // (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md)
   const queuedPlanners = path.join(data, 'queued-planners.json');
-  const saveQueuedPlanners = (queued) => writeShown(queuedPlanners, queued);
   async function launchPlanner(key, kind, kept = null) {
     const gate = readUsageGate({ dir: here });
     if (heldFor(gate, 'claude')) {
       heldByPause = true;
-      await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [queuedPlannerKey(key, kind)]: { kind, ...(kept ? { kept } : {}) } });
+      await editJSON(queuedPlanners, (queued) => { queued[queuedPlannerKey(key, kind)] = { kind, ...(kept ? { kept } : {}) }; });
       logCall({ call: 'planner-queued', key, result: kind, reason: pauseReasonFor(gate, 'claude'), inputs: { kind, gate } });
       await appendStatus(here, key, gate.machine.state === 'busy' ? 'host-busy' : 'planner-held', { kind });
       return;
@@ -1975,8 +1967,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const key = queuedPlannerCard(queuedKey);
       if (launchHeldNow()) return;
       if (until && Date.parse(until) > Date.now()) continue;
-      const { [queuedKey]: _, ...rest } = await readJSON(queuedPlanners, {});
-      await saveQueuedPlanners(rest);
+      await editJSON(queuedPlanners, (queued) => { delete queued[queuedKey]; });
       logCall({ call: 'planner-queued', key, result: 'launching', reason: 'The hold it waited on has lifted.', inputs: { kind } });
       if (beside({ kind })) await restoreBrief(here, key, kept);
       else await launchPlanner(key, kind, kept);
@@ -1989,10 +1980,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // their run logs, for reviveHeadless.
   // trackLaunch sets a key's entry, or with null drops it (a lander takes the card over from its builder).
   async function trackLaunch(key, entry) {
-    const file = path.join(data, 'headless-builders.json');
-    const tracked = await readJSON(file, {});
-    if (entry) tracked[key] = entry; else delete tracked[key];
-    await writeShown(file, tracked);
+    await editJSON(path.join(data, 'headless-builders.json'), (tracked) => { if (entry) tracked[key] = entry; else delete tracked[key]; });
   }
   // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
   // At startup: a build the previous process started but died before launching (store.mjs cutOffBuilds) that
@@ -2069,7 +2057,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const paused = new Set(items.filter((c) => c.builder?.pause?.paused).map((c) => c.key));
       const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind) => heldFor(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items), paused,
         limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit });
-      if (JSON.stringify(next) !== JSON.stringify(tracked)) await writeShown(file, next);
+      if (JSON.stringify(next) !== JSON.stringify(tracked)) await writeJSON(file, next, { from: tracked });
     } catch (err) {
       console.error('Headless builder check failed:', err.message);
     } finally {
@@ -2127,10 +2115,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const sent = await readLanders();
     // A run seen ending on the usage limit keeps that mark, since the limit's reset clears what runLimit reads.
     const kept = Object.fromEntries(Object.entries(sent).map(([key, { alive: _, limited, ...entry }]) => [key, { ...entry, ...(limited ? { limited } : {}) }]));
-    const was = JSON.stringify(await readJSON(file, {}));
+    const stored = await readJSON(file, {});
+    const was = JSON.stringify(stored);
     const save = async () => {
-      // The cards' land steps read it.
-      if (JSON.stringify(kept) !== was) await writeShown(file, kept);
+      // The cards' land steps read it. Merged with what restartLander wrote meanwhile.
+      if (JSON.stringify(kept) !== was) await writeJSON(file, kept, { from: stored });
     };
     let sentBack = false;
     for (const [key, entry] of Object.entries(sent)) {
@@ -2218,7 +2207,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const due = byBump(items, rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base));
     if (!due.length) {
       // A card's alive reads it (snapshot).
-      if (JSON.stringify(sent) !== was) await writeShown(file, sent);
+      if (JSON.stringify(sent) !== was) await writeJSON(file, sent);
       return;
     }
     try {
@@ -2247,7 +2236,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       }
     } finally {
       // Written even when a start throws, so a run already launched in this pass isn't started again.
-      await writeShown(file, sent);
+      await writeJSON(file, sent);
     }
   }
 
@@ -2266,11 +2255,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const file = path.join(data, 'triaged.json');
     const marker = await readJSON(file, {});
     const { waiting, seen } = triageOf(items);
-    const save = async () => {
-      await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify({ seen }) + '\n');
-      await fs.rename(file + '.tmp', file);
-    };
+    const save = () => writeJSON(file, { seen }, { told: false });
     const last = log.filter((e) => e.kind === 'overnight-triage').at(-1);
     if (last && !(await withReply(last)).reply) { if (marker.seen !== seen) await save(); return; }
     if (!(await triageOn()) || !ready) return;
@@ -2334,11 +2319,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       await appendStatus(here, key, line);
       await start(key);
     }
-    if (JSON.stringify(markedOf(await readJSON(file, {}))) !== JSON.stringify(keys)) {
-      await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify({ keys, at: now().toISOString() }) + '\n');
-      await fs.rename(file + '.tmp', file);
-    }
+    if (JSON.stringify(markedOf(await readJSON(file, {}))) !== JSON.stringify(keys)) await writeJSON(file, { keys, at: now().toISOString() }, { told: false });
     return keys.length > 0;
   }
 
@@ -2398,11 +2379,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const { closed } = await withdraw([tag], route);
       if (closed.length) logCall({ call: 'push', reason: 'Nothing waits on the owner, and the board\'s notification already went out.', inputs: { tag }, result: 'closed' });
     }
-    if (JSON.stringify(current) !== JSON.stringify(previous)) {
-      await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify(current) + '\n');
-      await fs.rename(file + '.tmp', file);
-    }
+    if (JSON.stringify(current) !== JSON.stringify(previous)) await writeJSON(file, current, { told: false });
   }
 
   // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
@@ -2448,7 +2425,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: each
     // owner's-last-word wait that ended, for the audit of what ended it.
     const ended = ownerWordEnds(previous, current, built, now());
-    if (ended.length) await fs.appendFile(path.join(data, 'limbo-waits.jsonl'), ended.map((e) => JSON.stringify(e) + '\n').join(''));
+    for (const e of ended) await appendLine(path.join(data, 'limbo-waits.jsonl'), e, { told: false });
     // docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md: the first check of a
     // new local day names to the orchestrator the waits WAIT_AUDIT_AFTER or more unpicked that opened from the stored
     // day up to today, in a record-only long-waits event its next wake prints.
@@ -2460,7 +2437,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (over.length) await appendEvent('long-waits', { day, waits: over.map(({ key, ref, kind, since, unpicked }) => ({ key, ref, kind, since, unpicked })) });
     }
     if (!stored || JSON.stringify(step.waits) !== JSON.stringify(previous) || step.againAt !== (stored.againAt ?? null) || stored.day !== today) {
-      await writeShown(file, { waits: step.waits, againAt: step.againAt, day: today });
+      await writeJSON(file, { waits: step.waits, againAt: step.againAt, day: today });
     }
     const waking = step.opened.filter((w) => !w.picked);
     if (step.added.length || step.again.length) await appendEvent('orchestrator-waits', { opened: waking, again: step.again });
@@ -2488,7 +2465,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   async function stepIdle() {
     const file = path.join(data, 'idle.json');
     const cfg = await config();
-    if (!settingsOf(cfg).idle_notification) return fs.rm(file, { force: true });
+    if (!settingsOf(cfg).idle_notification) return remove(file, { told: false });
     const previous = await readJSON(file, {});
     const built = await sharedBoard();
     const idle = strictlyIdle(built, { pulled: await sentOf(PULL) });
@@ -2497,11 +2474,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       await sendOwnPush({ kind: 'reminder', title: `${cfg.title || route} has gone idle`, body: idleSummary(built.items, previous.last), url: `/${route}/`, tag: 'idle', now: true },
         { reason: 'The board has been strictly idle long enough, with idle notifications on.', inputs: { previous } });
     }
-    if (JSON.stringify(state) !== JSON.stringify(previous)) {
-      await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify(state) + '\n');
-      await fs.rename(file + '.tmp', file);
-    }
+    if (JSON.stringify(state) !== JSON.stringify(previous)) await writeJSON(file, state, { told: false });
   }
 
   // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
@@ -2571,6 +2544,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => { server.off('error', reject); resolve(); });
   });
+  // docs/adr/2026-11-16-0312-a-store-write-tells-its-board-server.md: a write in this process, the server's own and the
+  // startup passes' included, calls changed directly; one in another process POSTs /_claude/changed.
+  const untell = tellOnWrite(here, changed);
 
   // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
   try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
@@ -2590,9 +2566,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   await settleLanes();
   await checkArchive();
   await markNewCards();
-  // docs/adr/2026-11-16-0312-a-store-write-tells-its-board-server.md: a store write in this process calls changed
-  // directly; one in another process POSTs /_claude/changed.
-  const untell = tellOnWrite(here, changed);
   await checkPrototypeWaits();
   await checkPickUps();
   await checkAuto();

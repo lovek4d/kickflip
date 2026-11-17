@@ -1055,16 +1055,16 @@ test("a Hold or Done whose item file couldn't be written is refused with why and
   const before = logged();
   // The item file as the server's own passes on the new card left it.
   const written = fs.readFileSync(wave, 'utf8');
-  // The item file's write goes through a temp file named for the server's pid, this process's; a folder in its place fails it.
-  const blocker = path.join(site, 'data', `items.json.${process.pid}.tmp`);
-  fs.mkdirSync(blocker);
+  // The item file's write makes a temp file named for that write alone in its folder; a folder that takes no new file fails it.
+  const folder = path.join(site, 'data');
+  fs.chmodSync(folder, 0o555);
   try {
     for (const tap of [{ kind: 'card-hold', key: 't/HD1', hold: true }, { kind: 'card-done', key: 't/HD1' }]) {
       const [status, out] = await post(tap);
       assert.equal(status, 500, tap.kind);
-      assert.match(out.error, /^Couldn’t write t\/HD1 to its item file: EISDIR/, tap.kind);
+      assert.match(out.error, /^Couldn’t write t\/HD1 to its item file: EACCES/, tap.kind);
     }
-  } finally { fs.rmdirSync(blocker); }
+  } finally { fs.chmodSync(folder, 0o755); }
   assert.equal(logged(), before);
   assert.equal(fs.readFileSync(wave, 'utf8'), written);
   const landed = { id: 'HD1', title: 'One', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z', prs: [{ number: 7, merged_at: '2026-11-01T00:00:00.000Z' }] };

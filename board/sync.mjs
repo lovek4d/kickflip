@@ -10,6 +10,7 @@
 // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: each card's notes ride it too, sent whole when they changed.
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import { replace } from './files.mjs';
 
 // Each list of records and the field that names a record in it.
 export const LISTS = { items: 'key', owner: 'id', ownerTopics: 'id' };
@@ -140,7 +141,5 @@ export async function readSync(file) {
   }
 }
 
-export async function writeSync(file, sync) {
-  await fs.writeFile(file + '.tmp', JSON.stringify(sync) + '\n');
-  await fs.rename(file + '.tmp', file);
-}
+// Told to no board: the server's changed ignores data/sync.json.
+export const writeSync = (file, sync) => replace(file, JSON.stringify(sync) + '\n', { told: false });

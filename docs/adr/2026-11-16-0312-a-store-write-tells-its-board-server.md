@@ -1,5 +1,5 @@
 ---
-status: amended by 2026-11-16-0328-the-board-server-drops-its-file-watch
+status: amended by 2026-11-16-0328-the-board-server-drops-its-file-watch, 2026-11-17-0521-every-process-writes-site-data-through-one-files-module
 ---
 
 # A store write tells its board server

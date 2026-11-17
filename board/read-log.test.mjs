@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempDir } from '../shared/temp-dir.mjs';
-import { readLog } from './store.mjs';
+import { readLog } from './files.mjs';
 
 const line = (id) => JSON.stringify({ id, data: { n: id } }) + '\n';
 const logFile = () => path.join(tempDir('read-log-'), 'events.jsonl');

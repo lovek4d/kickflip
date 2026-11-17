@@ -1,6 +1,6 @@
-// The board's data files and the only code that writes them, uploads included. A site is a directory under
-// ~/.claude/kickflip/sites; `site` null means a board over ~/.claude/waves alone. Every write
-// is validated first, JSON files are replaced by rename, and JSONL files are appended to.
+// The board's data files and the CLI's writes to them, uploads included, each validated first and made through
+// files.mjs, as every process's writes are. A site is a directory under ~/.claude/kickflip/sites; `site` null means a
+// board over ~/.claude/waves alone.
 import fs from 'node:fs/promises';
 import { constants as fsConstants, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -22,7 +22,9 @@ import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
-import { merge3 } from './merge3.mjs';
+import { appendLine, boardConfig, editJSON, itemSources, readJSON, readLog, remove, replace, sitesDir, wavesDir, writeJSON } from './files.mjs';
+// The readers the CLI calls on store.
+export { itemSources, readJSON, readLog } from './files.mjs';
 import { SCRIPT_LIMIT, runsAs, scriptLogName, scriptSha } from './scripts.mjs';
 import { HUB, MESSAGE_LIMIT, BRIEF_LINE_LIMIT, hubLineOf, hubText, detailOf, lineFault } from './hub-lines.mjs';
 import { fetchPR, prSize, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
@@ -47,147 +49,13 @@ export class BoardError extends Error {
 }
 const fail = (msg, brief) => { throw new BoardError(msg, brief); };
 
-export const sitesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'sites');
-export const wavesDir = () => path.join(os.homedir(), '.claude', 'waves');
-
-// An object read from a file carries the text it was read from, so writeJSON can merge in what others wrote meanwhile.
-const READ_AS = Symbol('read as');
-export const readJSON = async (f, fallback) => {
-  let text;
-  try { text = await fs.readFile(f, 'utf8'); } catch { return fallback; }
-  try {
-    const value = JSON.parse(text);
-    return value !== null && typeof value === 'object' && !Array.isArray(value) ? { ...value, [READ_AS]: text } : value;
-  } catch { return fallback; }
-};
 const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
-
-// docs/adr/2026-11-16-0205-the-event-log-and-threads-are-parsed-once-and-archived-cards-agent-files-go-unread.md
-// The lines of an append-only JSON-lines file (data/events.jsonl, a thread), each parsed once in this process: a read
-// stats the file and parses only the bytes appended since the last, read from the start of the last whole line it
-// kept, so a file rewritten under it shows in bytes that no longer match and is read whole again, as is one replaced
-// (another inode) or rewritten to the same length. A last line with no newline counts once it parses, and is left out
-// while it is still being written. A broken whole line makes the file read as empty, as readLines does. → a new array
-// each call, of frozen lines, so no caller changes what another reads.
-const logs = new Map();
-const frozen = (v) => {
-  if (v && typeof v === 'object' && !Object.isFrozen(v)) { Object.freeze(v); for (const k of Object.keys(v)) frozen(v[k]); }
-  return v;
-};
-const parseLines = (text) => text.split('\n').filter(Boolean).map((l) => frozen(JSON.parse(l)));
-export async function readLog(file) {
-  let st;
-  try { st = await fs.stat(file); } catch { logs.delete(file); return []; }
-  let kept = logs.get(file);
-  if (kept && (kept.ino !== st.ino || st.size <= kept.size)) {
-    if (st.size === kept.size && st.mtimeMs === kept.mtimeMs) return [...kept.lines, ...kept.open];
-    kept = null;
-  }
-  for (;;) {
-    const from = kept ? kept.end - kept.tail.length : 0;
-    const fh = await fs.open(file).catch(() => null);
-    if (!fh) { logs.delete(file); return []; }
-    let buf;
-    try {
-      buf = Buffer.alloc(Math.max(0, st.size - from));
-      buf = buf.subarray(0, (await fh.read(buf, 0, buf.length, from)).bytesRead);
-    } finally { await fh.close(); }
-    if (kept && !buf.subarray(0, kept.tail.length).equals(kept.tail)) { kept = null; continue; }
-    const start = kept ? kept.tail.length : 0;
-    const lastNewline = buf.lastIndexOf(10);
-    let parsed;
-    try { parsed = lastNewline >= start ? parseLines(buf.subarray(start, lastNewline + 1).toString('utf8')) : []; } catch { logs.delete(file); return []; }
-    let open = [];
-    try { open = parseLines(buf.subarray(lastNewline + 1).toString('utf8')); } catch {}
-    const tailFrom = lastNewline > 0 ? buf.lastIndexOf(10, lastNewline - 1) + 1 : 0;
-    const next = {
-      ino: st.ino, size: from + buf.length, mtimeMs: st.mtimeMs, end: from + lastNewline + 1,
-      tail: lastNewline >= 0 ? Buffer.from(buf.subarray(tailFrom, lastNewline + 1)) : Buffer.alloc(0),
-      lines: kept ? kept.lines.concat(parsed) : parsed, open,
-    };
-    logs.set(file, next);
-    return [...next.lines, ...next.open];
-  }
-}
-
-// docs/adr/2026-11-16-0312-a-store-write-tells-its-board-server.md
-// The board servers running in this process, by site: startServer's changed(file), which a write in their folders calls
-// directly. → a function that stops it
-const servers = new Map();
-export function tellOnWrite(site, changed) {
-  servers.set(path.resolve(site), changed);
-  return () => servers.delete(path.resolve(site));
-}
-const inside = (dir, file) => file === dir || file.startsWith(dir + path.sep);
-// After each write, each board whose data/ or item file's folder holds file is told:
-// one served in this process through its changed(file), any other by a POST of {file} to /_claude/changed on its port in
-// the hub's manifest, not waited on. A board whose server isn't up reads the write as it starts, or its minute pass
-// signals it (signalMissedWrites).
-function wrote(file) {
-  file = path.resolve(file);
-  const ports = new Map(Object.values(readManifest().sites || {}).filter(isBoardSite).map((s) => [path.resolve(s.dir), s.port]));
-  for (const site of new Set([...servers.keys(), ...ports.keys()])) {
-    const holds = inside(path.join(site, 'data'), file) ? Promise.resolve(true)
-      : itemSources(site).then((sources) => sources.some((s) => inside(path.resolve(s.dir), file)), () => false);
-    holds.then((held) => {
-      if (!held) return;
-      if (servers.has(site)) return servers.get(site)(file);
-      if (!ports.get(site)) return;
-      return fetch(`http://127.0.0.1:${ports.get(site)}/_claude/changed`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ file }), signal: AbortSignal.timeout(10000),
-      }).then((r) => r.body?.cancel(), () => {});
-    });
-  }
-}
-// told false: a cache of what the board just read, which changes nothing any board shows.
-async function replace(file, text, { told = true } = {}) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, text);
-  await fs.rename(tmp, file);
-  if (told) wrote(file);
-}
-async function remove(file) {
-  await fs.rm(file, { force: true });
-  wrote(file);
-}
-// A value read through readJSON is written under the file's lock, merged with whatever was written to the file since that
-// read (merge3), so concurrent processes' changes to different parts of one file all survive.
-const writeJSON = (file, value) => {
-  const { [READ_AS]: readAs, ...mine } = value ?? {};
-  if (readAs === undefined) return replace(file, JSON.stringify(value, null, 2) + '\n');
-  return withFileLock(file, async () => {
-    const base = JSON.parse(readAs);
-    const current = JSON.parse(await fs.readFile(file, 'utf8').catch(() => readAs));
-    await replace(file, JSON.stringify(merge3(base, mine, current), null, 2) + '\n');
-  });
-};
-async function appendLine(file, value) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.appendFile(file, JSON.stringify(value) + '\n');
-  wrote(file);
-}
 
 export async function siteDir(route) {
   if (!/^[\w-]+$/.test(route || '')) fail(`--site takes a route such as ios-orchestrator, not "${route}"`);
   const dir = path.join(sitesDir(), route);
   if (!(await fs.stat(dir).then((s) => s.isDirectory(), () => false))) fail(`no site at ${dir}`);
   return dir;
-}
-
-export const boardConfig = async (site) => ({ title: 'Board', items: 'waves', ...(site ? await readJSON(path.join(site, 'board.json'), {}) : {}) });
-
-// Each item file the board shows: {slug, dir, file}. Builder records sit in <dir>/agents.
-export async function itemSources(site) {
-  const cfg = await boardConfig(site);
-  if (cfg.items === 'waves') {
-    try {
-      return (await fs.readdir(wavesDir(), { withFileTypes: true })).filter((d) => d.isDirectory())
-        .map((d) => ({ slug: d.name, dir: path.join(wavesDir(), d.name), file: path.join(wavesDir(), d.name, 'wave.json') }));
-    } catch { return []; }
-  }
-  const file = path.resolve(site, cfg.items);
-  return [{ slug: cfg.slug || path.basename(cfg.items, '.json'), dir: path.dirname(file), file }];
 }
 
 export const threadFile = (site, key) => path.join(site, 'data', 'threads', key.replace(/[^\w.-]+/g, '__') + '.jsonl');
@@ -1367,16 +1235,6 @@ export const readPRSlack = (site) => readJSON(prSlackFile(site), {});
 const held = (message) => Boolean(message?.ts || message?.posting_at);
 // Whether a reviewer is owed a PR's link: the hub last read it open and out of draft, and its link isn't held.
 const linkOwed = (gh, record, pr, name) => gh?.state === 'OPEN' && !gh.isDraft && !held(record[pr]?.links?.[name]);
-
-// One locked read, edit and write of a JSON object file. → edit's answer
-async function editJSON(file, edit) {
-  return withFileLock(file, async () => {
-    const value = JSON.parse(await fs.readFile(file, 'utf8').catch(() => '{}'));
-    const out = edit(value);
-    await replace(file, JSON.stringify(value, null, 2) + '\n');
-    return out;
-  });
-}
 
 // Posts one Slack message at most once. find(file's object) → the message's record. It is marked posting, posted, then
 // given its ts. A post that throws is unmarked, to go again next poll; a ts that can't be recorded leaves it marked.
@@ -2731,13 +2589,7 @@ function freeNotesName(dir, id) {
   for (let n = 2; existsSync(path.join(dir, name)); n++) name = `${notesBase(id)}-notes-${n}.md`;
   return name;
 }
-async function writeNotesFile(file, content) {
-  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
-  await fs.rm(tmp, { force: true });
-  await fs.writeFile(tmp, content, { mode: NOTES_MODE });
-  await fs.rename(tmp, file);
-  wrote(file);
-}
+const writeNotesFile = (file, content) => replace(file, content, { mode: NOTES_MODE });
 const notesHeading = (v) => (/\n/.test(text(v, '--heading')) ? fail('--heading is one line, the section\'s title') : text(v, '--heading'));
 const withSection = (notes, heading, body) => `${notes.replace(/\n*$/, '\n')}\n## ${heading}\n${body.replace(/^\n+|\s+$/g, '')}\n`;
 
@@ -6280,12 +6132,10 @@ export async function restartLander(site, key) {
   const { source, item } = await loadItem(site, key);
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
   const file = path.join(site, 'data', 'landers.json');
-  const sent = await readJSON(file, {});
   const open = records.some((r) => r?.started && !r.done);
-  if (!open && !Object.hasOwn(sent, key)) fail(`${key} has no open builder and no lander; only a task whose lander stopped or exited has a land to restart`);
+  if (!open && !Object.hasOwn(await readJSON(file, {}), key)) fail(`${key} has no open builder and no lander; only a task whose lander stopped or exited has a land to restart`);
   if (open) await relaunchLander(site, key);
-  delete sent[key];
-  await replace(file, JSON.stringify(sent) + '\n');
+  await editJSON(file, (sent) => { delete sent[key]; });
 }
 
 // land's check: refuses while a builder record on the card holds unverified calls, naming the commands per agent.

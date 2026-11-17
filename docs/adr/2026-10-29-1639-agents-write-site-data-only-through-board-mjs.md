@@ -2,7 +2,7 @@
 
 Notes files, once written by agents from the shell, are board data too since [the board owns a card's notes file](2026-11-09-1100-the-board-owns-a-cards-notes-file.md): an agent hands `item notes` a draft.
 
-Replies, thread lines, question topics and questions, item status, follow-ups, builder records and uploads are all written by `board/bin/board.mjs` (logic in `board/store.mjs`). It validates every input and writes atomically. The server only reads these files, apart from the page's own events, hides and uploads.
+Replies, thread lines, question topics and questions, item status, follow-ups, builder records and uploads are all written by `board/bin/board.mjs` (logic in `board/store.mjs`). It validates every input. Every process, the board server and the hub included, writes these files through one module, `board/files.mjs` ([every process writes a board's data through one files module](2026-11-17-0521-every-process-writes-site-data-through-one-files-module.md)).
 
 The owner wants the template to become something an agent session drives only through defined endpoints and flows over JSON, with no hand-edited files (round `site-v6`, question v6-client-domain, option B). Hand edits had skipped checks the pages rely on, such as an option label repeating its letter.
 

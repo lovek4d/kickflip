@@ -26,6 +26,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { githubFromOrigin } from './repos.mjs';
 import { prLinks, reviewLinks, topicItems } from '../board/review.mjs';
 import { cardPRs } from '../shared/card-prs.mjs';
+import { appendEvent as appendBoardEvent } from '../board/files.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Paths under $HOME are read on each call, so a process that changes HOME (the in-process CLI tests) sees its own.
@@ -52,7 +53,7 @@ export const DEAF_AFTER = 15 * 60_000;
 
 export const readJSON = (f, fallback) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return fallback; } };
 export function saveJSON(file, value) {
-  const tmp = `${file}.${process.pid}.tmp`;
+  const tmp = `${file}.${crypto.randomUUID()}.tmp`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n');
   fs.renameSync(tmp, file);
@@ -208,7 +209,7 @@ export function boardAt(dir, manifest = readManifest()) {
 
 // One event on a board, through its server's own append path, so the line has the server's id scheme and wakes its
 // watcher; it asks for no board in the answer (?board=0), only the id. A board with no port, nothing listening on it, or a
-// port fetch won't connect to gets the same line appended directly. A server that took the request may already have the line, so any other failure
+// port fetch won't connect to gets the same line appended directly, through the one append every process uses (files.mjs). A server that took the request may already have the line, so any other failure
 // throws rather than write it twice: no answer within `timeout`, an answer that isn't ok, or a dropped connection
 // (docs/adr/2026-11-05-0820-a-hub-event-a-board-took-is-never-written-twice.md,
 // docs/adr/2026-11-05-2159-a-land-waits-on-one-file-and-a-hub-event-is-written-once.md). → the event id
@@ -230,10 +231,7 @@ export async function appendEvent(board, kind, data, { timeout = 30000 } = {}) {
       throw new Error(`/${board.route} answered ${r.status}${said ? ` (${said})` : ''}, so it may already have the ${kind} event`);
     }
   }
-  const e = { id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ts: new Date().toISOString(), kind, data };
-  fs.mkdirSync(path.join(board.dir, 'data'), { recursive: true });
-  fs.appendFileSync(path.join(board.dir, 'data', 'events.jsonl'), JSON.stringify(e) + '\n');
-  return e.id;
+  return appendBoardEvent(board.dir, kind, data);
 }
 
 // One `kind` event on each board, as a hub rules save sends `rules {scope: "hub"}`. → {events: [{route, id}], failed: [message]}
