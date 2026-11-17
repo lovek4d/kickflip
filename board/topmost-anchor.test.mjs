@@ -107,6 +107,35 @@ function scenario() {
     box.remove();
     await settle();
 
+    // A card with its reply box focused moves to In Review. The box is blurred, as a phone does when its keyboard closes,
+    // and the page resizes under it: the box keeps its place, not the topmost card on screen.
+    const open = el('t35');
+    open.open = true;
+    await drawn(() => open.querySelector('form[data-reply] textarea'));
+    await scrollTo('t35');
+    const reply = open.querySelector('form[data-reply] textarea');
+    reply.focus({ preventScroll: true });
+    if (!document.hasFocus()) reply.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await settle();
+    const boxWas = reply.getBoundingClientRect().top;
+    lanes.t35 = 'review';
+    signal();
+    await drawn(() => laneOf('t35') === 'review');
+    const boxNow = () => el('t35').querySelector('form[data-reply] textarea');
+    const placed = boxNow().getBoundingClientRect().top;
+    boxNow().blur();
+    boxNow().dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await settle();
+    const img3 = new Image();
+    img3.src = '/tall.svg';
+    el('t35').querySelector('summary').append(img3);
+    await new Promise((r) => { img3.onload = r; });
+    await settle();
+    out.blurred = { was: boxWas, grew: img3.getBoundingClientRect().height, before: placed, after: boxNow().getBoundingClientRect().top };
+    img3.remove();
+    open.open = false;
+    await settle();
+
     // With only one card on screen, that card moves to In Review: the page follows it.
     document.head.append(Object.assign(document.createElement('style'), { textContent: 'details.item { margin-bottom: 1200px; }' }));
     await settle();
@@ -164,6 +193,9 @@ for (const width of [390, 1280]) {
     held('lane', 't30');
     assert.deepEqual([got.follow.shown, got.follow.lane], [1, 'review'], 'one card on screen, moved to In Review');
     held('follow', 't35');
+    assert.ok(Math.abs(got.blurred.before - got.blurred.was) <= 1, `the box moved with its card from ${got.blurred.was} to ${got.blurred.before}`);
+    assert.equal(got.blurred.grew, 200, 'the image loaded at its height');
+    assert.ok(Math.abs(got.blurred.after - got.blurred.before) <= 1, `the blurred box moved from ${got.blurred.before} to ${got.blurred.after}`);
     assert.equal(got.field.grew, 200, 'the image loaded at its height');
     assert.ok(Math.abs(got.field.after - got.field.before) <= 1, `the focused box moved from ${got.field.before} to ${got.field.after}`);
   });

@@ -60,17 +60,26 @@ BoardView.part((B) => {
   }
   // → the anchors in order of preference, each its place on screen and a function finding it again after a repaint.
   function anchorsOf() {
-    const field = fieldAnchor();
+    const field = fieldAnchor() || pinned;
     if (field) return [field];
     const cards = [...B.$$('details.item')].filter(onScreen);
     return [...cards.map((d) => ({ find: findCard(d.dataset.key, laneOf(d)), top: topOf(d) })),
       ...cards.map((d) => ({ find: findCard(d.dataset.key), top: topOf(d) }))];
   }
-  // The anchor between repaints: the field being typed in, else the topmost card on screen, wherever it goes. Taken
+  // The field a repaint blurred, which stays the anchor, drawn anew or not yet, until the owner scrolls or presses
+  // something: a phone doesn't raise its keyboard for the refocus, and the keyboard closing resizes and scrolls the page
+  // without the owner doing either.
+  let pinned = null;
+  // The anchor between repaints: the field being typed in, else the pinned one, else the topmost card on screen, wherever it goes. Taken
   // again after each steady and holdBelow, and on each scroll, so the owner's own scrolling moves it.
   function anchorNow() {
     const field = fieldAnchor();
     if (field) return field;
+    if (pinned) {
+      const el = pinned.find();
+      if (el) pinned = { find: pinned.find, top: topOf(el) };
+      return pinned;
+    }
     const card = [...B.$$('details.item')].find(onScreen);
     return card ? { find: findCard(card.dataset.key), top: topOf(card) } : null;
   }
@@ -88,9 +97,11 @@ BoardView.part((B) => {
     return true;
   }
   function steady(paint) {
+    const typing = fieldAnchor();
     const anchors = anchorsOf();
     keepFocus(paint);
     anchors.some(hold);
+    if (typing) pinned = anchors[0];
     take(anchorNow());
   }
   // A size change on the board outside a repaint (a card or lane opening or shutting, an image loading, a font
@@ -107,6 +118,7 @@ BoardView.part((B) => {
   // A text box taking focus becomes the anchor at once, so a size change above it, outside a repaint, moves the page
   // with it. Leaving it gives the anchor back to the topmost card on screen.
   B.on(B.root, 'focusin', () => take(anchorNow()));
+  for (const type of ['pointerdown', 'wheel', 'keydown']) B.on(window, type, () => { pinned = null; }, { capture: true, passive: true });
   B.on(B.root, 'focusout', () => setTimeout(() => take(anchorNow())));
   // A tapped card's, lane's or Done fold's title anchors the change its tap makes, so opening a lane above the topmost
   // card leaves the title where it was tapped. A thread's folds hold their reply form instead (holdBelow).
