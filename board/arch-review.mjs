@@ -12,7 +12,7 @@ import { samePath } from '../hub/boards.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { readUsageGate, pauseReason, holdsWork } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
-import { unlanded } from './domain.mjs';
+import { ANSWERED, unlanded } from './domain.mjs';
 import { BoardError, addItem, appendStatus, boardConfig, cardName, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
 
 const recordsFile = (site) => path.join(site, 'data', 'arch-reviews.json');
@@ -106,19 +106,20 @@ export async function fileFindings(site, key) {
   const { file, id } = parseKey(key);
   const { asked } = await topicQuestions(site, `item:${key}`);
   const lines = [];
-  for (const q of asked.filter((x) => x.state === 'answered')) {
+  // Send resolves an answered question ANSWERED at once, so that counts as answered until filed or skipped.
+  for (const q of asked.filter((x) => x.state === 'answered' || (x.state === 'resolved' && x.resolved === ANSWERED && x.answers.length))) {
     const answer = q.answers.at(-1);
     const option = q.options.find((o) => o.id === answer.choice);
     if (!option) continue;
     if (option.id === 'skip' || option.label === 'Skip') {
-      await resolveQuestion(site, q.id, 'Skipped.');
+      await resolveQuestion(site, q.id, 'Skipped.', { overAnswered: true });
       lines.push(`skipped: ${q.id}`);
       continue;
     }
     const notes = [option.detail, ...(option.practice || []).map((l) => `- ${l}`), answer.note.trim() && `Owner's note: ${answer.note.trim()}`, `From the finding: ${q.question}`].filter(Boolean).join('\n\n');
     const added = await addItem(site, file, { title: option.label, notes, deps: id, parent: key });
     const ref = await cardName(site, added.key);
-    await resolveQuestion(site, q.id, `Filed as ${ref}.`);
+    await resolveQuestion(site, q.id, `Filed as ${ref}.`, { overAnswered: true });
     lines.push(`filed: ${ref} from ${q.id}`, ...(added.lines || []));
   }
   const left = (await topicQuestions(site, `item:${key}`)).asked.filter((x) => x.state !== 'resolved');

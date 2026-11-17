@@ -122,6 +122,28 @@ test('arch file files each answered finding as a Child of the audit card that wa
   assert.equal(JSON.parse(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__T-1.jsonl'), 'utf8').trim().split('\n').at(-1)).text, 'Every finding is settled: filed T-2, T-3.');
 });
 
+test('arch file files findings whose answers Send already resolved, and a second run files nothing new', async (t) => {
+  const b = await boardServer(t);
+  assert.equal((await b.run()).status, 200);
+  const finding = (id, question, label) => ({ id, topic: 'item:app/T-1', question, options: [{ id: 'A', label }, { id: 'skip', label: 'Skip' }] });
+  const ts = new Date().toISOString();
+  const sent = (q) => ({ ...q, resolved: 'Answered', resolved_at: new Date(Date.parse(ts) + 1000).toISOString() });
+  fs.writeFileSync(path.join(b.site, 'data', 'owner.json'), JSON.stringify({ items: [sent(finding('f1', 'Split the store?', 'Split the store')), sent(finding('f2', 'Merge the readers?', 'Merge the readers'))] }));
+  const answer = (id, choice) => fs.appendFileSync(path.join(b.site, 'data', 'events.jsonl'), JSON.stringify({ id: `answer-${id}`, ts, kind: 'owner-answer', data: { id, choice, note: '' } }) + '\n');
+  answer('f1', 'A');
+  answer('f2', 'skip');
+  const file = () => {
+    const r = spawnSync(process.execPath, [path.join(path.dirname(serverFile), 'bin', 'board.mjs'), '--site', 'app', 'arch', 'file', 'app/T-1'], { env: { ...process.env, HOME: b.home }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout.trim().split('\n');
+  };
+  assert.deepEqual(file().slice(0, 3), ['findings of T-1 filed', 'filed: T-2 from f1', 'skipped: f2']);
+  assert.deepEqual(Object.fromEntries(readJSON(path.join(b.site, 'data', 'owner.json')).items.map((q) => [q.id, q.resolved])), { f1: 'Filed as T-2.', f2: 'Skipped.' });
+  assert.equal(readJSON(path.join(b.site, 'data', 'items.json')).items.filter((it) => it.parent === 'app/T-1').length, 1);
+  assert.deepEqual(file().filter((l) => /^(filed|skipped):/.test(l)), []);
+  assert.equal(readJSON(path.join(b.site, 'data', 'items.json')).items.filter((it) => it.parent === 'app/T-1').length, 1);
+});
+
 test('a review waits, saying why, while the mattpocock skills are missing', async (t) => {
   const b = await boardServer(t, { skills: false });
   const { waits } = await b.arch();

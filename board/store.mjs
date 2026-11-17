@@ -3115,15 +3115,15 @@ async function markResolved(site, owner, ids, note) {
 // waitsOn (close | implement) also puts the note in the question's card's thread and marks that card waiting on the owner's
 // Done or Implement, the card marked first so no state between shows Implement
 // (docs/adr/2026-11-13-2030-question-resolve-takes-close-so-implement-never-flashes.md).
-export async function resolveQuestion(site, id, note, { waitsOn } = {}) {
+export async function resolveQuestion(site, id, note, { waitsOn, overAnswered } = {}) {
   needSite(site);
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id);
   if (!q) fail(`no question "${id}" in owner.json`);
   const { answers, requests } = await ownerEvents(site);
   const view = ownerQuestion(q, answers, requests);
-  // A question Send already resolved ANSWERED still takes --close or --implement, which mark its card waiting.
-  if (view.state === 'resolved' && !(waitsOn && q.resolved === ANSWERED)) return ownerFile(site);
+  // A question Send already resolved ANSWERED still takes --close or --implement, which mark its card waiting, and arch file's filing.
+  if (view.state === 'resolved' && !((waitsOn || overAnswered) && q.resolved === ANSWERED)) return ownerFile(site);
   // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
   if (view.state === 'requested' && view.request.kind === 'grill-more') fail(`${id} waits on the grill the owner sent it to; the grill's next question add resolves it`);
   if (view.state === 'requested') fail(`${id} waits on the prototype the owner asked for; question add with round_of ${id} resolves it`);
