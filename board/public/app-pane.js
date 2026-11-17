@@ -10,12 +10,13 @@ BoardView.part((B) => {
   const { esc } = BoardUI;
 
   // The chips in order: the filter box each shows and its words, coloured by AGENTS.md's priority.
+  // A chip glows in its tone while the board's filter shows only its box; a tap on it then clears the filter.
   const CHIPS = [['action', 'need you', 'notice'], ['questions', 'questions', 'info'], ['ready', 'ready', 'success']];
   // d: the board; items: its cards as the lanes draw them.
   function renderPane(d, items) {
     const cards = items.filter((it) => !it.isNew);
     const counts = BoardUI.filterCounts(cards);
-    const chips = CHIPS.map(([id, words, tone]) => `<button type="button" class="pane-chip ${tone}" data-pane-show="${id}"><b>${counts[id]}</b> ${words}</button>`).join('');
+    const chips = CHIPS.map(([id, words, tone]) => `<button type="button" class="pane-chip ${tone}${B.showsOnly(id) ? ' on' : ''}" aria-pressed="${B.showsOnly(id)}" data-pane-show="${id}"><b>${counts[id]}</b> ${words}</button>`).join('');
     BoardUI.setHTML($('#boardPane'), `<div class="pane-landing"><h2>${esc(d.title || '')}</h2><p>Open a card to see it here</p><div class="pane-chips">${chips}</div>${glanceHtml(d, cards)}</div>`);
   }
 
@@ -59,6 +60,8 @@ BoardView.part((B) => {
   const merged = (it) => it.phase === 'merged';
   const landedToday = (it) => it.lane === 'done' && today(it.sortAt) && (Boolean(it.commit) || merged(it));
   const box = (id) => BoardUI.FILTER_BOXES.find((b) => b.id === id).matches;
+  // The Todo tally's discussing count: not a filter box.
+  const discussing = (it) => it.lane === 'todo' && ['new', 'discussing', 'grilling', 'prototyping'].includes(it.phase);
   // A card's colour on its lane's mark.
   function cardTone(it) {
     if (faultOf(it)) return 'danger';
@@ -72,7 +75,7 @@ BoardView.part((B) => {
   const tally = (pairs) => pairs.filter(([n]) => n).map(([n, words]) => `${n} ${words}`).join(' · ');
   function breakdown(laneId, cards) {
     const n = (match) => cards.filter(match).length;
-    if (laneId === 'todo') return tally([[n(box('ready')), 'ready'], [n(box('discussing')), 'discussing'], [n(box('blocked')), 'blocked']]);
+    if (laneId === 'todo') return tally([[n(box('ready')), 'ready'], [n(discussing), 'discussing'], [n(box('blocked')), 'blocked']]);
     if (laneId === 'progress') {
       const kinds = cards.map((it) => {
         const [tone, word] = buildState(it);
@@ -121,7 +124,7 @@ BoardView.part((B) => {
 
   B.on(B.root, 'click', (ev) => {
     const chip = ev.target.closest?.('[data-pane-show]');
-    if (chip) { B.showOnly([chip.dataset.paneShow]); return; }
+    if (chip) { if (B.showsOnly(chip.dataset.paneShow)) B.clearFilter(); else B.showOnly([chip.dataset.paneShow]); return; }
     const lane = ev.target.closest?.('[data-glance-lane]');
     if (lane) { B.openLane(lane.dataset.glanceLane); return; }
     const open = ev.target.closest?.('[data-glance-open]');

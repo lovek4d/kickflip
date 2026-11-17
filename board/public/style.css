@@ -1181,6 +1181,11 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   .pane-chip.notice { color: var(--color-notice); border-color: color-mix(in srgb, var(--color-notice) 45%, var(--line)); }
   .pane-chip.info { color: var(--color-info); }
   .pane-chip.success { color: var(--color-success); }
+  .pane-chip.on { --chip-tone: var(--color-notice); box-shadow: 0 0 0 3px color-mix(in srgb, var(--chip-tone) 45%, transparent); }
+  .pane-chip.info.on { --chip-tone: var(--color-info); }
+  .pane-chip.success.on { --chip-tone: var(--color-success); }
+  @keyframes pane-chip-glow { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--chip-tone) 15%, transparent); } }
+  @media (prefers-reduced-motion: no-preference) { .pane-chip.on { animation: pane-chip-glow 1.6s ease-in-out infinite; } }
   /* The board at a glance (app-pane.js glanceHtml): three blocks of one-line rows, each row one tap. */
   .glance { width: 100%; max-width: 460px; margin-top: 8px; text-align: left; }
   .glance h3 { margin: 14px 2px 3px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }

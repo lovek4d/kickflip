@@ -26,35 +26,42 @@ const CARDS = [
 ];
 const shown = (off) => CARDS.filter((it) => !filterHides(it, off)).map((it) => it.key).join('');
 
-test('the filter has five boxes in order: Ready, Action needed, Questions, Discussing, Blocked', () => {
-  assert.deepEqual([...FILTER_BOXES.map((b) => b.name)], ['Ready', 'Action needed', 'Questions', 'Discussing', 'Blocked']);
+test('the filter has four boxes in order: Ready, Action needed, Questions, Blocked', () => {
+  assert.deepEqual([...FILTER_BOXES.map((b) => b.name)], ['Ready', 'Action needed', 'Questions', 'Blocked']);
 });
 
-test('each box matches its cards, a card matching several or none: Ready and Discussing only in Todo, Discussing with grilling and prototyping', () => {
+test('each box matches its cards, a card matching several or none: Ready only in Todo', () => {
   const of = (id) => CARDS.filter(FILTER_BOXES.find((b) => b.id === id).matches).map((it) => it.key).join('');
   assert.equal(of('ready'), 'RS');
   assert.equal(of('action'), 'SM');
   assert.equal(of('questions'), 'GPA');
-  assert.equal(of('discussing'), 'DGPA');
   assert.equal(of('blocked'), 'B');
 });
 
 test('all boxes checked hides nothing; each unchecked box hides every card it matches, whatever else it matches', () => {
   assert.equal(shown([]), 'RSDGPBAMWX');
   assert.equal(shown(['blocked']), 'RSDGPAMWX');
-  assert.equal(shown(['questions']), 'RSDBMWX', 'a question card also discussing hides');
-  assert.equal(shown(['discussing']), 'RSBMWX', 'a discussing card with questions hides too');
+  assert.equal(shown(['questions']), 'RSDBMWX', 'a question card hides');
   assert.equal(shown(['action', 'ready']), 'DGPBAWX');
 });
 
 test('showing only some boxes unchecks every other; the cards no box matches stay', () => {
-  assert.deepEqual([...filterOnly(['questions'])], ['ready', 'action', 'discussing', 'blocked']);
-  assert.deepEqual([...filterOnly(['action', 'questions'])], ['ready', 'discussing', 'blocked']);
-  assert.equal(shown(filterOnly(['action'])), 'MWX', 'the staging card is also Ready, so it hides');
+  assert.deepEqual([...filterOnly(['questions'])], ['ready', 'action', 'blocked']);
+  assert.deepEqual([...filterOnly(['action', 'questions'])], ['ready', 'blocked']);
+  assert.equal(shown(filterOnly(['action'])), 'DMWX', 'the staging card is also Ready, so it hides; a discussing card no box matches stays');
 });
 
 test('the counts are each box matches across the cards', () => {
-  assert.deepEqual({ ...filterCounts(CARDS) }, { ready: 2, action: 2, questions: 3, discussing: 4, blocked: 1 });
+  assert.deepEqual({ ...filterCounts(CARDS) }, { ready: 2, action: 2, questions: 3, blocked: 1 });
 });
 // On a phone the filter's menu opens upward from the bottom bar and scrolls when the window is too short: it is a
 // popup, and popup.test.mjs holds its placing.
+
+// The pane's chips glow while the filter shows only their box (app-lanes.js showsOnly, app-pane.js).
+test('a chip is on only while the filter unchecks exactly every other box', () => {
+  const lanes = fs.readFileSync(new URL('./public/app-lanes.js', import.meta.url), 'utf8');
+  const pane = fs.readFileSync(new URL('./public/app-pane.js', import.meta.url), 'utf8');
+  assert.match(lanes, /const showsOnly = /);
+  assert.match(pane, /B\.showsOnly\(id\) \? ' on'/);
+  assert.match(pane, /if \(B\.showsOnly\(chip\.dataset\.paneShow\)\) B\.clearFilter\(\)/);
+});

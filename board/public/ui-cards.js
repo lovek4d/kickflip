@@ -46,8 +46,7 @@
   // A task matches on its title, key and ticket.
   const cardMatches = (it, words) => matchesWords(words, [it.title, it.ref, it.id, it.ticket?.id, ...(it.linear || []).map((l) => l.id)]);
   // The board filter's boxes, in the menu's order (docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md).
-  // Each names the cards it matches, and a card may match several or none: Ready and Discussing a Todo card by its phase
-  // (Discussing takes grilling and prototyping too), Action needed a card with an owner action other than its
+  // Each names the cards it matches, and a card may match several or none: Ready a Todo card by its phase, Action needed a card with an owner action other than its
   // questions, Questions a card with open questions, Blocked any blocked card.
   const ASKS = new Set([ACTION_KIND.questions, ACTION_KIND.pick]);
   const hasOpenQuestions = (it) => ASKS.has(it.action?.kind) || (it.questions?.state !== 'resolved' && it.questions?.open > 0);
@@ -55,7 +54,6 @@
     { id: 'ready', name: 'Ready', matches: (it) => it.lane === 'todo' && ['ready', 'staging'].includes(it.phase) && !it.blocked },
     { id: 'action', name: 'Action needed', matches: (it) => Boolean(it.action) && !ASKS.has(it.action.kind) },
     { id: 'questions', name: 'Questions', matches: hasOpenQuestions },
-    { id: 'discussing', name: 'Discussing', matches: (it) => it.lane === 'todo' && ['new', 'discussing', 'grilling', 'prototyping'].includes(it.phase) },
     { id: 'blocked', name: 'Blocked', matches: (it) => Boolean(it.blocked) },
   ]);
   // off: the unchecked boxes' ids. A card hides when any unchecked box matches it (the owner's "hide x").

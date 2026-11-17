@@ -158,6 +158,13 @@ BoardView.part((B) => {
   // Shows only what the boxes ids name: a needs-you push (#show=), a questions link of no card and the pane's chips
   // set it.
   const showOnly = (ids) => setFilter(BoardUI.filterOnly(ids));
+  const clearFilter = () => setFilter([]);
+  // Whether the filter shows only the box id: the pane's chip for it reads as on.
+  const showsOnly = (id) => {
+    const off = unchecked();
+    const want = BoardUI.filterOnly([id]);
+    return off.length === want.length && want.every((x) => off.includes(x));
+  };
   const hiddenByFilter = (it) => BoardUI.filterHides(it, unchecked());
   // A card the filter, the search or a chain keeps off the board: not in the New strip, and matched by an unchecked
   // box, not holding every word searched for, or out of the chain.
@@ -266,5 +273,5 @@ BoardView.part((B) => {
     }
   });
 
-  Object.assign(B, { LANES, FOLDS, lanesHtml, laneCards, openLane, openReview, hiddenOnBoard, resetFilterToShow, renderFilter, showOnly });
+  Object.assign(B, { LANES, FOLDS, lanesHtml, laneCards, openLane, openReview, hiddenOnBoard, resetFilterToShow, renderFilter, showOnly, clearFilter, showsOnly });
 });
