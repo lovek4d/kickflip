@@ -158,9 +158,11 @@ ${BoardNewTask.markup()}`,
       const outbox = () => B.store.get('outbox', []);
       const setOutbox = (list) => { B.store.set('outbox', list); paint(); };
       const sendBox = (m) => `send:${m.sendId}`;
+      // Sends wait for the hub's live answer: until it first comes or fails, a saved copy may be what the page shows.
       let online = true;
+      let answered = false;
       const unsentRows = () => outbox().filter((m) => !last?.routed?.some((r) => r.id === m.sendId))
-        .map((m) => ({ id: m.sendId, sent: m.ts, text: m.text, files: m.files, unsent: { sendId: m.sendId, state: m.failed ? 'failed' : online ? 'sending' : 'held' },
+        .map((m) => ({ id: m.sendId, sent: m.ts, text: m.text, files: m.files, unsent: { sendId: m.sendId, state: m.failed ? 'failed' : online && answered ? 'sending' : 'held' },
           ...(m.uploads ? { uploads: { box: sendBox(m), list: BoardAttach.list(sendBox(m), site) } } : {}) }));
       B.atUnmount(BoardAttach.onChange((id) => {
         const m = outbox().find((o) => o.uploads && sendBox(o) === id);
@@ -180,7 +182,7 @@ ${BoardNewTask.markup()}`,
         if (flushing) return;
         flushing = true;
         try {
-          for (let m = outbox()[0]; m && !m.failed && online && B.alive(); m = outbox()[0]) {
+          for (let m = outbox()[0]; m && !m.failed && online && answered && B.alive(); m = outbox()[0]) {
             if (m.uploads) {
               const up = await BoardAttach.settled(sendBox(m), site);
               if (!B.alive()) return;
@@ -205,7 +207,8 @@ ${BoardNewTask.markup()}`,
       }
       // The hub going out of reach or coming back (hub-kit.js live) redraws the rows, and once it is back sends them.
       const linkChanged = (on) => {
-        if (on === online) return;
+        if (on === online && answered) return;
+        answered = true;
         online = on;
         paint();
         if (on) flush();
@@ -418,6 +421,7 @@ ${BoardNewTask.markup()}`,
         },
         fail(message) { flash = { text: message, error: true }; paint(); },
       });
+      HubKit.holdUntilLive(B, () => !answered);
       const load = HubKit.live(B, {
         url: () => '/_hub/api/hub',
         paint(d) {

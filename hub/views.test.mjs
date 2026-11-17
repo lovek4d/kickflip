@@ -510,7 +510,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     HubSettings: { create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, ago: (iso) => (Date.now() - Date.parse(iso) > 3600_000 ? '2h ago' : '5m ago') },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
-    HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; return () => { loads += 1; }; } },
+    HubKit: { device: () => ({ state: () => null }), holdUntilLive() {}, forms: () => ({}), live: (B, opts) => { live = opts; return () => { loads += 1; }; } },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
@@ -624,7 +624,7 @@ test('an integration missing a permission reads amber degraded, and tapping the 
     HubSettings: { markup: () => '', create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, ago: () => '5m ago' },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
-    HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; return () => {}; } },
+    HubKit: { device: () => ({ state: () => null }), holdUntilLive() {}, forms: () => ({}), live: (B, opts) => { live = opts; return () => {}; } },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   root.innerHTML = context.AppViews.hub.markup();
@@ -718,7 +718,7 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
-    HubKit: { forms: () => ({}), live: (B, opts) => { live = opts; } },
+    HubKit: { holdUntilLive() {}, forms: () => ({}), live: (B, opts) => { live = opts; } },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
@@ -806,7 +806,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
     },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'hub-kit.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
-  context.HubKit.live = (B, opts) => { live = opts; return () => {}; };
+  context.HubKit.live = (B, opts) => { live = opts; opts.linked(true); return () => {}; };
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
   context.AppViews.hub.create(root, '/_hub', { sidebarChanged: () => sidebarChanges++ });
   const codex = () => root.querySelectorAll('.usage .u-block').at(-1);
@@ -886,7 +886,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
     },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'hub-kit.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
-  context.HubKit.live = (B, opts) => { live = opts; return () => {}; };
+  context.HubKit.live = (B, opts) => { live = opts; opts.linked(true); return () => {}; };
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
   context.AppViews.hub.create(root, '/_hub', {});
   const claude = () => root.querySelectorAll('.usage .u-block')[0];
@@ -960,7 +960,7 @@ test("the hub page leads with a banner while pushes are held or snoozed, and its
     fetch: async (url, opts) => { posts.push({ url, opts }); return { ok: true, json: async () => ({}) }; },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'hub-kit.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
-  context.HubKit.live = (B, opts) => { live = opts; return () => { loads++; }; };
+  context.HubKit.live = (B, opts) => { live = opts; opts.linked(true); return () => { loads++; }; };
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
   context.AppViews.hub.create(root, '/_hub', { sidebarChanged: () => sidebarChanges++ });
   const banner = () => root.querySelector('.hub-status .hold-banner');
@@ -1014,7 +1014,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
     },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'hub-kit.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
-  context.HubKit.live = (B, opts) => { live = opts; return () => {}; };
+  context.HubKit.live = (B, opts) => { live = opts; opts.linked(true); return () => {}; };
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
   context.AppViews.hub.create(root, '/_hub', { sidebarChanged: () => changed++ });
   live.paint(data());
@@ -1053,7 +1053,7 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
-    HubKit: { forms: () => ({}), live: (B, opts) => { live = opts; } },
+    HubKit: { holdUntilLive() {}, forms: () => ({}), live: (B, opts) => { live = opts; } },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
@@ -1135,7 +1135,7 @@ test("the pull's state is the hub's: a page opened mid-pull, or after a failed o
       HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
       BoardUI: { ...BOARD_UI },
       PromptAnswers: { wire: () => ({ shows: () => true }) },
-      HubKit: { forms: () => ({}), live: (B, opts) => { page.live = opts; } },
+      HubKit: { holdUntilLive() {}, forms: () => ({}), live: (B, opts) => { page.live = opts; } },
     });
     for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
     root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
@@ -1199,7 +1199,7 @@ test("the hub page's New strip sits under Boards, drawn by the board's own New s
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, newStrip: (entries, edits, opts) => { strips.push({ entries, opts }); return `<i class="strip">${entries.length}</i>`; } },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
-    HubKit: { forms: () => ({}), live: (B, opts) => { live = opts; } },
+    HubKit: { holdUntilLive() {}, forms: () => ({}), live: (B, opts) => { live = opts; } },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
@@ -1247,7 +1247,7 @@ test("the hub page's New task box sends through the page's outbox: its row leads
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, sendWithin: (send) => send(new AbortController().signal), newStrip: (entries) => { strips.push(entries); return ''; } },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
-    HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; return () => { loads += 1; }; } },
+    HubKit: { device: () => ({ state: () => null }), holdUntilLive() {}, forms: () => ({}), live: (B, opts) => { live = opts; return () => { loads += 1; }; } },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
@@ -1257,6 +1257,15 @@ test("the hub page's New task box sends through the page's outbox: its row leads
     sidebar: { pause: CALM_GATE, sites: [{ route: 'alpha', board: true }], hub: { tone: 'ok', word: 'healthy', detail: '1 of 1 site up' }, notifications: {}, total: 0 },
     rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }], code: { running: 'abc', onDisk: 'abc' } }), version: '1' });
   const rows = () => plain(strips.at(-1).filter((e) => e.unsent).map((e) => [e.text, e.unsent.state]));
+
+  const early = wired.enqueue(undefined, { kind: 'ask', text: 'first' });
+  await settle();
+  assert.deepEqual([early, rows(), posts.length], [undefined, [['first', 'held']], 0], 'off a saved copy a send waits for the live answer');
+  live.linked(true);
+  await settle();
+  assert.deepEqual([posts.map(([, b]) => b.text), rows()], [['first'], []], 'the live answer sends it');
+  posts.length = 0;
+  loads = 0;
 
   assert.equal(wired.enqueue(undefined, { kind: 'ask', text: 'fix it', attached: 'ask', fields: { quick: true } }), undefined, 'the send never waits');
   assert.deepEqual(rows(), [['fix it', 'sending']]);

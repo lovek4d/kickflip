@@ -6,13 +6,23 @@
 
   // Paints url()'s JSON with paint(data) now and every `every` ms while the view shows, as the header's time says; a
   // refresh waits while busy() or the page is hidden, and the time then says how old the data is. The header's refresh
-  // button loads at once. paint(null) means the first load failed. linked(online) hears whether each load reached the
-  // host. → load()
+  // button loads at once. The last answer, saved with this page's build in BoardUI.pageCopy under url(), paints at once
+  // while the first load is out, its time saying how old it is (docs/adr/2026-11-17-1700-the-hub-page-paints-its-last-answer-at-once.md).
+  // paint(null) means the first load failed with no saved answer to show. linked(online) hears whether each load
+  // reached the host, the first one marking the live answer in or out. → load()
   function live(B, { url, paint, busy = () => false, every = 30000, linked = () => {} }) {
     const refresh = B.$('#refresh');
     const status = B.$('#status');
     let at = 0;
     let loaded = false;
+    let painted = false;
+    const build = document.documentElement.dataset.build;
+    const saved = BoardUI.pageCopy.read(url()).then((c) => {
+      if (!build || c?.body?.build !== build || !B.alive() || loaded) return;
+      painted = true;
+      paint(c.body.data);
+      if (status) status.textContent = age(Date.now() - Date.parse(c.savedAt));
+    });
     async function load() {
       if (refresh) refresh.disabled = true;
       refresh?.classList.add('spinning');
@@ -23,13 +33,16 @@
         if (!B.alive()) return;
         at = Date.now();
         globalThis.AppShell?.codeSeen?.(r.headers?.get('x-hub-code'));
+        await saved;
+        if (!B.alive()) return;
         paint(data);
+        BoardUI.pageCopy.save(url(), { build, data });
         linked(true);
         if (status) status.textContent = 'now';
       } catch {
         if (!B.alive()) return;
         linked(false);
-        if (!loaded) paint(null);
+        if (!loaded && !painted) paint(null);
         if (status) status.innerHTML = BoardUI.statusLine(undefined, { link: 'offline' });
       }
       loaded = true;
@@ -48,6 +61,26 @@
     B.on(document, 'visibilitychange', () => { if (!document.hidden && Date.now() - at >= every) tick(); });
     load();
     return load;
+  }
+
+  // Until the live answer is in, a tap on any button, checkbox, radio or select under the page is refused with a toast,
+  // and so is any form submit, except the READS: the header (refresh, nav, the + button), the New task box (its sends wait
+  // in the page's outbox, as do Retry and X on its rows), the buttons that only open or close a sheet or Settings,
+  // disclosure toggles and links. A control added to the page is held without anyone listing it.
+  const CONTROLS = 'button, input[type="checkbox"], input[type="radio"], input[type="submit"], input[type="button"], select';
+  const READS = '.top, #sheet, a, summary, [data-settings-open], [data-permissions], [data-sheet-close], [data-settings-dismiss], #oledOn, .routed button[data-resend], .routed button[data-unsend]';
+  // → nothing; waiting() says whether the live answer is still out. A capture listener on B.root stops each such tap and
+  // each form submit before any handler sees it.
+  function holdUntilLive(B, waiting) {
+    const hold = (e) => {
+      if (!waiting() || !e.target.closest || e.target.closest(READS)) return;
+      if (e.type === 'click' && !e.target.closest(CONTROLS)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      B.toast('Waiting for the host’s live answer. Try again in a moment.');
+    };
+    B.on(B.root, 'click', hold, true);
+    B.on(B.root, 'submit', hold, true);
   }
 
   const FAILED = 'Could not save. Is the host awake?';
@@ -232,5 +265,5 @@
     return { painted: () => { for (const input of B.root.querySelectorAll('[data-dur-at]')) customBounds(input, true); } };
   }
 
-  globalThis.HubKit = { live, forms, device, durationPicker, durationPickers };
+  globalThis.HubKit = { live, holdUntilLive, forms, device, durationPicker, durationPickers };
 })();
