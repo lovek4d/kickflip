@@ -385,7 +385,7 @@
   // A card waiting on its owner step has the owner's Done at its top right, before its "…": a check icon that confirms,
   // then sends card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
   const CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
-  const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep}`)}">${CHECK}</button>`;
+  const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep || `published ${it.release.version}`}`)}">${CHECK}</button>`;
 
   // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
   // A card's links, both ways (domain.mjs linkCards): its Parent and Children, which carry follow-ups, its Related to,
@@ -421,7 +421,7 @@
     return [bump, linked].filter(Boolean).join('<div class="sep" role="separator"></div>');
   }
   function cardActions(it) {
-    const buttons = (it.ownerStep ? ownerDoneButton(it) : '') + (it.bumpable || hasLinks(it) ? moreButton(it) : '');
+    const buttons = (it.ownerStep || it.release?.state === 'published' ? ownerDoneButton(it) : '') +(it.bumpable || hasLinks(it) ? moreButton(it) : '');
     return buttons ? `<div class="ask-actions">${buttons}</div>` : '';
   }
 
@@ -539,6 +539,17 @@
     return `<details class="lane new-lane" data-lane="new" ${opened(mainShown, open.new ?? true) ? 'open' : ''}><summary><span class="lane-name">${esc(label)}</span><span class="count">${count(mainShown, main)}</span></summary><div class="list">${rows}${group}</div></details>`;
   };
 
+  // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md: a landed release
+  // card's line, publishing in orange while the hub watches its tag run, published in green, or its failure in red, the
+  // run linked.
+  function releaseLine(r) {
+    if (!r) return '';
+    const run = (words) => (r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${escText(words)} ${LINK_ARROW}</a>` : escText(words));
+    if (r.state === 'failed') return `<div class="line3 sub refused release">${run(`release v${r.version} failed${r.failure ? `: ${r.failure}` : ''}`)}</div>`;
+    if (r.state === 'published') return `<div class="line3 sub release-published">${run(`published ${r.version}`)}</div>`;
+    return `<div class="line3 sub agent release">${DOT}${run(`publishing v${r.version}`)}</div>`;
+  }
+
   const RISK_TONES = { low: 'ready', medium: 'notice', high: 'danger' };
   // words: the board search's, marked in the title.
   function workLines(it, { unread = 0, words = [] } = {}) {
@@ -564,7 +575,7 @@
     const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${escText(`Check can't run: ${it.ownerCheck.broken}`)}</div>`
       : `<div class="line3 sub check">${escText(`Checks: ${it.ownerCheck.words}`)}</div>`;
     return `${cardActions(it)}<div class="line1 title">${ids ? `${ids} ` : ''}${marked(it.title, words)}</div>
-      ${status}${reviewer}${check}${eta}
+      ${status}${releaseLine(it.release)}${reviewer}${check}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${timeLine(it, unread, progressBar(phaseStrip(it)))}`;
   }

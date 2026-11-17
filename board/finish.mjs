@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ghSync, limitWords } from '../shared/gh.mjs';
 import { BoardError } from './checks.mjs';
-import { messageText, cardName, shownCard, heldMerge, appendStatus, setItem, appendMessage, builderModel, cardTitleOf } from './cards.mjs';
+import { messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, setItem, appendMessage, builderModel, cardTitleOf } from './cards.mjs';
 import { checkClose } from './questions.mjs';
 import { readBoardSettings } from './settings.mjs';
 import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase } from './runs.mjs';
@@ -45,9 +45,13 @@ export async function finishCard(site, key, { text, closing, ownerStep, check, r
   if (remote && (!github || settings.prs)) return sendForReview(site, key, { ...tree, title, text: said(text) });
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a finish asked for a card already landing joins
   // that land, then finishes what it left, if anything.
+  // The joined land landed the card when it recorded a new landed commit (setItem --landed, with the card's release on a
+  // release): a card its owner step or release holds in In Review isn't landed again, and a reopened card's build,
+  // whose landed commit is still its earlier land's, lands.
+  const landedBefore = (await loadItem(site, key)).item.landed_sha;
   const ran = await joiningLand(ref, () => landCard(site, key, { tree: { ...tree, title }, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }), { merge });
   if (!ran.joined) return ran;
-  if ((await shownCard(site, key)).finished) return { said: 'landed and done', lines: [] };
+  if ((await loadItem(site, key)).item.landed_sha !== landedBefore) return { said: 'landed by the land it joined', lines: [] };
   return finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge, title });
 }
 
@@ -85,9 +89,14 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
     await appendMessage(site, key, { text });
     return { said: 'verified; waits for your Merge', lines: set.lines };
   }
-  const closed = await setItem(site, key, { done: true, landed: landed.commit, landedFiles, ...(closing ? { closing } : { text }), ownerStep, check });
+  // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md: a release card keeps
+  // its release, which holds it in In Review while the hub watches it publish, whether this land ships it or the
+  // orchestrator does by hand.
+  const release = landed.release ? { version: landed.release.version, pkg: landed.release.pkg } : undefined;
+  const closed = await setItem(site, key, { done: true, landed: landed.commit, landedFiles, release, ...(closing ? { closing } : { text }), ownerStep, check });
   return {
-    said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
+    said: release ? `landed; waits until release ${release.version} is published`
+      : ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
     lines: [...closed.lines, ...await pushBase(site, key, repo, base, landed.release)],
   };
 }

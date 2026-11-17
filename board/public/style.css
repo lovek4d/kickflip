@@ -104,6 +104,9 @@ button.chip { border: 0; }
 .card-pausing { color: var(--color-notice); }
 .sub.next.idle { color: var(--muted); }
 .sub.refused { color: var(--color-danger); }
+/* A release card's line (ui-cards.js releaseLine): publishing orange, published green, failed red, its run's link in its colour. */
+.sub.release-published { color: var(--color-success); }
+.sub.release a, .sub.release-published a { color: inherit; }
 .toast-stack { position: fixed; left: 50%; bottom: calc(var(--app-bottom, 0px) + 12px + env(safe-area-inset-bottom));
   width: min(520px, calc(100vw - 32px)); height: 0; transform: translateX(-50%); z-index: 25; pointer-events: none; }
 .toast-row { position: absolute; top: 0; left: 0; width: 100%; display: flex; justify-content: center;

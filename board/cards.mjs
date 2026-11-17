@@ -806,7 +806,7 @@ const RISKS = ['low', 'medium', 'high'];
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
 // change, low, medium or high, which builder done records and the PR's Slack link shows (slack-store.mjs prLink). replyOn (--reply-on)
 // is the orchestrator's reply on a card this call links or unlinks while its owner waits on that reply (replyFirst).
-async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, landedFiles, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged }, options) {
+async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, landedFiles, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged, release }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -953,6 +953,11 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     item.branch = mergeReady;
   }
   if (done) { delete item.merge_ready; delete item.waits_on_owner; }
+  // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md: a land that is a
+  // release ({version, pkg}, finish.mjs) keeps it for the hub's watch (hub/release-watch.mjs); any other close, the
+  // owner's Done or the orchestrator's, ends it.
+  if (done && release) item.release = { version: release.version, tag: `v${release.version}`, ...(release.pkg ? { pkg: release.pkg } : {}), since: new Date().toISOString(), state: 'publishing' };
+  else if (done) delete item.release;
   // docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md: the commit a land fast-forwarded the base to.
   if (typeof landed === 'string') item.landed_sha = landed;
   if (ghSince !== undefined) {
@@ -1054,8 +1059,8 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     resolved.push(...written.lines);
   }
   if (title !== undefined && site && item.lane === 'todo') await clearRefusal(site, key);
-  // The ticket stays open while the card waits on its owner step.
-  const target = item.owner_step && done ? null : ticketTarget({ start, done, handover });
+  // The ticket stays open while the card waits on its owner step or its release.
+  const target = (item.owner_step || item.release) && done ? null : ticketTarget({ start, done, handover });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo });
   if (moved) resolved.push(moved);
   // A builder that forgot builder done would keep the card In Progress after it was handed back; a hand-back's records
@@ -1174,8 +1179,9 @@ export async function recordOwnerTap(site, kind, data) {
     await writeJSON(source.file, itemFile);
     return 'discussing';
   }
-  // A Done card waiting on its owner step closes on the owner's Done; any other card in Done has nothing to write.
-  const stepOpen = kind === 'card-done' && Boolean(item.owner_step);
+  // A Done card waiting on its owner step or its release closes on the owner's Done; any other card in Done has nothing
+  // to write.
+  const stepOpen = kind === 'card-done' && Boolean(item.owner_step || item.release);
   if (!stepOpen && item.lane === 'done') return null;
   if (kind === 'card-done') return setItem(site, key, { done: true, force: true, ownerDone: true, ...said });
   const until = data.hold ? (typeof data.until === 'string' ? new Date(data.until).toISOString() : null) : undefined;
@@ -1207,6 +1213,29 @@ export async function passOwnerCheck(site, key, check, found) {
   const { item } = await loadItem(site, key);
   if (!item.owner_step || item.owner_check?.check !== check) return null;
   return setItem(site, key, { done: true, force: true, ownerDone: true, closing: ['check-passed', { found }] });
+}
+
+// docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md: the hub's release watch
+// (hub/release-watch.mjs) read version's tag run and npm. found: {state, url, failure, words}, state publishing,
+// published or failed, url the run's, failure a failed run's first failing test or null, words what published found. A
+// change of state is written on the item; published and failed each post a line, failed red, and failed wakes the
+// orchestrator with release-failed {key, version, url, failure}. A card whose release moved on is left alone.
+// → true when it wrote.
+export async function markRelease(site, key, version, { state, url, failure, words }) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  const was = item.release;
+  if (!was || was.version !== version || item.lane !== 'done') return false;
+  if (was.state === state && was.url === url) return false;
+  item.release = { ...was, state, ...(url ? { url } : {}), ...(failure ? { failure } : {}) };
+  if (!failure) delete item.release.failure;
+  await writeJSON(source.file, itemFile);
+  const link = url ? { link: url } : {};
+  if (state === 'published') await appendStatus(site, key, 'release-published', { version, words }, link);
+  if (state === 'failed') {
+    await appendStatus(site, key, 'release-failed', { version, failure }, link);
+    await appendEvent({ dir: site }, 'release-failed', { key, version, url, failure });
+  }
+  return true;
 }
 
 // The hub's poll couldn't run the owner step's check several times in a row: the card reads it broken, the poll stops

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { land as landWorktree } from './worktree.mjs';
 import { fakeGh, prView, writePR, writeReviews, writeMerge, writeLimit, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
@@ -613,6 +614,7 @@ test("a repo's .kickflip/release replaces land's release: check before landing r
     'echo "$1 ok"',
   ].join('\n') + '\n');
   fs.chmodSync(path.join(repo, '.kickflip', 'release'), 0o755);
+  write(path.join(repo, 'package.json'), { name: 'x', private: true });
   git(repo, 'add', '-A');
   git(repo, 'commit', '--quiet', '-m', 'build: release script');
   git(repo, 'push', '--quiet', 'origin', 'main');
@@ -635,6 +637,11 @@ test("a repo's .kickflip/release replaces land's release: check before landing r
   assert.ok(shipped.out.includes('\npushed main to origin\nshipped release 0.7.0 with .kickflip/release\nship ok\n'), shipped.out);
   assert.deepEqual(called(), [`check 0.7.0 ${landed}`, `ship 0.7.0 ${landed}`]);
   assert.equal(git(repo, 'tag', '--list'), '', 'land makes no tag of its own');
+  // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md: the landed release
+  // card keeps its release, which holds it in In Review until the owner's Done, its ticket open.
+  const held = itemOf('A1');
+  assert.deepEqual([held.lane, held.release.version, held.release.tag, held.release.state, held.release.pkg], ['done', '0.7.0', 'v0.7.0', 'publishing', 'x']);
+  assert.match(held.release.since, /^\d{4}-\d{2}-\d{2}T/);
 
   const refused = await release('A2', '9.9.9');
   assert.equal(refused.code, 1);
@@ -656,6 +663,57 @@ test("a repo's .kickflip/release replaces land's release: check before landing r
   assert.equal(waiting.code, 0, waiting.err);
   assert.ok(waiting.out.includes(`\npushed main to origin\nrelease 1.0.0 waits while Run release script is off; turn it on in Board Settings, then run .kickflip/release ship 1.0.0 ${git(repo, 'rev-parse', 'main')} in ${repo}\n`), waiting.out);
   assert.deepEqual(called().map((c) => c.split(' ')[0]), ['check'], 'ship waits on the box');
+  // A release the orchestrator ships by hand is watched as one land shipped.
+  assert.equal(itemOf('A4').release.state, 'publishing');
+  assert.equal(itemOf('A2').release, undefined);
+  // The owner's Done closes a release card, its release gone.
+  const owner = spawnSync(process.execPath, ['--input-type=module', '-e', `import { recordOwnerTap } from ${JSON.stringify(path.join(path.dirname(bin('x')), '..', 'store.mjs'))}; await recordOwnerTap(${JSON.stringify(site('orch'))}, 'card-done', { key: 'w/A1' });`],
+    { encoding: 'utf8', env: { ...process.env, HOME: home } });
+  assert.equal(owner.status, 0, owner.stderr);
+  assert.deepEqual([itemOf('A1').lane, itemOf('A1').release], ['done', undefined]);
+});
+
+// docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md,
+// docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md
+test("a finish that joins a release card's land returns once that land records its landed commit, though the release holds the card in In Review, and lands nothing again", async (t) => {
+  const repo = scratchRepo();
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'chore(release): A1' }] });
+  write(path.join(repo, '.kickflip', 'release'), '#!/bin/sh\necho "$1 ok"\n');
+  fs.chmodSync(path.join(repo, '.kickflip', 'release'), 0o755);
+  write(path.join(repo, 'package.json'), { name: 'x', private: true });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '--quiet', '-m', 'build: release script');
+  const manifest = read(at('kickflip', 'manifest.json'));
+  manifest.sites.orch.owner = { repo };
+  write(at('kickflip', 'manifest.json'), manifest);
+  const started = await onOrch('builder', 'start', 'w/A1', '--kind', 'build');
+  assert.equal(started.code, 0, started.err);
+  commit(at('kickflip', 'worktrees', 'A1'), 'CHANGELOG.md', '0.7.0\n', 'chore(release): 0.7.0\n\nRefs: A1');
+  const before = git(repo, 'rev-parse', 'main');
+  const old = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { process.env.HOME = old; });
+  const { finishCard } = await import('./finish.mjs');
+  const { cardName, setItem } = await import('./cards.mjs');
+  // Another finish of the card is landing: its marker, held by this live process. Once the joiner waits on it, that
+  // land records its commit and the card's release, and ends.
+  const marker = at('kickflip', 'landing', encodeURIComponent(await cardName(site('orch'), 'w/A1')));
+  write(marker, { pid: process.pid, at: new Date().toISOString() });
+  const watch = fs.watch;
+  let landed;
+  t.mock.method(fs, 'watch', (file, ...rest) => {
+    const watcher = watch(file, ...rest);
+    if (file === marker && !landed) {
+      landed = setItem(site('orch'), 'w/A1', { done: true, landed: 'f'.repeat(40), release: { version: '0.7.0', pkg: 'x' }, text: 'Landed.' })
+        .then(() => fs.rmSync(marker));
+    }
+    return watcher;
+  });
+  const joined = await finishCard(site('orch'), 'w/A1', { text: 'Built it.' });
+  await landed;
+  assert.equal(joined.said, 'landed by the land it joined');
+  assert.equal(git(repo, 'rev-parse', 'main'), before, 'the joiner landed nothing');
+  assert.deepEqual([itemOf('A1').lane, itemOf('A1').landed_sha, itemOf('A1').release.state], ['done', 'f'.repeat(40), 'publishing']);
 });
 
 // docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md

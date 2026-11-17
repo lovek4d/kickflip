@@ -35,7 +35,7 @@ export function fit(prefix, free, suffix = '') {
 const HELD = 'Held', RESUMED = 'Resumed', BLOCKED = 'Blocked', FAULT = 'Fault', MOVE = 'move', QUESTIONS = 'questions';
 const BUILD = 'Implementation requested', PROTOTYPE = 'Prototype requested', DONE = 'Marked done';
 // The longest of a few inputs several kinds take: a planner kind, a PR in another repo and a time.
-const KIND = 'prototype', PR = 'owner/a-long-repo-name#10000', AT = 'Wed, 11/30, 12:00 PM';
+const KIND = 'prototype', PR = 'owner/a-long-repo-name#10000', AT = 'Wed, 11/30, 12:00 PM', VERSION = '10.100.1000-rc.100';
 
 // A line's tone, by the colour rule (AGENTS.md): red a fault, orange build work, blue for the owner to read or a planner,
 // green done, purple merged, grey idle, held or a relation. A fault kind has no tone of its own: its fault flag is red,
@@ -113,6 +113,8 @@ export const HUB_LINES = {
   'ask-moved-closed': { tone: 'green', mark: DONE, text: ({ board }) => fit('Closed: its ask moved to ', board, '.') },
   'handed-closed': { tone: 'green', mark: DONE, text: ({ route, ref }) => fit('Closed: handed to ', `/${route} · ${ref}`, '.') },
   'check-passed': { tone: 'green', mark: DONE, text: ({ found }) => fit('Check passed: ', found, '. Closed.') },
+  // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md, linking the run.
+  'release-published': { tone: 'green', mark: DONE, text: ({ version, words }) => fit(`Published ${version}: `, words, '. Tap Done.'), longest: { version: VERSION } },
   'findings-settled': { tone: 'green', mark: DONE, text: ({ filed }) => fit('Every finding is settled: ', filed ? `filed ${filed}` : 'none filed', '.') },
   'branch-merged': { tone: 'green', mark: DONE, text: ({ branch, into, host }) => fit('', `${branch} is merged into ${into} on ${host}`, ', so this task is Done.') },
   'branch-gone': { tone: 'green', mark: DONE, text: ({ branch, host }) => fit('', `${branch} is gone from ${host}`, ', so this task is Done.') },
@@ -151,6 +153,7 @@ export const HUB_LINES = {
   'answers-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ what, error }) => fit(`Answers recorded, but ${what} failed: `, error), longest: { what: 'writing them into its notes' } },
   'notes-missing': { mark: FAULT, fault: true, text: () => 'Its notes file was missing, so the board started a new one.' },
   'notes-shared': { mark: FAULT, fault: true, text: ({ card }) => fit('It shared its notes file with ', card, ', so the board gave it its own copy.') },
+  'release-failed': { mark: FAULT, fault: true, detail: ({ failure }) => failure, text: ({ version, failure }) => (failure ? fit(`Release ${version} failed: `, failure) : `Release ${version} failed: its run failed.`), longest: { version: VERSION } },
   'check-broken': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("The owner step's check can't run, so it stopped: ", error) },
   'run-failed': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ kind, code }) => `${kind} failed (exit ${code})`, longest: { kind: 'Serve', code: 255 } },
 };

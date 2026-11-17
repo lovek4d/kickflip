@@ -258,6 +258,7 @@ BoardView.part((B) => {
       ? `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join(', ')} in turn if they are still approved, green and clean.`
       : `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join('')} if it is still approved, green and clean.`),
     finish: (it, ref) => (it.ownerStep ? `Done with "${it.ownerStep}"? ${ref} moves to Done and its ticket closes.`
+      : it.release ? `Done ${ref}? Release ${it.release.version} reads ${it.release.state}; ${ref} moves to Done and its ticket closes.`
       : `Done ${ref}? It moves to Done and Claude stops work on it.${openPRs(it).length ? ` Its PR${openPRs(it).length > 1 ? 's stay' : ' stays'} open on GitHub.` : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
     // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
     reopen: (it, ref) => `Reopen ${ref}? It moves back to Todo, discussing, for you to talk it through again.`,

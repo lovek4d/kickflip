@@ -216,7 +216,7 @@ test('CLI reads without a hub and changes the line and Keep going directly', (t)
 });
 
 test('only the hub work kinds are held', () => {
-  for (const kind of ['github-change', 'check-github', 'card-unblocked', 'overnight-triage', 'pr-review', 'owner-check-broken']) assert.equal(heldUsageEvent(JSON.stringify({ kind })), true);
+  for (const kind of ['github-change', 'check-github', 'card-unblocked', 'overnight-triage', 'pr-review', 'owner-check-broken', 'release-failed']) assert.equal(heldUsageEvent(JSON.stringify({ kind })), true);
   for (const kind of ['ask', 'item-message', 'owner-answer', 'ping', 'usage-resumed', 'rules', 'review-answer', 'unknown']) assert.equal(heldUsageEvent(JSON.stringify({ kind })), false);
   assert.equal(heldUsageEvent('broken'), false);
 });

@@ -115,8 +115,9 @@ export function runCheck({ name, args }, { since, exec = execArgv, fetchImpl = f
 }
 
 // No shell: the command and its arguments go to execFile as they are, gh through GitHub's limit gate (shared/gh.mjs). A
-// non-zero exit throws its stderr's first line, with stdout and stderr on the error.
-async function execArgv(cmd, args) {
+// non-zero exit throws its stderr's first line, with stdout and stderr on the error. The hub's release watch runs its
+// gh and npm reads through it too (hub/release-watch.mjs).
+export async function execArgv(cmd, args) {
   if (cmd === 'gh') {
     const r = await gh(args, { timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
     if (r.status === 0) return r.stdout;

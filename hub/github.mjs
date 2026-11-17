@@ -8,7 +8,8 @@
 // reviewer comments and reviews as thread lines, and a card closes as merged once every PR on it has merged or closed,
 // at least one merged (docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md,
 // docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md). A landed card waiting on an owner step runs the
-// step's code check, closing when it passes (owner-checks.mjs). Each board gets data/checked.json after a
+// step's code check, closing when it passes (owner-checks.mjs), and a landed release card's tag run and npm are read
+// until it publishes (release-watch.mjs). Each board gets data/checked.json after a
 // check that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the daily wake,
 // at the end of quiet hours, to every board, changed or not. The same query lists each board repo's open PRs, and one
 // opened by hand on a card's branch is linked to the card (linkHandPRs,
@@ -26,6 +27,7 @@ import { allLanded, cardPRs, leastReady, prNames } from '../shared/card-prs.mjs'
 
 const PR_ENDED = ['MERGED', 'CLOSED'];
 import { runOwnerChecks } from './owner-checks.mjs';
+import { runReleaseWatch } from './release-watch.mjs';
 import { audit, boardAudit, hubAudit } from '../shared/audit.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'linked'];
@@ -208,6 +210,7 @@ export async function checkGitHub({ every, manifest }) {
   for (const key of Object.keys(state.acknowledged)) if (!prs.has(key)) delete state.acknowledged[key];
   for (const key of Object.keys(state.threaded)) if (!prs.has(key)) delete state.threaded[key];
   await runOwnerChecks(boards, state, failed);
+  await runReleaseWatch(boards, failed);
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
   saveJSON(githubStateFile(), state);
   const linear = { moved: [], failed: [] };

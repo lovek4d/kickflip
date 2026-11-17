@@ -50,11 +50,15 @@ export function checkRelease(repo, dir, commit) {
   if (!checked.ok) fail(`land: "${subject}" is a release, and ${RELEASE_SCRIPT} check refused it:\n${checked.output}`);
 }
 
-// Under the land lock, once base was fast-forwarded to commit, which checkRelease passed. → {version, commit} for
-// shipRelease, or null when commit isn't a release.
+// Under the land lock, once base was fast-forwarded to commit, which checkRelease passed. → {version, commit, pkg} for
+// shipRelease and the card's release (finish.mjs), or null when commit isn't a release. pkg is the name in commit's
+// package.json, which the hub's release watch looks for on npm (hub/release-watch.mjs), or null with none.
 export function landRelease(repo, commit) {
   const { version } = versionOf(repo, commit);
-  return version ? { version, commit } : null;
+  if (!version) return null;
+  let pkg = null;
+  try { pkg = JSON.parse(git(repo, 'show', `${commit}:package.json`).out).name || null; } catch {}
+  return { version, commit, pkg };
 }
 
 // After base reached origin: ships release, landRelease's. runRelease is the board's Run release script box

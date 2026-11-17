@@ -2862,6 +2862,25 @@ test("a card waiting on its owner step reads its code check under the Next, or t
   assert.doesNotMatch(workLines(waiting), /Checks:|Check can/);
 });
 
+// docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md
+test("a release card reads publishing in orange, published in green with Done as a check icon, or its failure in red, each linking the run", () => {
+  const url = 'https://github.com/o/r/actions/runs/5';
+  const card = (release, more = {}) => workLines({ ...workCard, lane: 'review', waitsOn: null, next: null, bumpable: true, release: { version: '0.19.1', url, failure: null, ...release }, ...more });
+  const publishing = card({ state: 'publishing', url: null });
+  assert.deepEqual(lines(publishing).slice(0, 2), ['ENG-1 Five', 'publishing v0.19.1']);
+  assert.match(publishing, /<div class="line3 sub agent release"><span[^]*?publishing v0\.19\.1<\/div>/);
+  assert.match(card({ state: 'publishing' }), new RegExp(`<a href="${url}" target="_blank" rel="noopener">publishing v0\\.19\\.1 `));
+  const published = card({ state: 'published' }, { waitsOn: 'owner', next: 'Tap Done', awaitsDone: true, bumpable: false });
+  assert.deepEqual(lines(published).slice(0, 3), ['ENG-1 Five', 'Next: Tap Done', 'published 0.19.1']);
+  assert.match(published, /<div class="line3 sub release-published"><a href=/);
+  assert.match(published, /class="ghost icon owner-done" data-confirm="finish" data-key="w\/B5" aria-label="Done" title="Done: published 0\.19\.1"/);
+  const failed = card({ state: 'failed', failure: 'a <test> (a.test.mjs:9)' });
+  assert.deepEqual(lines(failed).slice(0, 2), ['ENG-1 Five', 'release v0.19.1 failed: a <test> (a.test.mjs:9)']);
+  assert.match(failed, /<div class="line3 sub refused release"><a href=[^>]+>release v0\.19\.1 failed: a &lt;test&gt;/);
+  assert.doesNotMatch(failed, /owner-done/);
+  assert.doesNotMatch(workLines(workCard), /release/);
+});
+
 // docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md
 test('pending.within resolves with its work, or after 60 seconds runs its late callback and resolves, so a spinner rests either way', async () => {
   const timers = [];

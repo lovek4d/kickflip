@@ -303,12 +303,17 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
   const staleReview = lane === 'review' && Boolean(inReviewSince) && now - Date.parse(inReviewSince) > STALE_AFTER;
   const stepWaits = Boolean(ownerStep) && landed && lane === 'done';
-  if (stepWaits) lane = 'review';
-  let waitsOn = waitsOnOf(lane, pr, builder, Boolean(checkingAt) && lane !== 'done', pushed, skipDraft, { held: mergeReady, needsApproval: reviewers.length > 0 });
+  // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md: a landed release
+  // holds its card in In Review, publishing or failed, then published waiting on the owner's Done.
+  const release = it.release && !tappedDone && landed && lane === 'done'
+    ? { state: it.release.state, version: it.release.version, url: it.release.url || null, failure: it.release.failure || null } : null;
+  if (stepWaits || release) lane = 'review';
+  // A release card waits on its publish, its status line saying how it goes, with no PR or merge to wait on.
+  let waitsOn = release ? null : waitsOnOf(lane, pr, builder, Boolean(checkingAt) && lane !== 'done', pushed, skipDraft, { held: mergeReady, needsApproval: reviewers.length > 0 });
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && (!pr.isDraft || skipDraft);
   // A reopened card Claude has answered waits on the owner's Done.
-  const awaitsDone = stepWaits || (Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending && !followUp);
+  const awaitsDone = stepWaits || release?.state === 'published' || (Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending && !followUp);
   if (awaitsDone) waitsOn = 'owner';
   // docs/adr/2026-11-09-1804-in-progress-means-a-builder-runs.md: In Progress is a builder running on the card. A ready
   // PR gone red, and a reopened card nothing has built since its reopening, the owner's reply unanswered or a follow-up
@@ -372,7 +377,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     land: null,
     landFrom,
     key, kind: 'work', order, file: slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
-    created: it.created || null, reviewSince: (idle && reopenAt) || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
+    created: it.created || null, reviewSince: (idle && reopenAt) || release && it.release.since || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt) || backInTodo, answered: Boolean(answeredAt), awaitsDone,
     // docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md: a Done card, or one reopened since, has
@@ -382,6 +387,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     // card's footer reads paused.
     plannerQueued,
     ownerStep: awaitsDone ? ownerStep : null,
+    release,
     // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
     // docs/adr/2026-11-07-0700-staging-then-ready.md: when the card was staged, and when it was last sent back for a round.

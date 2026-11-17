@@ -89,6 +89,8 @@ export const ON_CARD = {
   'builder-resume': (c, e) => `${c}'s pause cleared (${e.data?.cleared}): tell its builder in your session to carry on where it stopped`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text} (builder answer it, or builder defer it)`,
   'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}; fix it with item set --check, or drop it`,
+  // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md
+  'release-failed': (c, e) => `${c}'s release ${e.data?.version} failed${e.data?.failure ? ` at ${e.data.failure}` : ''} (${e.data?.url}): fix it and ship a patch release; a passing rerun publishes this one`,
   // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
   'script-run': (c) => `the owner ran the script you offered on ${c}: its script-result event follows when it ends; nothing to do until then`,
   'script-result': (c, e) => `the script you offered on ${c} ${e.data?.exit === 0 ? 'finished' : 'failed'}: exit ${e.data?.exit}${e.data?.timedOut ? ', stopped at its time limit' : ''}; output tail: ${outputTail(e.data?.output)}; the whole output is in log ${e.data?.log}; carry on from it in its thread`,

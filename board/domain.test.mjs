@@ -2335,6 +2335,22 @@ test("a card whose code landed stays in In Review on its owner step, the step as
   assert.deepEqual(look(card({ lane: 'done' }, { events: [msg] })), ['review', null, 'Your reply waits on the orchestrator', null, false, true, null, true]);
 });
 
+// docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md
+test("a landed release card waits in In Review while it publishes, asks for the owner's Done once published, reads its failure while failed, and closes on the owner's Done", () => {
+  const close = (ts) => ({ id: 'c' + ts, ts, kind: 'card-done', data: { key: 'w/A1' }, reply: null });
+  const card = (release, { events = [], lane = 'done' } = {}) => board({ pr: null, events, item: { lane, lane_at: '2026-11-17T19:00:00Z', closed_at: '2026-11-17T19:00:00Z', release: { version: '0.19.1', tag: 'v0.19.1', since: '2026-11-17T19:00:00Z', ...release } } }).items.find((i) => i.key === 'w/A1');
+  const look = (c) => [c.lane, c.waitsOn, c.next, c.awaitsDone, c.finished, c.release];
+  assert.deepEqual(look(card({ state: 'publishing' })), ['review', null, null, false, false, { state: 'publishing', version: '0.19.1', url: null, failure: null }]);
+  const url = 'https://github.com/o/r/actions/runs/5';
+  assert.deepEqual(look(card({ state: 'published', url })), ['review', 'owner', 'Tap Done', true, false, { state: 'published', version: '0.19.1', url, failure: null }]);
+  assert.deepEqual(look(card({ state: 'failed', url, failure: 'a test (a.test.mjs:9)' })), ['review', null, null, false, false, { state: 'failed', version: '0.19.1', url, failure: 'a test (a.test.mjs:9)' }]);
+  assert.equal(card({ state: 'publishing' }).reviewSince, '2026-11-17T19:00:00Z');
+  // The owner's Done closes it at once, whatever its state.
+  for (const state of ['publishing', 'published', 'failed']) assert.deepEqual(look(card({ state }, { events: [close('2026-11-17T20:00:00Z')] })), ['done', null, null, false, true, null], state);
+  // Before its code lands, the card is wherever its build is.
+  assert.equal(card({ state: 'publishing' }, { lane: 'progress' }).release, null);
+});
+
 // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
 test("a card waiting on its owner step reads what its code check waits for, or that the check can't run", () => {
   const step = 'Publish kickflip to npm';
