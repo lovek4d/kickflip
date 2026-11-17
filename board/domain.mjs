@@ -2557,3 +2557,9 @@ export function idleSummary(items, since) {
   const refs = landed.slice(0, 3).map((i) => i.ref).join(', ') + (landed.length > 3 ? ` and ${landed.length - 3} more` : '');
   return `${landed.length} ${landed.length === 1 ? 'task' : 'tasks'} landed: ${refs}`;
 }
+
+// docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
+// Whether event came from Slack: an ask routed from a Slack @kickflip, or a Slack reply followSlackAsks copied onto its
+// task as a message. The orchestrator's reply to it posts into the task's Slack thread.
+export const slackSourced = (event) => (event.kind === 'ask' && event.data?.routed?.via === 'slack' && Boolean(event.data.routed.slack))
+  || (event.kind === 'item-message' && Boolean(event.data?.slack));

@@ -4,14 +4,13 @@
 import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
-import { LANES, boardAsksOf, implementAsk } from './domain.mjs';
+import { LANES, boardAsksOf, implementAsk, slackSourced } from './domain.mjs';
 import { appendEvent, isListening, listBoards, samePath } from '../hub/boards.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { appendLine, boardConfig, itemSources, readJSON, readLog, remove, replace, writeJSON } from './files.mjs';
 import { HUB, hubText } from './hub-lines.mjs';
 import { postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { hasPR } from '../shared/card-prs.mjs';
-import { queueSlackReply, slackSourced } from './slack-store.mjs';
 import { BoardError, fail, needSite, text, cardTitle, domId } from './checks.mjs';
 import { settingsOf, boardRepoOf, boardTarget } from './settings.mjs';
 import { freeNotesName, writeNotesFile, ownerMark, dropOwed, resolveAnsweredOn } from './questions.mjs';
@@ -36,12 +35,13 @@ export async function writeReply(site, eventId, md, title) {
   const earlier = await replyFilesOf(dir, eventId);
   const file = path.join(dir, earlier.length ? `${eventId}~${earlier.at(-1).n + 1}.md` : `${eventId}.md`);
   await replace(file, text(md, 'the reply'));
-  // docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
-  if (key && !key.startsWith('ask:') && slackSourced(event) && (card || await loadItem(site, key)).item.lane !== 'done') await queueSlackReply(site, key, path.basename(file, '.md'));
+  // docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md: slack is the reply for the caller to
+  // queue to its Slack thread (slack-store.mjs queueSlackReply), or null.
+  const slack = key && !key.startsWith('ask:') && slackSourced(event) && (card || await loadItem(site, key)).item.lane !== 'done' ? { key, name: path.basename(file, '.md') } : null;
   const lines = key ? await freshenPush(site, key, md) : [];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   if (card) lines.push(...await resolveAnsweredOn(site, `item:${card.key}`, 'Acted on: replied'));
-  return { file, lines };
+  return { file, lines, slack };
 }
 
 // Whether the card an ask became is still New: nothing has sorted, answered or started it.

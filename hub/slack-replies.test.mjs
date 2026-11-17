@@ -10,8 +10,15 @@ import { tempDir } from '../shared/temp-dir.mjs';
 const home = tempDir('slack-replies-');
 process.env.HOME = home;
 const { postSlackReplies, followSlackAsks } = await import('./slack-intake.mjs');
-const { writeReply, appendMessage } = await import('../board/store.mjs');
-const { boardPosts } = await import('../board/slack-store.mjs');
+const store = await import('../board/store.mjs');
+const { appendMessage } = store;
+const { boardPosts, queueSlackReply } = await import('../board/slack-store.mjs');
+// What `board reply` does: write the reply, then queue it to its Slack thread when writeReply returns one to queue.
+const writeReply = async (...args) => {
+  const written = await store.writeReply(...args);
+  if (written.slack) await queueSlackReply(args[0], written.slack.key, written.slack.name);
+  return written;
+};
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };

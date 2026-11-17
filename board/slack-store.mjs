@@ -288,10 +288,6 @@ export async function followedSlackThreads(site) {
 // Records ts as the newest reply the hub has read in thread, one of followedSlackThreads.
 export const markSlackThreadHeard = (site, thread, ts) => editJSON(slackThreadsFile(site), (all) => { all.threads = { ...all.threads, [slackThreadId(thread)]: ts }; });
 // docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
-// Whether event came from Slack: an ask routed from a Slack @kickflip, or a Slack reply followSlackAsks copied onto its
-// task as a message. The orchestrator's reply to it posts into the task's Slack thread.
-export const slackSourced = (event) => (event.kind === 'ask' && event.data?.routed?.via === 'slack' && Boolean(event.data.routed.slack))
-  || (event.kind === 'item-message' && Boolean(event.data?.slack));
 // slack-threads.json's replies {"<reply file name>": {key, ts?, failed?}}, in the order written: each reply to post, with
 // the ts Slack gave it once posted and failed once a post failed and the card's fault line was written; and ends
 // {"<channel>:<thread_ts>": {ts?, failed?}}: each thread seen while its task was open, so its end line posts once.

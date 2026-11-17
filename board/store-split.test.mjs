@@ -76,6 +76,10 @@ test('store.mjs holds no code: only re-exports, none from slack-store.mjs', () =
   assert.doesNotMatch(source('board/store.mjs'), /slack-store\.mjs'/);
 });
 
+test('asks.mjs does not import slack-store.mjs: writeReply returns the reply for its caller to queue', () => {
+  assert.doesNotMatch(source('board/asks.mjs'), /slack-store\.mjs'/);
+});
+
 test('no concept module imports store.mjs', () => {
   assert.deepEqual(MODULES.filter((file) => importsStore(`board/${file}`)), []);
 });
