@@ -63,7 +63,7 @@ test('a cadence reads as words, with a clock job’s ticks when it waits more th
   assert.equal(of('reconcile'), 'every 2 s (2 × 1 s)');
   assert.equal(of('nightly-suite'), 'every 15 min (60 × 15 s)');
   assert.equal(of('share-save'), 'every 1 min (4 × 15 s)');
-  assert.equal(of('board-check'), 'every 15 s');
+  assert.equal(of('down-check'), 'every 15 s');
   assert.equal(of('review-digest'), 'quiet hours’ end');
 });
 

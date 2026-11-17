@@ -8,7 +8,7 @@
 // (view-*.js) the same site, $ and recorders.
 // opts, from the app shell (shell.js):
 //   signal(fn) → off   calls fn on each change signal for this board, from the hub's one stream
-//   streaming() → bool true while that stream is open, when the board's 30 s check rests
+//   streaming() → bool true while that stream is open, when the page's down-check rests
 //   starting() → this board's starting entry from the sidebar's data while its orchestrator starts, else undefined
 // Load this after ui-*.js, attach.js and toasts.js, and before the app-*.js files.
 window.BoardView = (function () {
@@ -46,6 +46,7 @@ window.BoardView = (function () {
   // recorder returns a function that undoes what it added, and stop() runs every one still pending, so a view adds
   // listeners, intervals, timers and unmount steps only through them. Before start() and after
   // stop() they add nothing. B.sleep(ms) resolves after ms, and never once the view is gone, so a retry loop stops.
+  const PAGE_TICK = 15000;
   function base(root, siteRoot) {
     const site = ClaudeSite.site(siteRoot);
     const route = new URL(site.url('')).pathname.replace(/^\/+|\/+$/g, '');
@@ -70,6 +71,19 @@ window.BoardView = (function () {
       const t = setTimeout(() => { undo.delete(off); fn(); }, ms);
       return own(off);
     };
+    // The page's one repaint timer: every job registered by tick(fn, beats = 1) runs on each beats-th beat of one 15 s
+    // interval, started with the first job. whileDown(streaming, fn) is the one check for a view's data while the hub
+    // stream is down.
+    const jobs = new Set();
+    let beat = 0;
+    let beating = null;
+    const tick = (fn, beats = 1) => {
+      const job = { fn, beats };
+      jobs.add(job);
+      beating ??= every(PAGE_TICK, () => { beat++; for (const j of [...jobs]) if (beat % j.beats === 0) j.fn(); }); // poll: page-tick
+      return own(() => jobs.delete(job));
+    };
+    const whileDown = (streaming, fn) => tick(() => { if (!document.hidden && !streaming()) fn(); }); // poll: down-check
     const sleep = (ms) => new Promise((resolve) => { later(ms, resolve); });
     const atUnmount = (fn) => { if (alive) own(fn); };
     const $ = (s, el = root) => el.querySelector(s);
@@ -102,7 +116,7 @@ window.BoardView = (function () {
     if (now) now.value = '';
     quiet.set(draftKey, Date.now() + 1000);
   }
-    const B = { root, site, route, store, quieted, sendDraft, toast, $, $$, on, every, later, sleep, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
+    const B = { root, site, route, store, quieted, sendDraft, toast, $, $$, on, every, tick, whileDown, later, sleep, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
     return {
       B,
       start() { alive = true; },
@@ -509,7 +523,7 @@ window.BoardView = (function () {
     }
 
     // The server signals each change to what the board reads, through the shell, and the board reloads at once
-    // (docs/adr/2026-10-29-1639-the-board-reloads-on-a-change-signal.md). The 30 s check, the fallback and the offline
+    // (docs/adr/2026-10-29-1639-the-board-reloads-on-a-change-signal.md). The down-check, the fallback and the offline
     // check, runs only while the shell's stream is down (docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md).
     let reloading = null;
     let reloadAgain = false;
@@ -556,9 +570,9 @@ window.BoardView = (function () {
     });
     B.readCopy().then(paintCopy).catch((e) => console.error(e)).then(() => { if (B.alive()) loadBoard(); });
     B.signal?.(signalled);
-    // The board's change signal reloads it; this check runs only while the stream is down, on the same 15 s as the
-    // questions page's (docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md).
-    B.every(15000, () => { if (!document.hidden && !B.streaming()) loadBoard(); }); // poll: board-check
+    // The board's change signal reloads it; the page's down-check does too while the stream is down
+    // (docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md).
+    B.whileDown(B.streaming, loadBoard);
   }
 
   // shared: {by, full} for someone the board is shared with, whose board opens with a strip saying what they can do there

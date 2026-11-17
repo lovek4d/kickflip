@@ -44,7 +44,7 @@
       if (document.hidden || busy()) { if (at && status) status.textContent = age(Date.now() - at); return; }
       load();
     };
-    B.every(every, tick); // poll: hub-refresh
+    B.tick(tick, every / 15000);
     B.on(document, 'visibilitychange', () => { if (!document.hidden && Date.now() - at >= every) tick(); });
     load();
     return load;

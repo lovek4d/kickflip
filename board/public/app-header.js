@@ -76,9 +76,9 @@ BoardView.part((B) => {
     state.fresh = nextFresh(state.fresh, { via, at: new Date().toISOString(), sig: freshSig(state.board, state.threadCache, state.openItems) });
     renderStatus();
   }
-  B.every(15000, () => { if (!document.hidden) renderStatus(); }); // poll: status-repaint
+  B.tick(() => { if (!document.hidden) renderStatus(); });
   // thinking… and processing... count up in place (ui.js recount).
-  B.every(30000, () => { if (!document.hidden) BoardUI.recount(document); }); // poll: recount
+  B.tick(() => { if (!document.hidden) BoardUI.recount(document); }, 2);
   const githubHeader = (d) => (d.remote ? `<span class="lane-github">${remoteLine(d.remote, { links: d.links })}</span>`
     : `<span class="lane-github">${githubLine(d.checks, { links: d.links })}${githubRefresh(d.checks)}</span>`);
 

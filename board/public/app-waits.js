@@ -30,7 +30,7 @@ BoardView.part((B) => {
     BoardUI.openSheet(sheet);
     renderWaits(state.board);
   });
-  B.every(30000, () => { if (!document.hidden && state.board) renderWaits(state.board); }); // poll: waits-repaint
+  B.tick(() => { if (!document.hidden && state.board) renderWaits(state.board); }, 2);
   B.atUnmount(BoardUI.swipeToDismiss(sheet));
   B.on(sheet, 'click', (ev) => {
     if (BoardUI.onBackdrop(ev, sheet) || ev.target.closest('#waitsClose')) { sheet.close(); return; }

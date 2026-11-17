@@ -109,14 +109,10 @@ export const POLLS = Object.freeze([
     every: 2 * SECOND, runs: 'Hub', where: 'hub/stream.mjs' },
   { id: 'run-log', group: 'pages', name: 'Run log', what: 'Reads a run’s log again while it’s open and the run hasn’t finished.', every: 3 * SECOND, runs: 'Each open page', where: 'board/public/app-reader.js' },
   { id: 'log-page', group: 'pages', name: 'Log page', what: 'Reads a site’s log again while the log page is open.', every: 3 * SECOND, runs: 'Each open page', where: 'board/public/log.html' },
-  { id: 'board-check', group: 'pages', name: 'Board check, stream down', what: 'Reloads the board only while the page’s stream is down.', every: 15 * SECOND, runs: 'Each open page', where: 'board/public/app.js' },
-  { id: 'questions-check', group: 'pages', name: 'Questions check, stream down', what: 'Reloads Waiting on you only while the page’s stream is down.', every: 15 * SECOND, runs: 'Each open page', where: 'board/public/view-questions.js' },
-  { id: 'status-repaint', group: 'pages', name: 'Status repaint', what: 'Repaints the board header’s “updated” line.', every: 15 * SECOND, runs: 'Each open page', where: 'board/public/app-header.js' },
+  { id: 'page-tick', group: 'pages', name: 'Page timer', what: 'One timer per open page repaints the header’s “updated” line every 15 s, and every 30 s the “thinking…” counts, the waits sheet’s ages and the hub page’s refresh.', every: 15 * SECOND, runs: 'Each open page', where: 'board/public/app.js' },
+  { id: 'down-check', group: 'pages', name: 'Down-check, stream down', what: 'Reloads the board, and Waiting on you, only while the page’s stream is down: one check on the page timer.', every: 15 * SECOND, runs: 'Each open page', where: 'board/public/app.js' },
   { id: 'sidebar-refresh', group: 'pages', name: 'Sidebar refresh', what: 'Sends open pages the board list again.', every: 15 * SECOND, runs: 'Hub', where: 'hub/stream.mjs' },
   { id: 'stream-ping', group: 'pages', name: 'Hub stream ping', what: 'Keeps Tailscale Serve from idling an open page’s stream out.', every: 25 * SECOND, runs: 'Hub', where: 'hub/stream.mjs' },
-  { id: 'recount', group: 'pages', name: 'Recount', what: 'Counts up “thinking…” and “processing…” in place.', every: 30 * SECOND, runs: 'Each open page', where: 'board/public/app-header.js' },
-  { id: 'waits-repaint', group: 'pages', name: 'Waits repaint', what: 'Repaints the waits sheet’s ages.', every: 30 * SECOND, runs: 'Each open page', where: 'board/public/app-waits.js' },
-  { id: 'hub-refresh', group: 'pages', name: 'Hub page refresh', what: 'Reloads the hub page and hub settings while they show.', every: 30 * SECOND, runs: 'Each open page', where: 'board/public/hub-kit.js' },
 
   // Back-offs, not polls
   { id: 'board-asks-wait', group: 'backoff', name: 'asks --wait', what: 'only while a board’s ask to another board is unanswered; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/store.mjs' },

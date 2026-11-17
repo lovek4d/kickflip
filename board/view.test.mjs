@@ -3175,19 +3175,37 @@ test("an idle open board asks the host nothing while the change stream is open: 
   b.page.win.document.querySelectorAll = () => [];
   const asked = b.gets.length;
   assert.equal(b.page.left().watches, 0, 'no asks watch');
-  for (let minute = 0; minute < 5; minute++) for (const ms of [5000, 15000, 30000]) b.page.runIntervals(ms);
+  for (let minute = 0; minute < 5; minute++) for (const ms of [5000, 15000, 15000]) b.page.runIntervals(ms);
   await b.settle();
   assert.deepEqual(b.gets.slice(asked), [], 'five idle minutes with the stream open ask nothing');
   await b.change({ board: { ...board, checks: { requested: { state: 'landed', at: '2026-10-30T10:00:00.000Z' } }, version: 'v2' } });
   assert.deepEqual([boardGets(b), b.downloads], [2, ['v1', 'v2']], 'the change signal brings the landed check');
   stream.open = false;
-  b.page.runIntervals(30000);
-  await b.settle();
-  assert.equal(boardGets(b), 2, 'nothing reloads on the 30 s timers');
   b.page.runIntervals(15000);
   await b.settle();
   assert.equal(boardGets(b), 3, 'with the stream down the 15 s check reloads');
   b.view.unmount();
+});
+
+test('a page runs its repaints from one 15 s timer: a 30 s job runs every second beat, and the down-check runs only while the stream is down', () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const stream = { open: true };
+  const runs = [];
+  const view = page.win.BoardView.page(new page.El(), 'https://mac.ts.net/board-a', (B) => {
+    B.tick(() => runs.push('each'));
+    B.tick(() => runs.push('second'), 2);
+    B.whileDown(() => stream.open, () => runs.push('down'));
+  });
+  view.mount();
+  assert.equal(page.left().intervals, 1, 'one page timer');
+  page.runIntervals(15000);
+  page.runIntervals(15000);
+  assert.deepEqual(runs, ['each', 'each', 'second']);
+  stream.open = false;
+  page.runIntervals(15000);
+  assert.deepEqual(runs.slice(3), ['each', 'down']);
+  view.unmount();
+  assert.equal(page.left().intervals, 0);
 });
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
