@@ -66,6 +66,9 @@ export class SlackError extends Error {
 }
 
 const api = () => process.env.KICKFLIP_SLACK_URL || 'https://slack.com/api';
+// Slack reads these methods' arguments from form encoding or the query string and ignores a JSON body; every other
+// method takes JSON.
+const READS = ['users.list', 'emoji.list', 'search.messages', 'conversations.history', 'conversations.replies'];
 const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired', 'account_inactive'];
 
 // The last line of every message the hub or the orchestrator posts: the kickflip emoji, or 🤖 while the workspace lacks
@@ -84,9 +87,10 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
   async function call(method, body = {}) {
     let out;
     try {
+      const form = READS.includes(method);
       const r = await fetch(`${api()}/${method}`, {
-        method: 'POST', headers: { 'content-type': 'application/json; charset=utf-8', authorization: `Bearer ${token}` },
-        body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
+        method: 'POST', headers: { 'content-type': form ? 'application/x-www-form-urlencoded' : 'application/json; charset=utf-8', authorization: `Bearer ${token}` },
+        body: form ? new URLSearchParams(Object.entries(body).map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)])).toString() : JSON.stringify(body), signal: AbortSignal.timeout(15_000),
       });
       out = await r.json().catch(() => null);
       if (!out) throw new Error(`Slack answered ${r.status}`);

@@ -218,6 +218,14 @@ export function fakePs(rows) {
   };
 }
 
+// A Slack call's arguments as Slack reads them: a read method only from a form-encoded body, so a JSON body to one
+// arrives with no arguments; other methods from JSON or a form.
+const SLACK_READS = ['users.list', 'emoji.list', 'search.messages', 'conversations.history', 'conversations.replies'];
+function slackArgs(method, contentType, body) {
+  if (String(contentType).startsWith('application/x-www-form-urlencoded')) return Object.fromEntries(new URLSearchParams(body));
+  return SLACK_READS.includes(method) ? {} : JSON.parse(body || '{}');
+}
+
 // Slack's Web API for one user token: auth.test, conversations.open, chat.postMessage, chat.update, reactions.add,
 // conversations.history, conversations.replies and search.messages, recording each call. world.dms maps a user id to the DM channel
 // conversations.open answers; posts land in world.messages as the token's user, with their attachments, and reactions
@@ -297,14 +305,16 @@ export function fakeSlack(world) {
     calls,
     say,
     async fetch(url, init) {
-      return { ok: true, status: 200, json: async () => answer(String(url).split('/').at(-1), JSON.parse(init.body || '{}'), init.headers.authorization) };
+      const method = String(url).split('/').at(-1);
+      return { ok: true, status: 200, json: async () => answer(method, slackArgs(method, init.headers['content-type'], init.body), init.headers.authorization) };
     },
     async serve() {
       const http = await import('node:http');
       const server = http.createServer(async (req, res) => {
         let body = '';
         for await (const chunk of req) body += chunk;
-        const out = answer(req.url.split('/').at(-1), JSON.parse(body || '{}'), req.headers.authorization);
+        const method = req.url.split('/').at(-1);
+        const out = answer(method, slackArgs(method, req.headers['content-type'], body), req.headers.authorization);
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out));
       });
       await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

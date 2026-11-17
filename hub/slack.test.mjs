@@ -136,3 +136,23 @@ test('an edit is signed off with its time in the Slack timezone, in italics, and
   assert.ok(!isSignedOff('words\n- :claude_kickflip: · updated later'));
   assert.ok(!isSignedOff('- :claude_kickflip:\nmore words'));
 });
+
+test('read methods go form-encoded, as Slack reads them, and writes go as JSON', async () => {
+  const world = slackWorld();
+  const slack = fakeSlack(world);
+  const client = slackClient(world.token, { fetch: slack.fetch });
+  const sent = [];
+  const spy = async (url, init) => { sent.push([String(url).split('/').at(-1), init.headers['content-type'], init.body]); return slack.fetch(url, init); };
+  const spied = slackClient(world.token, { fetch: spy });
+  await client.post({ channel: 'D2', text: 'kickflip hello' });
+  await spied.search({ query: 'kickflip' });
+  await spied.people();
+  await spied.post({ channel: 'D2', text: 'x' });
+  const by = (m) => sent.find(([method]) => method === m);
+  assert.equal(by('search.messages')[1], 'application/x-www-form-urlencoded');
+  assert.equal(new URLSearchParams(by('search.messages')[2]).get('query'), 'kickflip');
+  assert.equal(by('users.list')[1], 'application/x-www-form-urlencoded');
+  assert.match(by('emoji.list')[1], /^application\/x-www-form-urlencoded/);
+  assert.match(by('chat.postMessage')[1], /^application\/json/);
+  assert.equal((await spied.search({ query: 'hello' })).length, 1);
+});
