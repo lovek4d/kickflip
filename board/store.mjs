@@ -3518,6 +3518,25 @@ async function markUnblocked(site, key, ts) {
   await writeJSON(source.file, itemFile);
 }
 
+// docs/adr/2026-11-17-0700-a-recheck-whose-blocker-touched-none-of-the-tasks-files-releases-itself.md
+// The paths a task's notes name: tokens with a folder slash or a file extension of letters. A token names a changed file
+// when it is that file, a folder holding it, or a bare file name (SKILL.md) ending the file's path.
+const namedPaths = (markdown) => [...new Set((markdown.match(/[\w.-]+(?:\/[\w.-]+)+|[\w-]+\.[a-z]\w+/gi) || []).map((t) => t.replace(/^\.\/|[.\/]+$/g, '')).filter((t) => /[a-z]/i.test(t)))];
+const namesFile = (named, file) => file === named || file.startsWith(`${named}/`) || (!named.includes('/') && file.endsWith(`/${named}`));
+
+// A card waiting on its recheck whose blocker landed files (the paths its diff changed) none of its notes name has the
+// wait ended here. Notes naming no path, or no notes, leave the wait to the orchestrator. → whether it released.
+async function releaseRecheck(site, key, files) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  if (!item.recheck_at) return false;
+  const markdown = await itemNotes(source.dir, item);
+  const named = markdown ? namedPaths(markdown) : [];
+  if (!named.length || files.some((f) => named.some((n) => namesFile(n, f)))) return false;
+  delete item.recheck_at;
+  await writeJSON(source.file, itemFile);
+  return true;
+}
+
 async function checkNextDeps(site, key, item, next) {
   const mentions = new Set(next.match(/#?[\w-]+(?:\.[\w-]+)*(?:\/[\w-]+(?:\.[\w-]+)*)*/g) || []);
   const deps = new Set(depCards(parseKey(key).file, item.deps));
@@ -3641,7 +3660,7 @@ function markMerged(item, merged, repo) {
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
 // change, low, medium or high, which builder done records and the PR's Slack link shows (prLink). replyOn (--reply-on)
 // is the orchestrator's reply on a card this call links or unlinks while its owner waits on that reply (replyFirst).
-async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged }, options) {
+async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, landedFiles, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -3922,7 +3941,8 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   for (const k of unblocked) {
     const { line } = await appendStatus(site, k, 'unblocked-done', { card });
     await markUnblocked(site, k, line.ts);
-    await appendEvent({ dir: site }, 'card-unblocked', { key: k });
+    if (landedFiles && await releaseRecheck(site, k, landedFiles)) await appendStatus(site, k, 'recheck-released', { card });
+    else await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
   return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
 }

@@ -136,3 +136,35 @@ test('--next naming an unfinished card by its #number is refused without --deps'
   assert.match(r.err, /names unfinished task w\/ENG-1; add it with --blocked-by/);
   assert.equal((await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1', '--next', 'Tag once #398 lands')).code, 0);
 });
+
+// docs/adr/2026-11-17-0700-a-recheck-whose-blocker-touched-none-of-the-tasks-files-releases-itself.md
+const recheckCase = async (notes, files) => {
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  if (notes !== null) write(at('waves', 'w', 'a1-notes.md'), notes);
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'ready', size: 'small', ...(notes === null ? {} : { plan: 'a1-notes.md' }), deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
+  await store.setItem(site('orch'), 'w/ENG-1', { done: true, closing: ['handed-closed', {}], landed: 'abc1234', landedFiles: files }).finally(() => { process.env.HOME = oldHome; });
+};
+
+test("a blocker that landed none of the task's noted files releases its recheck with a thread line", async () => {
+  await recheckCase('Change board/server.mjs and docs/adr.\n', ['hub/push.mjs', 'README.md']);
+  assert.equal(itemOf().recheck_at, undefined);
+  assert.equal(itemOf().phase, 'ready');
+  assert.equal(threadOf().at(-1).text, "Recheck: ENG-1 touched none of this task's files");
+});
+
+test("a blocker that landed a noted file, or inside a noted folder, still waits on the recheck", async () => {
+  await recheckCase('Change board/server.mjs.\n', ['board/server.mjs']);
+  assert.ok(itemOf().recheck_at);
+  await recheckCase('Write docs/adr.\n', ['docs/adr/x.md']);
+  assert.ok(itemOf().recheck_at);
+  await recheckCase('Edit SKILL.md.\n', ['SKILL.md']);
+  assert.ok(itemOf().recheck_at);
+});
+
+test('notes naming no files keep the recheck wait, and so does a blocker with no recorded diff', async () => {
+  await recheckCase('Make it nicer, e.g. faster.\n', ['hub/push.mjs']);
+  assert.ok(itemOf().recheck_at);
+  await recheckCase('Change board/server.mjs.\n', undefined);
+  assert.ok(itemOf().recheck_at);
+});

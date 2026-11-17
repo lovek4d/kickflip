@@ -65,13 +65,15 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   const queue = { site, key, first: await store.landFirst(site, key) };
   const report = await store.testReport(site, key, { phase: 'landing' });
   const onTestWait = (card) => store.appendStatus(site, key, 'test-waiting', { card });
+  // The files its diff changes, which the cards it unblocks compare with the files their notes name.
+  const landedFiles = git(tree.repo, 'diff', '--name-only', '--no-renames', `${base}...${tree.branch}`).out.split('\n').filter(Boolean);
   const landed = await landInTurn({ ...tree, ref }, { hold: !go, onWait, onTestWait, queue, report, found: (words) => store.recordCall(site, key, words, {}),sync: () => remote && syncBase(tree.repo, base) });
   if (!go) {
     const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
     await store.appendMessage(site, key, { text });
     return { said: 'verified; waits for your Merge', lines: set.lines };
   }
-  const closed = await store.setItem(site, key, { done: true, landed: landed.commit, ...(closing ? { closing } : { text }), ownerStep, check });
+  const closed = await store.setItem(site, key, { done: true, landed: landed.commit, landedFiles, ...(closing ? { closing } : { text }), ownerStep, check });
   return {
     said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
     lines: [...closed.lines, ...await pushBase(site, key, repo, base, landed.release)],
