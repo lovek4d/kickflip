@@ -204,31 +204,35 @@ test('item relate-ask on an ask whose card is New merges it: the card goes, its 
   assert.match((await board('item', 'relate-ask', 'a3', 'audit/A1', '--summary', 'x', '--site', 'audit')).err, /became audit\/T-2/);
 });
 
-test('a Quick build ask\'s New card goes ready from new on item set --phase ready with its size and notes', async () => {
+// docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md
+test("a Quick build ask's New card is staged by item triage, then goes ready from staging on the orchestrator's judgment", async () => {
   auditEvents({ ...ask, data: { ...ask.data, quick: true } });
   const s = await store();
   await s.fileAsk(audit(), 'a1');
   const notes = path.join(home, 'n.md');
   fs.writeFileSync(notes, 'Pin the header.');
-  // docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md: the Quick pair sorts a New card; a reply does not.
-  assert.match((await board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit')).err, /still in New: sort it first with item triage audit\/T-1 .*item notes audit\/T-1, then item set audit\/T-1 --phase ready/);
+  // docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md: triage sorts a New card; a reply does not.
+  assert.match((await board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit')).err, /still in New: sort it first with item triage audit\/T-1 .*; the owner's Implement \(a Quick build ask\) takes item triage audit\/T-1 --title with no --phase, which stages it/);
+  assert.equal((await board('item', 'triage', 'audit/T-1', '--title', 'fix(board): pin the header', '--site', 'audit')).code, 0);
+  assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'staging');
   assert.equal((await board('item', 'notes', 'audit/T-1', '--heading', 'Scope', '--file', notes, '--site', 'audit')).code, 0);
-  const r = await board('item', 'set', 'audit/T-1', '--phase', 'ready', '--size', 'small', '--from-ask', 'a1', '--text', 'Quick build.', '--title', 'fix(board): pin the header', '--site', 'audit');
+  const r = await board('item', 'set', 'audit/T-1', '--phase', 'ready', '--size', 'small', '--text', 'No other task covers it.', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'ready');
   // item add --from-ask on an ask that already has its card points at the card.
   assert.match((await board('item', 'add', 'audit', '--from-ask', 'a1', '--text', 'x', '--title', 'X', '--phase', 'grilling', '--site', 'audit')).err, /already task audit\/T-1/);
 });
 
-test('item set --phase ready --from-ask with --blocked-by sets Blocked by, bare or prefixed, and the card waits', async () => {
+test('item set --phase ready with --blocked-by sets Blocked by, bare or prefixed, and the card waits', async () => {
   auditEvents({ ...ask, data: { ...ask.data, quick: true } });
   const s = await store();
   await s.fileAsk(audit(), 'a1');
   const notes = path.join(home, 'n.md');
   fs.writeFileSync(notes, 'Pin the header.');
   for (const id of ['B1', 'B2']) { const a = await board('item', 'add', 'audit', '--site', 'audit', '--title', 'fix(board): ' + id, '--notes', 'x', '--phase', 'grilling', '--relate', 'audit/T-1'); assert.equal(a.code, 0, a.err); }
+  assert.equal((await board('item', 'triage', 'audit/T-1', '--title', 'fix(board): pin the header', '--site', 'audit')).code, 0);
   assert.equal((await board('item', 'notes', 'audit/T-1', '--heading', 'Scope', '--file', notes, '--site', 'audit')).code, 0);
-  const r = await board('item', 'set', 'audit/T-1', '--title', 'fix(board): pin the header', '--phase', 'ready', '--from-ask', 'a1', '--text', 'Quick build.', '--size', 'small', '--blocked-by', 'audit/T-2,audit/T-3', '--site', 'audit');
+  const r = await board('item', 'set', 'audit/T-1', '--phase', 'ready', '--text', 'No other task covers it.', '--size', 'small', '--blocked-by', 'audit/T-2,audit/T-3', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   const item = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
   assert.deepEqual(item.deps, ['audit/T-2', 'audit/T-3']);
@@ -255,7 +259,7 @@ test('every sorting command refuses an ask edited after its working mark, printi
   ];
   for (const [n, [name, args, sorted]] of commands.entries()) {
     const id = `r${n}`;
-    auditEvents({ id, ts: '2026-11-12T09:38:00.000Z', kind: 'ask', data: { text: 'Completed asks go straight to Done', quick: true } });
+    auditEvents({ id, ts: '2026-11-12T09:38:00.000Z', kind: 'ask', data: { text: 'Completed asks go straight to Done' } });
     const key = await s.fileAsk(audit(), id);
     write(audit('data', 'working.json'), { events: { ...(fs.existsSync(audit('data', 'working.json')) ? read(audit('data', 'working.json')).events : {}), [id]: '2026-11-12T09:38:03.000Z' } });
     auditEvents({ id: `x${n}`, ts: '2026-11-12T09:38:14.000Z', kind: 'ask-edited', data: { id, key, text: 'Completed asks wait in In Review for my Done' } });

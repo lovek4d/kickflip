@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, LOGGED_OUT_WORDS, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
+import { BUILD_REFUSED, LOGGED_OUT_WORDS, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState, implementAsk } from './domain.mjs';
 import { githubStateFile, appendEvent, isBoardSite, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd, boardClaudeModel, claudeModelFor } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError } from '../hub/push.mjs';
@@ -874,7 +874,7 @@ export async function refuseInIntake(site, keys) {
     const card = name.includes('/') ? { key: name, ...(await loadItem(site, name)) } : await askCardOf(needSite(site), name);
     if (!card) continue;
     const { key, item } = card;
-    if (inIntake(item)) fail(`${key} is still in New: sort it first with item triage ${key} --title "<type>(<scope>): <summary>" --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task>; a Quick build ask goes item notes ${key}, then item set ${key} --phase ready --size small --from-ask <id>`);
+    if (inIntake(item)) fail(`${key} is still in New: sort it first with item triage ${key} --title "<type>(<scope>): <summary>" --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task>; the owner's Implement (a Quick build ask) takes item triage ${key} --title with no --phase, which stages it`);
   }
 }
 export async function triageItem(site, key, { title, phase, relate, parent, split, deps, ticket, text: said, foldInto, replyOn }, options) {
@@ -889,8 +889,12 @@ export async function triageItem(site, key, { title, phase, relate, parent, spli
     await relateAsk(site, item.from_ask, foldInto, summary);
     return { lines: [] };
   }
-  if (title === undefined || phase === undefined) fail(`item triage needs --title "<type>(<scope>): <summary>" and --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task> for a duplicate`);
-  if (!TRIAGE_PHASES.includes(phase)) fail(`item triage --phase takes ${TRIAGE_PHASES.join(', ')}; ready follows the investigation, with item set ${key} --phase ready`);
+  // docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md: the owner's Implement stages the task it asked for,
+  // so its triage takes no phase but staging, and the orchestrator judges it from there as any staged task.
+  const implement = item.from_ask !== undefined && implementAsk(await readLog(path.join(site, 'data', 'events.jsonl')), item.from_ask);
+  if (implement && ((phase ?? 'staging') !== 'staging' || title === undefined)) fail(IMPLEMENT_STAGES(key));
+  if (!implement && (title === undefined || phase === undefined)) fail(`item triage needs --title "<type>(<scope>): <summary>" and --phase ${TRIAGE_PHASES.join('|')}, or --fold-into <task> for a duplicate`);
+  if (!implement && !TRIAGE_PHASES.includes(phase)) fail(`item triage --phase takes ${TRIAGE_PHASES.join(', ')}; ready follows the investigation, with item set ${key} --phase ready`);
   if (said !== undefined) fail('item triage --text goes only with --fold-into, whose line it joins; a triaged task shows no Triaged line, so put what you know in its notes (item notes)');
   if (item.from_ask) {
     const file = parseKey(key).file;
@@ -898,8 +902,10 @@ export async function triageItem(site, key, { title, phase, relate, parent, spli
     for (const k of [parent, ...String(relate ?? '').split(','), ...String(deps ?? '').split(',')]) if (k !== undefined && k.trim()) links.add(depKey(file, k.trim()));
     await refuseUnplaced(site, 'the ask', await askWordsOf(site, item.from_ask), { links: [...links], ticket: ticket ?? item.ticket, repo: boardRepoOf(site, (await loadItemFile(site, file)).itemFile), canTicket: true });
   }
-  return setItem(site, key, { title, phase: phase === 'visual' ? 'discussing' : phase, relate, parent, split, deps, ticket, replyOn, triaged: true }, options);
+  return setItem(site, key, { title, phase: implement ? 'staging' : phase === 'visual' ? 'discussing' : phase, relate, parent, split, deps, ticket, replyOn, triaged: true }, options);
 }
+const IMPLEMENT_STAGES = (key) => `${key} came with the owner's Implement, which stages it: run item triage ${key} --title "<type>(<scope>): <summary>" with its links and no --phase, then judge it as any staged task: item set ${key} --phase ready --text "<what you checked>", or --phase grilling or prototyping with a thread line saying why`;
+const IMPLEMENT_NOT_FILED = (ask) => `ask "${ask}" came with the owner's Implement, which stages its task: item triage stages its New card, never a --from-ask filing`;
 
 // Moves a folded ask back out of the card it was folded into, to a card of its own.
 export async function unfoldAsk(site, eventId) {
@@ -3295,22 +3301,8 @@ function checkPhase(phase, state) {
   if (phase === 'staging') fail(`--phase staging is set by the board, on an owner action; pass ${AGENT_PHASE_LIST}`);
   if (phase !== undefined && !AGENT_PHASES.includes(phase)) fail(`--phase takes ${AGENT_PHASE_LIST}`);
 }
-const QUICK_NOT_SMALL = (key) => `${key} came from a Quick build ask, which goes ready only when small (--size small) with no open question; discuss it instead: reply with --phase discussing, and the owner's Implement after the discussion readies it at any size`;
+const FROM_ASK_PHASE = '--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling or prototyping, or --blocked to file it for later';
 const NOT_STAGED = "a task goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
-// Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. The
-// orchestrator files it --from-ask --phase ready, its filing the judgment staging would ask for
-// (docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md).
-async function quickAsk(site, eventId) {
-  const events = await readLog(path.join(needSite(site), 'data', 'events.jsonl'));
-  return events.some((e) => (e.kind === 'ask' && e.id === eventId && e.data?.quick === true) || (e.kind === 'item-message' && e.data?.key === `ask:${eventId}` && e.data?.intent === 'build'));
-}
-// docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md: a Slack @kickflip discusses
-// first, whoever sent it, so its ask goes ready only once the owner stages its card, even with an Implement on it.
-const SLACK_DISCUSSES = (ask) => `ask "${ask}" came from a Slack @kickflip, which always discusses first: file it --phase discussing; the owner's Implement after the discussion readies it`;
-async function fromSlack(site, eventId) {
-  const events = await readLog(path.join(needSite(site), 'data', 'events.jsonl'));
-  return events.some((e) => e.kind === 'ask' && e.id === eventId && e.data?.routed?.via === 'slack');
-}
 // A Next asking the owner to mark the card ready ("Mark ready", "mark it ready").
 const ASKS_READY = /^mark (?:it |this |the (?:task|card) )?ready\b/i;
 // docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md: each --pr adds a PR, owner/repo#n or a bare number in the
@@ -3558,7 +3550,8 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
-  checkPhase(phase, state);
+  // Staging is the board's: here, item triage keeping the owner's Implement (triageItem).
+  checkPhase(triaged && phase === 'staging' ? undefined : phase, state);
   if (force && !done) fail('--force goes with --done');
   if (splitInto !== undefined && !done) fail('--split-into goes with --done');
   if (splitInto !== undefined && said !== undefined) fail('--split-into writes the closing line; drop --text');
@@ -3579,31 +3572,23 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   if (ask) await refuseFiled(site, ask, key);
+  if (ask && implementAsk(await readLog(path.join(site, 'data', 'events.jsonl')), ask)) fail(IMPLEMENT_NOT_FILED(ask));
   const { source, itemFile, item } = await loadItem(site, key);
   const file = parseKey(key).file;
   const before = { parent: item.parent, deps: (item.deps || []).map((d) => depKey(file, d)), wasNew: inIntake(item) };
-  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: filing a Quick build ask is the orchestrator's
-  // judgment, so it goes ready from any phase, as does sorting the New card one became
-  // (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
-  // A card item triage sorted is still its filing while it keeps the phase triage gave it
-  // (docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md).
-  const askOf = ask ?? (!item.phase || item.triaged?.phase === item.phase ? item.from_ask : undefined);
-  const quick = askOf !== undefined && await quickAsk(site, askOf);
   // An answered card the orchestrator sorts after all is work: it goes back to Todo in that phase.
   if (phase !== undefined && item.answered_at && !item.closed_at) {
     delete item.answered_at;
     if (leftTodo(item)) placeIn(item, 'todo', undefined, null);
   }
   if (phase !== undefined && leftTodo(item)) fail(`--phase sets a Todo task's phase; ${key} is ${LANES[item.lane]}, where the board sets it`);
-  if (phase === 'ready' && askOf !== undefined && !['staging', 'ready'].includes(item.phase) && await fromSlack(site, askOf)) fail(SLACK_DISCUSSES(askOf));
-  if (phase === 'ready' && !quick && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
-  // docs/adr/2026-11-14-1500-a-quick-ask-goes-ready-only-when-small-with-no-open-question.md: an Implement is no
-  // discussion, so only a small change goes ready on it; the owner's tap after a discussion (staging) settles any size.
-  if (phase === 'ready' && quick && !['staging', 'ready'].includes(item.phase) && (size ?? item.size) !== 'small') fail(QUICK_NOT_SMALL(key));
+  // docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md: every task goes ready from staging, a Quick build
+  // ask's too, which item triage stages.
+  if (phase === 'ready' && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
   if (ask && hold && phase !== undefined && !item.phase) fail('a task filed blocked is filed New and takes no --phase; drop --phase, or drop --blocked to file it in a phase');
-  if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --blocked to file it for later');
+  if (ask && phase === undefined && !item.phase && !hold) fail(FROM_ASK_PHASE);
   const wasFinished = closed(item);
   if (split && wasFinished) fail(`${key} is already Done, so the tasks waiting on it were unblocked then; move them with item set <key> --blocked-by`);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or builder done before the merge`);
@@ -3750,6 +3735,10 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     delete item.filed_held;
     delete item.ready_main;
     if (phase === 'ready') item.ready_at = new Date().toISOString(); else delete item.ready_at;
+    if (phase === 'staging') {
+      item.staged_at = new Date().toISOString();
+      spendNext(item);
+    }
     if (triaged) item.triaged = { at: new Date().toISOString(), phase };
   }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the phase the card is in.
@@ -3789,6 +3778,8 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
   if (rechecked) await appendNotes(site, key, `Re-checked (orchestrator, ${noteStamp()})`, said);
   if (readied) await appendCommand(site, key, { command: 'readied', ...(readiedLine === undefined ? {} : { text: readiedLine }) });
+  // The line and the wait share one moment, as stage writes them (domain.mjs markWaitStarts).
+  if (phase === 'staging') await appendCommand(site, key, { command: 'staged', ts: item.staged_at });
   if (blocked) {
     const pausing = site && !(await isLanding(site, key)) && await requestPause(site, key, { cause: 'blocked', words: `blocked ${blocked}` });
     await appendStatus(site, key, pausing ? 'blocked-pausing' : 'blocked-stays', { blocked });
@@ -4437,14 +4428,10 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   if (ask) await refuseMoved(site, ask);
   if (ask) await refuseFiled(site, ask);
   const hold = holdOf({ block, pickUpAt });
-  if (ask && phase === undefined && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --blocked to file it for later');
-  if (phase === 'ready' && ask && await fromSlack(site, ask)) fail(SLACK_DISCUSSES(ask));
-  if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it discussing, grilling or prototyping` : 'item add files a task discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
-  if (phase === 'ready' && size !== undefined && size !== 'small') fail(QUICK_NOT_SMALL(key));
-  if (phase === 'ready' && !size) fail(`a new ready task has no size; a builder starts from it, so pass --size small or large with --phase ready`);
-  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a new card has no questions yet, so its notes
-  // are complete once they hold more than its title.
-  if (phase === 'ready' && !(notes ?? '').trim() && notesFrom === undefined) fail('a new ready task has no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready');
+  if (ask && implementAsk(await readLog(path.join(site, 'data', 'events.jsonl')), ask)) fail(IMPLEMENT_NOT_FILED(ask));
+  if (ask && phase === undefined && !hold) fail(FROM_ASK_PHASE);
+  // docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md: a task goes ready only from staging.
+  if (phase === 'ready') fail(`item add files a task discussing, grilling or prototyping; ${NOT_STAGED}`);
   if (intake && site && phase === undefined && !hold) fail('item add files a task on a board: pass --phase discussing, grilling or prototyping, or --blocked to file it for later');
   // A card an agent files stands alone from the start; an ask-born card starts from the ask's text instead.
   if (intake && site && !ask && !(notes ?? '').trim() && notesFrom === undefined) fail('item add files a task with notes: pass --notes "<text>" or --notes-from <draft.md>, so the card stands alone; a split takes its slice of the parent\'s proposed split');
@@ -4482,9 +4469,6 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: an id in the source's own form names the ticket to link.
   const named = id === undefined ? null : ticketNamed(await boardSource(site), id);
   if (named && ticket !== undefined && ticketNamed(await boardSource(site), ticket) !== named) fail(`--ticket ${ticket} is not the ticket ${id} names`);
-  // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a Quick build is filed ready, so it gets its ticket here.
-  const madeAtReady = phase === 'ready' && !named && ticket === undefined && !newTicket && Boolean(await boardSource(site));
-  if (madeAtReady) newTicket = true;
   if (named && newTicket) fail(`${id} names ticket ${named}, so --new-ticket would make another; drop --new-ticket`);
   if (ticket !== undefined || newTicket || named) await assignTicket(site, itemFile, item, ticket ?? named ?? undefined, options, source.dir, body);
   if (id === undefined && item.ticket) {
@@ -4504,7 +4488,6 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
     const links = await readAskLinks(site);
     if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   }
-  if (madeAtReady && site) await appendStatus(site, added, 'ticket-made', { ticket: item.ticket });
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), { spunOut: true });
   if (said !== undefined && !ask) await appendMessage(site, added, { text: said });
   if (proposes) await markDescription(site, { description_proposal: added, description_checked_at: created });

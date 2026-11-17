@@ -472,8 +472,9 @@ function waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt
       .filter(Boolean).map(String).sort().pop() || null,
     unverified: unverifiedOf(agents),
     // docs/adr/2026-11-15-1030-a-triaged-task-owes-an-investigate-wait-until-its-notes-are-written.md
-    // A "Triaged:" line is no reply: item triage no longer writes one, but a thread from before still holds it.
-    triagedAt: it.triaged && !it.triaged.investigated_at && it.triaged.phase === it.phase
+    // A "Triaged:" line is no reply: item triage no longer writes one, but a thread from before still holds it. A task
+    // triaged into staging owes its staging wait instead (docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md).
+    triagedAt: it.triaged && !it.triaged.investigated_at && it.triaged.phase === it.phase && it.phase !== 'staging'
       && !thread.some((m) => String(m.ts) > it.triaged.at && (m.who || 'claude') === 'claude' && !m.kind && !m.command && !m.line && !String(m.text ?? '').startsWith('Triaged:'))
       ? it.triaged.at : null,
     writes: [...lines, ...agents.flatMap((a) => [a.verified?.at, a.started])].filter(Boolean).map(String).sort(),
@@ -1924,13 +1925,24 @@ export function relatedCandidates(items, it) {
     .slice(0, CANDIDATES_SHOWN)
     .map(({ o }) => o);
 }
-const TRIAGE = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--parent <key> [--split]] [--blocked-by <keys>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
+const TRIAGE_LINKS = '[--relate <keys>] [--parent <key> [--split]] [--blocked-by <keys>] [--ticket <id>]';
+const TRIAGE = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual ${TRIAGE_LINKS} --text "<what comes next>", or --fold-into <task> for a duplicate`;
+// docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md: whether ask id came with the owner's Implement, the
+// New task sheet's (quick) or one tapped on its New card, which item triage turns into staging. A Slack @kickflip
+// discusses first, Implement or not (docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md).
+export function implementAsk(events, id) {
+  const ask = events.find((e) => e.kind === 'ask' && e.id === id);
+  if (!ask || ask.data?.routed?.via === 'slack') return false;
+  return ask.data?.quick === true || events.some((e) => e.kind === 'item-message' && e.data?.key === `ask:${id}` && e.data?.intent === 'build');
+}
 const candidatesLine = (cards) => (cards.length ? ` Likely related (check them, don't hunt): ${cards.map((c) => `${c.key} "${c.title}"`).join(', ')}.` : '');
 // docs/adr/2026-11-07-0700-staging-then-ready.md: what a task is checked against before it goes ready, staged or filed
 // from an Implement ask.
 const STAGING_CHECKS = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --blocked-by), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
 const INTAKE_NEXT = {
-  ask: (key, cards, e) => `Triage the new task ${e.data?.asked ? `${askedBy(e.data.asked)} asked, ${NOT_THE_OWNER},` : 'first,'} from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}, and for an Implement ask, the checks a staged task gets (${STAGING_CHECKS}), then item set ${key} --phase ready with --size.${candidatesLine(cards)}`,
+  ask: (key, cards, e, events) => (implementAsk(events, e.id)
+    ? `Triage the new task first, from what you know of the board, reading no code: the owner tapped Implement, so item triage ${key} --title "<type>(<scope>): <summary>" ${TRIAGE_LINKS} stages it, taking no --phase. Then judge it as any staged task: item notes, then the checks a staged task gets (${STAGING_CHECKS}), then item set ${key} --phase ready --text "<what you checked>" at any size, or --phase grilling or prototyping with a thread line saying why.${candidatesLine(cards)}`
+    : `Triage the new task ${e.data?.asked ? `${askedBy(e.data.asked)} asked, ${NOT_THE_OWNER},` : 'first,'} from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}.${candidatesLine(cards)}`),
   'card-added': (key, cards) => `Triage the task an agent added, from what you know of the board: ${TRIAGE(key)}. Then investigate: item notes.${candidatesLine(cards)}`,
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
@@ -1943,7 +1955,7 @@ function intakeWaits(items, events, working, moved) {
     if (!key || waited.has(key) || !unsorted(byKey, e, key)) continue;
     waited.add(key);
     const it = byKey.get(key);
-    waitFirst(it, { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, relatedCandidates(items, it), e) });
+    waitFirst(it, { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, relatedCandidates(items, it), e, events) });
   }
 }
 // docs/adr/2026-11-16-1100-a-thread-entry-that-starts-a-wait-reads-waiting-until-it-clears.md

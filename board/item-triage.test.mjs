@@ -81,16 +81,51 @@ test('item triage --fold-into merges a duplicate New task into the other task, w
   assert.deepEqual(messages('A1'), ['Triaged: folded in T-1 "Fix the header"; same as the header work']);
 });
 
-test('a Quick build ask triaged discussing still goes ready on item set once investigated, as its filing', async () => {
+// docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md: the owner's Implement on a New task is one path to
+// staging, kept through triage, and the orchestrator then judges it as any staged task, at any size.
+const thread = (id) => (!fs.existsSync(audit('data', 'threads', `audit__${id}.jsonl`)) ? [] : lines(audit('data', 'threads', `audit__${id}.jsonl`)));
+test("item triage on a Quick build ask refuses any phase but staging, and lands it staging with the owner's Implement kept", async () => {
   auditEvents(ask('a1', 'Pin the header', { quick: true }));
   const key = await fileAsk('a1');
-  assert.equal((await board('item', 'triage', key, '--title', 'fix(board): pin the header', '--phase', 'discussing', '--site', 'audit')).code, 0);
+  for (const phase of ['discussing', 'grilling', 'prototyping', 'visual', 'ready']) {
+    const r = await board('item', 'triage', key, '--title', 'fix(board): pin the header', '--phase', phase, '--site', 'audit');
+    assert.equal(r.code, 1, phase);
+    assert.equal(r.err, `${key} came with the owner's Implement, which stages it: run item triage ${key} --title "<type>(<scope>): <summary>" with its links and no --phase, then judge it as any staged task: item set ${key} --phase ready --text "<what you checked>", or --phase grilling or prototyping with a thread line saying why\n`, phase);
+  }
+  assert.deepEqual([item('T-1').phase, thread('T-1')], [undefined, []], 'a refusal writes nothing');
+  const r = await board('item', 'triage', key, '--title', 'fix(board): pin the header', '--relate', 'A1', '--site', 'audit');
+  assert.deepEqual([r.code, r.err], [0, '']);
+  assert.match(r.out, /T-1: triaged staging/);
+  const t = item('T-1');
+  assert.deepEqual([t.title, t.phase, t.related, t.triaged.phase], ['fix(board): pin the header', 'staging', ['audit/A1'], 'staging']);
+  assert.ok(t.staged_at && t.sorted_at);
+  // It owes the staging wait, the judgment any staged task gets, not the investigate wait of a triaged discussion.
+  const b = buildBoard({ now: Date.now(), events: [ask('a1', 'Pin the header', { quick: true })], files: [{ slug: 'audit', agents: {}, itemFile: read(audit('data', 'items.json')) }], threads: { 'audit/T-1': thread('T-1') }, prs: {}, owner: {} });
+  assert.deepEqual(orchestratorWaits(b).filter((w) => w.key === key).map((w) => w.kind), ['staging']);
+  assert.deepEqual(thread('T-1').map((m) => [m.command, m.text]), [['staged', 'Marked as staged'], ['related', 'Related to']]);
+  // Staged, it goes ready on the orchestrator's judgment at any size, as any staged task does.
   const notes = path.join(home, 'n.md');
   fs.writeFileSync(notes, 'Pin the header with position sticky.');
   assert.equal((await board('item', 'notes', key, '--heading', 'Scope', '--file', notes, '--site', 'audit')).code, 0);
-  const r = await board('item', 'set', key, '--phase', 'ready', '--size', 'small', '--site', 'audit');
-  assert.deepEqual([r.code, r.err], [0, '']);
+  const ready = await board('item', 'set', key, '--phase', 'ready', '--size', 'large', '--text', 'No other task covers it.', '--site', 'audit');
+  assert.deepEqual([ready.code, ready.err], [0, '']);
   assert.equal(item('T-1').phase, 'ready');
+});
+
+test('item triage takes --phase staging on a Quick build ask, and an Implement on its New card stages it the same way; a Slack ask and a Discuss ask take a phase as before', async () => {
+  const routed = { reason: 'the header is this board', via: 'slack', by: 'Ann', at: '2026-11-15T06:59:00Z', slack: { channel: 'D1', thread_ts: '1.1', ts: '1.1' } };
+  auditEvents(ask('a1', 'Pin the header', { quick: true }), ask('a2', 'Pin the footer'), { id: 'i2', ts: '2026-11-15T07:01:00Z', kind: 'item-message', data: { key: 'ask:a2', text: '', intent: 'build' } },
+    ask('a3', 'Ann: @kickflip pin the sidebar', { routed }), { id: 'i3', ts: '2026-11-15T07:01:00Z', kind: 'item-message', data: { key: 'ask:a3', text: '', intent: 'build' } }, ask('a4', 'Pin the nav'));
+  const [k1, k2, k3, k4] = [await fileAsk('a1'), await fileAsk('a2'), await fileAsk('a3'), await fileAsk('a4')];
+  assert.equal((await board('item', 'triage', k1, '--title', 'fix(board): pin the header', '--phase', 'staging', '--site', 'audit')).code, 0);
+  assert.match((await board('item', 'triage', k2, '--title', 'fix(board): pin the footer', '--phase', 'discussing', '--site', 'audit')).err, /came with the owner's Implement, which stages it/);
+  assert.equal((await board('item', 'triage', k2, '--title', 'fix(board): pin the footer', '--site', 'audit')).code, 0);
+  assert.deepEqual([item('T-1').phase, item('T-2').phase], ['staging', 'staging']);
+  // docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md: a Slack ask discusses first.
+  assert.match((await board('item', 'triage', k3, '--title', 'fix(board): pin the sidebar', '--site', 'audit')).err, /needs --title .* and --phase/);
+  assert.equal((await board('item', 'triage', k3, '--title', 'fix(board): pin the sidebar', '--phase', 'discussing', '--site', 'audit')).code, 0);
+  assert.match((await board('item', 'triage', k4, '--title', 'fix(board): pin the nav', '--phase', 'staging', '--site', 'audit')).err, /--phase takes discussing, grilling, prototyping, visual/);
+  assert.deepEqual([item('T-3').phase, item('T-4').phase], ['discussing', undefined]);
 });
 
 const card = (key, title, extra = {}) => ({ kind: 'work', key, title, lane: 'todo', ...extra });
@@ -123,6 +158,17 @@ test("a New task's intake wait asks for item triage first, then investigation, a
   assert.equal(wait.key, 'w/T-1');
   assert.match(wait.next, /^Triage the new task first, from what you know of the board, reading no code: item triage w\/T-1 --title "<type>\(<scope>\): <summary>" --phase discussing\|grilling\|prototyping\|visual .*--fold-into <task> for a duplicate\. Then investigate/);
   assert.match(wait.next, /Likely related \(check them, don't hunt\): w\/T-2 "feat\(board\): the header stays pinned on scroll"\.$/);
+});
+
+test("a Quick build ask's intake wait asks for item triage with no phase, which stages it, then the staged task's checks", () => {
+  const b = buildBoard({
+    now: Date.parse('2026-11-15T07:01:00Z'), events: [ask('a1', 'Pin the header', { quick: true })], prs: {}, owner: {},
+    files: [{ slug: 'w', agents: {}, itemFile: { items: [{ id: 'T-1', title: 'Pin the header', created: '2026-11-15T07:00:01Z', lane: 'todo', from_ask: 'a1' }] } }],
+  });
+  const wait = orchestratorWaits(b).find((w) => w.kind === 'intake');
+  assert.match(wait.next, /^Triage the new task first, from what you know of the board, reading no code: the owner tapped Implement, so item triage w\/T-1 --title "<type>\(<scope>\): <summary>" \[--relate <keys>\] \[--parent <key> \[--split\]\] \[--blocked-by <keys>\] \[--ticket <id>\] stages it, taking no --phase\. Then judge it as any staged task: item notes, then the checks a staged task gets \(check that no open or merged task/);
+  assert.match(wait.next, /\), then item set w\/T-1 --phase ready --text "<what you checked>" at any size, or --phase grilling or prototyping with a thread line saying why\.$/);
+  assert.doesNotMatch(wait.next, /--phase discussing\|/);
 });
 
 const investigate = (key = 'audit/T-1') => {

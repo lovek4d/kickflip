@@ -67,87 +67,46 @@ test('staging to ready refuses a --text the readied line can\'t hold whole, nami
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, `Marked as ready · ${'x'.repeat(room)}`);
 });
 
-test('item add --from-ask refuses a Quick build ask that is not small, and writes nothing', async () => {
-  addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } });
-  const r = await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: q1', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--size', 'large', '--notes', 'Fit it.');
-  assert.ok(r.code === 1 && /goes ready only when small/.test(r.err), r.err);
-  assert.equal(item('Q1'), undefined);
-});
-
-test('item add without --from-ask files a card grilling or prototyping, never ready', async () => {
-  const r = await board('item', 'add', 'w/Q1', '--site', 'orch', '--relate', 'w/A1', '--title', 'fix: quick', '--phase', 'ready', '--size', 'small');
-  assert.deepEqual(r, { code: 1, out: '', err: "item add files a task discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask\n" });
+// docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md: a filing goes ready from no phase, and a Quick build
+// ask's card is staged by item triage alone.
+test('item add files a card discussing, grilling or prototyping, never ready, with --from-ask too', async () => {
+  addEvents({ id: 'ed', ts: '2026-11-06T10:01:00Z', kind: 'ask', data: { text: 'Rethink the footer' } });
+  const refused = "item add files a task discussing, grilling or prototyping; a task goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n";
+  assert.deepEqual(await board('item', 'add', 'w/Q1', '--site', 'orch', '--relate', 'w/A1', '--title', 'fix: quick', '--phase', 'ready', '--size', 'small'), { code: 1, out: '', err: refused });
+  assert.deepEqual(await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: q1', '--from-ask', 'ed', '--text', 'Filed.', '--phase', 'ready', '--size', 'small', '--notes', 'Fit it.'), { code: 1, out: '', err: refused });
   assert.equal(item('Q1'), undefined);
   assert.equal((await board('item', 'add', 'w/Q1', '--site', 'orch', '--relate', 'w/A1', '--title', 'fix: quick', '--phase', 'grilling')).code, 0);
-});
-
-// docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md
-// docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: the orchestrator's filing is a Quick build's
-// judgment, so it goes ready with its size and its notes, and nothing files a card in staging.
-test('item add --from-ask files a Quick build ask ready and a Discuss ask grilling, with the ask as the card\'s first line, and a refusal writes nothing', async () => {
-  addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } },
-    { id: 'ed', ts: '2026-11-06T10:01:00Z', kind: 'ask', data: { text: 'Rethink the footer' } });
-  const add = (id, ask, ...more) => board('item', 'add', `w/${id}`, '--site', 'orch', '--title', `feat: ${id.toLowerCase()}`, '--from-ask', ask, '--text', 'Filed.', ...more);
-  const refusals = [
-    [await add('Q1', 'eq', '--phase', 'ready', '--notes', 'Fit the header.'), /no size/],
-    [await add('Q1', 'eq', '--phase', 'ready', '--size', 'small'), /no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready/],
-    [await add('Q1', 'eq', '--phase', 'staging', '--size', 'small', '--notes', 'Fit the header.'), /--phase staging is set by the board/],
-    [await add('Q1', 'ed', '--phase', 'ready', '--size', 'small', '--notes', 'Fit the header.'), /not a Quick build ask/],
-    [await add('Q1', 'nope', '--phase', 'ready', '--size', 'small'), /ask/],
-    [await add('Q1', 'ed', '--phase', 'staging'), /--phase staging is set by the board/],
-    [await add('Q1', 'eq'), /pass --phase/],
-    [await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'feat: q1', '--from-ask', 'eq', '--phase', 'ready', '--size', 'small'), /--text/],
-  ];
-  for (const [r, why] of refusals) assert.ok(r.code === 1 && why.test(r.err), r.err);
-  assert.equal(item('Q1'), undefined);
-  const quick = await add('Q1', 'eq', '--phase', 'ready', '--size', 'small', '--notes', 'Fit the header.');
-  assert.equal(quick.code, 0, quick.err);
-  assert.deepEqual([item('Q1').phase, item('Q1').from_ask, item('Q1').size, item('Q1').unfiled], ['ready', 'eq', 'small', undefined]);
-  assert.ok(lines(site('orch', 'data', 'threads', 'w__Q1.jsonl')).some((m) => m.text === 'Filed.'));
-  const discuss = await add('D1', 'ed', '--phase', 'grilling');
+  const discuss = await board('item', 'add', 'w/D1', '--site', 'orch', '--title', 'feat: d1', '--from-ask', 'ed', '--text', 'Filed.', '--phase', 'grilling');
   assert.equal(discuss.code, 0, discuss.err);
   assert.deepEqual([item('D1').phase, item('D1').from_ask], ['grilling', 'ed']);
+  assert.ok(lines(site('orch', 'data', 'threads', 'w__D1.jsonl')).some((m) => m.text === 'Filed.'));
 });
 
-// docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
-test('item set --from-ask files a Quick build ask ready, from any phase, with its size and notes; staging is refused on every ask, and ready on any other', async () => {
+test("item add and item set --from-ask refuse a Quick build ask, or one with an Implement on its New card, at any phase: item triage stages its card", async () => {
   write(at('waves', 'w', 'a1.md'), '# A1\n');
   addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } },
     { id: 'eb', ts: '2026-11-06T10:01:00Z', kind: 'ask', data: { text: 'Fix the footer' } },
-    { id: 'ei', ts: '2026-11-06T10:02:00Z', kind: 'item-message', data: { key: 'ask:eb', text: '', intent: 'build' } },
-    { id: 'ep', ts: '2026-11-06T10:03:00Z', kind: 'ask', data: { text: 'Fix the sidebar' } });
-  const file = (id, ask, phase) => board('item', 'set', `w/${id}`, '--site', 'orch', '--from-ask', ask, '--text', 'Filed.', '--phase', phase, '--size', 'small');
-  write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'fix: quick', plan: 'a1.md' }, { id: 'A2', title: 'fix: implement on new', plan: 'a1.md', phase: 'grilling' }, { id: 'A3', title: 'Plain', plan: 'a1.md' }] });
-  assert.deepEqual(await file('A1', 'eq', 'staging'), { code: 1, out: '', err: '--phase staging is set by the board, on an owner action; pass ready, discussing, grilling or prototyping\n' });
-  // docs/adr/2026-11-14-1500-a-quick-ask-goes-ready-only-when-small-with-no-open-question.md
-  const big = await board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--size', 'large');
-  assert.ok(big.code === 1 && /goes ready only when small .* discuss it instead/.test(big.err), big.err);
-  assert.equal(item('A1').phase, undefined);
-  const quick = await file('A1', 'eq', 'ready');
-  assert.equal(quick.code, 0, quick.err);
-  assert.deepEqual([item('A1').phase, item('A1').staged_at], ['ready', undefined]);
-  const implemented = await file('A2', 'eb', 'ready');
-  assert.equal(implemented.code, 0, implemented.err);
-  assert.equal(item('A2').phase, 'ready');
-  assert.deepEqual(await file('A3', 'ep', 'ready'), { code: 1, out: '', err: "w/A3 reads new, not staging; a task goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n" });
-  assert.equal(item('A3').phase, undefined);
+    { id: 'ei', ts: '2026-11-06T10:02:00Z', kind: 'item-message', data: { key: 'ask:eb', text: '', intent: 'build' } });
+  const refused = (ask) => `ask "${ask}" came with the owner's Implement, which stages its task: item triage stages its New card, never a --from-ask filing\n`;
+  for (const phase of ['ready', 'grilling']) {
+    assert.deepEqual(await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: q1', '--from-ask', 'eq', '--text', 'Filed.', '--phase', phase, '--size', 'small', '--notes', 'Fit it.'), { code: 1, out: '', err: refused('eq') });
+    assert.deepEqual(await board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'eb', '--text', 'Filed.', '--phase', phase, '--size', 'small'), { code: 1, out: '', err: refused('eb') });
+  }
+  assert.deepEqual([item('Q1'), item().phase, item().from_ask], [undefined, undefined, undefined]);
 });
 
 // docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md
-test('an ask routed from a Slack @kickflip always discusses first: item add and item set refuse it ready, even with an Implement on it, until the owner stages it', async () => {
+test('an ask routed from a Slack @kickflip always discusses first, even with an Implement on it, until the owner stages it', async () => {
   write(at('waves', 'w', 'a1.md'), '# A1\n');
   const routed = { reason: 'the header is this board', via: 'slack', by: 'Ann', at: '2026-11-06T09:59:00Z', slack: { channel: 'D1', thread_ts: '1.1', ts: '1.1' } };
   addEvents({ id: 'es', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Ann: @kickflip fix the header', routed } },
     { id: 'ei', ts: '2026-11-06T10:01:00Z', kind: 'item-message', data: { key: 'ask:es', text: '', intent: 'build' } });
-  const refused = 'ask "es" came from a Slack @kickflip, which always discusses first: file it --phase discussing; the owner\'s Implement after the discussion readies it\n';
-  const added = await board('item', 'add', 'w/S1', '--site', 'orch', '--title', 'fix: header', '--from-ask', 'es', '--text', 'Filed.', '--phase', 'ready', '--size', 'small', '--notes', 'Fit it.');
-  assert.deepEqual(added, { code: 1, out: '', err: refused });
-  assert.equal(item('S1'), undefined);
   write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'fix: header', plan: 'a1.md', from_ask: 'es' }] });
   // docs/adr/2026-11-16-0900-a-card-in-new-takes-no-writes-until-it-is-triaged.md: a New card takes item triage first.
   assert.match((await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small')).err, /w\/A1 is still in New/);
   assert.equal(item().phase, undefined);
   assert.equal((await board('item', 'triage', 'w/A1', '--site', 'orch', '--title', 'fix(board): header', '--phase', 'discussing')).code, 0);
+  assert.match((await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small')).err, /reads discussing, not staging/);
   setState({ phase: 'staging', staged_at: '2026-11-06T10:05:00.000Z', size: 'small' });
   const r = await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--text', 'Discussed with Ann.');
   assert.equal(r.code, 0, r.err);
@@ -194,17 +153,4 @@ test('an Implement message waiting from before staging becomes staging, keeping 
     { id: 'A3', title: 'Plain', phase: 'ready' },
   ]);
   assert.deepEqual(await stageImplementAsks(site('audit')), []);
-});
-
-// docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: item add needs a phase on a board, so a Quick build
-// ask filed blocked and grilling goes ready and unblocks in its --from-ask.
-test('a Quick build ask filed blocked and grilling goes ready and unblocks in one item set --from-ask', async () => {
-  addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } });
-  write(`${home}/draft.md`, '# Quick\n');
-  const added = await board('item', 'add', 'w/Q1', '--site', 'orch', '--relate', 'w/A1', '--title', 'fix: quick', '--notes-from', `${home}/draft.md`, '--blocked');
-  assert.equal(added.code, 0, added.err);
-  assert.deepEqual([item('Q1').phase, item('Q1').held], ['discussing', true]);
-  const filed = await board('item', 'set', 'w/Q1', '--site', 'orch', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--unblocked', '--size', 'small');
-  assert.equal(filed.code, 0, filed.err);
-  assert.deepEqual([item('Q1').phase, 'held' in item('Q1'), item('Q1').from_ask], ['ready', false, 'eq']);
 });

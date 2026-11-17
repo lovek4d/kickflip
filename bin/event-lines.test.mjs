@@ -96,7 +96,7 @@ test('a new task, a message in an ask thread and an agent-added card wake the se
   // docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
   assert.equal(ON_CARD['item-message']('T-4', event('item-message', { key: 'w/T-4', text: 'Still 500s', slack: { by: 'Bob', link: 'https://acme.slack.com/x' } })), "Bob wrote in T-4's Slack thread, copied into its thread: reply to it, which posts into the Slack thread too; ask open points with reply --questions <json>, not in prose");
   assert.equal(ON_CARD['item-message']('T-4', event('item-message', { key: 'w/T-4', text: '@kickflip logs?', slack: { link: 'https://acme.slack.com/x' } })), "the owner wrote @kickflip in T-4's Slack thread, copied into its thread: reply to it, which posts into the Slack thread too; ask open points with reply --questions <json>, not in prose");
-  assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1', text: '', intent: 'build' })), 'Implement asked on the ask: file it with item add --from-ask --phase ready, with its --size and notes');
+  assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1', text: '', intent: 'build' })), 'Implement asked on the ask: item triage it with --title and its links and no --phase, which stages it; then judge it as any staged task');
   assert.equal(Object.hasOwn(ON_CARD, 'intake-handoff'), false);
 });
 

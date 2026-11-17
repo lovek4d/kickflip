@@ -793,7 +793,7 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
   assert.match((await board('ask', 'unfold', 'e1', '--site', 'orch')).err, /ask "e1" is not folded into a task/);
   await board('item', 'relate-ask', 'e1', 'w/A1', '--summary', 'Back in', '--site', 'orch');
   const stateless = await board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'Building it.');
-  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --blocked to file it for later\n']);
+  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling or prototyping, or --blocked to file it for later\n']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, undefined);
   assert.equal((await board('item', 'set', 'w/A1', '--from-ask', 'e1', '--phase', 'grilling', '--site', 'orch', '--text', 'Building it.')).code, 0);
   assert.deepEqual([read(site('orch', 'data', 'ask-links.json')), read(at('waves', 'w', 'wave.json')).items[0].from_ask], [{ links: {} }, 'e1']);

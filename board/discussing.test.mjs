@@ -45,13 +45,14 @@ test('only a discussing card has a turn', async () => {
 
 
 // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
-test("a New task's intake wait says to triage it first into discussing, a grill, a prototype or a visual, linking a ticket it names, then to discuss it by reply and file an Implement ask ready", async () => {
+test("a New task's intake wait says to triage it first into discussing, a grill, a prototype or a visual, linking a ticket it names, then to discuss it by reply", async () => {
   const next = card(built()).orchestrator.next;
   assert.match(next, /^Triage the new task first/);
   assert.match(next, /item triage hub\/T-1 .*--phase discussing\|grilling\|prototyping\|visual/);
   assert.match(next, /--ticket/);
   assert.match(next, /reply hub\/T-1/);
-  assert.match(next, /for an Implement ask, the checks a staged task gets \(check that no open or merged task already covers it .*\), then item set hub\/T-1 --phase ready with --size/);
+  // docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md: only staging goes ready.
+  assert.doesNotMatch(next, /--phase ready/);
 });
 
 // The CLI, on the audit board (data/items.json).

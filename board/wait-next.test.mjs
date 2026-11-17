@@ -21,12 +21,13 @@ test("a staged task's wait lists the checks against the whole board, and asks fo
   assert.match(next, /item set --phase ready --size <small\|large> --text "<what you checked>"/);
 });
 
+// docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md
 test("an Implement ask's intake wait asks for the same checks a staged task gets before ready, and to check its related cards, not hunt", () => {
   const next = wait('intake', {
-    events: [{ id: 'a1', ts: at(1), kind: 'ask', data: { text: 'Fix the header jumping on scroll' }, reply: null }],
+    events: [{ id: 'a1', ts: at(1), kind: 'ask', data: { text: 'Fix the header jumping on scroll', quick: true }, reply: null }],
     items: [card({ id: 'T-1', title: 'Fix the header jumping on scroll', from_ask: 'a1' }), card({ id: 'T-2', title: 'feat(board): the header stays pinned on scroll', phase: 'discussing' })],
   });
-  assert.match(next, /for an Implement ask, the checks a staged task gets \(check that no open or merged task already covers it .*\), then item set w\/T-1 --phase ready with --size\./);
+  assert.match(next, /the owner tapped Implement, so item triage w\/T-1 .* stages it, taking no --phase\. Then judge it as any staged task: item notes, then the checks a staged task gets \(check that no open or merged task already covers it .*\), then item set w\/T-1 --phase ready --text "<what you checked>" at any size/);
   assert.match(next, /Likely related \(check them, don't hunt\): w\/T-2 /);
 });
 

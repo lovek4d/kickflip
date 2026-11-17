@@ -220,7 +220,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          as the item's first line; it leaves a task it was folded into; refuses a task
                                                          from another ask (use item relate-ask), an ask that is
                                                          already a task, naming it (sort that task instead), and
-                                                         one with no phase when --phase is missing
+                                                         one with no phase when --phase is missing, and a Quick
+                                                         build ask, whose New task item triage stages
          [--phase ready|discussing|grilling|prototyping] a Todo task's phase: what it does next; it reads New
                                                          until set, which sorts a New task an ask became (an
                                                          answered one leaves In Review for Todo). discussing is
@@ -232,8 +233,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          Staging is the board's: it stages a task on the owner's
                                                          Send, Implement or Reply on a ready task, and refuses
                                                          --phase staging. ready refuses a task not staging or
-                                                         ready, bar --from-ask on a Quick build ask, whose filing
-                                                         is your judgment; and a task with an open question, and
+                                                         ready, a Quick build ask's too, which item triage
+                                                         stages; and a task with an open question, and
                                                          a task without --size, a notes file, or the id of each
                                                          answered question in that file, since a builder starts
                                                          from it; it resolves those answered questions.
@@ -345,15 +346,14 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          owner's prototype answer, so its grill never asks it again
          [--relate <id>,<file>/<id>]                     the tasks it touches, worth reading together, neither
                                                          causing the other; nothing is inherited
-         [--phase discussing|grilling|prototyping|ready] files it at once, as item set's --phase; the session's
+         [--phase discussing|grilling|prototyping]       files it at once, as item set's --phase; the session's
                                                          own form, linking it with --relate in the same call.
-                                                         ready is for a Quick build ask (--from-ask), with --size
-                                                         and --notes or --notes-from, since a builder starts from it
+                                                         Never ready: a task goes ready only from staging
          [--text <t>]                                    with --phase discussing, required: the task's first thread
                                                          line, after Created from, in the same write; it reads the owner's turn
          [--from-ask <eventId> --text <t>]               files the task from that ask in this one command, as
                                                          item set's --from-ask, refusing an ask that is already a
-                                                         task: no grill starts before the ask is on
+                                                         task, and a Quick build ask: no grill starts before the ask is on
                                                          the task, which takes the ask's place in Todo. Needs --phase
                                                          On a board --phase is required, so no task an agent
                                                          adds reads New
@@ -372,7 +372,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          (T-<n>, GH-<n>, #<ticket>, <file>/<id>; not inside
                                                          "quotes") that the task has no link with becomes Related
                                                          to, with a line in both threads; prints "related: <key>"
-  item triage <file>/<id> --title <t> --phase <p>        the first move on a new task, from what you know of the
+  item triage <file>/<id> --title <t> [--phase <p>]      the first move on a new task, from what you know of the
          [--relate <id>,<file>/<id>] [--ticket <id>]     board, reading no code: one call sets the title (Conventional),
          [--parent <key> [--split]] [--blocked-by <ids>] the phase (discussing, grilling, prototyping, or visual,
                                                          which reads discussing for the visual's brief) and the
@@ -381,6 +381,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          thread: the owner's message reads thinking until your
                                                          first reply.
                                                          Investigate after: notes, questions, a reply, ready.
+                                                         A Quick build ask (the owner's Implement, from New task
+                                                         or on its New card) takes no --phase but staging: it
+                                                         lands staging with a Marked as staged line, the tap kept,
+                                                         and you judge it as any staged task
                                                          Refuses a task already sorted, and an ask edited after
                                                          you read it, as reply does
          [--fold-into <file>/<id> [--text <t>]]          for a duplicate, in place of the rest: merges the New
@@ -1386,7 +1390,7 @@ const SAID = {
   'item set': async (site, [key], f) => `${await card(site, key)}: ${itemChanges(f)}`,
   'item add': async (site, _, f, { key }) => `${await card(site, key)} added as ${key}${f.ask !== undefined ? ': an ask in New; triage it as you do the owner\'s' : ''}`,
   'item notes': async (site, [key], f, { file, heading }) => `${await card(site, key)}: notes section "${heading}" added to ${file}`,
-  'item triage': async (site, [key], f) => (f['fold-into'] !== undefined ? `${key} folded into ${await card(site, f['fold-into'])}` : `${await card(site, key)}: triaged ${f.phase}`),
+  'item triage': async (site, [key], f) => (f['fold-into'] !== undefined ? `${key} folded into ${await card(site, f['fold-into'])}` : `${await card(site, key)}: triaged ${f.phase ?? 'staging'}`),
   'item relate-ask': async (site, [id, key]) => `ask ${id} folded into ${await card(site, key)}`,
   'ask unfold': (site, [id]) => `ask ${id} back on a task of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,

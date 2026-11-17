@@ -69,7 +69,7 @@ const slackWriter = (c, e) => (e.data?.slack ? `${e.data.slack.by ? `${e.data.sl
 // The kinds whose line names the card the event is on.
 export const ON_CARD = {
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-  'item-message': (c, e) => (String(e.data?.key).startsWith('ask:') && e.data?.intent === 'build' ? `Implement asked on ${c}: file it with item add --from-ask --phase ready, with its --size and notes`
+  'item-message': (c, e) => (String(e.data?.key).startsWith('ask:') && e.data?.intent === 'build' ? `Implement asked on ${c}: item triage it with --title and its links and no --phase, which stages it; then judge it as any staged task`
     : e.data?.intent === 'build' ? `Implement asked on ${c}: it is staging, the message in its notes; judge it against the whole board, then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping` : `${slackWriter(c, e) ? `${slackWriter(c, e)}: reply to it, which posts into the Slack thread too` : `message received from ${c}'s thread: reply in its thread`}; ask open points with reply --questions <json>, not in prose`),
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
   'card-bump': (c) => `${c} bumped: handle its waits lines first; with none, leave it`,
