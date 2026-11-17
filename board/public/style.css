@@ -951,6 +951,8 @@ main > * { transition: opacity .25s ease; }
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
   .top .nav #refresh, .top .nav #searchOpen, .top .nav a.icon, .top .pages-switch { min-width: 44px; min-height: 44px; }
+  /* The header is at the bottom here, so the board menu opens upward from it and scrolls when the room above is short. */
+  .board-menu { top: auto; bottom: calc(100% + 4px); overflow-y: auto; max-height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(12px, env(safe-area-inset-top)) - 12px); }
   body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + var(--search-lift, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
