@@ -10,7 +10,8 @@ const panel = wide.match(/\.sheet\.reader-sheet \{[^}]*\}/)?.[0] ?? '';
 
 test('the reader takes the right pane: below the header, to the right edge, at the pane width', () => {
   assert.match(panel, /inset: 56px 0 0 auto/);
-  assert.match(panel, /width: var\(--pane-w, calc\(\(100vw - var\(--sidebar-w, 0px\)\) \/ 2\)\)/);
+  assert.match(panel, /width: var\(--sheet-w\)/);
+  assert.match(wide, /--sheet-w: var\(--pane-w, calc\(\(100vw - var\(--sidebar-w, 0px\)\) \/ 2\)\)/);
   assert.match(panel, /max-width: none/);
   assert.match(panel, /border-radius: 0/);
 });
@@ -23,4 +24,11 @@ test('the board stays visible beside it and it slides in from the right', () => 
 
 test('the phone sheet rules stay outside the desktop media query', () => {
   assert.match(css.slice(0, css.indexOf('@media (min-width: 900px) {\n  .split')), /\.reader-sheet \{ height: 85dvh;/);
+});
+
+test('one seam, --sheet-w, gives every desktop sheet its width: no other rule sets width or max-width on one', () => {
+  const sheetSel = /\.reader-sheet|\.reader-page|#questionsSheet|\.questions-sheet/;
+  const rules = [...wide.replace(/\/\*[^]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, sel, body]) => [sel.trim(), body]);
+  const setters = rules.filter(([sel, body]) => sheetSel.test(sel) && /(^|[\s;])(max-)?width\s*:/.test(body)).map(([sel]) => sel);
+  assert.deepEqual(setters, ['.sheet.reader-sheet'], 'only the reader sheet rule sets a width, from --sheet-w');
 });

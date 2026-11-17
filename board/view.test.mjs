@@ -7503,12 +7503,12 @@ test("a prototype or a visual opens in the reader sheet: the page framed under i
   phone.view.unmount();
 });
 
-test("a card page's sheet stands near full height on a phone, and from 900px widens to 60% of the room right of the sidebar, or the pane's width when wider, over the questions sheet", () => {
+test("a card page's sheet stands near full height on a phone, and from 900px takes the pane's width like every sheet, over the questions sheet", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const wideAt = css.indexOf('@media (min-width: 900px) {\n  .split');
   assert.match(css.slice(0, wideAt), /\.reader-sheet\.reader-page \{ height: calc\(100dvh - max\(12px, env\(safe-area-inset-top\)\)\);/);
   assert.match(css.slice(0, wideAt), /\.reader-frame \{[^}]*flex: 1;[^}]*border: 0;/);
-  assert.match(css.slice(wideAt), /\.sheet\.reader-sheet\.reader-page \{ z-index: 31; width: max\(var\(--pane-w, 0px\), calc\(\(100vw - var\(--sidebar-w, 0px\)\) \* \.6\)\); \}/, 'over the questions sheet, which is z-index 30 too and later in the page');
+  assert.match(css.slice(wideAt), /\.sheet\.reader-sheet\.reader-page \{ z-index: 31; \}/, 'over the questions sheet, which is z-index 30 too and later in the page');
   assert.doesNotMatch(css, /pane-viewer|\.pv-top|board-pane\.viewing|board-pane\.widened/, 'the pane viewer is gone');
 });
 

@@ -1083,8 +1083,10 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   .col-handle:focus-visible { outline: none; }
   html.col-dragging, html.col-dragging * { cursor: col-resize !important; user-select: none; }
   .split > .col-handle { right: calc(var(--pane-w, 50%) - 4px); }
+  /* The one width every sheet over the board takes (reader, card page, questions): the pane's, else half the room right of the sidebar. */
+  :root { --sheet-w: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); }
   /* The reader sheet (app-reader.js) is a panel over the pane's half, at the width the seam gives it, while it is open. */
-  .sheet.reader-sheet { position: fixed; z-index: 30; inset: 56px 0 0 auto; margin: 0; width: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); max-width: none;
+  .sheet.reader-sheet { position: fixed; z-index: 30; inset: 56px 0 0 auto; margin: 0; width: var(--sheet-w); max-width: none;
     height: auto; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
   .sheet.reader-sheet[open] { animation: reader-in .22s ease-out; }
   .sheet.reader-sheet.closing { animation: reader-out .18s ease-in forwards; }
@@ -1096,10 +1098,9 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   .board-pane * { min-width: 0; overflow-wrap: anywhere; }
   .board-pane pre, .board-pane code { white-space: pre-wrap; }
   .board-pane :is(.row, .actions, .btns) { flex-wrap: wrap; }
-  /* A card page in the reader sheet (app-reader.js openPage) widens it to 60% of the room right of the sidebar, or the
-     pane's width when that is wider, the lanes still beside it. It lies over a questions sheet its View prototypes
-     opened it from, which shows again when it closes. */
-  .sheet.reader-sheet.reader-page { z-index: 31; width: max(var(--pane-w, 0px), calc((100vw - var(--sidebar-w, 0px)) * .6)); }
+  /* A card page in the reader sheet (app-reader.js openPage) takes the same width, the lanes still beside it; a wide visual
+     scrolls inside its frame. It lies over a questions sheet its View prototypes opened it from, which shows again when it closes. */
+  .sheet.reader-sheet.reader-page { z-index: 31; }
 }
 /* The Send bar is the last thing on its page: only the phone nav under it is left clear, so its background runs to the edge. */
 body .view-questions.view-questions main { padding-bottom: var(--app-bottom, 0px); }
