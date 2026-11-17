@@ -29,11 +29,14 @@ const setPRs = (prs) => write(kf('github-state.json'), { prs });
 // 09:00 on a Monday in Los Angeles, when the digest opens; and a Sunday, when none is due
 const monday = new Date('2026-11-02T17:00:00Z');
 const sunday = new Date('2026-11-01T17:00:00Z');
+// The digest opens at quiet hours' end, the Mac's time: here the Mac's time at 09:00 in Los Angeles, whatever its timezone.
+const hhmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
 beforeEach(() => {
   fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
   write(path.join(site, 'board.json'), { title: 'Orch', items: 'waves', reviewers: [ann] });
   write(kf('slack.json'), { timezone: 'America/Los_Angeles' });
+  write(kf('settings.json'), { quiet: { start: '22:00', end: hhmm(monday), hold: true } });
 });
 
 const SIGN_OFF = '\n- :claude_kickflip:';
@@ -310,14 +313,14 @@ test("one reviewer's failed send leaves the others sent and goes again next poll
   assert.deepEqual(world.messages.map((m) => m.channel), ['D2'], "only Bob's link to #2 goes; Ann's is never posted again");
 });
 
-test('the digest is due each weekday from 09:00 however late the hub gets to it, and on a weekend only as a link opens the thread', async () => {
+test("the digest is due each weekday from quiet hours' end however late the hub gets to it, and on a weekend only as a link opens the thread", async () => {
   saveToken(slackWorld());
   write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }] }] });
   setPRs({ 'o/r#1': pr(), 'o/r#2': pr() });
   const sent = { channel: 'D1', ts: '1792700000.000100', reactions: [] };
   write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { links: { Ann: sent }, replies: [] }, 'o/r#2': { links: { Ann: sent }, replies: [] } });
   const due = async (at) => (await reviewDigest(site, { now: new Date(at) })).due;
-  // Monday 2 November in Los Angeles
+  // Monday 2 November in Los Angeles, with quiet hours ending at 09:00 there
   assert.equal(await due('2026-11-02T16:59:00Z'), false, '08:59');
   assert.equal(await due('2026-11-02T17:00:00Z'), true, '09:00');
   assert.equal(await due('2026-11-03T00:59:00Z'), true, '16:59');

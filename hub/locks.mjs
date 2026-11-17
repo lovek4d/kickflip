@@ -36,6 +36,7 @@ export async function withFileLock(file, fn, {
     }
   }
   try { fs.writeFileSync(path.join(lock, 'pid'), String(process.pid)); } catch {}
+  // poll: lock-heartbeat
   const timer = heartbeat ? setInterval(() => { try { const now = new Date(); fs.utimesSync(lock, now, now); } catch {} }, 5000) : null;
   try { return await fn(); } finally { clearInterval(timer); fs.rmSync(lock, { recursive: true, force: true }); }
 }

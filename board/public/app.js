@@ -61,7 +61,7 @@ window.BoardView = (function () {
     };
     const every = (ms, fn) => {
       if (!alive) return () => {};
-      const t = setInterval(fn, ms);
+      const t = setInterval(fn, ms); // poll: none, each B.every names its own
       return own(() => clearInterval(t));
     };
     const later = (ms, fn) => {
@@ -429,7 +429,7 @@ window.BoardView = (function () {
         ev.target.textContent = pre.hidden ? 'Show details' : 'Hide details';
       }
     });
-    B.every(5000, () => { if (state.down?.retries && !document.hidden) loadBoard(); });
+    B.every(5000, () => { if (state.down?.retries && !document.hidden) loadBoard(); }); // poll: down-retry
 
     // A board from the server, a load's or an events POST's, or a patch from the board on screen (ui-patch.js). One built
     // before the board on screen leaves it as it is, so a slow load can't undo a newer one; a newer patch from a board
@@ -535,7 +535,9 @@ window.BoardView = (function () {
     });
     B.readCopy().then(paintCopy).catch((e) => console.error(e)).then(() => { if (B.alive()) loadBoard(); });
     B.signal?.(signalled);
-    B.every(30000, () => { if (!document.hidden && !B.streaming()) loadBoard(); });
+    // The board's change signal reloads it; this check runs only while the stream is down, on the same 15 s as the
+    // questions page's (docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md).
+    B.every(15000, () => { if (!document.hidden && !B.streaming()) loadBoard(); }); // poll: board-check
   }
 
   // shared: {by, full} for someone the board is shared with, whose board opens with a strip saying what they can do there

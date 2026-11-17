@@ -94,7 +94,7 @@ BoardView.part((B) => {
       if (log.following) toEnd();
       if (log.raw) readRaw(n);
     }
-    if (!log.finished) stopReading = B.later(3000, () => readLog(n));
+    if (!log.finished) stopReading = B.later(3000, () => readLog(n)); // poll: run-log
   }
   // The raw toggle's file as it is: GET /api/log, its last 256 KiB.
   async function readRaw(n) {

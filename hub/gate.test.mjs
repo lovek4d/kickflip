@@ -151,7 +151,7 @@ test("while tailscale can't name the owner, signed-in devices get a page saying 
 });
 
 test('a board shared with a login lets that person read the shell and the board, view only, and Board settings sees them and who was refused', async (t) => {
-  const { base } = await startHub(t, { status: STATUS, board: { title: 'Orch', share: ['friend@github'] } });
+  const { base, hub: running } = await startHub(t, { status: STATUS, board: { title: 'Orch', share: ['friend@github'] } });
   const shared = { ...friend, 'tailscale-user-name': 'Friend Person' };
 
   // Their board's pages and reads reach it; the shell's files come from the hub.
@@ -191,10 +191,13 @@ test('a board shared with a login lets that person read the shell and the board,
   assert.deepEqual(sharing.people.map(({ login, name, now }) => ({ login, name, now })), [{ login: 'friend@github', name: 'Friend Person', now: false }]);
   assert.match(sharing.people[0].at, /^\d{4}-/);
   assert.deepEqual(sharing.refused.map(({ login, name }) => ({ login, name })), [{ login: 'jo@github', name: 'Jo Park' }]);
-  assert.ok(fs.existsSync(path.join(web, 'share-seen.json')));
   // A login the board no longer lists is someone else again.
   write(path.join(home, 'orch', 'board.json'), { title: 'Orch', share: [] });
   assert.equal((await fetch(`${base}/orch/api/board`, { headers: shared })).status, 403);
+  // Last seen is written on the hub's minute save, and as it closes.
+  assert.equal(fs.existsSync(path.join(web, 'share-seen.json')), false);
+  await running.close();
+  assert.ok(fs.existsSync(path.join(web, 'share-seen.json')));
 });
 
 // → {status, body} for a GET of exactly `raw`, which fetch would normalise before sending
@@ -238,7 +241,7 @@ test("removing a share ends that person's open hub stream, and leaves the owner'
   write(path.join(home, 'orch', 'board.json'), { title: 'Orch', share: [] });
   await fetch(`${base}/orch/api/share`, { method: 'POST', headers: { ...phone, 'content-type': 'application/json' }, body: JSON.stringify({ remove: 'friend@github' }) });
   await theirs.closed;
-  hub.endUnshared();
+  await hub.reconcile();
   assert.equal((await fetch(`${base}/_hub/stream`, { headers: friend })).status, 403, 'and coming back is refused');
   assert.equal(ownersEnded, false, "the owner's stream stays open");
 });
@@ -261,12 +264,12 @@ test("a Full person's events and uploads reach the board named as them, the owne
   const sharing = await (await fetch(`${base}/_hub/share/orch`, { headers: phone })).json();
   assert.deepEqual(sharing.people.map(({ login, level }) => ({ login, level })), [{ login: 'friend@github', level: 'full' }]);
 
-  // Back to View, by an edit of board.json: the hub's next check ends their open stream, so the shell reopens it and
+  // Back to View, by an edit of board.json: the hub's next reconcile ends their open stream, so the shell reopens it and
   // follows the level, and their POST is refused.
   const theirs = await openStream(t, base, friend);
   assert.equal(theirs.status, 200);
   write(path.join(home, 'orch', 'board.json'), { title: 'Orch', share: ['friend@github'] });
-  hub.endUnshared();
+  await hub.reconcile();
   await theirs.closed;
   assert.equal((await post('/orch/_claude/events', friend)).status, 403);
   const back = await fetch(`${base}/_hub/stream`, { headers: friend });

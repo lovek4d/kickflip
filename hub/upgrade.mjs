@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const LATEST_URL = 'https://registry.npmjs.org/@lovek4d%2Fkickflip/latest';
-export const CHECK_MS = 15 * 60_000;
+export const CHECK_MS = 15 * 60_000; // poll: npm-update
 export const AWAY_MS = 15 * 60_000;
 export const PULL_MS = 10 * 60_000;
 const QUIET_LOG_MS = 60 * 60_000;

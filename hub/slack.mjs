@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { withFileLock } from './locks.mjs';
 import { readSecret, writeSecret } from './secrets.mjs';
+import { readSettings } from './push.mjs';
 
 const fields = ['self_dm', 'owner_slack_user', 'slack_domain', 'timezone'];
 const fileOf = () => path.join(os.homedir(), '.claude', 'kickflip', 'slack.json');
@@ -38,10 +39,15 @@ export async function setSlack(changes) {
   return withFileLock(fileOf(), () => save({ ...readSlack(), ...changes }));
 }
 
-// now's day in the Slack timezone: its date, and open on a weekday from 09:00 to the day's end, when the digest is due.
-export function slackDay(now = new Date()) {
+// now's day in the Slack timezone: its date, and open on a weekday from quiet hours' end to the day's end, when the
+// digest is due. quietEnd is the Mac's HH:MM, settings.json's quiet end by default, read as the Slack timezone's time
+// at that moment today, so the digest goes with the morning wake (schedule.mjs wakesDue).
+// poll: review-digest
+export function slackDay(now = new Date(), quietEnd = readSettings().quiet.end) {
   const parts = slackParts(now);
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, open: !['Sat', 'Sun'].includes(parts.weekday) && Number(parts.hour) >= 9 };
+  const [h, m] = quietEnd.split(':').map(Number);
+  const opens = slackParts(new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, open: !['Sat', 'Sun'].includes(parts.weekday) && `${parts.hour}:${parts.minute}` >= `${opens.hour}:${opens.minute}` };
 }
 // now's 24-hour time in the Slack timezone, “HH:MM”.
 export function slackClock(now = new Date()) {

@@ -3095,7 +3095,7 @@ const workCard = (id, extra) => {
 };
 
 // docs/adr/2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md
-test("an idle open board asks the host nothing while the change stream is open: its 30 s check runs only while the stream is down, a pending GitHub check waits for the change signal, and no asks watch polls", async () => {
+test("an idle open board asks the host nothing while the change stream is open: its 15 s check runs only while the stream is down, a pending GitHub check waits for the change signal, and no asks watch polls", async () => {
   const stream = { open: true };
   const board = { ...boardOf([workCard('T1')]), version: 'v1', checks: { requested: { state: 'pending', at: '2026-10-30T10:00:00.000Z' } } };
   const b = boardOnDom({ board, threads: {}, streaming: stream });
@@ -3112,7 +3112,10 @@ test("an idle open board asks the host nothing while the change stream is open: 
   stream.open = false;
   b.page.runIntervals(30000);
   await b.settle();
-  assert.equal(boardGets(b), 3, 'with the stream down the 30 s check reloads');
+  assert.equal(boardGets(b), 2, 'nothing reloads on the 30 s timers');
+  b.page.runIntervals(15000);
+  await b.settle();
+  assert.equal(boardGets(b), 3, 'with the stream down the 15 s check reloads');
   b.view.unmount();
 });
 

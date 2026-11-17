@@ -55,7 +55,9 @@
     const id = { push: 'notifications', 'closed-boards': 'closed', polling: 'quiet' }[hash?.slice(1)] || hash?.slice(1);
     return [...sections, ...keys].some(([section]) => section === id) ? id : null;
   };
-  const markup = () => `${sections.map(([id, title]) => `<button type="button" class="hub-setting" id="${id}" data-settings-open="${id}" aria-haspopup="dialog"><span class="text"><span class="title">${title}</span><span class="sub" data-summary="${id}">Loading…</span></span><span class="chev" aria-hidden="true">›</span></button>`).join('')}
+  // Polls opens the hub's Polls page, /_hub/polls (hub/polls-page.mjs), a page of its own rather than a modal.
+  const pollsRow = '<a class="hub-setting" id="polls" href="/_hub/polls"><span class="text"><span class="title">Polls</span><span class="sub">Every job the hub, boards and pages run again and again, fastest first</span></span><span class="chev" aria-hidden="true">›</span></a>';
+  const markup = () => `${sections.map(([id, title]) => `<button type="button" class="hub-setting" id="${id}" data-settings-open="${id}" aria-haspopup="dialog"><span class="text"><span class="title">${title}</span><span class="sub" data-summary="${id}">Loading…</span></span><span class="chev" aria-hidden="true">›</span></button>`).join('')}${pollsRow}
 <dialog class="settings-modal hub-modal" id="hubSettingsModal" aria-labelledby="hubSettingsTitle"><div class="settings-head"><div><h2 id="hubSettingsTitle" tabindex="-1"></h2><p class="muted small">Hub settings</p></div><button type="button" class="ghost" data-settings-dismiss aria-label="Close hub settings">✕</button></div><div class="set settings-body"><div class="hs-flash"></div><div class="setting-content"></div></div><div class="settings-footer"><button type="button" data-settings-dismiss>Done</button></div></dialog>`;
 
   globalThis.HubSettings = {

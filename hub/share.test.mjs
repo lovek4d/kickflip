@@ -116,15 +116,23 @@ test('the tracker keeps last seen per board across restarts, viewing now while t
   assert.equal(tracker.people('other', ['maya@github'])[0].now, false, 'viewing now is for the board they last opened');
   done();
   assert.equal(tracker.people('orch', ['maya@github'])[0].now, false);
-  // A later visit within a minute moves the time in memory; the file keeps up at most once a minute.
+  // A visit moves the time in memory; the file keeps up on the hub's flush, every minute (shared/polls.mjs share-save).
+  assert.equal(fs.existsSync(file), false);
+  tracker.flush();
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8'))['maya@github'].at.orch, '2026-11-05T10:00:00.000Z');
   clock += 30_000;
   tracker.visit('maya@github', 'Maya Ortiz', 'orch');
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8'))['maya@github'].at.orch, '2026-11-05T10:00:00.000Z');
   assert.equal(tracker.people('orch', ['maya@github'])[0].at, '2026-11-05T10:00:30.000Z');
   clock += 60_000;
   tracker.visit('maya@github', 'Maya Ortiz', 'orch');
+  tracker.flush();
   const again = shareTracker({ file, now: () => clock });
   assert.deepEqual(again.people('orch', ['maya@github']), [{ login: 'maya@github', name: 'Maya Ortiz', now: false, at: '2026-11-05T10:01:30.000Z' }]);
+  // A flush with nothing new since the last writes nothing.
+  fs.rmSync(file);
+  tracker.flush();
+  assert.equal(fs.existsSync(file), false);
 
   // Refusals at the board's paths or at none, newest first, once per login, for an hour, and not once shared.
   tracker.refuse('jo@github', 'Jo Park', 'orch');

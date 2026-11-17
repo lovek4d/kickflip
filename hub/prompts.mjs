@@ -19,7 +19,7 @@ const promptsFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'prompt
 // since Claude Code leaves a timed-out hook's session on a dialog nobody sees.
 export const WAIT_MS = 10 * 60_000;
 // The hook polls at most this long per request, so a record not polled for GONE_AFTER has lost its hook.
-export const POLL_MS = 25_000;
+export const POLL_MS = 25_000; // poll: session-prompts
 export const GONE_AFTER = 60_000;
 
 export const NO_ANSWER = "No answer from the owner; ask this as an open question on your board's task instead.";

@@ -4,7 +4,7 @@
 // docs/adr/2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md,
 // docs/adr/2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md,
 // docs/adr/2026-11-14-0449-one-digest-opens-each-day-thread.md). Each reviewer gets one thread per board for each
-// Slack day, in the DM the hub opens with them, and the day's digest opens it: from 09:00 on a weekday, or as the
+// Slack day, in the DM the hub opens with them, and the day's digest opens it: from quiet hours' end on a weekday, or as the
 // day's first link to that reviewer goes. Each PR's link goes in as a reply, and nothing else about the PR does.
 // Reactions go on every posted link and reply. A failed send stays owed and goes again next poll. After the sends, the
 // hub hears the day threads (hearBoards).

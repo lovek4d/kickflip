@@ -264,7 +264,7 @@ ${BoardNewTask.markup()}`,
       // Restart hub asks the host to restart the hub service (POST /_hub/restart-hub), then waits for the hub to answer
       // with other code than it ran (its x-hub-code) and reloads the app; past HUB_WAIT tries it says how to restart by hand.
       let restartingHub = false;
-      const HUB_WAIT = 120;
+      const HUB_WAIT = 120; // poll: restart-hub-wait
       async function restartHub() {
         if (restartingHub || !(await BoardDialogs.confirm('This restarts the hub on the host so it runs the code in its files. Its pages stop answering until it’s back, then this page reloads. Restart the hub?'))) return;
         restartingHub = true;

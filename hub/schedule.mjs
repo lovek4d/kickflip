@@ -188,7 +188,8 @@ export function localDay(d) {
 }
 
 // The daily wake, quiet hours' end, when it is at or before `now` today and its last send, sent[hhmm] as a localDay,
-// isn't today. A wake missed on an earlier day is never due again.
+// isn't today. A wake missed on an earlier day is never due again. The review digest opens then too (slack.mjs slackDay).
+// poll: morning-wake
 export function wakesDue(now, s, sent = {}) {
   const w = s.quiet.end;
   return atOn(now, w) <= now && sent?.[w] !== localDay(now) ? [w] : [];

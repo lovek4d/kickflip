@@ -498,9 +498,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          owner, which puts it in Needs you and pushes. Same PRs as
                                                          review post
   review digest                                         pending reviews as JSON, one item per PR; a reviewer is
-                                                         owed the day's digest from 09:00 on a weekday in the Slack
-                                                         identity timezone, or any day a link to them is owed with
-                                                         no thread open, until data/review-digests.json has it all
+                                                         owed the day's digest from quiet hours' end on a weekday in
+                                                         the Slack identity timezone, or any day a link to them is
+                                                         owed with no thread open, until data/review-digests.json
+                                                         has it all
   rules list                                             the hub rules, then with --site the board's, one
                                                          "<hub|board> <id> <owner|claude> <text>" line each
   rules add --text <t> [--hub] [--by claude]             a rule in board.json, or with --hub in the hub's

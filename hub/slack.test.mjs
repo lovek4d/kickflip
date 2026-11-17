@@ -4,7 +4,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fakeSlack, slackWorld } from '../shared/test-helpers.mjs';
-import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack, isSignedOff } from './slack.mjs';
+import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack, isSignedOff, slackDay } from './slack.mjs';
+
+test("the digest's day opens at quiet hours' end, the Mac's time read in the Slack timezone, on weekdays only", () => {
+  write(kf('settings.json'), { quiet: { start: '22:00', end: '07:30', hold: true } });
+  // A Wednesday at 07:30 on the Mac is a weekday in Los Angeles, whatever the Mac's timezone.
+  const end = new Date(2026, 10, 18, 7, 30);
+  assert.equal(slackDay(new Date(end.getTime() - 60_000)).open, false);
+  assert.equal(slackDay(end).open, true);
+  assert.equal(slackDay(new Date(end.getTime() + 10 * 3600_000)).open, true);
+  // Quiet hours' end can be given.
+  assert.equal(slackDay(end, '08:00').open, false);
+  // A Sunday's noon is Saturday or Sunday in Los Angeles: no digest.
+  assert.equal(slackDay(new Date(2026, 10, 22, 12, 0)).open, false);
+});
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));

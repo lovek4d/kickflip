@@ -112,7 +112,11 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
   function startHolding() {
     reconcile();
     watchWatchers();
-    timers = [setInterval(() => { reconcile(); watchWatchers(); }, retryMs), setInterval(() => refreshSidebar(), sidebarMs), setInterval(() => write(': ping\n\n'), pingMs)];
+    timers = [
+      setInterval(() => { reconcile(); watchWatchers(); }, retryMs), // poll: stream-reconnect
+      setInterval(() => refreshSidebar(), sidebarMs), // poll: sidebar-refresh
+      setInterval(() => write(': ping\n\n'), pingMs), // poll: stream-ping
+    ];
   }
   function stopHolding() {
     for (const t of timers) clearInterval(t);

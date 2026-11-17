@@ -206,7 +206,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.equal(await B.openSettings({ hash: '#notifications' }), false);
   rulesBox.removeAttribute('data-dirty');
   await B.openSettings({ hash: '#notifications' });
-  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Pause hub', 'Notifications', 'Appearance', 'Quiet hours', 'Rules for every board', 'Closed boards']);
+  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Pause hub', 'Notifications', 'Appearance', 'Quiet hours', 'Rules for every board', 'Closed boards', 'Polls']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => b.textContent), ['1h', '3h', '6h', '1d', 'Forever']);
   assert.equal(root.querySelector('.dur-custom .btn').textContent, 'Custom');

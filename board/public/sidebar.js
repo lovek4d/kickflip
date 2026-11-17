@@ -107,7 +107,7 @@
         row.style.animationDelay = `-${now - at}ms`;
       }
       const running = startsRunning().length > 0;
-      if (running && !ticker) ticker = setInterval(tickSteps, 1000);
+      if (running && !ticker) ticker = setInterval(tickSteps, 1000); // poll: start-steps
       if (!running && ticker) { clearInterval(ticker); ticker = null; }
     }
     // The logo's one dot (ui-sidebar.js hubDot) as a class on <html>, which sidebar.css draws; a board page toggles
@@ -197,7 +197,7 @@
     // A restart row's tap (ui-sidebar.js restartRow): ask() asks the hub for the restart, then the row waits while
     // /_hub/sidebar.json is read each second until back(data, its X-Hub-Code, the restart answer's) says the restarted
     // server answers, and the app reloads. A refused ask, or none back after RESTART_WAIT tries, leaves the row to tap again.
-    const RESTART_WAIT = 120;
+    const RESTART_WAIT = 120; // poll: restart-wait
     async function restartThenReload(ask, back) {
       if (restarting) return;
       restarting = true;

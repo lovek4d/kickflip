@@ -137,6 +137,7 @@
       readOnly = true;
       settingsBody.inert = true;
       settingsBody.insertAdjacentHTML('afterbegin', copyNote('Settings', savedAt));
+      // poll: settings-retry
       B.every(5000, () => { fetchJSON(site.url('api/settings'), { limit: 0 }).then(() => { if (B.alive()) ctx.reload(); }, () => {}); });
     }
     function down(e) {

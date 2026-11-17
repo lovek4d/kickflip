@@ -88,32 +88,34 @@ export function sharedSidebar(data, routes, by) {
 
 const REFUSED_FOR_MS = 60 * 60_000;
 const REFUSED_KEPT = 20;
-const SAVE_EVERY_MS = 60_000;
 
-// file: where last-seen times outlive a restart, {login: {name, at: {route: ISO}}}. The refused list lives in memory.
-// → {visit(login, name, route), watching(login) → done, refuse(login, name, route), people(route, logins), refusals(route, logins)}
+// file: where last-seen times outlive a restart, {login: {name, at: {route: ISO}}}. A visit moves them in memory and
+// flush() writes them, as the hub does every minute on its 15 s clock (shared/polls.mjs share-save) and as it closes.
+// The refused list lives in memory.
+// → {visit(login, name, route), flush(), watching(login) → done, refuse(login, name, route), people(route, logins), refusals(route, logins)}
 export function shareTracker({ file, now = Date.now } = {}) {
   const seen = readJSON(file, {});
-  const savedAt = new Map(); // `${login} ${route}` → when that time was last written
+  let unsaved = false;
   const streams = new Map(); // login → open /_hub/stream count
   const lastRoute = new Map(); // login → the board they last asked for
   let refused = []; // [{login, name, route, at}], newest first
-  const save = () => { try { saveJSON(file, seen); } catch {} };
 
   return {
     // A shared person's request: on a board when route is set, else the shell's own paths.
     visit(login, name, route) {
       const entry = seen[login] ||= { name: null, at: {} };
-      let changed = false;
-      if (name && entry.name !== name) { entry.name = name; changed = true; }
+      if (name && entry.name !== name) { entry.name = name; unsaved = true; }
       if (route) {
         lastRoute.set(login, route);
-        const at = new Date(now()).toISOString();
-        entry.at[route] = at;
-        const key = `${login} ${route}`;
-        if (!(now() - (savedAt.get(key) ?? -Infinity) < SAVE_EVERY_MS)) { savedAt.set(key, now()); changed = true; }
+        entry.at[route] = new Date(now()).toISOString();
+        unsaved = true;
       }
-      if (changed) save();
+    },
+    // Writes the times when a visit moved one since the last flush.
+    flush() {
+      if (!unsaved) return;
+      unsaved = false;
+      try { saveJSON(file, seen); } catch {}
     },
     // The shell holds /_hub/stream while its page is open; → done, called when it closes.
     watching(login) {

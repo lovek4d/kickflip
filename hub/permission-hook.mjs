@@ -11,7 +11,7 @@ const BASE = `http://127.0.0.1:${Number(process.env.KICKFLIP_HUB_PORT || 4500)}`
 // The longest this waits, whatever deadline the hub gives; prompts.mjs WAIT_MS.
 const WAIT_CAP = 10 * 60_000;
 const HARD_STOP = WAIT_CAP + 30_000;
-const RETRY_MS = 2000;
+const RETRY_MS = 2000; // poll: permission-hook-retry
 
 const FALLBACK = "The hub's permission hook failed; ask this as an open question on your board's task instead.";
 const deny = (message) => ({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message } } });

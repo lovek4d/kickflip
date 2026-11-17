@@ -256,6 +256,8 @@ import { shareEntries, sharedRoutes, shareReach, routeOfPath, sharedSidebar, sha
 import { restartRunner } from '../board/worktree.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
+import { POLLS, CLOCKS, dueOn } from '../shared/polls.mjs';
+import { pollsPage } from './polls-page.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
 import { SlackError, slackStatus, removeSlackToken, saveSlackToken } from './slack.mjs';
 import { sendReviews } from './review-send.mjs';
@@ -316,9 +318,9 @@ function httpProbe(port) {
 //   gate: the owner gate every request passes (board/on-host.mjs ownerGate);
 //   awake: the Keep awake controller (awake.mjs caffeinate);
 //   log(...parts): each line the hub logs, stamped on stdout by default;
-//   ticks: false runs no timer of its own, no 2 s reconcile, 15 s tick, minute nightly suite or 2 s endUnshared, and no poll it wasn't asked
-//   for: the caller runs each pass.
-// → {port, reconcile(), tick(), poll(options), endUnshared(), settled(), close()}: reconcile, tick and poll run one pass
+//   ticks: false runs neither of its clocks (shared/polls.mjs CLOCKS), so no reconcile, tick, hung check, new-code
+//   check, share save or nightly suite of its own, and no poll it wasn't asked for: the caller runs each pass.
+// → {port, reconcile(), hung(), tick(), poll(options), settled(), close()}: reconcile, hung, tick and poll run one pass
 // and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a request, is
 // done; close() stops every site and the server, as the hub does on SIGTERM.
 export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, awake = caffeinate({ log }), ticks = true } = {}) {
@@ -497,7 +499,6 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   }
   async function reconcilePass() {
     if (shuttingDown) return;
-    if (codeRestarts) await selfRestart.check();
     // A starting New board's site runs too (boards.mjs servedSites), and its join keeps the entry, so the server runs on.
     const sites = servedSites(loadManifest());
     for (const route of [...procs.keys()]) {
@@ -540,6 +541,17 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       p.up = p.child ? await probe(site.port) : false;
       if (p.child && p.up) Object.assign(p, { state: 'up' }, p.stopping ? {} : { why: undefined });
     }
+    endUnshared();
+  }
+
+  // The hung check, on the 15 s clock, reads each server as the last reconcile probed it, in turn with the reconciles.
+  function checkHung() {
+    reconciled = reconciled.then(hungPass, hungPass);
+    return track(reconciled);
+  }
+  async function hungPass() {
+    if (shuttingDown) return;
+    const sites = servedSites(loadManifest());
     await Promise.all([...procs].map(([route, p]) => {
       const site = routeRecord(sites, route);
       return site && isBoardSite(site) && !restarting.has(route) && !closingResponses.has(route) ? watchHung(route, site, p) : null;
@@ -623,6 +635,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     if (back && polls.startedAt && !polls.running) runPoll().catch((e) => log('poll failed:', e.message));
   }
 
+  // The GitHub, Linear and Slack poll, which the tick starts when nextPollAt says (schedule.mjs checkEvery).
+  // poll: github-poll
   function runPoll({ flush = true } = {}) {
     if (polls.running) return polls.running;
     const startedAt = new Date();
@@ -670,6 +684,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         log(`slack sends: ${result.slack.failed.length} failed, first: ${result.slack.failed[0]} (logged at most hourly)`);
       }
       // docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md: queued here, routed on the tick.
+      // poll: slack-poll
       try { result.slackIntake = await fileSlackAsks({ boards: listBoards(loadManifest()) }); }
       catch (e) { result.slackIntake = { filed: [], failed: [e.message] }; }
       for (const line of result.slackIntake.filed) log(`slack: @kickflip from ${line}, queued for the router`);
@@ -719,8 +734,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return track(waking);
   }
 
-  // The nightly full suite (nightly-suite.mjs), on a minute timer of its own: a run takes minutes per board, and a pass
-  // calling tick() never starts one.
+  // The nightly full suite (nightly-suite.mjs), every 15 minutes on the 15 s clock, apart from the tick: a run takes
+  // minutes per board, and a pass calling tick() never starts one.
   let suiting = null;
   function runSuite() {
     suiting ||= runNightlySuite({ now: new Date(clock()), settings: readSettings(), manifest: loadManifest() }).then((r) => {
@@ -813,7 +828,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
 
   const loadOwners = () => { const manifest = loadManifest(); return { builders: boardBuilders(manifest), sessions: claudeSessions(manifest) }; };
 
-  // The 15-second tick. Its poll runs only on the hub's own timer (ticks); without it, polls run when asked.
+  // The tick, on the 15 s clock. Its poll runs only on the hub's own clocks (ticks); without them, polls run when asked.
   function tick() {
     return track(Promise.allSettled([
       tryTick({ manifest: loadManifest() }).catch((e) => log('try tick failed:', e.message)),
@@ -839,6 +854,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     closing ||= (async () => {
       shuttingDown = true;
       for (const t of timers) clearInterval(t);
+      shares.flush();
       awake.stop();
       log('hub stopping; stopping sites');
       for (const p of procs.values()) if (p.child) p.stopping = true;
@@ -1232,6 +1248,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         return sendJSON(200, { route, listen: listenState(board) });
       } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
     }
+    // The Polls page (polls-page.mjs), a page of its own the hub settings' Polls row links, outside the app shell.
+    if (p === '/_hub/polls' && req.method === 'GET') return send(200, 'text/html; charset=utf-8', `${head('Polls')}${pollsPage()}</main></body></html>`);
     if (p === '/_hub/repos' && req.method === 'GET') {
       try { return sendJSON(200, await repos.list(loadManifest(), { fresh: url.searchParams.get('fresh') === '1' })); }
       catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
@@ -1678,7 +1696,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   const shares = shareTracker({ file: path.join(HOME, 'share-seen.json') });
   // A shared person's open /_hub/stream, {login, routes, res}: the one long-lived answer a shared view holds on the hub.
   // A board's share can be removed or change level while it's open, from Board settings or by editing board.json, so
-  // every 2 seconds, and at once after the owner's POST /<route>/api/share, a stream whose login has lost a board it was
+  // on each reconcile, and at once after the owner's POST /<route>/api/share, a stream whose login has lost a board it was
   // opened with, or whose level there changed, is ended (its page's EventSource comes back through access, with the
   // boards and levels as they are now, or refused), as are that login's open responses through the board's try relays
   // (try.mjs).
@@ -1814,11 +1832,24 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   readiness.listenOn(PORT);
   log(`hub on http://127.0.0.1:${PORT}/ (manifest ${MANIFEST})`);
   reconcileLogged();
+  // The hub's two clocks (shared/polls.mjs CLOCKS): each job runs every so many ticks of its clock, as its registry
+  // entry says (docs/adr/2026-11-17-0330-every-poll-is-in-one-registry-and-the-hub-runs-on-two-clocks.md).
+  const jobs = {
+    reconcile: reconcileLogged, // poll: reconcile
+    tick, // poll: tick
+    'hung-check': () => checkHung().catch((e) => log('hung check failed:', e.message)), // poll: hung-check
+    'self-restart': () => (codeRestarts ? track(selfRestart.check()).catch((e) => log('self-restart check failed:', e.message)) : null), // poll: self-restart
+    'nightly-suite': runSuite, // poll: nightly-suite
+    'share-save': () => shares.flush(), // poll: share-save
+  };
+  for (const p of POLLS) if (p.clock && !jobs[p.id]) throw new Error(`shared/polls.mjs names ${p.id} on the hub's ${p.clock} clock, which runs no such job`);
   if (ticks) {
-    timers.push(setInterval(reconcileLogged, 2000), setInterval(tick, 15_000), setInterval(runSuite, 60_000), setInterval(endUnshared, 2000));
-    timers.at(-1).unref();
+    for (const [clock, ms] of Object.entries(CLOCKS)) {
+      let n = 0;
+      timers.push(setInterval(() => { n++; for (const p of dueOn(clock, n)) jobs[p.id](); }, ms)); // poll: none, each job names its own
+    }
   }
-  return { port: PORT, reconcile, tick, poll: runPoll, endUnshared, settled, close };
+  return { port: PORT, reconcile, hung: checkHung, tick, poll: runPoll, settled, close };
 }
 
 // node hub/hub.mjs: the hub on KICKFLIP_HUB_PORT, else 4500, until SIGTERM or SIGINT.

@@ -77,7 +77,7 @@ const endGroup = (pgid, grace) => new Promise((resolve) => {
   const finish = () => { clearTimeout(timer); clearInterval(check); resolve(); };
   signalGroup(pgid, 'SIGTERM');
   let timer = setTimeout(() => { signalGroup(pgid, 'SIGKILL'); timer = setTimeout(finish, 1000); }, grace);
-  const check = setInterval(() => { if (!groupUp(pgid)) finish(); }, 20);
+  const check = setInterval(() => { if (!groupUp(pgid)) finish(); }, 20); // poll: try-group-wait
 });
 // The pids of a process group, each with its command and its working directory.
 async function groupMembers(pgid, run) {
@@ -566,7 +566,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       const probeFrom = () => {
         if (run.stopped) return;
         until = now() + 60_000;
-        run.poll = setInterval(() => track(check()).catch((e) => fail(e.message)), 250);
+        run.poll = setInterval(() => track(check()).catch((e) => fail(e.message)), 250); // poll: try-port-wait
         track(check()).catch((e) => fail(e.message));
       };
       // A build on Main's old server's port can't overlap it: the old server stops first, so the probe hears the new one.

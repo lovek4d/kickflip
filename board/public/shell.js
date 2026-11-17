@@ -144,7 +144,7 @@ window.AppShell = (function () {
       });
       cur.addEventListener('error', () => {
         if (cur.readyState !== EventSource.CLOSED || es !== cur) return;
-        retry = setTimeout(openStream, Math.min(30000, 1000 * 2 ** tries++));
+        retry = setTimeout(openStream, Math.min(30000, 1000 * 2 ** tries++)); // poll: stream-reopen
       });
     }
 

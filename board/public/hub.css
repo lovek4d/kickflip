@@ -108,6 +108,7 @@
 
 .hub-view .hub-settings { margin-top: 24px; }
 .hub-view .hub-setting { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; font: inherit; text-align: left; color: var(--text); cursor: pointer; border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; background: var(--panel); }
+.hub-view a.hub-setting { text-decoration: none; }
 .hub-view .hub-setting .text { flex: 1; min-width: 0; }
 .hub-view .hub-setting .title { font-weight: 600; }
 .hub-view .hub-setting:disabled { cursor: default; opacity: .6; }
@@ -186,3 +187,40 @@
 .hub-view .permissions-sheet .mp-list li { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; padding:6px 0; font-size:14px; }
 .hub-view .permissions-sheet .mp-list code { color:var(--text); background:var(--chip); padding:2px 6px; border-radius:6px; }
 .hub-view .permissions-sheet .mp-fix { margin:4px 0 10px; font-size:14px; color:var(--muted); }
+/* The Polls page, /_hub/polls (hub/polls-page.mjs): a folding card per group, a row per poll with its cadence on the
+   right (under it on a phone), and Tick and Board minute opening into their steps; the back-offs greyed. */
+.hub-view main:has(> .polls) { max-width:54rem; }
+.hub-view .polls summary { list-style:none; cursor:pointer; }
+.hub-view .polls summary::-webkit-details-marker { display:none; }
+.hub-view .poll-group { background:var(--panel); border:1px solid var(--line); border-radius:12px; margin:14px 0; overflow:hidden; }
+.hub-view .poll-group > summary { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; padding:12px 14px; }
+.hub-view .poll-group > summary::before { content:"▾"; color:var(--muted); }
+.hub-view .poll-group:not([open]) > summary::before { content:"▸"; }
+.hub-view .poll-group h2 { font-size:16px; margin:0; }
+.hub-view .poll-group .count { background:var(--chip); color:var(--muted); border-radius:99px; padding:0 8px; font-size:12px; }
+.hub-view .poll-group .why { flex-basis:100%; color:var(--muted); font-size:13px; }
+.hub-view .poll-group.muted .poll { opacity:.6; }
+.hub-view .poll { display:flex; justify-content:space-between; gap:12px; padding:10px 14px; border-top:1px solid var(--line); }
+.hub-view .poll-main { min-width:0; }
+.hub-view .poll-name { display:block; }
+.hub-view .poll-what { display:block; color:var(--muted); font-size:13px; margin-top:2px; }
+.hub-view .poll-meta { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:5px; }
+.hub-view .poll-runs { font-size:11px; background:var(--chip); color:var(--muted); border-radius:6px; padding:1px 7px; }
+.hub-view .poll-meta code { font-size:11px; color:var(--muted); }
+.hub-view .poll-cadence { flex:none; max-width:36%; text-align:right; font-weight:600; font-size:13px; }
+.hub-view .poll-steps > summary { position:relative; }
+.hub-view .poll-steps > summary .poll { padding-bottom:28px; }
+.hub-view .poll-more { position:absolute; right:14px; bottom:8px; font-size:12px; color:var(--accent); }
+.hub-view .poll-steps[open] .poll-more::after { content:" ▴"; }
+.hub-view .poll-steps:not([open]) .poll-more::after { content:" ▾"; }
+.hub-view .poll-steps ol { list-style:none; margin:0; padding:4px 14px 8px 28px; background:var(--bg); border-top:1px solid var(--line); }
+.hub-view .poll-steps li { display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px dashed var(--line); font-size:13px; }
+.hub-view .poll-steps li:last-child { border-bottom:0; }
+.hub-view .poll-steps li i { color:var(--muted); font-style:normal; }
+.hub-view .poll-steps li em { font-style:normal; color:var(--accent); text-align:right; max-width:45%; }
+@media (max-width:600px) {
+  .hub-view .poll { flex-direction:column; gap:4px; }
+  .hub-view .poll-cadence { max-width:none; text-align:left; }
+  .hub-view .poll-steps li { flex-direction:column; gap:2px; }
+  .hub-view .poll-steps li em { text-align:left; max-width:none; }
+}

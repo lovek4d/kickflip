@@ -1516,8 +1516,8 @@ const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.j
 // each reviewer's thread for each day, posted as postOnce posts: ts is its opener, the digest's header or the header
 // line an earlier build posted, and replies are the digest's. heard is the newest message in the thread the hub has
 // read (docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md). The day's digest opens each reviewer's
-// day thread (docs/adr/2026-11-14-0449-one-digest-opens-each-day-thread.md): it is owed from 09:00 on a weekday in the
-// Slack timezone, however late the hub gets to it that day, and any day a link is owed to a reviewer whose thread is
+// day thread (docs/adr/2026-11-14-0449-one-digest-opens-each-day-thread.md): it is owed from quiet hours' end on a weekday
+// in the Slack timezone (hub/slack.mjs slackDay), however late the hub gets to it that day, and any day a link is owed to a reviewer whose thread is
 // not open yet (linked); until every message of it is posted.
 export async function reviewDigest(site, { now = new Date() } = {}) {
   needSite(site);

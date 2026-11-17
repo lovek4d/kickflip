@@ -1110,9 +1110,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     streams.add(res);
     req.on('close', () => streams.delete(res));
   }
+  // Only the hub holds a board's stream, over localhost, and hears a dead board by its socket closing, so the stream
+  // sends no ping; the hub pings the pages' streams (hub/stream.mjs).
   const broadcast = (text) => { for (const res of streams) res.write(text); };
-  // Keeps proxies from idling the stream out, and lets a phone notice a dead one.
-  const ping = setInterval(() => broadcast(': ping\n\n'), 25000).unref();
 
   // A burst of writes, such as a rename after a temp file, sends one signal; a steady stream of them still sends one
   // every CHANGE_MAX.
@@ -2617,7 +2617,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     track(checkIdle());
   }
   async function close() {
-    clearInterval(ping);
     untell();
     await settled();
     server.closeAllConnections();
@@ -2635,6 +2634,6 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
   const prefix = (process.env.PREFIX || '').replace(/\/+$/, '');
   const board = await startServer({ site, port: Number(process.env.PORT || 4600), prefix, describeNightly: true });
   process.once('SIGTERM', () => board.close().then(() => process.exit(0), () => process.exit(1)));
-  setInterval(board.minute, 60000).unref();
+  setInterval(board.minute, 60000).unref(); // poll: board-minute
   console.log(`site on http://127.0.0.1:${board.server.address().port}/ (prefix ${prefix || 'none'})`);
 }

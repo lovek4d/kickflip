@@ -188,7 +188,7 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
   // The runner's TAP lists every test of every file at the top level, each with its own "ok" or "not ok" line, and
   // names no total before the run ends, so progress counts the tests that have run.
   const testsDone = (tap) => [...tap.matchAll(/^(not )?ok \d+ /gm)].map((m) => Boolean(m[1]));
-  const ticker = report && setInterval(() => {
+  const ticker = report && setInterval(() => { // poll: test-progress
     const done = testsDone(stdout);
     said.push(report.update(`${done.length} tests run, ${done.filter(Boolean).length} failing`));
   }, every);

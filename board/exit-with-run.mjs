@@ -5,4 +5,4 @@
 // run that is killed or cut off leaves nothing running. Its check never holds a process open.
 const run = Number(process.env.KICKFLIP_TEST_RUN);
 const alive = () => { try { process.kill(run, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
-setInterval(() => { if (!alive()) process.exit(1); }, 1000).unref();
+setInterval(() => { if (!alive()) process.exit(1); }, 1000).unref(); // poll: test-run-watch

@@ -48,7 +48,7 @@ function sessionOf(child, log, offset, session, wait) {
       const text = fs.readFileSync(log, 'utf8').slice(offset);
       for (const line of text.split('\n')) { const id = session(line); if (id) return finish(id); }
     };
-    const poll = setInterval(scan, 100);
+    const poll = setInterval(scan, 100); // poll: agent-session-wait
     const cap = Number.isFinite(wait) ? setTimeout(() => finish(null), wait) : undefined;
     const exited = () => { scan(); finish(null); };
     child.once('exit', exited);
