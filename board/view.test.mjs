@@ -8862,3 +8862,46 @@ test('on a phone the search bar is fixed just above the bottom bar, mirroring th
   const phone = css.match(/@media \(max-width: 899px\) \{\n  \.search-bar \.search-hint[^]*?\n\}/)[0];
   assert.match(phone, /\.search-bar \{[^}]*position: fixed; top: auto;[^}]*bottom: max\(var\(--app-bottom, 0px\), var\(--kb, 0px\)\);[^}]*left: 0; right: 0;[^}]*border-top: 1px solid var\(--line\); border-bottom: 0; box-shadow: none/);
 });
+
+// docs/adr/2026-11-17-2100-a-sent-answer-clears-its-cards-questions-marks-at-once.md
+// A card asking `n` questions, as the board draws it: Open items and an orange Questions button.
+const asking = (n) => workCard('T1', { actionButton: 'openQuestions', resolvedBy: 'openQuestions', questions: { first: 'q1', open: n, answered: 0, replied: 0, state: 'open' }, action: { kind: 'questions', url: 'questions.html#q1', label: `Answer ${n} questions` } });
+const marks = (v) => {
+  const card = v.root.querySelector('details.item[data-key="w/T1"]');
+  const chip = v.root.querySelector('.pane-chip[data-pane-show="questions"] b')?.textContent;
+  return [card.querySelector('.card-open-items') !== null, card.querySelector('button[data-questions]')?.getAttribute('class').split(' ').includes('resolves'), chip];
+};
+
+test("sending answers to every open question of a card clears its Open items and its Questions button's orange at once, before the board replies, and counts it out of the questions chip", async () => {
+  const gate = { promise: new Promise(() => {}) };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], items: [asking(2)], questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1')], at: 'q1', gate });
+  await v.settle();
+  assert.deepEqual(marks(v), [true, true, '1']);
+  v.answer('q1');
+  v.answer('q2');
+  await v.send();
+  assert.equal(v.sent.length, 1, 'the board has not replied');
+  assert.deepEqual(marks(v), [false, false, '0']);
+  v.unmount();
+});
+
+test("answering one of a card's two open questions leaves its Open items and orange button", async () => {
+  const gate = { promise: new Promise(() => {}) };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], items: [asking(2)], questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1')], at: 'q1', gate });
+  await v.settle();
+  v.answer('q1');
+  await v.send();
+  assert.deepEqual(marks(v), [true, true, '1']);
+  v.unmount();
+});
+
+test("a send that fails brings the card's Open items and orange button back", async () => {
+  const gate = { promise: Promise.resolve(), down: true };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], items: [asking(1)], questions: [rowQuestion('q1', 'item:w/T1')], at: 'q1', gate });
+  await v.settle();
+  v.answer('q1');
+  await v.send();
+  assert.match(v.footer('q1'), /not sent$/);
+  assert.deepEqual(marks(v), [true, true, '1']);
+  v.unmount();
+});

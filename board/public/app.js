@@ -212,8 +212,8 @@ window.BoardView = (function () {
     // Renders open threads from state.threadCache, which the board's sync fills (app-threads.js takeThreads, fillThreads).
     function render(load = null) {
       const d = state.board;
-      // The cards as the outbox's Done taps have them (ui-snapshot.js tapped), the lanes and strips drawing from these.
-      const items = BoardUI.tapped(d.items, store.get('outbox', []));
+      // The cards as the outbox has them (ui-snapshot.js tapped, answered), the lanes and strips drawing from these.
+      const items = drawn(d);
       drawnDone = tapSign(items, d.items);
       // The title is the board menu's button (app-header.js), its text the title.
       const title = $(':scope > .top h1 button');
@@ -254,8 +254,10 @@ window.BoardView = (function () {
 
     // A Done, Merge or bump entering or leaving the outbox redraws the lanes at once, the card as the tap has it or,
     // refused, back as it was.
-    const tapSign = (items, board) => JSON.stringify(items.filter((i, n) => i !== board[n]).map((i) => [i.key, i.lane, i.merging, i.bumpedAt]));
-    const doneTaps = () => tapSign(BoardUI.tapped(state.board.items, store.get('outbox', [])), state.board.items);
+    // A card whose questions all have a sent answer set in the answer outbox draws answered the same way.
+    const drawn = (d) => BoardUI.answered(BoardUI.tapped(d.items, store.get('outbox', [])), store.get(BoardUI.ANSWER_OUTBOX, []), d.owner);
+    const tapSign = (items, board) => JSON.stringify(items.filter((i, n) => i !== board[n]).map((i) => [i.key, i.lane, i.merging, i.bumpedAt, i.action?.kind, i.questions?.open]));
+    const doneTaps = () => tapSign(drawn(state.board), state.board.items);
     let drawnDone = '';
     B.atUnmount(BoardUI.onOutbox(() => {
       if (!state.board) return;

@@ -110,6 +110,24 @@
     });
   };
 
+  // The board's items as the answer outbox has them drawn: a card whose open questions all have an answer set in it,
+  // sending or sent and not failed, draws as answered, with no Open items and its Questions button not orange, until the
+  // board's snapshot shows them answered. A set that failed puts the card back as the board has it, and a card with a
+  // question no set answers is untouched. owner: the board's questions; sets: the answer outbox (ui-questions.js ANSWER_OUTBOX).
+  const answered = (items, sets, owner) => {
+    const sent = new Set(sets.filter((m) => m.answers && !m.failed).flatMap((m) => m.answers.map((a) => a.id)));
+    if (!sent.size) return items;
+    const { ACTION_KIND, BUTTON } = globalThis.BoardUI;
+    return items.map((it) => {
+      if (!it.questions?.open) return it;
+      const open = owner.filter((q) => q.topic === `item:${it.key}` && q.state === 'open');
+      if (!open.length || !open.every((q) => sent.has(q.id))) return it;
+      const asking = it.action?.kind === ACTION_KIND.questions || it.action?.kind === ACTION_KIND.pick;
+      return { ...it, questions: { ...it.questions, open: 0, answered: it.questions.answered + it.questions.open }, action: asking ? null : it.action,
+        resolvedBy: it.resolvedBy === BUTTON.openQuestions ? null : it.resolvedBy };
+    });
+  };
+
   // before and after map a line's id to its text; the ids of the lines that are new or read differently flash once.
   const changedLines = (before, after) => Object.keys(after).filter((id) => globalThis.BoardUI.record(before, id) !== after[id]);
 
@@ -118,5 +136,5 @@
   const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.lane ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
     it.next ?? null, it.ask?.state ?? null, ...(it.prs || []).map((pr) => [pr.state, pr.isDraft, pr.reviewDecision, pr.checks?.state ?? null])]);
 
-  Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, syncCopy, pageCopy, boardCopy, fillOrder, tapped, changedLines, updateSign });
+  Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, syncCopy, pageCopy, boardCopy, fillOrder, tapped, answered, changedLines, updateSign });
 })();
