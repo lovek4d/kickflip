@@ -2221,6 +2221,16 @@ export function ownerRow(actions, { route, title }) {
   return { tag, title: `${title} (${actions.length})`, body, url: '#show=action,questions' };
 }
 
+// docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+// The action kinds each alert switch (hub/schedule.mjs ALERTS) covers.
+export const ALERT_KINDS = Object.freeze({ implement: [ACTION_KIND.implement], merge: [ACTION_KIND.merge, ACTION_KIND.steps] });
+// The actions that sound a board's open live row as they join it: of a kind whose switch is on in `alerts`
+// ({<switch>: boolean}), and not in the row with that kind at the last check, `pushed` ({<tag>: kind}).
+export function rowAlerts(actions, pushed, alerts) {
+  const kinds = Object.entries(ALERT_KINDS).filter(([name]) => alerts[name]).flatMap(([, k]) => k);
+  return actions.filter((a) => kinds.includes(a.kind) && pushed[a.tag] !== a.kind);
+}
+
 // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
 // Strictly idle, for a built board and pulled the cards the pull started builds on: no agent running on an open card, so
 // nothing building, grilling or prototyping, no grill or prototype request under way, no card waiting in Orchestrator

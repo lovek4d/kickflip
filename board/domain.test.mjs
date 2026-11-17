@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
 import { queuedPlannerKey, queuedPlannerCard } from './domain.mjs';
-import { footerOf,buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone, tapPlan, TAP_KINDS } from './domain.mjs';
+import { footerOf,buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, rowAlerts, ALERT_KINDS, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone, tapPlan, TAP_KINDS } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -3236,6 +3236,19 @@ test("ownerRow is the board's one live notification: nothing owed is none, one e
     { tag: 'board-hub-orchestrator', title: 'Hub Orchestrator (3)', body: '2 builds wait on you · 2 questions', url: '#show=action,questions' });
   const every = ['review', 'questions', 'script', 'ready', 'steps', 'merge', 'implement', 'stalled'].map((kind) => action(kind, kind === 'questions' ? { questions: [{ id: 'q', question: 'Q?' }] } : {}));
   assert.equal(ownerRow(every, board).body, '1 stalled · 1 build waits on you · 2 merges wait on you · 1 draft to review · 1 script to run · 1 question · 1 review held');
+});
+
+// docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+test("rowAlerts names the actions that sound the open live row: of a kind switched on, and not in the row with that kind at the last push", () => {
+  const action = (key, kind) => ({ tag: `item-w/${key}`, kind, title: `${key}: ${kind}` });
+  const actions = [action('A1', 'implement'), action('A2', 'merge'), action('A3', 'steps'), action('A4', 'pick'), action('A5', 'questions')];
+  assert.deepEqual(ALERT_KINDS, { implement: ['implement'], merge: ['merge', 'steps'] });
+  assert.deepEqual(rowAlerts(actions, {}, { implement: false, merge: false }), [], 'every switch off: nothing sounds');
+  assert.deepEqual(rowAlerts(actions, {}, { implement: true, merge: false }).map((a) => a.tag), ['item-w/A1'], 'a prototype pick is no Implement needed');
+  assert.deepEqual(rowAlerts(actions, {}, { implement: false, merge: true }).map((a) => a.tag), ['item-w/A2', 'item-w/A3'], 'merge ready is merge and its steps');
+  const pushed = { 'item-w/A1': 'implement', 'item-w/A2': 'questions' };
+  assert.deepEqual(rowAlerts(actions, pushed, { implement: true, merge: true }).map((a) => a.tag), ['item-w/A2', 'item-w/A3'],
+    'one already in the row as itself sounds no more; a card that turns into a merge joins as one');
 });
 
 // docs/adr/2026-11-15-1500-tap-done-and-orchestrator-wait-reminders-do-not-push.md

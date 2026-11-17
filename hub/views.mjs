@@ -121,7 +121,7 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 // overnight is overnight.mjs overnightJobs, the Quiet hours modal's Overnight work rows.
 // pausedUntil is Pause hub's end, a Date or FOREVER, or null while it is off
 // (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): its picker is the snooze picker's.
-export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, pausedUntil = null, overnight = [] }) {
+export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, pausedUntil = null, overnight = [], alerts = { implement: false, merge: false } }) {
   const s = st.settings;
   const n = s.notifications;
   const until = snoozedUntil(n, now);
@@ -140,9 +140,25 @@ export function settingsView({ now, st, rules = [], linear = { set: false }, sla
     snooze: n.on && !until ? { choices: durationChoices(now, SNOOZE_FOREVER) } : null,
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(s.quiet.start)} until Monday ${timeOfDay(s.quiet.end)}. Urgent ones still go.` },
     quiet: quietView(s, now, overnight),
+    alerts: alertsView(alerts),
     rules,
     linear: linearWords(linear),
     slack: slackWords(slack),
+  };
+}
+
+// docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+// Notifications › Alerts: a toggle per alert switch (schedule.mjs ALERTS), and its row's summary, the kinds on or Off.
+const ALERT_WORDS = {
+  implement: { title: 'Implement needed', sub: 'A task waits for you to tap Implement.' },
+  merge: { title: 'Merge ready', sub: "A task's merge waits on you." },
+};
+function alertsView(alerts) {
+  const kinds = Object.entries(ALERT_WORDS).map(([kind, words]) => ({ kind, ...words, on: alerts[kind] }));
+  return {
+    summary: kinds.filter((k) => k.on).map((k) => k.title).join(' · ') || 'Off',
+    note: "A board's notification sounds when it opens, then updates silently. An alert switched on sounds it again each time a task of its kind joins. Quiet hours, weekends and snoozes hold an alert, as they hold the first.",
+    kinds,
   };
 }
 

@@ -55,6 +55,20 @@ test('Quiet hours shows its start and end, the hold, the cadence hint and what e
     ['11:00pm – 7:30am', 'Off. Pushes go out all night.', 'Until 11:00pm.', 'Pushes wait from Friday 11:00pm until Monday 7:30am.']);
 });
 
+// docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+test('Hub Settings words the Alerts sheet: a toggle per kind, off unless switched on, and a summary naming the ones on', () => {
+  const now = t(10);
+  const v = settingsView({ now, st: status(now, DEFAULTS) }).alerts;
+  assert.deepEqual(plain(v), { summary: 'Off',
+    note: "A board's notification sounds when it opens, then updates silently. An alert switched on sounds it again each time a task of its kind joins. Quiet hours, weekends and snoozes hold an alert, as they hold the first.",
+    kinds: [
+      { kind: 'implement', title: 'Implement needed', sub: 'A task waits for you to tap Implement.', on: false },
+      { kind: 'merge', title: 'Merge ready', sub: "A task's merge waits on you.", on: false },
+    ] });
+  assert.equal(settingsView({ now, st: status(now, DEFAULTS), alerts: { implement: true, merge: false } }).alerts.summary, 'Implement needed');
+  assert.equal(settingsView({ now, st: status(now, DEFAULTS), alerts: { implement: true, merge: true } }).alerts.summary, 'Implement needed · Merge ready');
+});
+
 test('Hub Settings says whether pushes go, when a snooze ends and what each snooze choice would end at', () => {
   const now = t(10);
   const v = settingsView({ now, st: status(now, DEFAULTS), rules: [{ id: 'r1', text: 'Be brief' }] });
@@ -131,8 +145,9 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   let slack = { set: false };
   let checked = null;
   let pausedUntil = null;
+  let alerts = { implement: false, merge: false };
   const overnight = [{ id: 'wake', title: 'Daily wake', icon: 'calendar', does: (w) => `Wakes every board once at ${w.end}, when quiet hours end.`, on: true, last: { at: t(8).toISOString(), failed: 'failed on alpha', href: '/alpha/' } }];
-  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, pausedUntil, overnight });
+  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, pausedUntil, overnight, alerts });
   let confirmed = false;
   let live;
   let subscribed = false;
@@ -177,6 +192,10 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
         const end = choice === 'off' ? null : snoozeEnd(now, choice, DEFAULTS);
         return { ok: true, json: async () => data({ ...ON, snoozed_until: end === 'forever' ? end : end?.toISOString() || null }) };
       }
+      if (url === '/_hub/settings/alerts') {
+        alerts = { ...alerts, [opts.body.get('kind')]: opts.body.get('value') === 'on' };
+        return { ok: true, json: async () => data() };
+      }
       if (url === '/_hub/settings/hub-pause') {
         const choice = opts.body.get('pause');
         pausedUntil = choice === 'off' ? null : durationEnd(now, choice);
@@ -211,7 +230,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => b.textContent), ['1h', '3h', '6h', '1d', 'Forever']);
   assert.equal(root.querySelector('.dur-custom .btn').textContent, 'Custom');
-  assert.equal(root.querySelectorAll('dialog').length, 1);
+  assert.equal(root.querySelectorAll('dialog').length, 2, 'the settings modal, and the Alerts sheet in it');
   assert.equal(modal.open, true);
   assert.doesNotMatch(modal.textContent, /Pushes wait, then go|Turn off to drop|unlocked and used/);
   const enable = root.querySelector('[data-device="on"]');
@@ -226,6 +245,20 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.ok(posts.some(({ url, opts }) => url === '/_hub/push/subscribe' && JSON.parse(opts.body).endpoint === 'https://push.example/device'));
   const submitForm = (form, button) => listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form,
     submitter: button && { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
+  // docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+  const alertsRow = root.querySelector('[data-alerts-open]');
+  assert.deepEqual([alertsRow.querySelector('.title').textContent, alertsRow.querySelector('.sub').textContent], ['Alerts', 'Off']);
+  const alertsSheet = root.querySelector('#alertsSheet');
+  for (const l of listeners.filter((l) => l.target === root && l.type === 'click')) l.fn({ target: alertsRow });
+  assert.deepEqual([alertsSheet.open, modal.open], [true, true], 'the Alerts sheet stacks on Notifications');
+  assert.deepEqual(alertsSheet.querySelectorAll('.title').map((el) => el.textContent), ['Implement needed', 'Merge ready']);
+  const mergeForm = alertsSheet.querySelectorAll('form')[1];
+  mergeForm.querySelector('input.toggle').setAttribute('checked', '');
+  await submitForm(mergeForm);
+  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/alerts', 'kind=merge&value=on']);
+  assert.deepEqual(alertsSheet.querySelectorAll('input.toggle').map((el) => el.hasAttribute('checked')), [false, true]);
+  assert.equal(root.querySelector('[data-alerts-open] .sub').textContent, 'Merge ready');
+  assert.deepEqual([alertsSheet.open, modal.open], [true, true]);
   const endSnooze = async () => {
     assert.equal(root.querySelector('.dur-chips'), null);
     const form = root.querySelector('.dur-on form');

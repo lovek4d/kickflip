@@ -15,7 +15,7 @@ Card #765 (T-190), from the owner on T-151: "make another ticket to revisit what
 ## Consequences
 
 - A board shows one needs-you notification at most, and the phone sounds once per stretch of the board needing the owner, not once per card or question.
-- A new question on a row already showing doesn't sound; the badge and the row's count carry it. Opting in to alerts per kind is T-431.
+- A new question on a row already showing doesn't sound; the badge and the row's count carry it. Implement needed and merge ready can opt in to sounding it as they join ([alerts opt in to sounding the live row as Implement or a merge joins](2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md)).
 - Whether iOS honours `silent` for a home-screen web app is not yet checked on a phone; if it sounds anyway, the row still replaces itself rather than stacking.
 - A row the owner swiped away comes back silently on the next change.
 

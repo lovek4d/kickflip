@@ -15,7 +15,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { validate, quietOf, flushAt, hold, notifications, snoozeEnd } from './schedule.mjs';
+import { ALERTS, alertsOf, validate, quietOf, flushAt, hold, notifications, snoozeEnd } from './schedule.mjs';
 import { storedEnd } from './duration.mjs';
 import { read as readSettingsFile, update as updateSettings } from '../shared/hub-settings.mjs';
 
@@ -254,6 +254,18 @@ export async function saveSettings(input, home = os.homedir()) {
   if (error) throw Object.assign(new Error(error), { status: 400 });
   await updateSettings(({ push, polling, ...rest }) => ({ ...rest, quiet: settings.quiet, notifications: settings.notifications }), home);
   return settings;
+}
+
+// The saved alert switches (schedule.mjs alertsOf).
+export const readAlerts = (home) => alertsOf(readSettingsFile(home));
+
+// Turns one alert switch on or off, keeping the rest of settings.json. Throws {status: 400} for a kind that isn't in
+// schedule.mjs ALERTS; returns the switches saved.
+export async function setAlert(kind, on, home = os.homedir()) {
+  if (!Object.hasOwn(ALERTS, kind)) throw Object.assign(new Error(`No alert called ${kind}.`), { status: 400 });
+  let saved;
+  await updateSettings((file) => ({ ...file, alerts: (saved = { ...alertsOf(file), [kind]: on }) }), home);
+  return saved;
 }
 
 // change: {on}, {weekends_off} or {snooze}, where snooze is a schedule.mjs snoozeEnd choice or 'off' to end one.

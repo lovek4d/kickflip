@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULTS, NEVER, validate, fromPolling, quietOf, editQuiet, quietAt, quietMiddleOf, holdsPushes, heldUntil, hold, snoozeEnd, flushAt, wakesDue, localDay, notifications, clock, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
+import { ALERTS, alertsOf, DEFAULTS, NEVER, validate, fromPolling, quietOf, editQuiet, quietAt, quietMiddleOf, holdsPushes, heldUntil, hold, snoozeEnd, flushAt, wakesDue, localDay, notifications, clock, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
 
 const t = (h, m = 0, day = 14, s = 0) => new Date(2026, 9, day, h, m, s);
 const ON = { on: true, weekends_off: false, snoozed_until: null };
@@ -31,6 +31,13 @@ test('the old polling windows become quiet hours from the last window to the fir
   assert.deepEqual(quietOf({ quiet: { start: 'x' } }), DEFAULTS);
   assert.deepEqual(quietOf({ notifications: { on: 'x' } }), DEFAULTS);
   assert.deepEqual(quietOf({ notifications: { weekends_off: true } }).notifications, { ...ON, weekends_off: true });
+});
+
+// docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+test('alertsOf reads each alert switch off unless settings.json stores it on', () => {
+  assert.deepEqual(ALERTS, { implement: false, merge: false });
+  assert.deepEqual(alertsOf({}), ALERTS);
+  assert.deepEqual(alertsOf({ alerts: { merge: true, implement: 'yes', ticket: true } }), { implement: false, merge: true });
 });
 
 test('editQuiet turns one Quiet hours change into settings to save', () => {

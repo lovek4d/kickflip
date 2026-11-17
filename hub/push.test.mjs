@@ -113,6 +113,18 @@ test('a legacy queued push without a kind still reaches every device when flushe
   assert.deepEqual(read(pushFile('queue.json')).items, []);
 });
 
+// docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+test('an alert switch saves under alerts in settings.json, keeping the rest, and an unknown kind is refused', async () => {
+  write(settingsFile(), { notifications: { on: true, weekends_off: true }, codexShare: 'auto' });
+  assert.deepEqual(push.readAlerts(home), { implement: false, merge: false });
+  assert.deepEqual(await push.setAlert('merge', true, home), { implement: false, merge: true });
+  assert.deepEqual(read(settingsFile()), { notifications: { on: true, weekends_off: true }, codexShare: 'auto', alerts: { implement: false, merge: true } });
+  await push.setAlert('implement', true, home);
+  await push.setAlert('merge', false, home);
+  assert.deepEqual(push.readAlerts(home), { implement: true, merge: false });
+  await assert.rejects(push.setAlert('ticket', true, home), { status: 400 });
+});
+
 test('with notifications off every push is dropped, urgent ones too, and turning them off drops the queue', async () => {
   await deliver({ title: 'A3 waits on Merge', url: '/orch/' }, { kind: 'action', at: NOON });
   const off = await push.setNotifications({ on: false }, new Date(), home);

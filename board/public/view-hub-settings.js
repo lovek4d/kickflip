@@ -1,7 +1,8 @@
 // HubSettings: summary rows open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
 // settingsView's words from GET /_hub/api/settings. Linear's key and Slack's token open the same modal from the button on their Integrations rows (view-hub.js),
 // with no summary row of their own ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)); Slack's
-// holds its PR state emoji (slack-emoji.js) under the token. Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, Quiet
+// holds its PR state emoji (slack-emoji.js) under the token. Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, except
+// the Alerts sheet's, which Notifications' Alerts row opens stacked on the modal: its toggles post to /_hub/settings/alerts. Quiet
 // hours' times and hold to /_hub/settings/quiet, its Overnight work toggles to /_hub/settings/overnight, and saves at once, as Linear's key and Slack's token do through linear-key.js; Done waits for
 // a key's save to land. The rules editor saves through POST /_hub/settings/rules
 // and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
@@ -24,7 +25,16 @@
     const onRow = toggle({ icon: tile('power', d.on.on ? '#22c55e' : '#6b7280'), set: 'on', title: 'Push notifications', checked: d.on.on,
       attrs: ` id="notifyOn" data-confirm="${esc(d.on.confirm)}"` });
     const weekendRow = toggle({ icon: tile('calendar', 'var(--color-quiet)'), set: 'weekends', title: 'Off on weekends', checked: d.weekends.on, attrs: ' data-submit' });
-    return `${onRow}\n${snoozeRow(d)}\n${weekendRow}`;
+    const alertsRow = `<button type="button" class="row" data-alerts-open aria-haspopup="dialog">${tile('bell', 'var(--accent)')}<span class="body"><span class="text"><span class="title">Alerts</span><span class="sub">${esc(d.alerts.summary)}</span></span><span class="chev" aria-hidden="true">›</span></span></button>`;
+    return `${onRow}\n${snoozeRow(d)}\n${weekendRow}\n${alertsRow}`;
+  }
+
+  // docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+  // The Alerts sheet: what an alert does, then a toggle per kind posting kind=<kind> to /_hub/settings/alerts.
+  function alertsRows(a) {
+    const { tile } = HubUI;
+    const kind = (k) => `<form class="row field" method="post" action="/_hub/settings/alerts"><input type="hidden" name="kind" value="${esc(k.kind)}">${tile(k.kind === 'merge' ? 'merge' : 'power', 'var(--accent)')}<label class="body"><span class="text"><span class="title">${esc(k.title)}</span><span class="sub wrap">${esc(k.sub)}</span></span><input type="checkbox" name="value" value="on" class="toggle" data-submit${k.on ? ' checked' : ''}></label></form>`;
+    return `<p class="note">${esc(a.note)}</p><div class="group">${a.kinds.map(kind).join('')}</div>`;
   }
 
   // Quiet hours (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md): start and
@@ -59,7 +69,8 @@
   // Polls opens the hub's Polls page, /_hub/polls (hub/polls-page.mjs), a page of its own rather than a modal.
   const pollsRow = '<a class="hub-setting" id="polls" href="/_hub/polls"><span class="text"><span class="title">Polls</span><span class="sub">Every job the hub, boards and pages run again and again, fastest first</span></span><span class="chev" aria-hidden="true">›</span></a>';
   const markup = () => `${sections.map(([id, title]) => `<button type="button" class="hub-setting" id="${id}" data-settings-open="${id}" aria-haspopup="dialog"><span class="text"><span class="title">${title}</span><span class="sub" data-summary="${id}">Loading…</span></span><span class="chev" aria-hidden="true">›</span></button>`).join('')}${pollsRow}
-<dialog class="settings-modal hub-modal" id="hubSettingsModal" aria-labelledby="hubSettingsTitle"><div class="settings-head"><div><h2 id="hubSettingsTitle" tabindex="-1"></h2><p class="muted small">Hub settings</p></div><button type="button" class="ghost" data-settings-dismiss aria-label="Close hub settings">✕</button></div><div class="set settings-body"><div class="hs-flash"></div><div class="setting-content"></div></div><div class="settings-footer"><button type="button" data-settings-dismiss>Done</button></div></dialog>`;
+<dialog class="settings-modal hub-modal" id="hubSettingsModal" aria-labelledby="hubSettingsTitle"><div class="settings-head"><div><h2 id="hubSettingsTitle" tabindex="-1"></h2><p class="muted small">Hub settings</p></div><button type="button" class="ghost" data-settings-dismiss aria-label="Close hub settings">✕</button></div><div class="set settings-body"><div class="hs-flash"></div><div class="setting-content"></div></div><div class="settings-footer"><button type="button" data-settings-dismiss>Done</button></div>
+<dialog class="sheet alerts-sheet" id="alertsSheet" aria-labelledby="alertsTitle"><div class="alerts-body"><div class="grab" aria-hidden="true"></div><div class="sheet-head"><h2 id="alertsTitle">Alerts</h2><button type="button" class="ghost" data-alerts-dismiss aria-label="Close Alerts">✕</button></div><div class="alerts-content"></div></div></dialog></dialog>`;
 
   globalThis.HubSettings = {
     markup,
@@ -67,6 +78,7 @@
       const top = B.$('.hs-flash');
       const modal = B.$('#hubSettingsModal');
       const content = B.$('.setting-content');
+      const alertsSheet = B.$('#alertsSheet');
       let active = null;
       let settingsURL = '/_hub/';
       let returnFocus = null;
@@ -108,6 +120,7 @@
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">/${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening === b.route ? BoardUI.BUSY : reopening ? ' disabled' : ''}>Reopen</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
         }
+        B.$('.alerts-content').innerHTML = alertsRows(last.alerts);
         pickers.painted();
         B.$('.settings-body').scrollTop = scrollTop;
         const summaries = {
@@ -153,6 +166,7 @@
       }
 
       function closeModal(restore = true) {
+        if (alertsSheet.open) alertsSheet.close();
         unfitModal?.(); unfitModal = null;
         modal.close();
         tokenSlot?.destroy(); tokenSlot = null;
@@ -198,6 +212,8 @@
       B.on(root, 'click', (e) => {
         const opener = e.target.closest?.('[data-settings-open]');
         if (opener) { B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener); return; }
+        if (e.target.closest?.('[data-alerts-open]')) { BoardUI.openSheet(alertsSheet); return; }
+        if (e.target.closest?.('[data-alerts-dismiss]')) { alertsSheet.close(); return; }
         if (e.target.closest?.('[data-settings-dismiss]')) { dismiss(); return; }
         if (BoardUI.onBackdrop(e, modal)) {
           const r = modal.getBoundingClientRect();
@@ -210,6 +226,8 @@
       let reopening = null;
       B.atUnmount(() => closeModal(false));
       B.atUnmount(BoardUI.swipeToDismiss(modal));
+      B.atUnmount(BoardUI.swipeToDismiss(alertsSheet));
+      B.on(alertsSheet, 'click', (e) => { if (BoardUI.onBackdrop(e, alertsSheet)) alertsSheet.close(); });
       const device = HubKit.device(B, { paint, changed: () => ctx.sidebarChanged?.() });
       device.ready.then(() => { if (B.alive()) paint(); });
       B.on(root, 'click', async (e) => {

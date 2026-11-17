@@ -168,6 +168,41 @@ test("what waits on the owner is one live notification for the board: its first 
   }
 });
 
+// docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+test("with an alert switched on, a card of that kind joining the board's open live notification sounds it once; with it off the update stays silent", async () => {
+  const settings = path.join(home, '.claude', 'kickflip', 'settings.json');
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const alerts = (a) => fs.writeFileSync(settings, JSON.stringify({ alerts: a }));
+  const before = pushes().length;
+  const row = () => pushes().slice(before).filter((c) => flag(c, 'tag') === 'board-site').map((c) => [flag(c, 'title'), c.includes('--now'), c.includes('--silent')]);
+  const merge = (id) => ({ id, title: 'Held', branch: id, merge_ready: { branch: id, at: '2026-11-04T10:00:00Z' } });
+  const implement = (id) => ({ id, title: 'Talked', phase: 'discussing', waits_on_owner: { on: 'implement', at: '2026-11-15T00:25:16Z', phase: 'discussing', lane: 'todo' } });
+  const asked = { id: 'Q1', title: 'Asked', lane: 'progress' };
+  alerts({ merge: true });
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'a1', topic: 'item:t/Q1', question: 'Keep?', options: [{ id: 'A', label: 'Keep' }] }] }));
+  try {
+    await putWave(JSON.stringify({ items: [asked] }));
+    await heard(ownerFile);
+    assert.deepEqual(row(), [['Q1: Answer 1 question', true, false]], 'the row opens alerting');
+    await putWave(JSON.stringify({ items: [asked, merge('AM1')] }));
+    assert.deepEqual(row().slice(1), [['T (2)', true, false]], 'a merge joining the open row sounds it, with merge ready on');
+    await putWave(JSON.stringify({ items: [asked, merge('AM1'), implement('AI1')] }));
+    assert.deepEqual(row().slice(2), [['T (3)', false, true]], 'Implement needed is off: its joining stays silent');
+    await putWave(JSON.stringify({ items: [asked, merge('AM1'), implement('AI1'), merge('AM2')] }));
+    assert.deepEqual(row().slice(3), [['T (4)', true, false]], 'each merge joining sounds once');
+    alerts({ implement: true });
+    await putWave(JSON.stringify({ items: [asked, merge('AM1'), implement('AI1'), merge('AM2'), implement('AI2'), merge('AM3')] }));
+    assert.deepEqual(row().slice(4), [['T (6)', true, false]], 'switches are read at each check: a new Implement sounds, the one already in the row does not');
+    await putWave(JSON.stringify({ items: [asked, merge('AM1'), implement('AI1'), merge('AM2'), implement('AI2')] }));
+    assert.deepEqual(row().slice(5), [['T (5)', false, true]], 'one leaving stays silent');
+  } finally {
+    fs.rmSync(settings, { force: true });
+    fs.writeFileSync(ownerFile, '{"items":[]}');
+    await putWave(JSON.stringify({ items: [] }));
+    await heard(ownerFile);
+  }
+});
+
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 test("the owner's last answer on an unstarted card stages it, held or blocked too, and wakes no session to start it", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');

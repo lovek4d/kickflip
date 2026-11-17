@@ -13,6 +13,11 @@ export const DEFAULTS = Object.freeze({
   notifications: Object.freeze({ on: true, weekends_off: false, snoozed_until: null }),
 });
 
+// The alert switches (docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md): `alerts` in settings.json, beside `notifications`,
+// each kind sounding a board's open live notification again as a task of it joins. Every switch is off unless stored true.
+export const ALERTS = Object.freeze({ implement: false, merge: false });
+export const alertsOf = (file) => Object.fromEntries(Object.keys(ALERTS).map((kind) => [kind, file?.alerts?.[kind] === true]));
+
 // What heldUntil returns while notifications are off: no time comes when held pushes go, so they are dropped.
 export const NEVER = 'never';
 

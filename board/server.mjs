@@ -343,8 +343,8 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
-import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
+import { TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { alertsOf, localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -1639,9 +1639,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
   // docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
-  // data/action-pushes.json {row: {title, body, url} | null}: the board's live notification at the last check
-  // (domain.mjs ownerRow). A row where there was none pushes and alerts; a changed row pushes silently, so only its first
-  // push alerts until it closes; a row gone drops its queued push, or closes the one already sent (hub/push.mjs
+  // docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
+  // data/action-pushes.json {row: {title, body, url} | null, items: {<tag>: kind}}: the board's live notification at the
+  // last check (domain.mjs ownerRow) and the kind of each action in it. A row where there was none pushes and alerts; a
+  // changed row pushes silently, so only its first push alerts until it closes, unless an action joins it of a kind whose
+  // alert switch is on in settings.json (domain.mjs rowAlerts), read each check: that push alerts, held as a first push
+  // is. A file without items takes the row's actions now as already pushed. A row gone drops its queued push, or closes the one already sent (hub/push.mjs
   // withdraw). The first check records the row without pushing it. A file from before the live row, {<tag>: {kind, ids}}
   // with a tag per card, counts as a row open when it held any, and its card tags are withdrawn. A check asked for while
   // one runs runs again after it.
@@ -1662,16 +1665,21 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const previous = await readJSON(file, null);
     const actions = ownerActions(await sharedBoard());
     const row = ownerRow(actions, { route, title: (await config()).title || route });
-    const current = { row: row && { title: row.title, body: row.body, url: row.url } };
+    const current = { row: row && { title: row.title, body: row.body, url: row.url }, items: Object.fromEntries(actions.map((a) => [a.tag, a.kind])) };
     const legacy = previous && !('row' in previous) ? Object.keys(previous) : [];
     const wasOpen = Boolean(previous?.row) || legacy.length > 0;
     const tag = `board-${route}`;
     const key = actions.length === 1 && actions[0].tag.startsWith('item-') ? actions[0].tag.slice(5) : undefined;
     if (legacy.length) await withdraw(legacy, route);
-    if (previous && row && JSON.stringify(current.row) !== JSON.stringify(previous.row)) {
-      const reason = wasOpen ? 'What waits on the owner changed, and the board\'s notification is open.' : 'Something waits on the owner, and the board had no notification open.';
-      await sendOwnPush({ kind: 'action', title: row.title, body: row.body, url: `/${route}/${row.url}`, tag, now: !wasOpen, silent: wasOpen },
-        { key, reason, inputs: { was: previous.row ?? null, count: actions.length, silent: wasOpen } });
+    const joined = wasOpen && row
+      ? rowAlerts(actions, previous.items ?? current.items, alertsOf(await readJSON(path.join(home, '.claude', 'kickflip', 'settings.json'), {}))) : [];
+    if (previous && row && (joined.length || JSON.stringify(current.row) !== JSON.stringify(previous.row))) {
+      const alert = !wasOpen || joined.length > 0;
+      const reason = !wasOpen ? 'Something waits on the owner, and the board had no notification open.'
+        : joined.length ? `${joined.map((a) => a.title).join(', ')} joined the board's open notification, and the owner's alert for it is on.`
+          : 'What waits on the owner changed, and the board\'s notification is open.';
+      await sendOwnPush({ kind: 'action', title: row.title, body: row.body, url: `/${route}/${row.url}`, tag, now: alert, silent: !alert },
+        { key, reason, inputs: { was: previous.row ?? null, count: actions.length, silent: !alert, ...(joined.length ? { alerts: joined.map((a) => a.tag) } : {}) } });
     }
     if (previous && !row && wasOpen) {
       const { closed } = await withdraw([tag], route);

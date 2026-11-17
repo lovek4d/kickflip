@@ -83,6 +83,8 @@
 //                     setNotifications choice | off> → /_hub/api/settings's JSON, or 400 {error} when refused
 //                     (303 to ?refused=snooze). Custom posts a UTC ISO date-time; snoozeEnd refuses an end not
 //                     after now or more than 30 days on.
+//   /_hub/settings/alerts POST kind=implement|merge with value=on (absent for off) turns one Notifications › Alerts
+//                     switch on or off (push.mjs setAlert) → /_hub/api/settings's JSON, or 400 {error}
 //   /_hub/settings/keep-awake POST keep_awake=on (anything else, or nothing, is off) → /_hub/api/settings's JSON, or
 //                     409 {error} off macOS (awake.mjs)
 //   /_hub/settings/auto-update POST auto_update=on (anything else, or nothing, is off) → /_hub/api/settings's JSON; stored as autoUpdate: false
@@ -213,7 +215,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
-import { publicKey, reportPush, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, deliver } from './push.mjs';
+import { publicKey, reportPush, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, setAlert, readAlerts, deliver } from './push.mjs';
 import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
@@ -1186,7 +1188,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const now = new Date();
     const gate = readUsageGate({ now });
     const pausedUntil = gate.manual === 'hub' ? endOf(gate.resets_at, now) : null;
-    return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil, overnight: overnightJobs() }), closed: closedBoards() };
+    return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil, overnight: overnightJobs(), alerts: readAlerts() }), closed: closedBoards() };
   };
 
   const slackEmojiData = async () => prEmojiView({ picks: readPREmoji(), customs: await savedSlack()?.workspaceEmoji() || {} });
@@ -1445,6 +1447,14 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         return json ? sendJSON(400, { error: SNOOZE_REFUSED }) : redirect(res, '/_hub/?refused=snooze#notifications');
       }
       if (r.dropped) log(`notifications off: dropped ${r.dropped} queued push${r.dropped === 1 ? '' : 'es'}`);
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#notifications');
+    }
+    if (p === '/_hub/settings/alerts' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      try { await setAlert(f.get('kind'), f.get('value') === 'on'); } catch (e) {
+        if (e.status !== 400) throw e;
+        return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+      }
       return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#notifications');
     }
     if (p === '/_hub/settings/keep-awake' && req.method === 'POST') {
