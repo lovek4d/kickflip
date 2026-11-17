@@ -179,6 +179,19 @@ window.BoardView = (function () {
     const { $, $$, store, state, steady, markSeen } = B;
     const { setHTML } = BoardUI;
 
+    // One loading screen covers the lanes and the desktop pane until the board's first render, which paints both
+    // (renderPane): the saved copy's or the first load's. From 5 s a muted line says the host is slow. A load that times
+    // out or that nothing answers keeps it while the loads retry; the landing replaces it only when the hub says the
+    // board is down (showDown) or it throws while drawing (drawFailed)
+    // (docs/adr/2026-11-17-0017-one-loading-screen-until-the-board-first-paints.md).
+    B.root.classList.add('loading');
+    const slowLine = B.later(5000, () => { $('#boardLoading .board-loading-slow').hidden = false; });
+    const loading = () => B.root.classList.contains('loading');
+    function lift() {
+      B.root.classList.remove('loading');
+      slowLine();
+    }
+
     // The spinUntil taps waiting for their change to show.
     const showing = new Set();
     // Renders open threads from state.threadCache, which the board's sync fills (app-threads.js takeThreads, fillThreads).
@@ -215,6 +228,7 @@ window.BoardView = (function () {
         B.renderBanner(d);
         B.renderNew(d);
       });
+      lift();
       B.flashChanged();
       B.signCards(load);
       checkShown();
@@ -354,7 +368,7 @@ window.BoardView = (function () {
     if (boot?.route && boot.route !== B.route) boot = null;
     // The open cards' loads of the last land's fillThreads, which the load that landed the board waits for.
     let filling = Promise.resolve();
-    // A load nothing answers gives up after this, so an asleep host reads as out of reach.
+    // A load nothing answers gives up after this, so an asleep host reads as out of reach and the next retry asks anew.
     const LOAD_TIMEOUT = 20000;
     // A failed answer, carried to showDown for BoardUI.downOf.
     const unanswered = (r) => Object.assign(new Error(`board ${r.status}`), { answer: r });
@@ -394,7 +408,8 @@ window.BoardView = (function () {
     // A board out of reach with nothing on screen paints the copy another build saved, which the first paint skipped,
     // guarded: a paint that throws leaves the landing, the kickflip mark and down's two lines in the board's place, and
     // the landing retries every 5 s while the board can come back by itself
-    // (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+    // (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md). While the loading screen is
+    // up, a load nothing answered leaves it there, retrying on the same 5 s, as only the hub can say the board is down.
     let triedOldCopy = false;
     async function showDown(down) {
       if (!triedOldCopy) {
@@ -408,6 +423,8 @@ window.BoardView = (function () {
         if (state.view === 'fresh') { B.linkDown(); return; }
       }
       state.down = down;
+      if (down.state === 'unreachable' && loading()) return;
+      lift();
       $('#downLanding').innerHTML = BoardUI.downLanding(down);
       $('#downLanding').hidden = false;
       B.root.classList.add('down');
@@ -417,6 +434,7 @@ window.BoardView = (function () {
     function drawFailed(err) {
       console.error(err);
       state.down = { state: 'draw', error: err };
+      lift();
       $('#downLanding').innerHTML = BoardUI.drawLanding(err);
       $('#downLanding').hidden = false;
       B.root.classList.add('down');
@@ -561,6 +579,8 @@ window.BoardView = (function () {
     const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
     return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true, navAfter: `${searchButton}<span id="waitsChip"></span>` })}
 <div class="split">
+<div id="boardLoading" class="board-loading" role="status"><svg class="board-loading-moon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${HubUI.TILE_PATHS.moon}</svg>
+  <h2 class="board-loading-name">${BoardUI.esc(title)}</h2><p class="board-loading-line">Loading board...</p><p class="board-loading-slow" hidden>The host is slow to answer.</p></div>
 <main>
 ${strip}  ${searchBar}
   <section id="setup" class="setup" aria-live="polite" hidden></section>

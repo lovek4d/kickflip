@@ -559,6 +559,18 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .down-landing-stack { margin: 0; max-width: 100%; overflow: auto; text-align: left; font-size: 12px; padding: 10px; border-radius: 8px; background: color-mix(in srgb, var(--muted) 14%, transparent); }
 .down-landing-stack[hidden] { display: none; }
 .view-board.down main > :not(#downLanding), .view-board.down :is(#boardPane, #compose) { display: none; }
+/* The one loading screen over the lanes and the desktop pane until the board first paints (app.js lift,
+   docs/adr/2026-11-17-0017-one-loading-screen-until-the-board-first-paints.md): the hub moon, the board's name,
+   Loading board... and from 5 s the slow-host line, muted. */
+.board-loading { display: none; }
+.view-board.loading .split > :not(.board-loading) { display: none; }
+.view-board.loading .board-loading { display: grid; grid-column: 1 / -1; min-height: calc(100dvh - 120px); place-content: center; justify-items: center; gap: 10px; padding: 32px 24px; text-align: center; }
+.board-loading-moon { color: var(--muted); animation: pulse 2.2s ease-in-out infinite; }
+.board-loading-name { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; text-wrap: balance; }
+.board-loading-line { margin: 0; font-size: 14px; }
+.board-loading-slow { margin: 0; font-size: 13px; color: var(--muted); }
+.board-loading-slow[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .board-loading-moon { animation: none; } }
 .view-settings.down .settings-body > :not(.down-landing) { display: none; }
 /* INT-28: answer banner */
 .answer-banner { display: flex; align-items: center; gap: 4px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);

@@ -2,6 +2,8 @@
 
 Superseded in part by [owner taps wait for the host in the outbox](2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md): no button is held offline. Every tap waits in the outbox as "waiting for the host" and goes out once the board is back, so the **Buttons that send wait** bullet and Waiting on you's held sends no longer apply.
 
+Superseded in part by [one loading screen until the board first paints](2026-11-17-0017-one-loading-screen-until-the-board-first-paints.md): with nothing painted yet, a load that times out or that nothing answers keeps the board's loading screen and retries, rather than showing Board offline.
+
 Before this, a failed board load dimmed the board to .72, turned off taps on everything but refresh, hid the composer, turned off the settings gear and showed one toast, "Offline. Use refresh in the header to retry." A reload during a restart usually found no copy, because a restart follows a land or an upgrade and the copy only paints under the build that saved it. The board then showed nothing, while the desktop right pane, Notes and Settings said "Board restarting…" for about 30 s and then "Offline. Is the host awake?". The owner asked for a landing in the style of the no-access page, and asked why the page doesn't just keep showing its local copy (#321; the grills and answers are in the card's notes).
 
 - **The copy stays, undimmed (owner, gh321-offline-look B).** Offline, the board stays as it was, and cards, threads and folds open as before. Only the header time turns red. The dimming, the blocked taps and the toast are gone. The settings gear stays on, since Settings opens its copy (below).

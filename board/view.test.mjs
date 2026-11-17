@@ -1318,6 +1318,7 @@ test("a board view keeps the board and its change number in IndexedDB, and the n
   back.mount();
   await drain(() => asked.some((u) => u.includes('/api/board')), 'the catch-up asked');
   assert.equal(root.dataset.board, 'fresh', 'the copy paints live, not dimmed');
+  assert.equal(root.classList.contains('loading'), false, 'the copy lifts the loading screen before the catch-up answers');
   assert.equal(back.B.state.board.items[0].title, 'Kept');
   assert.deepEqual(asked.filter((u) => u.includes('/api/board')), [`${site}/api/board?since=${board.version}`]);
   back.unmount();
@@ -1349,6 +1350,7 @@ test("with no copy to show, a board out of reach shows the landing for its state
   assert.match(landing.innerHTML, /data-down="stopped"/);
   assert.match(landing.innerHTML, /Board stopped/);
   assert.deepEqual([root.classList.contains('down'), root.classList.contains('offline'), root.dataset.board], [true, true, undefined]);
+  assert.equal(root.classList.contains('loading'), false, 'the landing replaces the loading screen');
 
   answer = { ok: false, status: 404, headers: new Headers({ 'x-kickflip-down': 'removed' }), json: async () => ({}) };
   page.runIntervals(5000);
@@ -1361,6 +1363,73 @@ test("with no copy to show, a board out of reach shows the landing for its state
   await view.B.loadBoard();
   assert.deepEqual([landing.hidden, root.classList.contains('down'), root.classList.contains('offline'), root.dataset.board], [true, false, false, 'fresh']);
   view.unmount();
+});
+
+// docs/adr/2026-11-17-0017-one-loading-screen-until-the-board-first-paints.md
+// A board view on mini-dom whose /api/board answers only as each test says; threads and notes answer empty at once.
+function loadingBoard({ width = 390, board: answerBoard }) {
+  const page = fakePage(memoryStorage().localStorage);
+  page.win.innerWidth = width;
+  page.win.indexedDB = memoryIndexedDB();
+  const { Element } = miniDom(page.Target, page.win.document);
+  const asked = [];
+  page.win.fetch = (url, opts = {}) => {
+    if (url.includes('/api/notes')) return Promise.resolve({ ok: true, status: 200, json: async () => ({ notes: {} }) });
+    if (!url.includes('/api/board')) return Promise.resolve({ ok: true, status: 200, json: async () => [], text: async () => '[]' });
+    asked.push(url);
+    return answerBoard(opts);
+  };
+  const root = page.win.document.body.appendChild(new Element('div'));
+  root.className = 'view-board';
+  root.innerHTML = page.win.BoardView.markup({ title: 'Hub Orchestrator' });
+  const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a');
+  view.mount();
+  return { page, root, view, asked, slow: () => root.querySelector('#boardLoading .board-loading-slow') };
+}
+
+test("a board with no saved copy opens on one loading screen over the lanes and the pane, with its name; from 5 s a line says the host is slow; the first paint lifts it with both panes drawn", async () => {
+  const board = { ...boardOf([workCard('T1')]), title: 'Hub Orchestrator', version: 3 };
+  let answer = null;
+  const b = loadingBoard({ width: 1200, board: () => new Promise((resolve) => { answer = () => resolve({ ok: true, status: 200, json: async () => structuredClone(board) }); }) });
+  await drain(() => answer, 'the board load asked');
+  assert.equal(b.root.classList.contains('loading'), true);
+  assert.match(b.root.querySelector('#boardLoading').textContent, /Hub Orchestrator/, "the screen names the board");
+  b.page.runTimers(4999);
+  assert.equal(b.slow().hidden, true, 'no slow line before 5 s');
+  b.page.runTimers(5000);
+  assert.equal(b.slow().hidden, false, 'the slow line from 5 s');
+  answer();
+  await drain(() => !b.root.classList.contains('loading'), 'the first paint lifts the screen');
+  assert.match(b.root.querySelector('#lanes').textContent, /Work T1/, 'the lanes painted under it');
+  assert.match(b.root.querySelector('#boardPane').textContent, /Nothing is waiting on you/, 'the pane painted under it');
+  b.view.unmount();
+});
+
+test("with no saved copy, a load that times out or that nothing answers keeps the loading screen and retries every 5 s; only the hub saying the board is down swaps in the landing", async () => {
+  let answer = 'hang';
+  const b = loadingBoard({ board: (opts) => {
+    if (answer === 'hang') return new Promise((_, reject) => opts.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+    if (answer === 'none') return Promise.reject(new TypeError('Failed to fetch'));
+    return Promise.resolve(answer);
+  } });
+  const landing = b.root.querySelector('#downLanding');
+  await drain(() => b.asked.length === 1, 'the load asked');
+  b.page.runTimers(20000);
+  await drain(() => b.view.B.state.down, 'the load times out');
+  assert.deepEqual([b.root.classList.contains('loading'), b.root.classList.contains('down'), landing.hidden], [true, false, true], 'a timeout keeps the loading screen');
+
+  answer = 'none';
+  b.page.runIntervals(5000);
+  await drain(() => b.asked.length === 2, 'it retries');
+  for (let i = 0; i < 20; i++) await new Promise(setImmediate);
+  assert.deepEqual([b.root.classList.contains('loading'), b.root.classList.contains('down'), landing.hidden], [true, false, true], 'an unanswered load keeps it');
+
+  answer = { ok: false, status: 502, headers: new Headers({ 'x-kickflip-down': 'stopped' }), json: async () => { throw new Error('html'); } };
+  b.page.runIntervals(5000);
+  await drain(() => b.root.classList.contains('down'), 'the landing shows');
+  assert.deepEqual([b.root.classList.contains('loading'), landing.hidden], [false, false]);
+  assert.match(landing.innerHTML, /data-down="stopped"/);
+  b.view.unmount();
 });
 
 // docs/adr/2026-11-12-0400-a-board-that-throws-while-drawing-shows-a-landing-with-the-error.md
@@ -1388,6 +1457,7 @@ test('a board that throws while drawing shows the landing with the error and an 
     assert.match(landing.innerHTML, /TypeError/);
     assert.doesNotMatch(landing.innerHTML, /Reported/);
     assert.deepEqual([view.B.state.link, root.classList.contains('offline')], ['online', false], 'the header stays online');
+    assert.equal(root.classList.contains('loading'), false, 'the landing replaces the loading screen');
     assert.equal(logged.length > 0, true, 'console.error got the throw');
     assert.match(landing.innerHTML, /<button type="button" data-draw="reload">Reload<\/button> <button type="button" data-draw="copy">Copy error<\/button>/);
     page.fire(root, 'click', { target: { closest: (sel) => (sel.includes('data-draw') ? { dataset: { draw: 'reload' } } : null) } });
@@ -1401,7 +1471,7 @@ test('a board that throws while drawing shows the landing with the error and an 
   }
 });
 
-test("out of reach with nothing on screen, the board paints the copy another build saved and asks for the whole board once it answers; a copy whose paint throws leaves the landing", async () => {
+test("out of reach with nothing on screen, the board paints the copy another build saved and asks for the whole board once it answers; a copy whose paint throws leaves the loading screen", async () => {
   const site = 'https://mac.ts.net/board-a';
   const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7 }], files: [], needs: [], answers: [], owner: [], ownerTopics: [] };
   for (const saved of [board, { ...board, items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7, prs: 'not a list' }] }]) {
@@ -1412,7 +1482,7 @@ test("out of reach with nothing on screen, the board paints the copy another bui
     const root = new page.El();
     const view = page.win.BoardView.create(root, site);
     view.mount();
-    await drain(() => root.classList.contains('down'), 'the landing shows');
+    await drain(() => view.B.state.down, 'the load reads as unanswered');
     view.unmount();
     idb.rows.set(`${site}/`, { build: 'build-0', savedAt: board.generatedAt, board: saved, threads: {} });
 
@@ -1421,7 +1491,7 @@ test("out of reach with nothing on screen, the board paints the copy another bui
     const again = new page.El();
     const back = page.win.BoardView.create(again, site);
     back.mount();
-    await drain(() => asked.length > 0 && (again.dataset.board === 'fresh' || again.classList.contains('down')), 'the old copy paints or the landing shows');
+    await drain(() => asked.length > 0 && (again.dataset.board === 'fresh' || back.B.state.down), 'the old copy paints or the load reads as unanswered');
     await new Promise((r) => setImmediate(r));
     if (saved === board) {
       assert.deepEqual([again.dataset.board, back.B.state.link, again.classList.contains('down')], ['fresh', 'offline', false], 'the older copy paints, out of reach');
@@ -1429,7 +1499,8 @@ test("out of reach with nothing on screen, the board paints the copy another bui
       await back.B.loadBoard();
       assert.deepEqual(asked, [`${site}/api/board`], 'the next load asks for the whole board');
     } else {
-      assert.deepEqual([again.dataset.board, again.classList.contains('down')], [undefined, true], 'a paint that throws leaves the landing');
+      assert.deepEqual([again.dataset.board, again.classList.contains('down'), again.classList.contains('loading')], [undefined, false, true],
+        'a paint that throws leaves the loading screen, as nothing answered');
     }
     back.unmount();
   }
