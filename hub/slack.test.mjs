@@ -8,14 +8,15 @@ import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack,
 
 test("the digest's day opens at quiet hours' end, the Mac's time read in the Slack timezone, on weekdays only", () => {
   write(kf('settings.json'), { quiet: { start: '22:00', end: '07:30', hold: true } });
-  // A Wednesday at 07:30 on the Mac is a weekday in Los Angeles, whatever the Mac's timezone.
+  // The Slack timezone is the Mac's own here, so the Mac's 07:30 is the Slack day's 07:30.
+  write(kf('slack.json'), { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
   const end = new Date(2026, 10, 18, 7, 30);
   assert.equal(slackDay(new Date(end.getTime() - 60_000)).open, false);
   assert.equal(slackDay(end).open, true);
   assert.equal(slackDay(new Date(end.getTime() + 10 * 3600_000)).open, true);
   // Quiet hours' end can be given.
   assert.equal(slackDay(end, '08:00').open, false);
-  // A Sunday's noon is Saturday or Sunday in Los Angeles: no digest.
+  // A Sunday's noon: no digest.
   assert.equal(slackDay(new Date(2026, 10, 22, 12, 0)).open, false);
 });
 

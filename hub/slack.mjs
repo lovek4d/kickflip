@@ -54,14 +54,13 @@ export async function setPREmoji(kind, name) {
 }
 
 // now's day in the Slack timezone: its date, and open on a weekday from quiet hours' end to the day's end, when the
-// digest is due. quietEnd is the Mac's HH:MM, settings.json's quiet end by default, read as the Slack timezone's time
-// at that moment today, so the digest goes with the morning wake (schedule.mjs wakesDue).
+// digest is due. quietEnd is the Mac's HH:MM, settings.json's quiet end by default, taken on the Slack day's date
+// and compared with now as instants, so the digest goes with the morning wake (schedule.mjs wakesDue).
 // poll: review-digest
 export function slackDay(now = new Date(), quietEnd = readSettings().quiet.end) {
   const parts = slackParts(now);
   const [h, m] = quietEnd.split(':').map(Number);
-  const opens = slackParts(new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m));
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, open: !['Sat', 'Sun'].includes(parts.weekday) && `${parts.hour}:${parts.minute}` >= `${opens.hour}:${opens.minute}` };
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, open: !['Sat', 'Sun'].includes(parts.weekday) && now >= new Date(+parts.year, +parts.month - 1, +parts.day, h, m) };
 }
 // now's 24-hour time in the Slack timezone, “HH:MM”.
 export function slackClock(now = new Date()) {
