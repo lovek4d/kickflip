@@ -341,7 +341,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, beside, queuedPlannerKey, queuedPlannerCard, REVIEWER, VISUAL, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, landSkipOf, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, beside, queuedPlannerKey, queuedPlannerCard, VISUAL, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, landSkipOf, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -353,7 +353,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathS
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, heldMerge, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, moveCard, startPlanner, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readMarks, readNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
+import { heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, startHelper, startVisual, startReviewer, openAgents, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, moveCard, startPlanner, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readMarks, readNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
 import { runMigrations } from './migrations.mjs';
 import { appendEvents as appendBoardEvents, appendLine, boardConfig, editJSON, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
@@ -493,8 +493,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // the header's GitHub check stay the owner's, as does any kind not listed.
   const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request','grill-more', 'visual-request', 'review-request', 'item-message',
     'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-cancel', 'card-bump', 'card-unbump']);
-  // The taps that move a card, which carry the card's version (docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md).
-  const CARD_TAPS = new Set(['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-cancel', 'card-merge']);
   const VIEW_ONLY = 'This board is shared with you to look at only.';
   const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
   // → null for the owner's request, {refused} for one a shared person can't make, else {by: {login, name}}
@@ -950,6 +948,59 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   let started;
   const ready = new Promise((resolve) => { started = resolve; });
   const server = http.createServer((req, res) => track(ready.then(() => answer(req, res))));
+  // docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md
+  // Runs a tap's effects (domain.mjs tapPlan) in order through store.mjs; a refusal on the way is a BoardError whose
+  // status answer() sends. → the tap's event id, or a Build's (handOff), or null for a tap that records none.
+  async function applyTap(effects, kind, body, sendId) {
+    const key = String(body.key || '');
+    let id = null;
+    for (const effect of effects) {
+      if (effect.do === 'event') id = (await appendEvents([[kind, body]]))[0];
+      else if (effect.do === 'clearStall') await clearStall(here, key);
+      else if (effect.do === 'clearOwnerWait') await clearOwnerWait(here, key);
+      else if (effect.do === 'passNews') await passNews(here, key, { from: 'owner', text: effect.text });
+      else if (effect.do === 'stage' && effect.as === 'asIs') stopAgents(await implementAsIs(here, key, sendId));
+      else if (effect.do === 'stage' && effect.as === 'implement') stopAgents(await stageImplement(here, key, body));
+      else if (effect.do === 'stage' && effect.as === 'reply') await stageReply(here, key, body);
+      else if (effect.do === 'record') await recordTap(key, kind, body, effect);
+      else if (effect.do === 'resume') await resumeRun(key);
+      else if (effect.do === 'merge' && effect.held) {
+        await tapMerge(here, key);
+        runHeldMerge(key);
+      }
+      // A refusal is a thread line too (store.mjs mergeCard).
+      else if (effect.do === 'merge') await mergeCard(here, key, { tapped: true });
+      else if (effect.do === 'build') {
+        const full = !pullOf((await sharedBoard()).items, { cap: tasksInProgressCap(readUsageGate({ dir: here }), settingsOf(await config()).max_implementers), pulled: await sentOf(PULL) }).free;
+        id = await handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'tap', { full }));
+      }
+      else if (effect.do === 'plan') await planAgain(here, key, effect.kind, effect.ask);
+      else if (effect.do === 'moveLand') moveQueuedLand(here, key, effect.first ? now().toISOString() : null);
+      else throw new Error(`tapPlan gave an effect applyTap doesn't run: ${effect.do}`);
+    }
+    dataVersion++;
+    return id;
+  }
+  // The tap written to the card's item file; with stops, the agents the write closed are stopped, read before it closes
+  // them (a held build runs on to its stopping point, its record left open). One that couldn't be written, or had
+  // nothing to write, refuses with why.
+  async function recordTap(key, kind, body, { nothing, stops }) {
+    const refuse = (status, words) => { throw Object.assign(new BoardError(words), { status }); };
+    let agents = [], written;
+    try {
+      if (stops) agents = await openAgents(here, key);
+      written = await recordOwnerTap(here, kind, body);
+    } catch (e) { refuse(e instanceof BoardError ? 400 : 500, `Couldn’t write ${key} to its item file: ${e.message}`); }
+    if (!written) refuse(400, nothing);
+    if (!agents.length) return;
+    const open = await openAgents(here, key);
+    agents = agents.filter((a) => !open.some((o) => o.pid === a.pid));
+    if (agents.length) {
+      stopAgents(agents);
+      await appendStatus(here, key, 'builder-stopped');
+    }
+  }
+
   async function answer(req, res) {
     try {
       if (req.method !== 'GET' && req.method !== 'HEAD') dataVersion++;
@@ -1032,20 +1083,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const sendId = body.sendId ? String(body.sendId) : null;
         const recorded = sendId && (await readLog(events)).find((e) => e.kind === kind && e.data?.sendId === sendId);
         if (recorded) return json(res, 200, { id: recorded.id, board: await answerBoard(req, since) });
-        // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: a tap that moves a
-        // card carries the version of the card the page drew it from (domain.mjs version); one whose card has moved since
-        // answers 409 with where the card is, and nothing changes. A bare Implement on a staged or ready card has had its
-        // Implement (a ready one the pull starts), so it answers the same.
-        const drawn = body.version === undefined ? undefined : String(body.version);
+        // docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md: what a tap does to its card is
+        // domain.mjs tapPlan's, drawn from the built card; a refused tap changes nothing.
+        const plan = TAP_KINDS.has(kind) ? tapPlan((await sharedBoard()).items.find((i) => i.key === String(body.key || '')), kind, body) : null;
+        if (plan?.refuse) return json(res, plan.refuse.status, { error: plan.refuse.words });
         delete body.version;
-        if (CARD_TAPS.has(kind) || (kind === 'item-message' && body.intent === 'build')) {
-          const card = (await sharedBoard()).items.find((i) => i.key === String(body.key || ''));
-          const bare = kind === 'item-message' && !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
-          if (card && ((drawn !== undefined && drawn !== card.version) || (bare && card.lane === 'todo' && ['staging', 'ready'].includes(card.storedPhase)))) {
-            const had = HAD_IMPLEMENT[card.lane === 'todo' ? card.storedPhase : card.lane];
-            return json(res, 409, { error: `${card.ref || card.key} is ${had ? `already ${had}` : `${card.storedPhase || 'new'} now`}, so nothing changed.` });
-          }
-        }
         if (kind === 'card-hold' && body.hold && body.for !== undefined) {
           const end = durationEnd(now(), body.for);
           if (!end) return json(res, 400, { error: 'That block ends in the past or more than 30 days on. Pick another time.' });
@@ -1071,13 +1113,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
             return json(res, 200, { id: eventId, board: await answerBoard(req, since) });
           } finally { scriptTaps.delete(id); }
         }
-        // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md
-        if (kind === 'card-build') {
-          const key = String(body.key || '');
-          const full = !pullOf((await sharedBoard()).items, { cap: tasksInProgressCap(readUsageGate({ dir: here }), settingsOf(await config()).max_implementers), pulled: await sentOf(PULL) }).free;
-          const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'tap', { full });
-          return json(res, 200, { id: await handOff(started), board: await answerBoard(req, since) });
-        }
         // docs/adr/2026-11-13-2045-an-exact-repeat-within-30-seconds-is-skipped.md: a message whose text, author and card
         // match one recorded in the last 30 seconds answers as recorded, and writes nothing. A message with a sendId is a
         // distinct send of the page's, which its sendId already guards, so it is not compared.
@@ -1087,30 +1122,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
             && String(e.data?.text || '') === text && String(e.data?.key || '') === String(body.key || '') && JSON.stringify(e.data?.shared_by ?? null) === JSON.stringify(body.shared_by ?? null));
           if (repeat) return json(res, 200, { id: repeat.id, board: await answerBoard(req, since) });
         }
-        // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md, docs/adr/2026-11-07-0700-staging-then-ready.md
-        // The message's thread line is written before the lines its tap causes ("Resumed", "Marked as staging").
-        let tapEffects;
-        if (kind === 'item-message') {
-          const key = String(body.key || '');
-          const card = (await sharedBoard()).items.find((i) => i.key === key && i.kind === 'work');
-          const bare = !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
-          // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md: a message on a card the
-          // orchestrator stalled clears the stall, and reaches the orchestrator as any message does.
-          if (card?.stalled) await clearStall(here, key);
-          if (card?.ownerWait) await clearOwnerWait(here, key);
-          // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
-          if (card?.lane === 'progress' && !bare) await passNews(here, key, { from: 'owner', text: String(body.text || '').trim() || 'see the files on its thread' });
-          // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement stages the
-          // card as it is, with no event; one on a ready card was refused above.
-          if (bare && (card?.ready || card?.lane === 'todo')) {
-            stopAgents(await implementAsIs(here, key, sendId));
-            dataVersion++;
-            return json(res, 200, { id: null, board: await answerBoard(req, since) });
-          }
-          if (card?.lane === 'todo' && body.intent === 'build') tapEffects = async () => stopAgents(await stageImplement(here, key, body));
-          else if (card?.lane === 'todo' && card.phase === 'ready') tapEffects = () => stageReply(here, key, body);
-          dataVersion++;
-        }
+        if (plan) return json(res, 200, { id: await applyTap(plan, kind, body, sendId), board: await answerBoard(req, since) });
         if (kind === 'owner-answer') {
           const refused = await handedOver(here, [body]);
           if (refused) return json(res, 400, { error: refused });
@@ -1120,62 +1132,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           const refused = await answersRefused(body.answers) || (await handedOver(here, body.answers));
           if (refused) return json(res, 400, { error: refused });
           return json(res, 200, { ids: await recordAnswers(body.answers), board: await answerBoard(req, since) });
-        }
-        // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: a held card's Merge lands from here, with no session.
-        if (kind === 'card-merge' && await heldMerge(here, String(body.key || '')).catch(() => null)) {
-          const key = String(body.key);
-          try { await tapMerge(here, key); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
-          runHeldMerge(key);
-          return json(res, 200, { id: null, board: await answerBoard(req, since) });
-        }
-        // docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md
-        // The Merge tap merges the card here and records no event, so no session wakes; a refusal answers 400 and is a
-        // thread line (store.mjs mergeCard).
-        if (kind === 'card-merge') {
-          try { await mergeCard(here, String(body.key || ''), { tapped: true }); }
-          catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
-          return json(res, 200, { id: null, board: await answerBoard(req, since) });
-        }
-        // A Block, Unblock or Done is written to the card's item file before its event, and one that couldn't be is refused with
-        // why, recording nothing (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-        if (kind === 'card-hold' || kind === 'card-done') {
-          const key = String(body.key || '');
-          let written, agents;
-          try {
-            // Read before the tap, which closes the records. A Block stops the card's planners at once; a Done lets a landing finish.
-            agents = kind === 'card-hold' && !body.hold ? [] : await openAgents(here, key);
-            if (kind === 'card-done' && await isLanding(here, key)) agents = [];
-            written = await recordOwnerTap(here, kind, body);
-            if (kind === 'card-done') await clearOwnerWait(here, key);
-          }
-          catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its item file: ${e.message}` }); }
-          if (!written) return json(res, 400, { error: `${key} is already in Done, so its item file stays as it is.` });
-          // A held build runs on to its stopping point, its record left open (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
-          const open = await openAgents(here, key);
-          agents = agents.filter((a) => !open.some((o) => o.pid === a.pid));
-          if (agents.length) {
-            stopAgents(agents);
-            await appendStatus(here, key, 'builder-stopped');
-          }
-          if (kind === 'card-hold' && !body.hold) await resumeRun(key);
-        }
-        // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md: a Reopen is written to the
-        // item file before its event, as a Done is; one on a card not in Done is refused and records nothing.
-        if (kind === 'card-reopen') {
-          const key = String(body.key || '');
-          let moved;
-          try { moved = await recordOwnerTap(here, kind, body); }
-          catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its item file: ${e.message}` }); }
-          if (!moved) return json(res, 400, { error: `${key} isn’t in Done, so there is nothing to reopen.` });
-        }
-        // A Cancel takes a staged or ready Todo card back to discussing, written before its event as a Reopen is; one on any
-        // other card is refused and records nothing.
-        if (kind === 'card-cancel') {
-          const key = String(body.key || '');
-          let moved;
-          try { moved = await recordOwnerTap(here, kind, body); }
-          catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its item file: ${e.message}` }); }
-          if (!moved) return json(res, 400, { error: `${key} isn’t staged or ready, so there is no Implement to cancel.` });
         }
         // A Save's removes and adds are both written here, and recorded as reviewers-removed and reviewers-added, which the
         // session takes no action on (docs/adr/2026-11-05-2100-the-server-adds-reviewers-from-fetched-lists.md).
@@ -1218,24 +1174,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           await planAgain(here, filed, body.request, { ...(body.text ? { text: String(body.text) } : {}), ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}) });
         }
         const id = (await appendEvents([[kind, body, preset]]))[0];
-        await tapEffects?.();
         if (kind === 'ask-edited') await retitleAskCard(here, String(body.id || ''));
         // A deleted ask's New card goes with it.
         if (kind === 'ask-withdrawn') await dropAskCard(here, String(body.id || ''));
-        // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bump moves the card's queued lands.
-        if (kind === 'card-bump' || kind === 'card-unbump') moveQueuedLand(here, String(body.key || ''), kind === 'card-bump' ? now().toISOString() : null);
-        // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a tap owes the orchestrator's
-        // brief; the agent launches from the brief.
-        const tapped = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'review-request': REVIEWER }[kind];
-        if (tapped && body.key) {
-          // docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md: the tap ends an Implement or Close mark.
-          await clearOwnerWait(here, String(body.key));
-          await planAgain(here, String(body.key), tapped, {
-            ...(body.text ? { text: String(body.text) } : {}),
-            ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}),
-            ...(body.question ? { question: String(body.question), ...(body.note ? { note: String(body.note) } : {}), ...(body.choice != null ? { choice: body.choice } : {}) } : {}),
-          });
-        }
         if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
         // The owner's Post it or Skip on a held review is applied here, without waking the orchestrator; a failure
         // leaves a review-failed event, a red line on the review's card and a wait.

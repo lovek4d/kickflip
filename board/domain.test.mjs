@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
 import { queuedPlannerKey, queuedPlannerCard } from './domain.mjs';
-import { footerOf,buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone } from './domain.mjs';
+import { footerOf,buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone, tapPlan, TAP_KINDS } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -3292,4 +3292,115 @@ test('Todo sorts strictly by created: a backfilled old card sorts above a newer 
   const b = build([todo('NEW', '2026-11-10T00:00:00Z'), todo('OLD', '2026-11-01T00:00:00Z')]);
   assert.deepEqual(b.items.filter((i) => i.lane === 'todo').map((i) => [i.id, i.sortAt]).sort((x, y) => x[1].localeCompare(y[1])), [['OLD', '2026-11-01T00:00:00Z'], ['NEW', '2026-11-10T00:00:00Z']]);
   assert.equal(build([{ ...todo('OLD'), updated_at: '2026-11-15T00:00:00Z' }]).items[0].sortAt, null);
+});
+
+// docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md
+const tapCard = (more = {}) => ({ key: 'w/A1', ref: '#1', kind: 'work', lane: 'todo', storedPhase: 'discussing', phase: 'discussing', version: 'todo/discussing', ...more });
+const EVENT = { do: 'event' };
+const IN_DONE = 'w/A1 is already in Done, so its item file stays as it is.';
+
+test('tapPlan refuses a tap drawn from a version of the card it has moved from, and a bare Implement it has had, naming where it is', () => {
+  const rows = [
+    // [card, kind, body, the refusal's words or null]
+    [tapCard({ lane: 'progress', version: 'progress/new', storedPhase: null }), 'card-done', { version: 'todo/ready' }, '#1 is already in progress, so nothing changed.'],
+    [tapCard({ storedPhase: 'ready', version: 'todo/ready' }), 'card-cancel', { version: 'todo/staging' }, '#1 is already ready, so nothing changed.'],
+    [tapCard({ ref: null, version: 'todo/discussing' }), 'card-hold', { key: 'w/A1', version: 'todo/new', hold: true }, 'w/A1 is discussing now, so nothing changed.'],
+    [tapCard({ storedPhase: null, version: 'todo/new' }), 'card-merge', { version: 'review/new' }, '#1 is new now, so nothing changed.'],
+    [tapCard({ storedPhase: 'staging', version: 'todo/staging' }), 'item-message', { intent: 'build', text: ' ' }, '#1 is already staged, so nothing changed.'],
+    [tapCard({ storedPhase: 'ready', version: 'todo/ready' }), 'item-message', { intent: 'build' }, '#1 is already ready, so nothing changed.'],
+    // A drawn version that matches, an Implement with words, a plain message, no version, or no card: nothing refused.
+    [tapCard(), 'card-done', { version: 'todo/discussing' }, null],
+    [tapCard({ storedPhase: 'staging', version: 'todo/staging' }), 'item-message', { intent: 'build', text: 'and add a test' }, null],
+    [tapCard({ storedPhase: 'staging', version: 'todo/staging' }), 'item-message', { text: '' }, null],
+    [tapCard({ version: 'todo/discussing' }), 'card-hold', { hold: true }, null],
+    [undefined, 'card-done', { key: 'w/A1', version: 'todo/new' }, null],
+    // Only a card tap or an Implement carries a version.
+    [tapCard(), 'grill-more', { key: 'w/A1', version: 'todo/new' }, null],
+  ];
+  for (const [card, kind, body, words] of rows) {
+    const plan = tapPlan(card, kind, { key: 'w/A1', ...body });
+    assert.deepEqual(plan.refuse ?? null, words && { status: 409, words }, `${kind} ${JSON.stringify(body)}`);
+  }
+});
+
+test("tapPlan stages an Implement or a Reply on a Todo card by its phase, and an owner's message on any card clears what it ends", () => {
+  const rows = [
+    // [card, body, effects]
+    // A bare Implement on a Todo card, or a ready card, is staged as it is, with no event.
+    [tapCard(), { intent: 'build' }, [{ do: 'stage', as: 'asIs' }]],
+    [tapCard({ phase: 'grilling', storedPhase: 'grilling', version: 'todo/grilling' }), { intent: 'build', files: [] }, [{ do: 'stage', as: 'asIs' }]],
+    [tapCard({ lane: 'progress', ready: true, version: 'progress/new' }), { text: '' }, [{ do: 'stage', as: 'asIs' }]],
+    // An Implement with words is recorded, then staged.
+    [tapCard(), { intent: 'build', text: 'go' }, [EVENT, { do: 'stage', as: 'implement' }]],
+    [tapCard(), { intent: 'build', files: ['a.png'] }, [EVENT, { do: 'stage', as: 'implement' }]],
+    // A Reply on a ready Todo card stages it again; one on a discussing card is a message.
+    [tapCard({ phase: 'ready', storedPhase: 'ready' }), { text: 'one more thing' }, [EVENT, { do: 'stage', as: 'reply' }]],
+    [tapCard(), { text: 'a thought' }, [EVENT]],
+    // On a running card the builder hears it, the words or a pointer to the files.
+    [tapCard({ lane: 'progress' }), { text: '  stop at the API  ' }, [{ do: 'passNews', text: 'stop at the API' }, EVENT]],
+    [tapCard({ lane: 'progress' }), { files: ['a.png'] }, [{ do: 'passNews', text: 'see the files on its thread' }, EVENT]],
+    // In Review or Done it is a message, recorded.
+    [tapCard({ lane: 'review' }), { text: 'hm' }, [EVENT]],
+    [tapCard({ lane: 'review' }), { text: '' }, [EVENT]],
+    // A stall or an owner mark comes off first.
+    [tapCard({ stalled: 'stuck', ownerWait: 'implement' }), { intent: 'build' }, [{ do: 'clearStall' }, { do: 'clearOwnerWait' }, { do: 'stage', as: 'asIs' }]],
+    [tapCard({ lane: 'progress', stalled: 'stuck' }), { text: 'go on' }, [{ do: 'clearStall' }, { do: 'passNews', text: 'go on' }, EVENT]],
+  ];
+  for (const [card, body, effects] of rows) assert.deepEqual(tapPlan(card, 'item-message', { key: 'w/A1', ...body }), effects, `${card.lane}/${card.phase} ${JSON.stringify(body)}`);
+  // A message on no card, or on an ask's card, is only recorded.
+  assert.deepEqual(tapPlan(undefined, 'item-message', { key: 'w/A9', text: '' }), [EVENT]);
+  assert.deepEqual(tapPlan(tapCard({ kind: 'ask', key: 'ask:1' }), 'item-message', { key: 'ask:1', text: '' }), [EVENT]);
+});
+
+test('tapPlan writes a Block, Unblock, Done, Reopen or Cancel before its event, stopping the agents a Block or a Done closes unless the card is landing', () => {
+  const record = (nothing, stops) => ({ do: 'record', nothing, stops });
+  const rows = [
+    // [card, kind, body, effects]
+    [tapCard({ lane: 'progress' }), 'card-hold', { hold: true }, [record(IN_DONE, true), EVENT]],
+    [tapCard({ lane: 'progress', landing: true }), 'card-hold', { hold: true, until: '2026-11-18T09:00:00.000Z' }, [record(IN_DONE, true), EVENT]],
+    [tapCard({ lane: 'progress' }), 'card-hold', { hold: false }, [record(IN_DONE, false), { do: 'resume' }, EVENT]],
+    [tapCard({ lane: 'progress' }), 'card-done', {}, [record(IN_DONE, true), { do: 'clearOwnerWait' }, EVENT]],
+    [tapCard({ lane: 'progress', landing: true }), 'card-done', {}, [record(IN_DONE, false), { do: 'clearOwnerWait' }, EVENT]],
+    [undefined, 'card-done', {}, [record(IN_DONE, true), { do: 'clearOwnerWait' }, EVENT]],
+    [tapCard({ lane: 'done' }), 'card-reopen', {}, [record('w/A1 isn’t in Done, so there is nothing to reopen.', false), EVENT]],
+    [tapCard({ storedPhase: 'ready' }), 'card-cancel', {}, [record('w/A1 isn’t staged or ready, so there is no Implement to cancel.', false), EVENT]],
+  ];
+  for (const [card, kind, body, effects] of rows) assert.deepEqual(tapPlan(card, kind, { key: 'w/A1', ...body }), effects, `${kind} ${JSON.stringify(card ?? null)}`);
+});
+
+test("tapPlan lands a held card's Merge, merges any other card's PR, and starts a Build, each with no event", () => {
+  assert.deepEqual(tapPlan(tapCard({ lane: 'review', mergeReady: { branch: 'T-1', at: 'x', base: 'main' } }), 'card-merge', { key: 'w/A1' }), [{ do: 'merge', held: true }]);
+  assert.deepEqual(tapPlan(tapCard({ lane: 'review', mergeReady: null }), 'card-merge', { key: 'w/A1' }), [{ do: 'merge', held: false }]);
+  assert.deepEqual(tapPlan(undefined, 'card-merge', { key: 'w/A9' }), [{ do: 'merge', held: false }]);
+  assert.deepEqual(tapPlan(tapCard({ phase: 'ready' }), 'card-build', { key: 'w/A1' }), [{ do: 'build' }]);
+});
+
+test("tapPlan records a planner request, then clears the card's owner mark and owes the kind's brief with what was asked", () => {
+  const rows = [
+    // [kind, body, the brief's kind, ask]
+    ['grill-more', { text: 'and the edges' }, 'grill', { text: 'and the edges' }],
+    ['prototype-request', { files: ['a.png'], text: '' }, 'prototype', { files: ['a.png'] }],
+    ['visual-request', {}, 'visual', {}],
+    ['review-request', { question: 'q1', note: 'n', choice: 0 }, 'reviewer', { question: 'q1', note: 'n', choice: 0 }],
+    ['grill-more', { question: 'q1', choice: null, files: [] }, 'grill', { question: 'q1' }],
+  ];
+  for (const [kind, body, brief, ask] of rows) {
+    assert.deepEqual(tapPlan(tapCard(), kind, { key: 'w/A1', ...body }), [EVENT, { do: 'clearOwnerWait' }, { do: 'plan', kind: brief, ask }], `${kind} ${JSON.stringify(body)}`);
+  }
+  assert.deepEqual(tapPlan(undefined, 'grill-more', { text: 'no card' }), [EVENT], 'a request with no card is only recorded');
+});
+
+test("tapPlan moves a bumped card's queued lands after its event", () => {
+  assert.deepEqual(tapPlan(tapCard(), 'card-bump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: true }]);
+  assert.deepEqual(tapPlan(tapCard(), 'card-unbump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: false }]);
+  assert.deepEqual([...TAP_KINDS].sort(), ['card-build', 'card-bump', 'card-cancel', 'card-done', 'card-hold', 'card-merge', 'card-reopen', 'card-unbump', 'grill-more', 'item-message', 'prototype-request', 'review-request', 'visual-request']);
+});
+
+test("a built card is landing while its own newest status line is the finish step's landing line", () => {
+  const landing = (lines) => board({ threads: { 'w/A1': lines } }).items.find((i) => i.key === 'w/A1').landing;
+  const status = (phase, ts) => ({ kind: 'status', phase, text: 'x', ts, who: 'claude' });
+  assert.equal(landing([]), false);
+  assert.equal(landing([status('checking', '2026-10-23T10:00:00Z'), status('landing', '2026-10-23T10:05:00Z')]), true);
+  assert.equal(landing([status('landing', '2026-10-23T10:05:00Z'), status('building', '2026-10-23T10:06:00Z')]), false);
+  assert.equal(landing([status('landing', '2026-10-23T10:05:00Z'), { kind: 'message', who: 'love', text: 'hi', ts: '2026-10-23T10:07:00Z' }]), true);
 });

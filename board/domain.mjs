@@ -237,7 +237,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github' || m.via =
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 // The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
 const STILL_MERGING = ['lander-handoff', 'land-waiting', 'test-waiting'];
-function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, scriptEvents, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
+function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, landing, eta, thread, events, scriptEvents, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
   // An archived PR the board no longer reads the hub's check for draws what it kept (store.mjs keptPRs). A hub record
   // read without its url (a Done card's PR) keeps the one its repo and number give.
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, ...(p.gh || p.kept || {}), url: (p.gh || p.kept)?.url || prURL(p), status: prStateOf(p.gh, p.merged_at) }));
@@ -418,7 +418,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: the running reviewer's grey row, what it
     // reviews (diff or plan) and since when.
     reviewer: reviewerOf(agents),
-    storedPhase: it.phase || null, phase: null, recheckAt: it.recheck_at || null,
+    storedPhase: it.phase || null, phase: null, recheckAt: it.recheck_at || null, landing,
     // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: whose turn a discussing card is, the orchestrator's
     // while an owner message or answer on it is unanswered, otherwise the owner's.
     turn: lane === 'todo' && it.phase === 'discussing' ? (said.some((m) => m.state === 'waiting' || m.state === 'working') ? 'claude' : 'owner') : undefined,
@@ -1408,6 +1408,8 @@ export function buildBoard(snapshot) {
         prs: cardPRs(it, repo).map((p) => ({ ...p, gh: routeRecord(prs, prKeyOf(p)) || null })),
         ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null, routeRecord(snapshot.alive, key) ?? null, Boolean(routeRecord(snapshot.loggedOut, key))), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)) ?? it.worktree?.path ?? null,
+        // Whether the card's own latest status line is the finish step's landing line.
+        landing: (routeRecord(threads, key) || []).filter((m) => m.kind === 'status').pop()?.phase === 'landing',
         thread: lines,
         scriptEvents: index.scripts.get(key) || [],
         events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],
@@ -2078,6 +2080,91 @@ function moveWhy(i, to) {
   if (i.answered && to === 'review') return 'answered, it waits for your Done';
   if (to === 'progress') return i.waitsOn === 'checking' ? 'its build handed back for a check' : i.builder ? 'a build started' : 'Claude acts next';
   return i.next || 'it waits on review';
+}
+
+// Where a card is that has had its Implement, in words: its phase in Todo, else its lane.
+export const HAD_IMPLEMENT = { staging: 'staged', ready: 'ready', progress: 'in progress', review: 'in review', done: 'done' };
+// The taps that move a card, each carrying the version of the card the page drew it from.
+const CARD_TAPS = ['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-cancel', 'card-merge'];
+// A tap that asks for a planner, and the brief it owes.
+const REQUEST_BRIEFS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': VISUAL, 'review-request': REVIEWER };
+// The event kinds tapPlan decides.
+export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'card-unbump', ...Object.keys(REQUEST_BRIEFS)]);
+
+// docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md
+// What the owner's tap of kind, with its event's data body, does to card (the built card its key names, or undefined
+// for none): {refuse: {status, words}}, which changes nothing, or the effects to run in order (server.mjs applyTap):
+//   {do: 'event'}                    the tap's event is recorded here; a plan without one records none
+//   {do: 'clearStall'}, {do: 'clearOwnerWait'}
+//   {do: 'passNews', text}           a running builder hears the owner's words
+//   {do: 'stage', as}                staged as is (a bare Implement), as an Implement, or again after a Reply (reply);
+//                                    an Implement stops the planners it ends
+//   {do: 'record', nothing, stops}   the tap written to the item file (store.mjs recordOwnerTap); one with nothing to
+//                                    write refuses with nothing; stops: the agents the write closed are stopped
+//   {do: 'resume'}                   the run a Block stopped starts again
+//   {do: 'merge', held}              a held card's Merge starts its land; any other merges the PR
+//   {do: 'build'}                    a Build starts the card's build, whose launch is the tap's answer
+//   {do: 'plan', kind, ask}          the card owes kind's brief, answering ask
+//   {do: 'moveLand', first}          the card's queued lands move to the front, or back
+export function tapPlan(card, kind, body) {
+  const key = String(body.key || '');
+  const bare = !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
+  // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: a tap drawn from a
+  // version of the card it has moved from changes nothing; nor does a bare Implement on a staged or ready card, which
+  // has had its Implement (a ready one the pull starts).
+  if (card && (CARD_TAPS.includes(kind) || (kind === 'item-message' && body.intent === 'build'))) {
+    const stale = body.version !== undefined && String(body.version) !== card.version;
+    if (stale || (kind === 'item-message' && bare && card.lane === 'todo' && ['staging', 'ready'].includes(card.storedPhase))) {
+      const had = HAD_IMPLEMENT[card.lane === 'todo' ? card.storedPhase : card.lane];
+      return { refuse: { status: 409, words: `${card.ref || key} is ${had ? `already ${had}` : `${card.storedPhase || 'new'} now`}, so nothing changed.` } };
+    }
+  }
+  const event = { do: 'event' };
+  if (kind === 'item-message') {
+    if (card?.kind !== 'work') return [event];
+    // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md: a message on a card the
+    // orchestrator stalled clears the stall, and reaches the orchestrator as any message does.
+    const before = [card.stalled && { do: 'clearStall' }, card.ownerWait && { do: 'clearOwnerWait' },
+      // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
+      card.lane === 'progress' && !bare && { do: 'passNews', text: String(body.text || '').trim() || 'see the files on its thread' }].filter(Boolean);
+    // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement stages the
+    // card as it is, with no event.
+    if (bare && (card.ready || card.lane === 'todo')) return [...before, { do: 'stage', as: 'asIs' }];
+    // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md,
+    // docs/adr/2026-11-07-0700-staging-then-ready.md: the message's thread line is written before the lines its tap
+    // causes ("Marked as staging").
+    const stage = card.lane !== 'todo' ? null : body.intent === 'build' ? 'implement' : card.phase === 'ready' ? 'reply' : null;
+    return [...before, event, ...(stage ? [{ do: 'stage', as: stage }] : [])];
+  }
+  // A Block, Unblock, Done, Reopen or Cancel is written to the card's item file before its event, and one with nothing to
+  // write is refused with why, recording nothing (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
+  // A Block stops the card's agents, a landing build's included; a Done lets a landing finish; a held build runs on to
+  // its stopping point (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
+  const inDone = `${key} is already in Done, so its item file stays as it is.`;
+  if (kind === 'card-hold') {
+    return body.hold ? [{ do: 'record', nothing: inDone, stops: true }, event]
+      : [{ do: 'record', nothing: inDone, stops: false }, { do: 'resume' }, event];
+  }
+  if (kind === 'card-done') return [{ do: 'record', nothing: inDone, stops: !card?.landing }, { do: 'clearOwnerWait' }, event];
+  // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
+  if (kind === 'card-reopen') return [{ do: 'record', nothing: `${key} isn’t in Done, so there is nothing to reopen.`, stops: false }, event];
+  if (kind === 'card-cancel') return [{ do: 'record', nothing: `${key} isn’t staged or ready, so there is no Implement to cancel.`, stops: false }, event];
+  // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md, docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md:
+  // a Merge records no event, so no session wakes.
+  if (kind === 'card-merge') return [{ do: 'merge', held: Boolean(card?.mergeReady) }];
+  // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md
+  if (kind === 'card-build') return [{ do: 'build' }];
+  // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bump moves the card's queued lands.
+  if (kind === 'card-bump' || kind === 'card-unbump') return [event, { do: 'moveLand', first: kind === 'card-bump' }];
+  // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a request owes the orchestrator's
+  // brief, and ends an Implement or Close mark (docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md).
+  if (!body.key) return [event];
+  const ask = {
+    ...(body.text ? { text: String(body.text) } : {}),
+    ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}),
+    ...(body.question ? { question: String(body.question), ...(body.note ? { note: String(body.note) } : {}), ...(body.choice != null ? { choice: body.choice } : {}) } : {}),
+  };
+  return [event, { do: 'clearOwnerWait' }, { do: 'plan', kind: REQUEST_BRIEFS[kind], ask }];
 }
 
 // The push tag tied to a card's thread: ask-<event id> for ask:<event id>, item-<file>/<id> for a work item.
