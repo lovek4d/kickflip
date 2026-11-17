@@ -1206,6 +1206,17 @@ test("a visual agent's brief has it start as its own agent, read the card and th
   assert.doesNotMatch(visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1' }), /The owner wrote/, 'with no text from the owner, the orchestrator\'s brief says what to draw');
 });
 
+// docs/adr/2026-11-17-1600-a-final-visual-ends-on-the-cards-implement.md
+test("a final visual's brief has its agent place the page with --implement, so the task's Implement is the next action, and ask no question", () => {
+  const b = `node ${BOARD_CLI} --site shop`;
+  const brief = visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1', brief: { ...card.brief, final: true } });
+  assert.ok(brief.includes(`${b} visual add w/A1 --file <page.html> --title "<what it shows>" --implement`));
+  assert.match(brief, /final visual of a UI change/);
+  assert.match(brief, /already staged, ready or past Todo.*without --implement/, 'a task that has had Implement takes the page unmarked');
+  assert.ok(!brief.includes('question add'), 'a final visual asks no question: the task\'s Implement confirms it');
+  assert.doesNotMatch(visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1' }), /--implement/, 'a visual not final marks nothing');
+});
+
 // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
 test('a new task launches no agent: it arrives as a New card that waits on the orchestrator, which sorts it', async (t) => {
   const b = oneLaunchBoard(t, [{ id: 'A1', title: 'Filed', phase: 'grilling', lane: 'progress' }]);

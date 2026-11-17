@@ -85,18 +85,22 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          "· and N replies", and prints the new body. It never pushes: the thread's unread mark carries it
   visual add <file>/<id> --file <page.html> --title <t>  a visual agent's page: copied to public/visuals/<id>/<slug>.html
                                                          (a new name each time), linked by a visual line in the
-                                                         item's thread; prints the page's link
+                                                         item's thread; prints the page's link. --implement, a
+                                                         final visual's: the task waits on the owner's Implement,
+                                                         as thread --implement marks it
   reviewer post <file>/<id> --file <findings.json>       a reviewer's findings, a JSON list of {severity:
                                                          high|medium|low, at?: "<file>:<line>", text}: one Reviewer
                                                          message in the task's thread, most severe first
   item brief <file>/<id> --kind grill|prototype|visual|reviewer
-         --file <draft.md>                               the orchestrator's brief for the task's next agent of that
+         [--final] --file <draft.md>                     the orchestrator's brief for the task's next agent of that
                                                          kind: what the discussion settled, what is still open,
                                                          what the questions, takes, page or review should cover
                                                          and the files that matter. Appended to its notes as "Brief
                                                          for <kind> round N"; the board launches the agent from it,
                                                          and from nothing else. A grill or prototype brief moves the
-                                                         Todo task to grilling or prototyping
+                                                         Todo task to grilling or prototyping. --final, a visual's
+                                                         only: a UI change's final visual, whose agent places its
+                                                         page with visual add --implement
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
@@ -874,7 +878,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'blocked', 'unblocked', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close', 'split']);
+const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'blocked', 'unblocked', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close', 'split', 'final']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -1086,9 +1090,9 @@ const COMMANDS = {
     }
     return withQuestions(site, f, () => store.appendMessage(site, key, f));
   }],
-  'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
+  'visual add': [['file/id'], ['file', 'title', 'implement'], (site, [key], f) => store.addVisual(site, key, f)],
   'reviewer post': [['file/id'], ['file'], (site, [key], f) => store.postFindings(site, key, f)],
-  'item brief': [['file/id'], ['kind', 'file'], (site, [key], f) => store.writeBrief(site, key, f)],
+  'item brief': [['file/id'], ['kind', 'final', 'file'], (site, [key], f) => store.writeBrief(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
     const input = readJSONInput(f.file);

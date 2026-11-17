@@ -3035,13 +3035,16 @@ export async function oweBrief(site, key, kind) {
   owe(item, kind);
   await writeJSON(source.file, itemFile);
 }
-// `item brief <key> --kind grill|prototype|visual --file <draft.md>`: the orchestrator's brief for the card's next agent
-// of that kind, appended to its notes as "Brief for <kind> round N" and set on the kind's owed entry, or on a new one when
-// the orchestrator briefs an agent nobody asked for. A grill or prototype brief moves the Todo card to that phase; the
-// board server launches the agent from it. → {heading, lines}
-export async function writeBrief(site, key, { kind, file }) {
+// `item brief <key> --kind grill|prototype|visual [--final] --file <draft.md>`: the orchestrator's brief for the card's
+// next agent of that kind, appended to its notes as "Brief for <kind> round N" and set on the kind's owed entry, or on a
+// new one when the orchestrator briefs an agent nobody asked for. A grill or prototype brief moves the Todo card to that
+// phase; the board server launches the agent from it. A visual brief with --final draws a UI change's final visual,
+// whose agent places its page marking the card's Implement (addVisual)
+// (docs/adr/2026-11-17-1600-a-final-visual-ends-on-the-cards-implement.md). → {heading, lines}
+export async function writeBrief(site, key, { kind, file, final }) {
   needSite(site);
   if (!BRIEF_KINDS.includes(kind)) fail(`item brief needs --kind grill, prototype, ${VISUAL} or ${REVIEWER}`);
+  if (final && kind !== VISUAL) fail(`item brief --final is for a ${VISUAL}; a ${kind} is never final`);
   if (file === undefined) fail('item brief needs --file <draft.md>: what the discussion settled, what is still open, what the agent should cover and the files that matter');
   const name = await cardName(site, key);
   const { item } = await loadItem(site, key);
@@ -3056,7 +3059,7 @@ export async function writeBrief(site, key, { kind, file }) {
   const at = new Date().toISOString();
   const tapped = (briefed.briefs || []).some((b) => b.kind === kind && !b.brief && b.tap);
   if (!(briefed.briefs || []).some((b) => b.kind === kind && !b.brief)) owe(briefed, kind, {}, at);
-  briefed.briefs = briefed.briefs.map((b) => (b.kind === kind && !b.brief ? { ...b, brief: { heading, text: body, at } } : b));
+  briefed.briefs = briefed.briefs.map((b) => (b.kind === kind && !b.brief ? { ...b, brief: { heading, text: body, at, ...(final ? { final: true } : {}) } } : b));
   if (!beside({ kind }) && briefed.phase !== PLANNER_PHASE[kind]) {
     leaveNew(briefed);
     briefed.phase = PLANNER_PHASE[kind];
@@ -5851,16 +5854,20 @@ export async function isPlanner(site, key, agent = 'main') {
   return Boolean(record?.started && !record.done && plans(record));
 }
 
-// `visual add <file/id> --file <html> --title <t>`: the visual agent's page, copied to the site's
+// `visual add <file/id> --file <html> --title <t> [--implement]`: the visual agent's page, copied to the site's
 // public/visuals/<card id>/<slug of title>.html, a new name each time, and a visual line in the card's thread linking it.
+// With --implement, a final visual's, the card waits on the owner's Implement as thread --implement marks it, and a
+// card already staged, ready or past Todo is refused before the page is placed
+// (docs/adr/2026-11-17-1600-a-final-visual-ends-on-the-cards-implement.md).
 // → {lines: [the page's site-relative link]}
-export async function addVisual(site, key, { file, title }) {
+export async function addVisual(site, key, { file, title, implement }) {
   needSite(site);
   const name = text(title, '--title');
   if (typeof file !== 'string' || !file.endsWith('.html')) fail('--file takes the page, an .html file');
   const html = await fs.readFile(path.resolve(file), 'utf8').catch(() => fail(`--file ${file} can't be read`));
   if (!html.trim()) fail(`--file ${file} is empty`);
   await loadItem(site, key);
+  if (implement) await markWaiting(site, key, 'implement');
   const { id } = parseKey(key);
   const dir = path.join(site, 'public', 'visuals', id);
   await fs.mkdir(dir, { recursive: true });

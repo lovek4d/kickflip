@@ -150,6 +150,45 @@ test('item set --done is refused on an ask only a planner ran on, and goes throu
   assert.doesNotMatch(built.err, /no build ran on/);
 });
 
+// docs/adr/2026-11-17-1600-a-final-visual-ends-on-the-cards-implement.md
+test("a final visual's page placed with visual add --implement marks the card's Implement as its next action; a card that has had Implement refuses it before the page is placed", async () => {
+  fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
+  await s.clearOwnerWait(audit(), 'audit/T-1');
+  const page = path.join(home, 'final.html');
+  fs.writeFileSync(page, '<!doctype html><title>Final</title>');
+  const add = (...flags) => board('visual', 'add', 'audit/T-1', '--file', page, '--title', 'The footer as built', ...flags, '--site', 'audit');
+  assert.equal((await add()).code, 0);
+  assert.equal(t1().waits_on_owner, undefined, 'a visual not final marks nothing');
+  const marked = await add('--implement');
+  assert.deepEqual([marked.code, marked.err, marked.out], [0, '', 'visuals/T-1/the-footer-as-built-2.html\n']);
+  assert.equal(t1().waits_on_owner.on, 'implement');
+  assert.equal(card(built({ waits_on_owner: t1().waits_on_owner })).action.kind, 'implement', 'the card reads Tap Implement');
+  await s.stageImplement(audit(), 'audit/T-1', {});
+  const refused = await add('--implement');
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.err, /staged/);
+  assert.ok(!fs.existsSync(audit('public', 'visuals', 'T-1', 'the-footer-as-built-3.html')), 'the refused page is not placed');
+});
+
+// docs/adr/2026-11-17-1600-a-final-visual-ends-on-the-cards-implement.md
+test('item brief --final writes a final visual brief, which its agent launches from; any other kind is refused --final', async () => {
+  fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
+  const draft = path.join(home, 'final-brief.md');
+  fs.writeFileSync(draft, 'Draw the footer as it will be built.');
+  const grill = await board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--final', '--file', draft, '--site', 'audit');
+  assert.notEqual(grill.code, 0);
+  assert.match(grill.err, /--final/);
+  const r = await board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--final', '--file', draft, '--site', 'audit');
+  assert.deepEqual([r.code, r.err], [0, '']);
+  assert.deepEqual(t1().briefs.map((b) => [b.kind, b.brief.final]), [['visual', true]]);
+});
+
 // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
 // Rule A: what the owner owes comes only from the card's state. The mark holds the phase and lane it was set in and
 // stands only while both do; Implement is owed only from new or discussing.

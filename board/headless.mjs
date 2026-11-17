@@ -205,11 +205,14 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
 // The brief for a visual agent: one HTML page answering the owner's visual request in the card's thread. card as
-// plannerBrief's, with agent its record's name and the owner's text and files when the request carried them.
+// plannerBrief's, with agent its record's name and the owner's text and files when the request carried them. A final
+// visual's (brief.final) shows a UI change as it will be built, and its page's line marks the card's Implement
+// (docs/adr/2026-11-17-1600-a-final-visual-ends-on-the-cards-implement.md).
 export function visualBrief({ route, key, ref, title, notes, thread, repo, agent, brief, rules = [], links = [], text, files = [] }) {
   const b = cli(route);
+  const final = Boolean(brief?.final);
   return [
-    `You are the headless visual agent for task ${ref} (${key}, "${title}") on the kickflip board /${route}. The task's thread wants a visual: one HTML page that answers in a visual way, such as a diagram, a flow or a comparison. It is not a prototype or a grill: no question, no takes. The board launched you; nobody watches this session, so never wait on a person. Read and run in ${repo}; write no code there, never restart the hub or a board server, and never push.`,
+    `You are the headless visual agent for task ${ref} (${key}, "${title}") on the kickflip board /${route}. The task's thread wants a visual: one HTML page that answers in a visual way, such as a diagram, a flow or a comparison. ${final ? "It is the final visual of a UI change: it shows the change as it will be built, for the owner to confirm with the task's Implement or to change with a note in the thread; it is not a prototype" : 'It is not a prototype or a grill'}: no question, no takes. The board launched you; nobody watches this session, so never wait on a person. Read and run in ${repo}; write no code there, never restart the hub or a board server, and never push.`,
     '',
     ...orchestratorsBrief(brief, 'page'),
     `1. Run \`${b} builder start ${key} --kind visual --agent ${agent}\`. If it refuses, stop.`,
@@ -217,7 +220,9 @@ export function visualBrief({ route, key, ref, title, notes, thread, repo, agent
     ...(text ? [`   The owner wrote, asking for it: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     '3. Write one HTML file outside the repo, such as in a temporary folder. Keep its own CSS and script inline; it may load a library such as Mermaid or D3 from a CDN. Make it read well at phone width (390px) and on a desktop, in the dark and the light theme (prefers-color-scheme).',
-    `4. Place it with \`${b} visual add ${key} --file <page.html> --title "<what it shows>"\`, which copies it to the board and links it in the thread.`,
+    final
+      ? `4. Place it with \`${b} visual add ${key} --file <page.html> --title "<what it shows>" --implement\`, which copies it to the board, links it in the thread and makes the task's Implement its next action. When it refuses because the task is already staged, ready or past Todo, the owner has had Implement: place it again without --implement.`
+      : `4. Place it with \`${b} visual add ${key} --file <page.html> --title "<what it shows>"\`, which copies it to the board and links it in the thread.`,
     '',
     'Write nothing else: no notes, questions, task state, Next or progress lines.',
     '',
