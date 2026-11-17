@@ -245,3 +245,64 @@ test("a silent push updates its notification at once, through quiet hours; while
   await push.setNotifications({ on: false }, NOON, home);
   assert.deepEqual(await deliver({ title: 'Orch (1)', url: '/orch/', tag: 'board-orch' }, { kind: 'action', silent: true, at: NOON }), { dropped: true });
 });
+
+// docs/adr/2026-11-15-2230-a-push-closes-the-older-notifications-under-its-tag.md (the declarative push spike)
+test("an Apple subscription gets a declarative push that iOS shows by itself, with the board's tag, its absolute URL and the badge; other devices keep the worker's payload", async () => {
+  const iphone = fakeDevice('https://web.push.apple.com/QGx1');
+  devices.push(iphone);
+  write(pushFile('subs.json'), [{ ...iphone.subscription, origin: 'https://mac.tail.ts.net/', agent: IPHONE }, { ...device.subscription, agent: CHROME_MAC }]);
+  device.needs = orchWaits(2, '');
+  await deliver({ title: 'Orch (2)', body: '2 builds wait on you', url: '/orch/questions.html', tag: 'board-orch' }, { kind: 'action', immediate: true, at: NOON });
+  await deliver({ title: 'Orch (3)', body: '3 builds wait on you', url: '/orch/questions.html', tag: 'board-orch' }, { kind: 'action', silent: true, at: NOON });
+  const [first, update] = iphone.received;
+  assert.equal(first.web_push, 8030);
+  assert.deepEqual(first.notification, { title: 'Orch (2)', body: '2 builds wait on you', navigate: 'https://mac.tail.ts.net/orch/questions.html', tag: 'board-orch', silent: false, app_badge: 3 });
+  assert.deepEqual([update.notification.title, update.notification.tag, update.notification.silent], ['Orch (3)', 'board-orch', true]);
+  assert.match(first.id, /^[0-9a-f]{8}$/, 'an id the worker echoes in its report');
+  assert.notEqual(first.id, update.id);
+  assert.deepEqual(device.received.map(({ web_push, title, tag, silent }) => [web_push, title, tag, silent]), [[undefined, 'Orch (2)', 'board-orch', undefined], [undefined, 'Orch (3)', 'board-orch', true]]);
+  assert.equal(device.received[0].id, first.id, 'one push, one id across devices');
+});
+
+test('a close push skips Apple subscriptions, which would show a notification for it, and still reaches the others', async () => {
+  const iphone = fakeDevice('https://web.push.apple.com/QGx1');
+  devices.push(iphone);
+  write(pushFile('subs.json'), [{ ...iphone.subscription, origin: 'https://mac.tail.ts.net/' }, device.subscription]);
+  assert.deepEqual(await push.withdraw(['board-orch'], 'orch', { home, fetch, at: NOON }), { dropped: [], closed: ['board-orch'] });
+  assert.deepEqual(iphone.received, []);
+  assert.deepEqual(device.received.map((m) => m.close), ['board-orch']);
+});
+
+test("the push log records each push sent to each device, and the worker's report joins its push by id", async () => {
+  const iphone = fakeDevice('https://web.push.apple.com/QGx1');
+  devices.push(iphone);
+  write(pushFile('subs.json'), [{ ...iphone.subscription, origin: 'https://mac.tail.ts.net/' }, device.subscription]);
+  await deliver({ title: 'Orch (1)', url: '/orch/', tag: 'board-orch' }, { kind: 'action', immediate: true, at: NOON });
+  await deliver({ title: 'Orch (2)', url: '/orch/', tag: 'board-orch' }, { kind: 'action', silent: true, at: NOON });
+  await push.withdraw(['board-orch'], 'orch', { home, fetch, at: NOON });
+  const sent = push.pushLog(home);
+  assert.deepEqual(sent.map(({ tag, title, silent, close, host, declarative, status }) => [tag, title, silent, close, host, declarative, status]), [
+    ['board-orch', 'Orch (1)', false, undefined, 'web.push.apple.com', true, 201],
+    ['board-orch', 'Orch (1)', false, undefined, 'phone.push.test', undefined, 201],
+    ['board-orch', 'Orch (2)', true, undefined, 'web.push.apple.com', true, 201],
+    ['board-orch', 'Orch (2)', true, undefined, 'phone.push.test', undefined, 201],
+    ['board-orch', undefined, undefined, true, 'phone.push.test', undefined, 201],
+  ]);
+  assert.ok(sent.every((e) => !Number.isNaN(Date.parse(e.ts)) && /^[0-9a-f]{16}$/.test(e.device)));
+
+  push.reportPush({ id: sent[2].id, sw: '2026-11-17', tag: 'board-orch', older: 0, closed: 0, declarative: true, endpoint: iphone.subscription.endpoint }, home);
+  const report = push.pushLog(home).at(-1);
+  assert.deepEqual({ ...report, ts: undefined }, { ts: undefined, report: true, id: sent[2].id, sw: '2026-11-17', tag: 'board-orch', older: 0, closed: 0, declarative: true, device: sent[2].device });
+  const lines = push.pushLogLines(push.pushLog(home));
+  assert.equal(lines.length, 5, 'a report prints on the line of its push');
+  assert.match(lines[2], /web\.push\.apple\.com .*board-orch .*silent .*Orch \(2\).*phone: sw 2026-11-17, declarative payload, found 0 older, closed 0/);
+  assert.match(lines[4], /close board-orch/);
+});
+
+test('a report without an id, or with counts that are not counts, is refused; the log keeps its last 1000 entries', () => {
+  for (const bad of [{}, { id: 'x', older: -1 }, { id: 'abc', older: 'many' }]) assert.throws(() => push.reportPush(bad, home), (e) => e.status === 400, JSON.stringify(bad));
+  for (let i = 0; i < 1100; i++) push.reportPush({ id: `r${i}`, sw: 'v', tag: 't', older: 0, closed: 0 }, home);
+  const log = push.pushLog(home);
+  assert.equal(log.length, 1000);
+  assert.equal(log[0].id, 'r100');
+});

@@ -1,6 +1,8 @@
 // The hub's service worker, served at /sw.js with scope /. Push messages come
 // from push.mjs as {title, body, url, tag, silent, badge}; url is a path on the hub, and badge, when
-// present, is the Home Screen app badge count; a {close: tag} push closes that tag's notification (closeTagged).
+// present, is the Home Screen app badge count; a {close: tag} push closes that tag's notification (closeTagged). A
+// declarative push {web_push: 8030, notification} reaches the worker only where the browser didn't show it itself, and
+// shows the same way (fromDeclarative). A push with an id is reported back to the hub's push log (report).
 // It keeps the app shell and its files, network first, so the app opens from the last copy while the host is asleep
 // (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). Nothing else is cached: API calls, streams, uploads and frames always
 // go to the network, except a served page opened in a frame and its own files, which go network first the same way
@@ -107,21 +109,48 @@ self.addEventListener('fetch', (event) => {
   if (isAsset(url) || isSiteFile(url, req)) event.respondWith(networkFirst(event, req, url.href, (res) => res.ok));
 });
 
+// The worker's version, in each report to the hub, so the push log tells an old worker from this one.
+const SW_VERSION = '2026-11-17-declarative';
+
+// A declarative push (push.mjs sends one to Apple subscriptions) that reaches the worker, where the browser didn't
+// show it itself, read as the worker's own payload.
+function fromDeclarative(msg) {
+  if (msg.web_push !== 8030) return { ...msg, declarative: false };
+  const n = msg.notification || {};
+  return { id: msg.id, title: n.title, body: n.body, url: n.navigate, tag: n.tag, silent: n.silent, badge: n.app_badge, declarative: true };
+}
+
+// docs/adr/2026-11-15-2230-a-push-closes-the-older-notifications-under-its-tag.md
+// Tells the hub, for a push it numbered (push.mjs pushLog), what the worker found under the tag before showing and
+// how many it closed. A failed report changes nothing.
+async function report(msg, seen) {
+  if (!msg.id) return;
+  try {
+    const sub = await self.registration.pushManager.getSubscription();
+    await fetch(new URL('/_hub/push/report', self.registration.scope).href, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: msg.id, sw: SW_VERSION, tag: msg.tag || msg.close, ...seen, declarative: msg.declarative, endpoint: sub?.endpoint }),
+    });
+  } catch {}
+}
+
 self.addEventListener('push', (event) => {
   let msg = {};
   try { msg = event.data ? event.data.json() : {}; } catch { msg = { body: event.data ? event.data.text() : '' }; }
+  msg = fromDeclarative(msg);
   // A badge failure must never stop the notification: iOS revokes push from an app whose push shows nothing.
   let badge = null;
   try {
     const nav = self.navigator;
     if (Number.isInteger(msg.badge) && nav && 'setAppBadge' in nav) badge = (msg.badge > 0 ? nav.setAppBadge(msg.badge) : nav.clearAppBadge()).catch(() => {});
   } catch {}
-  if (msg.close) { event.waitUntil(Promise.all([closeTagged(msg.close), badge])); return; }
+  if (msg.close) { event.waitUntil(Promise.all([closeTagged(msg.close).then((seen) => report(msg, seen)), badge])); return; }
   // renotify alerts again for a push that replaces one with its tag; a silent push, a board's live notification updated
   // after its first alert (push.mjs deliver), replaces it without alerting. Browsers throw on renotify without a tag.
   // iOS home-screen apps don't replace a notification by tag, so the ones with the tag from before the push are closed
   // once the new one shows (it must show first: iOS revokes push from an app whose push shows nothing).
-  event.waitUntil(Promise.all([showReplacing(msg), badge]));
+  event.waitUntil(Promise.all([showReplacing(msg).then((seen) => report(msg, seen)), badge]));
 });
 
 async function showReplacing(msg) {
@@ -135,6 +164,7 @@ async function showReplacing(msg) {
     data: { url: new URL(msg.url || '/', self.registration.scope).href },
   });
   for (const n of older) n.close();
+  return { older: older.length, closed: older.length };
 }
 
 // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
@@ -142,8 +172,11 @@ async function showReplacing(msg) {
 // that tag. iOS revokes push from an app whose push shows nothing, so it first shows a silent one under the tag, which
 // replaces the one on screen without alerting, and then closes it.
 async function closeTagged(tag) {
+  const older = (await self.registration.getNotifications({ tag })).length;
   await self.registration.showNotification('Claude', { tag, silent: true, renotify: false, icon: '/_hub/icon-192.png' });
-  for (const n of await self.registration.getNotifications({ tag })) n.close();
+  const showing = await self.registration.getNotifications({ tag });
+  for (const n of showing) n.close();
+  return { older, closed: showing.length };
 }
 
 // The app shell (board/public/shell.js) answers {open: url} on the message's port with {routed: true} when it shows the

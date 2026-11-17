@@ -5,7 +5,8 @@
 // (docs/adr/2026-11-02-1733-queued-pushes-go-as-one-summary-per-board.md).
 // State lives in <home>/.claude/kickflip/push, home being os.homedir() unless a call names one: vapid.json (the signing key),
 // subs.json (one entry per phone or browser that enabled notifications, with
-// the hub origin it subscribed from and its user agent) and queue.json (pushes waiting to go). Quiet hours are
+// the hub origin it subscribed from and its user agent), queue.json (pushes waiting to go) and log.jsonl (the push log,
+// pushLog). Quiet hours are
 // `quiet` in ~/.claude/kickflip/settings.json, with `notifications` beside it.
 // A subscription the push service reports gone (404 or 410) is dropped. deliver and flushQueue reach the push service
 // and the hub through the fetch they are given, global fetch unless given.
@@ -132,10 +133,27 @@ async function hubNeeds(fetch) {
 // service worker shows.
 export const sendAll = (message) => sendTo(readSubs(os.homedir()), message, undefined, { home: os.homedir(), fetch });
 
-async function sendTo(subs, message, needs, { home, fetch }) {
+// docs/adr/2026-11-15-2230-a-push-closes-the-older-notifications-under-its-tag.md (the declarative push spike)
+// Apple's push service (iOS and macOS Safari) gets a declarative push (Safari 18.4): the browser shows the notification
+// itself, under its tag, without the service worker, which only sees it where declarative push isn't supported. A
+// subscription from before the hub recorded its origin has no absolute URL to navigate to and keeps the worker's payload.
+const isApple = (sub) => new URL(sub.endpoint).host === 'web.push.apple.com';
+const declarative = (sub) => isApple(sub) && Boolean(sub.origin);
+function payloadFor(sub, message, badge, id) {
+  if (!declarative(sub)) return { ...message, badge, id };
+  const notification = { title: message.title, body: message.body || '', navigate: new URL(message.url || '/', sub.origin).href, tag: message.tag, silent: Boolean(message.silent) };
+  if (Number.isInteger(badge)) notification.app_badge = badge;
+  return { web_push: 8030, notification, id };
+}
+
+async function sendTo(allSubs, message, needs, { home, fetch }) {
+  // A close push to Apple would show a notification of its own (every push there shows one), so Apple gets none.
+  const subs = message.close ? allSubs.filter((sub) => !isApple(sub)) : allSubs;
   if (!subs.length) return [];
-  const payload = JSON.stringify({ ...message, badge: (needs || await hubNeeds(fetch)).total });
+  const badge = (needs || await hubNeeds(fetch)).total;
+  const id = crypto.randomBytes(4).toString('hex');
   const results = await Promise.all(subs.map(async (sub) => {
+    const payload = JSON.stringify(payloadFor(sub, message, badge, id));
     try {
       const r = await fetch(sub.endpoint, {
         method: 'POST',
@@ -148,7 +166,64 @@ async function sendTo(subs, message, needs, { home, fetch }) {
   }));
   const gone = new Set(results.filter((r) => r.status === 404 || r.status === 410).map((r) => r.sub.endpoint));
   if (gone.size) writePrivate(subsFile(home), readSubs(home).filter((s) => !gone.has(s.endpoint)));
+  const ts = new Date().toISOString();
+  appendLog(home, results.map((r) => ({
+    ts, id, tag: message.tag || message.close, title: message.title, silent: message.close ? undefined : Boolean(message.silent), close: message.close ? true : undefined,
+    host: new URL(r.sub.endpoint).host, device: deviceId(r.sub.endpoint), declarative: !message.close && declarative(r.sub) ? true : undefined, status: r.status, error: r.error,
+  })));
   return results.map((r) => ({ host: new URL(r.sub.endpoint).host, agent: r.sub.agent, status: r.status, error: r.error, dropped: gone.has(r.sub.endpoint) || undefined }));
+}
+
+// ---------- push log ----------
+// push/log.jsonl: each push sent to each device, {ts, id, tag, title, silent | close, host, device, declarative?,
+// status, error?}, and each report a service worker posts back for one of them (reportPush), the last LOG_MAX lines.
+// `kickflip push log` prints it. Two processes send pushes (the hub's flush, kickflip push), so two writes at once
+// can lose a line.
+const LOG_MAX = 1000;
+const logFile = (home) => pushFile(home, 'log.jsonl');
+
+function appendLog(home, entries) {
+  if (!entries.length) return;
+  const lines = [...pushLog(home), ...entries].slice(-LOG_MAX).map((e) => JSON.stringify(e));
+  writeLines(logFile(home), lines);
+}
+function writeLines(file, lines) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, lines.join('\n') + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
+export function pushLog(home = os.homedir()) {
+  let text;
+  try { text = fs.readFileSync(logFile(home), 'utf8'); } catch { return []; }
+  return text.split('\n').filter(Boolean).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
+}
+
+// body: what hub/sw.js report posts to /_hub/push/report, {id, sw, tag, older, closed, declarative, endpoint}. The
+// endpoint is kept only as its device id. Throws {status: 400} for a report without an id or with counts that aren't.
+export function reportPush(body, home = os.homedir()) {
+  const count = (n) => n === undefined || (Number.isInteger(n) && n >= 0);
+  if (typeof body?.id !== 'string' || !body.id || !count(body.older) || !count(body.closed)) throw Object.assign(new Error('bad push report'), { status: 400 });
+  const text = (s) => (typeof s === 'string' ? s.slice(0, 200) : undefined);
+  appendLog(home, [{
+    ts: new Date().toISOString(), report: true, id: text(body.id), sw: text(body.sw), tag: text(body.tag), older: body.older, closed: body.closed,
+    declarative: typeof body.declarative === 'boolean' ? body.declarative : undefined, device: typeof body.endpoint === 'string' ? deviceId(body.endpoint) : undefined,
+  }]);
+}
+
+// One line per push to a device, oldest first, with the report from that device for it on the same line; a report
+// whose push has left the log prints on its own.
+export function pushLogLines(log) {
+  const reports = new Map(log.filter((e) => e.report).map((e) => [`${e.id} ${e.device}`, e]));
+  const phone = (r) => `phone: sw ${r.sw || '?'}${r.declarative ? ', declarative payload' : ''}, found ${r.older ?? '?'} older, closed ${r.closed ?? '?'}`;
+  const sentKeys = new Set(log.filter((e) => !e.report).map((e) => `${e.id} ${e.device}`));
+  return log.flatMap((e) => {
+    if (e.report) return sentKeys.has(`${e.id} ${e.device}`) ? [] : [`${e.ts} ${e.id} ${e.tag || '-'} ${phone(e)}`];
+    const what = e.close ? `close ${e.tag}` : `${e.tag || '-'} ${e.silent ? 'silent' : 'alert'}${e.declarative ? ' declarative' : ''} "${e.title}"`;
+    const r = reports.get(`${e.id} ${e.device}`);
+    return [`${e.ts} ${e.id} ${e.host} ${what} → ${e.status}${e.error ? ` ${e.error}` : ''}${r ? ` · ${phone(r)}` : ''}`];
+  });
 }
 
 const delivered = (results) => results.some((r) => r.status >= 200 && r.status < 300);

@@ -74,7 +74,9 @@
 //   /_hub/colors.css  ../shared/colors.css, the colours the shell and the down page link; ?v=colorsVersion() caches for a year
 //   /_hub/kickflip.png the header's image and every page's tab icon (/favicon.ico redirects to it), and /_hub/hub.css the down page's CSS, read from ../board/public
 //   /_hub/push/key    GET the VAPID public key; /_hub/push/subscribe (→ {count, id}), /_hub/push/forget ({id}, from a Remove in Integrations), /_hub/push/unsubscribe ({endpoint}, from a
-//                     page whose device lost that subscription) and /_hub/push/test take POSTs from the hub views (push.mjs)
+//                     page whose device lost that subscription) and /_hub/push/test take POSTs from the hub views (push.mjs);
+//                     /_hub/push/report takes the service worker's report on a push ({id, sw, tag, older, closed, declarative,
+//                     endpoint}) into the push log (push.mjs reportPush)
 //   The forms below answer the view's JSON when the request accepts application/json, and redirect back with a 303
 //   otherwise:
 //   /_hub/settings/notifications POST set=on|weekends with value=on (absent for off), or snooze=<push.mjs
@@ -210,7 +212,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
-import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, deliver } from './push.mjs';
+import { publicKey, reportPush, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, deliver } from './push.mjs';
 import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
@@ -1421,6 +1423,10 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if (p === '/_hub/push/forget' && req.method === 'POST') return sendJSON(200, { count: removeSubscriptionById((await readJSONBody(req))?.id) });
     if (p === '/_hub/push/unsubscribe' && req.method === 'POST') return sendJSON(200, { count: removeSubscription((await readJSONBody(req))?.endpoint) });
+    if (p === '/_hub/push/report' && req.method === 'POST') {
+      try { reportPush(await readJSONBody(req)); } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+      return sendJSON(200, { ok: true });
+    }
     if (p === '/_hub/push/test' && req.method === 'POST') {
       const results = await sendAll({ title: 'Claude', body: 'Test notification from the hub.', url: '/', tag: 'hub-test' });
       return sendJSON(200, { sent: results.filter((r) => r.status >= 200 && r.status < 300).length, results });

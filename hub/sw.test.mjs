@@ -25,6 +25,10 @@ function worker() {
     network: offline,
     calls,
     sent: [],
+    // The bodies the worker posts, each {url, body}.
+    posts: [],
+    // The worker's push subscription endpoint (pushManager.getSubscription).
+    endpoint: null,
     skipped: 0,
     windows: [],
     opened: [],
@@ -70,6 +74,7 @@ function worker() {
         w.shown.push({ title, ...opts });
         w.showing = [...(w.stacks ? w.showing : w.showing.filter((n) => !opts?.tag || n.tag !== opts.tag)), { title, tag: opts?.tag }];
       },
+      pushManager: { getSubscription: async () => (w.endpoint ? { endpoint: w.endpoint } : null) },
       getNotifications: async ({ tag } = {}) => w.showing.filter((n) => tag === undefined || n.tag === tag)
         .map((n) => ({ ...n, close: () => { w.showing = w.showing.filter((s) => s.tag !== n.tag || s.title !== n.title); } })),
     },
@@ -83,7 +88,7 @@ function worker() {
   };
   const context = vm.createContext({
     self, caches: cacheStorage, URL, Request, Response, MessageChannel, TextDecoder, queueMicrotask,
-    fetch: (input, init) => { const url = keyOf(input); calls.push(url); w.sent.push(input); return Promise.resolve().then(() => w.network(url, init)); },
+    fetch: (input, init) => { const url = keyOf(input); calls.push(url); w.sent.push(input); if (init?.body) w.posts.push({ url, body: init.body }); return Promise.resolve().then(() => w.network(url, init)); },
     setTimeout: (fn, ms) => { const id = nextTimer++; timers.set(id, { at: now + ms, fn }); return id; },
     clearTimeout: (id) => timers.delete(id),
   });
@@ -406,4 +411,51 @@ test("a close push closes the notification with its tag, leaving the others; it 
   assert.deepEqual([quiet.tag, quiet.silent, quiet.renotify], ['item-w/A1', true, false]);
   await Promise.all((await push({ close: 'item-w/C3' })).waits);
   assert.deepEqual(w.showing.map((n) => n.tag), ['item-w/B2'], 'a close with nothing under its tag leaves nothing behind');
+});
+
+// docs/adr/2026-11-15-2230-a-push-closes-the-older-notifications-under-its-tag.md (the declarative push spike)
+const reports = (w) => w.posts.filter((r) => r.url === `${ORIGIN}/_hub/push/report`).map((r) => JSON.parse(r.body));
+function reporting() {
+  const w = worker();
+  w.endpoint = 'https://web.push.apple.com/QGx1';
+  w.network = async (url) => (url === `${ORIGIN}/_hub/push/report` ? new Response(null, { status: 204 }) : offline());
+  return w;
+}
+
+test('a declarative push that reaches the worker, where iOS did not show it itself, shows as the same notification and reports that it came declarative', async () => {
+  const w = reporting();
+  w.stacks = true;
+  const push = (msg) => w.dispatch('push', { data: { json: () => msg } });
+  const declarative = (id, title, silent) => ({ web_push: 8030, id, notification: { title, body: 'b', navigate: `${ORIGIN}/orch/questions.html`, tag: 'board-orch', silent, app_badge: 3 } });
+  await Promise.all((await push(declarative('a1', 'Orch (1)', false))).waits);
+  await Promise.all((await push(declarative('a2', 'Orch (2)', true))).waits);
+  assert.deepEqual(w.shown.map(({ title, body, tag, silent, data }) => [title, body, tag, silent, data.url]), [
+    ['Orch (1)', 'b', 'board-orch', false, `${ORIGIN}/orch/questions.html`],
+    ['Orch (2)', 'b', 'board-orch', true, `${ORIGIN}/orch/questions.html`],
+  ]);
+  assert.deepEqual(reports(w).map(({ id, tag, older, closed, declarative: d, endpoint }) => [id, tag, older, closed, d, endpoint]), [
+    ['a1', 'board-orch', 0, 0, true, w.endpoint],
+    ['a2', 'board-orch', 1, 1, true, w.endpoint],
+  ]);
+  assert.match(reports(w)[0].sw, /^\d{4}-\d{2}-\d{2}/, 'the worker names its version');
+});
+
+test('the worker reports each push the hub numbered, a close included, with what it found under the tag and closed; a push without an id reports nothing', async () => {
+  const w = reporting();
+  const push = (msg) => w.dispatch('push', { data: { json: () => msg } });
+  await Promise.all((await push({ id: 'b1', title: 'Orch (1)', tag: 'board-orch' })).waits);
+  await Promise.all((await push({ id: 'b2', close: 'board-orch' })).waits);
+  await Promise.all((await push({ title: 'Hand-made' })).waits);
+  assert.deepEqual(reports(w).map(({ id, tag, older, closed, declarative }) => [id, tag, older, closed, declarative]), [
+    ['b1', 'board-orch', 0, 0, false],
+    ['b2', 'board-orch', 1, 1, false],
+  ]);
+});
+
+test('a report that fails never stops the notification', async () => {
+  const w = worker();
+  w.endpoint = 'https://web.push.apple.com/QGx1';
+  const ev = await w.dispatch('push', { data: { json: () => ({ id: 'c1', title: 'Orch (1)', tag: 'board-orch' }) } });
+  await Promise.all(ev.waits);
+  assert.deepEqual(w.shown.map((n) => n.title), ['Orch (1)']);
 });

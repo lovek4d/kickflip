@@ -159,6 +159,9 @@
 //               the queued one, which still alerts when it goes. While notifications are off every push is dropped,
 //               urgent ones too.
 //               Prints "sent", "queued" with the next send time, or "dropped". Exit 3 when no device has turned them on.
+//   kickflip push log [--json]
+//               prints the push log (../hub/push.mjs pushLog), oldest first: each push sent to each device, with the
+//               report its service worker posted back on the same line. --json prints the entries as they are stored
 //   kickflip quiet
 //               prints {quiet, held, held_until, held_why, notifications}: quiet hours {start, end, hold}, whether
 //               pushes are held now, until when ("never" while off, "forever" while snoozed until ended) and why
@@ -940,7 +943,12 @@ const commands = {
   },
 
   async push() {
-    const { deliver, pushKindError } = await import(path.join(SKILL, 'hub', 'push.mjs'));
+    const { deliver, pushKindError, pushLog, pushLogLines } = await import(path.join(SKILL, 'hub', 'push.mjs'));
+    if (args._[0] === 'log') {
+      const log = pushLog();
+      if (args.json) return out(log);
+      return out(log.length ? pushLogLines(log).join('\n') : 'no pushes logged yet');
+    }
     const refused = pushKindError(args.kind);
     if (refused) fail(refused, 2);
     if (!args.title) fail('push needs --title', 2);
