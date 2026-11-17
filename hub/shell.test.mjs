@@ -7,6 +7,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { pageOf, versionAppAssets } from './shell.mjs';
 import { hubStream } from './stream.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const boards = new Set(['hub-orchestrator', 'ios']);
 const sites = new Set([...boards, 'learn']);
@@ -178,7 +179,7 @@ test("a board's change reaches /_hub/stream as change {route} with the sidebar's
 
 test("a watcher file written or removed in a board's data folder sends the sidebar at once, without a board change", async (t) => {
   mockTimers(t);
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shell-watcher-'));
+  const dir = tempDir('shell-watcher-');
   fs.mkdirSync(path.join(dir, 'data'));
   const file = path.join(dir, 'data', 'watcher.json');
   const watching = [];
