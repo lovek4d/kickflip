@@ -46,6 +46,13 @@ function lastStep(lines) {
   return null;
 }
 
+// The session's last turn: its transcript's last write (ms), or null when no transcript of the session can be read.
+export function lastTurn(folder, session, { home = os.homedir() } = {}) {
+  if (typeof session !== 'string' || !/^[\w-]+$/.test(session)) return null;
+  const file = transcriptFile(folder, session, home);
+  return file ? fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? null : null;
+}
+
 // → {at: the transcript's last write (ms), text: its last step, or 'reading its prompt' before it took one}, or null
 // when no transcript of the session can be read.
 export function sessionActivity(folder, session, { home = os.homedir() } = {}) {

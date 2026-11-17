@@ -186,6 +186,7 @@ test('--watch with --session is today\'s join: the starter kit, the owner, the w
   assert.equal(out.url, 'https://mac.tail.ts.net/learn/');
   assert.equal(out.createdFromStarter, true);
   assert.match(out.watcher, /wait-events\.mjs learn s-learn$/);
+  assert.equal(out.brief, undefined, 'only a session the hub started fresh gets the brief');
   const entry = manifest().learn;
   assert.deepEqual([entry.owner.session, entry.watch, entry.cmd.at(-1)], ['s-learn', ['data/events.jsonl'], path.join(state, 'sites', 'learn', 'server.mjs')]);
 
@@ -343,4 +344,13 @@ test('kickflip join --description records new-board and when, and a rejoin with 
   const again = await cliIn(home, ['join', '--name', 'Described', '--session', 's-described', '--description', 'Sells shoes']);
   assert.equal(again.status, 0, again.stderr);
   assert.equal(manifest().described.description_at, at);
+});
+
+// docs/adr/2026-11-17-2330-an-idle-orchestrator-restarts-fresh-once-its-prompt-cache-lapses.md
+test('a join by the session the hub started fresh prints the board brief to read', async () => {
+  fs.writeFileSync(path.join(state, 'fresh-state.json'), JSON.stringify({ briefed: { session: 's-briefed', at: new Date().toISOString() } }));
+  const r = await cli('join', '--name', 'briefed', '--session', 's-briefed', '--watch');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.json().brief, /board[/\\]bin[/\\]board\.mjs --site briefed brief$/);
+  fs.rmSync(path.join(state, 'fresh-state.json'));
 });

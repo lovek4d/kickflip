@@ -8,3 +8,5 @@ The owner, on #124: "It looks like this orchestrator went down because it maxed 
 - **Then it waits.** The hub sends no prompt after `/compact`. The watcher comes back on the session's next turn, when its Stop hook asks for it.
 
 Considered: reading the transcript for "Prompt is too long". Not listening at 95% or more covers the stall without parsing transcripts. Also considered: typing a wake prompt right after `/compact`. That relies on Claude Code queueing typed input while it compacts, which hasn't been checked. Also considered: waiting until the session is idle before typing. A session that isn't listening at 95% is rarely mid-turn, and autocompact, now on, normally compacts before the hub has to.
+
+An idle session past its prompt cache restarts fresh instead ([an idle orchestrator restarts fresh once its prompt cache lapses](2026-11-17-2330-an-idle-orchestrator-restarts-fresh-once-its-prompt-cache-lapses.md)); this covers a full context on a session that isn't listening.

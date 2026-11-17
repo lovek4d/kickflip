@@ -234,7 +234,7 @@ import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds, heldSite, sidebarPause } from './home.mjs';
-import { checkSessions, compactFullContexts, logStartPrompt, sessionOf, startSignals, startingBoards } from './sessions.mjs';
+import { checkSessions, compactFullContexts, freshIdleSessions, logStartPrompt, sessionOf, startSignals, startingBoards } from './sessions.mjs';
 import { codeRestartHeld, logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
@@ -794,6 +794,10 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     sessionCheck.running = checkSessions({ manifest: loadManifest(), asked }).then((r) => {
       if (r.resumed.length || r.restarted.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; restarted ${r.restarted.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
     }).catch((e) => log('session check failed:', e.message))
+      // docs/adr/2026-11-17-2330-an-idle-orchestrator-restarts-fresh-once-its-prompt-cache-lapses.md
+      .then(() => freshIdleSessions({ manifest: loadManifest() })).then((r) => {
+        if (r.started.length || r.failed.length) log(`idle past its cache: started fresh ${r.started.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
+      }).catch((e) => log('fresh start check failed:', e.message))
       // docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md
       .then(() => compactFullContexts({ manifest: loadManifest() })).then((r) => {
         if (r.compacted.length || r.failed.length) log(`context full: sent /compact to ${r.compacted.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);

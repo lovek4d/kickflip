@@ -13,11 +13,13 @@
 // RESUME_AFTER with an event its session hasn't heard is resumed as a fallback. A board whose session runs idle but
 // hasn't listened for RESTART_AFTER is restarted, stopped and resumed, unless auto-restarts.mjs restartHeld holds it
 // (docs/adr/2026-11-15-0123-the-hub-restarts-a-session-not-listening-and-a-server-not-answering.md). Any of these happens
-// once per outage, and if the board still isn't listening COMEBACK_WAIT later, the owner gets one push.
+// once per outage, and if the board still isn't listening COMEBACK_WAIT later, the owner gets one push. A listening
+// board whose session sat idle past its prompt cache starts fresh (freshIdleSessions).
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { joinName, routeRecord, validRoute } from './routes.mjs';
 import { withFileLock } from './locks.mjs';
@@ -27,7 +29,7 @@ import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './
 import { deliver } from './push.mjs';
 import { readOrchestratorModel } from '../shared/hub-settings.mjs';
 import { WAIT_MS, actionOf, pending, readPrompts, shown } from './prompts.mjs';
-import { sessionActivity } from './session-activity.mjs';
+import { lastTurn as transcriptWrite, sessionActivity } from './session-activity.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
 import { reposDir } from '../shared/repos.mjs';
 import { isClone } from './repos.mjs';
@@ -313,11 +315,15 @@ export const resumePrompt = (route, id, title) => `${boardLine(route, title)}\nT
 export const resumeArgv = ({ id, route, name, model, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name, model })), resumePrompt(route, id, name)];
 
 const HUB_PROMPT = `You are the hub session: read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`.`;
-// The hub board's session in the foreground: the recorded one resumed, else a fresh one that joins with --hub.
-export const hubArgv = ({ route, title, id, model }) => [
-  ...(id ? ['--resume', id] : []), ...common({ name: title, model }),
-  id ? `${boardLine(route, title)}\n${HUB_PROMPT} ${notYours(id)}` : `${boardLine(route, title)} --hub\n${HUB_PROMPT}`,
-];
+// The hub board's session in the foreground: the recorded one resumed; with fresh, a new one under id, which the
+// manifest already names as the owner (freshHubSession); else a new one that joins with --hub.
+export const hubArgv = ({ route, title, id, model, fresh = false }) => {
+  if (fresh) return ['--session-id', id, ...common({ name: title, model }), `${boardLine(route, title)}\n${HUB_PROMPT}`];
+  return [
+    ...(id ? ['--resume', id] : []), ...common({ name: title, model }),
+    id ? `${boardLine(route, title)}\n${HUB_PROMPT} ${notYours(id)}` : `${boardLine(route, title)} --hub\n${HUB_PROMPT}`,
+  ];
+};
 
 // Starts the hub board's session in a detached tmux session named tmuxName(route), in cwd. env drops the caller's
 // session variables, since tmux passes its own environment on. → the claude argv
@@ -447,6 +453,102 @@ export function freshSession(route, { live = liveSessions, stop = runSessionStop
     await moveOwner(route, { from: rec.session, to: r.session });
     return { route, session: r.session, previous: rec.session, model: r.model };
   });
+}
+
+// The hub board's freshSession, under the route's session lock: stops its recorded session, waits for its tmux session
+// to close (closeTmux), records id as the owner with the old session's watcher cursor (moveOwner), then starts a new
+// session under id in tmux (hubArgv fresh), which joins as the owner it already is. A tmux start that fails moves the
+// owner back. → {route, session, previous, model}
+export function freshHubSession(route, { live = liveSessions, stop = runSessionStop, tmux = runTmux, sleep, limit, id = randomUUID() } = {}) {
+  return withSessionLock(route, async () => {
+    const manifest = readManifest();
+    const rec = sessionOf(manifest, route);
+    if (!rec?.repo) throw new SessionError(`/${route} has no session and folder recorded`, 'none');
+    await stopSession(rec, { live, stop });
+    await closeTmux(route, { manifest, tmux, sleep, limit });
+    await moveOwner(route, { from: rec.session, to: id });
+    try {
+      startTmux(route, hubArgv({ route, title: rec.title, id, model: rec.model, fresh: true }), { cwd: rec.repo, tmux });
+    } catch (e) {
+      await moveOwner(route, { from: id, to: rec.session });
+      throw e;
+    }
+    return { route, session: id, previous: rec.session, model: rec.model || null };
+  });
+}
+
+// docs/adr/2026-11-17-2330-an-idle-orchestrator-restarts-fresh-once-its-prompt-cache-lapses.md
+// The prompt cache's lifetime: a session idle past it re-reads its whole context uncached on its next wake.
+export const CACHE_TTL = 60 * 60_000;
+// How long a wait may go unpicked and still be the new session's to pick up.
+const PICKUP_GRACE = 60_000;
+// How long after a fresh start a session's turns count as its join and brief, not as work of its own.
+const JOIN_WINDOW = 15 * 60_000;
+export const freshStateFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'fresh-state.json');
+// Whether the hub started session fresh for route (fresh-state.json), so its join prints the board brief.
+export const freshFor = (route, session) => routeRecord(readJSON(freshStateFile(), {}), route)?.session === session;
+
+// What holds a fresh start among the board's open waits (data/orchestrator-waits.json): a builder's hand-back waiting
+// on verify at any age, any wait picked up and not finished, and one unpicked past PICKUP_GRACE. A limbo wait is the
+// orchestrator's backlog, which never wakes it, so it holds nothing.
+const holdsFresh = (w, now) => w.kind !== 'limbo' && (w.kind === 'calls' || Boolean(w.picked) || now - Date.parse(w.since) > PICKUP_GRACE);
+
+// Whether a board's orchestrator starts fresh now: it is listening (a board that isn't goes through the resume path),
+// its session isn't busy, its last turn (its transcript's last write, ms) is past CACHE_TTL, and no open wait holds it
+// (holdsFresh). entry is its fresh-state.json record {session, at}: the session it names, the one a fresh start made
+// or the one a failed start left, is skipped until it takes a turn past JOIN_WINDOW after at, so each lapse gets one.
+// → the minutes it has been idle when due, else null
+export function freshStartDue({ listening, busy, lastTurn, waits, entry, session, now }) {
+  if (!listening || busy || lastTurn == null || now - lastTurn <= CACHE_TTL) return null;
+  if (entry?.session === session && lastTurn < Date.parse(entry.at) + JOIN_WINDOW) return null;
+  if (waits.some((w) => holdsFresh(w, now))) return null;
+  return Math.round((now - lastTurn) / 60_000);
+}
+
+// The hub's fresh starts over every board (freshStartDue), after each session check, keeping fresh-state.json
+// {<route>: {session, at, error?}}, whose entry clears once the board's session is another. fresh(board) starts it
+// (freshHubSession for the hub board, freshSession for one in the background); each start and failure goes in the
+// board's audit log. A start that couldn't tell whether the session runs is tried on the next check.
+// → {started: [route], failed: [message]}
+export async function freshIdleSessions({
+  manifest = readManifest(), now = new Date(), running = liveSessions(),
+  listening = (board) => isListening(board, { now: now.getTime(), running }),
+  lastTurn = (board) => transcriptWrite(board.owner.repo, board.owner.session),
+  waitsOf = (board) => readJSON(path.join(board.dir, 'data', 'orchestrator-waits.json'), {}).waits || [],
+  paused = (board) => readUsageGate({ now, dir: board.dir }).state === 'paused',
+  fresh = (board) => (board.hub ? freshHubSession(board.route) : freshSession(board.route)),
+} = {}) {
+  // With ps giving no answer, no board's listen state is known, so the check waits for the next.
+  if (!running) return { started: [], failed: [] };
+  const state = Object.assign(Object.create(null), readJSON(freshStateFile(), {}));
+  const out = { started: [], failed: [] };
+  let dirty = false;
+  for (const board of listBoards(manifest)) {
+    const session = board.owner?.session;
+    let entry = routeRecord(state, board.route);
+    if (entry && entry.session !== session) { delete state[board.route]; entry = null; dirty = true; }
+    if (!session || !board.owner.repo) continue;
+    // The transcript's time first: a session inside its cache asks nothing more of ps or the board's files.
+    const turn = lastTurn(board);
+    if (turn == null || now.getTime() - turn <= CACHE_TTL || paused(board)) continue;
+    const idle =freshStartDue({ listening: listening(board), busy: running.get(session)?.status === 'busy', lastTurn: turn, waits: waitsOf(board), entry, session, now: now.getTime() });
+    if (idle === null) continue;
+    const reason = `Idle ${idle} minutes, its prompt cache lapsed.`;
+    const inputs = { session, lastTurn: new Date(turn).toISOString() };
+    try {
+      const r = await fresh(board);
+      state[board.route] = { session: r.session, at: now.toISOString() };
+      audit(boardAudit(board.dir), { call: 'fresh', result: 'started fresh', reason, inputs: { ...inputs, fresh: r.session } }, { now });
+      out.started.push(board.route);
+    } catch (e) {
+      if (e.reason !== 'unknown') state[board.route] = { session, at: now.toISOString(), error: e.message };
+      audit(boardAudit(board.dir), { call: 'fresh', result: 'failed', reason: `${reason} ${e.message}`, inputs }, { now });
+      out.failed.push(`${board.route}: could not start its session fresh (${e.message})`);
+    }
+    dirty = true;
+  }
+  if (dirty) saveJSON(freshStateFile(), state);
+  return out;
 }
 
 // `claude --resume <id> --bg` for the route's recorded session, in its folder (resumeArgv), then records the id it

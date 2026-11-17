@@ -19,6 +19,8 @@ import * as runs from '../runs.mjs';
 import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 import { checkTakesRender } from '../render-check.mjs';
+import { builtCards } from '../snapshot.mjs';
+import { briefLines, memoryFile } from '../brief.mjs';
 import { prototypeBase } from '../prototype-base.mjs';
 import { detachedIn } from '../detached.mjs';
 import { readScript, scriptsOf, writeScript } from '../build-script.mjs';
@@ -434,6 +436,12 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          "waiting on /<route>'s orchestrator" or "queued" while
                                                          none listens there. --wait blocks until every one is
                                                          answered, giving up after --timeout minutes (9)
+  brief                                                  what a fresh orchestrator session reads after its join:
+                                                         the cards In Progress with their builder state, the
+                                                         cards waiting on the owner, the owner's messages, asks
+                                                         and answers of the last 24 h, and the memory index of
+                                                         the board session's folder. The open waits print on
+                                                         the watcher's first wake
   waits history [--since <date>] [--kind <k>]            audits the waits on the orchestrator events.jsonl records
                                                          (each wait's open and clear): per kind, its count and the
                                                          median and longest wait to pickup and to clear, then each
@@ -1166,6 +1174,16 @@ const COMMANDS = {
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
   ask: [['route', '...question'], ['from'], (site, [route, ...words], f) => store.askBoard(needSite(site, 'ask'), route, words.join(' '), { from: f.from })],
   asks: [[], ['wait', 'timeout'], (site, _, f) => store.listBoardAsks(needSite(site, 'asks'), f)],
+  // docs/adr/2026-11-17-2330-an-idle-orchestrator-restarts-fresh-once-its-prompt-cache-lapses.md
+  brief: [[], [], async (site) => {
+    const dir = needSite(site, 'brief');
+    const repo = boardAt(dir)?.owner?.repo;
+    const file = repo ? memoryFile(repo) : null;
+    return { lines: briefLines({
+      route: path.basename(dir), cards: [...(await builtCards(dir)).values()], events: await store.readLog(path.join(dir, 'data', 'events.jsonl')),
+      memory: file ? { file, exists: fs.existsSync(file) } : { file: 'none, since the board session has no folder recorded', exists: true }, now: new Date(),
+    }) };
+  }],
   // docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md
   'waits history': [[], ['since', 'kind'], async (site, _, f) => {
     // A bare date is the host's local midnight.

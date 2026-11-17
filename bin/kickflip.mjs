@@ -658,8 +658,12 @@ const commands = {
       handshake = h?.ack && (h.ping || h.hello)?.session === args.session ? 'answered before' : await runHandshake(route);
       poll = hub ? await pollFor(route) : 'not run (the hub is not running)';
     }
+    // docs/adr/2026-11-17-2330-an-idle-orchestrator-restarts-fresh-once-its-prompt-cache-lapses.md: a session the hub
+    // started fresh reads the board's brief after it joins.
+    const fresh = (await sessionsModule()).freshFor(route, args.session);
     out({
       route, url: siteUrl(route), dir: result.site.dir, port: result.site.port, owner: result.site.owner,
+      ...(fresh ? { brief: `${nodeBin()} ${path.join(SKILL, 'board', 'bin', 'board.mjs')} --site ${route} brief` } : {}),
       createdFromStarter: result.created, previousOwner: result.previousOwner,
       log: path.join(LOGS, route + '.log'),
       watcher: watcherCommand(route, args.session, SKILL),
