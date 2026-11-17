@@ -14,7 +14,7 @@ import { readUsageGate, pauseReason, holdsWork } from '../shared/usage-gate.mjs'
 import { reviewWaits } from '../shared/skills.mjs';
 import { ANSWERED, unlanded } from './domain.mjs';
 import { BoardError, addItem, appendStatus, cardName, parseKey, resolveQuestion, setItem, startBuilder, topicQuestions } from './store.mjs';
-import { boardConfig, itemSources, readJSON, wavesDir } from './files.mjs';
+import { boardConfig, editJSON, itemSources, readJSON, wavesDir, writeJSON } from './files.mjs';
 
 const recordsFile = (site) => path.join(site, 'data', 'arch-reviews.json');
 export const readReviews = async (site) => (await readJSON(recordsFile(site), { reviews: [] })).reviews || [];
@@ -75,8 +75,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
   if ((await boardConfig(site)).items === 'waves') {
     const fileSlug = await freeSlug(`arch-${stampOf(now)}`, (slug) => exists(path.join(wavesDir(), slug)));
     const file = path.join(wavesDir(), fileSlug, 'wave.json');
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, JSON.stringify({ title, ...(target.github ? { repo: target.github } : {}), items: [] }, null, 2) + '\n');
+    await writeJSON(file, { title, ...(target.github ? { repo: target.github } : {}), items: [] });
     key = (await addItem(site, `${fileSlug}/audit`, { title: `Architecture review of ${name}` })).key;
     made = { file: fileSlug };
   } else {
@@ -87,11 +86,9 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
   await startBuilder(site, key, { label: 'Architecture review' });
   await appendStatus(site, key, 'arch-review', { card: name });
 
-  const reviews = await readReviews(site);
-  reviews.push({ key, ...made, title, repo: target.repo, at: now.toISOString() });
-  await fs.mkdir(path.dirname(recordsFile(site)), { recursive: true });
-  await fs.writeFile(recordsFile(site) + '.tmp', JSON.stringify({ reviews }, null, 2) + '\n');
-  await fs.rename(recordsFile(site) + '.tmp', recordsFile(site));
+  await editJSON(recordsFile(site), (records) => {
+    records.reviews = [...(records.reviews || []), { key, ...made, title, repo: target.repo, at: now.toISOString() }];
+  });
 
   const data = { key, repo: target.repo, github: target.github || null, branch: target.branch || null, ...made, ...(target.repo && samePath(target.repo, cloneRoot()) ? { scope: HUB_SCOPE } : {}) };
   return { key, data };

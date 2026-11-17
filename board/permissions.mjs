@@ -9,6 +9,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { BoardError } from './store.mjs';
+import { writeJSON } from './files.mjs';
 import { hasReleaseScript, RELEASE_SCRIPT } from './release.mjs';
 
 export const PERMISSIONS = [
@@ -33,13 +34,6 @@ async function readJSON(file, fallback, what) {
     if (value && typeof value === 'object' && !Array.isArray(value)) return value;
   } catch {}
   throw new BoardError(`${what} isn’t a JSON object, so the hub leaves it as it is. Fix it by hand first.`);
-}
-
-async function writeJSON(file, value) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(value, null, 2) + '\n');
-  await fs.rename(temp, file);
 }
 
 const allowOf = (settings) => (Array.isArray(settings.permissions?.allow) ? settings.permissions.allow : []);
