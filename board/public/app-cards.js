@@ -91,21 +91,20 @@ BoardView.part((B) => {
   });
 
   // Main's refresh icon pulls now on every tap or click, spinning until the server answers. A pull that fails opens its
-  // reason (a hover pointer also sees it on hover), and a tap anywhere closes it.
-  // An open reason shifts left as far as it would run past the screen's right edge, less the 16px gutter.
+  // reason as a popup (popup.js) under the icon, and a tap anywhere else or Escape closes it. A hover pointer also sees
+  // the reason on hover, in place.
   function paintMain() {
     BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(state.board?.main, state.mainPull));
     const why = $('#tryMain .main-pull-why.open');
-    if (!why) return;
-    const over = why.getBoundingClientRect().right - (innerWidth - 16);
-    if (over > 0) why.style.left = `${-over}px`;
+    if (why) Popup.open(why, $('#tryMain button[data-main-pull]'), { onClose: closeWhy });
+  }
+  function closeWhy() {
+    state.mainPull.open = false;
+    paintMain();
   }
   B.on(B.root, 'click', async (ev) => {
     const button = ev.target.closest('button[data-main-pull]');
-    if (!button) {
-      if (state.mainPull.open) { state.mainPull.open = false; paintMain(); }
-      return;
-    }
+    if (!button) return;
     ev.preventDefault();
     const pull = state.board?.main?.pull;
     if (!pull || pull.running) return;
@@ -466,8 +465,8 @@ BoardView.part((B) => {
   });
 
   // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
-  // A card's "…" opens its menu (ui-cards.js cardMenu) in one layer over the lanes, under the "…" or above it when
-  // there is no room below; the "…" again, a tap anywhere else, Esc or a scroll closes it, and so does picking an item.
+  // A card's "…" opens its menu (ui-cards.js cardMenu), a popup (popup.js) under the "…" or above it when there is no
+  // room below; the "…" again, a tap anywhere else, Esc or a scroll outside it closes it, and so does picking an item.
   // The open menu's card (menuKey) is kept in memory: a repaint redraws the menu from the card as the outbox has it, and
   // closes it once the card's "…" is gone.
   let menuKey = null;
@@ -480,15 +479,14 @@ BoardView.part((B) => {
     BoardUI.setHTML(menu, BoardUI.cardMenu(menuCard(menuKey)));
     menu.hidden = false;
     button.setAttribute('aria-expanded', 'true');
-    const r = button.getBoundingClientRect();
-    const below = r.bottom + menu.offsetHeight + 8 <= window.innerHeight;
-    menu.style.setProperty('top', `${below ? r.bottom + 2 : r.top - menu.offsetHeight - 2}px`);
-    menu.style.setProperty('right', `${Math.max(8, document.documentElement.clientWidth - r.right)}px`);
+    Popup.open(menu, button, { align: 'end', onClose: closeCardMenu });
   }
   function closeCardMenu() {
     if (!menuKey) return;
     moreOf(menuKey)?.setAttribute('aria-expanded', 'false');
-    $('#cardMenu').hidden = true;
+    const menu = $('#cardMenu');
+    Popup.close(menu);
+    menu.hidden = true;
     menuKey = null;
   }
   function keepCardMenu() {
@@ -512,13 +510,7 @@ BoardView.part((B) => {
     if (linked) B.showLinked(linked.dataset.linked, linked.dataset.depth);
     if (ev.target.closest('#cardMenu button[role="menuitem"]')) closeCardMenu();
   });
-  B.on(document, 'click', (ev) => { if (!ev.target.closest?.('#cardMenu, button[data-card-menu]')) closeCardMenu(); }, true);
-  B.on(document, 'keydown', (ev) => {
-    if (ev.key !== 'Escape' || !menuKey) return;
-    ev.preventDefault();
-    closeCardMenu();
-  });
-  B.on(document, 'scroll', closeCardMenu, { capture: true, passive: true });
+  B.on(document, 'scroll', (ev) => { if (!$('#cardMenu').contains(ev.target)) closeCardMenu(); }, { capture: true, passive: true });
 
   // A card's Bump bumps it, or its Unbump unbumps it, with no confirm
   // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md). It goes through the outbox with no card thread, so
@@ -557,5 +549,5 @@ BoardView.part((B) => {
 
   function cardOf(key) { return state.board.items.find((i) => i.key === key); }
 
-  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap, keepCardMenu });
+  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap, keepCardMenu, paintMain });
 });

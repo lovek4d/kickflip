@@ -135,14 +135,20 @@ BoardView.part((B) => {
     if (!menu.hidden) BoardUI.setHTML(menu, BoardUI.boardMenu(joinNow(), menuOptions()));
     if (joinSheet.open) BoardUI.setHTML($('#joinBody'), BoardUI.joinSheet(state.board?.join, joinNow()));
   }
+  // The menu is a popup (popup.js) anchored on the header's brand, the logo and the name, so it drops from the header's
+  // edge: a tap outside it and the brand, or Escape, closes it, Escape focusing the name again.
   function showMenu(open) {
     menu.hidden = !open;
     menuOpen.setAttribute('aria-expanded', String(open));
     renderJoin();
+    if (open) Popup.open(menu, menuOpen.closest('.brand'), { onClose: menuClosed });
+    else Popup.close(menu);
+  }
+  function menuClosed(escaped) {
+    showMenu(false);
+    if (escaped) menuOpen.focus();
   }
   B.on(menuOpen, 'click', () => { if (state.board && !shared()) showMenu(menu.hidden); });
-  B.on(document, 'click', (ev) => { if (!menu.hidden && !ev.target.closest('#boardMenu, #boardMenuOpen')) showMenu(false); });
-  B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && !menu.hidden) { showMenu(false); menuOpen.focus(); } });
   // Pause board from the menu: the duration chips (HubKit.durationPicker, as Board Settings draws them) in a sheet, and
   // Resume at one tap, each posting {pause} to api/pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
   const pauseSheet = $('#pauseSheet');

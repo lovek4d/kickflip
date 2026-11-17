@@ -229,7 +229,7 @@ window.BoardView = (function () {
         B.renderHeader(d);
         B.renderArch(d);
         B.renderWaits(d);
-        BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(d.main, state.mainPull));
+        B.paintMain();
         B.renderMainLog(d.main, load);
         for (const el of $$('details.item[open]')) if (!moved.has(el.dataset.key)) state.openItems.add(el.dataset.key);
         B.takeMarks(d.items);

@@ -351,9 +351,15 @@ a.hub { display: inline-flex; flex: none; }
   .item button[data-card-menu]:not(.bumped, [aria-expanded="true"]) { opacity: 0; }
   .item > summary:hover button[data-card-menu] { opacity: 1; }
 }
-/* A card's menu (app-cards.js), one layer over the lanes, placed under or above its "…"
+/* docs/adr/2026-11-18-0300-every-popup-opens-through-one-seam.md: a popup (popup.js) is a manual popover in the top
+   layer, placed by its script; this undoes the browser's centred popover box. Its scroll-margin is the gap it keeps
+   from each screen edge, which popup.js reads back. */
+.popup[popover] { position: fixed; inset: auto; margin: 0; box-sizing: border-box; overflow: auto; color: var(--text);
+  scroll-margin: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+.popup[popover]:not(:popover-open) { display: none; }
+/* A card's menu (app-cards.js), a popup under or above its "…"
    (docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md). */
-.card-menu { position: fixed; z-index: 30; min-width: 196px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
+.card-menu { min-width: 196px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
 .card-menu[hidden] { display: none; }
 .card-menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 10px; border: 0; border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 .card-menu button:hover, .card-menu button:focus-visible { background: var(--chip); }
@@ -724,8 +730,8 @@ main > * { transition: opacity .25s ease; }
 .lane-github .gh-links { position: relative; display: inline-flex; align-items: center; padding: 4px; margin: -4px -2px -4px -4px; font-size: inherit; line-height: 1; color: inherit; }
 .lane-github .links-dot { position: absolute; top: 1px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--color-danger); box-shadow: 0 0 0 1.5px var(--bg); }
 /* docs/adr/2026-11-17-1500-the-board-menu-shows-how-to-join-the-orchestrator-in-a-terminal.md: the board's name opens
-   the board menu, a ▾ after it that stays in view when the name is cut short; the menu drops under the name, and its
-   Join in terminal opens the join sheet. */
+   the board menu, a ▾ after it that stays in view when the name is cut short; the menu, a popup, drops under the name
+   (above it on a phone, where the header is the bottom bar), and its Join in terminal opens the join sheet. */
 .top .brand { position: relative; }
 .title-menu { position: relative; display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   border: 0; background: none; margin: 0; padding: 2px 20px 2px 4px; border-radius: 8px; font: inherit; color: inherit; text-align: left; }
@@ -733,7 +739,7 @@ main > * { transition: opacity .25s ease; }
 .title-menu:active, .title-menu[aria-expanded="true"] { background: var(--accent-soft); }
 .shared-view .title-menu { cursor: default; padding-right: 6px; }
 .shared-view .title-menu::after { content: none; }
-.board-menu { position: absolute; z-index: 6; top: calc(100% + 4px); left: 30px; width: min(290px, calc(100vw - 40px)); padding: 4px;
+.board-menu { width: 290px; padding: 4px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 28px rgba(0, 0, 0, .18); }
 .board-menu-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 8px;
   background: none; font-size: 14px; text-align: left; }
@@ -935,8 +941,6 @@ main > * { transition: opacity .25s ease; }
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
   .top .nav #refresh, .top .nav #searchOpen, .top .nav a.icon, .top .pages-switch, .top .nav .board-filter { min-width: 44px; min-height: 44px; }
-  /* The header is at the bottom here, so the board menu opens upward from it and scrolls when the room above is short. */
-  .board-menu { top: auto; bottom: calc(100% + 4px); overflow-y: auto; max-height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(12px, env(safe-area-inset-top)) - 12px); }
   body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + var(--search-lift, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
@@ -1036,7 +1040,7 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .tb-main-commit { gap: 2px; }
 .tb-main-text { overflow-wrap: anywhere; }
 .tb-main .meta { flex: none; flex-wrap: nowrap; min-height: 30px; align-items: center; justify-content: flex-end; }
-/* #60: Main's refresh icon right of its timestamp, centred on it with the header's 2px gap and 4px padding; a failed pull's reason shows on hover, or on a tap on touch */
+/* #60: Main's refresh icon right of its timestamp, centred on it with the header's 2px gap and 4px padding; a failed pull's reason shows on hover under the icon, or as a popup (popup.js) when the pull fails */
 .tb-main .main-pull { position: relative; display: inline-flex; align-items: center; }
 .tb-main .gh-refresh { display: inline-flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; padding: 2px 4px; color: var(--muted); }
 .tb-main .gh-refresh:is([aria-disabled="true"], [aria-busy="true"]) { opacity: .45; cursor: default; }
@@ -1208,14 +1212,13 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 }
 .pfile.retry { cursor: pointer; }
 /* The board filter (docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): the header's funnel, muted
-   like search, orange while a box is unchecked, and its checklist under it; on a phone, where the header is the bottom
-   bar, the checklist opens upward and scrolls when the window is too short for it. */
-.board-filter-slot { position: relative; display: inline-flex; }
+   like search, orange while a box is unchecked, and its checklist, a popup, under it (above it on a phone, where the
+   header is the bottom bar). */
+.board-filter-slot { display: inline-flex; }
 .top .nav .board-filter { display: inline-flex; align-items: center; justify-content: center; margin: 0; padding: 4px; border: 0; background: none; line-height: 1; color: var(--muted); cursor: pointer; }
 .top .nav .board-filter:hover, .top .nav .board-filter[aria-expanded="true"] { color: var(--text); }
 .top .nav .board-filter.on { color: var(--color-notice); }
-.board-filter-menu { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; display: flex; flex-direction: column; min-width: 160px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 18px rgba(0, 0, 0, .25); }
-@media (max-width: 899px) { .board-filter-menu { top: auto; bottom: calc(100% + 6px); overflow-y: auto; max-height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(12px, env(safe-area-inset-top)) - 12px); } }
+.board-filter-menu { display: flex; flex-direction: column; min-width: 160px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 18px rgba(0, 0, 0, .25); }
 .board-filter-box { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 0; background: none; color: var(--text); font: inherit; white-space: nowrap; text-align: left; cursor: pointer; }
 .board-filter-box .box { width: 14px; height: 14px; border: 1.5px solid var(--muted); border-radius: 4px; }
 .board-filter-box[aria-checked="true"] .box { border-color: var(--accent); background: var(--accent); }

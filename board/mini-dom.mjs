@@ -207,6 +207,8 @@ export function miniDom(Target, document) {
     getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; }
     showModal() { this.open = true; this.modal = true; }
     show() { this.open = true; this.modal = false; }
+    showPopover() { this.popoverOpen = true; }
+    hidePopover() { this.popoverOpen = false; }
     // An open dialog's close sends its close event (at once here; a browser sends it a task later).
     close() {
       if (!this.open) return;

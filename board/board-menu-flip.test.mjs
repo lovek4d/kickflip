@@ -1,4 +1,5 @@
-// The board menu opens upward from the header where the header sits at the bottom (a phone), under it on desktop.
+// The board menu, a popup (public/popup.js), opens upward from the header where the header sits at the bottom (a
+// phone), under it on desktop, inside the screen either way.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -12,14 +13,16 @@ const pub = fileURLToPath(new URL('./public/', import.meta.url));
 
 const FIXTURE = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="${pub}style.css"></head>
-<body><header class="top"><div class="brand"><h1><button class="title-menu">Board</button></h1>
+<body><header class="top"><div class="brand"><h1><button class="title-menu" id="boardMenuOpen">Board</button></h1>
 <div id="boardMenu" class="board-menu" role="menu"><button class="board-menu-item">Join in terminal</button><button class="board-menu-item">Settings</button></div></div><div class="nav"></div></header>
 <main style="height:2000px"></main>
+<script src="${pub}popup.js"></script>
 <script>{
+  Popup.open(document.getElementById('boardMenu'), document.querySelector('.top .brand'));
   const top = document.querySelector('.top').getBoundingClientRect();
   const m = document.getElementById('boardMenu').getBoundingClientRect();
   const probe = document.createElement('pre'); probe.id = 'probe';
-  probe.textContent = JSON.stringify({ menuTop: m.top, menuBottom: m.bottom, headerTop: top.top, headerBottom: top.bottom });
+  probe.textContent = JSON.stringify({ menuTop: m.top, menuBottom: m.bottom, menuRight: m.right, headerTop: top.top, headerBottom: top.bottom, width: innerWidth });
   document.body.append(probe);
 }</script></body></html>`;
 
@@ -34,5 +37,6 @@ for (const [width, up] of [[390, true], [1280, false]]) {
     } else {
       assert.ok(got.menuTop >= got.headerBottom - 1, `menu top ${got.menuTop} is under the header bottom ${got.headerBottom}`);
     }
+    assert.ok(got.menuRight <= got.width - 8, `menu right ${got.menuRight} is inside the screen's 8px margin`);
   });
 }

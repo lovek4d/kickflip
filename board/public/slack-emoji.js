@@ -1,7 +1,7 @@
 // SlackEmoji: Hub › Slack's emoji for each PR state's line in its Slack message
 // (docs/adr/2026-11-18-0000-a-prs-state-is-a-line-in-its-message-not-reactions.md), under the token slot
 // (linear-key.js) while the token works. A row per state, worded by hub/views.mjs prEmojiView from GET
-// /_hub/api/slack-emoji; its cell opens a popover grid of the workspace's own emoji, then the standard ones, with a
+// /_hub/api/slack-emoji; its cell opens a popup (popup.js) grid of the workspace's own emoji, then the standard ones, with a
 // search by name. A pick, or a changed row's Use default, saves at once through POST /_hub/settings/slack-emoji.
 (function () {
   const FAILED = 'Could not save. Is the host awake?';
@@ -30,8 +30,10 @@
     function paint() {
       if (!on) { root.innerHTML = ''; return; }
       if (!view) { root.innerHTML = flash ? HubUI.flash(flash) : '<p class="note">Loading the workspace’s emoji…</p>'; return; }
-      root.innerHTML = `<h2 class="label">${esc(view.label)}</h2>${HubUI.flash(flash)}<div class="group se-rows${open ? ' se-opened' : ''}">${view.rows.map(row).join('')}</div><p class="note">${esc(view.note)}</p>`;
-      root.querySelector('.se-q')?.focus({ preventScroll: true });
+      root.innerHTML = `<h2 class="label">${esc(view.label)}</h2>${HubUI.flash(flash)}<div class="group se-rows">${view.rows.map(row).join('')}</div><p class="note">${esc(view.note)}</p>`;
+      if (!open) return;
+      Popup.open(root.querySelector('.se-pop'), root.querySelector(`[data-se-open="${open}"]`), { align: 'end', onClose: close });
+      root.querySelector('.se-q').focus({ preventScroll: true });
     }
     async function load() {
       loading = true;
@@ -57,11 +59,12 @@
       saving = false;
       if (!destroyed) paint();
     }
-    const close = () => {
+    // The grid's popup closed on a tap outside it or Escape, which puts the focus back on its cell.
+    const close = (escaped) => {
       const kind = open;
       open = null;
       paint();
-      root.querySelector(`[data-se-open="${kind}"]`)?.focus({ preventScroll: true });
+      if (escaped) root.querySelector(`[data-se-open="${kind}"]`).focus({ preventScroll: true });
     };
     const onClick = (e) => {
       const cell = e.target.closest?.('[data-se-open]');
@@ -70,7 +73,6 @@
       if (cell) { query = ''; open = open === cell.dataset.seOpen ? null : cell.dataset.seOpen; paint(); }
       else if (pick && open && !saving) save(open, pick.dataset.sePick);
       else if (reset && !saving) save(reset.dataset.seDefault, '');
-      else if (open && !e.target.closest?.('.se-pop')) { open = null; paint(); }
     };
     // Typing redraws only the grid, so the search box keeps its focus and caret.
     const onInput = (e) => {
@@ -78,14 +80,7 @@
       query = e.target.value;
       root.querySelector('.se-found').innerHTML = found(view.rows.find((r) => r.kind === open).emoji.name);
     };
-    // Escape closes the popover, not the settings modal around it.
-    const onKey = (e) => {
-      if (e.key !== 'Escape' || !open) return;
-      e.preventDefault();
-      e.stopPropagation();
-      close();
-    };
-    const listeners = [['click', onClick], ['input', onInput], ['keydown', onKey]];
+    const listeners = [['click', onClick], ['input', onInput]];
     for (const [type, fn] of listeners) root.addEventListener(type, fn);
     const set = (next) => {
       on = next;

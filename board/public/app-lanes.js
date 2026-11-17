@@ -177,6 +177,7 @@ BoardView.part((B) => {
     const menu = filterOpen ? `<div class="board-filter-menu" role="group" aria-label="Show on the board">${BoardUI.FILTER_BOXES.map(({ id, name }) =>
       `<button type="button" class="board-filter-box" role="checkbox" aria-checked="${!off.includes(id)}" data-board-filter="${id}"><span class="box"></span>${name}</button>`).join('')}</div>` : '';
     BoardUI.setHTML($('#boardFilter'), `<button type="button" class="ghost icon board-filter${off.length ? ' on' : ''}" aria-label="Filter the board" aria-expanded="${filterOpen}" title="${off.length ? 'Filtered' : 'Filter'}">${FUNNEL}</button>${menu}`);
+    if (filterOpen) Popup.open($('#boardFilter .board-filter-menu'), $('#boardFilter button.board-filter'), { align: 'end', onClose: closeFilter });
   }
 
   // shown is the board's items less pending deletes. A card still New sits in the New strip, not a lane (ui-cards.js
@@ -230,10 +231,12 @@ BoardView.part((B) => {
     }
   }, true);
 
-  // The open menu closes on a click anywhere but the funnel and the menu, and on Escape. The click goes on to what it hit.
-  const closeFilter = () => { if (filterOpen) { filterOpen = false; renderFilter(); } };
-  B.on(document, 'click', (ev) => { if (!ev.target.closest?.('#boardFilter')) closeFilter(); }, true);
-  B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape') closeFilter(); });
+  // The open menu is a popup (popup.js): a click anywhere but the funnel and the menu, or Escape, closes it, the click
+  // going on to what it hit.
+  function closeFilter() {
+    filterOpen = false;
+    renderFilter();
+  }
 
   B.on(B.root, 'click', async (ev) => {
     const answer = ev.target.closest('button[data-review-answer]');

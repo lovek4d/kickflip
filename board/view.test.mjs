@@ -23,7 +23,7 @@ function boardPatch(from, to, threads = { from: {}, to: {} }, notes = { from: {}
 }
 
 const SCRIPTS = ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-waits.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'slack-emoji.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-search.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'slack-emoji.js', 'sidebar.js', 'toasts.js', 'popup.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-search.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 // The time every test here builds its data from. A fake page's clock starts at it and moves only by its advance(ms)
@@ -72,6 +72,8 @@ function fakePage(localStorage) {
     appendChild(el) { el.parentNode = this; return el; }
     remove() {}
     getBoundingClientRect() { return { height: 36 }; }
+    showPopover() {}
+    hidePopover() {}
     insertAdjacentHTML() {}
     contains() { return false; }
     closest() { return null; }
@@ -102,7 +104,8 @@ function fakePage(localStorage) {
     Date: fixedDate(() => NOW + now), URL, URLSearchParams, AbortController, Event, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
     location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { state: null, replaceState(_state, _title, url) { win.location.hash = url?.includes('#') ? url.slice(url.indexOf('#')) : ''; }, pushState(state) { this.state = state; }, back() {} }, innerHeight: 844,
     scrollX: 0, scrollY: 0, scrollTo(x, y) { win.scrollX = x; win.scrollY = y; },
-    visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
+    visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0, width: 390, offsetLeft: 0 }),
+    getComputedStyle: () => ({ scrollMarginTop: '8px', scrollMarginRight: '8px', scrollMarginBottom: '8px', scrollMarginLeft: '8px' }),
     matchMedia: (query) => Object.assign(new Target(), { matches: query === '(min-width: 900px)' && win.innerWidth >= 900 }), MutationObserver, ResizeObserver,
     performance: { now: () => now },
     requestAnimationFrame: (fn) => { frames.set(++ids, fn); return ids; },
@@ -4233,6 +4236,8 @@ test("Main's refresh icon pulls now and spins only itself until a board shows Ma
   await tapAndAnswer({ commits: 0, error: 'can’t pull: local changes' });
   assert.equal(posts.length, 2);
   assert.match(why().getAttribute('class'), /open/);
+  assert.equal(why().popoverOpen, true, 'the open reason is a popup');
+  b.page.fire(b.page.win.document, 'click', { target: b.root.querySelector('#lanes') });
   b.page.fire(b.root, 'click', { target: b.root.querySelector('#lanes') });
   await b.settle();
   assert.doesNotMatch(why().getAttribute('class'), /open/);

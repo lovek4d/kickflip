@@ -56,9 +56,5 @@ test('showing only some boxes unchecks every other; the cards no box matches sta
 test('the counts are each box matches across the cards', () => {
   assert.deepEqual({ ...filterCounts(CARDS) }, { ready: 2, action: 2, questions: 3, discussing: 4, blocked: 1 });
 });
-
-test("on a phone the filter's menu opens upward from the bottom bar and scrolls when the window is too short", () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const phone = css.match(/@media \(max-width: 899px\) \{ \.board-filter-menu \{([^}]*)\} \}/)?.[1] ?? '';
-  for (const rule of [/top: auto/, /bottom: calc\(100% \+ 6px\)/, /max-height: /, /overflow-y: auto/]) assert.match(phone, rule);
-});
+// On a phone the filter's menu opens upward from the bottom bar and scrolls when the window is too short: it is a
+// popup, and popup.test.mjs holds its placing.
