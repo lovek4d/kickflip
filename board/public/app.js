@@ -214,7 +214,8 @@ window.BoardView = (function () {
       // The cards as the outbox's Done taps have them (ui-snapshot.js tapped), the lanes and strips drawing from these.
       const items = BoardUI.tapped(d.items, store.get('outbox', []));
       drawnDone = tapSign(items, d.items);
-      const title = $(':scope > .top h1');
+      // The title is the board menu's button (app-header.js), its text the title.
+      const title = $(':scope > .top h1 button');
       if (d.title && title && title.textContent !== d.title) title.textContent = d.title;
       if (d.title && document.title !== d.title) document.title = d.title;
       // An open card that changed lane since the last paint closes in its new lane, and the board forgets it as open,
@@ -591,7 +592,7 @@ window.BoardView = (function () {
     + '<button type="button" class="ghost icon search-clear" data-search-clear aria-label="Clear search" title="Clear search (Esc)">✕</button></div>';
   function markup({ title = '', shared = null } = {}) {
     const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
-    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true, navAfter: `${searchButton}<span id="waitsChip"></span>` })}
+    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true, navAfter: `${searchButton}<span id="waitsChip"></span>`, titleMenu: '<div id="boardMenu" class="board-menu" role="menu" aria-labelledby="boardMenuOpen" hidden></div>' })}
 <div class="split">
 <div id="boardLoading" class="board-loading" role="status"><svg class="board-loading-moon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${HubUI.TILE_PATHS.moon}</svg>
   <h2 class="board-loading-name">${BoardUI.esc(title)}</h2><p class="board-loading-line">Loading board...</p><p class="board-loading-slow" hidden>The host is slow to answer.</p></div>
@@ -653,6 +654,12 @@ ${BoardNewTask.markup()}
   <div class="lightbox-head"><b id="lightboxName" class="lightbox-name"></b><button type="button" class="ghost" data-lightbox="close" aria-label="Close">✕</button></div>
   <img alt="">
   <div class="lightbox-nav"><button type="button" class="ghost" data-lightbox="prev" aria-label="Previous image">‹</button><span class="lightbox-at"></span><button type="button" class="ghost" data-lightbox="next" aria-label="Next image">›</button></div>
+</dialog>
+<dialog id="joinSheet" class="sheet join-sheet" aria-labelledby="joinTitle">
+  <div class="sheet-body">
+    <div class="sheet-head"><h2 id="joinTitle">Join in terminal</h2><button type="button" class="ghost" id="joinClose" aria-label="Close">✕</button></div>
+    <div id="joinBody"></div>
+  </div>
 </dialog>
 <dialog id="linksSheet" class="sheet" aria-labelledby="linksTitle">
   <div class="sheet-body">

@@ -177,7 +177,7 @@ test("a board's header shows the away moon right of its title while the owner re
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
   let away = true;
-  assert.match(page.win.BoardView.markup({ title: 'Shop' }), /<h1>Shop<\/h1><span class="away-moon" role="img" aria-label="Away" aria-hidden="true"><svg/);
+  assert.match(page.win.BoardView.markup({ title: 'Shop' }), /<h1><button [^>]*id="boardMenuOpen"[^>]*>Shop<\/button><\/h1><span class="away-moon" role="img" aria-label="Away" aria-hidden="true"><svg/);
   const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { away: () => away });
   view.mount();
   const moon = root.querySelector('.away-moon');
@@ -7904,6 +7904,48 @@ test("a shared person's tap on an asleep board never asks the hub to wake the ow
   b.page.win.document.documentElement.classList.add('shared-view');
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.lane') });
   assert.deepEqual(b.posts.filter(([p]) => p === '/_hub/wake'), []);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-17-1500-the-board-menu-shows-how-to-join-the-orchestrator-in-a-terminal.md
+test("the board's name opens the board menu, whose Join in terminal opens the sheet: the command with Copy, Wake while asleep with the spinner while waking, and the saved command with no Wake while the server is down", async () => {
+  const checks = (watcher) => ({ at: '2026-10-30T10:00:00.000Z', every: 30, late: false, watcher, claudeAt: null });
+  const join = { command: 'claude attach 3f9a1c7e', tmux: false };
+  const b = boardOnDom({ board: { ...boardOf([workCard('A1')]), checks: checks('running'), join }, threads: {} });
+  await b.settle();
+  const $ = (s) => b.root.querySelector(s);
+  const open = $('#boardMenuOpen');
+  assert.deepEqual([$('.top h1').textContent, open.textContent, $('#boardMenu').hidden], ['A', 'A', true]);
+  b.page.fire(open, 'click', { target: open });
+  assert.deepEqual([$('#boardMenu').hidden, open.getAttribute('aria-expanded')], [false, 'true']);
+  assert.match($('#boardMenu').textContent, /Join in terminal\s*Running/);
+  b.page.fire($('#boardMenu'), 'click', { target: $('[data-join-open]') });
+  assert.deepEqual([$('#boardMenu').hidden, open.getAttribute('aria-expanded'), $('#joinSheet').open], [true, 'false', true]);
+  assert.equal($('#joinBody code').textContent, 'claude attach 3f9a1c7e');
+  assert.ok($('#joinBody [data-join-copy]'));
+  assert.match($('#joinBody').textContent, /Ctrl\+Z \(shell\) leaves it running/);
+  await b.change({ board: { ...b.view.B.state.board, checks: checks('asleep') } });
+  assert.equal($('#joinBody [data-join-wake]').textContent, 'Wake');
+  assert.equal($('#joinBody [data-join-copy]'), null);
+  b.page.fire($('#joinSheet'), 'click', { target: $('#joinBody [data-join-wake]') });
+  assert.deepEqual([$('#joinBody [data-join-wake]').getAttribute('aria-busy'), $('#joinBody [data-join-wake]').textContent], ['true', '']);
+  await b.settle();
+  assert.deepEqual(b.posts.filter(([p]) => p === '/_hub/wake'), [['/_hub/wake', { route: 'board-a' }]]);
+  b.view.B.linkDown();
+  assert.equal($('#joinBody code').textContent, 'claude attach 3f9a1c7e');
+  assert.ok($('#joinBody [data-join-copy]'));
+  assert.equal($('#joinBody [data-join-wake]'), null);
+  assert.match($('#joinBody').textContent, /Server not answering/);
+  b.view.unmount();
+});
+
+test("a shared person's tap on the board's name opens no menu", async () => {
+  const b = boardOnDom({ board: { ...boardOf([workCard('A1')]), join: { command: 'claude attach 3f9a1c7e', tmux: false } }, threads: {} });
+  await b.settle();
+  b.page.win.document.documentElement.classList.add('shared-view');
+  const open = b.root.querySelector('#boardMenuOpen');
+  b.page.fire(open, 'click', { target: open });
+  assert.equal(b.root.querySelector('#boardMenu').hidden, true);
   b.view.unmount();
 });
 

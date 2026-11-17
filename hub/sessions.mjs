@@ -169,6 +169,15 @@ export function runTmux(argv) {
 // The tmux session a hub board's session runs in.
 export const tmuxName = (route) => `kickflip-${route}`;
 const hasTmux = (tmux, route) => tmux(['has-session', '-t', `=${tmuxName(route)}`]).status === 0;
+// docs/adr/2026-11-17-1500-the-board-menu-shows-how-to-join-the-orchestrator-in-a-terminal.md
+// The command that opens a board's orchestrator session in a terminal, live: the hub board's tmux session, else
+// `claude attach` with the background session's short id, its session id's first 8 characters. tmux says which, for
+// how to leave it running. → {command, tmux}, null while the board has no session recorded.
+export function joinOf(board) {
+  const session = board.owner?.session;
+  if (!session) return null;
+  return board.hub ? { command: `tmux attach -t ${tmuxName(board.route)}`, tmux: true } : { command: `claude attach ${session.slice(0, 8)}`, tmux: false };
+}
 
 // After a hub board's session was stopped, waits for its tmux session to be gone, polling has-session up to `limit`
 // times, `sleep` ms apart, and kills one still there, so the resume that follows doesn't refuse it as live. A board

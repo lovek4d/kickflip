@@ -4,7 +4,8 @@
 // the ?, the way to Waiting on you on phone widths (from 900px the pane is beside the lanes and the ? is hidden), with the
 // open-question count as its badge (docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md);
 // and the wake: any tap on an asleep board's page, refresh included, asks the hub to resume its session
-// (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md). Needs app-core.js.
+// (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md); and the board menu the board's
+// name opens, with Join in terminal. Needs app-core.js.
 BoardView.part((B) => {
   const { $, state, toast } = B;
   const { statusLine, freshSig, nextFresh, githubLine, remoteLine, linksList, setupCard, pendingCheck, githubRefresh, headerControls } = BoardUI;
@@ -34,6 +35,7 @@ BoardView.part((B) => {
     $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.() });
     renderPause(B.pause?.());
     B.renderStart();
+    renderJoin();
     const moon = $('.away-moon');
     const away = Boolean(B.away?.());
     moon.classList.toggle('on', away);
@@ -112,17 +114,58 @@ BoardView.part((B) => {
   state.waking = false;
   async function wake() {
     state.waking = true;
+    renderJoin();
     try {
       const r = await fetch('/_hub/wake', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route: B.route }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `the hub answered ${r.status}`);
       await B.loadBoard();
     } catch (e) { toast(`Couldn't wake this board's session: ${e.message}`); }
-    finally { state.waking = false; }
+    finally { state.waking = false; renderJoin(); }
   }
   // A shared person's tap never wakes the owner's session (shell.js .shared-view).
-  const wakeOnTap = () => { if (state.board?.checks?.watcher === 'asleep' && !state.waking && state.link === 'online' && !document.documentElement.classList.contains('shared-view')) wake(); };
+  const shared = () => document.documentElement.classList.contains('shared-view');
+  const wakeOnTap = () => { if (state.board?.checks?.watcher === 'asleep' && !state.waking && state.link === 'online' && !shared()) wake(); };
   B.on(B.root, 'click', wakeOnTap, true);
   B.on(B.root, 'submit', wakeOnTap, true);
+
+  // docs/adr/2026-11-17-1500-the-board-menu-shows-how-to-join-the-orchestrator-in-a-terminal.md
+  // The board menu, which the board's name opens, and its Join in terminal sheet (ui-header.js boardMenu, joinSheet). Each
+  // repaints with the header's status while open, so a wake, the session's watcher or the link going down shows at once.
+  // A shared person's name tap opens nothing: the command runs on the owner's machine.
+  const menu = $('#boardMenu');
+  const menuOpen = $('#boardMenuOpen');
+  const joinSheet = $('#joinSheet');
+  const joinNow = () => BoardUI.joinState(state.board?.join, { watcher: state.board?.checks?.watcher, link: state.link, waking: state.waking });
+  function renderJoin() {
+    if (!menu.hidden) BoardUI.setHTML(menu, BoardUI.boardMenu(joinNow()));
+    if (joinSheet.open) BoardUI.setHTML($('#joinBody'), BoardUI.joinSheet(state.board?.join, joinNow()));
+  }
+  function showMenu(open) {
+    menu.hidden = !open;
+    menuOpen.setAttribute('aria-expanded', String(open));
+    renderJoin();
+  }
+  B.on(menuOpen, 'click', () => { if (state.board && !shared()) showMenu(menu.hidden); });
+  B.on(document, 'click', (ev) => { if (!menu.hidden && !ev.target.closest('#boardMenu, #boardMenuOpen')) showMenu(false); });
+  B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && !menu.hidden) { showMenu(false); menuOpen.focus(); } });
+  B.on(menu, 'click', (ev) => {
+    if (!ev.target.closest('[data-join-open]')) return;
+    showMenu(false);
+    joinSheet.classList.remove('closing');
+    BoardUI.openSheet(joinSheet);
+    renderJoin();
+  });
+  const closeJoin = () => BoardUI.closeSheet(joinSheet, B.later);
+  B.on($('#joinClose'), 'click', closeJoin);
+  B.on(joinSheet, 'click', (ev) => {
+    if (BoardUI.onBackdrop(ev, joinSheet)) { closeJoin(); return; }
+    if (ev.target.closest('[data-join-wake]') && !state.waking) wake();
+    if (ev.target.closest('[data-join-copy]')) {
+      Promise.resolve().then(() => navigator.clipboard.writeText(state.board.join.command)).then(() => toast('Copied'), () => toast('Couldn’t copy'));
+    }
+  });
+  B.atUnmount(BoardUI.swipeToDismiss(joinSheet));
+  B.on(joinSheet, 'cancel', (ev) => { ev.preventDefault(); closeJoin(); });
 
   state.link = 'online';
   const controls = { wired: false, boardSettled: false, reloading: false };

@@ -50,10 +50,11 @@
   // false, trail (HTML) takes their place; navAfter (HTML) goes after the controls, before the ?. pages is the switch between a board's two pages
   // (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md): 'questions' puts the ? after the controls, with
   // the open-question count in its badge (app-header.js), and 'board' puts the check, back up to the board, after trail. leadAttrs adds to or replaces the lead link's attributes, and level is the
-  // title's heading level, for a header that isn't the page's own, such as the sidebar's (ui-sidebar.js). moon puts the
+  // title's heading level, for a header that isn't the page's own, such as the sidebar's (ui-sidebar.js). titleMenu (HTML) makes the
+  // title the button that opens it, the board menu (app-header.js), and goes after the title and its moon. moon puts the
   // away moon right of the title, hidden until app-header.js renderStatus shows it (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md).
   function header({ lead = 'logo', title = '', titleId, backHref = './', backLabel = 'Back to the board', backId, logoSrc = 'kickflip.png',
-    controls = true, trail = '', time = '…', pages = null, moon = false, logoHref = '/_hub/', leadAttrs = {}, level = 1, navAfter = '' } = {}) {
+    controls = true, trail = '', time = '…', pages = null, moon = false, logoHref = '/_hub/', leadAttrs = {}, level = 1, navAfter = '', titleMenu = '' } = {}) {
     const attrs = (base) => Object.entries({ ...base, ...leadAttrs }).map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
     const logo = (cls = 'hub') => `<a class="${cls}" href="${esc(logoHref)}"${attrs({ 'aria-label': 'Boards' })}><img src="${esc(logoSrc)}" alt=""></a>`;
     const first = lead === 'back'
@@ -66,7 +67,8 @@
     const script = lead === 'back' ? `<script>(${wireBack})(${backStep});</script>` : '';
     const h = `h${[1, 2, 3, 4, 5, 6].includes(level) ? level : 1}`;
     const away = moon ? `<span class="away-moon" role="img" aria-label="Away" aria-hidden="true">${MOON}</span>` : '';
-    return `<header class="top"><div class="brand">${first}<${h}${id(titleId)}>${esc(title)}</${h}>${away}</div>${nav}</header>${script}`;
+    const named = titleMenu ? `<button type="button" class="title-menu" id="boardMenuOpen" aria-haspopup="menu" aria-expanded="false" aria-controls="boardMenu">${esc(title)}</button>` : esc(title);
+    return `<header class="top"><div class="brand">${first}<${h}${id(titleId)}>${named}</${h}>${away}${titleMenu}</div>${nav}</header>${script}`;
   }
 
   // The foot of the board, under the lanes: the architecture review's bulb (app-arch.js) and the gear, Board Settings,

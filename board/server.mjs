@@ -375,6 +375,7 @@ import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launc
 import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
+import { joinOf } from '../hub/sessions.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { nodeBin } from '../bin/install.mjs';
@@ -909,7 +910,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const built = withHub(await sharedBoard(), { listen, busy: self ? sessionBusy(self) : true, prompts: self ? pendingFor(self.route).map(shown) : [], now: now().getTime() });
     built.items = built.items.map((it) => (it.worktree && !existsSync(it.worktree) ? { ...it, worktree: null } : it));
     const links = self ? linksOf(self, { listen }) : null;
-    return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), reviewerGithub: Object.fromEntries((reviewers || []).filter((r) => typeof r?.name === 'string').map((r) => [r.name, r.github])), ...built, links, setup: await setupOf(links),
+    // The board menu's Join in terminal (hub/sessions.mjs joinOf), in the board so the saved copy holds it.
+    const join = self ? joinOf(self) : null;
+    return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), reviewerGithub: Object.fromEntries((reviewers || []).filter((r) => typeof r?.name === 'string').map((r) => [r.name, r.github])), ...built, links, join, setup: await setupOf(links),
       holdChoices: HOLD_CHOICES, orchestratorWaits: await waitsShown(), arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
   }
   // docs/adr/2026-11-15-0930-the-board-header-counts-what-waits-on-the-orchestrator.md

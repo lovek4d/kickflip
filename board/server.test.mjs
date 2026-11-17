@@ -1155,6 +1155,25 @@ test('a watcher that just exited on an event still counts as listening, until it
   assert.equal((await (await fetch(`${base}/api/board`)).json()).checks.watcher, 'stopped');
 });
 
+// docs/adr/2026-11-17-1500-the-board-menu-shows-how-to-join-the-orchestrator-in-a-terminal.md
+test("the board carries the command that joins its orchestrator in a terminal: claude attach with the session's short id, tmux attach on the hub board, none without a session", async () => {
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  const before = fs.existsSync(manifest) ? fs.readFileSync(manifest, 'utf8') : null;
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  const cmd = [process.execPath, path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site];
+  const join = async (s) => {
+    fs.writeFileSync(manifest, JSON.stringify({ sites: { t: { dir: site, port: 1, cmd, ...s } } }));
+    return (await (await fetch(`${base}/api/board`)).json()).join;
+  };
+  try {
+    assert.deepEqual(await join({ owner: { session: '3f9a1c7e-0b1d-4c55-9e2a-7d1f00aa1234' } }), { command: 'claude attach 3f9a1c7e', tmux: false });
+    assert.deepEqual(await join({ hub: true, owner: { session: '3f9a1c7e-0b1d-4c55-9e2a-7d1f00aa1234' } }), { command: 'tmux attach -t kickflip-t', tmux: true });
+    assert.equal(await join({}), null);
+  } finally {
+    if (before === null) fs.rmSync(manifest, { force: true }); else fs.writeFileSync(manifest, before);
+  }
+});
+
 test("the board lists each agent's record on an item, and the item's thread shows when each started and finished among its lines", async () => {
   await putWave(JSON.stringify({ items: [{ id: 'A3', title: 'Three', lane: 'progress' }] }));
   const records = [path.join(site, 'data', 'agents', 'A3.json'), path.join(site, 'data', 'agents', 'A3@bench.json'), path.join(site, 'data', 'threads', 't__A3.jsonl')];

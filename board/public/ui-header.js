@@ -96,5 +96,52 @@
     return { refresh: ready, settings: ready, spin: !boardSettled || reloading };
   };
 
-  Object.assign(globalThis.BoardUI, { statusLine, freshSig, nextFresh, githubLine, remoteLine, brokenLinks, linksList, setupCard, pendingCheck, githubRefresh, refreshIcon, headerControls });
+  // docs/adr/2026-11-17-1500-the-board-menu-shows-how-to-join-the-orchestrator-in-a-terminal.md
+  // Join in terminal, in the board menu the board's name opens. join is /api/board's (hub/sessions.mjs joinOf),
+  // {command, tmux} or null, which the saved copy holds too. Its state: 'down' while the server doesn't answer (link
+  // offline), else by the session's watcher (checks.watcher): 'awake' running, 'asleep', 'waking' (the hub resuming it,
+  // or the page's own wake on its way), 'none' with no session yet or one starting, else 'deaf', not listening.
+  const joinState = (join, { watcher, link = 'online', waking = false } = {}) => (!join ? 'none'
+    : link === 'offline' ? 'down'
+    : waking || watcher === 'waking' ? 'waking'
+    : watcher === 'asleep' ? 'asleep'
+    : watcher === 'running' ? 'awake'
+    : watcher === 'starting' ? 'none' : 'deaf');
+  // Each state's dot colour and word, the menu row's word where it differs (AGENTS.md colour priority).
+  const JOIN_STATES = Object.freeze({
+    awake: { colour: 'green', word: 'Running' },
+    asleep: { colour: 'grey', word: 'Asleep' },
+    waking: { colour: 'orange', word: 'Waking' },
+    none: { colour: 'grey', word: 'No session yet' },
+    down: { colour: 'red', word: 'Server not answering', row: 'Not answering' },
+    deaf: { colour: 'red', word: 'Not listening' },
+  });
+  const TERMINAL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 7 5 5-5 5"/><path d="M12 18h7"/></svg>';
+  const COPY = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
+  // The board menu, its one row Join in terminal with the session's state on its right.
+  const boardMenu = (state) => {
+    const s = JOIN_STATES[state];
+    return `<button type="button" role="menuitem" class="board-menu-item" data-join-open>${TERMINAL}<span>Join in terminal</span>${globalThis.BoardUI.iconText('dot', s.colour, s.row || s.word)}</button>`;
+  };
+  // The sheet's inside: the state, the command with Copy (greyed with Wake while asleep, Wake's spinner with no text
+  // while waking, no Wake while the server is down), how to leave it running, and what /exit does.
+  const joinSheet = (join, state) => {
+    const s = JOIN_STATES[state];
+    const head = `<p class="join-state">${globalThis.BoardUI.iconText('dot', s.colour, s.word)}</p>`;
+    if (state === 'none') return `${head}<p>This board has no orchestrator session yet, so there is nothing to join.</p><p class="muted small">The hub starts one when the board's first event arrives; the command appears here then.</p>`;
+    const copy = `<button type="button" class="join-copy" data-join-copy aria-label="Copy the command">${COPY}<span>Copy</span></button>`;
+    const button = state === 'asleep' ? '<button type="button" class="join-wake" data-join-wake>Wake</button>'
+      : state === 'waking' ? '<button type="button" class="join-wake" data-join-wake aria-busy="true" aria-label="Waking" disabled></button>' : copy;
+    const greyed = state === 'asleep' || state === 'waking';
+    const note = state === 'asleep' ? 'Asleep: it wakes when you open the board or an event lands. Wake it now to join.'
+      : state === 'waking' ? 'The hub is resuming the session. The command works once it runs.'
+      : state === 'down' ? 'From the saved copy, while the server doesn’t answer.'
+      : state === 'deaf' ? 'Its session isn’t listening for the board’s events. The command opens it while it runs.' : '';
+    const leave = join.tmux ? '<kbd>ctrl-b</kbd> <kbd>d</kbd> leaves it running.'
+      : '<kbd>←</kbd> (agent view) or <kbd>Ctrl+Z</kbd> (shell) leaves it running.';
+    return `${head}<div class="join-cmd${greyed ? ' asleep' : ''}"><code>${esc(join.command)}</code>${button}</div>`
+      + `${note ? `<p class="muted small">${note}</p>` : ''}<p class="small">${leave}</p><p class="muted small">/exit ends the session; the hub wakes it on the next event.</p>`;
+  };
+
+  Object.assign(globalThis.BoardUI, { statusLine, freshSig, nextFresh, githubLine, remoteLine, brokenLinks, linksList, setupCard, pendingCheck, githubRefresh, refreshIcon, headerControls, joinState, JOIN_STATES, boardMenu, joinSheet });
 })();
