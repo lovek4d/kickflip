@@ -10,6 +10,7 @@ import { slackStatus } from './slack.mjs';
 import { readSettings, subscriptions } from './push.mjs';
 import { tailscaleState } from '../bin/install.mjs';
 import { tailscaleDaemon, tailscaleInstallCommand } from '../shared/tailscale.mjs';
+import { tailnetOn } from '../shared/tailnet.mjs';
 
 // The third entry is the sentence a missing integration shows, or null for a row that shows none. Linear and Slack rows carry keyButton, the words of the
 // button that opens their key modal on the Hub page, in every state (docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md).
@@ -20,7 +21,7 @@ const INTEGRATIONS = [
   ['codex', 'Codex', 'Codex implementing and reviewing wait on this; Codex share stays Off.'],
   ['linear', 'Linear', null],
   ['slack', 'Slack', null],
-  ['tailscale', 'Tailscale', 'Try builds wait on this.'],
+  ['tailscale', 'Tailnet', 'Try builds wait on this.'],
   ['notifications', 'Notifications', 'Pushes wait on this.'],
 ];
 // A ready integration can still lack a permission a feature needs: its row carries permissions, {missing: [{scope, effect}], fix},
@@ -57,7 +58,9 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
       case 'slack': return !value.set ? { ready: false, missing: 'No Slack token set', keyButton: 'Add key' }
         : value.refused ? { ready: false, refused: true, missing: 'Slack refused the token', keyButton: 'Change key' }
         : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}`, keyButton: 'Change key' };
+      // value: {off: true} while the tailnet is off (../shared/tailnet.mjs), a grey row nothing waits on; else tailscaleState.
       case 'tailscale': {
+        if (value.off) return { ready: false, off: true, detail: 'The hub serves this host only', fix: { command: 'kickflip tailnet on' }, waits: null };
         let missing, command;
         if (!value.installed) { missing = "Tailscale isn't installed on the host"; command = tailscaleInstallCommand(platform); }
         else if (value.elsewhere) { missing = `Tailscale's recorded daemon isn't running; ${value.elsewhere} answered in its place`; command = 'kickflip doctor --fix'; }
@@ -73,14 +76,15 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
   };
   return INTEGRATIONS.filter(([id]) => Object.hasOwn(checks, id)).map(([id, name, waits]) => {
     const r = row(id, checks[id]);
-    return { id, name, ...r, ...(r.ready ? permissionsOf(id, checks[id]) : {}), waits };
+    return { id, name, waits, ...r, ...(r.ready ? permissionsOf(id, checks[id]) : {}) };
   });
 }
 
 const asyncRun = (env) => (command, args) => new Promise((resolve) => {
   execFile(command, args, { env, timeout: 3000 }, (error, stdout) => resolve({ status: error ? 1 : 0, stdout }));
 });
-export function readinessReader({ home = os.homedir(), env = process.env, now = Date.now, cacheMs = 60_000, probes = {} } = {}) {
+// tailnet() says whether the tailnet is on, read on every check so `kickflip tailnet` shows at once; off probes no tailscale.
+export function readinessReader({ home = os.homedir(), env = process.env, now = Date.now, cacheMs = 60_000, probes = {}, tailnet = () => tailnetOn(home) } = {}) {
   // The port Tailscale must serve: the one the hub listens on (listenOn), until then KICKFLIP_HUB_PORT, else 4500.
   let port = Number(env.KICKFLIP_HUB_PORT || 4500);
   const codex = codexStatusReader({ home, env, now, cacheMs });
@@ -96,6 +100,7 @@ export function readinessReader({ home = os.homedir(), env = process.env, now = 
   const cache = new Map();
   async function check(id, fresh) {
     if (!['github', 'tailscale'].includes(id)) return read[id]({ fresh });
+    if (id === 'tailscale' && !tailnet()) return { off: true };
     const limited = id === 'github' && limitedUntil({ file: gateFile(home), now: now() });
     if (limited) return { limited };
     const saved = cache.get(id);

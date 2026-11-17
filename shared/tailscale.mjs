@@ -82,7 +82,8 @@ export function pickDaemon(daemons, { status = daemonStatus, serves }) {
 
 const defaults = ({ env = process.env, home = os.homedir(), port = hubPort(env), status = daemonStatus, serves = (daemon) => servesHub(readJson(daemon, ['serve', 'status', '--json']), port), ...options } = {}) => ({ env, home, status, serves, ...options });
 
-// Picks by init's rule and records the pick in the hub's settings.json as `tailscale`, for doctor --fix and init. A pick
+// Picks by init's rule and records the pick in the hub's settings.json as `tailscale`, for doctor --fix and init while
+// the tailnet is on, and kickflip tailnet on (./tailnet.mjs). A pick
 // with no daemon running has no node and isn't recorded, so a recorded daemon stays until another runs.
 // → the pick, or null.
 export function repickDaemon(options) {

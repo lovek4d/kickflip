@@ -75,6 +75,9 @@ before(async () => {
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'tailscale'), '#!/bin/sh\necho \'{"BackendState":"Running","Self":{"DNSName":"mac.tail.ts.net."}}\'\n');
   fs.chmodSync(path.join(bin, 'tailscale'), 0o755);
+  // The tailnet is on here, so the URLs join prints are the tailnet's (../shared/tailnet.mjs).
+  fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tailnet: true }));
   fs.writeFileSync(fakeClaude, `#!${process.execPath}
 const fs = require('node:fs');
 const argv = process.argv.slice(2);

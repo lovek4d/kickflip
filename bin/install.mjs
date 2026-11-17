@@ -4,7 +4,8 @@ import path from 'node:path';
 import { SKILLS_SOURCE, addArgv, addCommand, missingSkills } from '../shared/skills.mjs';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
-import { tailscaleDaemon, repickDaemon, tailscaleArgv, answeredBy, recordedFault, daemonLabel, tailscaleRoot, servesHub, tailscaleInstallHint } from '../shared/tailscale.mjs';
+import { tailscaleDaemon, repickDaemon, tailscaleArgv, answeredBy, daemonLabel, tailscaleRoot, servesHub, tailscaleInstallHint } from '../shared/tailscale.mjs';
+import { tailnetOn, localUrl, mapHub } from '../shared/tailnet.mjs';
 
 // Homebrew's node link survives `brew upgrade`, which removes the versioned Cellar folder process.execPath names.
 // Another install (nvm, a system node) keeps its own execPath.
@@ -121,22 +122,6 @@ export async function hubStatus({ port = Number(process.env.KICKFLIP_HUB_PORT ||
   } catch { return null; }
 }
 
-// The HTTPS address the phone opens: tailscale / is the hub, so the hub is at https://<host>/ and a site at
-// https://<host>/<route>/, as kickflip.mjs siteUrl builds it. Throws the one-line reason when Tailscale isn't installed
-// or running, or the tailnet has no HTTPS certificate for this host. tailscale: the daemon (../shared/tailscale.mjs).
-export function tailnetUrl(route, { run = runCommand, platform = process.platform, tailscale = tailscaleDaemon({ platform }) } = {}) {
-  if (!tailscale) throw new Error(`Tailscale isn't installed on this host; ${tailscaleInstallHint(platform)}`);
-  const r = run(...tailscaleArgv(tailscale, ['status', '--json']));
-  let status = null;
-  try { status = r.status === 0 ? JSON.parse(r.stdout) : null; } catch {}
-  const fault = recordedFault(tailscale, r.stdout);
-  if (fault) throw new Error(fault);
-  if (status?.BackendState !== 'Running') throw new Error("Tailscale isn't running on this host; start it, or run tailscale up");
-  const host = status.Self?.DNSName?.replace(/\.$/, '') || '';
-  if (!host || !status.CertDomains?.includes(host)) throw new Error("HTTPS isn't on for this tailnet; turn on HTTPS Certificates on the DNS page of the Tailscale admin console");
-  return `https://${host}/${route ? route + '/' : ''}`;
-}
-
 // tailscale: the daemon to run (../shared/tailscale.mjs), null when there is none; others: the other running daemons,
 // [{daemon, machine}], which doctor names. elsewhere: the machine of another daemon that answered for the recorded one,
 // which then isn't running.
@@ -173,8 +158,9 @@ export async function tailscaleState({ others = [], run = runCommand, platform =
   return { installed, signedIn, elsewhere, dns, operatorChecked, operator, username, pointsAtHub, prereqs, root, serveConfig };
 }
 
-// tailscale: the daemon to map / on; by default init's pick made again and recorded (../shared/tailscale.mjs repickDaemon).
-export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log, tailscale = dryRun ? null : repickDaemon({ env, platform, home, port }) } = {}) {
+// tailnet: whether the tailnet is on (../shared/tailnet.mjs); off leaves Tailscale alone, an existing mapping too.
+// tailscale: the daemon to map / on while it's on; by default init's pick made again and recorded (../shared/tailscale.mjs repickDaemon).
+export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log, tailnet = tailnetOn(home), tailscale = dryRun || !tailnet ? null : repickDaemon({ env, platform, home, port }) } = {}) {
   const state = path.join(home, '.claude', 'kickflip');
   const service = hubService({ platform, home, uid, env, run });
   if (dryRun) {
@@ -185,7 +171,7 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
     const missing = missingSkills(home);
     if (missing.length) log(`would add ${missing.join(', ')} from ${SKILLS_SOURCE} with ${addCommand(missing)}`);
     for (const note of await service.install(null, { wait, dryRun })) log(note);
-    log(`would map tailscale / to the hub on ${port} and remove old site mounts`);
+    log(tailnet ? `would map tailscale / to the hub on ${port} and remove old site mounts` : 'would leave Tailscale alone: the tailnet is off');
     return;
   }
   for (const { link, target, created, replaced } of installLinks({ home, cloneRoot })) log(`${created || replaced ? 'linked' : 'checked'} ${link} -> ${target}`);
@@ -207,20 +193,10 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
     up = Boolean(await hubStatus({ port, fetch }));
   }
   if (!up) throw new Error('hub did not start; see ' + hubLog);
-  // With no Tailscale the hub still serves this host, so a board starts and lands; doctor and the hub's Tailscale row say what's missing.
+  if (!tailnet) return log(`the tailnet is off: the hub serves this host at ${localUrl(undefined, port)}; kickflip tailnet on adds it to your tailnet`);
+  // With no Tailscale the hub still serves this host, so a board starts and lands; doctor and the hub's Tailnet row say what's missing.
   if (!tailscale) return log(`skipped mapping tailscale / to the hub: Tailscale isn't installed on this host; ${tailscaleInstallHint(platform)}`);
-  const fault = tailscale.node && recordedFault(tailscale, run(...tailscaleArgv(tailscale, ['status', '--json']), { env }).stdout);
-  if (fault) throw new Error(fault);
-  const mapped = run(...tailscaleArgv(tailscale, ['serve', '--bg', String(port)]), { env });
-  if (mapped.status !== 0) throw new Error(mapped.error || 'tailscale serve failed');
-  const served = run(...tailscaleArgv(tailscale, ['serve', 'status', '--json']), { env });
-  let config;
-  try { config = JSON.parse(served.stdout); } catch { return; }
-  let sites = {};
-  try { sites = JSON.parse(fs.readFileSync(path.join(state, 'manifest.json'), 'utf8')).sites || {}; } catch (e) { if (e.code !== 'ENOENT') throw e; }
-  for (const route of tailscaleRoot(config).paths) {
-    if (route !== '/' && Object.hasOwn(sites, route.replace(/^\//, '').replace(/\/$/, ''))) run(...tailscaleArgv(tailscale, ['serve', '--https=443', '--set-path=' + route, 'off']), { env });
-  }
+  mapHub({ tailscale, port, home, run, env });
 }
 
 export function installClaudeSettings({ home = os.homedir() } = {}) {

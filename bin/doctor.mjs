@@ -9,6 +9,7 @@ import { codexStatus } from '../shared/codex.mjs';
 import { REVIEW_SKILLS, SKILLS_SOURCE, addCommand, skillsState, updateCommand } from '../shared/skills.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
 import { tailscaleDaemon, otherDaemons } from '../shared/tailscale.mjs';
+import { tailnetOn, localUrl } from '../shared/tailnet.mjs';
 import { inspectLinks, installPrefix, ownsStatusLine, hasWatcherStop, hubStatus, tailscaleState, runInstall } from './install.mjs';
 
 const FIX = 'kickflip doctor --fix';
@@ -55,7 +56,8 @@ export function oldBoardClones({ home = os.homedir(), cloneRoot = runningClone()
 // → [{group: prereqs|setup|hub, item, state, detail, fix}]. state is ok; fixable, which `doctor --fix` sets up; yours,
 // which only the person can fix with the fix command; optional, yours but not needed for the hub; or note, which the
 // hub handles itself. Reads only: runs the read commands through run(command, argv, {env}) and asks the hub on port.
-export async function doctorReport({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, username = os.userInfo().username, fetch = globalThis.fetch, tailscale = tailscaleDaemon({ env, platform, home, port }), others = otherDaemons(tailscale, { env, platform }) } = {}) {
+// tailnet: whether the tailnet is on (../shared/tailnet.mjs); off runs no tailscale and shows one Tailnet row for it.
+export async function doctorReport({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, username = os.userInfo().username, fetch = globalThis.fetch, tailnet = tailnetOn(home), tailscale = tailnet ? tailscaleDaemon({ env, platform, home, port }) : null, others = tailnet ? otherDaemons(tailscale, { env, platform }) : [] } = {}) {
   const hints = INSTALL[platform === 'darwin' ? 'darwin' : 'other'];
   const items = [];
   let group;
@@ -84,8 +86,9 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
       reach.status === 0 ? `git reaches ${repo} over https` : `git can’t reach ${repo} over https: ${reach.error}`,
       ghAuth ? 'gh auth refresh -h github.com, then kickflip doctor' : 'check this machine reaches https://github.com, then kickflip doctor');
   } else add('GitHub clone', 'yours', 'needs git', hints.git);
-  const ts = await tailscaleState({ run: (command, argv) => execute(command, argv), platform, uid, username, port, tailscale, others });
-  for (const entry of ts.prereqs) add(entry.item, entry.state, entry.detail, entry.fix);
+  const ts = tailnet ? await tailscaleState({ run: (command, argv) => execute(command, argv), platform, uid, username, port, tailscale, others }) : null;
+  if (ts) for (const entry of ts.prereqs) add(entry.item, entry.state, entry.detail, entry.fix);
+  else add('Tailnet', 'optional', `off; the hub serves this host only, at ${localUrl(undefined, port)}`, 'kickflip tailnet on');
   // Only a hub board's session needs tmux (../hub/sessions.mjs hubSession).
   const tmux = execute('tmux', ['-V']);
   add('tmux', tmux.status === 0 ? 'ok' : 'optional', tmux.status === 0 ? (tmux.stdout || 'installed').trim().split('\n')[0] : 'not installed; a hub board’s session (kickflip join --hub, kickflip hub) runs in it', hints.tmux);
@@ -152,8 +155,7 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   group = 'hub';
   const hub = await hubStatus({ port, fetch });
   add('hub', hub ? 'ok' : 'fixable', `${hub ? 'running' : 'not running'} on 127.0.0.1:${port}`, FIX);
-  const { serveConfig } = ts;
-  add(ts.root.item, ts.root.state, ts.root.detail, ts.root.fix);
+  if (ts) add(ts.root.item, ts.root.state, ts.root.detail, ts.root.fix);
 
   let sites = hub?.sites;
   if (!sites) {
@@ -168,22 +170,25 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   }
   let manifest = {};
   try { manifest = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), 'utf8')); } catch {}
-  const owners = new Map();
-  const recorded = [...Object.entries(manifest.sites || {}), ...Object.entries(manifest.closed || {}).map(([route, entry]) => [route, entry.site]), ...sites.map((site) => [site.route, site])];
-  for (const [route, site] of recorded) {
-    if (!site?.dir) continue;
-    let state;
-    try { state = JSON.parse(fs.readFileSync(path.join(site.dir, 'data', 'try.json'), 'utf8')); } catch { continue; }
-    if (isTryPort(state.main_port)) owners.set(Number(state.main_port), `/${route} main`);
-    if (isTryPort(state.main?.https)) owners.set(Number(state.main.https), `/${route} main`);
-    for (const [key, card] of Object.entries(state.cards || {})) if (isTryPort(card.https)) owners.set(Number(card.https), `/${route} ${key}`);
+  if (ts) {
+    const { serveConfig } = ts;
+    const owners = new Map();
+    const recorded = [...Object.entries(manifest.sites || {}), ...Object.entries(manifest.closed || {}).map(([route, entry]) => [route, entry.site]), ...sites.map((site) => [site.route, site])];
+    for (const [route, site] of recorded) {
+      if (!site?.dir) continue;
+      let state;
+      try { state = JSON.parse(fs.readFileSync(path.join(site.dir, 'data', 'try.json'), 'utf8')); } catch { continue; }
+      if (isTryPort(state.main_port)) owners.set(Number(state.main_port), `/${route} main`);
+      if (isTryPort(state.main?.https)) owners.set(Number(state.main.https), `/${route} main`);
+      for (const [key, card] of Object.entries(state.cards || {})) if (isTryPort(card.https)) owners.set(Number(card.https), `/${route} ${key}`);
+    }
+    const ports = Object.keys(serveConfig?.TCP || {}).filter(isTryPort).sort((a, b) => a - b);
+    add('try ports', 'ok', ports.map((port) => {
+      const web = Object.entries(serveConfig.Web || {}).find(([host]) => host.endsWith(`:${port}`))?.[1];
+      const target = web?.Handlers?.['/']?.Proxy || serveConfig.TCP[port].TCPForward || 'HTTPS';
+      return `${port} → ${target} (${owners.get(Number(port)) || 'unknown'})`;
+    }).join('; ') || 'none');
   }
-  const ports = Object.keys(serveConfig?.TCP || {}).filter(isTryPort).sort((a, b) => a - b);
-  add('try ports', 'ok', ports.map((port) => {
-    const web = Object.entries(serveConfig.Web || {}).find(([host]) => host.endsWith(`:${port}`))?.[1];
-    const target = web?.Handlers?.['/']?.Proxy || serveConfig.TCP[port].TCPForward || 'HTTPS';
-    return `${port} → ${target} (${owners.get(Number(port)) || 'unknown'})`;
-  }).join('; ') || 'none');
   if (!sites.length) add('sites', 'ok', 'none');
   for (const site of sites) {
     const where = site.port ? `port ${site.port}` : `files ${site.dir}`;

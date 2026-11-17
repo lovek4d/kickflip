@@ -8,7 +8,7 @@ On a Mac, with [Homebrew](https://brew.sh):
 
 ```sh
 brew install node git gh
-brew install --cask tailscale-app claude-code
+brew install --cask claude-code
 
 npm i -g @lovek4d/kickflip
 kickflip init
@@ -16,22 +16,22 @@ kickflip init
 
 Kickflip needs Node 22 or newer. On Linux, install the same tools with your package manager.
 
-Sign in to Tailscale and turn on HTTPS certificates for your tailnet. Run `gh auth login`. Do both on the host, and put Tailscale on your phone too.
+Run `gh auth login` on the host. Tailscale (`brew install --cask tailscale-app`) is only for the tailnet, below.
 
 Optional: tmux, only for `kickflip join --hub` and `kickflip hub` below, and Codex.
 
-`kickflip init` links kickflip into Claude Code, starts the hub as a login service and serves it over Tailscale. Run `kickflip doctor` any time to see what is set up and what is not.
+`kickflip init` links kickflip into Claude Code and starts the hub as a login service, on this host at `http://127.0.0.1:4500/`. Run `kickflip doctor` any time to see what is set up and what is not.
 
-## Open on your phone
+## Tailnet
 
-Run `kickflip url`. Open the address it prints.
+The hub serves only the host it runs on until you turn the tailnet on. To reach it from your phone, sign in to Tailscale on the host and the phone, turn on HTTPS certificates for your tailnet, then run:
 
 ```
-$ kickflip url
-https://mac.tailnet-name.ts.net/
+$ kickflip tailnet on
+tailnet on: the hub is at https://mac.tailnet-name.ts.net/
 ```
 
-Add it to your home screen to get push notifications.
+Open that address on your phone, and add it to your home screen to get push notifications. `kickflip url` prints it again. `kickflip tailnet off` takes the hub off the tailnet, and `kickflip tailnet status` says which it is.
 
 ## Add a board
 
@@ -47,7 +47,8 @@ To have the hub board's session running in a terminal you can attach to, run `ki
 ## Commands
 
 - `kickflip init`: first-time setup
-- `kickflip url`: print the address to open on your phone
+- `kickflip url`: print the hub's address, the one to open on your phone while the tailnet is on
+- `kickflip tailnet on | off | status`: put the hub on your tailnet, take it off, or say which
 - `kickflip doctor`: check what is set up, `--fix` repairs it
 - `kickflip join`: add this folder as a board
 - `kickflip hub`: attach to the hub board's tmux session

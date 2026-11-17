@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath, nodeBin, tailnetUrl, WATCHER_STOP } from './install.mjs';
+import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath, nodeBin, WATCHER_STOP } from './install.mjs';
+import { tailnetUrl } from '../shared/tailnet.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { doctorReport, doctorLines, runDoctor } from './doctor.mjs';
@@ -446,7 +447,7 @@ test('uninstall unmaps / only on the recorded daemon, and leaves it mapped with 
   fs.writeFileSync(stub, `#!/bin/sh\necho "$@" >> '${log}'\necho '{"BackendState":"Running","Self":{"ID":"nBrew","HostName":"brew-mac"}}'\n`, { mode: 0o755 });
   const record = (node) => {
     fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
-    fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tailscale: { kind: 'cli', cli: stub, node } }));
+    fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tailnet: true, tailscale: { kind: 'cli', cli: stub, node } }));
   };
   const uninstall = () => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'uninstall'], {
     env: { ...process.env, HOME: home, KICKFLIP_TAILSCALE: '', KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
@@ -460,7 +461,7 @@ test('uninstall unmaps / only on the recorded daemon, and leaves it mapped with 
   record('nBrew');
   const unmapped = uninstall();
   assert.match(unmapped.stdout, /; tailscale \/ unmapped\./);
-  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['status --json', 'serve --https=443 --set-path=/ off']);
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['status --json', 'serve --https=443 --set-path=/ off', 'serve status --json']);
 });
 
 const CLONE_CONFIG = '-c credential.helper= -c credential.https://github.com.helper=!gh auth git-credential';
@@ -518,7 +519,7 @@ function healthyDoctor() {
   const env = { PATH: path.join(home, 'doctor-bin'), HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' };
   fs.mkdirSync(env.PATH);
   fs.writeFileSync(path.join(env.PATH, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  const options = { home, cloneRoot: root, port, uid: 501, env, platform: 'darwin', tailscale: CLI, others: [],
+  const options = { home, cloneRoot: root, port, uid: 501, env, platform: 'darwin', tailnet: true, tailscale: CLI, others: [],
     run: (command, argv, passed) => {
       assert.deepEqual(passed.env, command === 'git' && argv.includes('ls-remote') ? { ...env, GIT_TERMINAL_PROMPT: '0' } : env);
       const key = [command, ...argv].join(' ');
@@ -874,7 +875,7 @@ test('the shared install steps run links, settings, launchd and Tailscale once w
   const waits = [];
   const logs = [];
   const port = 19460;
-  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', tailscale: CLI, wait: async (ms) => waits.push(ms), log: (line) => logs.push(line),
+  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', tailnet: true, tailscale: CLI, wait: async (ms) => waits.push(ms), log: (line) => logs.push(line),
     fetch: async (url) => {
       assert.equal(url, `http://127.0.0.1:${port}/_hub/status.json`);
       return { ok: true, json: async () => ({ sites: [] }) };
@@ -905,7 +906,7 @@ test('the shared install steps run links, settings, launchd and Tailscale once w
 test('on Linux the shared install steps start a systemd user unit in place of a login item', async () => {
   reviewSkills();
   const calls = [];
-  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', tailscale: CLI, wait: async () => {}, log: () => {},
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', tailnet: true, tailscale: CLI, wait: async () => {}, log: () => {},
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
     run: (command, argv) => {
       calls.push([command, ...argv].join(' '));
@@ -931,7 +932,7 @@ test('on Linux doctor names apt, npm for Codex, and the systemd service with its
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\necho inactive\nexit 3\n', { mode: 0o755 });
   fs.writeFileSync(path.join(bin, 'loginctl'), '#!/bin/sh\necho Linger=no\n', { mode: 0o755 });
-  const items = await doctorReport({ home, cloneRoot: root, port: 1, uid: 1000, platform: 'linux', env: { PATH: bin }, fetch: async () => { throw new Error('offline'); } });
+  const items = await doctorReport({ home, cloneRoot: root, port: 1, uid: 1000, platform: 'linux', tailnet: true, env: { PATH: bin }, fetch: async () => { throw new Error('offline'); } });
   assert.deepEqual(['git', 'gh', 'Tailscale', 'Codex', 'tailscale /'].map((name) => pick(items, name).fix),
     ['sudo apt install git', 'sudo apt install gh', 'curl -fsSL https://tailscale.com/install.sh | sh', 'npm i -g @openai/codex', 'curl -fsSL https://tailscale.com/install.sh | sh']);
   assert.equal(pick(items, 'hub login item'), undefined);
@@ -950,7 +951,7 @@ test('doctor --fix --dry-run and install preview all steps without runners, netw
   assert.deepEqual(fs.readdirSync(skills).sort(), before);
   assert.equal(fs.existsSync(settingsFile()), false);
   assert.equal(fs.existsSync(path.join(home, 'Library')), false);
-  assert.ok(output.some((line) => line.startsWith('would map tailscale /')));
+  assert.ok(output.includes('would leave Tailscale alone: the tailnet is off'));
 });
 
 test('the installed usage hook reminds sessions, denies only new agents while paused and stays silent on errors', () => {
@@ -1111,7 +1112,7 @@ test('install picks the daemon again and records it in the hub’s settings, and
   fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
   fs.writeFileSync(settingsFile, JSON.stringify({ claudeModel: 'auto', tailscale: { kind: 'cli', cli: '/gone/tailscale', node: 'nOld' } }));
   const calls = [];
-  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', env: { PATH: bin }, wait: async () => {}, log: () => {},
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', tailnet: true, env: { PATH: bin }, wait: async () => {}, log: () => {},
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
     run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
   });
@@ -1135,7 +1136,7 @@ test('with no tailscale, install still starts the hub and skips only the mapping
   const calls = [];
   const logs = [];
   const port = 19460;
-  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', tailscale: null, wait: async () => {}, log: (line) => logs.push(line),
+  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', tailnet: true, tailscale: null, wait: async () => {}, log: (line) => logs.push(line),
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
     run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '' }; },
   });
@@ -1146,7 +1147,7 @@ test('with no tailscale, install still starts the hub and skips only the mapping
 
 test('with the app recorded and quit, install refuses to map / with the recorded-daemon fault, and serves nothing on the daemon that answered', async () => {
   const calls = [];
-  await assert.rejects(runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailscale: { ...APP, node: 'nApp' }, wait: async () => {}, log: () => {},
+  await assert.rejects(runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailnet: true, tailscale: { ...APP, node: 'nApp' }, wait: async () => {}, log: () => {},
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
     run: (command, argv) => {
       calls.push([command, ...argv].join(' '));
@@ -1159,7 +1160,7 @@ test('with the app recorded and quit, install refuses to map / with the recorded
 test('install maps the hub through the chosen daemon, the GUI app’s or brew’s with its socket', async () => {
   for (const [daemon, prefix] of [[APP, APP_CLI], [BREW, `${BREW_CLI} --socket ${DARWIN_SOCKET}`]]) {
     const calls = [];
-    await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailscale: daemon, wait: async () => {}, log: () => {},
+    await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailnet: true, tailscale: daemon, wait: async () => {}, log: () => {},
       fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
       run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
     });
@@ -1243,4 +1244,59 @@ test('install writes the node that owns the install into the service, and a clon
   fs.rmSync(statusline());
   await runInstall({ home, cloneRoot: root, platform: 'darwin', uid: 501, run, wait, fetch, tailscale: null, log: () => {} });
   assert.equal(hubService({ platform: 'darwin', home, uid: 501 }).node(), nodeBin());
+});
+
+test('with the tailnet off, install starts the hub, runs no tailscale and leaves an existing mapping alone, naming the local address', async () => {
+  const calls = [];
+  const logs = [];
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', wait: async () => {}, log: (line) => logs.push(line),
+    fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
+    run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '' }; },
+  });
+  assert.ok(calls.includes(`launchctl bootstrap gui/501 ${path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist')}`));
+  assert.ok(!calls.some((call) => /tailscale/i.test(call)));
+  assert.equal(logs.at(-1), 'the tailnet is off: the hub serves this host at http://127.0.0.1:19460/; kickflip tailnet on adds it to your tailnet');
+  const dry = [];
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', dryRun: true, log: (line) => dry.push(line), run: () => ({ status: 0, stdout: '' }) });
+  assert.equal(dry.at(-1), 'would leave Tailscale alone: the tailnet is off');
+});
+
+test('with the tailnet off, doctor shows one optional Tailnet row with the command and runs no tailscale', async () => {
+  const { options, calls } = healthyDoctor();
+  const items = await doctorReport({ ...options, tailnet: false, tailscale: undefined, others: undefined });
+  assert.deepEqual(pick(items, 'Tailnet'), { group: 'prereqs', item: 'Tailnet', state: 'optional', detail: 'off; the hub serves this host only, at http://127.0.0.1:19460/', fix: 'kickflip tailnet on' });
+  for (const name of ['Tailscale', 'Tailscale signed in', 'tailscale /', 'try ports']) assert.equal(pick(items, name), undefined, name);
+  assert.ok(!calls.some((call) => /tailscale/i.test(call)));
+});
+
+test('with the tailnet off, uninstall runs no tailscale and leaves / as it is', () => {
+  const stub = path.join(home, 'ts-bin', 'tailscale');
+  const log = path.join(home, 'ts-calls');
+  fs.mkdirSync(path.dirname(stub), { recursive: true });
+  fs.writeFileSync(stub, `#!/bin/sh\necho "$@" >> '${log}'\necho '{}'\n`, { mode: 0o755 });
+  fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tailscale: { kind: 'cli', cli: stub, node: 'n1' } }));
+  const result = spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'uninstall'], {
+    env: { ...process.env, HOME: home, KICKFLIP_TAILSCALE: '', KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /tailscale/);
+  assert.equal(fs.existsSync(log), false);
+});
+
+test('kickflip url and kickflip tailnet status name this host’s address while the tailnet is off, and run no tailscale', () => {
+  const stub = path.join(home, 'ts-bin', 'tailscale');
+  const log = path.join(home, 'ts-calls');
+  fs.mkdirSync(path.dirname(stub), { recursive: true });
+  fs.writeFileSync(stub, `#!/bin/sh\necho "$@" >> '${log}'\necho '{}'\n`, { mode: 0o755 });
+  const kickflip = (...args) => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), ...args], {
+    env: { ...process.env, HOME: home, KICKFLIP_TAILSCALE: stub, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '19460' }, encoding: 'utf8',
+  });
+  assert.equal(kickflip('url').stdout, 'http://127.0.0.1:19460/\n');
+  assert.equal(kickflip('tailnet').stdout, 'off: the hub serves this host only, at http://127.0.0.1:19460/; kickflip tailnet on adds it to your tailnet\n');
+  assert.equal(kickflip('tailnet', 'status').stdout, 'off: the hub serves this host only, at http://127.0.0.1:19460/; kickflip tailnet on adds it to your tailnet\n');
+  const bad = kickflip('tailnet', 'maybe');
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /tailnet takes on, off or status/);
+  assert.equal(fs.existsSync(log), false);
 });

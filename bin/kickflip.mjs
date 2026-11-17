@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // kickflip: manage the shared site manifest the hub (../hub/hub.mjs) serves.
 //   kickflip doctor [--fix [--dry-run]] [--json]
-//               one line per prereq, installed piece, the hub, Tailscale / and each site (./doctor.mjs): ok,
+//               one line per prereq, installed piece, the hub, the tailnet (Tailscale / while it's on) and each site (./doctor.mjs): ok,
 //               fixable (by --fix), yours (with the command to run), optional or note. Changes nothing.
 //               --fix runs init's steps, asks in a terminal whether to remove each board clone left in an old place
 //               (outside ~/.claude/kickflip/repos), then reports again. --json prints {items:[{group,item,state,detail,fix}]}
@@ -114,9 +114,15 @@
 //   kickflip leave <route> [--session <id>] [--force]
 //               removes the entry and keeps its files; --session (or --force) only for a route a session owns
 //   kickflip url [route]
-//               prints the hub's HTTPS address on the tailnet, the one to open on the phone, or with a route that
-//               site's (./install.mjs tailnetUrl). Exit 1 when Tailscale isn't installed or running, or HTTPS isn't on for the tailnet,
-//               2 for a route with no site
+//               prints the hub's address, or with a route that site's (../shared/tailnet.mjs hubUrl): on this host,
+//               http://127.0.0.1:<port>/, while the tailnet is off; its HTTPS address on the tailnet, the one to open on
+//               the phone, while it's on. Exit 1 when it's on and Tailscale isn't installed or running, or HTTPS isn't on
+//               for the tailnet, 2 for a route with no site
+//   kickflip tailnet [on | off | status]
+//               the opt-in that puts the hub on the tailnet (../shared/tailnet.mjs; off by default). on maps Tailscale / to
+//               the hub through init's daemon pick and records on, printing the hub's tailnet address or why it has none
+//               yet; exit 1, still off, with no Tailscale or a failed mapping. off unmaps / and the try ports and records
+//               off. status (the default) prints which, with the address; exit 1 when it's on with no tailnet address
 //   kickflip restart [route]
 //               restarts the site at that route; with no route, restarts the hub through its service
 //   kickflip logs <route> [--lines <n>]
@@ -124,10 +130,11 @@
 //               init is the first-run name for doctor --fix. It links the running package or clone, hooks plugin
 //               and status line, configures Claude settings, starts the hub's service in place of the running one (../shared/service.mjs:
 //               a launchd login item on macOS; a systemd user unit on Linux),
-//               and maps Tailscale / to the hub.
+//               and, while the tailnet is on (`tailnet`), maps Tailscale / to the hub. Off, it leaves Tailscale alone.
 //               Conflicting skill links and real paths are refused. A dangling status-line link can be replaced.
 //               --dry-run prints what init would move, link and start, and changes nothing.
-//               uninstall stops the hub and removes its service, kickflip's status-line link and Tailscale /;
+//               uninstall stops the hub and removes its service, kickflip's status-line link and, while the tailnet is on,
+//               Tailscale / and the try ports;
 //               Claude settings and skill links are kept
 //   kickflip update [--no-restart]
 //               installs @lovek4d/kickflip@latest globally with npm. When the version changed it prints
@@ -196,9 +203,10 @@ import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { joinName, routeFromName, routeRecord, validRoute } from '../hub/routes.mjs';
 import { defaultBranch, githubFromOrigin } from '../hub/repos.mjs';
 import { boardFiles, connects, freePort as findPort } from '../hub/board-site.mjs';
-import { uninstallStatusLine, nodeBin, watcherCommand, tailnetUrl } from './install.mjs';
+import { uninstallStatusLine, nodeBin, watcherCommand } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
-import { tailscaleDaemon, tailscaleArgv, answeredBy, recordedFault } from '../shared/tailscale.mjs';
+import { tailscaleDaemon, tailscaleArgv, answeredBy } from '../shared/tailscale.mjs';
+import { tailnetOn, localUrl, hubUrl, unmapHub, turnOn, turnOff, tailnetStatus } from '../shared/tailnet.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
@@ -285,9 +293,10 @@ async function withLock(fn) {
 // A port for a new site (../hub/board-site.mjs freePort), or a failure when none is free.
 const freePort = (m) => findPort(m).catch((e) => fail(e.message));
 
-// The host's tailnet name, or '' when Tailscale isn't installed or its recorded daemon isn't running, so a site's address
-// falls back to loopback.
+// The host's tailnet name, or '' while the tailnet is off (../shared/tailnet.mjs), or Tailscale isn't installed or its
+// recorded daemon isn't running, so a site's address falls back to loopback.
 function tailnetHost() {
+  if (!tailnetOn()) return '';
   const tailscale = tailscaleDaemon();
   if (!tailscale) return '';
   try {
@@ -295,7 +304,7 @@ function tailnetHost() {
     return answeredBy(tailscale, s) ? '' : (s.Self?.DNSName || '').replace(/\.$/, '');
   } catch { return ''; }
 }
-const siteUrl = (route) => { const h = tailnetHost(); return h ? `https://${h}/${route}/` : `http://127.0.0.1:${HUB_PORT}/${route}/`; };
+const siteUrl = (route) => { const h = tailnetHost(); return h ? `https://${h}/${route}/` : localUrl(route, HUB_PORT); };
 
 // The hub's status, or null when nothing answers on its port. A hub that is down refuses at once, so a slow one is
 // waited for (docs/adr/2026-11-13-2230-kickflip-waits-for-a-slow-hub.md).
@@ -475,8 +484,8 @@ Exported from ${b.from} at ${b.exported_at}. This bundle holds the board's folde
 
 ## On the new machine
 
-1. Install Git, Node 22+, Claude Code, gh and Tailscale, and turn on HTTPS certificates for the tailnet.
-2. Run \`npm i -g @lovek4d/kickflip\`, then \`kickflip init\`, and fix what its report marks yours.
+1. Install Git, Node 22+, Claude Code and gh.
+2. Run \`npm i -g @lovek4d/kickflip\`, then \`kickflip init\`, and fix what its report marks yours. To reach the hub from your phone, install Tailscale, turn on HTTPS certificates for the tailnet and run \`kickflip tailnet on\`.
 3. Run \`kickflip import ${file}\`. It refuses when /${b.route} already exists there.
 4. Start a fresh Claude Code session in the folder the board works in, and have it run the \`join\` line the import prints, with its own session id. \`--force\` takes the board over.
 5. Once the board answers there, stop its session on the old machine and run \`kickflip leave ${b.route} --force\` there, so only one session acts on its tasks. Its files stay on the old machine.
@@ -878,7 +887,17 @@ const commands = {
   async url() {
     const route = args._[0];
     if (route && !routeRecord(readManifest().sites, route)) fail('no site at /' + route, 2);
-    try { out(tailnetUrl(route)); } catch (e) { fail(e.message); }
+    try { out(hubUrl(route, { port: HUB_PORT })); } catch (e) { fail(e.message); }
+  },
+
+  async tailnet() {
+    const [word = 'status', ...extra] = args._;
+    if (extra.length || !['on', 'off', 'status'].includes(word)) fail('tailnet takes on, off or status', 2);
+    try {
+      if (word === 'on') out(await turnOn({ port: HUB_PORT }));
+      else if (word === 'off') out(await turnOff({ port: HUB_PORT }));
+      else out(tailnetStatus({ port: HUB_PORT }));
+    } catch (e) { fail(e.message); }
   },
 
   async logs() {
@@ -915,12 +934,9 @@ const commands = {
     if (uninstallStatusLine()) out(`removed ${path.join(os.homedir(), '.claude', 'statusline.sh')}`);
     const service = hubService();
     service.remove();
-    const tailscale = tailscaleDaemon();
-    const read = (args) => { try { return execFileSync(...tailscaleArgv(tailscale, args), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return ''; } };
-    // The unmap lands only on the recorded daemon (../shared/tailscale.mjs recordedFault).
-    const fault = tailscale?.node && recordedFault(tailscale, read(['status', '--json']));
-    if (tailscale && !fault) read(['serve', '--https=443', '--set-path=/', 'off']);
-    out(`hub stopped and removed from ${service.manager ?? 'the host'}${fault ? `; tailscale / left mapped: ${fault}` : tailscale ? '; tailscale / unmapped' : ''}. The manifest and sites are kept in ${HOME}`);
+    // Off leaves Tailscale alone; on unmaps through the recorded daemon only (../shared/tailnet.mjs unmapHub).
+    const unmapped = tailnetOn() ? await unmapHub({ tailscale: tailscaleDaemon() }) : '';
+    out(`hub stopped and removed from ${service.manager ?? 'the host'}${unmapped ? `; ${unmapped}` : ''}. The manifest and sites are kept in ${HOME}`);
   },
 
   async push() {

@@ -67,9 +67,11 @@
     // GitHub's row while its rate limit holds is red, a fault, and says when it resets
     // (docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md).
     // A ready integration missing a permission reads amber degraded, the word opening its permissions sheet.
-    const tone = (it) => it.limited || it.refused ? 'var(--color-danger)' : it.ready && !it.permissions ? 'var(--color-quiet)' : 'var(--color-notice)';
+    // An integration turned off (the tailnet, docs/adr/2026-11-18-0300-the-tailnet-is-opt-in-with-kickflip-tailnet.md) reads grey off, with the command that turns it on.
+    const tone = (it) => it.limited || it.refused ? 'var(--color-danger)' : (it.ready && !it.permissions) || it.off ? 'var(--color-quiet)' : 'var(--color-notice)';
     const rows = integrations.map((it) => row({ icon: tile(it.id, tone(it)), title: esc(it.name), wrap: true, trail: keyButton(it),
-      sub: it.ready ? `${it.permissions ? permissionsWord(it) : '<span class="st ok">ready</span>'} · ${esc(it.detail)}${devices(it)}`
+      sub: it.off ? `<span class="st off">off</span> · ${esc(it.detail)}${missingLinks(it)}`
+        : it.ready ? `${it.permissions ? permissionsWord(it) : '<span class="st ok">ready</span>'} · ${esc(it.detail)}${devices(it)}`
         : `${it.limited ? '<span class="st down">rate limited</span>' : `<span class="st ${it.refused ? 'down' : 'wait'}">not ready</span>`} · ${esc(it.missing)}${missingLinks(it)}` })).join('');
     return `<h2 class="label" id="integrations">Integrations</h2><div class="group">${rows}</div>
 <p class="note">A feature that needs an integration stays off until it’s ready, and says why.</p>

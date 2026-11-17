@@ -145,6 +145,8 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
     write(path.join(scratch, 'doctor-bin', 'codex'), '#!/bin/sh\nexit 1\n');
     fs.chmodSync(path.join(scratch, 'doctor-bin', 'codex'), 0o755);
     for (const name of REVIEW_SKILLS) write(path.join(scratch, '.claude', 'skills', name, 'SKILL.md'), `# ${name}\n`);
+    // A healthy hub here has the tailnet on, so doctor checks Tailscale and --fix maps / (../shared/tailnet.mjs).
+    write(path.join(scratch, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tailnet: true }));
   }
   const source = `
     import fs from 'node:fs';
@@ -228,7 +230,7 @@ test('init --dry-run CLI writes no setup and invokes no service', async () => {
   const fixture = doctorCLI('init-dry');
   const result = await fixture.run('init', '--dry-run');
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /would map tailscale \/ to the hub on 19460/);
+  assert.match(result.stdout, /would leave Tailscale alone: the tailnet is off/);
   assert.deepEqual(fixture.calls(), []);
   assert.deepEqual(fs.readdirSync(fixture.scratch), []);
 });

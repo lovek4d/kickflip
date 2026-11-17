@@ -1,6 +1,6 @@
 # Kickflip hub and boards
 
-Pages on Love's tailnet that Claude sessions serve, so the owner can follow and steer their work from a phone. The hub lists the sites and sends pushes. A board is a site that shows a session's work as tasks.
+Pages on the owner's host, and on their tailnet once it's on, that Claude sessions serve, so the owner can follow and steer their work, from a phone too. The hub lists the sites and sends pushes. A board is a site that shows a session's work as tasks.
 
 ## Language
 
@@ -23,8 +23,12 @@ A board whose builders branch from its repo's local `main` and land there, with 
 _Avoid_: joined board, folder board
 
 **Hub**:
-The one server on the host that answers the tailnet address, lists every site, forwards to each, checks GitHub for the open PRs on boards' tasks, and sends pushes. Changes on the hub, boards and starter sites come from the app's own pages or non-browser clients; another site's page cannot act on them ([the hub starts a new board's session itself](docs/adr/2026-10-31-0137-the-hub-starts-a-new-boards-session.md)).
+The one server on the host that answers on the host (`http://127.0.0.1:<port>/`), and on the tailnet address while the **tailnet** is on, lists every site, forwards to each, checks GitHub for the open PRs on boards' tasks, and sends pushes. Changes on the hub, boards and starter sites come from the app's own pages or non-browser clients; another site's page cannot act on them ([the hub starts a new board's session itself](docs/adr/2026-10-31-0137-the-hub-starts-a-new-boards-session.md)).
 _Avoid_: portal, gateway
+
+**Tailnet**:
+The owner's opt-in that puts the hub on their Tailscale network, so the phone reaches it: `kickflip tailnet on` maps Tailscale `/` to the hub and records `tailnet: true` in the hub's settings, `kickflip tailnet off` unmaps it. Off by default, an install that already maps `/` included; off, the hub serves the host only and nothing runs tailscale ([the tailnet is opt-in with kickflip tailnet](docs/adr/2026-11-18-0300-the-tailnet-is-opt-in-with-kickflip-tailnet.md)).
+_Avoid_: Tailscale (for the setting), sharing, remote
 
 **Host**:
 The machine the hub and its sessions run on, a Mac or a Linux machine. Its **hub service** keeps the hub running: a launchd login item on macOS, a systemd user unit on Linux, chosen by `shared/service.mjs` at init; init, doctor, the hub's restart for new code and uninstall all go through it ([the hub runs under the host's service manager](docs/adr/2026-11-01-1542-the-hub-runs-under-the-hosts-service-manager.md)).
@@ -67,7 +71,7 @@ The word on the Hub row of the sidebar and the hub page's Health task: **healthy
 _Avoid_: broken, hub health
 
 **Integration readiness**:
-What each integration needs before its features can run: the Hub page’s Integrations section between Health and Boards lists GitHub, Codex, Linear, Slack, Tailscale and Notifications in that order. A row reading ready says what passed; one reading not ready is orange, or red when Linear or Slack refused its key ([a refused integration token reads red](docs/adr/2026-11-15-0745-a-refused-integration-token-reads-red.md)), and says what is missing, how to fix it and which features wait. While GitHub's hourly limit holds gh's account, GitHub's row is red, "rate limited · resets at <time>", every kickflip gh call on the spent budget refuses at once with that time, and boards dim their PR badges ([gh refuses while GitHub's hourly limit holds](docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md)). Slack is ready while Hub’s Slack token is saved and Slack hasn’t refused it. A ready integration missing a permission a feature needs reads amber **degraded**; tapping the word opens a sheet with each missing permission, what stops working without it and its scope, then the one fix and the key button ([an integration missing a permission reads degraded](docs/adr/2026-11-15-0730-an-integration-missing-a-permission-reads-degraded.md)). the hub shares the same readiness and words with feature gates ([integrations show readiness, and features wait until theirs is ready](docs/adr/2026-11-02-1118-integrations-show-readiness-and-features-wait.md)).
+What each integration needs before its features can run: the Hub page’s Integrations section between Health and Boards lists GitHub, Codex, Linear, Slack, Tailnet and Notifications in that order. A row reading ready says what passed; the Tailnet row while the **tailnet** is off is grey, reading off with `kickflip tailnet on`, and nothing waits on it; one reading not ready is orange, or red when Linear or Slack refused its key ([a refused integration token reads red](docs/adr/2026-11-15-0745-a-refused-integration-token-reads-red.md)), and says what is missing, how to fix it and which features wait. While GitHub's hourly limit holds gh's account, GitHub's row is red, "rate limited · resets at <time>", every kickflip gh call on the spent budget refuses at once with that time, and boards dim their PR badges ([gh refuses while GitHub's hourly limit holds](docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md)). Slack is ready while Hub’s Slack token is saved and Slack hasn’t refused it. A ready integration missing a permission a feature needs reads amber **degraded**; tapping the word opens a sheet with each missing permission, what stops working without it and its scope, then the one fix and the key button ([an integration missing a permission reads degraded](docs/adr/2026-11-15-0730-an-integration-missing-a-permission-reads-degraded.md)). the hub shares the same readiness and words with feature gates ([integrations show readiness, and features wait until theirs is ready](docs/adr/2026-11-02-1118-integrations-show-readiness-and-features-wait.md)).
 _Avoid_: integration health, availability
 
 **Usage reading**:

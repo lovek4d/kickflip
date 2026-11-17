@@ -16,15 +16,15 @@ const DEVICES = [{ id: 'a1', kind: 'Mac', browser: 'Chrome', added: '2026-11-02T
 const probesOf = (checks) => Object.fromEntries(Object.entries(checks).map(([id, value]) => [id, () => value]));
 
 test('readiness shares fixed row order, ready details, fixes, waits and waiting sentences', async () => {
-  const r = readinessReader({ now: () => now, probes: probesOf(ready()) });
+  const r = readinessReader({ now: () => now, tailnet: () => true, probes: probesOf(ready()) });
   const rows = await r.rows();
   assert.deepEqual(rows.map((r) => r.id), ['github', 'codex', 'linear', 'slack', 'tailscale', 'notifications']);
-  assert.deepEqual(rows.map((r) => r.name), ['GitHub', 'Codex', 'Linear', 'Slack', 'Tailscale', 'Notifications']);
+  assert.deepEqual(rows.map((r) => r.name), ['GitHub', 'Codex', 'Linear', 'Slack', 'Tailnet', 'Notifications']);
   assert.ok(rows.every((r) => r.ready));
   assert.deepEqual(rows.map((r) => r.detail), ['gh logged in as love', 'Installed and logged in', 'Key set · Work workspace', 'Token set · Acme workspace, sending as love', 'Serving host.ts.net · operator love', 'Pushes on · 2 devices']);
   assert.deepEqual(rows[5].devices, [{ id: 'a1', kind: 'Mac', browser: 'Chrome', added: '2026-11-02T15:00:00Z' }, { id: 'b2', kind: 'iPhone', browser: 'Safari', added: '2026-11-02T16:55:00Z' }]);
   for (const row of rows) assert.equal(await r.waiting(row.id), null);
-  const reader = readinessReader({ now: () => now, probes: probesOf(off()) });
+  const reader = readinessReader({ now: () => now, tailnet: () => true, probes: probesOf(off()) });
   const missing = await reader.rows();
   assert.ok(missing.every((r) => !r.ready && r.missing && (r.fix || r.keyButton)));
   assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex implementing and reviewing wait on this; Codex share stays Off.', null, null, 'Try builds wait on this.', 'Pushes wait on this.']);
@@ -33,7 +33,7 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   assert.deepEqual([missing[2].fix, missing[2].keyButton], [undefined, 'Add key']);
   assert.equal(missing[5].fix.settings, 'notifications');
   assert.equal(await reader.waiting('slack'), 'Reviewer DMs and digests wait on Slack: No Slack token set.');
-  assert.equal(await reader.waiting('tailscale'), "Try builds wait on Tailscale: Tailscale isn't installed on the host.");
+  assert.equal(await reader.waiting('tailscale'), "Try builds wait on Tailnet: Tailscale isn't installed on the host.");
   for (const row of missing.filter((r) => r.waits)) assert.match(await reader.waiting(row.id), new RegExp(`wait on ${row.name}:`));
   assert.equal(await reader.waiting('linear'), null);
 });
@@ -67,7 +67,7 @@ test('only process probes are cached, fresh bypasses them, and concurrent reads 
   let time = now;
   const counts = {};
   const probes = Object.fromEntries(Object.entries(ready()).map(([id, value]) => [id, () => { counts[id] = (counts[id] || 0) + 1; return value; }]));
-  const r = readinessReader({ probes, now: () => time, cacheMs: 100 });
+  const r = readinessReader({ probes, tailnet: () => true, now: () => time, cacheMs: 100 });
   await Promise.all([r.rows(), r.rows()]);
   assert.deepEqual(counts, { github: 1, codex: 2, linear: 2, slack: 2, tailscale: 1, notifications: 2 });
   time += 99;
@@ -93,7 +93,7 @@ test('file-backed checks see changes immediately while gh and tailscale stay cac
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\nexit 99\n', { mode: 0o700 });
-  const r = readinessReader({ home, env: { PATH: bin }, now: () => now, probes: { github: () => 'love', tailscale: () => tailscale } });
+  const r = readinessReader({ home, env: { PATH: bin }, now: () => now, tailnet: () => true, probes: { github: () => 'love', tailscale: () => tailscale } });
   assert.deepEqual((await r.rows()).map((r) => r.ready), [true, false, false, false, true, false]);
   write(path.join(home, '.codex', 'auth.json'), {});
   const slack = { token: 'xoxp-secret', team: 'Acme', user: 'love' };
@@ -184,9 +184,28 @@ test('Tailscale is checked against the port the hub listens on, not the env', as
   const status = JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'host.ts.net.' } });
   const serve = JSON.stringify({ Web: { 'host.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:4777/' } } } } });
   fs.writeFileSync(script, `#!/bin/sh\ncase "$*" in\n  version) echo 1.0;;\n  "status --json") echo '${status}';;\n  "debug prefs") echo '{"OperatorUser":"x"}';;\n  "serve status --json") echo '${serve}';;\nesac\n`, { mode: 0o700 });
+  fs.mkdirSync(path.join(bin, '.claude', 'kickflip'), { recursive: true });
+  fs.writeFileSync(path.join(bin, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tailnet: true }));
   const r = readinessReader({ home: bin, env: { PATH: bin, KICKFLIP_TAILSCALE: script, KICKFLIP_HUB_PORT: '4500' }, now: () => now, probes: { github: () => 'love' } });
   const pointing = async () => (await r.rows()).find((row) => row.id === 'tailscale').missing;
   assert.equal(await pointing(), 'Tailscale / is not serving the hub');
   r.listenOn(4777);
   assert.notEqual(await pointing(), 'Tailscale / is not serving the hub');
+});
+
+test('with the tailnet off, its row is one grey Tailnet: off with the command, nothing waits on it, no tailscale runs, and the setting is read on every call', async () => {
+  const home = tempDir('readiness-off-');
+  const bin = path.join(home, 'bin');
+  const calls = path.join(home, 'ts-calls');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'tailscale'), `#!/bin/sh\necho "$@" >> '${calls}'\necho '{}'\n`, { mode: 0o700 });
+  const r = readinessReader({ home, env: { PATH: bin, KICKFLIP_TAILSCALE: path.join(bin, 'tailscale') }, now: () => now, probes: { github: () => 'love' } });
+  const row = async () => (await r.rows()).find((it) => it.id === 'tailscale');
+  assert.deepEqual(await row(), { id: 'tailscale', name: 'Tailnet', ready: false, off: true, detail: 'The hub serves this host only', fix: { command: 'kickflip tailnet on' }, waits: null });
+  assert.equal(await r.waiting('tailscale'), null);
+  assert.equal(fs.existsSync(calls), false);
+  fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tailnet: true }));
+  assert.equal((await row()).off, undefined);
+  assert.ok(fs.existsSync(calls));
 });

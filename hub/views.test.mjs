@@ -531,6 +531,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     { id: 'codex', name: 'Codex', ready: true, detail: 'Installed and logged in <img>' },
     { id: 'linear', name: 'Linear', ready: false, missing: 'No Linear key set', keyButton: 'Add key', waits: null },
     { id: 'slack', name: 'Slack', ready: true, detail: 'Token set · Acme workspace, sending as love', keyButton: 'Change key', waits: null },
+    { id: 'tailscale', name: 'Tailnet', ready: false, off: true, detail: 'The hub serves this host only', fix: { command: 'kickflip tailnet on' }, waits: null },
     { id: 'notifications', name: 'Notifications', ready: true, detail: 'Pushes on · 2 devices', devices: [
       { id: 'mine', kind: 'Mac', browser: 'Chrome', added: new Date(Date.now() - 2 * 3600_000).toISOString() },
       { id: 'other', kind: 'iPhone', browser: '', added: new Date(Date.now() - 5 * 60_000).toISOString() }] },
@@ -561,8 +562,15 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.deepEqual(labels.slice(0, 4), ['Usage', 'Health', 'Integrations', 'Boards']);
   const label = root.querySelectorAll('.label').find((el) => el.textContent === 'Integrations');
   const group = label.nextSibling;
-  assert.deepEqual(group.querySelectorAll('.title').map((el) => el.textContent), ['GitHub', 'Codex', 'Linear', 'Slack', 'Notifications']);
-  const [github, codex, linear, slack, notifications] = group.querySelectorAll('.row');
+  assert.deepEqual(group.querySelectorAll('.title').map((el) => el.textContent), ['GitHub', 'Codex', 'Linear', 'Slack', 'Tailnet', 'Notifications']);
+  const [github, codex, linear, slack, tailnet, notifications] = group.querySelectorAll('.row');
+  // The tailnet while it's off: grey, off, with the command that turns it on and nothing waiting.
+  assert.equal(tailnet.querySelector('.st.off').textContent, 'off');
+  assert.equal(tailnet.querySelector('.st.wait'), null);
+  assert.match(tailnet.textContent, /The hub serves this host only/);
+  assert.equal(tailnet.querySelector('code').textContent, 'kickflip tailnet on');
+  assert.equal(tailnet.querySelector('.rd-waits'), null);
+  assert.match(tailnet.querySelector('.icon').getAttribute('style'), /var\(--color-quiet\)/);
   assert.equal(github.querySelector('.st.wait').textContent, 'not ready');
   assert.match(github.textContent, /gh isn't logged in <img>/);
   assert.equal(github.querySelector('code').textContent, 'gh auth login <img>');
