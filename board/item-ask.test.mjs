@@ -33,6 +33,14 @@ test('item add --ask files an ask in New carrying its relations, so its card is 
   assert.equal(items().find((it) => it.id === card.id).phase, 'discussing');
 });
 
+test('item add --ask --from records the task it was filed from, and refuses it with --by builder', async () => {
+  assert.equal((await grilling('F1')).code, 0);
+  assert.equal((await ask('--ask', 'Follow up on F1', '--relate', 'A1', '--from', 'F1')).code, 0);
+  assert.deepEqual(asks()[0].data.asked, { by: 'orchestrator', from: 'audit/F1', ref: 'F1' });
+  const r = await ask('--ask', 'x', '--parent', 'F1', '--by', 'builder', '--from', 'F1');
+  assert.match(r.err, /--from names the task the orchestrator filed this from/);
+});
+
 test('item add --ask --by builder names the task whose builder asked; --parent --split carries the parent\'s gates', async () => {
   const file = site('audit', 'data', 'items.json');
   write(file, { ...read(file), items: [...read(file).items, { id: 'G1', title: 'feat: gated', lane: 'todo', phase: 'grilling', gates: { prototype: 'no' } }] });
@@ -74,9 +82,13 @@ test("an ask the orchestrator filed opens with a blue line naming who asked, and
   const at = (id, asked) => ({ id, ts: '2026-11-16T10:00:00Z', kind: 'ask', data: { text: 'Cache the config', asked }, reply: null });
   const view = (e) => threadOf('w/T-9', { events: [e], fromAsk: e.id }).map(({ who, line, text, link, by, tone }) => [who, line, text, link, by, tone]);
   assert.deepEqual(view(at('a1', { by: 'orchestrator' })), [
-    ['claude', 'asked-from', 'From the orchestrator', null, undefined, 'blue'],
+    ['claude', 'asked-from', 'Filed by the orchestrator', null, undefined, 'blue'],
     ['claude', undefined, 'Cache the config', undefined, 'Orchestrator', undefined],
   ]);
+  const filed = (data) => view({ ...at('a4', { by: 'orchestrator', ...data.asked }), data: { text: 'Cache the config', asked: { by: 'orchestrator', ...data.asked }, links: data.links } })[0].slice(1, 4);
+  assert.deepEqual(filed({ asked: { from: 'w/T-2', ref: 'T-2' }, links: { parent: 'w/T-3', related: ['w/T-5'] } }), ['asked-from', 'Filed from T-2', '#selectedCard=w%2FT-2'], '--from wins');
+  assert.deepEqual(filed({ links: { parent: 'w/T-3', related: ['w/T-5'] } }), ['asked-from', 'Filed from T-3', '#selectedCard=w%2FT-3'], 'else the parent');
+  assert.deepEqual(filed({ links: { related: ['w/T-5', 'w/T-6'] } }), ['asked-from', 'Filed from T-5', '#selectedCard=w%2FT-5'], 'else the first related');
   assert.deepEqual(view(at('a2', { by: 'builder', key: 'w/T-4', ref: 'T-4' })), [
     ['claude', 'asked-from', "From T-4's builder", '#selectedCard=w%2FT-4', undefined, 'blue'],
     ['claude', undefined, 'Cache the config', undefined, "T-4's builder", undefined],

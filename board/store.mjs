@@ -640,13 +640,14 @@ export const fileAsk = (site, eventId, pending, options) => ticketWrite(site, as
 // a --parent or a --relate, and links every task its request names. via is split for --split, else from: a task
 // filed with a Parent is born from it.
 export const ASKERS = ['orchestrator', 'builder', 'planner'];
-export async function askItem(site, file, { text: request, parent, split, relate, deps, before, by = 'orchestrator', replyOn }, options) {
+export async function askItem(site, file, { text: request, parent, split, relate, deps, before, from, by = 'orchestrator', replyOn }, options) {
   needSite(site);
   if (file.includes('/')) fail(`item add --ask files a task keyed by the board's next number; pass the item file alone, ${file.split('/')[0]}`);
   const words = text(request, '--ask');
   if (!ASKERS.includes(by)) fail('--by takes orchestrator, builder or planner');
   if (by !== 'orchestrator' && parent === undefined) fail(`--by ${by} names the task whose ${by} asked: pass --parent <that task>`);
   if (split && parent === undefined) fail(SPLIT_NEEDS_PARENT);
+  if (from !== undefined && by !== 'orchestrator') fail('--from names the task the orchestrator filed this from; --by builder and --by planner take --parent');
   if (parent === undefined && relate === undefined) fail(`${UNSOURCED}: pass --parent <the task it came from> or --relate <the tasks it touches>`);
   await loadItemFile(site, file);
   const links = {};
@@ -660,7 +661,9 @@ export async function askItem(site, file, { text: request, parent, split, relate
   await refuseUnborn(site, words);
   // The reply goes before the ask's event, which a running board may file, and post its link lines, at once.
   await (await replyFirst(site, linked.filter(Boolean), replyOn))();
-  const asked = by === 'orchestrator' ? { by } : { by, key: links.parent, ref: await cardName(site, links.parent) };
+  const source = from === undefined ? undefined : depKey(file.split('/')[0], String(from).trim());
+  if (source) await loadItem(site, source);
+  const asked = by === 'orchestrator' ? { by, ...(source ? { from: source, ref: await cardName(site, source) } : {}) } : { by, key: links.parent, ref: await cardName(site, links.parent) };
   const id = await appendEvent(boardTarget(site), 'ask', { text: words, asked, file, ...(Object.keys(links).length ? { links } : {}) });
   // A running board may file it first, as it takes the event.
   const key = await fileAsk(site, id, undefined, options) || (await askCardOf(site, id)).key;

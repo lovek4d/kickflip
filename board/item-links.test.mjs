@@ -101,7 +101,7 @@ test('item set and item triage take --blocked-by, and triage --parent with --spl
   assert.equal(t.code, 0, t.err);
   assert.deepEqual([item(key.split('/')[1]).parent, item(key.split('/')[1]).gates, item(key.split('/')[1]).deps], ['audit/G1', { prototype: 'no' }, ['A1']]);
   for (const [args, said] of [
-    [['item', 'add', 'audit', '--ask', 'x', '--from', 'A1'], /--from is now --parent/],
+    [['item', 'set', 'audit/A1', '--from', 'A1'], /--from is now --parent/],
     [['item', 'add', 'audit', '--ask', 'x', '--split-of', 'A1'], /--split-of is now --parent <task> --split/],
     [['item', 'add', 'audit', '--ask', 'x', '--after', 'A1'], /--after is now --blocked-by/],
     [['item', 'add', 'audit', '--ask', 'x', '--before', 'A1'], /--before is now --blocks/],

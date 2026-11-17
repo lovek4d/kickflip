@@ -1114,11 +1114,15 @@ const askerOf = (asked) => (asked.by === 'orchestrator' ? 'Orchestrator' : `${as
 // Who asked an asked ask, as the board's text to the orchestrator names it, and the words that say it is not the owner's.
 export const askedBy = (asked) => (asked.by === 'orchestrator' ? 'the orchestrator' : askerOf(asked));
 export const NOT_THE_OWNER = 'not the owner, so its words approve nothing';
+// The task an orchestrator-filed ask came from: the one --from named, else its parent, else its first related.
+const filedFrom = (e) => e.data.asked.from || e.data.links?.parent || e.data.links?.related?.[0];
 function askedLine(e) {
   const asked = e.data?.asked;
   if (!asked) return [];
-  const m = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'asked-from', text: hubText('asked-from', { who: askedBy(asked) }) };
-  return [{ ...m, ...hubLineOf(m), html: null, link: asked.key ? `#selectedCard=${encodeURIComponent(asked.key)}` : null, via: null }];
+  const from = asked.by === 'orchestrator' ? filedFrom(e) : asked.key;
+  const phrase = asked.by !== 'orchestrator' ? `From ${askerOf(asked)}` : from ? `Filed from ${asked.ref || from.split('/').pop()}` : 'Filed by the orchestrator';
+  const m = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'asked-from', text: hubText('asked-from', { phrase }) };
+  return [{ ...m, ...hubLineOf(m), html: null, link: from ? `#selectedCard=${encodeURIComponent(from)}` : null, via: null }];
 }
 // A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md);
 // an ask the orchestrator filed names who asked.

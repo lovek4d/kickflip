@@ -329,9 +329,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--parent <file>/<id> [--split]]                owner's do: an ask event, your plain-text request, filed at
          [--relate <ids>] [--blocked-by <ids>]           once as a New T-<n> task in <file>, born with the links it
          [--blocks <ids>] [--by builder|planner]         carries; it waits in intake for your triage, investigation
-                                                         and one reply. Its thread opens with a blue "From the
-                                                         orchestrator", or with --by and a --parent "From <ref>'s
-                                                         builder". Refuses --title, --notes, --phase and the rest
+         [--from <file>/<id>]                            and one reply. Its thread opens with a blue "Filed from
+                                                         T-<n>", the task --from names, else its --parent, else
+                                                         its first --relate; with --by and a --parent, "From
+                                                         <ref>'s builder". Refuses --title, --notes, --phase and the rest
                                                          triage decides. Prints "<label> added as <key>: an ask in New".
                                                          It names where it came from, --parent or --relate, and
                                                          links each task the request names, as --title's notes do;
@@ -1118,14 +1119,14 @@ const COMMANDS = {
     return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f['blocked-by'], blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check, replyOn: f['reply-on'] }, options);
   }],
-  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'blocks', 'blocked-by', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'split', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by', 'reply-on'], async (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'blocks', 'blocked-by', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'split', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by', 'reply-on', 'from'], async (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new task\'s notes with item add --notes-from <draft.md>');
     await store.refuseUnborn(site, f.text);
     // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
     if (f.ask !== undefined) {
       const decided = ['title', 'notes', 'notes-from', 'phase', 'state', 'size', 'model', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'from-ask', 'text'].find((k) => f[k] !== undefined);
       if (decided) throw new UsageError(`--ask files the orchestrator's request as an ask; triage titles, notes and sorts it, so drop --${decided}`);
-      return store.askItem(needSite(site, 'item add --ask'), key, { text: f.ask, parent: f.parent, split: f.split, relate: f.relate, deps: f['blocked-by'], before: f.blocks, by: f.by, replyOn: f['reply-on'] }, options);
+      return store.askItem(needSite(site, 'item add --ask'), key, { text: f.ask, parent: f.parent, split: f.split, relate: f.relate, deps: f['blocked-by'], before: f.blocks, from: f.from, by: f.by, replyOn: f['reply-on'] }, options);
     }
     if (f.by !== undefined) throw new UsageError('--by names who asked, with --ask');
     if (f.phase === 'discussing' && f.text === undefined && f['from-ask'] === undefined) throw new UsageError('item add --phase discussing needs --text "<first message>": the task opens with it, after Created from, and reads the owner\'s turn');
