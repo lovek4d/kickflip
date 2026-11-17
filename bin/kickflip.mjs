@@ -763,7 +763,7 @@ const commands = {
     if (outside) fail(`/${route}'s tasks live outside its folder (${outside.file}); export moves only a board whose board.json items is a file in its folder`);
     const builders = await openBoardBuilders(dir);
     if (builders.length) fail(`a builder is open on /${route}: ${builders.map((b) => `${b.key} (${b.label})`).join(', ')}; export once it is done`);
-    const { readSettingsFile } = await import('../hub/push.mjs');
+    const { read: readSettingsFile } = await import('../shared/hub-settings.mjs');
     const entry = pick(site, EXPORT_KEYS);
     const bundle = {
       kickflip_export: 1, route, exported_at: new Date().toISOString(), from: os.hostname(),
@@ -809,8 +809,8 @@ const commands = {
       });
       const settings = pick(bundle.settings || {}, EXPORT_SETTINGS);
       if (Object.keys(settings).length) {
-        const { readSettingsFile, writeSettingsFile } = await import('../hub/push.mjs');
-        writeSettingsFile({ ...readSettingsFile(), ...settings });
+        const { update } = await import('../shared/hub-settings.mjs');
+        await update((file) => ({ ...file, ...settings }));
       }
       const { label, model } = bundle.owner || {};
       out({
@@ -970,18 +970,18 @@ const commands = {
   async 'codex-share'() {
     const bad = 'codex-share takes auto, always, or off';
     if (rest.length > 1 || (rest.length && args._.length !== 1)) fail(bad, 2);
-    const { readCodexShare, setCodexShare } = await import(path.join(SKILL, 'hub', 'push.mjs'));
+    const { readCodexShare, setCodexShare } = await import(path.join(SKILL, 'shared', 'hub-settings.mjs'));
     if (!rest.length) return out(readCodexShare());
-    try { out(setCodexShare(rest[0])); } catch (e) { if (e.status === 400) fail(e.message, 2); if (e.status === 409) fail(e.message); throw e; }
+    try { out(await setCodexShare(rest[0])); } catch (e) { if (e.status === 400) fail(e.message, 2); if (e.status === 409) fail(e.message); throw e; }
   },
 
   async 'usage-gate'() {
     const { readUsageGate, setPauseAt, setKeepGoing } = await import('../shared/usage-gate.mjs');
     try {
       if (rest.length) {
-        if (rest[0] === 'pause-at' && rest.length === 2) setPauseAt(rest[1]);
-        else if (rest[0] === 'keep-going' && rest.length === 1) setKeepGoing('on');
-        else if (rest[0] === 'stop' && rest.length === 1) setKeepGoing('off');
+        if (rest[0] === 'pause-at' && rest.length === 2) await setPauseAt(rest[1]);
+        else if (rest[0] === 'keep-going' && rest.length === 1) await setKeepGoing('on');
+        else if (rest[0] === 'stop' && rest.length === 1) await setKeepGoing('off');
         else fail('usage-gate takes pause-at <50..100>, keep-going, or stop', 2);
       }
       out(readUsageGate());

@@ -40,3 +40,24 @@ export async function withFileLock(file, fn, {
   const timer = heartbeat ? setInterval(() => { try { const now = new Date(); fs.utimesSync(lock, now, now); } catch {} }, 5000) : null;
   try { return await fn(); } finally { clearInterval(timer); fs.rmSync(lock, { recursive: true, force: true }); }
 }
+
+// withFileLock for a caller that can't await: the same lock directory and stale rules, so it excludes the async one,
+// but it waits by blocking the thread, so keep fn short. staleAfter and timeout are as withFileLock's.
+export function withFileLockSync(file, fn, {
+  staleAfter = 30_000, timeout = Number(process.env.KICKFLIP_LOCK_TIMEOUT_MS) || 10_000,
+} = {}) {
+  const lock = `${file}.lock`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const deadline = performance.now() + timeout;
+  const nap = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try { fs.mkdirSync(lock); break; } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      try { if (holderGone(lock) || Date.now() - fs.statSync(lock).mtimeMs > staleAfter) { fs.rmSync(lock, { recursive: true }); continue; } } catch {}
+      if (performance.now() > deadline) throw Object.assign(new Error(`${path.basename(file)} is locked by another kickflip; try again`), { code: 'ELOCKED' });
+      Atomics.wait(nap, 0, 0, 100);
+    }
+  }
+  try { fs.writeFileSync(path.join(lock, 'pid'), String(process.pid)); } catch {}
+  try { return fn(); } finally { fs.rmSync(lock, { recursive: true, force: true }); }
+}

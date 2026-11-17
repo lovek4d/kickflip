@@ -3,7 +3,7 @@
 // Every job is on unless settings.json's `overnight` stores {<id>: false}. Overnight work starts together at the middle of
 // quiet hours (schedule.mjs quietMiddle); the daily wake keeps their end. A job's code reads overnightOn before it runs; a board
 // server's overnight triage reads the `triage` job.
-import { readSettingsFile, writeSettingsFile } from './push.mjs';
+import { read as readSettingsFile, update as updateSettings } from '../shared/hub-settings.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { listBoards, readJSON, suiteStateFile, wakeStateFile } from './boards.mjs';
@@ -54,12 +54,13 @@ function lastTriage(board) {
 export const overnightOn = (id, file = readSettingsFile()) => file.overnight?.[id] !== false;
 
 // Throws {status: 400} for a job that isn't in JOBS. On is the default, so turning a job on removes its key.
-export function setOvernight(id, on) {
+export async function setOvernight(id, on) {
   if (!JOBS.some((j) => j.id === id)) throw Object.assign(new Error(`No overnight job called ${id}.`), { status: 400 });
-  const { overnight = {}, ...rest } = readSettingsFile();
-  const { [id]: _, ...others } = overnight;
-  const next = on ? others : { ...others, [id]: false };
-  writeSettingsFile(Object.keys(next).length ? { ...rest, overnight: next } : rest);
+  await updateSettings(({ overnight = {}, ...rest }) => {
+    const { [id]: _, ...others } = overnight;
+    const next = on ? others : { ...others, [id]: false };
+    return Object.keys(next).length ? { ...rest, overnight: next } : rest;
+  });
 }
 
 // The jobs as views.mjs settingsView's overnight: each with whether it's on and its last run.
@@ -71,11 +72,11 @@ export function overnightJobs(boards = listBoards()) {
 // docs/adr/2026-11-16-0100-one-hub-triage-overnight-switch-replaces-the-board-toggle.md
 // Moves the boards' old `auto_triage` to the hub's Triage overnight switch, once: on if any board had it on, else off
 // (a job is otherwise on by default), and the key leaves every board.json. → {on}, or null when no board has the key.
-export function migrateTriage(boards = listBoards()) {
+export async function migrateTriage(boards = listBoards()) {
   const files = boards.map((b) => path.join(b.dir, 'board.json')).filter((f) => 'auto_triage' in readJSON(f, {}));
   if (!files.length) return null;
   const on = files.some((f) => readJSON(f, {}).auto_triage === true);
-  setOvernight('triage', on);
+  await setOvernight('triage', on);
   for (const f of files) {
     const { auto_triage: _, ...rest } = readJSON(f, {});
     fs.writeFileSync(f + '.tmp', JSON.stringify(rest, null, 2) + '\n');

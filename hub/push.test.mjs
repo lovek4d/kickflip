@@ -187,24 +187,24 @@ test('subscriptions name each device by kind and browser with an id that is not 
   assert.deepEqual(push.deviceNames(''), { kind: '', browser: '' });
 });
 
-test('a stored autoRestart, a setting that no longer exists, is dropped by the migration', () => {
+test('a stored autoRestart, a setting that no longer exists, is dropped by the migration', async () => {
   write(settingsFile(), { autoRestart: false, codexShare: 'auto' });
-  assert.notEqual(push.migrateSettings(home), null);
+  assert.notEqual(await push.migrateSettings(home), null);
   assert.deepEqual(read(settingsFile()), { codexShare: 'auto', quiet: read(settingsFile()).quiet });
   assert.equal('autoRestart' in read(settingsFile()), false);
-  assert.equal(push.migrateSettings(home), null);
+  assert.equal(await push.migrateSettings(home), null);
 });
 
-test('old polling windows migrate to quiet hours once, keeping the other settings, and a save writes quiet alone', () => {
+test('old polling windows migrate to quiet hours once, keeping the other settings, and a save writes quiet alone', async () => {
   write(settingsFile(), { polling: { windows: [{ from: '07:00', every_minutes: 15 }, { from: '23:00', every_minutes: 60 }], hold_overnight: false, wakes: ['07:00'] }, notifications: { on: true, weekends_off: true }, codexShare: 'auto' });
-  assert.deepEqual(push.migrateSettings(home), { start: '23:00', end: '07:00', hold: false });
+  assert.deepEqual(await push.migrateSettings(home), { start: '23:00', end: '07:00', hold: false });
   assert.deepEqual(read(settingsFile()), { notifications: { on: true, weekends_off: true }, codexShare: 'auto', quiet: { start: '23:00', end: '07:00', hold: false } });
-  assert.equal(push.migrateSettings(home), null);
-  const saved = push.saveSettings({ quiet: { start: '22:30', end: '07:00', hold: true } }, home);
+  assert.equal(await push.migrateSettings(home), null);
+  const saved = await push.saveSettings({ quiet: { start: '22:30', end: '07:00', hold: true } }, home);
   assert.deepEqual(saved.quiet, { start: '22:30', end: '07:00', hold: true });
   assert.deepEqual(read(settingsFile()).quiet, saved.quiet);
   assert.equal(read(settingsFile()).codexShare, 'auto');
-  assert.throws(() => push.saveSettings({ quiet: { start: '22:30', end: '22:30' } }, home), /different times/);
+  await assert.rejects(() => push.saveSettings({ quiet: { start: '22:30', end: '22:30' } }, home), /different times/);
 });
 
 // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md

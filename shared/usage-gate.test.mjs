@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, tasksInProgressCap, pauseReasonFor, pauseReason, pausedLine, boardClaudeModel, claudeModelFor } from './usage-gate.mjs';
-import { readClaudeModel, setClaudeModel, readOrchestratorModel, setOrchestratorModel } from '../hub/push.mjs';
+import { readClaudeModel, setClaudeModel, readOrchestratorModel, setOrchestratorModel } from './hub-settings.mjs';
 import { tempDir } from './temp-dir.mjs';
 
 const now = Date.parse('2026-11-01T21:00:00Z');
@@ -145,19 +145,19 @@ test('a Forever manual pause lasts until it is lifted and says so', () => {
   assert.equal(pausedLine(forever), 'usage paused forever manual board');
 });
 
-test('the file reader reads the hub pause from settings and the board pause from its board.json', (t) => {
+test('the file reader reads the hub pause from settings and the board pause from its board.json', async (t) => {
   const f = fixture(t);
   const site = path.join(f.home, 'site');
   fs.mkdirSync(site);
   f.write('settings.json', { rules: ['kept'] });
-  assert.equal(setHubPause('3h', { home: f.home, now: new Date(now) }), new Date(now + 3 * 3600_000).toISOString());
+  assert.equal(await setHubPause('3h', { home: f.home, now: new Date(now) }), new Date(now + 3 * 3600_000).toISOString());
   assert.deepEqual(f.settings(), { rules: ['kept'], paused_until: new Date(now + 3 * 3600_000).toISOString() });
   assert.equal(readUsageGate({ home: f.home, now }).manual, 'hub');
-  assert.equal(setHubPause('forever', { home: f.home, now: new Date(now) }), 'forever');
+  assert.equal(await setHubPause('forever', { home: f.home, now: new Date(now) }), 'forever');
   assert.deepEqual(f.settings(), { rules: ['kept'], paused_until: 'forever' });
   assert.equal(readUsageGate({ home: f.home, now }).resets_at, 'forever');
-  for (const choice of ['0h', '31d', 'soon']) assert.throws(() => setHubPause(choice, { home: f.home, now: new Date(now) }), { status: 400 });
-  assert.equal(setHubPause('off', { home: f.home, now: new Date(now) }), null);
+  for (const choice of ['0h', '31d', 'soon']) await assert.rejects(() => setHubPause(choice, { home: f.home, now: new Date(now) }), { status: 400 });
+  assert.equal(await setHubPause('off', { home: f.home, now: new Date(now) }), null);
   assert.deepEqual(f.settings(), { rules: ['kept'] });
   assert.equal(readUsageGate({ home: f.home, now }).state, 'normal');
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ paused_until: until }));
@@ -167,31 +167,31 @@ test('the file reader reads the hub pause from settings and the board pause from
   assert.equal(readUsageGate({ home: f.home, now, dir: site }).state, 'normal');
 });
 
-test('the file reader follows setting changes and resets while writes preserve other settings', (t) => {
+test('the file reader follows setting changes and resets while writes preserve other settings', async (t) => {
   const f = fixture(t);
   assert.equal(readUsageGate({ home: f.home, now }).state, 'normal');
   f.write('usage.json', { claude: { at: new Date(now).toISOString(), ...reading(92) } });
   f.write('settings.json', { rules: ['kept'], notifications: { on: false } });
   assert.equal(readUsageGate({ home: f.home, now }).state, 'paused');
-  setKeepGoing('on', { home: f.home, now });
+  await setKeepGoing('on', { home: f.home, now });
   assert.deepEqual(f.settings().keepGoing, { window: 'five_hour', until });
   assert.equal(readUsageGate({ home: f.home, now }).state, 'going');
-  setKeepGoing('off', { home: f.home });
+  await setKeepGoing('off', { home: f.home });
   assert.equal(f.settings().keepGoing, undefined);
   assert.equal(readUsageGate({ home: f.home, now }).state, 'paused');
-  setPauseAt('95', { home: f.home });
+  await setPauseAt('95', { home: f.home });
   assert.equal(readUsageGate({ home: f.home, now }).state, 'normal');
-  setKeepGoing('on', { home: f.home, now });
+  await setKeepGoing('on', { home: f.home, now });
   assert.deepEqual(f.settings().keepGoing, { window: 'five_hour', until, near: true }, 'near the line, Keep going lifts the halved cap');
   assert.equal(readUsageGate({ home: f.home, now }).near.going, true);
-  setKeepGoing('off', { home: f.home });
-  setPauseAt('100', { home: f.home });
-  assert.throws(() => setKeepGoing('on', { home: f.home, now }), { status: 409 });
-  setPauseAt('95', { home: f.home });
-  assert.throws(() => setKeepGoing('wrong', { home: f.home, now }), { status: 400 });
-  for (const value of [undefined, '', null, '90.0', ' 90', 91, 45, 105]) assert.throws(() => setPauseAt(value, { home: f.home }), { status: 400 });
+  await setKeepGoing('off', { home: f.home });
+  await setPauseAt('100', { home: f.home });
+  await assert.rejects(() => setKeepGoing('on', { home: f.home, now }), { status: 409 });
+  await setPauseAt('95', { home: f.home });
+  await assert.rejects(() => setKeepGoing('wrong', { home: f.home, now }), { status: 400 });
+  for (const value of [undefined, '', null, '90.0', ' 90', 91, 45, 105]) await assert.rejects(() => setPauseAt(value, { home: f.home }), { status: 400 });
   assert.deepEqual(f.settings(), { rules: ['kept'], notifications: { on: false }, pauseAt: 95 });
-  setPauseAt(90, { home: f.home });
+  await setPauseAt(90, { home: f.home });
   assert.equal(readUsageGate({ home: f.home, now: Date.parse(until) }).state, 'normal');
 });
 
@@ -221,7 +221,7 @@ test('only the hub work kinds are held', () => {
   assert.equal(heldUsageEvent('broken'), false);
 });
 
-test('the reader exposes Codex past the line only while effective share is on', (t) => {
+test('the reader exposes Codex past the line only while effective share is on', async (t) => {
   const f = fixture(t);
   const bin = path.join(f.home, 'bin');
   fs.mkdirSync(bin);
@@ -246,7 +246,7 @@ test('the reader exposes Codex past the line only while effective share is on', 
   f.write('settings.json', { pauseAt: 95, codexShare: 'always' });
   assert.equal(read().codex.past, false);
   assert.deepEqual(pick(), { kind: 'codex', reason: 'Codex share is always and Codex is under the 95% line.' });
-  setPauseAt(90, { home: f.home });
+  await setPauseAt(90, { home: f.home });
   assert.equal(read().codex.past, true);
   fs.rmSync(path.join(f.home, '.codex', 'auth.json'));
   assert.equal(read().codex.past, false);
@@ -302,17 +302,17 @@ test('a pick names the inputs it read, as far as it read them', (t) => {
   });
 });
 
-test('setClaudeModel saves opus, auto or sonnet beside the other hub settings and refuses anything else', (t) => {
+test('setClaudeModel saves opus, auto or sonnet beside the other hub settings and refuses anything else', async (t) => {
   const f = fixture(t);
   f.write('settings.json', { codexShare: 'off' });
   assert.equal(readClaudeModel(f.home), 'auto');
   for (const value of ['opus', 'sonnet', 'auto']) {
-    assert.equal(setClaudeModel(value, f.home), value);
+    assert.equal(await setClaudeModel(value, f.home), value);
     assert.deepEqual(f.settings(), { codexShare: 'off', claudeModel: value });
     assert.equal(readClaudeModel(f.home), value);
   }
   for (const value of [undefined, '', 'Opus', 'haiku', 'toString']) {
-    assert.throws(() => setClaudeModel(value, f.home), { message: 'claude-model takes opus, auto or sonnet', status: 400 });
+    await assert.rejects(() => setClaudeModel(value, f.home), { message: 'claude-model takes opus, auto or sonnet', status: 400 });
   }
   assert.deepEqual(f.settings(), { codexShare: 'off', claudeModel: 'auto' });
 });
@@ -341,17 +341,17 @@ test("a board's own Builders choice in board.json overrides the hub's for its pi
   assert.equal(claudeModelFor({ home: f.home }), 'opus');
 });
 
-test('setOrchestratorModel saves opus or sonnet beside the other hub settings, reads opus by default, and refuses anything else', (t) => {
+test('setOrchestratorModel saves opus or sonnet beside the other hub settings, reads opus by default, and refuses anything else', async (t) => {
   const f = fixture(t);
   f.write('settings.json', { claudeModel: 'auto' });
   assert.equal(readOrchestratorModel(f.home), 'opus');
   for (const value of ['sonnet', 'opus']) {
-    assert.equal(setOrchestratorModel(value, f.home), value);
+    assert.equal(await setOrchestratorModel(value, f.home), value);
     assert.deepEqual(f.settings(), { claudeModel: 'auto', orchestratorModel: value });
     assert.equal(readOrchestratorModel(f.home), value);
   }
   for (const value of [undefined, '', 'auto', 'Sonnet', 'haiku']) {
-    assert.throws(() => setOrchestratorModel(value, f.home), { message: 'orchestrator-model takes opus or sonnet', status: 400 });
+    await assert.rejects(() => setOrchestratorModel(value, f.home), { message: 'orchestrator-model takes opus or sonnet', status: 400 });
   }
 });
 

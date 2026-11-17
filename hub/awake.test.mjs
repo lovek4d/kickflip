@@ -6,10 +6,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { awakeUnsupported, caffeinate, setKeepAwake } from './awake.mjs';
 
-test('Keep awake is refused off macOS and says why', () => {
+test('Keep awake is refused off macOS and says why', async () => {
   assert.equal(awakeUnsupported('darwin'), null);
   assert.equal(awakeUnsupported('linux'), 'macOS only · this host runs Linux');
-  assert.throws(() => setKeepAwake(true, { platform: 'linux' }), { status: 409, message: 'Keep awake runs caffeinate, macOS only · this host runs Linux.' });
+  await assert.rejects(() => setKeepAwake(true, { platform: 'linux' }), { status: 409, message: 'Keep awake runs caffeinate, macOS only · this host runs Linux.' });
 });
 
 const plainAwake = ({ awake }) => [awake.on, awake.unsupported];

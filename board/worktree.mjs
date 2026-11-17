@@ -10,7 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { BoardError, opensPRs, settingsOf } from './store.mjs';
-import { readLandTests } from '../hub/push.mjs';
+import { readLandTests } from '../shared/hub-settings.mjs';
 import { boardAt, readJSON, readManifest, samePath } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';

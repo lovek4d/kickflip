@@ -16,13 +16,12 @@ import path from 'node:path';
 import os from 'node:os';
 import { validate, quietOf, flushAt, hold, notifications, snoozeEnd } from './schedule.mjs';
 import { storedEnd } from './duration.mjs';
-import { CODEX_SHARE_VALUES, codexStatus, effectiveCodexShare } from '../shared/codex.mjs';
+import { read as readSettingsFile, update as updateSettings } from '../shared/hub-settings.mjs';
 
 const pushFile = (home, name) => path.join(home, '.claude', 'kickflip', 'push', name);
 const vapidFile = (home) => pushFile(home, 'vapid.json');
 const subsFile = (home) => pushFile(home, 'subs.json');
 const queueFile = (home) => pushFile(home, 'queue.json');
-const settingsFile = (home) => path.join(home, '.claude', 'kickflip', 'settings.json');
 
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 const unb64u = (s) => Buffer.from(s, 'base64url');
@@ -155,88 +154,6 @@ async function sendTo(subs, message, needs, { home, fetch }) {
 const delivered = (results) => results.some((r) => r.status >= 200 && r.status < 300);
 
 // ---------- settings ----------
-// The whole of ~/.claude/kickflip/settings.json, or {} when it is missing or unreadable.
-export function readSettingsFile(home = os.homedir()) {
-  try {
-    const value = JSON.parse(fs.readFileSync(settingsFile(home), 'utf8'));
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  } catch { return {}; }
-}
-// Replaces the whole file; callers spread readSettingsFile() so other keys, such as rules (rules.mjs), survive.
-export function writeSettingsFile(value, home = os.homedir()) {
-  const SETTINGS = settingsFile(home);
-  fs.mkdirSync(path.dirname(SETTINGS), { recursive: true });
-  const tmp = `${SETTINGS}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n');
-  fs.renameSync(tmp, SETTINGS);
-}
-
-// status: a shared/codex.mjs codexStatus. → the Codex setting in effect, shared/codex.mjs effectiveCodexShare.
-export const readCodexShare = (status = codexStatus(), home = os.homedir()) => effectiveCodexShare(readSettingsFile(home).codexShare, status);
-
-// Throws {status: 400} for a value that isn't a choice, and {status: 409} with the fix while Codex isn't usable.
-export function setCodexShare(value, status = codexStatus()) {
-  if (!CODEX_SHARE_VALUES.includes(value)) throw Object.assign(new Error('codex-share takes auto, always, or off'), { status: 400 });
-  if (!status.usable) throw Object.assign(new Error(`${status.words} Run ${status.fix}, then choose again.`), { status: 409 });
-  writeSettingsFile({ ...readSettingsFile(), codexShare: value });
-  return value;
-}
-
-// Auto update (docs/adr/2026-11-13-2345-a-checkbox-under-the-hubs-version-turns-auto-update-off.md): off only when settings.json
-// says autoUpdate: false; unset is on.
-export const readAutoUpdate = (home = os.homedir()) => readSettingsFile(home).autoUpdate !== false;
-
-export function setAutoUpdate(on, home = os.homedir()) {
-  const { autoUpdate: _, ...rest } = readSettingsFile(home);
-  writeSettingsFile(on ? rest : { ...rest, autoUpdate: false }, home);
-}
-
-// docs/adr/2026-11-16-0700-land-test-runs-take-turns-on-the-host.md
-// Land test runs at once on the host: the hub's one number, 1 to 99, MAX_LAND_TESTS unless settings.json says otherwise.
-export const MAX_LAND_TESTS = 1;
-const validLandTests = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
-export const readLandTests = (home = os.homedir()) => {
-  const stored = readSettingsFile(home).landTests;
-  return validLandTests(stored) ? stored : MAX_LAND_TESTS;
-};
-// Throws {status: 400} for a value that isn't a whole number from 1 to 99.
-export function setLandTests(value, home = os.homedir()) {
-  const n = /^\d+$/.test(String(value)) ? Number(value) : value;
-  if (!validLandTests(n)) throw Object.assign(new Error('land-tests takes a whole number from 1 to 99'), { status: 400 });
-  writeSettingsFile({ ...readSettingsFile(home), landTests: n }, home);
-  return n;
-}
-
-// Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md),
-// Hub settings' Builders: opus or sonnet forces it, auto leaves it to the card (shared/usage-gate.mjs builderPick). A
-// board's own Builders choice overrides it (usage-gate.mjs claudeModelFor). A missing or unknown stored value is auto.
-export const CLAUDE_MODEL_VALUES = ['opus', 'auto', 'sonnet'];
-export const readClaudeModel = (home = os.homedir()) => {
-  const stored = readSettingsFile(home).claudeModel;
-  return CLAUDE_MODEL_VALUES.includes(stored) ? stored : 'auto';
-};
-
-// Throws {status: 400} for a value that isn't a choice.
-export function setClaudeModel(value, home = os.homedir()) {
-  if (!CLAUDE_MODEL_VALUES.includes(value)) throw Object.assign(new Error('claude-model takes opus, auto or sonnet'), { status: 400 });
-  writeSettingsFile({ ...readSettingsFile(home), claudeModel: value }, home);
-  return value;
-}
-
-// Hub settings' Orchestrators: the model each board's own session runs on unless its owner record names one
-// (hub/sessions.mjs startArgv). Auto has no say here. A missing or unknown stored value is opus.
-export const ORCHESTRATOR_MODEL_VALUES = ['opus', 'sonnet'];
-export const readOrchestratorModel = (home = os.homedir()) => {
-  const stored = readSettingsFile(home).orchestratorModel;
-  return ORCHESTRATOR_MODEL_VALUES.includes(stored) ? stored : 'opus';
-};
-// Throws {status: 400} for a value that isn't a choice.
-export function setOrchestratorModel(value, home = os.homedir()) {
-  if (!ORCHESTRATOR_MODEL_VALUES.includes(value)) throw Object.assign(new Error('orchestrator-model takes opus or sonnet'), { status: 400 });
-  writeSettingsFile({ ...readSettingsFile(home), orchestratorModel: value }, home);
-  return value;
-}
-
 // The saved quiet hours and notifications: old `polling` windows are migrated, and a missing or invalid file gives the defaults.
 export function readSettings(home) {
   return quietOf(readSettingsFile(home));
@@ -244,22 +161,23 @@ export function readSettings(home) {
 
 // Rewrites old `polling` windows, and the `push` block before them, as `quiet`, and drops the old `autoRestart` key. Returns the quiet hours, or null when
 // there was nothing to migrate.
-export function migrateSettings(home) {
-  const file = readSettingsFile(home);
-  if (!file.polling && !file.push && !('autoRestart' in file)) return null;
-  const { push, polling, autoRestart, ...rest } = file;
-  const { quiet } = quietOf(file);
-  writeSettingsFile({ ...rest, quiet }, home);
-  return quiet;
+export async function migrateSettings(home) {
+  let migrated = null;
+  await updateSettings((file) => {
+    if (!file.polling && !file.push && !('autoRestart' in file)) return file;
+    const { push, polling, autoRestart, ...rest } = file;
+    migrated = quietOf(file).quiet;
+    return { ...rest, quiet: migrated };
+  }, home);
+  return migrated;
 }
 
 // Throws {status: 400} with the validation message; returns the saved settings. An input without notifications
 // keeps the saved ones.
-export function saveSettings(input, home = os.homedir()) {
+export async function saveSettings(input, home = os.homedir()) {
   const { settings, error } = validate({ notifications: readSettings(home).notifications, ...input });
   if (error) throw Object.assign(new Error(error), { status: 400 });
-  const { push, polling, ...rest } = readSettingsFile(home);
-  writeSettingsFile({ ...rest, quiet: settings.quiet, notifications: settings.notifications }, home);
+  await updateSettings(({ push, polling, ...rest }) => ({ ...rest, quiet: settings.quiet, notifications: settings.notifications }), home);
   return settings;
 }
 
@@ -275,7 +193,7 @@ export async function setNotifications(change, now = new Date(), home = os.homed
     if (end === null && change.snooze !== 'off') throw Object.assign(new Error('A snooze must end after now and within 30 days: <n>m, <n>h, <n>d, <n>w, tonight, morning, monday or a date and time; or forever or off.'), { status: 400 });
     next.snoozed_until = end && storedEnd(end);
   }
-  const { notifications: saved } = saveSettings({ ...s, notifications: next }, home);
+  const { notifications: saved } = await saveSettings({ ...s, notifications: next }, home);
   const dropped = saved.on ? 0 : await withQueueLock(home, () => {
     const { items } = readQueue(home);
     if (items.length) writePrivate(queueFile(home), { items: [] });

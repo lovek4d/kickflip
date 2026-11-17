@@ -8,7 +8,7 @@ import { tempDir } from '../shared/temp-dir.mjs';
 const home = fs.realpathSync(tempDir('board-model-'));
 process.env.HOME = home;
 const { boardModel, changeBoardModel, changeHubOrchestratorModel, restartOnModel } = await import('./board-model.mjs');
-const { readOrchestratorModel, setOrchestratorModel } = await import('./push.mjs');
+const { readOrchestratorModel, setOrchestratorModel } = await import('../shared/hub-settings.mjs');
 const { startArgv, hubArgv, BG_SETTINGS, tmuxName } = await import('./sessions.mjs');
 const { readManifest, saveJSON } = await import('./boards.mjs');
 const web = (...p) => path.join(home, '.claude', 'kickflip', ...p);
@@ -32,13 +32,13 @@ const tmuxCalls = () => {
 };
 const running = (status) => () => new Map([[OLD, { pid: 1, sessionId: OLD, kind: 'fg', status }]]);
 
-const hubChoice = (value) => setOrchestratorModel(value, home);
+const hubChoice = async (value) => setOrchestratorModel(value, home);
 const choice = (view) => view.choices.find((c) => c.on).value;
 const flag = (argv) => argv[argv.indexOf('--model') + 1];
 
-test("a session with no model recorded starts, and the hub board resumes, on Hub settings' Orchestrators, Opus until it says Sonnet", () => {
+test("a session with no model recorded starts, and the hub board resumes, on Hub settings' Orchestrators, Opus until it says Sonnet", async () => {
   for (const value of ['opus', 'sonnet']) {
-    hubChoice(value);
+    await hubChoice(value);
     assert.equal(flag(startArgv({ route: 'shop', name: 'Shop' })), value);
     assert.equal(flag(hubArgv({ route: 'shop', title: 'Shop', id: OLD })), value);
     assert.equal(flag(startArgv({ route: 'shop', name: 'Shop', model: value === 'opus' ? 'sonnet' : 'opus' })), value === 'opus' ? 'sonnet' : 'opus');
@@ -47,8 +47,8 @@ test("a session with no model recorded starts, and the hub board resumes, on Hub
   assert.equal(flag(startArgv({ route: 'shop', name: 'Shop' })), 'opus');
 });
 
-test("a board's Orchestrators reads Hub default with no model recorded, else its override, and a page that isn't a board has none", () => {
-  hubChoice('sonnet');
+test("a board's Orchestrators reads Hub default with no model recorded, else its override, and a page that isn't a board has none", async () => {
+  await hubChoice('sonnet');
   fixture();
   const { orchestrators, hub } = boardModel('shop');
   assert.deepEqual([orchestrators.label, orchestrators.choices.map((c) => c.label), choice(orchestrators), orchestrators.description, hub],
@@ -57,7 +57,7 @@ test("a board's Orchestrators reads Hub default with no model recorded, else its
   assert.deepEqual([choice(boardModel('shop').orchestrators), boardModel('shop').orchestrators.description, boardModel('shop').hub],
     ['opus', 'This board’s own session runs on Opus, whatever Hub settings pick.', true]);
   assert.throws(() => boardModel('page'), { status: 404 });
-  hubChoice('opus');
+  await hubChoice('opus');
 });
 
 test("a headless board's override is kept on its owner record for the next new session, Hub default drops it, and nothing is typed anywhere", async () => {
@@ -93,20 +93,20 @@ test("the hub board's idle session gets /model typed into its tmux pane at once,
   assert.equal(readManifest().sites.shop.owner.model, 'sonnet');
 });
 
-test("a change of Hub settings' Orchestrators is saved, and reaches the hub board's idle session at once only while that board is on Hub default", () => {
+test("a change of Hub settings' Orchestrators is saved, and reaches the hub board's idle session at once only while that board is on Hub default", async () => {
   fixture({ hub: true });
   const idle = tmuxCalls();
-  assert.deepEqual(changeHubOrchestratorModel('sonnet', { tmux: idle.tmux, live: running('idle') }), { model: 'sonnet', applies: 'now' });
+  assert.deepEqual(await changeHubOrchestratorModel('sonnet', { tmux: idle.tmux, live: running('idle') }), { model: 'sonnet', applies: 'now' });
   assert.deepEqual(idle.calls.map((c) => c.at(-1)), ['/model sonnet', 'Enter']);
   assert.equal(readOrchestratorModel(home), 'sonnet');
-  assert.equal(changeHubOrchestratorModel('opus', { tmux: idle.tmux, live: running('busy') }).applies, 'next start');
+  assert.equal((await changeHubOrchestratorModel('opus', { tmux: idle.tmux, live: running('busy') })).applies, 'next start');
   fixture({ hub: true, model: 'sonnet' });
   const pinned = tmuxCalls();
-  assert.deepEqual(changeHubOrchestratorModel('sonnet', { tmux: pinned.tmux, live: running('idle') }), { model: 'sonnet', applies: null });
+  assert.deepEqual(await changeHubOrchestratorModel('sonnet', { tmux: pinned.tmux, live: running('idle') }), { model: 'sonnet', applies: null });
   fixture();
-  assert.deepEqual(changeHubOrchestratorModel('opus', { tmux: pinned.tmux, live: running('idle') }), { model: 'opus', applies: null });
+  assert.deepEqual(await changeHubOrchestratorModel('opus', { tmux: pinned.tmux, live: running('idle') }), { model: 'opus', applies: null });
   assert.deepEqual(pinned.calls, []);
-  assert.throws(() => changeHubOrchestratorModel('auto', { tmux: pinned.tmux, live: running('idle') }), { status: 400, message: 'orchestrator-model takes opus or sonnet' });
+  await assert.rejects(() => changeHubOrchestratorModel('auto', { tmux: pinned.tmux, live: running('idle') }), { status: 400, message: 'orchestrator-model takes opus or sonnet' });
   assert.equal(readOrchestratorModel(home), 'opus');
 });
 

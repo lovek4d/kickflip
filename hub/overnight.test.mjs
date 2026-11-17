@@ -8,7 +8,7 @@ const home = tempDir('overnight-');
 process.env.HOME = home;
 const { overnightOn, setOvernight, overnightJobs, migrateTriage } = await import('./overnight.mjs');
 const { sendWakes } = await import('./github.mjs');
-const { readSettingsFile, writeSettingsFile } = await import('./push.mjs');
+const { read: readSettingsFile, update } = await import('../shared/hub-settings.mjs');
 const { DEFAULTS, quietMiddle } = await import('./schedule.mjs');
 const { settingsView } = await import('./views.mjs');
 
@@ -18,17 +18,17 @@ const t = (h, m = 0, day = 14) => new Date(2026, 9, day, h, m);
 const st = (s = DEFAULTS) => ({ settings: s, hold: null, count: 0 });
 const quiet = (overnight, s = DEFAULTS, now = t(19)) => JSON.parse(JSON.stringify(settingsView({ now, st: st(s), overnight }).quiet.overnight));
 
-test('every overnight job is on by default, and a toggle off persists beside the other settings', () => {
-  writeSettingsFile({ rules: [{ id: 'r1', text: 'keep' }] });
+test('every overnight job is on by default, and a toggle off persists beside the other settings', async () => {
+  await update(() => ({ rules: [{ id: 'r1', text: 'keep' }] }));
   assert.equal(overnightOn('wake'), true);
-  setOvernight('wake', false);
+  await setOvernight('wake', false);
   assert.equal(overnightOn('wake'), false);
   assert.deepEqual(readSettingsFile().overnight, { wake: false });
   assert.deepEqual(readSettingsFile().rules, [{ id: 'r1', text: 'keep' }]);
-  setOvernight('wake', true);
+  await setOvernight('wake', true);
   assert.equal(overnightOn('wake'), true);
   assert.equal(readSettingsFile().overnight, undefined, 'on is the default, so nothing is stored');
-  assert.throws(() => setOvernight('nope', false), (e) => e.status === 400);
+  await assert.rejects(() => setOvernight('nope', false), (e) => e.status === 400);
 });
 
 test('overnight work starts at the middle of quiet hours, following their start and end', () => {
@@ -69,7 +69,7 @@ const board = (route, cfg, events = []) => {
   return { route, dir };
 };
 
-test('Triage overnight is a job, on by default, whose last run is the newest overnight-triage event on any board', () => {
+test('Triage overnight is a job, on by default, whose last run is the newest overnight-triage event on any board', async () => {
   const boards = [
     board('one', {}, [{ kind: 'overnight-triage', ts: '2026-10-13T03:00:00.000Z' }, { kind: 'other', ts: '2026-10-20T00:00:00.000Z' }]),
     board('two', {}, [{ kind: 'overnight-triage', ts: '2026-10-14T03:00:00.000Z' }]),
@@ -78,23 +78,23 @@ test('Triage overnight is a job, on by default, whose last run is the newest ove
   const triage = () => overnightJobs(boards).find((j) => j.id === 'triage');
   assert.deepEqual([triage().title, triage().on, triage().last], ['Triage overnight', true, { at: '2026-10-14T03:00:00.000Z', failed: '' }]);
   assert.equal(overnightJobs([board('none', {})]).find((j) => j.id === 'triage').last, null);
-  setOvernight('triage', false);
+  await setOvernight('triage', false);
   assert.deepEqual([overnightOn('triage'), triage().on], [false, false]);
-  setOvernight('triage', true);
+  await setOvernight('triage', true);
 });
 
-test("migrating the boards' auto_triage: on at the hub if any board had it on, else off, and the key leaves every board.json", () => {
+test("migrating the boards' auto_triage: on at the hub if any board had it on, else off, and the key leaves every board.json", async () => {
   const stored = (b) => JSON.parse(fs.readFileSync(path.join(b.dir, 'board.json'), 'utf8'));
   const [a, b, c] = [board('ma', { auto_triage: false, title: 'A' }), board('mb', { auto_triage: true }), board('mc', {})];
-  assert.deepEqual(migrateTriage([a, b, c]), { on: true });
+  assert.deepEqual(await migrateTriage([a, b, c]), { on: true });
   assert.equal(overnightOn('triage'), true);
   assert.deepEqual([stored(a), stored(b)], [{ items: 'data/items.json', title: 'A' }, { items: 'data/items.json' }]);
-  assert.equal(migrateTriage([a, b, c]), null, 'with the keys gone there is nothing to migrate');
+  assert.equal(await migrateTriage([a, b, c]), null, 'with the keys gone there is nothing to migrate');
   const d = board('md', { auto_triage: false });
-  assert.deepEqual(migrateTriage([d]), { on: false });
+  assert.deepEqual(await migrateTriage([d]), { on: false });
   assert.equal(overnightOn('triage'), false);
-  assert.equal(migrateTriage([d]), null);
-  setOvernight('triage', true);
+  assert.equal(await migrateTriage([d]), null);
+  await setOvernight('triage', true);
 });
 
 test('with Daily wake off, the end of quiet hours wakes no board', async () => {
@@ -104,9 +104,9 @@ test('with Daily wake off, the end of quiet hours wakes no board', async () => {
   fs.writeFileSync(path.join(dir, 'data/items.json'), JSON.stringify({ items: [] }));
   const manifest = { sites: { alpha: { dir, port: 1, cmd: [process.execPath, new URL('../board/server.mjs', import.meta.url).pathname] } } };
   wakeState({ sent: {} });
-  setOvernight('wake', false);
+  await setOvernight('wake', false);
   assert.deepEqual(await sendWakes({ now: t(8, 1), settings: DEFAULTS, manifest }), { due: [], events: [], failed: [] });
-  setOvernight('wake', true);
+  await setOvernight('wake', true);
   const woke = await sendWakes({ now: t(8, 1), settings: DEFAULTS, manifest });
   assert.deepEqual([woke.due, woke.events.map((e) => e.route)], [['08:00'], ['alpha']]);
 });

@@ -13,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, LOGGED_OUT_WORDS, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
 import { githubStateFile, appendEvent, isBoardSite, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd, boardClaudeModel, claudeModelFor } from '../shared/usage-gate.mjs';
-import { reviseQueued, pushKindError, readClaudeModel, readLandTests, setLandTests, CLAUDE_MODEL_VALUES } from '../hub/push.mjs';
+import { reviseQueued, pushKindError } from '../hub/push.mjs';
+import { readClaudeModel, readLandTests, setLandTests, CLAUDE_MODEL_VALUES, settingsFile as hubSettingsFile } from '../shared/hub-settings.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketBadge, resolveTicket, ticketNamed, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
@@ -1857,7 +1858,6 @@ export function removeReviewers(site, names) {
 // Rules: the hub's in settings.json and this board's in board.json `rules` (../hub/rules.mjs;
 // docs/adr/2026-10-29-1639-rules-live-on-settings-at-hub-and-board-level.md). The settings page and the CLI both write board.json,
 // so board rule, setting and reviewer writes run one at a time.
-const hubSettingsFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'settings.json');
 const ruleCall = (fn) => { try { return fn(); } catch (e) { if (e instanceof RuleError) fail(e.message); throw e; } };
 export const readBoardRules = async (site) => rulesOf(await readJSON(path.join(site, 'board.json'), {}));
 
@@ -2060,7 +2060,7 @@ export async function saveBoardSettings(site, changes) {
     if (board?.github && !board.local && !(await readPermissions(board.owner?.repo)).pushMain) fail('Merge lands each task on main and pushes it, so turn on Push main after a land first');
   }
   if (landTests !== undefined) {
-    try { setLandTests(landTests); } catch { fail('max_land_tests must be a whole number from 1 to 99'); }
+    try { await setLandTests(landTests); } catch { fail('max_land_tests must be a whole number from 1 to 99'); }
   }
   return writeBoardJSON(site, (cfg) => {
     const board = site ? listBoards().find((b) => samePath(b.dir, site)) : null;
@@ -2124,7 +2124,7 @@ export const settingsLines = (settings) => Object.entries(settings).map(([k, v])
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {
   const r = hub ? ruleCall(() => change(readHubRules())) : await writeBoardRules(site, change);
-  if (hub) ruleCall(() => writeHubRules(r.rules));
+  if (hub) { try { await writeHubRules(r.rules); } catch (e) { if (e instanceof RuleError) fail(e.message); throw e; } }
   return { file: hub ? hubSettingsFile() : r.file, lines: [`id ${r.rule.id}`] };
 }
 

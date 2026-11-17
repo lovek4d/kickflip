@@ -24,7 +24,7 @@ const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.
 const { routeFromName, ROUTE_RE } = await import('./routes.mjs');
 const { saveJSON, readManifest, listBoards, prsOf, linksOf, servedSites, startingAt, isBoardSite } = await import('./boards.mjs');
 const { linearClient } = await import('./linear.mjs');
-const { setOrchestratorModel } = await import('./push.mjs');
+const { setOrchestratorModel } = await import('../shared/hub-settings.mjs');
 const { fakeLinear, linearWorld } = await import('../shared/test-helpers.mjs');
 const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');
 const sessionsDir = path.join(home, '.claude', 'sessions');
@@ -130,7 +130,7 @@ test('concurrent boards share one clone without switching its branch and need no
 test("New board asks no model: its orchestrator starts on Hub settings' Orchestrators and records none, so it stays on Hub default", async () => {
   saveJSON(manifestFile, { sites: {} });
   const { calls, run } = claude();
-  setOrchestratorModel('sonnet', home);
+  await setOrchestratorModel('sonnet', home);
   try {
     const board = await requestBoard(input('On hub default', 'owner/shared'), { run, live, repos });
     await board.started;
@@ -138,7 +138,7 @@ test("New board asks no model: its orchestrator starts on Hub settings' Orchestr
     assert.equal('model' in readManifest().starting['on-hub-default'], false);
     await assert.rejects(requestBoard({ ...input('Other model', 'owner/shared'), model: 'opus' }, { run, live, repos }), { status: 400, message: 'Send only name, github or remote, branch, purpose and tickets.' });
     assert.equal(readManifest().starting['other-model'], undefined);
-  } finally { setOrchestratorModel('opus', home); }
+  } finally { await setOrchestratorModel('opus', home); }
 });
 
 test('failed clones leave no clone or temporary directory and never start claude', async () => {

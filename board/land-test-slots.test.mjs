@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { boundedTests, holdingTestSlot, moveQueuedLand } from './worktree.mjs';
-import { MAX_LAND_TESTS, readLandTests, setLandTests } from '../hub/push.mjs';
+import { MAX_LAND_TESTS, readLandTests, setLandTests } from '../shared/hub-settings.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 function home(t) {
@@ -92,15 +92,15 @@ test('boundedTests takes a slot around whatever runTests is and returns its resu
   await first.done;
 });
 
-test("the setting is the hub's one number: 1 unless it is saved as 1 to 99, whichever board saves or reads it", (t) => {
+test("the setting is the hub's one number: 1 unless it is saved as 1 to 99, whichever board saves or reads it", async (t) => {
   const dir = home(t);
   assert.equal(MAX_LAND_TESTS, 1);
   assert.equal(readLandTests(dir), 1);
-  assert.equal(setLandTests('3', dir), 3);
+  assert.equal(await setLandTests('3', dir), 3);
   assert.equal(readLandTests(dir), 3);
-  assert.throws(() => setLandTests('0', dir), { status: 400 });
-  assert.throws(() => setLandTests('100', dir), { status: 400 });
-  assert.throws(() => setLandTests('1.5', dir), { status: 400 });
+  await assert.rejects(() => setLandTests('0', dir), { status: 400 });
+  await assert.rejects(() => setLandTests('100', dir), { status: 400 });
+  await assert.rejects(() => setLandTests('1.5', dir), { status: 400 });
   assert.equal(readLandTests(dir), 3);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'kickflip', 'settings.json'), 'utf8')).landTests, 3);
 });

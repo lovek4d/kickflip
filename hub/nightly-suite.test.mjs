@@ -97,10 +97,10 @@ test('boards on one repo and branch run it once, and a clean night reads ok', as
 test('with Nightly full suite off in Overnight work, nothing runs', async () => {
   fs.rmSync(suiteStateFile(), { force: true });
   const sites = Object.fromEntries([board('gamma')]);
-  setOvernight('suite', false);
+  await setOvernight('suite', false);
   let runs = 0;
   assert.equal(await runNightlySuite({ now: t(3), settings: DEFAULTS, manifest: { sites }, runTests: async () => { runs++; return passing; }, eases }), null);
   assert.equal(runs, 0);
   assert.equal(overnightJobs().find((j) => j.id === 'suite').on, false);
-  setOvernight('suite', true);
+  await setOvernight('suite', true);
 });

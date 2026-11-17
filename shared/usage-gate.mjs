@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { usageReader, DEFAULT_PAUSE_AT, nearFrom } from '../hub/usage.mjs';
-import { readSettingsFile, writeSettingsFile, readCodexShare, readClaudeModel, CLAUDE_MODEL_VALUES } from '../hub/push.mjs';
+import { read as readSettingsFile, update as updateSettings, readCodexShare, readClaudeModel, CLAUDE_MODEL_VALUES } from './hub-settings.mjs';
 import { FOREVER, durationEnd, storedEnd } from '../hub/duration.mjs';
 import { codexStatus, codexStatusReader, effectiveCodexShare } from './codex.mjs';
 import { MACHINE_NORMAL, readMachineState } from './machine-gate.mjs';
@@ -117,29 +117,27 @@ export function readUsageGate({ home = os.homedir(), now = Date.now(), dir = nul
 }
 
 // Pause hub: a pauseEnd choice, or off. Settings writes keep other keys. → the stored end, or null.
-export function setHubPause(choice, { home = os.homedir(), now = new Date() } = {}) {
+export async function setHubPause(choice, { home = os.homedir(), now = new Date() } = {}) {
   const end = pauseEnd(choice, now);
-  const { paused_until: _, ...rest } = readSettingsFile(home);
-  writeSettingsFile(end ? { ...rest, paused_until: end } : rest, home);
+  await updateSettings(({ paused_until: _, ...rest }) => (end ? { ...rest, paused_until: end } : rest), home);
   return end;
 }
 
-export function setPauseAt(value, { home = os.homedir() } = {}) {
+export async function setPauseAt(value, { home = os.homedir() } = {}) {
   if (!/^(?:50|55|60|65|70|75|80|85|90|95|100)$/.test(String(value))) throw Object.assign(new Error('pause-at takes 50..100 in steps of 5'), { status: 400 });
-  writeSettingsFile({ ...readSettingsFile(home), pauseAt: Number(value) }, home);
+  await updateSettings((settings) => ({ ...settings, pauseAt: Number(value) }), home);
 }
 
-export function setKeepGoing(value, { home = os.homedir(), now = Date.now() } = {}) {
+export async function setKeepGoing(value, { home = os.homedir(), now = Date.now() } = {}) {
   if (!['on', 'off'].includes(value)) throw Object.assign(new Error('keep-going takes on or off'), { status: 400 });
-  const settings = readSettingsFile(home);
-  if (value === 'on') {
+  await updateSettings(({ keepGoing: _, ...settings }) => {
+    if (value === 'off') return settings;
     const gate = readUsageGate({ home, now });
     // Near the line it lifts only the halved cap, never the pause at the line.
-    if (gate.state === 'paused') settings.keepGoing = { window: gate.window, until: gate.resets_at };
-    else if (gate.near) settings.keepGoing = { window: gate.near.window, until: gate.near.resets_at, near: true };
-    else throw Object.assign(new Error('Nothing is paused.'), { status: 409 });
-  } else delete settings.keepGoing;
-  writeSettingsFile(settings, home);
+    if (gate.state === 'paused') return { ...settings, keepGoing: { window: gate.window, until: gate.resets_at } };
+    if (gate.near) return { ...settings, keepGoing: { window: gate.near.window, until: gate.near.resets_at, near: true } };
+    throw Object.assign(new Error('Nothing is paused.'), { status: 409 });
+  }, home);
 }
 
 export const heldUsageEvent = (line) => {

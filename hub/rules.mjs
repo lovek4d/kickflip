@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { readSettingsFile, writeSettingsFile } from './push.mjs';
+import { read as readSettingsFile, update as updateSettings, settingsFile } from '../shared/hub-settings.mjs';
 
 export const RULE_BY = ['owner', 'claude'];
 export const RULE_MAX = 400;
@@ -87,13 +87,12 @@ export const changed = (c) => Boolean(c.added.length || c.edited.length || c.rem
 export const readHubRules = () => rulesOf(readSettingsFile());
 // Rewrites `rules` alone; every other key of settings.json stays as it is on disk now. readSettingsFile reads a
 // broken file as {}, so one that doesn't parse is refused rather than replaced.
-export function writeHubRules(rules) {
-  const file = path.join(os.homedir(), '.claude', 'kickflip', 'settings.json');
+export async function writeHubRules(rules) {
+  const file = settingsFile();
   let raw = null;
   try { raw = fs.readFileSync(file, 'utf8'); } catch {}
   if (raw !== null) { try { JSON.parse(raw); } catch { fail(`${file} is not valid JSON; fix it before changing the hub rules`); } }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  writeSettingsFile({ ...readSettingsFile(), rules });
+  await updateSettings((settings) => ({ ...settings, rules }));
 }
 
 // The watcher's lines, without its `rule ` lead: `<scope> <text>` for each hub rule, then each board rule. A

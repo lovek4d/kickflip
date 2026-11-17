@@ -208,7 +208,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
-import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readAutoUpdate, setAutoUpdate, deliver } from './push.mjs';
+import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, deliver } from './push.mjs';
+import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
@@ -343,10 +344,10 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   try { const routes = await migrateWaveNames(); if (routes.length) log(`boards: lineups renamed to waves and wave files to item files on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('wave name migration failed:', e.message); }
   try { const routes = await migrateDropWaves(); if (routes.length) log(`boards: waves dropped on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('drop waves migration failed:', e.message); }
   try { const { routes, loginItem } = await migrateCellarNode(); if (routes.length) log(`manifest: ${routes.map((r) => `/${r}`).join(', ')} spawn node by Homebrew's link`); if (loginItem) log("hub login item file: spawns node by Homebrew's link"); } catch (e) { log('Cellar node migration failed:', e.message); }
-  try { const moved = migrateTriage(); if (moved) log(`boards: auto_triage moved to the hub's Triage overnight switch, ${moved.on ? 'on' : 'off'}`); } catch (e) { log('triage migration failed:', e.message); }
+  try { const moved = await migrateTriage(); if (moved) log(`boards: auto_triage moved to the hub's Triage overnight switch, ${moved.on ? 'on' : 'off'}`); } catch (e) { log('triage migration failed:', e.message); }
   const repos = repoService();
   const readUsage = usageReader();
-  awake.apply();
+  await awake.apply();
 
   // ---------- manifest ----------
   let manifest = { version: 1, sites: {} };
@@ -623,7 +624,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   const timers = [];
 
   // ---------- polling ----------
-  try { if (migrateSettings()) log('settings: migrated the polling windows to quiet hours'); } catch (e) { log('settings migration failed:', e.message); }
+  try { if (await migrateSettings()) log('settings: migrated the polling windows to quiet hours'); } catch (e) { log('settings migration failed:', e.message); }
   // A board on Linear falls back to internal tickets while Hub has no Linear key (store.mjs fallBackFromLinear).
   const linearFallback = async () => { try { for (const line of await fallBackFromLinear()) log(`linear: ${line}`); } catch (e) { log('linear fallback failed:', e.message); } };
   await linearFallback();
@@ -1407,20 +1408,20 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if (p === '/_hub/settings/keep-awake' && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
-      try { setKeepAwake(f.get('keep_awake') === 'on'); } catch (e) {
+      try { await setKeepAwake(f.get('keep_awake') === 'on'); } catch (e) {
         if (e.status !== 409) throw e;
         return json ? sendJSON(409, { error: e.message }) : send(409, 'text/plain; charset=utf-8', e.message);
       }
-      awake.apply();
+      await awake.apply();
       return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#keep-awake');
     }
     if (p === '/_hub/settings/auto-update' && req.method === 'POST') {
-      setAutoUpdate(new URLSearchParams(await readBody(req)).get('auto_update') === 'on');
+      await setAutoUpdate(new URLSearchParams(await readBody(req)).get('auto_update') === 'on');
       return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/');
     }
     if (p === '/_hub/settings/hub-pause' && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
-      try { setHubPause(f.get('pause')); } catch (e) {
+      try { await setHubPause(f.get('pause')); } catch (e) {
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }
@@ -1429,7 +1430,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if (p === '/_hub/settings/codex' && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
-      try { setCodexShare(f.get('value'), readCodex({ fresh: true })); } catch (e) {
+      try { await setCodexShare(f.get('value'), readCodex({ fresh: true })); } catch (e) {
         if (e.status !== 400 && e.status !== 409) throw e;
         return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
       }
@@ -1437,7 +1438,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if (['/_hub/settings/claude-model', '/_hub/settings/orchestrator-model'].includes(p) && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
-      try { if (p.endsWith('/claude-model')) setClaudeModel(f.get('value')); else changeHubOrchestratorModel(f.get('value')); } catch (e) {
+      try { if (p.endsWith('/claude-model')) await setClaudeModel(f.get('value')); else await changeHubOrchestratorModel(f.get('value')); } catch (e) {
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }
@@ -1446,7 +1447,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     if (['/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(p) && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
       try {
-        if (p.endsWith('/pause-at')) setPauseAt(f.get('value')); else setKeepGoing(f.get('value'));
+        if (p.endsWith('/pause-at')) await setPauseAt(f.get('value')); else await setKeepGoing(f.get('value'));
         await checkUsageGate();
       } catch (e) {
         if (e.status !== 400 && e.status !== 409) throw e;
@@ -1501,7 +1502,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       const f = new URLSearchParams(await readBody(req));
       const change = Object.fromEntries(['start', 'end'].filter((k) => f.has(k)).map((k) => [k, f.get(k).trim()]));
       if (f.get('set') === 'hold') change.hold = f.get('value') || 'off';
-      try { saveSettings(editQuiet(readSettings(), change)); } catch (e) {
+      try { await saveSettings(editQuiet(readSettings(), change)); } catch (e) {
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }
@@ -1510,7 +1511,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if (p === '/_hub/settings/overnight' && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
-      try { setOvernight(f.get('job'), f.get('value') === 'on'); } catch (e) {
+      try { await setOvernight(f.get('job'), f.get('value') === 'on'); } catch (e) {
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }
@@ -1522,7 +1523,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       try {
         body = await readJSONBody(req, 64 * 1024);
         saved = applyRules(readHubRules(), body.rules, body.base ?? []);
-        if (changed(saved.changes)) writeHubRules(saved.rules);
+        if (changed(saved.changes)) await writeHubRules(saved.rules);
       } catch (e) {
         if (!(e instanceof RuleError) && !(e instanceof SyntaxError)) throw e;
         return sendJSON(400, { error: e.message });

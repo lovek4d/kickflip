@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { readSettingsFile, writeSettingsFile } from '../hub/push.mjs';
+import { read as readSettingsFile, updateSync as updateSettings } from './hub-settings.mjs';
 
 // The Tailscale daemon kickflip talks to, and how it reaches it
 // (docs/adr/2026-11-17-0311-kickflip-records-the-tailscale-daemon-it-uses.md). A Mac can run two at once: brew's
@@ -89,7 +89,7 @@ export function repickDaemon(options) {
   const { env, home, status, serves, ...rest } = defaults(options);
   if (env.KICKFLIP_TAILSCALE) return tailscaleDaemons({ env, ...rest })[0];
   const daemon = pickDaemon(tailscaleDaemons({ env, ...rest }), { status, serves });
-  if (daemon?.node) writeSettingsFile({ ...readSettingsFile(home), tailscale: daemon }, home);
+  if (daemon?.node) updateSettings((settings) => ({ ...settings, tailscale: daemon }), home);
   return daemon;
 }
 

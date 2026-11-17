@@ -7,7 +7,7 @@ import { hubBoard, isBoardSite, readManifest, withManifestLock, writeManifest } 
 import { routeRecord } from './routes.mjs';
 import { freshSession, runTmux, tmuxName } from './sessions.mjs';
 import { liveSessions } from './live.mjs';
-import { ORCHESTRATOR_MODEL_VALUES, readOrchestratorModel, setOrchestratorModel } from './push.mjs';
+import { ORCHESTRATOR_MODEL_VALUES, readOrchestratorModel, setOrchestratorModel } from '../shared/hub-settings.mjs';
 import { orchestratorsView } from '../shared/model-views.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -61,8 +61,8 @@ export async function changeBoardModel(route, input, { live = liveSessions, tmux
 // Hub settings' Orchestrators: saves the hub's choice, which reaches the hub board's session as a change of its own
 // would when its owner record names no model; every other board on Hub default takes it at its next new session.
 // → {model, applies: applyModel's for the hub board, or null when no hub board follows the hub's choice}
-export function changeHubOrchestratorModel(value, { manifest = readManifest(), live = liveSessions, tmux = runTmux } = {}) {
-  const model = setOrchestratorModel(value);
+export async function changeHubOrchestratorModel(value, { manifest = readManifest(), live = liveSessions, tmux = runTmux } = {}) {
+  const model = await setOrchestratorModel(value);
   const board = hubBoard(manifest);
   return { model, applies: board && !board.owner?.model ? applyModel(board.route, board, model, { live, tmux }) : null };
 }
