@@ -3,7 +3,8 @@
 // present, is the Home Screen app badge count; a {close: tag} push closes that tag's notification (closeTagged).
 // It keeps the app shell and its files, network first, so the app opens from the last copy while the host is asleep
 // (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). Nothing else is cached: API calls, streams, uploads and frames always
-// go to the network.
+// go to the network, except a served page opened in a frame and its own files, which go network first the same way
+// (docs/adr/2026-11-17-1900-served-pages-open-from-the-workers-copy.md).
 // A {forget: 'shell'} message drops the saved shell before the owner's reload and replies on its port.
 const CACHE = 'hub-app';
 const SHELL = new URL('/', self.registration.scope).href;
@@ -21,6 +22,10 @@ function isShellPage(url) {
 const isAsset = (url) => url.pathname.startsWith('/_hub/app/') || url.pathname === '/_hub/colors.css' || url.pathname === '/_hub/kickflip.png';
 // hub/hub.mjs marks the shell it serves with the sidebar written in; a site's own page and the board server's copy
 // aren't, so neither replaces the saved shell.
+// A served page's files: scripts, styles, images and fonts of a site's own path, not its API, events or uploads.
+const isSiteFile = (url, req) => ['script', 'style', 'image', 'font'].includes(req.destination)
+  && !/^\/(_hub|[^/]+\/(api|_claude|uploads)(\/|$))/.test(url.pathname) && url.pathname !== '/sw.js' && url.pathname !== '/manifest.webmanifest';
+const isHtml = (res) => res.ok && res.headers.get('x-app-shell') !== '1' && /^text\/html/.test(res.headers.get('content-type') || '');
 const isShell = (res) => res.ok && res.headers.get('x-app-shell') === '1';
 
 // Saves res under key, dropping any other version of the same file.
@@ -88,14 +93,18 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (req.mode === 'navigate') {
-    // A frame's page load always goes to the network, so a frame never shows the shell in place of its page.
+    // A frame's page load goes network first under its own URL, so a frame never shows the shell in place of its page.
+    if (req.destination === 'iframe') {
+      event.respondWith(networkFirst(event, req, url.href, isHtml));
+      return;
+    }
     if (req.destination !== 'document' || !isShellPage(url)) return;
     // The hub tells the shell from a site's page by Sec-Fetch-Dest, which this fetch would lose (hub/shell.mjs destOf).
     const page = new Request(url.href, { headers: { 'x-app-shell': '1' }, cache: 'no-store', redirect: 'manual' });
     event.respondWith(networkFirst(event, page, SHELL, isShell));
     return;
   }
-  if (isAsset(url)) event.respondWith(networkFirst(event, req, url.href, (res) => res.ok));
+  if (isAsset(url) || isSiteFile(url, req)) event.respondWith(networkFirst(event, req, url.href, (res) => res.ok));
 });
 
 self.addEventListener('push', (event) => {

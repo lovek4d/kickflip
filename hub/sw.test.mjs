@@ -215,7 +215,7 @@ test("the worker answers with the saved shell exactly the page loads hub/shell.m
   }
 });
 
-test("API calls, the hub's stream, uploads, posts, other origins and a frame's page load are never cached or answered by the worker", async () => {
+test("API calls, the hub's stream, uploads, posts and other origins are never cached or answered by the worker", async () => {
   const w = worker();
   w.network = () => new Response('net', { headers: { 'x-app-shell': '1' } });
   const untouched = [
@@ -226,16 +226,59 @@ test("API calls, the hub's stream, uploads, posts, other origins and a frame's p
     ['/hub-orchestrator/api/upload', { method: 'POST' }], ['/_hub/settings/notifications', { method: 'POST' }],
     ['/_hub/settings', { method: 'POST', mode: 'navigate', destination: 'document' }],
     ['https://cdn.example.com/_hub/app/ui.js', { destination: 'script' }],
-    ['/learn/', { mode: 'navigate', destination: 'iframe' }],
-    ['/hub-orchestrator/prototype-a.html?take=A', { mode: 'navigate', destination: 'iframe' }],
-    ['/hub-orchestrator/', { mode: 'navigate', destination: 'iframe' }],
     ['/hub-orchestrator/prototype-a.html?q=q1&alone=1', { mode: 'navigate', destination: 'document' }],
     ['/hub-orchestrator/uploads/1-shot.png', { mode: 'navigate', destination: 'document' }],
     ['/sw.js'], ['/manifest.webmanifest'], ['/_hub/icon-180.png?v=1', { destination: 'image' }],
+    ['/learn/api/progress', { destination: 'script' }], ['/learn/uploads/a.css', { destination: 'style' }], ['/learn/data.json', { destination: '' }],
   ];
   for (const [p, opts] of untouched) assert.equal(w.request(p, opts), null, `${opts?.method || 'GET'} ${p} ${opts?.destination || ''}`);
   assert.deepEqual(w.calls, []);
   assert.deepEqual(await w.saved(), {});
+});
+
+const pageAnswer = (body) => new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+
+test("a framed page's load goes to the network first, and its answer is the copy when the network fails", async () => {
+  const w = worker();
+  w.network = () => pageAnswer('learn v1');
+  assert.equal((await w.page('/learn/', { destination: 'iframe' }).done).text, 'learn v1');
+  assert.deepEqual(await w.saved(), { [`${ORIGIN}/learn/`]: 'learn v1' });
+  w.network = () => pageAnswer('learn v2');
+  assert.equal((await w.page('/learn/', { destination: 'iframe' }).done).text, 'learn v2');
+  assert.deepEqual(await w.saved(), { [`${ORIGIN}/learn/`]: 'learn v2' });
+  w.network = offline;
+  assert.equal((await w.page('/learn/', { destination: 'iframe' }).done).text, 'learn v2');
+  w.network = () => new Response('Bad Gateway', { status: 502 });
+  assert.equal((await w.page('/learn/', { destination: 'iframe' }).done).text, 'learn v2');
+  w.network = hanging;
+  const r = w.page('/learn/', { destination: 'iframe' });
+  await w.advance(3000);
+  assert.equal((await r.done).text, 'learn v2');
+});
+
+test("a framed page that was never opened fails as before, and the shell, errors and non-pages are never its copy", async () => {
+  const w = worker();
+  w.network = offline;
+  assert.ok((await w.page('/learn/', { destination: 'iframe' }).done).error);
+  w.network = () => new Response('missing', { status: 404, headers: { 'content-type': 'text/html' } });
+  await w.page('/learn/', { destination: 'iframe' }).done;
+  w.network = () => shellAnswer('the shell');
+  await w.page('/_hub/settings', { destination: 'iframe' }).done;
+  w.network = () => new Response('{}', { headers: { 'content-type': 'application/json' } });
+  await w.page('/learn/data/', { destination: 'iframe' }).done;
+  assert.deepEqual(await w.saved(), {});
+});
+
+test("a framed page's own files go network first, and a top-level page with ?alone=1 still goes to the network", async () => {
+  const w = worker();
+  w.network = (url) => new Response(`file ${new URL(url).pathname}`);
+  for (const [p, destination] of [['/learn/app.js', 'script'], ['/learn/style.css?v=2', 'style'], ['/learn/logo.png', 'image'], ['/learn/f.woff2', 'font']]) {
+    await w.request(p, { destination }).done;
+  }
+  w.network = offline;
+  assert.equal((await w.request('/learn/app.js', { destination: 'script' }).done).text, 'file /learn/app.js');
+  assert.equal((await w.request('/learn/style.css?v=2', { destination: 'style' }).done).text, 'file /learn/style.css');
+  assert.equal(w.page('/learn/?alone=1'), null);
 });
 
 test("the shell's files go network first by their full URL, and a new version replaces the old one", async () => {
