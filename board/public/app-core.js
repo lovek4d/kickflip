@@ -104,6 +104,10 @@ BoardView.part((B) => {
   watcher.observe($('#lanes'));
   B.atUnmount(() => watcher.disconnect());
   B.on(window, 'scroll', () => { if (scrollY !== anchorY) take(anchorNow()); }, { passive: true });
+  // A text box taking focus becomes the anchor at once, so a size change above it, outside a repaint, moves the page
+  // with it. Leaving it gives the anchor back to the topmost card on screen.
+  B.on(B.root, 'focusin', () => take(anchorNow()));
+  B.on(B.root, 'focusout', () => setTimeout(() => take(anchorNow())));
   // A tapped card's, lane's or Done fold's title anchors the change its tap makes, so opening a lane above the topmost
   // card leaves the title where it was tapped. A thread's folds hold their reply form instead (holdBelow).
   B.on(B.root, 'click', (ev) => {

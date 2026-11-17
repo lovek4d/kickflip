@@ -89,6 +89,24 @@ function scenario() {
     await drawn(() => laneOf('t31') === 'review');
     report('lane', id, before, { lane: laneOf('t31') });
 
+    // A text box in the card below the topmost one takes focus, then an image loads in the card between them: the box
+    // keeps its place, not the topmost card.
+    [id, before] = await scrollTo('t10');
+    const box = el('t12').querySelector('summary').appendChild(document.createElement('textarea'));
+    box.focus({ preventScroll: true });
+    // A page without the window's focus, as in headless Chrome, sends no focusin for it.
+    if (!document.hasFocus()) box.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await settle();
+    const boxBefore = box.getBoundingClientRect().top;
+    const img2 = new Image();
+    img2.src = '/tall.svg';
+    el('t11').querySelector('summary').append(img2);
+    await new Promise((r) => { img2.onload = r; });
+    await settle();
+    out.field = { grew: img2.getBoundingClientRect().height, before: boxBefore, after: box.getBoundingClientRect().top };
+    box.remove();
+    await settle();
+
     // With only one card on screen, that card moves to In Review: the page follows it.
     document.head.append(Object.assign(document.createElement('style'), { textContent: 'details.item { margin-bottom: 1200px; }' }));
     await settle();
@@ -146,5 +164,7 @@ for (const width of [390, 1280]) {
     held('lane', 't30');
     assert.deepEqual([got.follow.shown, got.follow.lane], [1, 'review'], 'one card on screen, moved to In Review');
     held('follow', 't35');
+    assert.equal(got.field.grew, 200, 'the image loaded at its height');
+    assert.ok(Math.abs(got.field.after - got.field.before) <= 1, `the focused box moved from ${got.field.before} to ${got.field.after}`);
   });
 }
