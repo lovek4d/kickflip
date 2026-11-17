@@ -6959,6 +6959,128 @@ test("a landing chip shows only its box's cards, unchecking every other box of t
   wide.view.unmount();
 });
 
+// docs/adr/2026-11-17-1944-the-pane-landing-shows-the-board-at-a-glance.md
+const minsAgo = (m) => new Date(NOW - m * 60_000).toISOString();
+const glanceBoard = () => {
+  // A Done card comes slim (domain.mjs slimDone): its sortAt is when it closed.
+  const landed = (id, m, extra = {}) => workCard(id, { lane: 'done', sortAt: minsAgo(m), phase: 'closed', commit: { sha: 'abc1234', url: null }, ...extra });
+  return { ...boardOf([
+    workCard('V1', { lane: 'review' }),
+    workCard('P1', { lane: 'progress', builder: { phase: 'building', at: minsAgo(30) } }),
+    workCard('P2', { lane: 'progress', builder: { phase: 'landing', at: minsAgo(60) } }),
+    workCard('P3', { lane: 'progress', stalled: 'tests fail', builder: { phase: 'building', at: minsAgo(10) } }),
+    workCard('P4', { lane: 'progress', blocked: true, blockedBy: [{ key: 'w/T1', ref: 'T1', lane: 'todo' }], builder: { phase: 'reading', at: minsAgo(5) } }),
+    workCard('T1', { phase: 'ready' }), workCard('T2', { phase: 'ready' }), workCard('T3', { phase: 'discussing' }),
+    workCard('T4', { phase: 'ready', blocked: true, blockedBy: [{ key: 'w/P1', ref: 'P1', lane: 'progress' }] }),
+    landed('D1', 14), landed('D2', 45, { phase: 'merged', commit: null, pr: { status: 'merged', number: 7 } }), landed('D3', 60), landed('D4', 90),
+    landed('D5', 13 * 60), workCard('D6', { lane: 'done', sortAt: minsAgo(5), phase: 'closed' }),
+  ]), title: 'Shop', version: 'v1' };
+};
+const TONES = ['danger', 'notice', 'info', 'success', 'merged', 'quiet'];
+const toneOf = (el) => TONES.find((t) => el?.classList.contains(t)) || '';
+const glanceOf = (root) => {
+  const pane = root.querySelector('#boardPane');
+  const row = (r) => [r.dataset.glanceOpen || r.dataset.glanceLane || '', toneOf(r.querySelector('.glance-mark')), r.querySelector('.glance-text')?.textContent ?? r.textContent, r.querySelector('.glance-end')?.textContent ?? ''];
+  return {
+    heads: pane.querySelectorAll('.glance h3').map((h) => h.textContent),
+    lanes: pane.querySelectorAll('.glance-lanes > .glance-row').map(row),
+    building: pane.querySelectorAll('.glance-building > *').map(row),
+    landed: pane.querySelectorAll('.glance-landed > *').map(row),
+  };
+};
+
+test("under the pane landing's chips the glance lists each lane with its count and its mark in board order, the cards In Progress red first then by when they started with their phase or block, and the last three landed today newest first, green landed and purple merged", async () => {
+  const wide = boardOnDom({ board: glanceBoard(), threads: {}, width: 1280 });
+  await wide.settle();
+  const g = glanceOf(wide.root);
+  assert.deepEqual(g.heads, ['Lanes', 'Building', 'Landed']);
+  assert.deepEqual(g.lanes, [
+    ['review', 'info', 'In Review1 to review', '1'],
+    ['progress', 'danger', 'In Progress1 building · 1 landing · 2 blocked', '4'],
+    ['todo', 'notice', 'Todo2 ready · 1 discussing · 1 blocked', '4'],
+    ['done', 'success', 'Done4 landed today', '6'],
+  ], "a lane's mark is the highest colour among its cards; Done counts the landed, not a card closed unlanded");
+  assert.deepEqual(g.building, [
+    ['w/P3', 'danger', 'P3Work P3', 'Stalled'],
+    ['w/P2', 'notice', 'P2Work P2', 'Landing'],
+    ['w/P1', 'notice', 'P1Work P1', 'Building'],
+    ['w/P4', 'notice', 'P4Work P4', 'Blocked by T1'],
+  ]);
+  assert.deepEqual(g.landed, [
+    ['w/D1', 'success', 'D1Work D1', 'landed 14m ago'],
+    ['w/D2', 'merged', 'D2Work D2', 'merged 45m ago'],
+    ['w/D3', 'success', 'D3Work D3', 'landed 1h ago'],
+  ], "three at most; yesterday's and one closed without landing aren't listed");
+  wide.view.unmount();
+});
+
+test("a glance lane line opens its lane if shut and scrolls the board to it, its count reading x of y as the lane header's does; a building or landed row selects its card; over six building rows cap with +N more, which scrolls to In Progress", async () => {
+  const board = glanceBoard();
+  for (let i = 5; i <= 8; i++) board.items.push(workCard(`P${i}`, { lane: 'progress', builder: { phase: 'building', at: minsAgo(i) } }));
+  const wide = boardOnDom({ board, threads: {}, width: 1280, stored: [['site:board-a:boardFilter', JSON.stringify(['ready'])]] });
+  await wide.settle();
+  const g = glanceOf(wide.root);
+  assert.equal(g.lanes.find((l) => l[0] === 'todo')[3], '2 of 4', "the filter hides two ready cards, as Todo's header says");
+  assert.equal(wide.root.querySelector('details.lane[data-lane="todo"] .count').textContent, '2 of 4');
+  assert.equal(g.building.length, 7);
+  assert.deepEqual(g.building[6], ['progress', '', '+2 more in In Progress', '']);
+  const scrolled = [];
+  wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.lane || this.dataset.key); };
+  const done = () => wide.root.querySelector('details.lane[data-lane="done"]');
+  assert.equal(done().open, false, 'Done starts shut');
+  wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('[data-glance-lane="done"] .glance-text') });
+  await wide.settle();
+  assert.deepEqual([done().open, scrolled.at(-1), JSON.parse(wide.page.win.localStorage.getItem('site:board-a:lanes')).done], [true, 'done', true]);
+  wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('#glance-more') });
+  await wide.settle();
+  assert.equal(scrolled.at(-1), 'progress');
+  wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('[data-glance-open="w/P1"]') });
+  await wide.settle();
+  assert.equal(wide.page.win.location.hash, '#selectedCard=w%2FP1');
+  wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('[data-glance-open="w/D2"] .glance-end') });
+  await wide.settle();
+  assert.equal(wide.page.win.location.hash, '#selectedCard=w%2FD2');
+  wide.view.unmount();
+});
+
+test("the glance repaints with the board's stream: a card that starts building joins Building with an orange wash, a land moves its row to the top of Landed with a green wash, and rows that stayed are the same elements", async () => {
+  const board = glanceBoard();
+  const wide = boardOnDom({ board, threads: {}, width: 1280 });
+  await wide.settle();
+  const pane = wide.root.querySelector('#boardPane');
+  assert.equal(pane.querySelectorAll('.glance .fresh').length, 0, 'the first paint washes nothing');
+  const p1 = pane.querySelector('[data-glance-open="w/P1"]');
+  const started = board.items.map((it) => (it.key === 'w/T1' ? { ...it, lane: 'progress', phase: 'reading', builder: { phase: 'reading', at: minsAgo(0) } } : it));
+  await wide.change({ board: { ...board, items: started, version: 'v2' } });
+  assert.ok(pane.querySelector('[data-glance-open="w/T1"]').classList.contains('fresh'));
+  assert.equal(pane.querySelector('[data-glance-open="w/P1"]'), p1, 'a row that stayed is the same element');
+  assert.equal(p1.classList.contains('fresh'), false);
+  const landed = started.map((it) => (it.key === 'w/P2' ? { ...it, lane: 'done', builder: null, sortAt: minsAgo(0), phase: 'closed', commit: { sha: 'def5678', url: null } } : it));
+  await wide.change({ board: { ...board, items: landed, version: 'v3' } });
+  const g = glanceOf(wide.root);
+  assert.deepEqual(g.landed.map((r) => r[0]), ['w/P2', 'w/D1', 'w/D2']);
+  const row = pane.querySelector('.glance-landed [data-glance-open="w/P2"]');
+  assert.deepEqual([row.classList.contains('fresh'), row.classList.contains('landed')], [true, true], 'the landed wash is green');
+  assert.equal(pane.querySelector('.glance-building [data-glance-open="w/P2"]'), null);
+  assert.equal(g.lanes.find((l) => l[0] === 'done')[2], 'Done5 landed today');
+  wide.view.unmount();
+});
+
+test("each glance block keeps its heading and one grey line when it has nothing: an empty lane reads 0 in grey with no breakdown, Nothing is building, Nothing landed today", async () => {
+  const wide = boardOnDom({ board: { ...boardOf([workCard('V1', { lane: 'review' }), workCard('D5', { lane: 'done', sortAt: minsAgo(13 * 60), phase: 'closed', commit: { sha: 'a', url: null } })]), version: 'v1' }, threads: {}, width: 1280 });
+  await wide.settle();
+  const g = glanceOf(wide.root);
+  assert.deepEqual(g.lanes, [
+    ['review', 'info', 'In Review1 to review', '1'],
+    ['progress', 'quiet', 'In Progress', '0'],
+    ['todo', 'quiet', 'Todo', '0'],
+    ['done', 'quiet', 'Done', '1'],
+  ]);
+  assert.ok(wide.root.querySelector('[data-glance-lane="todo"]').classList.contains('empty'));
+  assert.deepEqual([g.building.map((r) => r[2]), g.landed.map((r) => r[2])], [['Nothing is building'], ['Nothing landed today']]);
+  wide.view.unmount();
+});
+
 // docs/adr/2026-11-14-2359-one-owner-of-the-open-selection.md
 test("focusQuestion waits for the board, then opens a card's question or topic on the card under its questions sheet, selecting it in the fragment, and with no id shows only Questions", async () => {
   const base = questionsBoard([openQuestion('qa', 'item:w/A'), openQuestion('qb', 'item:w/B')], []);

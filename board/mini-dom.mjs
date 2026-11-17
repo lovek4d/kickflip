@@ -102,6 +102,7 @@ export function miniDom(Target, document) {
       return n;
     }
     appendChild(n) { return this.insertBefore(n, null); }
+    append(...nodes) { for (const n of nodes) this.appendChild(typeof n === 'string' ? new Text(n) : n); }
     removeChild(n) {
       if (document.activeElement && n.contains(document.activeElement)) document.activeElement = null;
       this.childNodes.splice(this.childNodes.indexOf(n), 1);

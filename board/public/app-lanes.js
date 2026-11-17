@@ -136,6 +136,12 @@ BoardView.part((B) => {
     B.render();
     $(`[data-review="${number}"]`)?.scrollIntoView({ block: 'start' });
   }
+  // Opens lane id if shut and scrolls the board to it, for the pane glance's lane lines.
+  function openLane(id) {
+    const s = store.get('lanes', {}); s[id] = true; store.set('lanes', s);
+    B.render();
+    $(`details.lane[data-lane="${id}"]`)?.scrollIntoView({ block: 'start' });
+  }
 
   // docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md
   // The board filter: the header's funnel, beside search, opens its menu of boxes (ui-cards.js FILTER_BOXES), all
@@ -181,22 +187,29 @@ BoardView.part((B) => {
   // (app-search.js linkedKeys), each lane keeps only the chain's cards, the search's words narrowing them further, and a
   // lane holding none of them hides, as Auto Review does, its PRs being no card's links. Done shows the chain's Done
   // cards the page holds, with no Show more past them.
+  // A lane's cards as the board shows them, narrowed by the filter, the search and a chain, and the count its header
+  // reads: x of y while narrowed. The pane's glance reads the same count (app-pane.js).
+  function laneCards(d, laneId, shown) {
+    const words = B.searchWords();
+    const chain = B.linkedKeys();
+    // Items arrive in each lane's fixed order (domain.mjs laneOrder).
+    const all = shown.filter((i) => !i.isNew && i.lane === laneId);
+    const done = laneId === 'done';
+    const cards = (done ? doneCards(d, all) : all).filter((it) => !hiddenByFilter(it) && (!chain || chain.has(it.key)) && (!words.length || BoardUI.cardMatches(it, words)));
+    const total = done ? doneCount(d, all) : all.length;
+    const narrowed = words.length > 0 || chain !== null;
+    return { cards, count: narrowed || (!done && cards.length < all.length) ? `${cards.length} of ${total}` : `${total}` };
+  }
   function lanesHtml(d, shown) {
     const laneState = store.get('lanes', {});
     const words = B.searchWords();
     const chain = B.linkedKeys();
     const narrowed = words.length > 0 || chain !== null;
-    const kept = (cards) => cards.filter((it) => (!chain || chain.has(it.key)) && (!words.length || BoardUI.cardMatches(it, words)));
-    shown = shown.filter((i) => !i.isNew);
     return (chain ? '' : reviewsHtml(d, words)) + LANES.map((lane) => {
-      // Items arrive in each lane's fixed order (domain.mjs laneOrder).
-      const all = shown.filter((i) => i.lane === lane.id);
       const done = lane.id === 'done';
-      const cards = kept((done ? doneCards(d, all) : all).filter((i) => !hiddenByFilter(i)));
+      const { cards, count } = laneCards(d, lane.id, shown);
       if (chain && !cards.length) return '';
-      const total = done ? doneCount(d, all) : all.length;
       const rows = done ? doneRows(d, cards) : lane.capped ? cappedRows(lane.id, cards) : cardsHtml(cards);
-      const count = narrowed || (!done && cards.length < all.length) ? `${cards.length} of ${total}` : total;
       const expanded = narrowed && cards.length ? true : laneState[lane.id] ?? lane.open;
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
         <summary><span class="lane-name">${lane.name}</span><span class="count">${count}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
@@ -250,5 +263,5 @@ BoardView.part((B) => {
     }
   });
 
-  Object.assign(B, { FOLDS, lanesHtml, openReview, hiddenOnBoard, resetFilterToShow, renderFilter, showOnly });
+  Object.assign(B, { LANES, FOLDS, lanesHtml, laneCards, openLane, openReview, hiddenOnBoard, resetFilterToShow, renderFilter, showOnly });
 });

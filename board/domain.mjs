@@ -2019,9 +2019,10 @@ export function triageOf(items) {
 // The board keeps its newest DONE_KEPT Done cards, and GET /api/done pages the archive in as many at a time.
 export const DONE_KEPT = 100;
 // The fields of a Done card the page draws: the Done lane's card and its open detail (ui-cards.js workLines,
-// app-cards.js), unread counts (othersAt), the Notes, Questions and Prototypes buttons, and ui-snapshot.js updateSign.
+// app-cards.js) with its landed commit, unread counts (othersAt), the Notes, Questions and Prototypes buttons,
+// ui-snapshot.js updateSign, and the pane glance's Landed rows (app-pane.js), which read commit and sortAt.
 // No page file reads `agents`, and the rest are set on a Done card only to be sent.
-export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fold','ticket', 'ticketSource', 'linear', 'pr', 'prs',
+export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fold','ticket', 'ticketSource', 'linear', 'pr', 'prs', 'commit',
   'review', 'reviewers', 'risk', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'blocks', 'blockers', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
