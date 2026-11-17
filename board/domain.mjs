@@ -1588,7 +1588,7 @@ export function buildBoard(snapshot) {
     it.workingSince = [...workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)), thinkingFrom.get(it.key)].filter(Boolean).sort()[0] || null;
     it.working = Boolean(it.workingSince);
     if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking') it.next = NO_NEXT;
-    // Todo sorts strictly by created, which the start-up backfill (store.mjs migrateCreated) sets: a Todo card without it has no sortAt.
+    // Todo sorts strictly by created, which the start-up backfill (migrations.mjs migrateCreated) sets: a Todo card without it has no sortAt.
     it.sortAt = SORT_AT[it.lane](it) || (it.lane === 'review' || it.lane === 'todo' ? null : it.updatedAt) || null;
   }
   for (const it of items) {

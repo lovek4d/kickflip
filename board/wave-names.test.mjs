@@ -7,7 +7,7 @@ import { tempDir } from '../shared/temp-dir.mjs';
 
 const home = fs.realpathSync(tempDir('wave-names-'));
 process.env.HOME = home;
-const { migrateWaveNames } = await import('./store.mjs');
+const { migrateWaveNames } = await import('./migrations.mjs');
 
 const sites = path.join(home, '.claude', 'kickflip', 'sites');
 const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');

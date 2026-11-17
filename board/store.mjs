@@ -1,6 +1,7 @@
 // The board's data files and the CLI's writes to them, uploads included, each validated first and made through
 // files.mjs, as every process's writes are. A site is a directory under ~/.claude/kickflip/sites; `site` null means a
-// board over ~/.claude/waves alone.
+// board over ~/.claude/waves alone. Slack's files and commands are in slack-store.mjs, and the data migrations in
+// migrations.mjs (docs/adr/2026-11-17-2300-slack-and-migrations-leave-store-mjs-for-their-own-modules.md).
 import fs from 'node:fs/promises';
 import { constants as fsConstants, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -17,7 +18,7 @@ import { reviseQueued, pushKindError } from '../hub/push.mjs';
 import { readClaudeModel, readLandTests, setLandTests, CLAUDE_MODEL_VALUES, settingsFile as hubSettingsFile } from '../shared/hub-settings.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { ticketSource, ticketBadge, resolveTicket, ticketNamed, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
+import { ticketSource, resolveTicket, ticketNamed, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
 import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
@@ -27,17 +28,17 @@ import { appendLine, boardConfig, editJSON, itemSources, readJSON, readLog, remo
 export { itemSources, readJSON, readLog } from './files.mjs';
 import { SCRIPT_LIMIT, runsAs, scriptLogName, scriptSha } from './scripts.mjs';
 import { HUB, MESSAGE_LIMIT, BRIEF_LINE_LIMIT, hubLineOf, hubText, detailOf, lineFault } from './hub-lines.mjs';
-import { fetchPR, prSize, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
-import { allLanded, cardPRs, hasPR, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
-import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
-import { readiness } from '../hub/readiness.mjs';
-import { SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
+import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
+import { allLanded, cardPRs, hasPR, parsePRRef, prNames, storedPRs } from '../shared/card-prs.mjs';
+import { reviewersOf } from './review.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { readPermissions } from './permissions.mjs';
 import { validBuildTarget } from './build-script.mjs';
 import { parseCheck, checkText } from '../shared/owner-check.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 import { shareEntries, validLogin } from '../hub/share.mjs';
+// A reply to a task filed from Slack is queued for its Slack thread (writeReply).
+import { queueSlackReply, slackSourced } from './slack-store.mjs';
 
 // brief, when a refusal has one, is its reason in a status line's room, for the line a refusal the board meets writes
 // (hub-lines.mjs build-refused); the message is whole.
@@ -59,7 +60,7 @@ export async function siteDir(route) {
 }
 
 export const threadFile = (site, key) => path.join(site, 'data', 'threads', key.replace(/[^\w.-]+/g, '__') + '.jsonl');
-const ownerFile = (site) => path.join(site, 'data', 'owner.json');
+export const ownerFile = (site) => path.join(site, 'data', 'owner.json');
 // data/staged-questions.json {<file>/<id>: [question]}: questions added to a card while a planner of it runs, held back from
 // owner.json until it finishes (docs/adr/2026-11-06-0100-a-grills-questions-appear-together-once-the-grill-is-done.md).
 const stagedFile = (site) => path.join(site, 'data', 'staged-questions.json');
@@ -68,8 +69,8 @@ const stagedFile = (site) => path.join(site, 'data', 'staged-questions.json');
 // (docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md).
 const screeningFile = (site) => path.join(site, 'data', 'screening.json');
 export const SCREEN_AFTER = 15 * 60 * 1000;
-const needSite = (site) => site || fail('this command needs --site <route>');
-const text = (v, name) => (typeof v === 'string' && v.trim() ? v.trim() : fail(`${name} must be non-empty text`));
+export const needSite = (site) => site || fail('this command needs --site <route>');
+export const text = (v, name) => (typeof v === 'string' && v.trim() ? v.trim() : fail(`${name} must be non-empty text`));
 const optional = (v, check) => (v === undefined ? undefined : check(v));
 // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a --title a card takes is a Conventional subject or an ask.
 const cardTitle = (v) => {
@@ -81,7 +82,7 @@ const PROTOTYPE_PAGE = /^prototype-[\w-]+\.html(?:[?#]\S*)?$/;
 const VISUAL_PAGE = /^visuals\/[\w-]+\/[\w-]+\.html$/;
 const pageUrl = (v, name) => (typeof v === 'string' && (PROTOTYPE_PAGE.test(v) || VISUAL_PAGE.test(v) || /^https?:\/\/\S+$/.test(v)) ? v : fail(`${name} must be an http(s) URL or a site page such as prototype-<topic>.html?q=<id>`));
 const bool = (v, name) => (typeof v === 'boolean' ? v : fail(`${name} must be true or false`));
-const domId = (v, name) => (typeof v === 'string' && /^[\w.-]+$/.test(v) ? v : fail(`${name} must use only letters, digits, "_", "." and "-"`));
+export const domId = (v, name) => (typeof v === 'string' && /^[\w.-]+$/.test(v) ? v : fail(`${name} must use only letters, digits, "_", "." and "-"`));
 const onlyKeys = (o, keys, name) => {
   if (!o || typeof o !== 'object' || Array.isArray(o)) fail(`${name} must be a JSON object`);
   const extra = Object.keys(o).filter((k) => !keys.includes(k));
@@ -583,7 +584,7 @@ export async function eventCard(site, eventId) {
 
 // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md
 // The card ask eventId became, {source, itemFile, item, key}, or null.
-async function askCardOf(site, eventId) {
+export async function askCardOf(site, eventId) {
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     const item = (Array.isArray(itemFile?.items) ? itemFile.items : []).find((i) => i.from_ask === eventId);
@@ -1199,7 +1200,7 @@ export async function finishHandshake(site) {
 
 // Board and item file reviewers share {name, slack_user, dm, github}.
 const REVIEWER_FIELDS = { name: /^[^\n]{1,40}$/, slack_user: /^U[A-Z0-9]+$/, dm: /^D[A-Z0-9]+$/, github: /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/ };
-const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+export const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 function checkReviewers(list, name) {
   if (!Array.isArray(list)) fail(`${name} must be a JSON array of reviewers`);
   list.forEach((r, i) => {
@@ -1228,485 +1229,6 @@ async function writeReviewers(site, change) {
 }
 
 export const setReviewers = (site, list) => writeReviewers(site, () => checkReviewers(list, 'the reviewer file'));
-
-// docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md,
-// docs/adr/2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md,
-// docs/adr/2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md
-// data/pr-slack.json {<owner/repo#n>: {links: {<reviewer>: {channel, thread_ts, ts, reactions: [emoji]}},
-// replies: [{id, text, to: {<reviewer>: {channel?, ts, reactions}}}]}}: each PR's Slack messages, apart from the cards
-// that hold it. Every reviewer of a PR has their own link message, in the owner's DM with them: a reply in that day's
-// thread when it has thread_ts, else posted top-level before the day threads. replies are the PR's other messages
-// already posted, which get the link's reactions: a one-PR digest reply, and the bumps sent before they stopped; one
-// never posted is never sent. A message carries ts once posted, and posting_at while its post is out or after its ts
-// couldn't be recorded; either way it is never posted again.
-const prSlackFile = (site) => path.join(needSite(site), 'data', 'pr-slack.json');
-export const readPRSlack = (site) => readJSON(prSlackFile(site), {});
-const held = (message) => Boolean(message?.ts || message?.posting_at);
-// Whether a reviewer is owed a PR's link: the hub last read it open and out of draft, and its link isn't held.
-const linkOwed = (gh, record, pr, name) => gh?.state === 'OPEN' && !gh.isDraft && !held(record[pr]?.links?.[name]);
-
-// Posts one Slack message at most once. find(file's object) → the message's record. It is marked posting, posted, then
-// given its ts. A post that throws is unmarked, to go again next poll; a ts that can't be recorded leaves it marked.
-async function postOnce(file, find, post) {
-  await editJSON(file, (all) => {
-    const message = find(all);
-    if (held(message)) fail('that Slack message has already gone out');
-    message.posting_at = new Date().toISOString();
-  });
-  let ts;
-  try { ts = await post(); } catch (e) {
-    await editJSON(file, (all) => { delete find(all).posting_at; });
-    throw e;
-  }
-  try {
-    await editJSON(file, (all) => { const message = find(all); message.ts = ts; delete message.posting_at; });
-  } catch (e) { fail(`posted, but its record failed, so it won't go again: ${e.message}`); }
-  return ts;
-}
-
-// due: one of review due's links; thread: the reviewer's day thread {channel, ts}; post() → ts.
-export const postLink = (site, due, thread, post) => postOnce(prSlackFile(site), (all) => {
-  const rec = all[due.pr] ||= { links: {}, replies: [] };
-  return Object.assign(rec.links[due.reviewer] ||= { reactions: [] }, { channel: thread.channel, thread_ts: thread.ts });
-}, post);
-// due: one of review due's reactions, once Slack has it. due.reply is the reply's index in the PR's replies, and absent
-// for the reviewer's link; a due whose message isn't there is a bug.
-export const recordReaction = (site, due) => editJSON(prSlackFile(site), (all) => {
-  const rec = all[due.pr];
-  const message = due.reply === undefined ? rec?.links[due.reviewer] : rec?.replies[due.reply]?.to[due.reviewer];
-  if (!message) fail(`no recorded Slack message for ${due.reviewer} on ${due.pr}${due.reply === undefined ? '' : ` reply ${due.reply}`}`);
-  message.reactions = [...new Set([...(message.reactions || []), due.emoji])];
-});
-
-// docs/adr/2026-11-14-0451-a-prs-slack-link-is-a-bar-coloured-by-the-builders-risk.md
-// docs/adr/2026-11-14-2300-every-pr-message-is-the-bar-with-no-mention.md
-// A PR's message in a day thread, the one PR message format every sender uses (the first-day link, each digest reply, a
-// session's `slack link`): no text, and one attachment whose colour bar is the card's risk (grey with none), headed by
-// the card's ticket id linking its issue (the attachment's small author line; none without a ticket), titled by the
-// PR's title linking the PR, then “+N/-M · K files · <risk> risk”, the size from GitHub and the risk word repeating the
-// colour, then from two days old its own line, “_(N days old)_”. The Slack client signs off the attachment's text, so
-// the sign-off stays the message's last line. ticket: ticketBadge's {id, url}; old: whole days since the PR's first
-// link to that reviewer, when over two. → {text, attachments}
-const RISKS = ['low', 'medium', 'high'];
-const RISK_COLOURS = { low: '#2eb67d', medium: '#e8912d', high: '#e01e5a' };
-const NO_RISK_COLOUR = '#9e9e9e';
-function prLink(pr, gh, item, { ticket, old } = {}) {
-  const [repo, number] = pr.split('#');
-  const title = gh.title || item.title;
-  const size = Number.isInteger(gh.additions) ? [`+${gh.additions}/-${gh.deletions}`, `${gh.files} file${gh.files === 1 ? '' : 's'}`] : [];
-  const line = [...size, item.risk && `${item.risk} risk`].filter(Boolean).join(' · ');
-  const age = old && `(${old} days old)`;
-  return {
-    text: '',
-    attachments: [{
-      color: RISK_COLOURS[item.risk] || NO_RISK_COLOUR, ...(ticket ? { author_name: ticket.id, author_link: ticket.url } : {}),
-      title, title_link: prURL({ repo, number }), text: [line, age && `_${age}_`].filter(Boolean).join('\n'),
-      fallback: [ticket?.id, `${repo.split('/').pop()}#${number} ${title}`, line, age].filter(Boolean).join(' · '),
-    }],
-  };
-}
-// A card's ticket for its PR's message, null without one.
-const ticketOfCard = (cfg, item, repo) => (cfg.tickets ? ticketBadge(storedTickets(cfg.tickets), item.ticket, { repo }) : null);
-// docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: a PR is approved on
-// GitHub's review decision, which counts a code owner's approval when the branch asks for one; on a branch that asks
-// for no review (no decision) any human approval does (hub/pr-report.mjs leaves a bot's out of `approved`). The digest,
-// review due's headers and the git_approved reaction all ask this one test.
-// A reviewer's digest holds a PR while GitHub still needs an approval for it (its decision is neither APPROVED nor empty,
-// as on a branch that asks for no review) and that reviewer, by their github login, has not approved it themselves; the
-// approval of a bot or another person takes it out of nobody else's digest.
-const waitsOn = (gh, github) => Boolean(gh.reviewDecision) && gh.reviewDecision !== 'APPROVED' && !(github && gh.reviews?.[github] === 'APPROVED');
-const approved = (gh) => (gh?.reviewDecision ? gh.reviewDecision === 'APPROVED' : Boolean(gh?.approved));
-
-// docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
-// `review due`: each Slack send still owed, from local state with no GitHub call; the hub sends them each poll.
-// date: the Slack day, whose thread a link goes in. links: a fresh link to each reviewer of a card's PR that the hub
-// last read open and out of draft, once per PR. reactions: git_approved once approved, then git_merged on merge
-// or x on a close, on each posted link and reply. digest: review digest's answer while one is due, else null. While
-// Slack isn't ready → waiting and nothing owed.
-export async function reviewDue(site, options) {
-  needSite(site);
-  const waiting = await readiness.waiting('slack');
-  if (waiting) return { waiting, links: [], reactions: [], headers: [], digest: null };
-  const cfg = await boardConfig(site);
-  const cache = await readJSON(githubStateFile(), {});
-  const record = await readPRSlack(site);
-  const links = [];
-  const reviewersByPR = new Map();
-  const githubOf = new Map();
-  for (const source of await itemSources(site)) {
-    const itemFile = await readJSON(source.file, {});
-    const people = reviewersOf(itemFile, cfg.reviewers);
-    for (const r of people) githubOf.set(r.name, r.github);
-    for (const item of itemFile.items || []) {
-      for (const p of cardPRs(item, boardRepoOf(site, itemFile))) {
-        const pr = prKeyOf(p);
-        if (!reviewersByPR.has(pr)) reviewersByPR.set(pr, new Set());
-        for (const r of people) reviewersByPR.get(pr).add(r.name);
-        if (item.lane === 'done') continue;
-        const gh = routeRecord(cache.prs, pr);
-        for (const r of people) {
-          if (!linkOwed(gh, record, pr, r.name) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;
-          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, ...prLink(pr, gh, item, { ticket: ticketOfCard(cfg, item, boardRepoOf(site, itemFile)) }) });
-        }
-      }
-    }
-  }
-  const reactions = [];
-  for (const [pr, rec] of Object.entries(record)) {
-    const gh = routeRecord(cache.prs, pr);
-    const react = (name, message, reply) => {
-      if (!message.ts || !reviewersByPR.get(pr)?.has(name)) return;
-      const wanted = [(approved(gh) || gh?.reviews?.[githubOf.get(name)] === 'APPROVED') && 'git_approved', gh?.state === 'MERGED' ? 'git_merged' : gh?.state === 'CLOSED' && 'x'].filter(Boolean);
-      for (const emoji of wanted) if (!message.reactions?.includes(emoji)) reactions.push({ pr, reviewer: name, ...(reply === undefined ? {} : { reply }), channel: message.channel || rec.links[name].channel, ts: message.ts, emoji });
-    };
-    for (const [name, link] of Object.entries(rec.links)) react(name, link);
-    rec.replies.forEach((reply, at) => { for (const [name, sent] of Object.entries(reply.to)) react(name, sent, at); });
-  }
-  // headers: each posted digest header whose count of PRs still pending that reviewer differs from the count it shows,
-  // with the header's text at the new count. A header an earlier build put in a reply carries that reply's lead and tail.
-  const headers = [];
-  for (const d of (await readJSON(digestFile(site), {})).digests || []) {
-    const ts = d.live && (d.live.reply === undefined ? d.ts : d.replies?.[d.live.reply]?.ts);
-    if (!ts) continue;
-    const n = d.live.prs.filter((pr) => { const gh = routeRecord(cache.prs, pr); return gh?.state === 'OPEN' && waitsOn(gh, githubOf.get(d.reviewer)); }).length;
-    if (n !== d.live.shown) headers.push({ date: d.date, reviewer: d.reviewer, channel: d.channel, ts, n, text: `${d.live.lead ?? ''}${digestHeader(cfg.title, n)}${d.live.tail ?? ''}` });
-  }
-  const digest = await reviewDigest(site, options);
-  return { date: slackDay(options?.now).date, links, reactions, headers, digest: digest.due ? digest : null };
-}
-// due: one of review due's headers, once Slack has its edit.
-export const recordHeader = (site, due) => editJSON(digestFile(site), (all) => { dayEntry(due.date, due.reviewer)(all).live.shown = due.n; });
-
-const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.json');
-
-// `review digest`: each reviewer's PRs the hub last read open, out of draft and not approved (failing checks included), one item per PR
-// with its digest reply's message, the PR's bar (prLink) with its age for a link over two days old.
-// data/review-digests.json {digests: [{date, reviewer, channel, ts, heard?, replies?: [{pr, text, attachments, ts}]}]} holds
-// each reviewer's thread for each day, posted as postOnce posts: ts is its opener, the digest's header or the header
-// line an earlier build posted, and replies are the digest's. heard is the newest message in the thread the hub has
-// read (docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md). The day's digest opens each reviewer's
-// day thread (docs/adr/2026-11-14-0449-one-digest-opens-each-day-thread.md): it is owed from quiet hours' end on a weekday
-// in the Slack timezone (hub/slack.mjs slackDay), however late the hub gets to it that day, and any day a link is owed to a reviewer whose thread is
-// not open yet (linked); until every message of it is posted.
-export async function reviewDigest(site, { now = new Date() } = {}) {
-  needSite(site);
-  const cfg = await boardConfig(site);
-  const cache = await readJSON(githubStateFile(), {});
-  const record = await readPRSlack(site);
-  const topics = topicItems();
-  const reviewers = new Map();
-  for (const source of await itemSources(site)) {
-    const itemFile = await readJSON(source.file, {});
-    const people = reviewersOf(itemFile, cfg.reviewers);
-    for (const r of people) if (!reviewers.has(r.name)) reviewers.set(r.name, { name: r.name, slack_user: r.slack_user, dm: r.dm, items: [] });
-    for (const item of itemFile.items || []) {
-      if (item.lane === 'done') continue;
-      const key = `${source.slug}/${item.id}`;
-      const legacy = reviewLinks(itemFile, item, key, topics);
-      for (const p of cardPRs(item, boardRepoOf(site, itemFile))) {
-        const pr = prKeyOf(p);
-        const gh = routeRecord(cache.prs, pr);
-        for (const r of people) if (linkOwed(gh, record, pr, r.name)) reviewers.get(r.name).linked = true;
-        if (gh?.state !== 'OPEN' || gh.isDraft) continue;
-        for (const r of people) {
-          if (!waitsOn(gh, r.github)) continue;
-          const ts = record[pr]?.links?.[r.name]?.ts || routeRecord(legacy, r.name)?.ts || null;
-          const age = ts ? (now.getTime() - Number(ts) * 1000) / 86400000 : null;
-          const old = age > 2 ? Math.floor(age) : null;
-          reviewers.get(r.name).items.push({ key, pr, title: item.title, url: prURL(p), sent_ts: ts, ...(old ? { days_old: old } : {}),
-            message: prLink(pr, gh, item, { ticket: ticketOfCard(cfg, item, boardRepoOf(site, itemFile)), old }) });
-        }
-      }
-    }
-  }
-  const { date, open } = slackDay(now);
-  const today = ((await readJSON(digestFile(site), {})).digests || []).filter((d) => d.date === date);
-  const waiting = await readiness.waiting('slack');
-  for (const sent of today) if (!reviewers.has(sent.reviewer)) reviewers.set(sent.reviewer, { name: sent.reviewer, items: [] });
-  const list = [...reviewers.values()].map((r) => {
-    const sent = today.find((d) => d.reviewer === r.name);
-    const owed = sent?.replies ? !sent.posting_at && (!sent.ts || sent.replies.some((reply) => !held(reply)))
-      : !sent?.posting_at && ((open && r.items.length > 0) || (!sent?.ts && Boolean(r.linked)));
-    return { ...r, owed, ...(sent ? { sent } : {}) };
-  }).filter((r) => r.items.length || r.sent || r.owed);
-  return { date, due: !waiting && list.some((r) => r.owed), ...(waiting ? { waiting } : {}), reviewers: list };
-}
-
-// The digest's top lines: “<board title> Digest”, then its count of PRs pending review.
-const digestHeader = (title, n) => `${title} Digest\n${n ? `${n} PR${n === 1 ? '' : 's'} pending review` : 'All reviewed'}`;
-
-const dayEntry = (date, name) => (all) => (all.digests || []).find((d) => d.date === date && d.reviewer === name);
-// The hub hears a day thread for HEARD_DAYS days, the day it opens included.
-const HEARD_DAYS = 7;
-const heardOn = (thread, date) => (Date.parse(date) - Date.parse(thread.date)) / 86400000 < HEARD_DAYS;
-// The reviewer's entry for date, added when there is none; the file keeps the entries of the days still heard.
-function addDayEntry(all, date, name, fields) {
-  if (dayEntry(date, name)(all)) return;
-  all.digests = [...(all.digests || []).filter((d) => heardOn(d, date)), { date, reviewer: name, ...fields }];
-  delete all.last_date;
-}
-
-// docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md
-// The day threads the hub still hears on now's Slack day: those opened in the last HEARD_DAYS days.
-// → [{date, reviewer, channel, ts, heard?}]
-export async function heardThreads(site, now = new Date()) {
-  const { date } = slackDay(now);
-  return ((await readJSON(digestFile(site), {})).digests || []).filter((d) => d.ts && heardOn(d, date));
-}
-// Records ts as the newest message the hub has read in thread.
-export const markHeard = (site, thread, ts) => editJSON(digestFile(site), (all) => { dayEntry(thread.date, thread.reviewer)(all).heard = ts; });
-// The ts of every message the board posted to Slack: links, their replies, day-thread openers and digest replies.
-export async function boardPosts(site) {
-  const out = new Set();
-  for (const rec of Object.values(await readPRSlack(site))) {
-    for (const link of Object.values(rec.links || {})) out.add(link.ts);
-    for (const reply of rec.replies || []) for (const sent of Object.values(reply.to)) out.add(sent.ts);
-  }
-  for (const d of (await readJSON(digestFile(site), {})).digests || []) for (const m of [d, ...(d.replies || [])]) out.add(m.ts);
-  const posted = await readJSON(slackThreadsFile(site), {});
-  for (const m of [...Object.values(posted.replies || {}), ...Object.values(posted.ends || {})]) out.add(m.ts);
-  out.delete(undefined);
-  return out;
-}
-// docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
-// data/slack-threads.json {threads: {"<channel>:<thread_ts>": ts}}: the newest reply the hub has read in each Slack
-// thread a task was filed from.
-const slackThreadsFile = (site) => path.join(site, 'data', 'slack-threads.json');
-const slackThreadId = (t) => `${t.channel}:${t.thread_ts}`;
-// The Slack threads this board's tasks follow: each ask routed from a Slack @kickflip whose card is not Done, as
-// {key, channel, thread_ts, ts, by, link, heard}: routed.slack, the @kickflip's sender and permalink, and heard, the
-// newest reply read, else the @kickflip's ts, since the replies up to it were its words.
-export async function followedSlackThreads(site) {
-  const asks = (await readLog(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'ask' && e.data?.routed?.via === 'slack' && e.data.routed.slack);
-  if (!asks.length) return [];
-  const heard = (await readJSON(slackThreadsFile(site), {})).threads || {};
-  const out = [];
-  for (const e of asks) {
-    const card = await askCardOf(site, e.id);
-    if (!card || card.item.lane === 'done') continue;
-    const { slack, by, link } = e.data.routed;
-    out.push({ key: card.key, ...slack, by, link, heard: heard[slackThreadId(slack)] || slack.ts });
-  }
-  return out;
-}
-// Records ts as the newest reply the hub has read in thread, one of followedSlackThreads.
-export const markSlackThreadHeard = (site, thread, ts) => editJSON(slackThreadsFile(site), (all) => { all.threads = { ...all.threads, [slackThreadId(thread)]: ts }; });
-// docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
-// Whether event came from Slack: an ask routed from a Slack @kickflip, or a Slack reply followSlackAsks copied onto its
-// task as a message. The orchestrator's reply to it posts into the task's Slack thread.
-const slackSourced = (event) => (event.kind === 'ask' && event.data?.routed?.via === 'slack' && Boolean(event.data.routed.slack))
-  || (event.kind === 'item-message' && Boolean(event.data?.slack));
-// slack-threads.json's replies {"<reply file name>": {key, ts?, failed?}}, in the order written: each reply to post, with
-// the ts Slack gave it once posted and failed once a post failed and the card's fault line was written; and ends
-// {"<channel>:<thread_ts>": {ts?, failed?}}: each thread seen while its task was open, so its end line posts once.
-const queueSlackReply = (site, key, name) => editJSON(slackThreadsFile(site), (all) => { all.replies = { ...all.replies, [name]: { key } }; });
-// What the hub posts to each Slack-filed task's thread: [{key, channel, thread_ts, replies: [{name, text, failed?}],
-// end: {text, failed?} | null}], its replies not yet posted, then, once the task is Done, its end line, "Closed: <title>"
-// or "Built and landed: <title>". Records each thread whose task is open, so a task Done before its thread was first read
-// posts no end line.
-export async function slackOutbox(site) {
-  const asks = (await readLog(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'ask' && e.data?.routed?.via === 'slack' && e.data.routed.slack);
-  if (!asks.length) return [];
-  const { replies = {}, ends = {} } = await readJSON(slackThreadsFile(site), {});
-  const out = [];
-  const opened = [];
-  for (const e of asks) {
-    const card = await askCardOf(site, e.id);
-    if (!card) continue;
-    const { channel, thread_ts } = e.data.routed.slack;
-    const id = slackThreadId({ channel, thread_ts });
-    const done = card.item.lane === 'done';
-    if (!done && !ends[id]) opened.push(id);
-    const owed = await Promise.all(Object.entries(replies).filter(([, r]) => r.key === card.key && !r.ts)
-      .map(async ([name, r]) => ({ name, text: await fs.readFile(path.join(site, 'data', 'replies', `${name}.md`), 'utf8'), ...(r.failed ? { failed: true } : {}) })));
-    const end = done && ends[id] && !ends[id].ts ? { text: `${card.item.phase === 'merged' ? 'Built and landed' : 'Closed'}: ${card.item.title}`, ...(ends[id].failed ? { failed: true } : {}) } : null;
-    if (owed.length || end) out.push({ key: card.key, channel, thread_ts, replies: owed, end });
-  }
-  if (opened.length) await editJSON(slackThreadsFile(site), (all) => { all.ends = { ...all.ends, ...Object.fromEntries(opened.map((id) => [id, {}])) }; });
-  return out;
-}
-// Records a post of slackOutbox's: thread's end line when reply is null, else reply, a reply's name; ts, the ts Slack
-// gave it, or failed, after its first failed post.
-export const markSlackPost = (site, thread, reply, { ts, failed }) => editJSON(slackThreadsFile(site), (all) => {
-  const [field, id] = reply ? ['replies', reply] : ['ends', slackThreadId(thread)];
-  all[field] = { ...all[field], [id]: { ...all[field]?.[id], ...(ts ? { ts } : { failed }) } };
-});
-// What the orchestrator posts in a day thread: its words, at most WORDS_LIMIT characters; the Slack client signs them off.
-const WORDS_LIMIT = 250;
-function orchestratorWords(words) {
-  const body = text(words, '--text');
-  if (body.length > WORDS_LIMIT) fail(`--text runs to ${body.length} characters, past the orchestrator's ${WORDS_LIMIT}: keep it brief`);
-  return body;
-}
-
-// A slack-question event's data: {reviewer, channel, thread_ts, ts, from: reviewer|owner, answer}.
-async function slackQuestion(site, eventId) {
-  domId(eventId, 'the event id');
-  const e = (await readLog(path.join(needSite(site), 'data', 'events.jsonl'))).find((x) => x.id === eventId && x.kind === 'slack-question');
-  return e?.data || fail(`no slack-question "${eventId}" in this site's data/events.jsonl`);
-}
-// docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: a slack-handled {id, by}
-// event, record-only, ends the orchestrator's wait on slack-question id (domain.mjs eventWaits); by is the command.
-const slackHandled = (site, id, by) => appendEvent(boardTarget(site), 'slack-handled', { id, by });
-const throughSlack = (slack) => slack || fail(SLACK_NEEDS_TOKEN);
-const slackCall = (call) => call.catch((e) => (e instanceof SlackError ? fail(e.message) : Promise.reject(e)));
-
-// `slack thread`: the event's day thread, read from Slack, one message a line and continued lines indented, then each
-// attachment's fallback, such as a PR link's bar, indented too; each named board (the board's posts and answers), you
-// (the owner) or the reviewer; → marks the event's message.
-export async function slackThread(site, eventId, slack = savedSlack()) {
-  const q = await slackQuestion(site, eventId);
-  const ours = await boardPosts(site);
-  const owner = slackUserId();
-  const messages = await slackCall(throughSlack(slack).replies({ channel: q.channel, ts: q.thread_ts }));
-  const lines = messages.flatMap((m) => {
-    const who = ours.has(m.ts) || (m.user === owner && isSignedOff(m.text, m.attachments)) ? 'board' : m.user === owner ? 'you' : q.reviewer;
-    const [first = '', ...rest] = [...(m.text ? m.text.split('\n') : []), ...(m.attachments || []).map((a) => a.fallback)];
-    return [`${m.ts === q.ts ? '→ ' : ''}${who}: ${first}`, ...rest.map((l) => `    ${l}`)];
-  });
-  // A message that expects no reply is acted on once read.
-  if (!q.answer) await slackHandled(site, eventId, 'thread');
-  return { lines };
-}
-
-// `slack skip`: a slack-question that needs no answer, such as a thanks, recorded handled with nothing posted.
-export async function slackSkip(site, eventId) {
-  const q = await slackQuestion(site, eventId);
-  await slackHandled(site, eventId, 'skip');
-  return { lines: [`no reply to ${q.reviewer}'s day thread`] };
-}
-
-// `slack answer`: the answer, signed off, posted as a reply in the event's day thread. Refuses an owner's message that
-// names no @kickflip, which expects no reply, and words past WORDS_LIMIT.
-export async function slackAnswer(site, eventId, words, slack = savedSlack()) {
-  const q = await slackQuestion(site, eventId);
-  if (!q.answer) fail("that message is the owner's and names no @kickflip, so it expects no reply");
-  const message = orchestratorWords(words);
-  await slackCall(throughSlack(slack).post({ channel: q.channel, thread_ts: q.thread_ts, text: message }));
-  await slackHandled(site, eventId, 'answer');
-  return { lines: [`answered in ${q.reviewer}'s day thread`] };
-}
-
-// `slack say`: the words, signed off, posted in the reviewer's day thread for now's Slack day, opened with the day's
-// digest when none is open, as the hub opens one. The owner's explicit ask is its only use
-// (SKILL.md); a message in a thread is answered with slack answer. Refuses words past WORDS_LIMIT.
-export async function slackSay(site, name, words, { now = new Date() } = {}, slack = savedSlack()) {
-  needSite(site);
-  const message = orchestratorWords(words);
-  const reviewer = await reviewerNamed(site, name);
-  const client = throughSlack(slack);
-  const thread = await openDayThread(site, client, reviewer, now);
-  await slackCall(client.post({ channel: thread.channel, thread_ts: thread.ts, text: message }));
-  return { lines: [`said in ${reviewer.name}'s day thread`] };
-}
-
-// The board's reviewer called name or whose Slack user is name, a leading @ ignored.
-async function reviewerNamed(site, name) {
-  const cfg = await boardConfig(site);
-  const reviewers = new Map();
-  for (const source of await itemSources(site)) for (const r of reviewersOf(await readJSON(source.file, {}), cfg.reviewers)) reviewers.set(r.name, r);
-  const wanted = String(name).replace(/^@/, '');
-  return [...reviewers.values()].find((r) => sameName(r.name, wanted) || r.slack_user === wanted)
-    || fail(`no reviewer "${name}" on this board; its reviewers are ${[...reviewers.keys()].join(', ') || 'none'}`);
-}
-
-// The reviewer's day thread for now's Slack day, opened with the day's digest when none is open, as the hub opens one.
-// → {channel, ts}
-async function openDayThread(site, client, reviewer, now) {
-  const { date } = slackDay(now);
-  const open = dayEntry(date, reviewer.name)(await readJSON(digestFile(site), {}));
-  return open?.ts ? open : slackCall(postDigest(site, date, (await reviewDigest(site, { now })).reviewers.find((r) => r.name === reviewer.name) || { ...reviewer, items: [] }, {
-    channel: open?.channel || await slackCall(client.openDM(reviewer.slack_user)),
-    post: (m) => client.post(m),
-  }));
-}
-
-// `slack link`: a PR's link, the one PR message format (prLink), sent through the hub's Slack in the reviewer's day
-// thread as review due sends the board's own, and recorded so the PR's reactions follow it and the board sends no
-// second. pr: owner/repo#n, a PR URL or a number in the board's repo. The size is from GitHub (readPR), the risk from
-// the card holding the PR, none without one.
-export async function slackLink(site, pr, to, { now = new Date(), readPR = prSize } = {}, slack = savedSlack()) {
-  needSite(site);
-  const ref = parsePRRef(String(pr).replace(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)\/?$/, '$1#$2')) || fail(`"${pr}" is no PR: give owner/repo#n, a PR URL or a number in the board's repo`);
-  const repo = ref.repo || boardRepoOf(site, {}) || fail(`"${pr}" names no repo and this board has none: give owner/repo#n`);
-  const key = prKeyOf({ repo, number: ref.number });
-  const reviewer = await reviewerNamed(site, to);
-  const client = throughSlack(slack);
-  const cfg = await boardConfig(site);
-  let card = {};
-  let ticket = null;
-  for (const source of await itemSources(site)) {
-    const itemFile = await readJSON(source.file, {});
-    const found = (itemFile.items || []).find((i) => cardPRs(i, boardRepoOf(site, itemFile)).some((p) => prKeyOf(p) === key));
-    if (found) { card = found; ticket = ticketOfCard(cfg, found, boardRepoOf(site, itemFile)); }
-  }
-  let size;
-  try { size = await readPR({ repo, pr: ref.number, login: settingsOf(cfg).github_login }); } catch (e) { fail(e.message); }
-  const message = prLink(key, size, card, { ticket });
-  const thread = await openDayThread(site, client, reviewer, now);
-  await slackCall(postLink(site, { pr: key, reviewer: reviewer.name }, thread, () => client.post({ channel: thread.channel, thread_ts: thread.ts, ...message })));
-  return { lines: [`sent ${key} to ${reviewer.name}'s day thread`] };
-}
-
-// `slack task`: a request for work in a day thread, filed as a new card in item file `file`, discussing, for the owner
-// to review (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md); never ready, so never a Quick build. The Slack
-// message, read whole, is the card's first thread line, under its writer's name and linking to it when the Slack
-// identity has the workspace's domain.
-export async function slackTask(site, eventId, file, { title, notes, notesFrom }, slack = savedSlack()) {
-  const q = await slackQuestion(site, eventId);
-  const messages = await slackCall(throughSlack(slack).replies({ channel: q.channel, ts: q.thread_ts }));
-  const message = messages.find((m) => m.ts === q.ts) || fail('that Slack message is gone from its thread');
-  const filed = await addItem(site, file, { title, notes, notesFrom, phase: 'discussing', intake: true });
-  const domain = readSlack().slack_domain;
-  const link = domain ? `https://${domain}.slack.com/archives/${q.channel}/p${q.ts.replace('.', '')}?thread_ts=${q.thread_ts}&cid=${q.channel}` : undefined;
-  await appendMessage(site, filed.key, { text: message.text, who: q.from === 'owner' ? 'love' : q.reviewer, via: 'slack', link });
-  await slackHandled(site, eventId, 'task');
-  return { ...filed, lines: [`filed ${filed.key} discussing, for the owner's review`] };
-}
-
-// The reviewer's day thread for date, {channel, ts}, or null until its opener is posted.
-export async function dayThread(site, date, name) {
-  const opened = dayEntry(date, name)(await readJSON(digestFile(site), {}));
-  return opened?.ts ? { channel: opened.channel, ts: opened.ts } : null;
-}
-
-// Posts a reviewer's owed digest for date, one of review digest's reviewers. Opening the day's thread, it is the
-// header, then one reply per PR, each the PR's bar (prLink) and nothing mentions the reviewer; a thread an earlier
-// build opened gets the replies alone. A digest already begun keeps the PRs it began with. The entry's live holds the
-// header's PRs and the count it shows, which review due finds to edit. post({channel, text, thread_ts?}) → ts.
-// → the day thread, {channel, ts}
-export async function postDigest(site, date, reviewer, { channel, post }) {
-  const file = digestFile(site);
-  const entry = dayEntry(date, reviewer.name);
-  const { title } = await boardConfig(site);
-  const header = (n) => digestHeader(title, n);
-  await editJSON(file, (all) => {
-    addDayEntry(all, date, reviewer.name, { channel });
-    const opened = entry(all);
-    if (opened.replies) return;
-    const prs = reviewer.items.map((i) => i.pr);
-    opened.replies = reviewer.items.map((i) => ({ pr: i.pr, ...i.message }));
-    // A thread an earlier build opened has a header line that isn't the digest's, so it has no count to edit.
-    if (!opened.ts) opened.live = { prs, shown: prs.length };
-  });
-  const sent = entry(await readJSON(file, {}));
-  const top = sent.ts || await postOnce(file, entry, () => post({ channel: sent.channel, text: header(sent.live.prs.length) }));
-  for (const [i, reply] of sent.replies.entries()) {
-    if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text, attachments: reply.attachments }));
-  }
-  // A one-PR reply is a message about that PR, so it joins the PR's posted replies and gets its reactions (the digest
-  // file keeps only the days still heard); a reply naming several PRs gets none.
-  const posted = entry(await readJSON(file, {})).replies.filter((r) => r.pr && r.ts);
-  if (posted.length) await editJSON(prSlackFile(site), (all) => {
-    const id = `digest-${date}`;
-    for (const reply of posted) {
-      const rec = all[reply.pr] ||= { links: {}, replies: [] };
-      const bump = rec.replies.find((r) => r.id === id) || rec.replies[rec.replies.push({ id, text: reply.text, to: {} }) - 1];
-      bump.to[reviewer.name] ||= { channel: sent.channel, ts: reply.ts, reactions: [] };
-    }
-  });
-  return { channel: sent.channel, ts: top };
-}
 
 // One reviewer or an array; each replaces the board's reviewer of the same name, ignoring case, or is added.
 export function addReviewers(site, input) {
@@ -1770,7 +1292,7 @@ export function saveBoardShare(site, change) {
 }
 
 const validGithubLogin = (value) => typeof value === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value);
-const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
+export const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
 // A board's settings in board.json (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
 // auto_build, auto_review and idle_notification, off when absent, max_implementers, a
 // whole number from 1 to 99 and MAX_IMPLEMENTERS when absent
@@ -3108,7 +2630,7 @@ export async function handedOver(site, answers) {
   const waiting = asked.find((q) => q.state === 'requested' && answers.some((a) => String(a.id) === q.id));
   return waiting ? `${waiting.id} waits on the ${waiting.request.kind === 'grill-more' ? 'grill' : 'prototype'} the owner asked for; its next round resolves it.` : null;
 }
-async function topicQuestionsAll(site) {
+export async function topicQuestionsAll(site) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const { answers, requests } = await ownerEvents(site);
   return { owner, asked: (owner.items || []).map((q) => ownerQuestion(q, answers, requests)) };
@@ -3286,7 +2808,7 @@ export async function moveCard(site, key, to, why, phase, snapshot) {
 // for the cards waiting on it.
 const closed = (item) => item?.lane === 'done' || Boolean(item?.reopened_at);
 // Whether the card has left Todo: it is stored in another lane.
-const leftTodo = (item) => Boolean(item?.lane) && item.lane !== 'todo';
+export const leftTodo = (item) => Boolean(item?.lane) && item.lane !== 'todo';
 export const isFinished = async (site, key) => closed((await loadItem(site, key)).item);
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-07-0700-staging-then-ready.md,
 // docs/adr/2026-11-11-1200-every-lane-has-phases.md, docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: a Todo
@@ -3315,7 +2837,7 @@ function addPRs(item, refs, repo) {
   delete item.pr;
   item.prs = list;
 }
-const depKey =(slug, dep) => (String(dep).includes('/') ? String(dep) : `${slug}/${dep}`);
+export const depKey =(slug, dep) => (String(dep).includes('/') ? String(dep) : `${slug}/${dep}`);
 // A dep is a card, by key or by bare id in item file slug. → the keys of the cards deps waits on
 const depCards = (slug, deps) => [...new Set((deps || []).map((d) => depKey(slug, d)))];
 async function unfinishedDeps(site, slug, item) {
@@ -3531,6 +3053,7 @@ function markMerged(item, merged, repo) {
   delete item.pr;
 }
 
+const RISKS = ['low', 'medium', 'high'];
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // → the item file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing (done) adds a
 // `resolved: <id>` line per question it resolved (closeQuestions), and moves the card to Done. merged, a merge's close,
@@ -3544,7 +3067,7 @@ function markMerged(item, merged, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
-// change, low, medium or high, which builder done records and the PR's Slack link shows (prLink). replyOn (--reply-on)
+// change, low, medium or high, which builder done records and the PR's Slack link shows (slack-store.mjs prLink). replyOn (--reply-on)
 // is the orchestrator's reply on a card this call links or unlinks while its owner waits on that reply (replyFirst).
 async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, landedFiles, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
@@ -4375,7 +3898,7 @@ async function nextTaskId(site) {
   return `T-${Math.max(0, ...dropped, ...ids.map((id) => Number(/^T-([1-9]\d*)$/.exec(String(id))?.[1] || 0))) + 1}`;
 }
 
-const ticketWrite = (site, fn) => withFileLock(path.join(site || wavesDir(), 'tickets'), fn, { heartbeat: true });
+export const ticketWrite = (site, fn) => withFileLock(path.join(site || wavesDir(), 'tickets'), fn, { heartbeat: true });
 export const setItem = (site, key, changes, options) => (changes.ticket !== undefined || changes.newTicket || changes.phase === 'ready'
   ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
@@ -4494,222 +4017,6 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   return { file: source.file, key: added, lines: [] };
 }
 
-// docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
-// Moves each item file's follow-ups, a list kept beside its items until then, into its items, once: each keeps its id,
-// title, ticket and notes, its date as when it was made, and its Filed from as its Parent; a done one is in Done,
-// closed at its thread's last line. An item file whose follow-up has a card's id is left as it is, and named in the refusal.
-// Run by the board server as it starts. → one line per item file moved.
-export const migrateFollowups = (site) => ticketWrite(site, async () => {
-  const lines = [];
-  for (const entry of await itemSources(site)) {
-    const itemFile = await readJSON(entry.file, null);
-    if (!Array.isArray(itemFile?.items) || !Array.isArray(itemFile.followups)) continue;
-    const clash = itemFile.followups.find((f) => itemFile.items.some((it) => it.id === f.id));
-    if (clash) fail(`${entry.slug}: follow-up ${clash.id} has the id of a task; rename one, then restart the board`);
-    const moved = [];
-    for (const { id, title, from, filed, done, ...rest } of itemFile.followups) {
-      const closedAt = done ? (site && (await readLog(threadFile(site, `${entry.slug}/${id}`))).map((l) => l.ts).filter(Boolean).sort().pop()) || filed : null;
-      moved.push({ id, title, ...(filed ? { created: filed } : {}), ...(from ? { parent: depKey(entry.slug, from) } : {}),
-        ...(done ? { lane: 'done', ...(closedAt ? { lane_at: closedAt, closed_at: closedAt } : {}) } : {}), ...rest });
-    }
-    const { followups, ...kept } = itemFile;
-    await writeJSON(entry.file, { ...kept, items: [...itemFile.items, ...moved] });
-    lines.push(`${entry.slug}: ${moved.length} follow-ups moved to tasks (${moved.filter((m) => m.lane === 'done').length} done)`);
-  }
-  return lines;
-});
-
-// docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
-// A card's status becomes the facts that replace it: merged, done and dropped put it in Done, closed at the status's
-// time, merged also marking each of its PRs merged then; held becomes its held flag; checking marks its newest build
-// record handed back. Every other status goes, and the board's first build places the card. → whether it changed.
-function statusToFacts(item, records = []) {
-  if (item.status === undefined && item.status_at === undefined && item.merged_at === undefined) return false;
-  const at = item.merged_at || item.status_at || new Date().toISOString();
-  if (['merged', 'done', 'dropped'].includes(item.status)) Object.assign(item, { lane: 'done', lane_at: at, closed_at: at });
-  if (item.status === 'merged' || item.merged_at) { item.prs = storedPRs(item).map((p) => ({ ...p, merged_at: p.merged_at || at })); delete item.pr; }
-  if (item.status === 'held') item.held = true;
-  const newest = records.filter((r) => r.started && builds(r) && r.kind !== HELPER).sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1);
-  if (item.status === 'checking' && newest) newest.handed_back = at;
-  delete item.status; delete item.status_at; delete item.merged_at;
-  return true;
-}
-
-// statusToFacts over every card of a site's item files and its archive. Run by the board server as it starts. → one
-// line per file changed.
-export const migrateStatuses = (site, archived = () => readArchive(site)) => ticketWrite(site, async () => {
-  const lines = [];
-  for (const entry of await itemSources(site)) {
-    const itemFile = await readJSON(entry.file, null);
-    let changed = 0;
-    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
-      const files = it.status === 'checking' ? await builderFiles(entry.dir, it.id) : [];
-      const records = await Promise.all(files.map((f) => readJSON(f, null)));
-      if (!statusToFacts(it, records.filter(Boolean))) continue;
-      changed++;
-      for (const [i, r] of records.entries()) if (r?.handed_back) await writeJSON(files[i], r);
-    }
-    if (!changed) continue;
-    await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${changed} tasks' statuses became lanes and facts`);
-  }
-  await archiveWrite(site, async () => {
-    const cards = await archived();
-    const changed = cards.filter((c) => c.item && statusToFacts(c.item)).length;
-    if (!changed) return;
-    await writeArchive(site, cards);
-    lines.push(`archive: ${changed} tasks' statuses became lanes and facts`);
-  });
-  return lines;
-});
-
-// docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md
-// Each card not in Done with no gates takes gates.prototype from its prototype_gate questions the owner answered yes
-// or no, the newest answer deciding; a yes reads ran once its card is past grilling or its thread has the
-// prototype-round line after it. A next_gate answer is always kept as it is given (keepGate), so it needs no backfill.
-// Run by the board server as it starts. → one line per item file changed.
-export const migrateGates = (site) => ticketWrite(site, async () => {
-  const { asked } = await topicQuestionsAll(site);
-  const lines = [];
-  for (const entry of await itemSources(site)) {
-    const itemFile = await readJSON(entry.file, null);
-    let changed = 0;
-    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
-      if (it.gates || it.lane === 'done') continue;
-      const key = `${entry.slug}/${it.id}`;
-      const last = asked.filter((q) => q.topic === `item:${key}` && q.prototype_gate).flatMap((q) => q.answers).filter((a) => ['yes', 'no'].includes(a.choice))
-        .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
-      if (!last) continue;
-      const ran = last.choice === 'yes' && (it.phase !== 'grilling'
-        || (await readLog(threadFile(site, key))).some((l) => l.line === 'prototype-round' && String(l.ts) > String(last.ts)));
-      it.gates = { prototype: ran ? 'ran' : last.choice };
-      changed++;
-    }
-    if (!changed) continue;
-    await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${changed} tasks keep their gate answers`);
-  }
-  return lines;
-});
-
-// docs/adr/2026-11-16-1400-todo-sorts-strictly-by-created.md
-// Each live card with no created time takes the time of the first line of its thread. Todo sorts strictly by created, so
-// this runs as the board server starts, once. A card with no thread keeps none and lists last in Todo.
-// → one line per item file changed.
-export const migrateCreated = (site) => ticketWrite(site, async () => {
-  const lines = [];
-  for (const entry of await itemSources(site)) {
-    const itemFile = await readJSON(entry.file, null);
-    let changed = 0;
-    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
-      if (it.created) continue;
-      const first = (await readLog(threadFile(site, `${entry.slug}/${it.id}`)))[0];
-      if (!first?.ts) continue;
-      it.created = first.ts;
-      changed++;
-    }
-    if (!changed) continue;
-    await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${changed} tasks took their first event as created`);
-  }
-  return lines;
-});
-
-// docs/adr/2026-11-11-1200-every-lane-has-phases.md
-// A card's Todo `state` becomes its `phase`, and a Done card with none takes how it closed: merged when one of its PRs
-// merged, or with no PRs when a build ran on it, which landed it; closed otherwise. → whether it changed.
-function stateToPhase(item, built) {
-  const doneWithout = item.lane === 'done' && !PHASES.done.includes(item.phase);
-  if (!('state' in item) && !doneWithout) return false;
-  if ('state' in item && item.state !== undefined) item.phase = item.state;
-  delete item.state;
-  if (doneWithout) {
-    const prs = storedPRs(item);
-    item.phase = prs.some((p) => p.merged_at) || (!prs.length && built) ? 'merged' : 'closed';
-  }
-  return true;
-}
-// stateToPhase over every card of a site's item files and its archive, before the board server's other start-up
-// passes. → one line per file changed.
-export const migratePhases = (site, archived = () => readArchive(site)) => ticketWrite(site, async () => {
-  const lines = [];
-  const sources = await itemSources(site);
-  // Read only for a Done card with no phase yet, the one stateToPhase asks it of.
-  const built = async (dir, it) => Boolean(dir) && it.lane === 'done' && !PHASES.done.includes(it.phase) && (await Promise.all((await builderFiles(dir, it.id)).map((f) => readJSON(f, null)))).some((r) => r?.started && builds(r));
-  for (const entry of sources) {
-    const itemFile = await readJSON(entry.file, null);
-    let changed = 0;
-    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) if (stateToPhase(it, await built(entry.dir, it))) changed++;
-    if (!changed) continue;
-    await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${changed} tasks' states became phases`);
-  }
-  await archiveWrite(site, async () => {
-    const cards = await archived();
-    let changed = 0;
-    for (const c of cards) if (c.item && stateToPhase(c.item, await built(sources.find((e) => e.slug === (c.file || parseKey(c.key).file))?.dir, c.item))) changed++;
-    if (!changed) return;
-    await writeArchive(site, cards);
-    lines.push(`archive: ${changed} tasks' states became phases`);
-  });
-  return lines;
-});
-
-// docs/adr/2026-11-17-0400-a-card-outside-in-progress-never-keeps-a-build-step-phase.md
-// A card stored outside In Progress that still holds a build step as its phase (reading, building, checking, landing) loses
-// it, and a Done card then reads how it closed. Run by the board server as it starts. → one line per item file changed.
-export const clearBuildPhases = (site) => ticketWrite(site, async () => {
-  const lines = [];
-  for (const entry of await itemSources(site)) {
-    const itemFile = await readJSON(entry.file, null);
-    const stale = (Array.isArray(itemFile?.items) ? itemFile.items : []).filter((it) => it.lane && it.lane !== 'progress' && PHASES.progress.includes(it.phase));
-    if (!stale.length) continue;
-    for (const it of stale) delete it.phase;
-    await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${stale.length} tasks outside In Progress lost a build step phase`);
-  }
-  return lines;
-});
-
-// docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md
-// A Todo card with no phase that no ask made, which the arrival grill used to take, becomes discussing, once, silently. Run by the board server as it starts. → one line per item file changed.
-export const discussNewCards = (site) => ticketWrite(site, async () => {
-  const lines = [];
-  for (const entry of await itemSources(site)) {
-    const itemFile = await readJSON(entry.file, null);
-    const fresh = (Array.isArray(itemFile?.items) ? itemFile.items : []).filter((it) => !it.phase && !it.from_ask && !it.unfiled && !it.answered_at
-      && !leftTodo(it) && !hasPR(it));
-    if (!fresh.length) continue;
-    for (const it of fresh) {
-      it.phase = 'discussing';
-      delete it.filed_held;
-    }
-    await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${fresh.length} new tasks moved to discussing`);
-  }
-  return lines;
-});
-
-// docs/adr/2026-11-07-0700-staging-then-ready.md
-// An Implement message's wait from before staging, implement_at, becomes staging, keeping its time as staged_at; a card
-// already ready, which the old release would have started, stays ready. Run by the board server as it starts. → one
-// line per item file changed.
-export const stageImplementAsks = (site) => ticketWrite(site, async () => {
-  const lines = [];
-  for (const entry of await itemSources(site)) {
-    const itemFile = await readJSON(entry.file, null);
-    const asked = (Array.isArray(itemFile?.items) ? itemFile.items : []).filter((it) => it.implement_at);
-    if (!asked.length) continue;
-    for (const it of asked) {
-      if (it.phase !== 'ready') Object.assign(it, { phase: 'staging', staged_at: it.implement_at });
-      delete it.implement_at;
-    }
-    await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${asked.length} Implement asks moved to staging or ready`);
-  }
-  return lines;
-});
-
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
 // data/done-archive.json {cards: [{key, file, archived_at, closed_at, item, questions, asks}]}, newest closed first:
 // the Done cards that left the board, each with when it closed (its Done card's sortAt), its item file entry and its
@@ -4719,7 +4026,7 @@ export const stageImplementAsks = (site) => ticketWrite(site, async () => {
 // are the asks the card was made from that its move linked to it in data/ask-links.json, so the board still reads them
 // as gone into that card.
 export const archiveFile = (site) => path.join(site, 'data', 'done-archive.json');
-const archiveWrite = (site, fn) => withFileLock(path.join(site, 'done-archive'), fn, { heartbeat: true });
+export const archiveWrite = (site, fn) => withFileLock(path.join(site, 'done-archive'), fn, { heartbeat: true });
 export const readArchive = async (site) => (await readJSON(archiveFile(site), { cards: [] })).cards || [];
 // One read of the archive for the start-up passes that take a `cards` reader: the board server hands the same one to each, so
 // the file is read once as it starts. The passes that write the archive write the cards they were given, so the held
@@ -4748,7 +4055,7 @@ export async function archiveCount(site) {
   await replace(archiveCountFile(site), JSON.stringify({ count }, null, 2) + '\n', { told: false });
   return count;
 }
-async function writeArchive(site, cards) {
+export async function writeArchive(site, cards) {
   if (cards.length) await writeJSON(archiveFile(site), { cards: cards.sort(byClosed) });
   else await remove(archiveFile(site));
   await writeJSON(archiveCountFile(site), { count: cards.length });
@@ -4825,134 +4132,6 @@ async function restoreArchived(site, key) {
     await writeArchive(site, archive.filter((a) => a !== entry));
     return true;
   });
-}
-
-// docs/adr/2026-11-04-1056-archived-done-cards-are-built-as-they-page-in.md
-// Drops what nothing reads, once: an archive entry's page card, keeping its sortAt as closed_at; an item file entry's summary and an item file's internal flag;
-// and a question's push_tag and no_change, in owner.json and in the archive. It also renames a question's
-// suggested.card to suggested.task. Writes only a file that held one. Run by the board server as it starts.
-const DEAD_QUESTION_FIELDS = ['push_tag', 'no_change'];
-const renameSuggestedCard = ({ card, ...rest }) => ({ ...rest, task: card });
-const stripQuestion = ({ suggested, ...q }) => ({
-  ...Object.fromEntries(Object.entries(q).filter(([k]) => !DEAD_QUESTION_FIELDS.includes(k))),
-  ...(suggested ? { suggested: 'card' in suggested ? renameSuggestedCard(suggested) : suggested } : {}),
-});
-const stripItem = ({ summary, ...it }) => it;
-const holdsDead = (q) => DEAD_QUESTION_FIELDS.some((k) => k in q) || 'card' in (q.suggested || {});
-export const stripDeadFields = (site, archived = () => readArchive(site)) => archiveWrite(site, async () => {
-  for (const source of await itemSources(site)) {
-    const itemFile = await readJSON(source.file, null);
-    if (Array.isArray(itemFile?.items) && ('internal' in itemFile || itemFile.items.some((it) => 'summary' in it))) {
-      const { internal, ...rest } = itemFile;
-      await writeJSON(source.file, { ...rest, items: itemFile.items.map(stripItem) });
-    }
-  }
-  const owner = await readJSON(ownerFile(site), null);
-  if ((owner?.items || []).some(holdsDead)) await writeJSON(ownerFile(site), { ...owner, items: owner.items.map(stripQuestion) });
-  const archive = await archived();
-  if (archive.some((a) => 'card' in a || 'summary' in a.item || (a.questions || []).some(holdsDead))) {
-    await writeArchive(site, archive.map(({ card, ...a }) => ({ ...a, ...(card ? { closed_at: a.closed_at || card.sortAt } : {}),
-      item: stripItem(a.item), questions: (a.questions || []).map(stripQuestion) })));
-  }
-});
-
-// docs/adr/2026-11-09-2100-a-lineup-is-called-a-wave-and-the-wave-file-an-item-file.md
-// The rename of "lineup" to "wave" and of the wave file to the item file, over every board in the manifest, once (its
-// `migrated` list records 'wave-names'). Run by the hub as it starts, before it starts any board. On each board: a
-// board.json items file named wave.json is renamed items.json beside it, keeping its slug (written to board.json when
-// it had none), so card keys, threads and topics keep their names; each item file's `lineups` becomes `waves`, and each
-// lineup-<slug>.md note beside it wave-<slug>.md; in every data/*.json a whole string wave:<slug> (a wave file's
-// triage topic) becomes file:<slug>, then lineup:<slug> becomes wave:<slug>; an archive entry's `wave` becomes `file`,
-// and an architecture review's {wave, lineup} its {wave} or {file}. events.jsonl and the threads stay as written.
-// → the routes of the boards it ran on
-export async function migrateWaveNames() {
-  return withManifestLock(async () => {
-    const manifest = readManifest();
-    const done = Array.isArray(manifest.migrated) ? manifest.migrated : [];
-    if (done.includes('wave-names') || !Object.keys(manifest.sites || {}).length) return [];
-    const routes = [];
-    for (const { route, dir } of listBoards(manifest)) {
-      await renameWaveNames(dir);
-      routes.push(route);
-    }
-    manifest.migrated = [...done, 'wave-names'];
-    await writeManifest(manifest);
-    return routes;
-  });
-}
-
-const readPlain = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
-const writePlain = (file, value) => replace(file, JSON.stringify(value, null, 2) + '\n');
-const renamedTopic = (v) => (typeof v !== 'string' ? v : v.replace(/^wave:([a-z0-9-]+)$/, 'file:$1').replace(/^lineup:([a-z0-9-]+)$/, 'wave:$1'));
-const renameTopics = (v) => (Array.isArray(v) ? v.map(renameTopics)
-  : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [renamedTopic(k), renameTopics(x)])) : renamedTopic(v));
-
-async function renameWaveNames(site) {
-  const boardFile = path.join(site, 'board.json');
-  const cfg = await readPlain(boardFile).catch(() => null);
-  if (cfg && typeof cfg.items === 'string' && cfg.items !== 'waves' && path.basename(cfg.items) === 'wave.json') {
-    const items = path.join(path.dirname(cfg.items), 'items.json');
-    if (existsSync(path.resolve(site, cfg.items))) await fs.rename(path.resolve(site, cfg.items), path.resolve(site, items));
-    await writePlain(boardFile, { ...cfg, items, slug: cfg.slug || 'wave' });
-  }
-  for (const source of await itemSources(site)) {
-    const itemFile = await readPlain(source.file).catch(() => null);
-    if (!Array.isArray(itemFile?.lineups)) continue;
-    const { lineups, ...rest } = itemFile;
-    await writePlain(source.file, { ...rest, waves: [...(rest.waves || []), ...lineups] });
-    for (const { slug } of lineups) await fs.rename(path.join(source.dir, `lineup-${slug}.md`), path.join(source.dir, `wave-${slug}.md`)).catch((e) => { if (e.code !== 'ENOENT') throw e; });
-  }
-  const data = path.join(site, 'data');
-  for (const name of (await fs.readdir(data).catch(() => [])).filter((f) => f.endsWith('.json'))) {
-    const file = path.join(data, name);
-    const before = await fs.readFile(file, 'utf8');
-    let value;
-    try { value = JSON.parse(before); } catch { continue; }
-    value = renameTopics(value);
-    if (name === 'done-archive.json' && Array.isArray(value.cards)) value.cards = value.cards.map(({ wave, ...a }) => (wave === undefined ? a : { ...a, file: wave }));
-    if (name === 'arch-reviews.json' && Array.isArray(value.reviews)) value.reviews = value.reviews.map(({ wave, lineup, ...r }) => (lineup ? { ...r, wave } : { ...r, file: wave }));
-    if (JSON.stringify(value) !== JSON.stringify(JSON.parse(before))) await writePlain(file, value);
-  }
-}
-
-// docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md
-// The drop of waves, over every board in the manifest, once (its `migrated` list records 'drop-waves'). Run by the hub
-// as it starts, after migrateWaveNames, before it starts any board. In each item file a dep wave:<slug> becomes the
-// cards that wave held, by bare id in their own file, and `waves` goes; every other dep, Parent and Related to stays.
-// The wave-<slug>.md notes stay on disk as written. → the routes of the boards it changed
-export async function migrateDropWaves() {
-  return withManifestLock(async () => {
-    const manifest = readManifest();
-    const done = Array.isArray(manifest.migrated) ? manifest.migrated : [];
-    if (done.includes('drop-waves') || !Object.keys(manifest.sites || {}).length) return [];
-    const routes = [];
-    for (const { route, dir } of listBoards(manifest)) if (await dropWaves(dir)) routes.push(route);
-    manifest.migrated = [...done, 'drop-waves'];
-    await writeManifest(manifest);
-    return routes;
-  });
-}
-
-async function dropWaves(site) {
-  const sources = await itemSources(site);
-  const files = await Promise.all(sources.map((s) => readPlain(s.file).catch(() => null)));
-  const held = new Map(sources.flatMap((s, i) => (files[i]?.waves || [])
-    .map((w) => [`wave:${w.slug}`, (w.items || w.phases.flat()).map((id) => `${s.slug}/${id}`)])));
-  const waveDep = (d) => String(d).startsWith('wave:');
-  let changed = false;
-  for (const [i, s] of sources.entries()) {
-    const itemFile = files[i];
-    if (!itemFile || !('waves' in itemFile || (itemFile.items || []).some((it) => (it.deps || []).some(waveDep)))) continue;
-    const { waves, ...rest } = itemFile;
-    for (const it of rest.items || []) {
-      if (!(it.deps || []).some(waveDep)) continue;
-      const own = (key) => (parseKey(key).file === s.slug ? parseKey(key).id : key);
-      it.deps = [...new Set(it.deps.flatMap((d) => (waveDep(d) ? (held.get(d) || []).map(own) : [d])))].filter((d) => d !== it.id);
-    }
-    await writePlain(s.file, rest);
-    changed = true;
-  }
-  return changed;
 }
 
 // One record per agent on an item: agents/<id>.json for agent main, agents/<id>@<agent>.json for any other
@@ -5919,7 +5098,7 @@ async function builderAsks(site, key) {
   });
 }
 
-const boardTarget = (site) => listBoards().find((b) => samePath(b.dir, site)) ?? { dir: site };
+export const boardTarget = (site) => listBoards().find((b) => samePath(b.dir, site)) ?? { dir: site };
 
 export async function askOrchestrator(site, key, question, { agent = 'main' }) {
   needSite(site);
@@ -6227,7 +5406,7 @@ export async function checkNotReopened(site, key) {
 }
 
 // A card's live records: its past runs' (keepPastRun) are read by the thread alone.
-async function builderFiles(fileDir, id) {
+export async function builderFiles(fileDir, id) {
   const dir = path.join(fileDir, 'agents');
   return (await fs.readdir(dir).catch(() => []))
     .filter((n) => n === `${id}.json` || (n.startsWith(`${id}@`) && !n.startsWith(`${id}@past-`) && n.endsWith('.json')))

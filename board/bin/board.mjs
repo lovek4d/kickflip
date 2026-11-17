@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
+import * as slackStore from '../slack-store.mjs';
 import { waitsHistory, waitsHistoryLines } from '../domain.mjs';
 import { cardTiming, cardTimingLines, timingDays, timingDaysLines } from '../timing.mjs';
 import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, worktreesDir } from '../worktree.mjs';
@@ -1199,17 +1200,17 @@ const COMMANDS = {
     try { return { lines: [JSON.stringify(await setSlack(Object.fromEntries(Object.entries(f).map(([k, v]) => [fields[k], v]))))] }; }
     catch (e) { throw new store.BoardError(e.message); }
   }],
-  'slack thread': [['eventId'], [], (site, [id]) => store.slackThread(needSite(site, 'slack thread'), id)],
-  'slack answer': [['eventId'], ['text'], (site, [id], f) => store.slackAnswer(needSite(site, 'slack answer'), id, f.text)],
-  'slack skip': [['eventId'], [], (site, [id]) => store.slackSkip(needSite(site, 'slack skip'), id)],
-  'slack say': [['reviewer'], ['text'], (site, [name], f) => store.slackSay(needSite(site, 'slack say'), name, f.text)],
+  'slack thread': [['eventId'], [], (site, [id]) => slackStore.slackThread(needSite(site, 'slack thread'), id)],
+  'slack answer': [['eventId'], ['text'], (site, [id], f) => slackStore.slackAnswer(needSite(site, 'slack answer'), id, f.text)],
+  'slack skip': [['eventId'], [], (site, [id]) => slackStore.slackSkip(needSite(site, 'slack skip'), id)],
+  'slack say': [['reviewer'], ['text'], (site, [name], f) => slackStore.slackSay(needSite(site, 'slack say'), name, f.text)],
   'slack link': [['pr'], ['to'], (site, [pr], f) => {
     if (f.to === undefined) throw new UsageError('slack link needs --to <reviewer>');
-    return store.slackLink(needSite(site, 'slack link'), pr, f.to);
+    return slackStore.slackLink(needSite(site, 'slack link'), pr, f.to);
   }],
   'slack task': [['eventId', 'file'], ['title', 'notes', 'notes-from'], (site, [id, file], f) => {
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.slackTask(needSite(site, 'slack task'), id, file, { title: f.title, notes: f.notes, notesFrom: f['notes-from'] });
+    return slackStore.slackTask(needSite(site, 'slack task'), id, file, { title: f.title, notes: f.notes, notesFrom: f['notes-from'] });
   }],
   integrations: [[], [], async () => ({ lines: [JSON.stringify(await readiness.rows())] })],
   'review record': [['pr'], ['state', 'text', 'file'], (site, [pr], f) => {
@@ -1221,8 +1222,8 @@ const COMMANDS = {
     if (f['read-at'] === undefined) throw new UsageError('review post needs --read-at <time>, when you read the PR, so a review that landed since is caught');
     return store.postIncomingReview(site, pr, { words: readInput(f.file), readAt: f['read-at'] });
   }],
-  'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDigest(site, options))] })],
-  'review due': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDue(site, options))] })],
+  'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await slackStore.reviewDigest(site, options))] })],
+  'review due': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await slackStore.reviewDue(site, options))] })],
   'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],
   'reviewers add': [[], ['file'], (site, _, f) => store.addReviewers(site, readJSONInput(f.file))],
   'reviewers remove': [['...name'], [], (site, names) => store.removeReviewers(site, names)],

@@ -11,7 +11,7 @@ const home = tempDir('review-send-');
 process.env.HOME = home;
 const { sendReviews } = await import('./review-send.mjs');
 const { isSignedOff } = await import('./slack.mjs');
-const { reviewDigest, reviewDue } = await import('../board/store.mjs');
+const { reviewDigest, reviewDue } = await import('../board/slack-store.mjs');
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };

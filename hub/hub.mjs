@@ -173,8 +173,8 @@
 // records the hash of its own code (boards.mjs recordHubCode), so the hub can tell when the
 // files changed under it (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md), and makes a hub board that
 // built on the kickflip clone a local board of its folder, once (board-repo.mjs migrateHubBoard). Once, before any board
-// starts, it renames every board's lineups to waves and its wave file to its item file (board/store.mjs migrateWaveNames),
-// then drops every board's waves (board/store.mjs migrateDropWaves).
+// starts, it renames every board's lineups to waves and its wave file to its item file (board/migrations.mjs migrateWaveNames),
+// then drops every board's waves (board/migrations.mjs migrateDropWaves).
 // Every 15 seconds it counts each board's watched lines, and resumes the recorded session of a board that got an event
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
 // docs/adr/2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md). A tap on an asleep board's page wakes it at once
@@ -250,7 +250,8 @@ import { BuildError, startBuild, killBuild, stopTries, endUnsharedTries, tryTick
 import { serveFiles } from './files.mjs';
 import { upgrader } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
-import { fallBackFromLinear, migrateDropWaves, migrateWaveNames, saveUpload } from '../board/store.mjs';
+import { fallBackFromLinear, saveUpload } from '../board/store.mjs';
+import { migrateDropWaves, migrateWaveNames } from '../board/migrations.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';

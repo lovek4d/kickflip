@@ -140,7 +140,7 @@ test('a question added on a staging or ready card moves it to grilling, where it
 });
 
 test('an Implement message waiting from before staging becomes staging, keeping its time; one already ready stays ready', async () => {
-  const { stageImplementAsks } = await import('./store.mjs');
+  const { stageImplementAsks } = await import('./migrations.mjs');
   write(site('audit', 'data', 'items.json'), { items: [
     { id: 'A1', title: 'Asked', phase: 'grilling', implement_at: '2026-11-05T10:00:00.000Z' },
     { id: 'A2', title: 'Released', phase: 'ready', implement_at: '2026-11-05T11:00:00.000Z' },

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { migrateCreated } from './store.mjs';
+import { migrateCreated } from './migrations.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 function world(items) {

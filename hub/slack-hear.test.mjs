@@ -13,7 +13,7 @@ process.env.HOME = home;
 const { sendReviews } = await import('./review-send.mjs');
 const { slackStatus, slackClient } = await import('./slack.mjs');
 const { readinessRows } = await import('./readiness.mjs');
-const { slackThread, slackAnswer, slackSay, slackTask, slackLink, slackSkip } =await import('../board/store.mjs');
+const { slackThread, slackAnswer, slackSay, slackTask, slackLink, slackSkip } =await import('../board/slack-store.mjs');
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
@@ -239,5 +239,5 @@ test("slack link sends the PR's one message format, the bar with no mention, in 
 test('prLink is the only builder of a PR message: no other source file makes a PR attachment', () => {
   const root = path.join(import.meta.dirname, '..');
   const sources = fs.readdirSync(root, { recursive: true }).filter((f) => /\.mjs$/.test(f) && !/(^|\/)(node_modules|dist)\/|\.test\.mjs$/.test(f));
-  assert.deepEqual(sources.filter((f) => fs.readFileSync(path.join(root, f), 'utf8').includes('title_link')), [path.join('board', 'store.mjs')]);
+  assert.deepEqual(sources.filter((f) => fs.readFileSync(path.join(root, f), 'utf8').includes('title_link')), [path.join('board', 'slack-store.mjs')]);
 });

@@ -10,7 +10,8 @@ import { tempDir } from '../shared/temp-dir.mjs';
 const home = tempDir('slack-replies-');
 process.env.HOME = home;
 const { postSlackReplies, followSlackAsks } = await import('./slack-intake.mjs');
-const { writeReply, appendMessage, boardPosts } = await import('../board/store.mjs');
+const { writeReply, appendMessage } = await import('../board/store.mjs');
+const { boardPosts } = await import('../board/slack-store.mjs');
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };

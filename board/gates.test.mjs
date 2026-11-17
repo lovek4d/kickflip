@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { askItem, addQuestions, briefFacts, migrateGates, settleAnswers, stopPlanner } from './store.mjs';
+import { askItem, addQuestions, briefFacts, settleAnswers, stopPlanner } from './store.mjs';
+import { migrateGates } from './migrations.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const yesNo = [{ id: 'yes', label: 'Yes', recommended: true }, { id: 'no', label: 'No' }];

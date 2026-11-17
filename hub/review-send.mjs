@@ -1,5 +1,5 @@
 // The hub sends what each board's `review due` owes, as the owner through Hub's Slack token, recording each send in the
-// board's files as board/store.mjs posts it (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md,
+// board's files as board/slack-store.mjs posts it (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md,
 // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md,
 // docs/adr/2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md,
 // docs/adr/2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md,
@@ -13,7 +13,7 @@ import path from 'node:path';
 import { appendEvent, listBoards } from './boards.mjs';
 import { savedSlack, slackStatus, refusalUnpushed, markRefusalPushed, missingScope, setHearing, hearingUnpushed, markHearingPushed, slackUserId, isSignedOff } from './slack.mjs';
 import { deliver } from './push.mjs';
-import { reviewDue, postLink, recordReaction, postDigest, recordHeader, dayThread, heardThreads, markHeard, boardPosts } from '../board/store.mjs';
+import { reviewDue, postLink, recordReaction, postDigest, recordHeader, dayThread, heardThreads, markHeard, boardPosts } from '../board/slack-store.mjs';
 
 const refusedToken = (e) => e.status === 400 && e.message === 'Slack refused the token.';
 

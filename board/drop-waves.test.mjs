@@ -7,7 +7,7 @@ import { tempDir } from '../shared/temp-dir.mjs';
 
 const home = fs.realpathSync(tempDir('drop-waves-'));
 process.env.HOME = home;
-const { migrateDropWaves } = await import('./store.mjs');
+const { migrateDropWaves } = await import('./migrations.mjs');
 
 const sites = path.join(home, '.claude', 'kickflip', 'sites');
 const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');

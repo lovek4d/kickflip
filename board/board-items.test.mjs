@@ -467,7 +467,7 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
 
 // docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md
 test('discussNewCards moves a New Todo card no ask made to discussing once, silently, and leaves asks and sorted cards', async () => {
-  const { discussNewCards } = await import('./store.mjs');
+  const { discussNewCards } = await import('./migrations.mjs');
   const file = site('audit', 'data', 'items.json');
   const data = read(file);
   data.items.push({ id: 'N1', title: 'New one', lane: 'todo', filed_held: true, held: true, parent: 'audit/A1' }, { id: 'N2', title: 'From an ask', lane: 'todo', from_ask: 'e1' }, { id: 'N3', title: 'Sorted', lane: 'todo', phase: 'grilling' });
@@ -495,7 +495,7 @@ test('--parent works when an ancestor of the new Parent no longer exists', async
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test("a wave file's follow-ups move into its items once: ids, titles, tickets and notes kept, done ones done, Filed from as the Parent", async (t) => {
-  const { migrateFollowups } = await import('./store.mjs');
+  const { migrateFollowups } = await import('./migrations.mjs');
   const oldHome = process.env.HOME;
   process.env.HOME = home;
   t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });

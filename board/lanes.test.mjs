@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
-import { moveCard, migrateStatuses } from './store.mjs';
+import { moveCard } from './store.mjs';
+import { migrateStatuses } from './migrations.mjs';
 import { buildBoard, movesOf } from './domain.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { lockWaited } from '../shared/test-helpers.mjs';

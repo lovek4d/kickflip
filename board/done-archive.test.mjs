@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { startBoard } from '../shared/test-helpers.mjs';
 import { buildBoard, archivedOf, slimDone, DONE_KEPT } from './domain.mjs';
-import { archiveCards, readArchive, archiveReader, appendMessage, setItem, stripDeadFields, migrateStatuses, migratePhases, splitSharedNotes } from './store.mjs';
+import { archiveCards, readArchive, archiveReader, appendMessage, setItem, splitSharedNotes } from './store.mjs';
+import { stripDeadFields, migrateStatuses, migratePhases } from './migrations.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const at = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();

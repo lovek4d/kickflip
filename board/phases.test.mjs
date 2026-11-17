@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
-import { moveCard, migratePhases, clearBuildPhases } from './store.mjs';
+import { moveCard } from './store.mjs';
+import { migratePhases, clearBuildPhases } from './migrations.mjs';
 import { footerOf, buildBoard, movesOf, PHASES } from './domain.mjs';
 
 const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
