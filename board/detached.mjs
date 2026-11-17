@@ -1,7 +1,8 @@
 // docs/adr/2026-11-16-1915-the-hub-status-opens-the-load-sheet-at-any-load-collapsed.md
 // The processes a build left running detached, which builder done refuses to finish over (store.mjs refuseDetached):
 // this user's, left to launchd (parent pid 1), started since the build began, working in its worktree (their working
-// directory, or a path on their command line, inside it), and not git's.
+// directory, or a path on their command line, inside it), and not git's or the calling command's own ancestors (a
+// resumed builder's session is left to launchd and works in its worktree, yet is the one finishing).
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,13 +20,20 @@ function lsofCwds(pids) {
 
 // dir: the build's worktree; since: when the build began (ms). → [{pid, command}], by pid; none when ps gave no answer
 // in time, so a busy host never holds a finish.
-export function detachedIn(dir, since, { ps = () => runPs(['-axo', 'pid=,ppid=,uid=,etime=,command=']), cwds = lsofCwds, uid = process.getuid(), now = Date.now() } = {}) {
+export function detachedIn(dir, since, { ps = () => runPs(['-axo', 'pid=,ppid=,uid=,etime=,command=']), cwds = lsofCwds, uid = process.getuid(), now = Date.now(), pid: self = process.pid } = {}) {
   const text = ps();
   if (text === null) return [];
+  const parent = new Map();
+  for (const line of text.split('\n')) {
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s/);
+    if (m) parent.set(Number(m[1]), Number(m[2]));
+  }
+  const ancestors = new Set();
+  for (let p = parent.get(self); p && !ancestors.has(p); p = parent.get(p)) ancestors.add(p);
   const candidates = text.split('\n').flatMap((line) => {
     const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
     // git detaches its own auto gc and maintenance, which end by themselves.
-    if (!m || Number(m[2]) !== 1 || Number(m[3]) !== uid || path.basename(m[5].split(/\s/)[0]) === 'git') return [];
+    if (!m || Number(m[2]) !== 1 || Number(m[3]) !== uid || path.basename(m[5].split(/\s/)[0]) === 'git' || ancestors.has(Number(m[1]))) return [];
     // ps's elapsed time counts whole seconds, so a process started in the build's first second still counts.
     return now - etimeSeconds(m[4]) * 1000 >= since - 1000 ? [{ pid: Number(m[1]), command: m[5] }] : [];
   });
