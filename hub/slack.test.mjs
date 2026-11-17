@@ -121,6 +121,20 @@ test('every post ends with a “- :claude_kickflip:” line, or “- :robot_face
   }
 });
 
+test('a PR reaction uses the custom git_approved and git_merged when the workspace has them, else the standard emojis, and x as it is; a failed emoji.list reads as none', async () => {
+  for (const [name, change, want] of [
+    ['has them', {}, ['git_approved', 'git_merged', 'x']],
+    ['no custom', { noEmoji: true }, ['white_check_mark', 'large_purple_circle', 'x']],
+    ['no scope', { emojiMissingScope: true }, ['white_check_mark', 'large_purple_circle', 'x']],
+  ]) {
+    const world = Object.assign(slackWorld(), change);
+    const slack = fakeSlack(world);
+    const client = slackClient(world.token, { fetch: slack.fetch });
+    assert.deepEqual([await client.prEmoji('git_approved'), await client.prEmoji('git_merged'), await client.prEmoji('x')], want, name);
+    assert.equal(slack.calls.filter((c) => c.method === 'emoji.list').length, 1, name);
+  }
+});
+
 test('an edit is signed off with its time in the Slack timezone, in italics, and still reads as ours', async () => {
   for (const [change, line] of [[{}, '- :claude_kickflip:'], [{ noEmoji: true }, '- :robot_face:']]) {
     const world = Object.assign(slackWorld(), change);

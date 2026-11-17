@@ -164,6 +164,21 @@ test('a link posted top-level before the day threads, and a bump sent before bum
   assert.deepEqual(world.reactions.map((r) => [r.channel, r.timestamp, r.name]).sort(), [['D1', '1792700000.000100', 'git_approved'], ['D1', '1792700000.000200', 'git_approved']]);
 });
 
+test('a workspace without git_approved and git_merged gets the standard emojis, and the reaction is recorded as owed-done', async () => {
+  const world = Object.assign(slackWorld(), { noEmoji: true });
+  const slack = fakeSlack(world);
+  saveToken(world);
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Old', pr: 1 }] });
+  setPRs({ 'o/r#1': pr({ approved: true, reviewDecision: 'APPROVED' }) });
+  write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { head: 'aaa0000000', links: { Ann: { channel: 'D1', ts: '1792700000.000100', reactions: [] } }, replies: [] } });
+  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  assert.deepEqual(world.reactions.map((r) => r.name), ['white_check_mark']);
+  setPRs({ 'o/r#1': pr({ approved: true, reviewDecision: 'APPROVED', state: 'MERGED' }) });
+  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  assert.deepEqual(world.reactions.map((r) => r.name), ['white_check_mark', 'large_purple_circle']);
+});
+
 test("an approved flag under GitHub's REVIEW_REQUIRED stays in the digest and reacts nothing; reviewDecision APPROVED drops it", async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);

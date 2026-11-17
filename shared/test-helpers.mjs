@@ -258,7 +258,7 @@ export function fakeSlack(world) {
     }
     if (method === 'emoji.list') {
       if (world.emojiMissingScope) return { ok: false, error: 'missing_scope' };
-      return { ok: true, emoji: world.noEmoji ? {} : { claude_kickflip: 'https://emoji.example/kickflip.png' } };
+      return { ok: true, emoji: world.noEmoji ? {} : Object.fromEntries(['claude_kickflip', 'git_approved', 'git_merged'].map((name) => [name, `https://emoji.example/${name}.png`])) };
     }
     if (method === 'conversations.open') {
       const channel = world.dms[body.users];

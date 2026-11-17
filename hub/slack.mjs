@@ -69,6 +69,8 @@ const api = () => process.env.KICKFLIP_SLACK_URL || 'https://slack.com/api';
 // Slack reads these methods' arguments from form encoding or the query string and ignores a JSON body; every other
 // method takes JSON.
 const READS = ['users.list', 'emoji.list', 'search.messages', 'conversations.history', 'conversations.replies'];
+// The standard emoji a PR reaction uses when the workspace lacks its custom one.
+const STANDARD_PR_EMOJI = { git_approved: 'white_check_mark', git_merged: 'large_purple_circle' };
 const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired', 'account_inactive'];
 
 // The last line of every message the hub or the orchestrator posts: the kickflip emoji, or 🤖 while the workspace lacks
@@ -100,13 +102,13 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     if (!out.ok) throw new SlackError(`Slack: ${out.error}`);
     return out;
   }
-  // Whether the workspace has :claude_kickflip:, asked once per client; no emoji:read scope or any failure reads as no.
-  let signOff;
+  // The workspace's custom emoji, asked once per client; no emoji:read scope or any failure reads as none.
+  let emojis;
+  const customEmoji = () => (emojis ??= call('emoji.list').then((out) => out.emoji || {}, () => ({})));
   // A message's {text, attachments?} with the sign-off line ended on, the last attachment's text taking it when there
   // are attachments; edited: an edit's time, which the line then names.
   const signedOff = async ({ text, attachments }, edited) => {
-    signOff ??= call('emoji.list').then((out) => (out.emoji?.claude_kickflip ? SIGN_OFF : SIGN_OFF_FALLBACK), () => SIGN_OFF_FALLBACK);
-    const line = `${await signOff}${edited ? ` · _updated ${slackClock(edited)}_` : ''}`;
+    const line = `${(await customEmoji()).claude_kickflip ? SIGN_OFF : SIGN_OFF_FALLBACK}${edited ? ` · _updated ${slackClock(edited)}_` : ''}`;
     const end = (words) => (words ? `${words}\n${line}` : line);
     if (!attachments?.length) return { text: end(text) };
     const last = attachments.at(-1);
@@ -144,6 +146,12 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     post: async ({ channel, text, thread_ts, attachments }) => (await call('chat.postMessage', { channel, ...await signedOff({ text, attachments }), unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
     // Edits a message this token posted, signed off as a post is and named updated at at's time.
     update: async ({ channel, ts, text, attachments, at = new Date() }) => { await call('chat.update', { channel, ts, ...await signedOff({ text, attachments }, at), unfurl_links: false }); },
+    // The emoji a PR reaction state reacts with: its custom one when the workspace has it, else the standard one;
+    // any other state, such as x for closed, reacts as it is.
+    async prEmoji(state) {
+      const standard = STANDARD_PR_EMOJI[state];
+      return !standard || (await customEmoji())[state] ? state : standard;
+    },
     // A reaction already there counts as added.
     async react({ channel, ts, name }) {
       try { await call('reactions.add', { channel, timestamp: ts, name }); } catch (e) { if (e.message !== 'Slack: already_reacted') throw e; }

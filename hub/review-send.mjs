@@ -55,7 +55,7 @@ async function sendBoard(board, slack, now) {
   }
   for (const r of due.reactions) {
     await attempt(`${r.emoji} for ${r.reviewer} on ${r.pr}`, async () => {
-      await slack.react({ channel: r.channel, ts: r.ts, name: r.emoji });
+      await slack.react({ channel: r.channel, ts: r.ts, name: await slack.prEmoji(r.emoji) });
       await recordReaction(board.dir, r);
     });
   }
