@@ -148,9 +148,15 @@
   function fitSheet(sheet) {
     const vv = window.visualViewport;
     // iOS keeps fixed elements on the layout viewport; --kb is the part covered by its keyboard.
+    // --sheet-full is the tallest the viewport has been while the sheet is open, so the pan (offsetTop) when a field
+    // takes focus doesn't lower the sheet's top; turning the phone measures it again.
+    let full = 0, width = window.innerWidth;
     const fit = () => {
       const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+      if (window.innerWidth !== width) { width = window.innerWidth; full = 0; }
+      full = Math.max(full, (vv ? vv.height : window.innerHeight) + kb);
       sheet.style.setProperty('--kb', kb + 'px');
+      sheet.style.setProperty('--sheet-full', full + 'px');
       sheet.style.setProperty('--vh', (vv ? vv.height : window.innerHeight) + 'px');
       sheet.classList.toggle('kb', kb > 0);
     };

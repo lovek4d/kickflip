@@ -2188,12 +2188,14 @@ test('ask and New board sheets follow the phone keyboard, hold the page still an
       sheet.style.setProperty = (k, v) => values.set(k, v);
       vv.height = 500;
       page.fire(vv, 'resize');
-      assert.deepEqual([...values], [['--kb', '344px'], ['--vh', '500px']]);
+      assert.deepEqual([...values], [['--kb', '344px'], ['--sheet-full', '844px'], ['--vh', '500px']]);
       assert.equal(sheet.classList.contains('kb'), true);
       assert.equal(sheet.classList.contains('keyboard-sheet'), true);
       vv.offsetTop = 20;
       page.fire(vv, 'scroll');
       assert.equal(values.get('--kb'), '324px');
+      // The pan lowers vh + kb to 824, but the sheet keeps the height it opened at.
+      assert.equal(values.get('--sheet-full'), '844px');
       vv.height = 844;
       page.fire(vv, 'resize');
       assert.equal(values.get('--kb'), '0px');

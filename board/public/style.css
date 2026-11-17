@@ -267,7 +267,7 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 /* A phone sheet pads its content above the keyboard (--kb, dialogs.js fitSheet) and stays on the screen's bottom
    edge while the keyboard covers the bar: iOS reports its height late, so moving the sheet up leaves a strip below. */
 .sheet { position: fixed; inset: auto 0 0 0; margin: 0 auto; width: 100%; max-width: 560px;
-  max-height: calc(var(--vh, 100dvh) + var(--kb, 0px) - env(safe-area-inset-top) - 12px); overflow-y: auto; overscroll-behavior: contain;
+  max-height: calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - env(safe-area-inset-top) - 12px); overflow-y: auto; overscroll-behavior: contain;
   padding: 0 0 var(--kb, 0px); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--panel); color: var(--text);
   box-shadow: 0 -8px 30px rgba(0,0,0,.18); }
 /* On phones, iOS scrolls the page under a modal dialog, and a drag on the dim area pans the view and Safari's toolbar
@@ -296,7 +296,7 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 @media (max-width: 699px) {
   /* iOS's reported bottom edge can sit above the visible bottom; the form scrolls so the dialog can paint past it. */
   .sheet.keyboard-sheet { max-width: none; overflow: visible; padding: 0; max-height: none;
-    --sheet-limit: max(80px, calc(var(--vh, 100dvh) + var(--kb, 0px) - max(12px, env(safe-area-inset-top)))); }
+    --sheet-limit: max(80px, calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - max(12px, env(safe-area-inset-top)))); }
   .sheet.keyboard-sheet::after { content: ''; position: absolute; top: calc(100% - 1px); left: -1px; right: -1px;
     height: 100vh; height: 100lvh; background: var(--panel); pointer-events: none; }
   .sheet.keyboard-sheet form { margin: 0; max-height: var(--sheet-limit); overflow-y: auto; overscroll-behavior: contain;
@@ -937,9 +937,9 @@ main > * { transition: opacity .25s ease; }
   body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + var(--search-lift, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
-    max-height: calc(var(--vh, 100dvh) + var(--kb, 0px) - max(var(--app-bottom, 0px), var(--kb, 0px)) - env(safe-area-inset-top) - 12px); }
+    max-height: calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - max(var(--app-bottom, 0px), var(--kb, 0px)) - env(safe-area-inset-top) - 12px); }
   .sheet.keyboard-sheet:not(.kb)::after { height: 0; }
-  .sheet.keyboard-sheet { --sheet-limit: max(80px, calc(var(--vh, 100dvh) + var(--kb, 0px) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - max(12px, env(safe-area-inset-top)))); }
+  .sheet.keyboard-sheet { --sheet-limit: max(80px, calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - max(12px, env(safe-area-inset-top)))); }
 }
 
 /* Typing, a text field focused (shell.js sets :root.typing). Only a phone changes: the + hides, so it never sits over the keyboard's field; wider screens keep it as it is. */
