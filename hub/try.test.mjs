@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
-import { advance, buildScriptError, calls, clock, commit, execFileAsync, fetchTimed, config, fakeRelays, git, installWorktree, kill, listBoards, listing, manager, manifest, ownerGate, prober, read, relayOf, repo, root, script, setManager, setScript, signal, signals, site, start, state, thread, tick, tryManager, until, worktree, write } from './try-fixture.mjs';
+import { advance, buildScriptError, calls, clock, commit, execFileAsync, fetchTimed, config, fakeRelays, freePort, git, installWorktree, kill, listBoards, listing, manager, manifest, ownerGate, prober, read, relayOf, repo, root, script, setManager, setScript, signal, signals, site, start, state, thread, tick, tryManager, until, visit, worktree, write } from './try-fixture.mjs';
 
 test('an app run uses only the fixed script and arguments, worktree cwd and build env, writes a private replacement log, and leaves builders and threads alone', async () => {
   setScript(`require('node:fs').writeFileSync('called.json', JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), board: process.env.KICKFLIP_BOARD, host: process.env.HOST, base: process.env.KICKFLIP_BASE })); console.log('stdout'); console.error('stderr');`);
@@ -599,7 +599,7 @@ take();`);
 });
 
 test("a web script serves root paths and upgrades through the relay to the owner and the board's shared logins alone, and keeps its port across a new commit and Retry", async () => {
-  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }) });
+  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }), tailnet: () => true });
   setManager(tryManager({ now: () => clock, log() {}, gate }));
   const server = http.createServer();
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
@@ -689,7 +689,7 @@ test("a web script serves root paths and upgrades through the relay to the owner
 });
 
 test('the relay hands the app an owner’s request without tailscale serve’s identity headers, so a gated demo hub behind it serves it', async () => {
-  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }) });
+  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }), tailnet: () => true });
   setManager(tryManager({ now: () => clock, log() {}, gate }));
   const server = http.createServer();
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
@@ -743,5 +743,52 @@ test('a stopping hub leaves its try ports mapped, and each tick serves a gone or
   await manager.stop();
   assert.ok(!calls().includes('serve --https=8500 off'));
   assert.equal(read(path.join(home, 'tailscale.status')).Web['mac.ts.net:8500'].Handlers['/'].Proxy, relay);
+});
+
+test('with the tailnet off a serve answers on its try port on this host and nothing runs tailscale, and turning it on maps that port at the next tick', async () => {
+  let on = false;
+  const relayAt = await freePort();
+  setManager(tryManager({ now: () => clock, log() {}, tailnet: () => on, relayPort: (port) => (port === 8500 ? relayAt : assert.fail(`relay asked for ${port}`)) }));
+  const port = await freePort();
+  setScript(`require('node:http').createServer((req, res) => res.end('served ' + req.url)).listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`);
+  const tailscaleCalls = () => fs.readFileSync(path.join(home, 'tailscale.calls'), 'utf8');
+  await start();
+  await manager.settled();
+  assert.deepEqual([state().cards['w/A1'].state, state().cards['w/A1'].https], ['ready', 8500]);
+  assert.equal(await visit(`http://127.0.0.1:${relayAt}/nested`), 'served /nested');
+  await tick();
+  assert.equal(tailscaleCalls(), '', 'off, nothing runs tailscale');
+  on = true;
+  await tick();
+  assert.equal(relayOf(8500), `http://127.0.0.1:${relayAt}`, 'on, the tick maps the try port to the relay already listening');
+  await kill();
+  assert.ok(calls().includes('serve --https=8500 off'), 'on, a Kill unmaps the port the tick mapped');
+  await assert.rejects(visit(`http://127.0.0.1:${relayAt}/`));
+  on = false;
+  const before = tailscaleCalls();
+  await start();
+  await manager.settled();
+  assert.equal(await visit(`http://127.0.0.1:${relayAt}/again`), 'served /again');
+  await kill();
+  assert.equal(tailscaleCalls(), before, 'off, a serve and its Kill run no tailscale');
+});
+
+test("a relay whose try port another process still holds waits for it, as a restart's new hub waits for the old one's relays", async () => {
+  const relayAt = await freePort();
+  const held = http.createServer();
+  await new Promise((resolve) => held.listen(relayAt, '127.0.0.1', resolve));
+  let heldSeen;
+  const waiting = new Promise((resolve) => { heldSeen = resolve; });
+  const log = (line) => { if (line === `try port ${relayAt}: another process holds 127.0.0.1:${relayAt}; waiting for it`) heldSeen(); };
+  setManager(tryManager({ now: () => clock, log, answers: async () => true, relayPort: () => relayAt }));
+  const port = await freePort();
+  setScript(`require('node:http').createServer((req, res) => res.end('served ' + req.url)).listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`);
+  await start();
+  await waiting;
+  assert.equal(state().cards['w/A1'].state, 'running');
+  await new Promise((resolve) => held.close(resolve));
+  await manager.settled();
+  assert.equal(state().cards['w/A1'].state, 'ready');
+  assert.equal(await visit(`http://127.0.0.1:${relayAt}/x`), 'served /x');
 });
 

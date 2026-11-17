@@ -137,6 +137,9 @@ test("the served viewer frames the page at the base worktree's port with the tak
   const kit = kitContext().PrototypeKit;
   assert.equal(kit.servedSrc({ https: 8512, path: '/proto/look?theme=dark', take: 'B', state: 'busy' }), 'https://mac.ts.net:8512/proto/look?theme=dark&variant=B&state=busy');
   assert.equal(kit.servedSrc({ https: 8512, path: '/proto/look', take: 'A', state: null }), 'https://mac.ts.net:8512/proto/look?variant=A');
+  // The host's own page, served over http while the tailnet is off, frames the try port on this host.
+  const local = kitContext({ location: { protocol: 'http:', hostname: 'localhost' } }).PrototypeKit;
+  assert.equal(local.servedSrc({ https: 8512, path: '/proto/look', take: 'A', state: null }), 'http://127.0.0.1:8512/proto/look?variant=A');
 });
 
 // docs/adr/2026-11-14-1446-a-prototype-pages-landing-shows-its-sites-start-steps.md

@@ -4073,6 +4073,14 @@ test('a web card’s Serve asks the busy host’s question and sends anyway, a c
   assert.deepEqual(posts.at(-1), ['https://mac.ts.net/board-a/api/try/kill', { key: 'w/R1' }]);
 });
 
+test("on the host's own page, served over http while the tailnet is off, Visit opens the try port at 127.0.0.1", async () => {
+  const data = { ...boardOf([]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date(NOW).toISOString(), url: null, port: 8500, script: '.kickflip/build-web' } };
+  const b = boardOnDom({ board: data, threads: {} });
+  Object.assign(b.page.win.location, { protocol: 'http:', hostname: 'localhost', href: 'http://localhost:4500/' });
+  await b.change({ board: { ...data, main: { ...data.main, sha: 'abcdef2' } } });
+  assert.equal(b.root.querySelector('#tryMain a').getAttribute('href'), 'http://127.0.0.1:8500/');
+});
+
 test('main paints above the lanes, card failures scroll to their thread and main failures open a log and retry sheet', async () => {
   const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date(NOW).toISOString(), url: null, port: 8500, script: '.kickflip/build-web' } };
   const b = boardOnDom({ open: ['w/R1'], board: data, threads: {} });

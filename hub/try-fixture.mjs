@@ -76,9 +76,23 @@ export const listing = (processes) => async (command, args, options) => {
   if (command === 'lsof') return { stdout: processes.map((p) => `p${p.pid}\nn${p.cwd}`).join('\n') + '\n' };
   return untimed(command, args, options);
 };
-// A test's manager sees only the processes it lists, none unless it passes its own run.
-export const tryManager = (options = {}) => createTryManager({ run: listing([]), ...options });
+// A test's manager sees only the processes it lists, none unless it passes its own run. Its tailnet is on unless the test
+// says otherwise, and its relays take any free port, so test files running at once and the host's own hub never meet on
+// a try port.
+export const tryManager = (options = {}) => createTryManager({ run: listing([]), tailnet: () => true, relayPort: () => 0, ...options });
 export const fetchTryBranches = (options = {}) => fetchTimed({ run: untimed, ...options });
+// → a port nothing on 127.0.0.1 listens on now.
+export async function freePort() {
+  const server = http.createServer();
+  await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+// → the body a GET of url answers, on a connection of its own, so no kept-alive socket reaches a relay that has closed.
+export const visit = (url) => new Promise((resolve, reject) => {
+  http.get(url, { agent: false }, (res) => { let body = ''; res.on('data', (chunk) => { body += chunk; }); res.on('end', () => resolve(body)); }).on('error', reject);
+});
 let signalCount = 0;
 // A unix socket a script signals the test through: the script runs signal(path, text), and next() resolves with the
 // next signal's {text, closed}, closed resolving once the process that sent it has ended.

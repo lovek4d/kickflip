@@ -6,11 +6,13 @@ import { fromHost, ownerGate } from './on-host.mjs';
 // X-Forwarded-For is the client's tailnet address, Tailscale-User-Login and Tailscale-User-Name its user; no node header.
 const tailnet = ['100.81.98.101', 'fd7a:115c:a1e0::8601:62c1'];
 const node = { login: 'lovek4d@github', addresses: tailnet };
+// The tailnet's switch (shared/tailnet.mjs tailnetOn), which the host reads on each request.
+const on = () => true;
 const served = (address, login = 'lovek4d@github') => ({ 'x-forwarded-for': address, 'tailscale-user-login': login, 'tailscale-user-name': 'Love' });
 
 test("a request is from the host when tailscale serve names one of the host's own addresses, or when it came straight to loopback", async () => {
   let asked = 0;
-  const host = { addresses: () => ['127.0.0.1', '::1', ...tailnet], node: async () => { asked++; return node; } };
+  const host = { addresses: () => ['127.0.0.1', '::1', ...tailnet], node: async () => { asked++; return node; }, tailnet: on };
   const at = (headers, remote = '127.0.0.1') => fromHost({ headers, socket: { remoteAddress: remote } }, host);
   assert.equal(await at(served('100.81.98.101')), true);
   assert.equal(await at(served('fd7a:115c:a1e0::8601:62c1')), true);
@@ -26,7 +28,7 @@ test("a request is from the host when tailscale serve names one of the host's ow
 });
 
 test("with the host's tailnet address on no interface, the host is the request whose user and forwarded address are the host node's", async () => {
-  const at = (headers, found = node) => fromHost({ headers, socket: { remoteAddress: '127.0.0.1' } }, { addresses: () => ['127.0.0.1', '::1'], node: async () => found });
+  const at = (headers, found = node) => fromHost({ headers, socket: { remoteAddress: '127.0.0.1' } }, { addresses: () => ['127.0.0.1', '::1'], node: async () => found, tailnet: on });
   assert.equal(await at(served('100.81.98.101')), true);
   assert.equal(await at(served('::ffff:100.81.98.101')), true);
   assert.equal(await at(served('fd7a:115c:a1e0::8601:62c1')), true);
@@ -40,7 +42,7 @@ test("with the host's tailnet address on no interface, the host is the request w
 
 test("the gate lets in the host, a direct loopback caller and any device signed in as the host node's user, reading that user once", async () => {
   let asked = 0;
-  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1', ...tailnet], node: async () => { asked++; return node; } });
+  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1', ...tailnet], node: async () => { asked++; return node; }, tailnet: on });
   const at = (headers, remote = '127.0.0.1') => gate({ headers, socket: { remoteAddress: remote } });
   // The host and a direct loopback caller are the owner without asking tailscale.
   assert.equal(await at(served('100.81.98.101')), 'owner');
@@ -60,7 +62,7 @@ test("until tailscale names the host's user, a signed-in request is unread, and 
   let clock = 0;
   let answer = null;
   let asked = 0;
-  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => { asked++; return answer; } }, { now: () => clock });
+  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => { asked++; return answer; }, tailnet: on }, { now: () => clock });
   const at = (headers) => gate({ headers, socket: { remoteAddress: '127.0.0.1' } });
   assert.equal(await at(served('100.70.1.2')), 'unread');
   assert.equal(await at(served('100.70.1.3', 'friend@github')), 'unread');
@@ -84,8 +86,33 @@ test("until tailscale names the host's user, a signed-in request is unread, and 
 test("the gate's node is the host node it read, read on asking when no request has needed it yet", async () => {
   let asked = 0;
   const found = { ...node, name: 'Love', dnsName: 'studio.tail1234.ts.net' };
-  const gate = ownerGate({ addresses: () => ['127.0.0.1'], node: async () => { asked++; return found; } });
+  const gate = ownerGate({ addresses: () => ['127.0.0.1'], node: async () => { asked++; return found; }, tailnet: on });
   assert.deepEqual(await gate.node(), found);
   assert.equal(await gate({ headers: served('100.70.1.2'), socket: { remoteAddress: '127.0.0.1' } }), 'owner');
   assert.equal(asked, 1);
+});
+
+test("with the tailnet off, only a loopback client is the host and the owner, and tailscale's login is never read", async () => {
+  let asked = 0;
+  let tailnetOn = false;
+  const host = { addresses: () => ['127.0.0.1', '::1', '192.168.1.40', ...tailnet], node: async () => { asked++; return node; }, tailnet: () => tailnetOn };
+  const gate = ownerGate(host);
+  const request = (headers, remote = '127.0.0.1') => ({ headers, socket: { remoteAddress: remote } });
+  const both = async (headers, remote) => [await fromHost(request(headers, remote), host), await gate(request(headers, remote))];
+  assert.deepEqual(await both({}), [true, 'owner']);
+  assert.deepEqual(await both({}, '::1'), [true, 'owner']);
+  assert.deepEqual(await both({}, '::ffff:127.0.0.1'), [true, 'owner']);
+  assert.deepEqual(await both({ 'tailscale-user-login': 'lovek4d@github' }), [true, 'owner']);
+  // A tailscale serve mapping nobody removed still sends the tailnet's devices from loopback, each named by its forwarded
+  // address: none of them is the host or the owner, not even the host node's own address or user.
+  assert.deepEqual(await both(served('100.70.1.2')), [false, 'other']);
+  assert.deepEqual(await both(served('100.81.98.101')), [false, 'other']);
+  assert.deepEqual(await both({ 'x-forwarded-for': '100.70.1.4' }), [false, 'other']);
+  assert.deepEqual(await both({}, '192.168.1.40'), [false, 'other']);
+  assert.equal(await gate.node(), null);
+  assert.equal(asked, 0);
+  // Turned on, the same gate reads tailscale's login again.
+  tailnetOn = true;
+  assert.deepEqual(await both(served('100.70.1.2')), [false, 'owner']);
+  assert.equal(asked, 2);
 });

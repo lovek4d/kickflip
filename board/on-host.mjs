@@ -9,15 +9,22 @@
 // ownerGate tells the signed-in owner: the host, a direct loopback caller, or any device whose Tailscale-User-Login is
 // the host node's user (docs/adr/2026-11-04-0502-only-the-signed-in-owner-changes-permissions-or-restarts.md). The hub
 // listens on 127.0.0.1 alone, so only a local process can send that header past tailscale serve.
+// While the tailnet is off (../shared/tailnet.mjs), the host and the owner are a loopback client alone, and tailscale is
+// never asked: a tailscale serve mapping left in place still forwards each tailnet device with its own address, which
+// isn't loopback.
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tailscaleDaemon, tailscaleArgv, answeredBy } from '../shared/tailscale.mjs';
+import { tailnetOn } from '../shared/tailnet.mjs';
 
 const run = promisify(execFile);
 const bare = (address) => String(address || '').trim().replace(/^::ffff:/, '');
+const isLoopback = (address) => address === '::1' || /^127\.\d+\.\d+\.\d+$/.test(address);
 
 const interfaceAddresses = () => Object.values(os.networkInterfaces()).flat().map((a) => a.address);
+// The host as the gate reads it on each request: its interfaces' addresses, its tailnet node, and whether the tailnet is on.
+const thisHost = { addresses: interfaceAddresses, node: tailnetNode, tailnet: () => tailnetOn() };
 
 // → {login, name, dnsName, addresses} of the host's own tailnet node, name being its user's display name and dnsName its
 // MagicDNS name, or null when tailscale isn't installed, doesn't answer, or another daemon answers for the recorded one
@@ -34,16 +41,17 @@ async function tailnetNode() {
   } catch { return null; }
 }
 
-// req: {headers, socket: {remoteAddress}}; host: {addresses: () => [address], node: async () => {login, addresses} | null}
-// → true on the host
 const clientOf = (req) => {
   const forwarded = req.headers['x-forwarded-for'];
   return bare(forwarded ? String(forwarded).split(',').at(-1) : req.socket.remoteAddress);
 };
 
-export async function fromHost(req, host = { addresses: interfaceAddresses, node: tailnetNode }) {
+// req: {headers, socket: {remoteAddress}}; host: {addresses: () => [address], node: async () => {login, addresses} | null,
+// tailnet: () => boolean} → true on the host
+export async function fromHost(req, host = thisHost) {
   const forwarded = req.headers['x-forwarded-for'];
   const client = clientOf(req);
+  if (!host.tailnet()) return isLoopback(client);
   if (host.addresses().includes(client)) return true;
   const login = req.headers['tailscale-user-login'];
   if (!forwarded || !login) return false;
@@ -57,7 +65,7 @@ export async function fromHost(req, host = { addresses: interfaceAddresses, node
 // node's user; 'other' for any other login or none (a shared-in user, a tagged node, Funnel); 'unread' for a login
 // while tailscale hasn't named the host's user yet. The user is read once and kept for the gate's lifetime. gate.node()
 // → that host node, read now if no request has needed it, or null while tailscale doesn't answer.
-export function ownerGate(host = { addresses: interfaceAddresses, node: tailnetNode }, { now = Date.now, retryMs = 5000 } = {}) {
+export function ownerGate(host = thisHost, { now = Date.now, retryMs = 5000 } = {}) {
   let owner = null;
   let asking = null;
   let failedAt = -Infinity;
@@ -71,13 +79,14 @@ export function ownerGate(host = { addresses: interfaceAddresses, node: tailnetN
     return asking;
   };
   const gate = async (req) => {
+    if (!host.tailnet()) return isLoopback(clientOf(req)) ? 'owner' : 'other';
     if (host.addresses().includes(clientOf(req))) return 'owner';
     const login = req.headers['tailscale-user-login'];
     if (!login) return 'other';
     const found = await ownerNode();
     return !found ? 'unread' : found.login === login ? 'owner' : 'other';
   };
-  gate.node = async () => ownerNode();
+  gate.node = async () => (host.tailnet() ? ownerNode() : null);
   return gate;
 }
 

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { execFileSync, spawn } from 'node:child_process';
-import { advance, calls, clock, commit, config, fakeRelays, fetchTryBranches, git, kill, listing, manager, manifest, ownerGate, prober, read, relayOf, repo, root, script, setManager, setScript, signal, signals, site, start, state, thread, tick, tryManager, until, untimed, worktree, write } from './try-fixture.mjs';
+import { advance, calls, clock, commit, config, fakeRelays, fetchTryBranches, freePort, git, kill, listing, manager, manifest, ownerGate, prober, read, relayOf, repo, root, script, setManager, setScript, signal, signals, site, start, state, thread, tick, tryManager, until, untimed, visit, worktree, write } from './try-fixture.mjs';
 
 const mainDir = (side) => path.join(home, '.claude/kickflip/try', `orch-main-${side}`);
 const mainPortScript = (port) => setScript(`console.log('port ${port}'); setInterval(() => {}, 1000);`, repo);
@@ -72,6 +72,29 @@ test('a main re-serve keeps the old server on its port until the new one answers
   setManager(tryManager({ now: () => clock, answers: async () => false, log() {} }));
   await manager.initialize(manifest);
   assert.equal(state().main.serving, undefined);
+});
+
+test("a main re-serve's relay takes the try port over from the old run's once the new server answers", async () => {
+  const relayAt = await freePort();
+  const ports = [await freePort(), await freePort()];
+  const answering = new Set([ports[0]]);
+  const { answers, asked } = prober((port) => answering.has(port));
+  setManager(tryManager({ now: () => clock, answers, log() {}, relayPort: () => relayAt }));
+  const serves = (port, body) => setScript(`require('node:http').createServer((req, res) => res.end('${body}')).listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`, repo);
+  serves(ports[0], 'first');
+  mainCommit('first');
+  await tick();
+  await manager.settled();
+  assert.equal(await visit(`http://127.0.0.1:${relayAt}/`), 'first');
+  serves(ports[1], 'second');
+  mainCommit('second');
+  await tick();
+  await asked(ports[1]);
+  assert.equal(await visit(`http://127.0.0.1:${relayAt}/`), 'first', 'the old run keeps the port while the new one starts');
+  answering.add(ports[1]);
+  await manager.settled();
+  assert.deepEqual([state().main.state, state().main.https, state().main.serving], ['ready', 8500, undefined]);
+  assert.equal(await visit(`http://127.0.0.1:${relayAt}/`), 'second');
 });
 
 test('a build that prints the old main server’s port stops the old server before probing', async (t) => {
@@ -768,7 +791,7 @@ test('try builds refuse with 409 while waiting and main rebuilds wait without a 
 });
 
 test("the prototype serve's relay drops the headers that refuse a frame, and a card's relay keeps them", async () => {
-  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }) });
+  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }), tailnet: () => true });
   setManager(tryManager({ now: () => clock, answers: async () => true, log() {}, gate }));
   const base = path.join(home, '.claude', 'kickflip', 'worktrees', 'orch-prototypes');
   git(repo, 'worktree', 'add', '--quiet', '--detach', base, 'main');

@@ -56,6 +56,8 @@ async function startHub(t, { status, board }) {
     sites.orch = { port: await standIn(t, 'orch'), title: 'Orch', dir, cmd: [process.execPath, path.join(home, 'stand-in', 'board', 'server.mjs')] };
   }
   write(path.join(web, 'manifest.json'), { version: 1, migrated: ['hub-flag'], sites });
+  // These tests are the tailnet's devices reaching the hub through tailscale serve, so the tailnet is on.
+  write(path.join(web, 'settings.json'), { tailnet: true });
   const clock = { ms: 0 };
   const hub = await inProcessHub(t, { gate: ownerGate(undefined, { now: () => clock.ms }) });
   await hub.settled();

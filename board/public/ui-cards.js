@@ -142,7 +142,9 @@
     saved: (on) => on ? 'Saved. Each push serves its task.' : 'Saved. Tasks wait for your Serve.',
   };
   const spinner = '<span class="try-spin" aria-hidden="true"></span>';
-  const tryURL = (run) => run.kind === 'web' ? run.port ? `https://${location.hostname}:${run.port}/` : null : run.url;
+  // A web run's try port: on the tailnet beside the page's own name, or on this host when the page is the host's own over
+  // http, as it is while the tailnet is off (hub/try.mjs openPort).
+  const tryURL = (run) => run.kind === 'web' ? run.port ? `${location.protocol === 'http:' ? 'http://127.0.0.1' : `https://${location.hostname}`}:${run.port}/` : null : run.url;
   function tryOf(it) {
     if (it.lane === 'done') return null;
     const t = it.try || (it.install ? { kind: 'app', state: 'ready', stale: it.install.older, sha: it.install.sha, url: it.install.url } : null);

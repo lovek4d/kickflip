@@ -191,9 +191,10 @@
 
   // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md
   // A served round frames its page from the board's base prototype worktree, at that serve's try port on this host, the
-  // take and state in its URL at first and then sent by message, which shared/prototype-frame.js hands the page.
+  // take and state in its URL at first and then sent by message, which shared/prototype-frame.js hands the page. A page
+  // the host opened over http, as it is while the tailnet is off, frames the port on 127.0.0.1 (hub/try.mjs openPort).
   function servedSrc({ https, path, take, state }) {
-    const url = new URL(path, `https://${location.hostname}:${https}`);
+    const url = new URL(path, `${location.protocol === 'http:' ? 'http://127.0.0.1' : `https://${location.hostname}`}:${https}`);
     url.searchParams.set('variant', take);
     if (state) url.searchParams.set('state', state);
     return url.href;

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// kickflip hub: one loopback server that Tailscale sends every request to.
+// kickflip hub: one loopback server, which Tailscale sends every tailnet request to while the tailnet is on.
 //   /                 the app shell (board/public/app.html), which opens this device's last board, else the board with
 //                     the most waiting; a browser's page load of any site's page, such as /<route>/,
 //                     /<route>/settings.html or /learn/, gets the shell too (shell.mjs pageOf)
@@ -190,8 +190,9 @@
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
 // It reads the Mac and keeps machine-state.json, with a load sample a minute for the last hour, which holds every board's new work while the Mac is busy
 // (shared/machine-gate.mjs; docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
-// Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs) that passes the same
-// owner gate, and admits its board's shared people by GET or HEAD; its build script gets HOST=127.0.0.1 to listen on.
+// Each served card and main has its own try port, a loopback relay (try.mjs) on 127.0.0.1:<port> that tailscale serve
+// maps on the tailnet while it's on, that passes the same owner gate, and admits its board's shared people by GET or
+// HEAD; its build script gets HOST=127.0.0.1 to listen on.
 // Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches and
 // record each fetch in repo-fetch.json for the board's repo-fetch link. A poll that records a card merged fetches that
 // card's board first and refreshes its Main at once (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).

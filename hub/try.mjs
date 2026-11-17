@@ -10,6 +10,7 @@ import { boardRepo, githubFromOrigin, mainRefOf } from './board-repo.mjs';
 import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { tailscaleDaemon, tailscaleArgv, recordedFault } from '../shared/tailscale.mjs';
+import { tailnetOn } from '../shared/tailnet.mjs';
 import { buildNameOf, buildScriptError, scriptFileOf, scriptsDirOf } from '../board/build-script.mjs';
 import { appendStatus, setItem } from '../board/cards.mjs';
 import { servedRoundsOpen } from '../board/questions.mjs';
@@ -43,6 +44,9 @@ const RESTART_WINDOW_MS = 10 * 60_000;
 // The base prototype serve stays up this long after a viewer last asked for it or loaded through it, with no open served round.
 const IDLE_MS = 30 * 60_000;
 export const BUSY_ASK = 'The host is busy, start this serve anyway?';
+// How long a relay waits for its try port while another process holds it: the hub a restart replaces closes its relays
+// as it stops.
+const PORT_HELD_MS = 15_000;
 // What tailscale serve adds to say who a request is from; the try relay drops them before the app.
 const IDENTITY_HEADERS = ['tailscale-user-login', 'tailscale-user-name', 'tailscale-user-profile-pic', 'x-forwarded-for'];
 // What stops a page from being framed by the board, which is another origin on the same host.
@@ -82,6 +86,23 @@ const probe = (port) => new Promise((resolve) => {
   req.on('timeout', () => req.destroy());
   req.on('error', () => resolve(false));
 });
+// Listens server on 127.0.0.1:port, trying again for up to PORT_HELD_MS while another process holds the port, which it
+// logs once.
+async function listenOn(server, port, log) {
+  const until = Date.now() + PORT_HELD_MS;
+  for (let held = false; ; held = true) {
+    try {
+      return await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+      });
+    } catch (e) {
+      if (e.code !== 'EADDRINUSE' || Date.now() >= until) throw e;
+      if (!held) log(`try port ${port}: another process holds 127.0.0.1:${port}; waiting for it`);
+      await new Promise((resolve) => setTimeout(resolve, 250)); // poll: try-relay-wait
+    }
+  }
+}
 const signalGroup = (pgid, signal) => { try { process.kill(-pgid, signal); } catch {} };
 const groupUp = (pgid) => { try { process.kill(-pgid, 0); return true; } catch { return false; } };
 // SIGTERM to a process group, SIGKILL after grace ms, then up to 1s more until the kernel has removed it.
@@ -164,8 +185,9 @@ export async function installWorktree(board, key, manifest, { run = execFileAsyn
 }
 
 // run: the commands it runs (git, ps, lsof, tailscale); grace: how long a stopped run's process group has after SIGTERM
-// before SIGKILL.
-export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy', run: exec = execFileAsync, grace = 4000, daemon: daemonOf = tailscaleDaemon } = {}) {
+// before SIGKILL. tailnet: whether the tailnet is on (../shared/tailnet.mjs), read on each call; while it's off nothing
+// runs tailscale. relayPort(port): the port a run's relay listens on for its try port, that port itself.
+export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy', run: exec = execFileAsync, grace = 4000, daemon: daemonOf = tailscaleDaemon, tailnet = () => tailnetOn(), relayPort = (port) => port } = {}) {
   const git = gitBy(exec);
   const boards = new Map();
   const runs = new Map();
@@ -399,11 +421,13 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       if (verdict !== 'owner') { refuseUpgrade(socket, verdict === 'shared' ? 'view-only' : verdict); return; }
       track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url, replace: IDENTITY_HEADERS }));
     });
-    await new Promise((resolve, reject) => {
-      run.relay.once('error', reject);
-      run.relay.listen(0, '127.0.0.1', resolve);
-    });
-    if (run.stopped) return;
+    // The relay listens on the try port on this host, where the host's browser opens it; while the tailnet is on,
+    // tailscale serve maps the same port on the tailnet to it. Main's old run, still serving while this one came up,
+    // gives the port up now that this one answers.
+    for (const other of live()) if (other !== run && other.https === run.https && other.relay?.listening) other.relay.close();
+    try { await listenOn(run.relay, relayPort(run.https), log); }
+    catch (e) { throw new Error(`Couldn't open try port ${run.https}: ${e.code === 'EADDRINUSE' ? `another program listens on 127.0.0.1:${run.https}` : e.message}`); }
+    if (run.stopped || !tailnet()) return;
     run.exposed = true;
     try { await tailscale(['serve', '--bg', `--https=${run.https}`, `http://127.0.0.1:${run.relay.address().port}`]); }
     catch (e) { throw new Error(`Couldn't open try port ${run.https}: ${(e.stderr || e.message).trim()}`); }
@@ -414,17 +438,19 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     // A stopping hub leaves its try ports mapped: the next hub starts before this one has exited, re-serves the same fixed
     // ports, and its startup sweep removes any no run claims. Main's old run leaves the port its successor now maps.
     const handedOver = [...runs.values()].some((other) => other !== run && other.exposed && other.https === run.https);
-    if (run.exposed && !stopping && !handedOver) await removePort(run.https);
+    if (run.exposed && !stopping && !handedOver && tailnet()) await removePort(run.https);
     if (run.relay) {
       for (const socket of run.sockets) socket.destroy();
       await new Promise((resolve) => run.relay.close(resolve));
     }
     if (!run.keepPort) cardPorts.delete(runKey(run.board, run.key));
   }
-  // A try port's mapping can still go missing outside this hub, so each tick serves again any open port whose mapping
-  // isn't its relay.
+  // A try port's mapping can still go missing outside this hub, or the tailnet was turned on while it served, so each tick
+  // with the tailnet on serves again any open port whose mapping isn't its relay. Main's old run, whose relay gave the
+  // port to its successor, has none.
   async function reserve() {
-    const open = live().filter((run) => run.ready && run.relay && !run.closing);
+    if (!tailnet()) return;
+    const open = live().filter((run) => run.ready && run.relay?.address() && !run.closing);
     if (!open.length) return;
     let config;
     try { config = JSON.parse((await tailscale(['serve', 'status', '--json'])).stdout); }
@@ -436,7 +462,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       const web = Object.entries(config?.Web || {}).find(([host]) => host.endsWith(`:${run.https}`))?.[1];
       if (web?.Handlers?.['/']?.Proxy === relay) continue;
       log(`try port ${run.https}: its serve mapping was ${web ? 'changed' : 'gone'}; serving it again`);
-      try { await tailscale(['serve', '--bg', `--https=${run.https}`, relay]); }
+      try { await tailscale(['serve', '--bg', `--https=${run.https}`, relay]); run.exposed = true; }
       catch (e) { log(`try port ${run.https}: could not serve it again: ${(e.stderr || e.message).trim()}`); }
     }
   }
@@ -446,7 +472,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     for (const board of listBoards(manifest)) stateOf(board);
     initializing = (async () => {
       for (const board of listBoards(manifest)) await sweepGroups(board).catch((e) => log(`try startup sweep /${board.route}: ${e.message}`));
-      try {
+      // With the tailnet off nothing runs tailscale: kickflip tailnet off unmapped the try ports.
+      if (tailnet()) try {
         const { stdout } = await tailscale(['serve', 'status', '--json']);
         const status = JSON.parse(stdout);
         for (const port of Object.keys(status?.TCP || {})) {
