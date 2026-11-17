@@ -42,6 +42,7 @@ const TIMED = {
   'hub/new-board.test.mjs': 5,
   'hub/repos.test.mjs': 1,
   'hub/restart-board.test.mjs': 2,
+  'hub/restart-port.test.mjs': 1,
   'hub/sessions.test.mjs': 1,
   'hub/try.test.mjs': 1,
   'hub/views.test.mjs': 1,

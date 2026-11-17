@@ -1173,6 +1173,7 @@ These files spawn CLIs or git with no time limit and no timing assertion, or are
 - hooks-plugin/hooks/board-data-gate, usage-gate: spawnSync hooks.
 - hub/presence, schedule, self-restart, usage, views (relative ages with an hour of margin), upgrade (`t.mock.timers`: the target pattern).
 - hub/repos.test.mjs: a child's `setTimeout(20)` only splits stderr chunks, and the assertion joins them.
+- hub/restart-port.test.mjs: the stand-in server's child `setTimeout` keeps the port for a while after its leader exits; the hub waits on the group's exit, not on that time.
 - scripts/release.test.mjs, shared/repos, service, usage-gate: injected `now`.
 - shared/gh.test.mjs: a fake `gh` on PATH with no limit; its relative dates sit an hour or more from any edge.
 - shared/owner-check.test.mjs: one in-process `listen(0)` request under `runCheck`'s 20 s abort (low risk; `runCheck({fetchImpl})` exists, shared/owner-check.mjs:113).

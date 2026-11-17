@@ -383,15 +383,32 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
 
   function pidFile(route) { return path.join(RUN, route + '.pid'); }
 
-  function killStale(route, site) {
+  // Resolves once the process group pgid has no member and port answers nothing: a server's group outlives its leader
+  // while a child still holds the port. A group still there after KILL_AFTER is sent SIGKILL; after twice that the wait
+  // ends and the start's port check names whoever still holds the port.
+  async function groupExit(pgid, port) {
+    const alive = () => { try { process.kill(-pgid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+    const start = Date.now();
+    let killed = false;
+    while (alive() || await probe(port)) {
+      const waited = Date.now() - start;
+      if (waited >= 2 * KILL_AFTER) return;
+      if (waited >= KILL_AFTER && !killed) { killed = true; try { process.kill(-pgid, 'SIGKILL'); } catch {} }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  async function killStale(route, site) {
     // A hub that died hard leaves its children running and holding their ports.
     // Only stop the recorded pid if it still runs this site's command: pids get reused.
+    let stale = 0;
     try {
       const pid = Number(fs.readFileSync(pidFile(route), 'utf8'));
       const cmdline = pid ? execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim() : '';
-      if (cmdline && runsSite(cmdline, site)) { process.kill(-pid, 'SIGTERM'); log(`stopped stale ${route} (pgid ${pid})`); }
+      if (cmdline && runsSite(cmdline, site)) { process.kill(-pid, 'SIGTERM'); log(`stopped stale ${route} (pgid ${pid})`); stale = pid; }
     } catch {}
     try { fs.unlinkSync(pidFile(route)); } catch {}
+    if (stale) await groupExit(stale, site.port);
   }
 
   // docs/adr/2026-11-14-0730-a-board-server-holds-its-port-before-it-launches-anything.md
@@ -453,8 +470,13 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       Object.assign(p, { child: null, state: p.stopping ? 'stopped' : 'crashed', exitCode: code ?? sig, nextStart: clock() + backoff(p.restarts++), why: p.stopping ? p.why : undefined });
       p.stopping = false;
       log(`${route} exited (${code ?? sig})`);
-      // The reconcile rides the 15 s clock; a child's exit has it start the server again once its backoff is over.
-      if (ticks && !shuttingDown) setTimeout(reconcileLogged, Math.max(0, p.nextStart - clock())).unref(); // poll: none, one reconcile per exit
+      // A new server starts once the old one's group is gone and its port free (a start earlier would lose the port).
+      // The reconcile rides the 15 s clock; a child's exit has it start the server again once that and its backoff are over.
+      p.draining = groupExit(child.pid, site.port).then(() => {
+        p.draining = null;
+        if (ticks && !shuttingDown) setTimeout(reconcileLogged, Math.max(0, p.nextStart - clock())).unref(); // poll: none, one reconcile per exit
+      });
+      track(p.draining);
     };
     // A child that never spawned, such as one whose cwd is missing, emits no exit.
     child.on('error', (e) => { log(`${route} spawn error: ${e.message}`); if (!child.pid) ended(e.code, null); });
@@ -519,7 +541,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     })));
     for (const [route, site] of Object.entries(sites)) {
       if (!runs(site)) continue;
-      if (first) killStale(route, site);
+      if (first) await killStale(route, site);
       const p = procs.get(route);
       if (p && p.child && p.key !== keyOf(site)) {
         log(`${route} entry changed; restarting it`);
@@ -541,6 +563,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         if (p.waitedOn !== `${onDisk} ${held}`) log(`${route} runs older code than its files; its restart waits, since ${held}`);
         p.waitedOn = `${onDisk} ${held}`;
       }
+      if (p && !p.child && clock() >= (p.nextStart || 0)) await p.draining;
       if ((!p || (!p.child && clock() >= (p.nextStart || 0))) && await portFree(route, site)) start(route, site);
     }
     first = false;
