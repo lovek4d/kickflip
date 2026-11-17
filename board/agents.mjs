@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { claudeBin, inherited } from '../hub/sessions.mjs';
+import { backgroundArgv, onPath } from './background.mjs';
 
 // The repo's shared .git for a worktree (or a repo) at cwd, where its commits land. → an absolute path, or null outside git.
 function gitCommonDir(cwd) {
@@ -55,7 +56,7 @@ function sessionOf(child, log, offset, session, wait) {
   });
 }
 
-// Starts an agent of kind (claude | codex) on prompt, detached in cwd, without the launching session's CLAUDE_*
+// Starts an agent of kind (claude | codex) on prompt at background priority (background.mjs), detached in cwd, without the launching session's CLAUDE_*
 // environment, its output going to log as it runs. model is Claude's (opus | sonnet); resume a Claude session id to carry
 // on; site is the board's site folder. bin overrides the kind's binary. sessionWait is how many ms to wait for the session
 // id. → {pid, sessionId, log} once it has named its session (sessionId null if it exited or took too long first); rejects
@@ -69,8 +70,11 @@ export function launchAgent({ kind, model, cwd, site, prompt, log, bin, resume, 
   const offset = fs.fstatSync(out).size;
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !inherited(k)));
   if (path.isAbsolute(command)) env.PATH = `${path.dirname(command)}:${env.PATH || ''}`;
+  // The background wrapper starts whatever it's given, so a missing agent is caught here, not as the wrapper's exit.
+  if (!onPath(command, env.PATH)) { fs.closeSync(out); return Promise.reject(Object.assign(new Error(`spawn ${command} ENOENT`), { code: 'ENOENT' })); }
+  const [wrapper, ...wrapped] = backgroundArgv([command, ...agent.args({ prompt, model, cwd, site, resume })]);
   return new Promise((resolve, reject) => {
-    const child = spawn(command, agent.args({ prompt, model, cwd, site, resume }), { cwd, env, detached: true, stdio: ['ignore', out, out] });
+    const child = spawn(wrapper, wrapped, { cwd, env, detached: true, stdio: ['ignore', out, out] });
     child.once('spawn', async () => {
       fs.closeSync(out);
       const sessionId = await sessionOf(child, log, offset, agent.session, sessionWait);

@@ -20,6 +20,7 @@ import { prototypePage } from './prototype-page.mjs';
 import { BASE_KEY, baseWorktreeOf } from './prototype-base.mjs';
 import { buildNameOf, buildScriptError, scriptFileOf, scriptShownOf } from './build-script.mjs';
 import { boardAt } from '../hub/boards.mjs';
+import { backgroundArgv } from './background.mjs';
 
 const board = path.dirname(fileURLToPath(import.meta.url));
 export const WIDTHS = [390, 1280];
@@ -102,7 +103,8 @@ async function serveBase(site) {
   const script = scriptFileOf(board, name, dir);
   const invalid = buildScriptError(script);
   if (invalid) throw new BoardError(`the base prototype worktree can't serve the round: ${invalid} (${script})`);
-  const child = spawn(script, [BASE_KEY, dir], { cwd: dir, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
+  const [wrapper, ...wrapped] = backgroundArgv([script, BASE_KEY, dir]);
+  const child = spawn(wrapper, wrapped, { cwd: dir, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
   const tail = [];
   const keep = (line) => { tail.push(line); if (tail.length > 5) tail.shift(); };
   createInterface({ input: child.stderr }).on('line', keep);

@@ -14,6 +14,7 @@ import { buildNameOf, buildScriptError, scriptFileOf, scriptsDirOf } from '../bo
 import { appendStatus, setItem } from '../board/cards.mjs';
 import { servedRoundsOpen } from '../board/questions.mjs';
 import { settingsOf } from '../board/settings.mjs';
+import { backgroundArgv } from '../board/background.mjs';
 import { recordedWorktree } from '../board/runs.mjs';
 import { readMachineState } from '../shared/machine-gate.mjs';
 import { BASE_KEY, baseWorktreeOf } from '../board/prototype-base.mjs';
@@ -531,7 +532,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     const fd = fs.openSync(logFile, 'w', 0o600);
     fs.fchmodSync(fd, 0o600);
     if (preface) fs.writeSync(fd, preface);
-    const child = spawn(script, [key, worktree], { cwd: worktree, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+    const [wrapper, ...wrapped] = backgroundArgv([script, key, worktree]);
+    const child = spawn(wrapper, wrapped, { cwd: worktree, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
     setEntry(state, key, entry);
     const id = runKey(board, key);

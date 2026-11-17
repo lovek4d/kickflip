@@ -110,8 +110,8 @@ test('stub', () => assert.deepEqual(tailscaleDaemon(), { kind: 'cli', cli: '/usr
   assert.deepEqual(await nodeTests(tree), { ok: true, pass: 1, fail: 0 });
 });
 
-test('a suite run starts at most half the cores of test files at once, and at least one', () => {
-  assert.equal(testConcurrency(), Math.max(1, Math.floor(os.availableParallelism() / 2)));
+test('a suite run starts at most half the cores of test files at once, and at least two', () => {
+  assert.equal(testConcurrency(), Math.max(2, Math.floor(os.availableParallelism() / 2)));
   assert.ok(testArgs(1000, ['a.test.mjs']).includes(`--test-concurrency=${testConcurrency()}`));
 });
 

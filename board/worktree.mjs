@@ -20,6 +20,7 @@ import { squashMessage, subjectFault } from './commit-message.mjs';
 import { checkRelease, landRelease } from './release.mjs';
 import { affectedTests } from './affected.mjs';
 import { readMachineState } from '../shared/machine-gate.mjs';
+import { backgroundArgv } from './background.mjs';
 
 export const skillRepo = cloneRoot;
 export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'worktrees');
@@ -165,9 +166,10 @@ function testFiles(dir) {
 
 const EXIT_WITH_RUN = path.join(path.dirname(fileURLToPath(import.meta.url)), 'exit-with-run.mjs');
 
-// The test files a run starts at once: half the host's cores, at least one, so several suites at a time don't pile their
-// files up on a loaded Mac (docs/adr/2026-11-12-1600-the-test-runner-caps-concurrency-to-half-the-cores.md).
-export const testConcurrency = () => Math.max(1, Math.floor(os.availableParallelism() / 2));
+// The test files a run starts at once: half the host's cores, at least two, so several suites at a time don't pile their
+// files up on a loaded Mac (docs/adr/2026-11-12-1600-the-test-runner-caps-concurrency-to-half-the-cores.md,
+// docs/adr/2026-11-18-0400-builds-run-at-background-priority.md).
+export const testConcurrency = () => Math.max(2, Math.floor(os.availableParallelism() / 2));
 
 // The `node --test` arguments of a run over files.
 export const testArgs = (testLimit, files) => ['--test', '--test-reporter=tap', `--test-concurrency=${testConcurrency()}`, `--test-timeout=${testLimit}`, ...files];
@@ -197,7 +199,8 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
   const exitWithRun = `--import=${JSON.stringify(EXIT_WITH_RUN)}`;
   const options = rest.NODE_OPTIONS?.includes(exitWithRun) ? rest.NODE_OPTIONS : [rest.NODE_OPTIONS, exitWithRun].filter(Boolean).join(' ');
   const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), NODE_OPTIONS: options };
-  const child = spawn(nodeBin(), testArgs(testLimit, files), { cwd: dir, env, detached: true });
+  const [wrapper, ...wrapped] = backgroundArgv([nodeBin(), ...testArgs(testLimit, files)]);
+  const child = spawn(wrapper, wrapped, { cwd: dir, env, detached: true });
   // macOS answers EPERM, not ESRCH, for a group whose processes have all died but aren't yet reaped.
   child.once('exit', () => { try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { if (e.code !== 'ESRCH' && e.code !== 'EPERM') throw e; } });
   let stdout = '';
