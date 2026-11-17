@@ -19,7 +19,10 @@ const config = () => JSON.parse(fs.readFileSync(claudeConfig, 'utf8'));
 const trusted = (dir) => config().projects?.[dir]?.hasTrustDialogAccepted === true;
 const { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } = await import('./new-board.mjs');
 const { repoService, repoPath, validateBranch, runRepo, githubGitArgv } = await import('./repos.mjs');
-const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = await import('./board-repo.mjs');
+const { boardRepo, changeBoardRepo, githubFromOrigin } = await import('./board-repo.mjs');
+const { MIGRATIONS, runMigrations } = await import('../board/migrations.mjs');
+// The hub's board-github migration through the runner, as a starting hub runs it. → the lines it logged
+const migrateBoardRepos = async ({ run }) => { const lines = []; await runMigrations('hub', { list: MIGRATIONS.filter((m) => m.id === 'board-github'), run, log: (l) => lines.push(l) }); return lines; };
 const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
 const { routeFromName, ROUTE_RE } = await import('./routes.mjs');
 const { saveJSON, readManifest, listBoards, prsOf, linksOf, servedSites, startingAt, isBoardSite } = await import('./boards.mjs');
@@ -479,7 +482,7 @@ test("origin migration runs once, the hub board's included, preserves configured
     if (argv.includes('refs/remotes/origin/HEAD')) return argv[1] === '/local' ? { status: 1, stdout: '' } : { status: 0, stdout: 'origin/trunk\n' };
     return { status: 0, stdout: argv.includes('symbolic-ref') ? 'develop\n' : 'git@github.com:Owner/Project.git\n' };
   };
-  assert.deepEqual(await migrateBoardRepos({ run }), ['one', 'local', 'hub']);
+  assert.deepEqual(await migrateBoardRepos({ run }), ['manifest: recorded GitHub repos for /one, /local, /hub']);
   assert.deepEqual(boardRepo('one'), { github: 'Owner/Project', branch: 'trunk', repo: '/project' });
   assert.deepEqual(boardRepo('local'), { github: 'Owner/Project', branch: 'develop', repo: '/local' });
   assert.deepEqual(boardRepo('hub'), { github: 'Owner/Project', branch: 'trunk', repo: '/project', hub: true });

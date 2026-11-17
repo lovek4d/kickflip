@@ -1038,7 +1038,9 @@ test("a board page's wake asks the hub for one session check now, from the app's
 
 // The hub runs this migration as it starts (hub.mjs startHub), on the file's one manifest, set aside meanwhile.
 test('a starting hub makes the hub board a local board of its own folder once, recording its origin and branch, and flags no board by its route', async () => {
-  const { migrateHubBoard } = await import('./board-repo.mjs');
+  const { MIGRATIONS, runMigrations } = await import('../board/migrations.mjs');
+  // The hub-local migration through the runner, as a starting hub runs it. → the lines it logged
+  const migrateHubBoard = async ({ run }) => { const lines = []; await runMigrations('hub', { list: MIGRATIONS.filter((m) => m.id === 'hub-local'), run, log: (l) => lines.push(l) }); return lines; };
   const { runRepo } = await import('./repos.mjs');
   const git = (command, argv) => runRepo(GIT, argv);
   const file = claude('kickflip', 'manifest.json');
@@ -1054,17 +1056,17 @@ test('a starting hub makes the hub board a local board of its own folder once, r
   await hub.settled();
   fs.rmSync(file);
   try {
-    assert.equal(await migrateHubBoard({ run: git }), null);
+    assert.deepEqual(await migrateHubBoard({ run: git }), []);
     assert.equal(fs.existsSync(file), false);
     await writeManifestFile({ sites: { 'hub-orchestrator': board('hub'), dev: { ...board('dev'), hub: true, owner: { session: 's-dev', repo: folder } } } });
-    assert.equal(await migrateHubBoard({ run: git }), 'dev');
+    assert.deepEqual(await migrateHubBoard({ run: git }), ["manifest: /dev, the hub board, builds from its own folder's local main"]);
     const dev = read(file).sites.dev;
     assert.deepEqual([flagged(), dev.local, dev.github, dev.branch, dev.owner, read(file).migrated], [['dev'], true, 'owner/kickflip', 'main', { session: 's-dev', repo: folder }, ['hub-local']]);
     const cleared = read(file);
     delete cleared.sites.dev.local;
     delete cleared.sites.dev.hub;
     await writeManifestFile(cleared);
-    assert.equal(await migrateHubBoard({ run: git }), null);
+    assert.deepEqual(await migrateHubBoard({ run: git }), []);
     assert.deepEqual([flagged(), read(file).sites.dev.local], [[], undefined]);
   } finally {
     await writeManifestFile(original);

@@ -7,7 +7,9 @@ import { tempDir } from '../shared/temp-dir.mjs';
 
 const home = fs.realpathSync(tempDir('drop-waves-'));
 process.env.HOME = home;
-const { migrateDropWaves } = await import('./migrations.mjs');
+const { MIGRATIONS, runMigrations } = await import('./migrations.mjs');
+// The hub's drop-waves migration through the runner, as a starting hub runs it. → the lines it logged
+const migrateDropWaves = async () => { const lines = []; await runMigrations('hub', { list: MIGRATIONS.filter((m) => m.id === 'drop-waves'), log: (l) => lines.push(l) }); return lines; };
 
 const sites = path.join(home, '.claude', 'kickflip', 'sites');
 const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');
@@ -34,7 +36,7 @@ test("a starting hub drops every board's waves once: a wave:<slug> dep becomes t
   write(at('plain', 'data', 'items.json'), { items: [{ id: 'P1', title: 'Plain' }] });
   const plainBefore = fs.readFileSync(at('plain', 'data', 'items.json'), 'utf8');
 
-  assert.deepEqual(await migrateDropWaves(), ['hub']);
+  assert.deepEqual(await migrateDropWaves(), ['boards: waves dropped on /hub']);
   const after = read(at('hub', 'data', 'items.json'));
   assert.equal('waves' in after, false);
   assert.deepEqual(after.items, [

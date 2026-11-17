@@ -175,6 +175,10 @@
 //               made on its own for no one board (usage-pause, usage-resume, linear-move) as
 //               "<at> <call> [<ticket>]: <result>. <reason>" and the inputs it read. A board's own calls are in its
 //               data/audit.jsonl: board.mjs --site <route> audit (docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md)
+//   kickflip migrations
+//               prints each data migration (../board/migrations.mjs MIGRATIONS) as "<id> (hub|board): ..." with the
+//               ledgers that don't list it yet, "the hub" for the manifest or each board's data/migrated.json by route, or
+//               "every ledger lists it" once its entry and code can go
 //   kickflip poll-now [--keep-queue]
 //               asks the hub for one poll now (GitHub check, github-change events,
 //               checked.json, then the queue unless --keep-queue) and prints its result
@@ -992,6 +996,12 @@ const commands = {
     if (rest.length) fail('audit takes no arguments', 2);
     const { readAudit, auditLines, hubAudit } = await import('../shared/audit.mjs');
     out(auditLines(readAudit(hubAudit())).join('\n'));
+  },
+
+  async migrations() {
+    if (rest.length) fail('migrations takes no arguments', 2);
+    const { migrationsLeft } = await import('../board/migrations.mjs');
+    out((await migrationsLeft()).map(({ id, scope, left }) => `${id} (${scope}): ${left.length ? `not yet on ${left.map((r) => (scope === 'hub' ? 'the hub' : `/${r}`)).join(', ')}` : 'every ledger lists it'}`).join('\n'));
   },
 
   async 'poll-now'() {

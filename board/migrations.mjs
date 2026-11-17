@@ -1,15 +1,18 @@
-// The board's data migrations: each rewrites old data into the shape the code now reads, once, and leaves data
-// already in that shape as it is. The board server runs the per-board ones as it starts; the hub runs migrateWaveNames
-// and migrateDropWaves over every board in the manifest before it starts any. Their writes go through files.mjs.
+// The data migrations: each rewrites old data into the shape the code now reads and leaves data already in that shape
+// as it is. MIGRATIONS lists them all and runMigrations runs each once per ledger: the board server runs the board ones
+// as it starts, and the hub the hub ones, over every board in the manifest, before it starts any. Their writes go
+// through files.mjs.
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { PHASES, builds, HELPER } from './domain.mjs';
-import { listBoards, readManifest, withManifestLock, writeManifest } from '../hub/boards.mjs';
+import { isBoardSite, listBoards, readManifest, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { itemSources, readJSON, readLog, replace, writeJSON } from './files.mjs';
 import { hasPR, storedPRs } from '../shared/card-prs.mjs';
 // The card, question and archive functions store.mjs still holds.
-import { BoardError, archiveWrite, builderFiles, depKey, leftTodo, ownerFile, parseKey, readArchive, threadFile, ticketWrite, topicQuestionsAll, writeArchive } from './store.mjs';
+import { BoardError, archiveWrite, builderFiles, depKey, leftTodo, ownerFile, parseKey, readArchive, splitSharedNotes, threadFile, ticketWrite, topicQuestionsAll, writeArchive } from './store.mjs';
+import { withFileLock } from '../hub/locks.mjs';
+import { migrateBoardRepos, migrateHubBoard } from '../hub/board-repo.mjs';
 
 const fail = (msg) => { throw new BoardError(msg); };
 
@@ -259,32 +262,24 @@ export const stripDeadFields = (site, archived = () => readArchive(site)) => arc
 });
 
 // docs/adr/2026-11-09-2100-a-lineup-is-called-a-wave-and-the-wave-file-an-item-file.md
-// The rename of "lineup" to "wave" and of the wave file to the item file, over every board in the manifest, once (its
-// `migrated` list records 'wave-names'). Run by the hub as it starts, before it starts any board. On each board: a
-// board.json items file named wave.json is renamed items.json beside it, keeping its slug (written to board.json when
-// it had none), so card keys, threads and topics keep their names; each item file's `lineups` becomes `waves`, and each
-// lineup-<slug>.md note beside it wave-<slug>.md; in every data/*.json a whole string wave:<slug> (a wave file's
-// triage topic) becomes file:<slug>, then lineup:<slug> becomes wave:<slug>; an archive entry's `wave` becomes `file`,
-// and an architecture review's {wave, lineup} its {wave} or {file}. events.jsonl and the threads stay as written.
-// → the routes of the boards it ran on
-export async function migrateWaveNames() {
-  return withManifestLock(async () => {
-    const manifest = readManifest();
-    const done = Array.isArray(manifest.migrated) ? manifest.migrated : [];
-    if (done.includes('wave-names') || !Object.keys(manifest.sites || {}).length) return [];
-    const routes = [];
-    for (const { route, dir } of listBoards(manifest)) {
-      await renameWaveNames(dir);
-      routes.push(route);
-    }
-    manifest.migrated = [...done, 'wave-names'];
-    await writeManifest(manifest);
-    return routes;
-  });
+// The rename of "lineup" to "wave" and of the wave file to the item file, over every board in the manifest. On each
+// board: a board.json items file named wave.json is renamed items.json beside it, keeping its slug (written to
+// board.json when it had none), so card keys, threads and topics keep their names; each item file's `lineups` becomes
+// `waves`, and each lineup-<slug>.md note beside it wave-<slug>.md; in every data/*.json a whole string wave:<slug> (a
+// wave file's triage topic) becomes file:<slug>, then lineup:<slug> becomes wave:<slug>; an archive entry's `wave`
+// becomes `file`, and an architecture review's {wave, lineup} its {wave} or {file}. events.jsonl and the threads stay
+// as written. → the routes of the boards it ran on
+async function migrateWaveNames(manifest) {
+  const routes = [];
+  for (const { route, dir } of listBoards(manifest)) {
+    await renameWaveNames(dir);
+    routes.push(route);
+  }
+  return routes;
 }
 
 const readPlain = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
-const writePlain = (file, value) => replace(file, JSON.stringify(value, null, 2) + '\n');
+const writePlain = (file, value, options) => replace(file, JSON.stringify(value, null, 2) + '\n', options);
 const renamedTopic = (v) => (typeof v !== 'string' ? v : v.replace(/^wave:([a-z0-9-]+)$/, 'file:$1').replace(/^lineup:([a-z0-9-]+)$/, 'wave:$1'));
 const renameTopics = (v) => (Array.isArray(v) ? v.map(renameTopics)
   : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [renamedTopic(k), renameTopics(x)])) : renamedTopic(v));
@@ -318,21 +313,13 @@ async function renameWaveNames(site) {
 }
 
 // docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md
-// The drop of waves, over every board in the manifest, once (its `migrated` list records 'drop-waves'). Run by the hub
-// as it starts, after migrateWaveNames, before it starts any board. In each item file a dep wave:<slug> becomes the
-// cards that wave held, by bare id in their own file, and `waves` goes; every other dep, Parent and Related to stays.
-// The wave-<slug>.md notes stay on disk as written. → the routes of the boards it changed
-export async function migrateDropWaves() {
-  return withManifestLock(async () => {
-    const manifest = readManifest();
-    const done = Array.isArray(manifest.migrated) ? manifest.migrated : [];
-    if (done.includes('drop-waves') || !Object.keys(manifest.sites || {}).length) return [];
-    const routes = [];
-    for (const { route, dir } of listBoards(manifest)) if (await dropWaves(dir)) routes.push(route);
-    manifest.migrated = [...done, 'drop-waves'];
-    await writeManifest(manifest);
-    return routes;
-  });
+// The drop of waves, over every board in the manifest, after migrateWaveNames. In each item file a dep wave:<slug>
+// becomes the cards that wave held, by bare id in their own file, and `waves` goes; every other dep, Parent and Related
+// to stays. The wave-<slug>.md notes stay on disk as written. → the routes of the boards it changed
+async function migrateDropWaves(manifest) {
+  const routes = [];
+  for (const { route, dir } of listBoards(manifest)) if (await dropWaves(dir)) routes.push(route);
+  return routes;
 }
 
 async function dropWaves(site) {
@@ -355,4 +342,75 @@ async function dropWaves(site) {
     changed = true;
   }
   return changed;
+}
+
+// docs/adr/2026-11-17-0601-migrations-run-once-per-ledger-from-one-list.md
+// Every data migration, in the order it runs: {id, scope, run}. A hub one runs once for the hub, its id kept in the
+// manifest's `migrated` list, as the hub starts and before it starts any board; run({manifest, ...}) changes the manifest
+// it is given, which the runner writes. A board one runs once per board, its id kept in the board's data/migrated.json,
+// as the board server starts; run({site, archived}) writes the board's files itself. Each run → the lines to log.
+// An id stays in the list until migrationsLeft finds no ledger without it; then its entry and code can go.
+const routesLine = (routes, text) => (routes.length ? [text(routes.map((r) => `/${r}`).join(', '))] : []);
+export const MIGRATIONS = [
+  { id: 'board-github', scope: 'hub', run: async (ctx) => routesLine(await migrateBoardRepos(ctx), (r) => `manifest: recorded GitHub repos for ${r}`) },
+  { id: 'hub-local', scope: 'hub', run: async (ctx) => routesLine([await migrateHubBoard(ctx)].filter(Boolean), (r) => `manifest: ${r}, the hub board, builds from its own folder's local main`) },
+  { id: 'wave-names', scope: 'hub', run: async ({ manifest }) => routesLine(await migrateWaveNames(manifest), (r) => `boards: lineups renamed to waves and wave files to item files on ${r}`) },
+  { id: 'drop-waves', scope: 'hub', run: async ({ manifest }) => routesLine(await migrateDropWaves(manifest), (r) => `boards: waves dropped on ${r}`) },
+  { id: 'followups', scope: 'board', run: ({ site }) => migrateFollowups(site) },
+  { id: 'statuses', scope: 'board', run: ({ site, archived }) => migrateStatuses(site, archived) },
+  { id: 'phases', scope: 'board', run: ({ site, archived }) => migratePhases(site, archived) },
+  { id: 'clear-build-phases', scope: 'board', run: ({ site }) => clearBuildPhases(site) },
+  { id: 'created', scope: 'board', run: ({ site }) => migrateCreated(site) },
+  { id: 'gates', scope: 'board', run: ({ site }) => migrateGates(site) },
+  { id: 'discussing', scope: 'board', run: ({ site }) => discussNewCards(site) },
+  { id: 'staging', scope: 'board', run: ({ site }) => stageImplementAsks(site) },
+  { id: 'split-notes', scope: 'board', run: ({ site, archived }) => splitSharedNotes(site, archived) },
+  { id: 'dead-fields', scope: 'board', run: async ({ site, archived }) => { await stripDeadFields(site, archived); return []; } },
+];
+
+const ranOf = (ledger) => (Array.isArray(ledger?.migrated) ? ledger.migrated : []);
+const boardLedger = (site) => path.join(site, 'data', 'migrated.json');
+const readLedger = (file) => readPlain(file).catch(() => ({}));
+
+// Runs each migration of scope its ledger doesn't list, in list order, each under its ledger's lock (the manifest's, or
+// the board's data/migrated.json's), and adds its id to the ledger once it returns. A hub with no boards in its
+// manifest runs none, so the first board it gets is migrated. A migration that throws is reported by error and left off
+// its ledger, so it runs again at the next start; the ones after it still run. ctx goes to each run: the board's site
+// and archive reader, or the hub's git runner. → the ids it ran
+export async function runMigrations(scope, { list = MIGRATIONS, log = console.log, error = console.error, ...ctx } = {}) {
+  const ran = [];
+  for (const m of list.filter((x) => x.scope === scope)) {
+    try {
+      if (await (scope === 'hub' ? runHubOnce(m, ctx, log) : runBoardOnce(m, ctx, log))) ran.push(m.id);
+    } catch (e) { error(`${m.id} migration failed:`, e.message); }
+  }
+  return ran;
+}
+
+const runHubOnce = (m, ctx, log) => withManifestLock(async () => {
+  const manifest = readManifest();
+  if (!Object.keys(manifest.sites || {}).length || ranOf(manifest).includes(m.id)) return false;
+  for (const line of await m.run({ ...ctx, manifest })) log(line);
+  manifest.migrated = [...ranOf(manifest), m.id];
+  await writeManifest(manifest);
+  return true;
+});
+
+const runBoardOnce = (m, ctx, log) => withFileLock(boardLedger(ctx.site), async () => {
+  const ledger = await readLedger(boardLedger(ctx.site));
+  if (ranOf(ledger).includes(m.id)) return false;
+  for (const line of await m.run(ctx)) log(line);
+  await writePlain(boardLedger(ctx.site), { ...ledger, migrated: [...ranOf(ledger), m.id] }, { told: false });
+  return true;
+}, { heartbeat: true });
+
+// The evidence a migration can go: for each of list, the ledgers that don't list it yet, a board's by its route and
+// the manifest's as 'hub'. A closed board counts, as '<route> (closed)': reopened, its server runs what its ledger
+// lacks. → [{id, scope, left}]
+export async function migrationsLeft(list = MIGRATIONS) {
+  const manifest = readManifest();
+  const closed = Object.entries(manifest.closed || {}).filter(([, entry]) => isBoardSite(entry?.site)).map(([route, entry]) => ({ route: `${route} (closed)`, dir: entry.site.dir }));
+  const boards = await Promise.all([...listBoards(manifest), ...closed].map(async ({ route, dir }) => ({ route, ran: ranOf(await readLedger(boardLedger(dir))) })));
+  return list.map(({ id, scope }) => ({ id, scope,
+    left: scope === 'hub' ? (ranOf(manifest).includes(id) ? [] : ['hub']) : boards.filter((b) => !b.ran.includes(id)).map((b) => b.route) }));
 }

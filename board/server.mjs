@@ -20,7 +20,7 @@
 // public/, since iOS's installer fetches the manifest and .ipa with no cookies. A builder working on an item has a record in
 // agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the item file. An item's parent is the key of the card it was spun out of, which makes it a follow-up, and
 // its related the keys of cards it is Related to; an item file's older followups list moves into its items as the server
-// starts (migrations.mjs migrateFollowups). Item files are storage only: deps order the cards, and parent and related group
+// starts (migrations.mjs MIGRATIONS 'followups'). Item files are storage only: deps order the cards, and parent and related group
 // them (docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md). domain.mjs decides lanes and card state from what snapshot.mjs reads, for this server and the CLI alike.
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
@@ -353,8 +353,8 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathS
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, heldMerge, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, moveCard, startPlanner, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readMarks, readNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
-import { clearBuildPhases, discussNewCards, migrateCreated, migrateFollowups, migrateGates, migratePhases, migrateStatuses, stageImplementAsks, stripDeadFields } from './migrations.mjs';
+import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, heldMerge, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, moveCard, startPlanner, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readMarks, readNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
+import { runMigrations } from './migrations.mjs';
 import { appendEvents as appendBoardEvents, appendLine, boardConfig, editJSON, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
@@ -2344,18 +2344,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // startup passes' included, calls changed directly; one in another process POSTs /_claude/changed.
   const untell = tellOnWrite(here, changed);
 
-  // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
-  try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
   const archived = archiveReader(here);
-  try { for (const line of await migrateStatuses(here, archived)) console.log(line); } catch (e) { console.error('status migration:', e.message); }
-  try { for (const line of await migratePhases(here, archived)) console.log(line); } catch (e) { console.error('phase migration:', e.message); }
-  try { for (const line of await clearBuildPhases(here)) console.log(line); } catch (e) { console.error('build phase clear:', e.message); }
-  try { for (const line of await migrateCreated(here)) console.log(line); } catch (e) { console.error('created backfill:', e.message); }
-  try { for (const line of await migrateGates(here)) console.log(line); } catch (e) { console.error('gate backfill:', e.message); }
-  try { for (const line of await discussNewCards(here)) console.log(line); } catch (e) { console.error('discussing migration:', e.message); }
-  try { for (const line of await stageImplementAsks(here)) console.log(line); } catch (e) { console.error('staging migration:', e.message); }
-  try { for (const line of await splitSharedNotes(here, archived)) console.log(line); } catch (e) { console.error('notes split:', e.message); }
-  try { await stripDeadFields(here, archived); } catch (e) { console.error('dead-field strip:', e.message); }
+  // docs/adr/2026-11-17-0601-migrations-run-once-per-ledger-from-one-list.md
+  await runMigrations('board', { site: here, archived });
   await launchCutOffBuilds();
   await launchLostBuilds(0);
   await fileNewAsks({ starting: true });

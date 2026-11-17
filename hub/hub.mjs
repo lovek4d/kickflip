@@ -171,10 +171,9 @@
 // hub itself running (../shared/service.mjs, `kickflip init`).
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so the hub can tell when the
-// files changed under it (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md), and makes a hub board that
-// built on the kickflip clone a local board of its folder, once (board-repo.mjs migrateHubBoard). Once, before any board
-// starts, it renames every board's lineups to waves and its wave file to its item file (board/migrations.mjs migrateWaveNames),
-// then drops every board's waves (board/migrations.mjs migrateDropWaves).
+// files changed under it (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md), and
+// runs, before any board starts, each hub migration its manifest's `migrated` list doesn't name (board/migrations.mjs
+// runMigrations), such as making a hub board that built on the kickflip clone a local board of its folder.
 // Every 15 seconds it counts each board's watched lines, and resumes the recorded session of a board that got an event
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
 // docs/adr/2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md). A tap on an asleep board's page wakes it at once
@@ -232,7 +231,7 @@ import { checkSessions, compactFullContexts, logStartPrompt, sessionOf, startSig
 import { codeRestartHeld, logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
-import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
+import { boardRepo, changeBoardRepo } from './board-repo.mjs';
 import { boardModel, changeBoardModel, changeHubOrchestratorModel, restartOnModel } from './board-model.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
@@ -251,7 +250,7 @@ import { serveFiles } from './files.mjs';
 import { upgrader } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
 import { fallBackFromLinear, saveUpload } from '../board/store.mjs';
-import { migrateDropWaves, migrateWaveNames } from '../board/migrations.mjs';
+import { runMigrations } from '../board/migrations.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
@@ -341,10 +340,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   async function settled() { while (passes.size) await Promise.allSettled([...passes]); }
 
   try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.length} files)`); } catch (e) { log('could not record the hub code hash:', e.message); }
-  try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
-  try { const route = await migrateHubBoard(); if (route) log(`manifest: /${route}, the hub board, builds from its own folder's local main`); } catch (e) { log('hub board migration failed:', e.message); }
-  try { const routes = await migrateWaveNames(); if (routes.length) log(`boards: lineups renamed to waves and wave files to item files on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('wave name migration failed:', e.message); }
-  try { const routes = await migrateDropWaves(); if (routes.length) log(`boards: waves dropped on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('drop waves migration failed:', e.message); }
+  await runMigrations('hub', { log, error: log });
   try { const { routes, loginItem } = await migrateCellarNode(); if (routes.length) log(`manifest: ${routes.map((r) => `/${r}`).join(', ')} spawn node by Homebrew's link`); if (loginItem) log("hub login item file: spawns node by Homebrew's link"); } catch (e) { log('Cellar node migration failed:', e.message); }
   try { const moved = await migrateTriage(); if (moved) log(`boards: auto_triage moved to the hub's Triage overnight switch, ${moved.on ? 'on' : 'off'}`); } catch (e) { log('triage migration failed:', e.message); }
   try { const gone = sweepStaleTempsUnder(HOME); if (gone.length) log(`swept ${gone.length} temp files left by killed writes`); } catch (e) { log('temp file sweep failed:', e.message); }

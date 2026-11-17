@@ -14,7 +14,7 @@ const SLACK = ['readPRSlack', 'postLink', 'recordReaction', 'reviewDue', 'record
   'followedSlackThreads', 'markSlackThreadHeard', 'slackOutbox', 'markSlackPost', 'slackThread', 'slackSkip', 'slackAnswer', 'slackSay', 'slackLink',
   'slackTask', 'dayThread', 'postDigest'];
 const MIGRATIONS = ['migrateFollowups', 'migrateStatuses', 'migrateGates', 'migrateCreated', 'migratePhases', 'clearBuildPhases', 'discussNewCards',
-  'stageImplementAsks', 'stripDeadFields', 'migrateWaveNames', 'migrateDropWaves'];
+  'stageImplementAsks', 'stripDeadFields', 'runMigrations', 'migrationsLeft'];
 
 const store = await import('./store.mjs');
 const slack = await import('./slack-store.mjs');

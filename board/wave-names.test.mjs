@@ -7,7 +7,9 @@ import { tempDir } from '../shared/temp-dir.mjs';
 
 const home = fs.realpathSync(tempDir('wave-names-'));
 process.env.HOME = home;
-const { migrateWaveNames } = await import('./migrations.mjs');
+const { MIGRATIONS, runMigrations } = await import('./migrations.mjs');
+// The hub's wave-names migration through the runner, as a starting hub runs it. → the lines it logged
+const migrateWaveNames = async () => { const lines = []; await runMigrations('hub', { list: MIGRATIONS.filter((m) => m.id === 'wave-names'), log: (l) => lines.push(l) }); return lines; };
 
 const sites = path.join(home, '.claude', 'kickflip', 'sites');
 const manifestFile = path.join(home, '.claude', 'kickflip', 'manifest.json');
@@ -28,7 +30,7 @@ test("a starting hub renames every board's lineups to waves and its wave file to
   write(at('hub', 'board.json'), { title: 'Hub', items: 'data/wave.json', slug: 'hub' });
   write(at('hub', 'data', 'wave.json'), { items: [{ id: 'GH-1', title: 'One' }] });
 
-  assert.deepEqual(await migrateWaveNames(), ['plain', 'hub']);
+  assert.deepEqual(await migrateWaveNames(), ['boards: lineups renamed to waves and wave files to item files on /plain, /hub']);
 
   assert.deepEqual(read(at('plain', 'board.json')), { title: 'Plain', items: 'data/items.json', slug: 'wave' });
   assert.equal(fs.existsSync(at('plain', 'data', 'wave.json')), false);
