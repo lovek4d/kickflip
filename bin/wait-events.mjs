@@ -168,6 +168,7 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
     // Each pass that finds nothing to wake for counts in watcher.json, which a test waits on instead of a timer.
     let checks = 0;
     for (;;) {
+      // poll: watcher-pass
       await sleep(2000);
       const s = siteOf(route);
       if (s === undefined) continue;

@@ -57,6 +57,9 @@ export const POLLS = Object.freeze([
   { id: 'morning-wake', group: 'sessions', name: 'Morning wake', what: 'Wakes each board’s session once, whether GitHub changed or not.',
     every: DAY, cadence: QUIET_END, runs: 'Hub', where: 'hub/schedule.mjs' },
 
+  { id: 'watcher-pass', group: 'sessions', name: 'Orchestrator watcher', what: 'Looks at the board’s event files for something to wake the orchestrator for, and exits when its session dies; a second 2 s pause batches events that arrive together.',
+    every: 2 * SECOND, runs: 'Each board', where: 'bin/wait-events.mjs' },
+
   // Board upkeep
   { id: 'board-minute', group: 'board', name: 'Board minute', what: 'Everything a board checks about itself, once a minute.', every: MINUTE, runs: 'Each board', where: 'board/server.mjs',
     steps: [
@@ -83,9 +86,9 @@ export const POLLS = Object.freeze([
       { name: 'Mac load sample' },
       { name: 'Owner presence', what: 'and starts the GitHub, Linear and Slack poll when due', cadence: PRESENCE },
       { name: 'Settle Starting boards' },
-      { name: 'Morning wake', cadence: QUIET_END },
+      { name: 'Morning wake', cadence: `checked every 15 s, due once a day, at ${QUIET_END}` },
       { name: 'Keep awake' },
-      { name: 'npm update check', cadence: 'every 15 min' },
+      { name: 'npm update check', cadence: 'checked every 15 s, due every 15 min' },
       { name: 'Prune dead prompts' },
       { name: 'Session check', what: 'resumes or restarts sessions, /compact when full, logged-out push' },
     ] },
@@ -116,6 +119,9 @@ export const POLLS = Object.freeze([
   { id: 'hub-refresh', group: 'pages', name: 'Hub page refresh', what: 'Reloads the hub page and hub settings while they show.', every: 30 * SECOND, runs: 'Each open page', where: 'board/public/hub-kit.js' },
 
   // Back-offs, not polls
+  { id: 'board-asks-wait', group: 'backoff', name: 'asks --wait', what: 'only while a board’s ask to another board is unanswered; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/store.mjs' },
+  { id: 'helper-wait', group: 'backoff', name: 'agent wait', what: 'only while a builder’s helper runs; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/store.mjs' },
+  { id: 'builder-asks-wait', group: 'backoff', name: 'builder asks --wait', what: 'only while a builder’s ask waits on the orchestrator; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/store.mjs' },
   { id: 'try-group-wait', group: 'backoff', name: 'Try run stop wait', what: 'only while a stopped try run’s processes are exiting', every: 20, runs: 'Hub', where: 'hub/try.mjs' },
   { id: 'agent-session-wait', group: 'backoff', name: 'Agent session wait', what: 'only while a starting agent hasn’t named its session yet', every: 100, runs: 'Each board', where: 'board/agents.mjs' },
   { id: 'try-port-wait', group: 'backoff', name: 'Try run port wait', what: 'only while a try run starts', every: 250, runs: 'Hub', where: 'hub/try.mjs' },

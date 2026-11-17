@@ -1188,6 +1188,7 @@ export async function listBoardAsks(site, { wait = false, timeout = 9, every = 2
     const waiting = asks.filter((a) => !answers.has(a.id));
     if (!wait || !waiting.length) return { lines };
     if (now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on ${[...new Set(waiting.map((a) => `/${a.to}`))].join(', ')} after ${minutes} minutes; run asks --wait again`);
+    // poll: board-asks-wait
     await new Promise((resolve) => setTimeout(resolve, every));
   }
 }
@@ -5829,6 +5830,7 @@ export async function waitHelper(site, key, { name, agent = 'main', timeout = 9,
       const pid = helper.session?.pid ?? null;
       if (pid && !alive(pid)) fail(`helper ${name}'s process exited without builder done; do its task yourself`);
       if (now() >= deadline) fail(`helper ${name} is still ${helper.started ? 'running' : 'waiting to launch'} after ${minutes} minutes; run agent wait again`);
+      // poll: helper-wait
       await new Promise((resolve) => setTimeout(resolve, every));
     }
   } finally {
@@ -6091,6 +6093,7 @@ export async function listAsks(site, key, { wait = false, timeout = 9, every = 2
     const reply = await builderReply(site, key, {});
     if (reply.length) return { lines: [...lines, ...reply] };
     if (now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on the orchestrator after ${minutes} minutes; run builder asks ${key} --wait again`);
+    // poll: builder-asks-wait
     await new Promise((resolve) => setTimeout(resolve, every));
   }
 }

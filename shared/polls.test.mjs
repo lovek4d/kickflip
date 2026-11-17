@@ -66,3 +66,14 @@ test('a cadence reads as words, with a clock job’s ticks when it waits more th
   assert.equal(of('board-check'), 'every 15 s');
   assert.equal(of('review-digest'), 'quiet hours’ end');
 });
+
+test('the watcher and the CLI wait loops are in the registry, and a tick’s gates read as checked each tick', () => {
+  const by = (id) => POLLS.find((p) => p.id === id);
+  assert.deepEqual(['watcher-pass', 'board-asks-wait', 'helper-wait', 'builder-asks-wait'].map((id) => [by(id).every, by(id).where]),
+    [[2000, 'bin/wait-events.mjs'], [2000, 'board/store.mjs'], [2000, 'board/store.mjs'], [2000, 'board/store.mjs']]);
+  assert.equal(by('watcher-pass').group, 'sessions');
+  for (const id of ['board-asks-wait', 'helper-wait', 'builder-asks-wait']) assert.equal(by(id).group, 'backoff', id);
+  const steps = Object.fromEntries(by('tick').steps.map((s) => [s.name, s.cadence]));
+  assert.equal(steps['npm update check'], 'checked every 15 s, due every 15 min');
+  assert.equal(steps['Morning wake'], 'checked every 15 s, due once a day, at quiet hours’ end');
+});
