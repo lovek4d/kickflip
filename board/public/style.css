@@ -535,7 +535,6 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
    shell.js marks the page .shared-view, which hides Board settings and the architecture review, and, unless the person
    has Full on this board (.shared-full; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md), the +, every
    composer and a card's buttons, keeping its links (Visit, Notes, Open questions). Merge shows disabled under Full. */
-.shared-view :is(#settingsLink, #archBulb) { display: none !important; }
 .shared-view:not(.shared-full) :is(#compose, [data-composer], .actions button, button[data-confirm]) { display: none !important; }
 .shared-full button[data-confirm="merge"] { opacity: .45; pointer-events: none; }
 /* A script offer (ui-threads.js scriptCard; docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md):
@@ -667,14 +666,6 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 2px; }
   .search-bar { top: 56px; margin-top: -12px; }
 }
 .top .nav #refresh:disabled, .top .nav a.icon[aria-disabled="true"] { opacity: .35; pointer-events: none; }
-/* The foot of the board (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md): the bulb and the gear, centred under the lanes.
-   [the bulb runs an architecture review of the board's repo](docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md): it glows orange while an architecture review runs */
-.board-foot { display: flex; justify-content: center; gap: 8px; margin: 20px 0 0; }
-.board-foot .arch-bulb, .board-foot a.icon { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin: 0; padding: 4px; border: 0; line-height: 1; color: var(--muted); }
-.board-foot :is(.arch-bulb, a.icon):hover { color: var(--text); }
-.board-foot[hidden], .board-foot .arch-bulb[hidden] { display: none; }
-.board-foot .arch-bulb.running { color: var(--color-notice); }
-.board-foot a.icon[aria-disabled="true"] { opacity: .35; pointer-events: none; }
 /* The pages switch: the board header's ? with the open-question count on its corner, and Waiting on you's check back to the board. */
 .top .pages-switch { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; width: auto; height: auto; margin: 0; padding: 4px; border: 0; border-radius: 0; line-height: 1; color: var(--muted); }
 .top .pages-switch:hover { color: var(--text); }
@@ -700,9 +691,6 @@ button.waits-open:hover .waits-title { text-decoration: underline; }
 /* A row's step takes its age colour, with no dot (docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md). */
 .waits-step { font-weight: 600; }
 .waits-step.it-red { color: var(--color-danger); } .waits-step.it-orange { color: var(--color-notice); } .waits-step.it-grey { color: var(--color-quiet); }
-.arch-bulb.running svg { filter: drop-shadow(0 0 4px currentColor); }
-@media (prefers-reduced-motion: no-preference) { .arch-bulb.running svg { animation: arch-glow 1.4s ease-in-out infinite; } }
-@keyframes arch-glow { 50% { filter: drop-shadow(0 0 1px currentColor); opacity: .55; } }
 .arch-body { display: grid; gap: 12px; padding-bottom: 6px; }
 .arch-body p { margin: 0; font-size: 13.5px; line-height: 1.45; }
 .arch-last { display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 13.5px; }
@@ -742,7 +730,10 @@ main > * { transition: opacity .25s ease; }
   border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 28px rgba(0, 0, 0, .18); }
 .board-menu-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 8px;
   background: none; font-size: 14px; text-align: left; }
+.board-menu-item { color: inherit; text-decoration: none; cursor: pointer; }
 .board-menu-item:is(:hover, :focus-visible) { background: var(--chip); }
+.board-menu-item[aria-disabled="true"] { opacity: .35; pointer-events: none; }
+.board-menu-item .chev { font-size: 16px; }
 .board-menu-item .it { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .join-sheet .join-state { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
 .join-sheet p { margin: 8px 0 0; line-height: 1.4; }

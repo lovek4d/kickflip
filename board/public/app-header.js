@@ -5,7 +5,7 @@
 // open-question count as its badge (docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md);
 // and the wake: any tap on an asleep board's page, refresh included, asks the hub to resume its session
 // (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md); and the board menu the board's
-// name opens, with Join in terminal. Needs app-core.js.
+// name opens, with Join in terminal, Settings, Repo review and Pause. Needs app-core.js.
 BoardView.part((B) => {
   const { $, state, toast } = B;
   const { statusLine, freshSig, nextFresh, githubLine, remoteLine, linksList, setupCard, pendingCheck, githubRefresh, headerControls } = BoardUI;
@@ -136,8 +136,18 @@ BoardView.part((B) => {
   const menuOpen = $('#boardMenuOpen');
   const joinSheet = $('#joinSheet');
   const joinNow = () => BoardUI.joinState(state.board?.join, { watcher: state.board?.checks?.watcher, link: state.link, waking: state.waking });
+  // The pause row reads the hub's pause for this board (B.pause): the owner's Pause board is manual 'board'.
+  const menuOptions = () => {
+    const pause = B.pause?.();
+    const a = state.board?.arch;
+    return {
+      settings: headerControls(controls).settings,
+      arch: a ? { running: Boolean(a.last?.running), at: a.last?.at } : null,
+      pause: { paused: Boolean(pause?.paused), mine: pause?.manual === 'board', words: BoardUI.pauseUntilWords(pause?.resets_at) },
+    };
+  };
   function renderJoin() {
-    if (!menu.hidden) BoardUI.setHTML(menu, BoardUI.boardMenu(joinNow()));
+    if (!menu.hidden) BoardUI.setHTML(menu, BoardUI.boardMenu(joinNow(), menuOptions()));
     if (joinSheet.open) BoardUI.setHTML($('#joinBody'), BoardUI.joinSheet(state.board?.join, joinNow()));
   }
   function showMenu(open) {
@@ -148,13 +158,57 @@ BoardView.part((B) => {
   B.on(menuOpen, 'click', () => { if (state.board && !shared()) showMenu(menu.hidden); });
   B.on(document, 'click', (ev) => { if (!menu.hidden && !ev.target.closest('#boardMenu, #boardMenuOpen')) showMenu(false); });
   B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && !menu.hidden) { showMenu(false); menuOpen.focus(); } });
+  // Pause board from the menu: the duration chips (HubKit.durationPicker, as Board Settings draws them) in a sheet, and
+  // Resume at one tap, each posting {pause} to api/pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
+  const pauseSheet = $('#pauseSheet');
+  const pickers = HubKit.durationPickers(B);
+  const closePause = () => BoardUI.closeSheet(pauseSheet, B.later);
+  async function openPause() {
+    pauseSheet.classList.remove('closing');
+    BoardUI.setHTML($('#pauseBody'), '<p class="muted small">Loading…</p>');
+    BoardUI.openSheet(pauseSheet);
+    try {
+      const r = await fetch(B.site.url('api/settings'), { headers: { accept: 'application/json' } });
+      const { pause_choices: choices } = await r.json();
+      if (!B.alive() || !pauseSheet.open) return;
+      const now = Date.now();
+      const until = (ms) => BoardUI.pauseUntilWords(ms === null ? 'forever' : new Date(now + ms).toISOString());
+      $('#pauseBody').innerHTML = HubKit.durationPicker({ id: 'pauseMenu', title: 'Pause board', icon: '', action: B.site.url('api/pause'), name: 'pause', button: 'Resume',
+        choices: choices.map((c) => ({ value: c.value, label: c.label, until: until(c.ms) })) });
+      pickers.painted();
+    } catch { if (B.alive()) $('#pauseBody').textContent = 'Could not load the choices. Is the host awake?'; }
+  }
+  async function sendPause(pause, said) {
+    try {
+      const r = await fetch(B.site.url('api/pause'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pause }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not save. Is the host awake?');
+      if (!B.alive()) return;
+      toast(said);
+      await B.loadBoard();
+    } catch (e) { if (B.alive()) toast(e.message); }
+  }
   B.on(menu, 'click', (ev) => {
-    if (!ev.target.closest('[data-join-open]')) return;
+    const hit = (sel) => ev.target.closest(sel);
+    if (hit('[aria-disabled="true"]')) { ev.preventDefault(); return; }
+    if (!hit('[data-join-open], #settingsLink, [data-arch-sheet], [data-pause-open], [data-pause-resume]')) return;
     showMenu(false);
-    joinSheet.classList.remove('closing');
-    BoardUI.openSheet(joinSheet);
-    renderJoin();
+    if (hit('[data-join-open]')) {
+      joinSheet.classList.remove('closing');
+      BoardUI.openSheet(joinSheet);
+      renderJoin();
+    }
+    if (hit('[data-pause-open]')) openPause();
+    if (hit('[data-pause-resume]')) sendPause('off', 'Resumed. New work starts again.');
   });
+  B.on(pauseSheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, pauseSheet) || ev.target.closest('#pauseClose')) closePause(); });
+  B.on(pauseSheet, 'submit', (ev) => {
+    ev.preventDefault();
+    const pause = ev.submitter?.value ?? ev.target.querySelector('input[type="hidden"]')?.value;
+    closePause();
+    sendPause(pause, 'Paused. New work on this board waits.');
+  });
+  B.atUnmount(BoardUI.swipeToDismiss(pauseSheet));
+  B.on(pauseSheet, 'cancel', (ev) => { ev.preventDefault(); closePause(); });
   const closeJoin = () => BoardUI.closeSheet(joinSheet, B.later);
   B.on($('#joinClose'), 'click', closeJoin);
   B.on(joinSheet, 'click', (ev) => {
@@ -173,8 +227,7 @@ BoardView.part((B) => {
     const on = headerControls(controls);
     $('#refresh').disabled = !on.refresh;
     $('#refresh').classList.toggle('spinning', on.spin);
-    const gear = $('#settingsLink');
-    if (on.settings) { gear.removeAttribute('aria-disabled'); gear.removeAttribute('tabindex'); } else { gear.setAttribute('aria-disabled', 'true'); gear.tabIndex = -1; }
+    renderJoin();
   }
   const headerWired = () => { controls.wired = true; applyControls(); };
   // Offline, the board stays as it was and reads as before; only the header time turns red
@@ -194,9 +247,6 @@ BoardView.part((B) => {
   }
   const linkUp = () => setLink('online');
   const linkDown = () => { if (state.link !== 'reconnecting') setLink('offline'); };
-  B.on($('#settingsLink'), 'click', (ev) => {
-    if (ev.target.closest('a[aria-disabled="true"]')) { ev.preventDefault(); ev.stopImmediatePropagation(); }
-  }, true);
   // A load can return in milliseconds, so the spin and "reconnecting…" hold long enough to read.
   const RELOAD_MIN = 700;
   async function reloading(load) {

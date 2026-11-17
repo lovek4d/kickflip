@@ -1,10 +1,9 @@
-// The bulb at the foot of the board and its review sheet: the board's last architecture review and Run, which confirms and asks the
-// board server to start one (docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md). The bulb glows
+// The board menu's Repo review row and its review sheet: the board's last architecture review and Run, which confirms and asks the
+// board server to start one (docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md). The menu row reads Running
 // while a review runs. Needs app-core.js.
 BoardView.part((B) => {
   const { $, state } = B;
   const { esc } = BoardUI;
-  const bulb = $('#archBulb');
   const sheet = $('#archSheet');
   const day = (iso) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
   let starting = false;
@@ -12,7 +11,7 @@ BoardView.part((B) => {
   function body(a) {
     const last = a.last;
     if (last?.running) {
-      return `<p>Reviewing ${esc(a.repo)} since ${esc(BoardUI.time(last.at))}. The bulb glows until its findings are ready.</p>`
+      return `<p>Reviewing ${esc(a.repo)} since ${esc(BoardUI.time(last.at))}. The Repo review row reads Running until its findings are ready.</p>`
         + `<button type="button" class="arch-run" data-arch-open="${esc(last.key)}">Open ${esc(last.ref)}</button>`;
     }
     const lastHtml = last ? `<div class="arch-last"><span>Last review: <b>${esc(last.title)}</b> · ${esc(day(last.at))}</span>`
@@ -24,12 +23,6 @@ BoardView.part((B) => {
 
   function renderArch(d) {
     const a = d.arch;
-    bulb.hidden = !a;
-    const running = Boolean(a?.last?.running);
-    bulb.classList.toggle('running', running);
-    const label = running ? 'Architecture review running' : 'Architecture review';
-    bulb.setAttribute('aria-label', label);
-    bulb.title = label;
     if (sheet.open && a) $('#archBody').innerHTML = body(a);
     if (sheet.open && !a) sheet.close();
   }
@@ -58,9 +51,9 @@ BoardView.part((B) => {
     finally { starting = false; if (state.board) renderArch(state.board); }
   }
 
-  B.on(bulb, 'click', () => {
+  B.on($('#boardMenu'), 'click', (ev) => {
     const a = state.board?.arch;
-    if (!a || sheet.open) return;
+    if (!ev.target.closest('[data-arch-sheet]') || !a || sheet.open) return;
     $('#archBody').innerHTML = body(a);
     BoardUI.openSheet(sheet);
   });

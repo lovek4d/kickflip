@@ -337,10 +337,8 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.match(logo, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Boards"><img src="kickflip\.png" alt=""><\/a><h1>iOS &lt;Orchestrator&gt;<\/h1><\/div>/);
   assert.match(logo, /<button class="ghost spinning" id="refresh" type="button" disabled/);
   assert.match(logo, /<span class="muted" id="status">…<\/span>/);
-  assert.doesNotMatch(logo, /settingsLink|archBulb|pages-switch/, 'the gear and bulb sit at the foot of the board, and only a board page has the switch');
+  assert.doesNotMatch(logo, /settingsLink|archBulb|pages-switch/, 'the gear and bulb are rows of the board menu, and only a board page has the switch');
   assert.equal(text(logo), 'iOS <Orchestrator> …');
-  const foot = ui.boardFoot();
-  assert.match(foot, /^<div class="board-foot" hidden><button class="ghost icon arch-bulb" id="archBulb" type="button"[^>]*>.*<\/button><a href="settings\.html" id="settingsLink" class="ghost icon"[^>]*aria-disabled="true" tabindex="-1" aria-haspopup="dialog">/);
 
   // docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md
   const board = ui.header({ lead: 'logo', title: 'Board', pages: 'questions' });

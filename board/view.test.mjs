@@ -391,7 +391,8 @@ test('offline, the board stays readable with no toast and nothing held: the head
   B.linkDown();
   assert.deepEqual([b.root.querySelectorAll('.toast').length, b.root.classList.contains('offline'), B.state.link], [0, true, 'offline']);
   assert.match(b.root.querySelector('#status').innerHTML, /class="fresh" title="Offline: can't reach the host/);
-  assert.equal(b.root.querySelector('#settingsLink').getAttribute('aria-disabled'), null);
+  b.page.fire(b.root.querySelector('#boardMenuOpen'), 'click', { target: b.root.querySelector('#boardMenuOpen') });
+  assert.equal(b.root.querySelector('#boardMenu #settingsLink').getAttribute('aria-disabled'), null, 'Settings stays live offline');
   const bump = bumpItem(b, 'w/T2');
   assert.equal(b.page.fire(b.root, 'click', { target: bump }).defaultPrevented, true, 'the bump is taken, not held');
   const form = b.root.querySelector('form[data-reply="w/T1"]');
@@ -3108,7 +3109,7 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
 // seen: card key → its readAt on the board, the read mark board/server.mjs keeps for every device.
 // streaming: {open}, the shell's change stream as the view reads it (BoardView.create's streaming), or null for a board
 // outside the shell.
-function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, confirm = false, realDialogs = false, send = null, width = 390, streaming = null }) {
+function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, confirm = false, realDialogs = false, send = null, width = 390, streaming = null, pause = null }) {
   const { storage, localStorage } = memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ...stored]);
   const page = fakePage(localStorage);
   page.win.innerWidth = width;
@@ -3132,6 +3133,7 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, 
     const u = new URL(url, 'https://mac.ts.net/');
     if (opts.method === 'POST') { posts.push([u.pathname, JSON.parse(opts.body)]); return { ok: true, status: 200, json: async () => ({ ok: true }) }; }
     gets.push(u.pathname);
+    if (u.pathname.endsWith('/api/settings')) return { ok: true, status: 200, json: async () => ({ pause_choices: [{ value: '1h', label: '1h', ms: 3600_000 }, { value: 'forever', label: 'Forever', ms: null }] }) };
     // A board with a version answers 304 to a request naming it, as board/server.mjs does.
     if (u.pathname.endsWith('/api/board') && server.board.version && opts.headers?.['if-none-match'] === `"${server.board.version}"`) return { ok: false, status: 304, json: async () => { throw new Error('a 304 has no body'); } };
     // A reload naming a version the server holds gets a patch from it, as board/server.mjs answerBoard does.
@@ -3151,7 +3153,7 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, 
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.BoardView.markup({ title: 'A' });
   let signalled = null;
-  const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; }, ...(streaming ? { streaming: () => streaming.open } : {}) });
+  const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; }, ...(streaming ? { streaming: () => streaming.open } : {}), ...(pause ? { pause: () => pause.now } : {}) });
   view.mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
@@ -6173,14 +6175,15 @@ test("at every width a card page's URL, a prototype's or a visual's, by a link, 
   assert.ok(phone.doc.querySelector('.view-frame'), 'a board page that is no card page still frames');
 });
 
-test('the board gear opens a board-only modal over the same board, closes without history entries and keeps back to Hub', async () => {
+test('the board menu\'s Settings opens a board-only modal over the same board, closes without history entries and keeps back to Hub', async () => {
   const { win, doc, page, entries, position, boardUnmounts } = await shellPage('/_hub/');
   win.AppShell.open('/shop/#selectedCard=w%2FA1');
   const board = doc.querySelector('.view-board');
   const count = entries().length;
   const baseline = page.left();
-  const gear = board.querySelector('#settingsLink');
-  gear.removeAttribute('aria-disabled');
+  // The stubbed board view draws no menu, so the page's own row stands in for the one the view paints while it is open.
+  board.querySelector('#boardMenu').innerHTML = win.BoardUI.boardMenu('none');
+  const gear = board.querySelector('#boardMenu #settingsLink');
   doc.activeElement = gear;
   page.fire(doc, 'click', { target: gear, button: 0 });
   const modal = doc.querySelector('#boardSettingsModal');
@@ -7660,12 +7663,13 @@ test("a card page's sheet stands near full height on a phone, and from 900px tak
   assert.doesNotMatch(css, /pane-viewer|\.pv-top|board-pane\.viewing|board-pane\.widened/, 'the pane viewer is gone');
 });
 
-test("the board's foot, the bulb and the gear, stays hidden until the lanes first paint", async () => {
+// docs/adr/2026-11-17-1800-the-board-menu-holds-settings-repo-review-and-pause.md
+test("the board has no foot: the bulb and the gear are rows of the board menu", async () => {
   const b = boardOnDom({ board: boardOf([workCard('T1')]), threads: {} });
-  assert.equal(b.root.querySelector('main .board-foot').hidden, true, 'a board with no data yet has no visible foot');
   await b.settle();
-  assert.ok(b.root.querySelector('.lane'));
-  assert.equal(b.root.querySelector('main .board-foot').hidden, false, 'the foot shows once the lanes have painted');
+  assert.equal(b.root.querySelector('.board-foot'), null);
+  assert.equal(b.root.querySelector('#archBulb'), null);
+  assert.equal(b.root.querySelector('#settingsLink'), null, 'the menu draws Settings only while open');
   b.view.unmount();
 });
 
@@ -7680,9 +7684,7 @@ test("at every width the board header's ? carries the queue's count as a badge, 
     assert.deepEqual([ask.querySelector('.q-badge').hidden, ask.querySelector('.q-badge').textContent, ask.getAttribute('aria-label')], [false, '3', 'Open questions, 3 open'], 'two topics and one tap');
     assert.equal(b.root.querySelector('.top #archBulb'), null);
     assert.equal(b.root.querySelector('.top #settingsLink'), null);
-    const foot = b.root.querySelector('main .board-foot');
-    assert.ok(foot.querySelector('#archBulb'));
-    assert.equal(foot.querySelector('#settingsLink').getAttribute('href'), 'settings.html');
+    assert.equal(b.root.querySelector('.board-foot'), null);
     await b.change({ board: questionsBoard([]) });
     assert.deepEqual([ask.querySelector('.q-badge').hidden, ask.getAttribute('aria-label')], [true, 'Open questions']);
     const markup = b.page.win.AppViews.questions.markup();
@@ -7896,7 +7898,7 @@ test("the shell marks a board someone has Full on, follows a level change on the
 
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.shared-view:not\(\.shared-full\) :is\(#compose, \[data-composer\], \.actions button, button\[data-confirm\]\) \{ display: none !important; \}/);
-  assert.match(css, /\.shared-view :is\(#settingsLink, #archBulb\) \{ display: none !important; \}/);
+  assert.doesNotMatch(css, /board-foot|arch-bulb/);
   assert.match(css, /\.shared-full button\[data-confirm="merge"\] \{[^}]*pointer-events: none;/);
 });
 
@@ -7946,6 +7948,36 @@ test("the board's name opens the board menu, whose Join in terminal opens the sh
   assert.ok($('#joinBody [data-join-copy]'));
   assert.equal($('#joinBody [data-join-wake]'), null);
   assert.match($('#joinBody').textContent, /Server not answering/);
+  b.view.unmount();
+});
+
+test("the board menu's Repo review opens the review sheet, Pause opens the duration sheet and posts the chosen length, and Resume ends the owner's pause in one tap", async () => {
+  const pause = { now: { paused: false } };
+  const b = boardOnDom({ board: { ...boardOf([workCard('A1')]), arch: { repo: 'org/shop', last: null, waits: null } }, threads: {}, pause });
+  await b.settle();
+  const $ = (s) => b.root.querySelector(s);
+  const openMenu = () => { if ($('#boardMenu').hidden) b.page.fire($('#boardMenuOpen'), 'click', { target: $('#boardMenuOpen') }); };
+  openMenu();
+  assert.match($('#boardMenu').textContent, /Join in terminal[\s\S]*Settings[\s\S]*Repo review[\s\S]*No review yet[\s\S]*Pause[\s\S]*Running/);
+  b.page.fire($('#boardMenu'), 'click', { target: $('[data-arch-sheet]') });
+  assert.deepEqual([$('#boardMenu').hidden, $('#archSheet').open], [true, true]);
+  $('#archSheet').close();
+  openMenu();
+  b.page.fire($('#boardMenu'), 'click', { target: $('[data-pause-open]') });
+  await b.settle();
+  assert.equal($('#pauseSheet').open, true);
+  assert.deepEqual([...$('#pauseBody').innerHTML.matchAll(/name="pause" value="([^"]+)"/g)].map((m) => m[1]), ['1h', 'forever']);
+  const chip = $('#pauseBody button[value="1h"]');
+  b.page.fire($('#pauseSheet'), 'submit', { target: $('#pauseBody form'), submitter: chip });
+  await b.settle();
+  assert.deepEqual(b.posts.filter(([p]) => p.endsWith('/api/pause')), [['/board-a/api/pause', { pause: '1h' }]]);
+  pause.now = { paused: true, manual: 'board', resets_at: 'forever' };
+  await b.change({});
+  openMenu();
+  assert.match($('#boardMenu').textContent, /Resume\s*Paused until you resume/);
+  b.page.fire($('#boardMenu'), 'click', { target: $('[data-pause-resume]') });
+  await b.settle();
+  assert.deepEqual(b.posts.filter(([p]) => p.endsWith('/api/pause')).at(-1), ['/board-a/api/pause', { pause: 'off' }]);
   b.view.unmount();
 });
 

@@ -101,3 +101,28 @@ test("a header with a title menu draws the title as the menu's button, its text 
   assert.match(h, /<div id="boardMenu" role="menu" hidden><\/div>/);
   assert.match(ui.header({ title: 'Plain' }), /<h1>Plain<\/h1>/);
 });
+
+// docs/adr/2026-11-17-1800-the-board-menu-holds-settings-repo-review-and-pause.md
+test("the board menu lists Join in terminal, Settings, Repo review and Pause in that order, Settings the link the shell opens as Board Settings", () => {
+  const menu = ui.boardMenu('awake', { settings: true, arch: { running: false, at: '2026-11-12T10:00:00.000Z' }, pause: { paused: false } });
+  assert.deepEqual(plain([...menu.matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])), ['Join in terminal', 'Settings', 'Repo review', 'Pause']);
+  assert.match(menu, /<a role="menuitem" class="board-menu-item" href="settings\.html" id="settingsLink" aria-haspopup="dialog">/);
+  assert.match(menu, /data-arch-sheet[\s\S]*it-grey[\s\S]*Last review Nov 12/);
+  assert.match(menu, /data-pause-open[\s\S]*it-green[\s\S]*Running/);
+});
+
+test("the menu's Settings is greyed until the header's controls are on, Repo review is absent without a repo and reads Running in orange while a review runs", () => {
+  assert.match(ui.boardMenu('awake', { settings: false }), /id="settingsLink"[^>]*aria-disabled="true" tabindex="-1"/);
+  assert.doesNotMatch(ui.boardMenu('awake', { settings: true }), /aria-disabled|Repo review/);
+  assert.match(ui.boardMenu('awake', { arch: { running: true, at: '2026-11-12T10:00:00.000Z' } }), /Repo review[\s\S]*it-orange[\s\S]*Running/);
+  assert.match(ui.boardMenu('awake', { arch: { running: false } }), /No review yet/);
+});
+
+test("the menu's pause row becomes Resume in grey while the owner's Pause board holds, and shows another pause without a way to end it", () => {
+  const mine = ui.boardMenu('awake', { pause: { paused: true, mine: true, words: 'until 6 pm' } });
+  assert.match(mine, /data-pause-resume[\s\S]*Resume[\s\S]*it-grey[\s\S]*Paused until 6 pm/);
+  assert.doesNotMatch(mine, /data-pause-open/);
+  const hub = ui.boardMenu('awake', { pause: { paused: true, mine: false, words: 'until you resume' } });
+  assert.match(hub, /aria-disabled="true" disabled[\s\S]*it-grey[\s\S]*Paused until you resume/);
+  assert.doesNotMatch(hub, /data-pause-resume|data-pause-open/);
+});

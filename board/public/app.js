@@ -236,7 +236,6 @@ window.BoardView = (function () {
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
         const strips = B.captureStrips();
         setHTML($('#lanes'), B.lanesHtml(d, items), { keep: '[data-thread]' });
-        $('.board-foot').hidden = false;
         for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
         B.moveStrips(items, strips);
         B.renderPane(d);
@@ -610,7 +609,6 @@ ${strip}  ${searchBar}
   <section id="newStrip" class="new-strip" aria-label="New" hidden></section>
   <div id="lanes"></div>
   <div id="downLanding" hidden></div>
-  ${BoardUI.boardFoot()}
 </main>
 <div class="col-handle" data-col="pane" role="separator" aria-orientation="vertical" aria-label="Resize the Waiting on you pane" tabindex="0"></div>
 <aside id="boardPane" class="board-pane" aria-label="Waiting on you"></aside>
@@ -663,6 +661,12 @@ ${BoardNewTask.markup()}
   <div class="sheet-body">
     <div class="sheet-head"><h2 id="joinTitle">Join in terminal</h2><button type="button" class="ghost" id="joinClose" aria-label="Close">✕</button></div>
     <div id="joinBody"></div>
+  </div>
+</dialog>
+<dialog id="pauseSheet" class="sheet" aria-labelledby="pauseTitle">
+  <div class="sheet-body">
+    <div class="sheet-head"><h2 id="pauseTitle">Pause board</h2><button type="button" class="ghost" id="pauseClose" aria-label="Close">✕</button></div>
+    <div id="pauseBody"></div>
   </div>
 </dialog>
 <dialog id="linksSheet" class="sheet" aria-labelledby="linksTitle">
