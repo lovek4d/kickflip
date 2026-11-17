@@ -1095,6 +1095,8 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .reader-sheet.reader-page { height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(12px, env(safe-area-inset-top)));
   max-height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(12px, env(safe-area-inset-top))); }
 .reader-page .reader-body { position: relative; display: flex; padding: 0; overflow: hidden; }
+/* A page under the one shown keeps its body, hidden (app-reader.js stackView). */
+.reader-body[hidden] { display: none; }
 .reader-frame { flex: 1; min-height: 0; width: 100%; border: 0; display: block; background: var(--panel); }
 .reader-tools .ps-chip { height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; }
 .reader-alone { font-size: 13px; white-space: nowrap; }
@@ -1167,7 +1169,8 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   /* The one width every sheet over the board takes (reader, card page, questions): the pane's, else half the room right of the sidebar. */
   :root { --sheet-w: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); }
   /* The reader sheet (app-reader.js) is a panel over the pane's half, at the width the seam gives it, while it is open. */
-  .sheet.reader-sheet { position: fixed; z-index: 30; inset: 56px 0 0 auto; margin: 0; width: var(--sheet-w); max-width: none;
+  /* A sheet stacked over another lies above it by its --layer (ui.js openSheet). */
+  .sheet.reader-sheet { position: fixed; z-index: calc(30 + var(--layer, 0)); inset: 56px 0 0 auto; margin: 0; width: var(--sheet-w); max-width: none;
     height: auto; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
   .sheet.reader-sheet[open] { animation: reader-in .22s ease-out; }
   .sheet.reader-sheet.closing { animation: reader-out .18s ease-in forwards; }
@@ -1180,8 +1183,7 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   .board-pane pre, .board-pane code { white-space: pre-wrap; }
   .board-pane :is(.row, .actions, .btns) { flex-wrap: wrap; }
   /* A card page in the reader sheet (app-reader.js openPage) takes the same width, the lanes still beside it; a wide visual
-     scrolls inside its frame. It lies over a questions sheet its View prototypes opened it from, which shows again when it closes. */
-  .sheet.reader-sheet.reader-page { z-index: 31; }
+     scrolls inside its frame. */
 }
 /* The Send bar is the last thing on its page: only the phone nav under it is left clear, so its background runs to the edge. */
 body .view-questions.view-questions main { padding-bottom: var(--app-bottom, 0px); }

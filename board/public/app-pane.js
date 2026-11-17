@@ -25,15 +25,16 @@ BoardView.part((B) => {
   // A topic's own questions sheet stays open when the pane marks that topic.
   const paneOverlays = (id) => [() => B.closeReader?.(), () => { if (!B.questionsSheetShows?.(id)) B.closeQuestionsSheet?.(); }];
   // The pane marks its topic: a questions URL (focusQuestion) lands here.
-  // The questions sheet takes the reader's place: it opens over the reader (BoardUI.swapSheet), which goes after.
-  function swapToQuestions(id) {
-    let opened = false;
-    B.closeReader(() => { opened = B.openQuestionsSheet(id); });
-    return opened;
-  }
   function showTopic(id) {
     for (const close of paneOverlays(id)) close();
     B.saveFragment({ openItemsCard: id });
+  }
+  // A pane row's questions sheet, and a phone's questions URL, take the reader's place: the questions sheet lands on top
+  // of it (ui.js openSheet), then the reader closes under it.
+  function questionsOverReader(id) {
+    const opened = B.openQuestionsSheet(id);
+    B.closeReader();
+    return opened;
   }
   function fitPane() {
     if (wide.matches === Boolean(questions)) return;
@@ -42,9 +43,7 @@ BoardView.part((B) => {
     const slot = $('#boardPane .pane-questions');
     // The lanes' board is the pane's: the pane holds none of its own, and renderPane hands it each board that lands.
     const host = { board: () => state.board, send: (kind, data, signal) => B.send(kind, data, null, { signal }), reload: () => B.loadBoard({ via: 'signal' }) };
-    // A row's questions sheet takes the place of the reader.
-    const openSheet = (id) => swapToQuestions(id);
-    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, host, openOnBoard, onTopic: showTopic, openSheet, openPage: (href) => B.openPage(href) }), { slot });
+    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, host, openOnBoard, onTopic: showTopic, openSheet: questionsOverReader, openPage: (href) => B.openPage(href) }), { slot });
     questions.mount();
   }
   // The shell's one rule for a questions URL from 900px (shell.js go): it shows the board and asks here for the question
@@ -59,7 +58,7 @@ BoardView.part((B) => {
     if (!wide.matches) {
       if (!state.board) return false;
       B.select({ question: id }, { pane: false });
-      swapToQuestions(id);
+      questionsOverReader(id);
       return true;
     }
     const shown = B.select({ question: id });

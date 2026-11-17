@@ -527,11 +527,116 @@
   // padding reads as a backdrop click; only the dim area around the box counts as one.
   const outsideBox = (ev, box) => { const r = box.getBoundingClientRect(); return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom; };
 
+  // docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md
+  // The sheet stack. Every sheet opens through openSheet and closes through closeSheet or its own close(); one opened
+  // while another is open stacks on it, and the one beneath stays open where it was. A sheet that shows pages (the
+  // reader) stacks a page on itself with pushPage: a layer of its own, the sheet on top, which popPage, Back or the
+  // sheet closing takes off, the sheet showing its page beneath and going back under any sheet stacked on it before.
+  // Each layer over another has one history entry, at the page's URL, carrying how many sheet entries are open with it
+  // ({sheets}), so Back peels one layer at a time; a sheet with none under it has one only when its opener asks (entry),
+  // as the reader does. A layer that closes, however it closes, spends its entry, and the layer beneath, back on top,
+  // gets a sheet-return event.
+  // layers: bottom first, a sheet's own {sheet, modal, entry, shut}, shut its close listener while in the stack, and
+  // each page it stacked {sheet, entry: true, page: true}.
+  const layers = [];
+  let backing = false;
+  const whenSettled = [];
+  const entriesOf = (list) => list.filter((l) => l.entry).length;
+  const isTopSheet = (sheet) => layers.at(-1)?.sheet === sheet;
+  // The stacked sheets as they show, bottom first, and those showing again in their place (restack), whose close is
+  // no leaving.
+  let shown = [];
+  const moving = new Set();
+  // Each sheet shows at its topmost layer: from the first one out of that order, each shows again, in order, its
+  // scroll kept. A non-modal sheet stacks by its --layer (style.css .reader-sheet).
+  function restack() {
+    const order = layers.map((l) => l.sheet).filter((sheet, i, all) => all.lastIndexOf(sheet) === i);
+    shown = shown.filter((sheet) => order.includes(sheet));
+    let kept = -1;
+    let from = order.length;
+    for (const [i, sheet] of order.entries()) {
+      const at = shown.indexOf(sheet);
+      if (at <= kept || !sheet.open) { from = i; break; }
+      kept = at;
+    }
+    for (const sheet of order.slice(from)) {
+      const scrolled = [sheet, ...sheet.querySelectorAll('*')].filter((el) => el.scrollTop).map((el) => [el, el.scrollTop]);
+      if (sheet.open) { moving.add(sheet); sheet.close(); moving.delete(sheet); }
+      if (layers.find((l) => l.sheet === sheet && !l.page).modal) sheet.showModal(); else sheet.show();
+      for (const [el, top] of scrolled) el.scrollTop = top;
+    }
+    order.forEach((sheet, i) => sheet.style.setProperty('--layer', String(i)));
+    shown = order;
+  }
+  const pushEntry = () => history.pushState({ ...history.state, idx: (history.state?.idx ?? 0) + 1, sheets: entriesOf(layers) }, '', location.href);
+  // One back at a time until history holds no entry past the open layers'; the popstate each back brings settles again.
+  function settle() {
+    if (backing) return;
+    if ((history.state?.sheets ?? 0) > entriesOf(layers)) { backing = true; history.back(); return; }
+    for (const fn of whenSettled.splice(0)) fn();
+  }
+  // fn runs once history holds no entry for a closed layer: at once, or when the back under way lands.
+  function afterSheets(fn) {
+    whenSettled.push(fn);
+    settle();
+  }
+  // The layer at, out of the stack.
+  function unstack(at) {
+    const [layer] = layers.splice(at, 1);
+    if (layer.shut) layer.sheet.removeEventListener('close', layer.shut);
+    return layer;
+  }
+  // The top sheet after the stack changed, told when it is another than before.
+  function returnTo(was) {
+    const top = layers.at(-1)?.sheet;
+    if (top && top !== was) top.dispatchEvent(new Event('sheet-return'));
+  }
+  // The sheet and its pages out of the stack.
+  function leaveLayer(sheet) {
+    if (!layers.some((l) => l.sheet === sheet)) return;
+    const was = layers.at(-1).sheet;
+    for (let at = layers.length - 1; at >= 0; at--) if (layers[at].sheet === sheet) unstack(at);
+    restack();
+    returnTo(was);
+    settle();
+  }
+  // A page the sheet shows over the one it showed: a layer and an entry of its own, the sheet on top.
+  function pushPage(sheet) {
+    layers.push({ sheet, entry: true, page: true });
+    restack();
+    pushEntry();
+  }
+  // The sheet's top page out of the stack, its entry spent; the sheet shows the page beneath (its caller's part).
+  function popPage(sheet) {
+    const was = layers.at(-1).sheet;
+    unstack(layers.findLastIndex((l) => l.sheet === sheet && l.page));
+    restack();
+    returnTo(was);
+    settle();
+  }
+  // Back (or forward) to an entry under a layer's: a page above it goes with a page-back event to its sheet, which
+  // shows the page beneath; each sheet above it is dismissed as Escape would, by its own cancel handler, and one with
+  // none closes.
+  globalThis.addEventListener?.('popstate', (ev) => {
+    backing = false;
+    const keep = ev.state?.sheets ?? 0;
+    while (entriesOf(layers) > keep) {
+      const { sheet, page } = unstack(layers.length - 1);
+      if (page) { restack(); sheet.dispatchEvent(new Event('page-back')); continue; }
+      const cancel = new Event('cancel', { cancelable: true });
+      sheet.dispatchEvent(cancel);
+      if (!cancel.defaultPrevented) sheet.close();
+    }
+    settle();
+  });
+
   // A sheet closes by playing its entry backwards (style.css .closing): 180 ms, then it closes and done runs. Reduced
-  // motion closes at once. cutClose ends one in progress so the sheet can open again.
+  // motion closes at once. It leaves the stack as the close starts. cutClose ends one in progress so the sheet can open
+  // again.
   // later is the view's own timer (B.later), which an unmount clears.
   function closeSheet(sheet, later, done = () => {}) {
     if (!sheet.open || sheet.classList.contains('closing')) return;
+    leaveLayer(sheet);
     if (globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches) { sheet.close(); done(); return; }
     sheet.classList.add('closing');
     later(180, () => {
@@ -541,23 +646,20 @@
       done();
     }, 180);
   }
-  // The one way a sheet opens: one that isn't open yet shows (modal unless said otherwise) with its body and every scroller
-  // inside it at the top; one already open is left as it is, scroll included.
-  function openSheet(sheet, { modal = true } = {}) {
-    if (sheet.open) return;
-    if (modal) sheet.showModal(); else sheet.show();
+  // The one way a sheet opens: one that isn't open yet shows (modal unless said otherwise) on top of every open sheet,
+  // with its body and every scroller inside it at the top; one open on top, or on its way out, is left as it is, scroll
+  // included; one open under another comes back on top, at its top. entry: a history entry even with no sheet under it.
+  function openSheet(sheet, { modal = true, entry = false } = {}) {
+    const at = layers.findIndex((l) => l.sheet === sheet && !l.page);
+    if (sheet.open && (at === -1 || isTopSheet(sheet))) return;
+    const was = at >= 0 ? unstack(at) : null;
+    // A sheet shut by its own close(), a swipe or a view's unmount, leaves the stack too; one shown again since stays.
+    const layer = { sheet, modal, entry: Boolean(was?.entry || entry || layers.length), shut: () => { if (!sheet.open && !moving.has(sheet)) leaveLayer(sheet); } };
+    sheet.addEventListener('close', layer.shut);
+    layers.push(layer);
+    restack();
     for (const el of [sheet, ...sheet.querySelectorAll('*')]) if (el.scrollTop) el.scrollTop = 0;
-  }
-  // Opens one sheet from another: open() shows the new sheet, which lands on top of the old (the top layer, its own
-  // entry animation) while the old stays drawn under it; once the entry ends the old closes with no exit animation, and
-  // done runs. Reduced motion closes the old at once. An old sheet that isn't open just opens the new one.
-  const ENTRY_MS = 220;
-  function swapSheet(from, later, done, open) {
-    if (!from.open) { open(); return; }
-    cutClose(from);
-    open();
-    const finish = () => { from.close(); done(); };
-    if (globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches) finish(); else later(ENTRY_MS, finish, ENTRY_MS);
+    if (layer.entry && !was?.entry) pushEntry();
   }
   function cutClose(sheet) {
     if (!sheet.classList.contains('closing')) return;
@@ -625,7 +727,7 @@
   // After ui-icon-text.js, whose iconText, ICON_SHAPES and ICON_COLOURS stay on BoardUI.
   globalThis.BoardUI = {
     ...globalThis.BoardUI,
-    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, swapSheet, cutClose, swipeToDismiss, swipeVerdict,
+    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, pushPage, popPage, isTopSheet, afterSheets, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpItem, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };

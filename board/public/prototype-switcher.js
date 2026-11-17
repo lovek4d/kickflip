@@ -48,9 +48,9 @@
   const draftKey = (qid) => 'qdraft:' + qid;
   const readDraft = (qid) => { try { return JSON.parse(localStorage.getItem(draftKey(qid)) || '{}'); } catch { return {}; } };
   const writeDraft = (qid, draft) => { try { localStorage.setItem(draftKey(qid), JSON.stringify(draft)); } catch { /* nothing kept */ } };
-  // In place of this page: framed in the board's reader sheet, the sheet closes and the shell shows the URL's view
-  // (app-reader.js reader-leave); framed in the app shell, the shell shows it in place (board/public/shell.js
-  // AppShell.open); alone, the page loads it.
+  // In place of this page: framed in the board's reader sheet, the sheet closes, onto the questions sheet under it when
+  // that shows the URL's question, else the shell shows the URL's view (app-reader.js reader-leave); framed in the app
+  // shell, the shell shows it in place (board/public/shell.js AppShell.open); alone, the page loads it.
   function replaceWith(url) {
     const sheet = window.frameElement?.closest('.reader-sheet');
     if (sheet) { sheet.dispatchEvent(new sheet.ownerDocument.defaultView.CustomEvent('reader-leave', { detail: String(url) })); return; }

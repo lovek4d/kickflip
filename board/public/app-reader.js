@@ -2,7 +2,10 @@
 // (ui-threads.js) and a card's or a wave's Notes (app-cards.js, app-lanes.js) open over the board in one sheet in
 // place of log.html and notes.html, which still open on their own. It closes on its ✕, Escape, a tap on the dim area
 // and Back (from 900px it is not modal: no dim area, and the left pane stays live), through a history entry of its own that carries the board's URL, so the router's pop keeps the board.
-// A link in it closes it first, then opens through the shell.
+// A link in it to a card page, a transcript or notes opens over what it shows, a page of its own (ui.js pushPage) with its
+// own history entry: its ✕, Escape, a swipe, a tap on the dim area and Back show the page beneath again as it was, and
+// only the last closes the sheet. A question of the board opens the questions sheet stacked on it; any other link
+// closes it first, then opens through the shell.
 // A log written as a stream (headless.mjs: one stream-json event per line) reads as the run's transcript, the whole of
 // it as GET /api/transcript's rows: what Claude says, and each tool call as one line whose output opens on a tap, with a
 // raw toggle for the file as it is (docs/adr/2026-11-07-1224-view-transcript-reads-the-whole-run-as-rows.md); any other
@@ -12,24 +15,25 @@
 // visual (router.js isCardPage), opens here too (openPage), whatever way it was reached: its body the page in a frame,
 // its header the kind, the card's ref and the page's title, the card's Round pill for a prototype, and Open alone ↗.
 // From 900px the sheet widens for a page (.reader-page); on a phone it is the modal sheet near full height. A link in
-// the page to another card page of this board opens in its place; one to any other view closes the sheet first.
+// the page to another card page of this board opens over it, as any link in the sheet does.
 BoardView.part((B) => {
   const { $, state } = B;
   const { esc, markdown, linkContext } = BoardUI;
   const sheet = $('#readerSheet');
-  const body = sheet.querySelector('.reader-body');
+  let body = sheet.querySelector('.reader-body');
   const tools = sheet.querySelector('.reader-tools');
   const more = sheet.querySelector('.reader-new');
   let opened = 0;
-  let pushed = false;
   let modal = true;
-  let pending = null;
   let log = null;
   let stopReading = null;
   // The card whose notes the sheet shows, else null.
   let notesKey = null;
-  // The card page the sheet shows, {url, q, rounds}, rounds whether the Round sheet is out, else null.
+  // The card page the sheet shows, {url, q, rounds, title}, rounds whether the Round sheet is out, else null.
   let page = null;
+  // The pages under the one shown, bottom first, each {body, log, notesKey, page, title, ref, scroll}: its body kept,
+  // hidden, so a framed page keeps running where it was.
+  const under = [];
 
   // A row of the transcript (transcript.mjs); a call with its output opens it on a tap of its line. What Claude says,
   // its text rows and its result, is markdown in compact styles, linking the board's refs
@@ -110,10 +114,43 @@ BoardView.part((B) => {
     if (log.following) toEnd();
   }
 
-  function show(title, ref) {
-    BoardUI.cutClose(sheet);
+  // What the sheet shows, kept under a fresh body for the page opening over it.
+  function stackView() {
+    under.push({ body, log, notesKey, page, title: sheet.querySelector('#readerTitle').textContent, ref: sheet.querySelector('.reader-ref').textContent, scroll: body.scrollTop });
+    sheet.querySelector('.ps-sheet')?.remove();
+    body.hidden = true;
+    body.insertAdjacentHTML('beforebegin', '<div class="reader-body" tabindex="0"></div>');
+    body = body.previousElementSibling;
+    B.on(body, 'scroll', scrolled);
+  }
+  // The page beneath, shown again as it was; a transcript reads on.
+  function unstackView() {
+    const view = under.pop();
     opened++;
     stopReading?.();
+    body.remove();
+    sheet.querySelector('.ps-sheet')?.remove();
+    ({ body, log, notesKey, page } = view);
+    body.hidden = false;
+    body.scrollTop = view.scroll;
+    sheet.querySelector('#readerTitle').textContent = view.title;
+    sheet.querySelector('.reader-ref').textContent = view.ref;
+    sheet.classList.toggle('reader-page', Boolean(page));
+    drawTools();
+    drawMore();
+    if (page) paintPage();
+    if (log && !log.finished) readLog(opened);
+  }
+  function dropUnder() {
+    for (const view of under.splice(0)) view.body.remove();
+  }
+  // Opened while the sheet is open, the page opens over the one it shows.
+  function show(title, ref) {
+    BoardUI.cutClose(sheet);
+    const over = sheet.open;
+    opened++;
+    stopReading?.();
+    if (over) stackView(); else dropUnder();
     log = null;
     notesKey = null;
     page = null;
@@ -123,15 +160,9 @@ BoardView.part((B) => {
     tools.innerHTML = '';
     more.hidden = true;
     body.innerHTML = '<p class="muted">Loading…</p>';
-    if (!sheet.open) {
-      modal = !matchMedia('(min-width: 900px)').matches;
-      BoardUI.openSheet(sheet, { modal });
-    }
-    // One entry for the open sheet, whatever it shows next, so Back and a close take it back once.
-    if (!pushed) {
-      history.pushState({ ...history.state, idx: history.state.idx + 1, reader: true }, '', location.href);
-      pushed = true;
-    }
+    if (!sheet.open) modal = !matchMedia('(min-width: 900px)').matches;
+    // One entry for the open sheet, and one for each page over its first. Opened from another sheet it stacks on it.
+    if (over) BoardUI.pushPage(sheet); else BoardUI.openSheet(sheet, { modal, entry: true });
     return opened;
   }
   function openLog(file) {
@@ -197,19 +228,21 @@ BoardView.part((B) => {
     const url = new URL(href, location.href).href;
     if (sheet.open && !sheet.classList.contains('closing') && page?.url === url) return true;
     show('', '');
-    page = { url, q: new URL(url).searchParams.get('q'), rounds: false, title: '' };
+    const shown = { url, q: new URL(url).searchParams.get('q'), rounds: false, title: '' };
+    page = shown;
     sheet.classList.add('reader-page');
     body.innerHTML = `<iframe class="reader-frame" src="${esc(url)}" title="Card page"></iframe>`;
     const frame = body.querySelector('iframe.reader-frame');
-    B.on(frame, 'load', () => framedPage(frame));
+    B.on(frame, 'load', () => framedPage(frame, shown));
     paintPage();
     return true;
   }
   // Each load of the page: its title in the header, and its links' taps here (a page of another origin is its own).
-  function framedPage(frame) {
+  function framedPage(frame, shown) {
     let win;
     try { win = frame.contentWindow; if (!win || win.location.href === 'about:blank') return; } catch { return; }
-    if (page?.url) paintPage(win.document.title || '');
+    shown.title = win.document.title || '';
+    if (page === shown) paintPage();
     B.on(win.document, 'click', (ev) => {
       if (!plainTap(ev)) return;
       const a = ev.target.closest?.('a[href]');
@@ -217,16 +250,33 @@ BoardView.part((B) => {
       const to = new URL(a.href, win.location.href);
       if (!AppRouter.viewOf(to.href, { boards: here }) || (to.pathname === win.location.pathname && to.search === win.location.search && to.hash)) return;
       ev.preventDefault();
-      if (isCardPage(to.href)) openPage(to.href); else leave(to.href);
+      takeLink(to.href);
     });
   }
-  // Closes the sheet, then opens href through the shell (the popstate below).
+  // Closes the sheet with every page in it, then opens href through the shell once its entries are spent. A question
+  // the questions sheet under it shows (a prototype's Choose this) is already open there: the page closes, and that is all.
   function leave(href) {
-    pending = new URL(href, location.href).href;
-    close();
+    const to = new URL(href, location.href).href;
+    const view = AppRouter.viewOf(to, { boards: here });
+    const shows = view?.kind === 'questions' && view.id && B.questionsSheetShows?.(state.board?.owner.find((q) => q.id === view.id)?.topic ?? view.id);
+    if (shows) { close(); return; }
+    closeAll();
+    BoardUI.afterSheets(() => { if (!AppShell.open(to)) location.assign(to); });
   }
-  // The page's frame goes once the sheet has closed, so nothing runs in it unseen.
+  // A link tapped in the sheet: a card page, a transcript or notes opens over the page shown; a question of this board
+  // opens the questions sheet stacked on this one (ui.js openSheet), which closing returns to; any other link leaves.
+  function takeLink(href) {
+    if (isCardPage(href)) { openPage(href); return; }
+    const view = AppRouter.viewOf(href, { boards: here });
+    const file = new URL(href).searchParams.get('file');
+    if (view?.kind === 'frame' && here.has(view.route) && view.url.startsWith(`/${encodeURIComponent(view.route)}/log.html?`) && file) { openLog(file); return; }
+    if (view?.kind === 'notes' && here.has(view.route) && view.item) { openNotes(`?item=${encodeURIComponent(view.item)}`); return; }
+    if (view?.kind === 'questions' && view.id && B.openQuestionsSheet?.(view.id)) return;
+    leave(href);
+  }
+  // The pages' frames go once the sheet has closed, so nothing runs in them unseen.
   function dropPage() {
+    dropUnder();
     if (!page) return;
     page = null;
     body.innerHTML = '';
@@ -259,16 +309,21 @@ BoardView.part((B) => {
       B.saveCopySoon?.();
     } catch {} finally { fills.delete(patched); }
   }
-  // opening: a sheet that takes the reader's place; it slides in over the reader, which then goes without its own exit.
-  function close(opening) {
-    if (!sheet.open) { opening?.(); return; }
-    if (opening) BoardUI.swapSheet(sheet, B.later, dropPage, opening); else BoardUI.closeSheet(sheet, B.later, dropPage);
+  // ✕, Escape, a swipe, a tap on the dim area: back to the page beneath, and with none the sheet closes.
+  function close() {
+    if (!sheet.open) return;
+    if (under.length) { unstackView(); BoardUI.popPage(sheet); return; }
+    closeAll();
+  }
+  // The sheet closes with every page in it.
+  function closeAll() {
+    if (!sheet.open) return;
+    BoardUI.closeSheet(sheet, B.later, dropPage);
     opened++;
     stopReading?.();
-    if (pushed) { pushed = false; history.back(); }
   }
 
-  Object.assign(B, { closeReader: close, takeNotes, fillNotes, openPage });
+  Object.assign(B, { closeReader: closeAll, takeNotes, fillNotes, openPage });
 
   const plainTap = (ev) => !ev.defaultPrevented && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey;
   B.on(B.root, 'click', (ev) => {
@@ -300,28 +355,25 @@ BoardView.part((B) => {
     if (!a || !plainTap(ev) || (a.target && a.target !== '_self')) return;
     ev.preventDefault();
     const href = new URL(a.getAttribute('href'), location.href).href;
-    if (isCardPage(href)) openPage(href); else leave(href);
+    takeLink(href);
   });
   // A prototype's Choose this, or its push sending a picked question on to its card's thread (prototype-switcher.js
   // replaceWith), leaves through the sheet.
   B.on(sheet, 'reader-leave', (ev) => leave(ev.detail));
   // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it.
-  B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal) close(); });
+  B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal && BoardUI.isTopSheet(sheet)) close(); });
   B.atUnmount(BoardUI.swipeToDismiss(sheet));
+  // The view going takes its sheet out of the sheet stack (ui.js openSheet).
+  B.atUnmount(() => sheet.close());
   B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
-  B.on(body, 'scroll', () => {
+  // Back to the entry under a page's: the page beneath shows again.
+  B.on(sheet, 'page-back', unstackView);
+  function scrolled() {
     if (!log?.stream) return;
     log.following = atEnd();
     if (log.following) log.unseen = 0;
     drawTools();
     drawMore();
-  });
-  // Back while it's open: the router has kept the board, as the entry under it holds the same URL.
-  B.on(window, 'popstate', () => {
-    if (pushed) { pushed = false; sheet.close(); opened++; stopReading?.(); dropPage(); }
-    if (!pending) return;
-    const href = pending;
-    pending = null;
-    if (!AppShell.open(href)) location.assign(href);
-  });
+  }
+  B.on(body, 'scroll', scrolled);
 });

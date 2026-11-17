@@ -4,7 +4,8 @@
 // (ui-questions.js) with each question's Prototype, Grill, Visual and attach, and answered with Send. A prototype question shows
 // its options and its View prototypes link. The questions group by the batch that asked them, the newest batch first,
 // where the thread is at hand; one batch shows no heading. It is the reader sheet's shape (app-reader.js): modal below
-// 900px, over the pane and not modal from it, closed by its ✕, Escape, the dim area and a swipe down. It makes no history entry.
+// 900px, over the pane and not modal from it, closed by its ✕, Escape, the dim area and a swipe down. It makes no history entry
+// of its own; opened over another sheet it stacks on it with one (ui.js openSheet).
 // docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md: Send puts the answered questions in the answer
 // outbox as one set, sends it as one owner-answers and closes the sheet at once; the unanswered questions stay open
 // with their picks and notes. The set reads as one message in the card's thread, "sending…" at once, or "not sent" with
@@ -127,7 +128,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     const t = topicOf(id);
     if (!t) return false;
     if (shows(t) && openOf().length) {
-      if (!auto) autoOpen = false;
+      // The owner's open of a sheet under another, such as a question link in the reader, brings it back on top.
+      if (!auto) { autoOpen = false; BoardUI.openSheet(sheet, { modal }); }
       return true;
     }
     const was = topic;
@@ -142,10 +144,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
       if (live) kept = new Set(openOf().map((q) => q.id));
       else { kept = new Set(answered); kept = new Set(batches()[0].qs.map((q) => q.id)); }
     }
-    if (!sheet.open) {
-      modal = !matchMedia('(min-width: 900px)').matches;
-      BoardUI.openSheet(sheet, { modal });
-    }
+    if (!sheet.open) modal = !matchMedia('(min-width: 900px)').matches;
+    if (!sheet.open || !auto) BoardUI.openSheet(sheet, { modal });
     draw();
     return true;
   }
@@ -310,9 +310,14 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     const q = board().owner.find((x) => x.id === request.closest('section.q').dataset.q);
     if (q) ask(q, BoardUI.requestOf(request));
   });
-  // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it.
-  on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal) close(); });
+  // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it, when on top.
+  on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal && BoardUI.isTopSheet(sheet)) close(); });
+  // Back on top from a sheet opened over it (ui.js openSheet), such as a prototype whose Choose this drafted a pick, it
+  // draws its questions again from their drafts.
+  on(sheet, 'sheet-return', redraw);
   atUnmount(BoardUI.swipeToDismiss(sheet));
+  // The view going takes its sheet out of the sheet stack (ui.js openSheet).
+  atUnmount(() => sheet.close());
   on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
 
   return { open, followCard, leaveCard, shows, close, redraw, resend, retry, drop, holds, linkChanged, isOpen: () => sheet.open };

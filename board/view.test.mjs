@@ -47,11 +47,16 @@ function fakePage(localStorage) {
       const i = listeners.findIndex((l) => l.target === this && l.type === type && l.fn === fn && l.capture === captureOf(opts));
       if (i >= 0) listeners.splice(i, 1);
     }
+    // An Event a page script made and sends itself, such as the sheet stack's cancel and sheet-return (ui.js).
+    dispatchEvent(e) {
+      for (const l of listeners.filter((x) => x.target === this && x.type === e.type)) l.fn(e);
+      return !e.defaultPrevented;
+    }
   }
   class El extends Target {
     constructor() {
       super();
-      Object.assign(this, { value: '', hidden: false, innerHTML: '', open: false, disabled: false, dataset: {}, attrs: {}, classes: new Set(), els: new Map(), style: { setProperty() {} } });
+      Object.assign(this, { value: '', hidden: false, innerHTML: '', open: false, disabled: false, dataset: {}, attrs: {}, classes: new Set(), els: new Map(), style: { setProperty() {}, removeProperty() {} } });
       this.classList = { add: (c) => this.classes.add(c), remove: (c) => this.classes.delete(c), contains: (c) => this.classes.has(c),
         toggle: (c, on = !this.classes.has(c)) => { if (on) this.classes.add(c); else this.classes.delete(c); return on; } };
     }
@@ -75,7 +80,11 @@ function fakePage(localStorage) {
     blur() {}
     showModal() { this.open = true; this.modal = true; }
     show() { this.open = true; this.modal = false; }
-    close() { this.open = false; }
+    close() {
+      if (!this.open) return;
+      this.open = false;
+      this.dispatchEvent(new Event('close'));
+    }
   }
   let ids = 0;
   const intervals = new Map();
@@ -90,7 +99,7 @@ function fakePage(localStorage) {
   class ResizeObserver extends MutationObserver { constructor(fn) { super(); this.fn = fn; } }
   const resized = () => { for (const o of [...observers]) if (o instanceof ResizeObserver) o.fn([]); };
   const win = Object.assign(new Target(), {
-    Date: fixedDate(() => NOW + now), URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
+    Date: fixedDate(() => NOW + now), URL, URLSearchParams, AbortController, Event, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
     location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { state: null, replaceState(_state, _title, url) { win.location.hash = url?.includes('#') ? url.slice(url.indexOf('#')) : ''; }, pushState(state) { this.state = state; }, back() {} }, innerHeight: 844,
     scrollX: 0, scrollY: 0, scrollTo(x, y) { win.scrollX = x; win.scrollY = y; },
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
@@ -6758,13 +6767,29 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
 });
 
 // docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md
-function readerOnDom(logText, { width = 390, topics = null, notes } = {}) {
+// The page's history as a browser keeps it, from the entry start: a push adds an entry over the one shown, and the
+// page's own back() (each a ['back'] in moves, as a push is ['push', state, url]) goes one down. land() is the browser
+// landing a back the page asked for, its popstate; ownerBack() is the owner's Back, one entry down with its popstate.
+function stackHistory(page, start, moves = []) {
+  const history = {
+    entries: [start], at: 0,
+    get state() { return this.entries[this.at]; },
+    pushState(state, _, url) { moves.push(['push', state, url]); this.entries.splice(this.at + 1, Infinity, state); this.at++; },
+    replaceState(state) { this.entries[this.at] = state; },
+    back() { moves.push(['back']); this.at--; },
+  };
+  page.win.history = history;
+  const land = () => page.fire(vm.runInContext('window', page.win), 'popstate', { state: history.state });
+  return { history, moves, land, ownerBack: () => { history.at--; land(); } };
+}
+
+function readerOnDom(logText,{ width = 390, topics = null, notes } = {}) {
   const launch = { ts: '2026-10-30T09:00:00.000Z', who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Sonnet implementer', text: 'Claude Sonnet implementer started', finished: false, log: 'builder-A1-1.log' };
   const card = workCard('A1', { lane: 'progress', hasNotes: true });
   const b = boardOnDom({ open: ['w/A1'], width, board: topics ? { ...questionsBoard(topics, []), items: [card] } : boardOf([card]), threads: { 'w/A1': [launch] }, notes });
   const log = { text: logText };
   const moves = [];
-  b.page.win.history = { state: { idx: 3 }, pushState(state, _, url) { moves.push(['push', state, url]); this.state = state; }, replaceState() {}, back() { moves.push(['back']); } };
+  const { land, ownerBack } = stackHistory(b.page, { idx: 3 }, moves);
   const boardFetch = b.page.win.fetch;
   b.page.win.fetch = async (url, opts) => {
     const u = new URL(url, 'https://mac.ts.net/');
@@ -6780,7 +6805,7 @@ function readerOnDom(logText, { width = 390, topics = null, notes } = {}) {
   };
   const tap = (el) => b.page.fire(b.root, 'click', { target: el, button: 0 });
   const sheet = () => b.root.querySelector('#readerSheet');
-  return { ...b, log, moves, tap, sheet, inSheet: (sel) => sheet().querySelector(sel) };
+  return { ...b, log, moves, land, ownerBack, tap, sheet, inSheet: (sel) => sheet().querySelector(sel) };
 }
 test('on desktop the reader sheet opens non-modal over the right pane: a click on the left pane leaves it open, and its ✕ and Escape close it; a phone keeps the modal sheet', async () => {
   const r = readerOnDom('plain log text');
@@ -6820,7 +6845,7 @@ test("a run's View transcript opens its transcript in a sheet over the board: Cl
   assert.equal(r.tap(link).defaultPrevented, true, 'the link opens the sheet in place of the log page');
   await r.settle();
   assert.equal(r.sheet().open, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(r.moves)), [['push', { idx: 4, reader: true }, 'https://mac.ts.net/']], 'Back has an entry to close it with');
+  assert.deepEqual(JSON.parse(JSON.stringify(r.moves)), [['push', { idx: 4, sheets: 1 }, 'https://mac.ts.net/']], 'Back has an entry to close it with');
   assert.deepEqual(r.gets.filter((g) => /api\/(log|transcript)/.test(g)), ['/board-a/api/transcript?file=builder-A1-1.log&from=0']);
   assert.equal(r.inSheet('#readerTitle').textContent, 'builder transcript');
   assert.equal(r.inSheet('.reader-ref').textContent, 'builder-A1-1.log');
@@ -6882,17 +6907,20 @@ test("a run's View transcript opens its transcript in a sheet over the board: Cl
   r.page.runTimers();
   assert.equal(r.sheet().open, false);
   assert.deepEqual(r.moves.at(-1), ['back'], 'Escape takes back the entry it pushed');
+  r.land();
 
   r.tap(link);
   await r.settle();
   r.page.fire(r.sheet(), 'click', { target: r.sheet() });
   r.page.runTimers();
   assert.deepEqual([r.sheet().open, r.moves.at(-1)], [false, ['back']], 'a tap on the dim area closes it');
+  r.land();
 
   r.tap(link);
   await r.settle();
   const backs = r.moves.filter(([m]) => m === 'back').length;
-  r.page.fire(vm.runInContext('window', r.page.win), 'popstate', { state: { idx: 3 } });
+  r.ownerBack();
+  r.page.runTimers();
   assert.equal(r.sheet().open, false, 'Back closes it');
   assert.equal(r.moves.filter(([m]) => m === 'back').length, backs, 'and Back already took the entry');
   r.view.unmount();
@@ -6924,6 +6952,105 @@ test("an older log of a run's final text reads as text, with no raw toggle", asy
   r.view.unmount();
 });
 
+// docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md
+test("a question link tapped in the reader, in a card's notes or a page it frames, opens the questions sheet stacked on the reader; closing it returns to the reader as it was", async () => {
+  for (const width of [390, 1280]) {
+    const r = readerOnDom('plain log text', { width, topics: [openQuestion('q1', 'item:w/A1')], notes: { 'w/A1': '# The plan\n\nSee [the question](/board-a/questions.html#q1).' } });
+    await drain(() => r.view.B.state.notesCache.size === 1, "the card's notes load");
+    const shown = [];
+    r.page.win.AppShell = { open: (href) => { shown.push(href); return true; } };
+    const questions = r.root.querySelector('#questionsSheet');
+    const top = (sheet) => r.page.win.BoardUI.isTopSheet(sheet);
+    r.tap(r.root.querySelector('a[href="notes.html?item=w%2FA1"]'));
+    await r.settle();
+    const notes = r.inSheet('.reader-md');
+    const link = r.inSheet('.reader-md a');
+    assert.equal(link.getAttribute('href'), '/board-a/questions.html#q1');
+    assert.equal(r.page.fire(r.sheet(), 'click', { target: link, button: 0 }).defaultPrevented, true);
+    r.page.runTimers();
+    assert.deepEqual([r.sheet().open, questions.open, top(questions), r.inSheet('.reader-md'), shown], [true, true, true, notes, []], `${width}: the questions sheet stacks on the notes, which stay as they were`);
+    assert.deepEqual(questions.querySelectorAll('section.q').map((q) => q.dataset.q), ['q1']);
+    assert.deepEqual(JSON.parse(JSON.stringify(r.moves.map(([m, state]) => [m, state?.sheets]))), [['push', 1], ['push', 2]], 'one entry for each layer');
+    r.ownerBack();
+    r.page.runTimers();
+    assert.deepEqual([questions.open, r.sheet().open, top(r.sheet()), r.inSheet('.reader-md')], [false, true, true, notes], 'Back closes the questions sheet, back on the notes');
+
+    // A question linked from a page the reader frames stacks the same way, and its ✕ returns to the page.
+    r.view.B.openPage('https://mac.ts.net/board-a/visuals/A1/flow.html');
+    const frame = r.inSheet('iframe.reader-frame');
+    const doc = Object.assign(new r.page.Target(), { title: 'Flow' });
+    frame.contentWindow = { document: doc, location: { href: 'https://mac.ts.net/board-a/visuals/A1/flow.html', pathname: '/board-a/visuals/A1/flow.html', search: '', hash: '' } };
+    r.page.fire(frame, 'load');
+    r.page.fire(doc, 'click', { button: 0, target: { closest: (sel) => (sel === 'a[href]' ? { href: 'https://mac.ts.net/board-a/questions.html#q1', target: '', hasAttribute: () => false } : null) } });
+    assert.deepEqual([questions.open, top(questions), r.inSheet('iframe.reader-frame'), shown], [true, true, frame, []]);
+    r.page.fire(questions, 'click', { target: questions.querySelector('[data-qs="close"]') });
+    r.land();
+    r.page.runTimers();
+    assert.deepEqual([questions.open, r.sheet().open, top(r.sheet()), r.inSheet('iframe.reader-frame')], [false, true, true, frame], 'its ✕ returns to the visual');
+    r.view.unmount();
+  }
+});
+
+// docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md
+test("a visual or a transcript linked in the reader opens over the page it shows with an entry of its own; ✕, Escape or Back shows the page beneath as it was, the last closes the sheet; and a page opened from a questions sheet stacked on the reader goes back under it", async () => {
+  for (const width of [390, 1280]) {
+    const visual = 'https://mac.ts.net/board-a/visuals/A1/flow.html';
+    const r = readerOnDom('plain log text', { width, topics: [openQuestion('q1', 'item:w/A1')], notes: { 'w/A1': '# The plan\n\nSee [the flow](/board-a/visuals/A1/flow.html), [the run](/board-a/log.html?file=builder-A1-1.log) and [the question](/board-a/questions.html#q1).' } });
+    await drain(() => r.view.B.state.notesCache.size === 1, "the card's notes load");
+    r.page.win.AppShell = { open: () => assert.fail('nothing leaves the board') };
+    const questions = r.root.querySelector('#questionsSheet');
+    const top = (sheet) => r.page.win.BoardUI.isTopSheet(sheet);
+    const linkTo = (href) => [...r.sheet().querySelectorAll('.reader-md a')].find((a) => a.getAttribute('href') === href);
+    const head = () => r.inSheet('#readerTitle').textContent;
+    const shownBody = () => r.sheet().querySelectorAll('.reader-body').find((el) => !el.hidden);
+    r.tap(r.root.querySelector('a[href="notes.html?item=w%2FA1"]'));
+    await r.settle();
+    const notesBody = shownBody();
+    notesBody.scrollTop = 120;
+
+    r.page.fire(r.sheet(), 'click', { target: linkTo('/board-a/visuals/A1/flow.html'), button: 0 });
+    assert.deepEqual([r.sheet().open, head(), r.inSheet('iframe.reader-frame')?.getAttribute('src'), notesBody.hidden], [true, 'visual', visual, true], `${width}: the visual opens over the notes, kept hidden`);
+    r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
+    assert.deepEqual([r.sheet().open, head(), shownBody(), notesBody.scrollTop, r.inSheet('iframe.reader-frame')], [true, 'notes', notesBody, 120, null], "its ✕ shows the notes again where they were");
+    assert.deepEqual(r.moves.map(([m, state]) => [m, state?.sheets]), [['push', 1], ['push', 2], ['back', undefined]], 'the visual had an entry of its own, spent on its ✕');
+    r.land();
+
+    r.page.fire(r.sheet(), 'click', { target: linkTo('/board-a/log.html?file=builder-A1-1.log'), button: 0 });
+    await r.settle();
+    assert.deepEqual([head(), notesBody.hidden], ['builder transcript', true], 'a transcript linked in the notes opens over them');
+    if (width < 900) r.page.fire(r.sheet(), 'cancel', { cancelable: true });
+    else r.page.fire(r.page.win.document, 'keydown', { key: 'Escape' });
+    assert.deepEqual([r.sheet().open, head(), shownBody()], [true, 'notes', notesBody], 'Escape shows the notes again');
+    r.land();
+
+    r.page.fire(r.sheet(), 'click', { target: linkTo('/board-a/visuals/A1/flow.html'), button: 0 });
+    r.ownerBack();
+    assert.deepEqual([r.sheet().open, head(), shownBody(), r.sheet().querySelectorAll('.reader-body').length], [true, 'notes', notesBody, 1], 'Back shows the notes again, the visual gone');
+
+    // Notes, then the question stacked on them, then a page the questions sheet opens: the reader comes on top with it,
+    // and its ✕ puts the reader back under the questions sheet, on the notes.
+    r.page.fire(r.sheet(), 'click', { target: linkTo('/board-a/questions.html#q1'), button: 0 });
+    assert.deepEqual([questions.open, top(questions)], [true, true]);
+    r.view.B.openPage(visual);
+    assert.deepEqual([top(r.sheet()), questions.open, head()], [true, true, 'visual'], 'a page from the questions sheet opens on top');
+    r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
+    r.land();
+    assert.deepEqual([top(questions), r.sheet().open, head(), shownBody(), notesBody.scrollTop], [true, true, 'notes', notesBody, 120], 'its ✕ returns to the questions sheet, the notes under it as they were');
+    assert.equal(r.page.win.history.state.sheets, 2, 'an entry each for the reader and the questions sheet');
+    r.view.B.openPage(visual);
+    r.page.fire(r.sheet(), 'reader-leave', { detail: 'https://mac.ts.net/board-a/questions.html#q1' });
+    r.land();
+    assert.deepEqual([top(questions), r.sheet().open, head(), shownBody(), r.page.win.history.state.sheets], [true, true, 'notes', notesBody, 2], 'Choose this closes only its page, back on the question');
+    r.page.fire(questions, 'click', { target: questions.querySelector('[data-qs="close"]') });
+    r.land();
+    r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
+    r.page.runTimers();
+    r.land();
+    assert.deepEqual([r.sheet().open, questions.open, r.page.win.history.state.sheets], [false, false, undefined], 'the last ✕ closes the sheet, its entry spent');
+    r.view.unmount();
+  }
+});
+
 test("a card's Notes open, rendered, in the same sheet, and a link in them closes it first", async () => {
   const r = readerOnDom('');
   await r.settle();
@@ -6947,7 +7074,7 @@ test("a card's Notes open, rendered, in the same sheet, and a link in them close
   assert.equal(r.page.fire(r.sheet(), 'click', { target: link, button: 0 }).defaultPrevented, true);
   r.page.runTimers();
   assert.deepEqual([r.sheet().open, r.moves.at(-1)[0], shown], [false, 'back', []], 'the sheet closes and takes its entry back first');
-  r.page.fire(vm.runInContext('window', r.page.win), 'popstate', { state: { idx: 3 } });
+  r.land();
   assert.deepEqual(shown, ['https://mac.ts.net/prototype-reader.html'], 'then the link opens through the shell');
   r.view.unmount();
 });
@@ -7615,13 +7742,12 @@ test("a questions URL or push on an open question of a card opens the card with 
 });
 
 // docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md
-test("a prototype or a visual opens in the reader sheet: the page framed under its kind, the card's ref and the page's title, the Round pill and Open alone ↗; opened again it stays put, a round or a card page it links opens in place under the one history entry, and any other link or Choose this closes it first", async () => {
+test("a prototype or a visual opens in the reader sheet: the page framed under its kind, the card's ref and the page's title, the Round pill and Open alone ↗; opened again it stays put, a round or a card page it links opens over it with an entry of its own, which its ✕ or Back peels back to the page beneath as it was, and any other link or Choose this closes it with every page first", async () => {
   const round = (n, q, state) => ({ n, q, url: `prototype-x${n}.html?q=${q}`, confirm: false, state });
   const board = { ...questionsBoard([openQuestion('q1', 'item:w/T1'), openQuestion('q2', 'item:w/P1', { url: 'prototype-x2.html?q=q2' })], []),
     items: [workCard('T1'), workCard('P1', { ref: '#287', questions: { topic: 'item:w/P1' }, prototypes: { open: true, rounds: [round(1, 'q0', 'resolved'), round(2, 'q2', 'open')] } })] };
   const b = boardOnDom({ board, threads: {}, width: 1280 });
-  const moves = [];
-  b.page.win.history = { state: { idx: 3 }, pushState(state, _, url) { moves.push(['push', state, url]); this.state = state; }, replaceState() {}, back() { moves.push(['back']); } };
+  const { moves, land: landBack, ownerBack } = stackHistory(b.page, { idx: 3 });
   const shown = [];
   b.page.win.AppShell = { open: (href) => { shown.push(href); return true; } };
   await b.settle();
@@ -7654,42 +7780,101 @@ test("a prototype or a visual opens in the reader sheet: the page framed under i
   await tap(sheet.querySelector('[data-ps-top="rounds"]'));
   assert.match(sheet.querySelector('.ps-sheet').textContent, /Rounds on #287/);
   await tap(sheet.querySelector('[data-ps-round="prototype-x1.html?q=q0"]'));
-  assert.deepEqual([frame().getAttribute('src'), sheet.querySelector('.ps-sheet'), sheet.open], ['https://mac.ts.net/board-a/prototype-x1.html?q=q0', null, true], 'a round opens in its place');
+  assert.deepEqual([frame().getAttribute('src'), sheet.querySelector('.ps-sheet'), sheet.open], ['https://mac.ts.net/board-a/prototype-x1.html?q=q0', null, true], 'a round opens over the page');
+  const roundFrame = frame();
   const linkOut = land('https://mac.ts.net/board-a/prototype-x1.html?q=q0', 'Round 1');
   assert.equal(linkOut('https://mac.ts.net/board-a/visuals/T1/flow.html').defaultPrevented, true);
-  assert.deepEqual([frame().getAttribute('src'), head()], ['https://mac.ts.net/board-a/visuals/T1/flow.html', ['visual', 'T1']], "a visual it links opens in its place, under its card's ref");
-  assert.equal(linkIn('https://mac.ts.net/board-a/prototype-x2.html?q=q2#take-b').defaultPrevented, false, 'a link within the page is its own');
-  assert.deepEqual(moves.map(([m]) => m), ['push'], 'one history entry for every page the open sheet showed');
+  assert.deepEqual([frame().getAttribute('src'), head()], ['https://mac.ts.net/board-a/visuals/T1/flow.html', ['visual', 'T1']], "a visual it links opens over it, under its card's ref");
+  assert.deepEqual(sheet.querySelectorAll('.reader-body').map((el) => el.hidden), [false, true, true], 'the pages beneath keep their frames, hidden');
+  assert.deepEqual(moves.map(([m, state]) => [m, state?.sheets]), [['push', 1], ['push', 2], ['push', 3]], 'one history entry for each page');
 
-  const linkBoard = land('https://mac.ts.net/board-a/visuals/T1/flow.html', 'Flow');
-  assert.equal(linkBoard('https://mac.ts.net/board-a/#selectedCard=w%2FT1').defaultPrevented, true);
+  await tap(sheet.querySelector('[data-reader="close"]'));
+  assert.deepEqual([sheet.open, frame(), head(), moves.at(-1)], [true, roundFrame, ['prototype', '#287 · Round 1'], ['back']], "the visual's ✕ shows the round again as it was, its entry spent");
+  landBack();
+  ownerBack();
+  assert.deepEqual([sheet.open, frame(), head(), sheet.querySelectorAll('.reader-body').length], [true, first, ['prototype', '#287 · Snooze takes'], 1], 'Back shows the first page again');
+  assert.equal(linkIn('https://mac.ts.net/board-a/prototype-x2.html?q=q2#take-b').defaultPrevented, false, 'a link within the page is its own');
+
+  assert.equal(linkIn('https://mac.ts.net/board-a/#selectedCard=w%2FT1').defaultPrevented, true);
   b.page.runTimers();
   assert.deepEqual([sheet.open, moves.at(-1), shown, frame()], [false, ['back'], [], null], 'any other link closes the sheet and drops the page first');
-  b.page.fire(vm.runInContext('window', b.page.win), 'popstate', { state: { idx: 3 } });
+  landBack();
   assert.deepEqual(shown, ['https://mac.ts.net/board-a/#selectedCard=w%2FT1'], 'then opens through the shell');
 
   b.view.B.openPage(proto);
   b.page.fire(sheet, 'reader-leave', { detail: 'https://mac.ts.net/board-a/questions.html#q2' });
   b.page.runTimers();
-  b.page.fire(vm.runInContext('window', b.page.win), 'popstate', { state: { idx: 3 } });
-  assert.deepEqual([sheet.open, sheet.classList.contains('reader-page'), shown.at(-1)], [false, false, 'https://mac.ts.net/board-a/questions.html#q2'], "Choose this leaves through the sheet");
+  landBack();
+  assert.deepEqual([sheet.open, sheet.classList.contains('reader-page'), shown.at(-1)], [false, false, 'https://mac.ts.net/board-a/questions.html#q2'], "Choose this with no questions sheet under it leaves through the sheet");
   b.view.unmount();
 
   const phone = boardOnDom({ board, threads: {} });
   await phone.settle();
-  phone.page.win.history = { state: { idx: 1 }, pushState(state) { this.state = state; }, replaceState() {}, back() {} };
+  stackHistory(phone.page, { idx: 1 });
   phone.view.B.openPage(proto);
   const phoneSheet = phone.root.querySelector('#readerSheet');
   assert.deepEqual([phoneSheet.open, phoneSheet.modal, phoneSheet.classList.contains('reader-page')], [true, true, true], 'a phone opens the modal sheet');
   phone.view.unmount();
 });
 
-test("a card page's sheet stands near full height on a phone, and from 900px takes the pane's width like every sheet, over the questions sheet", () => {
+// docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md
+test("a prototype or a visual opened from the questions sheet stacks on it, with one history entry; Choose this closes only the prototype, leaving the question with the take picked, and Back or a close returns to the question", async () => {
+  const round = { n: 1, q: 'q2', url: 'prototype-x2.html?q=q2', confirm: false, state: 'open' };
+  const board = { ...questionsBoard([openQuestion('q2', 'item:w/P1', { url: 'prototype-x2.html?q=q2' })], []),
+    items: [workCard('P1', { ref: '#287', questions: { topic: 'item:w/P1', first: 'q2', open: 1, state: 'open' }, prototypes: { open: true, rounds: [round] } })] };
+  const proto = 'https://mac.ts.net/board-a/prototype-x2.html?q=q2';
+  const visual = 'https://mac.ts.net/board-a/visuals/P1/flow.html';
+  for (const width of [390, 1280]) {
+    const b = boardOnDom({ board, threads: {}, width });
+    await b.settle();
+    const { moves, land, ownerBack } = stackHistory(b.page, { idx: 3 });
+    const shown = [];
+    b.page.win.AppShell = { open: (href) => { shown.push(href); return true; } };
+    const questions = b.root.querySelector('#questionsSheet');
+    const reader = b.root.querySelector('#readerSheet');
+    const picked = () => questions.querySelector('section.q[data-q="q2"] input[value="B"]')?.hasAttribute('checked');
+    const top = (sheet) => b.page.win.BoardUI.isTopSheet(sheet);
+
+    assert.equal(b.view.B.openQuestionsSheet('q2'), true);
+    assert.equal(questions.querySelector('section.q[data-q="q2"] a.proto-view').getAttribute('href'), 'prototype-x2.html?q=q2');
+    assert.deepEqual(moves, [], `${width}: the questions sheet alone has no entry`);
+    // The question's View prototypes, which the shell hands to the board's reader sheet (shell.js go).
+    b.view.B.openPage(proto);
+    assert.deepEqual([questions.open, reader.open, top(reader), reader.modal, questions.modal], [true, true, true, width < 900, width < 900], `${width}: the prototype stacks on the questions sheet, which stays open`);
+    assert.deepEqual(JSON.parse(JSON.stringify(moves)), [['push', { idx: 4, sheets: 1 }, 'https://mac.ts.net/']], 'one entry for the layer');
+
+    // Choose this: prototype-switcher.js drafts the pick, then hands the question's URL to the sheet.
+    b.page.win.localStorage.setItem('qdraft:q2', JSON.stringify({ choice: 'B', note: '' }));
+    b.page.fire(reader, 'reader-leave', { detail: 'https://mac.ts.net/board-a/questions.html#q2' });
+    assert.deepEqual([top(questions), picked(), moves.at(-1)], [true, true, ['back']], 'the questions sheet is on top again, the take picked, and the entry spent');
+    land();
+    b.page.runTimers();
+    assert.deepEqual([reader.open, reader.querySelector('iframe.reader-frame'), questions.open, shown], [false, null, true, []], 'only the prototype closed: nothing navigates');
+
+    // A visual linked in the question stacks the same way, and Back peels it off.
+    b.view.B.openPage(visual);
+    assert.deepEqual([reader.open, questions.open, top(reader)], [true, true, true]);
+    ownerBack();
+    b.page.runTimers();
+    assert.deepEqual([reader.open, questions.open, top(questions), moves.filter(([m]) => m === 'back').length], [false, true, true, 1], 'Back closes the visual, back on the question; Back took the entry itself');
+
+    // Its ✕ does too.
+    b.view.B.openPage(visual);
+    b.page.fire(reader, 'click', { target: reader.querySelector('[data-reader="close"]'), button: 0 });
+    land();
+    b.page.runTimers();
+    assert.deepEqual([reader.open, questions.open, top(questions)], [false, true, true]);
+    b.view.unmount();
+  }
+});
+
+test("a card page's sheet stands near full height on a phone, and from 900px takes the pane's width like every sheet, stacked over the questions sheet", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const wideAt = css.indexOf('@media (min-width: 900px) {\n  .split');
   assert.match(css.slice(0, wideAt), /\.reader-sheet\.reader-page \{ height: calc\(var\(--vh, 100dvh\) - var\(--app-bottom, 0px\) - max\(12px, env\(safe-area-inset-top\)\)\);/);
   assert.match(css.slice(0, wideAt), /\.reader-frame \{[^}]*flex: 1;[^}]*border: 0;/);
-  assert.match(css.slice(wideAt), /\.sheet\.reader-sheet\.reader-page \{ z-index: 31; \}/, 'over the questions sheet, which is z-index 30 too and later in the page');
+  assert.match(css.slice(wideAt), /\.sheet\.reader-sheet \{ position: fixed; z-index: calc\(30 \+ var\(--layer, 0\)\);/, 'a sheet stacked over another lies above it by its layer (ui.js openSheet)');
+  assert.doesNotMatch(css, /reader-page \{ z-index/);
   assert.doesNotMatch(css, /pane-viewer|\.pv-top|board-pane\.viewing|board-pane\.widened/, 'the pane viewer is gone');
 });
 
