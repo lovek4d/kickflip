@@ -23,3 +23,6 @@ costs a build for nothing.
 - The `Found:` call is recorded after the card's calls were verified, so the orchestrator reads it on the closed card
   and files it; it doesn't hand the card back.
 - A failing test file is named by the location the runner reports (`nodeTests` result `failedFiles`).
+
+Amended by [a land failing on main's own test blocks on main's fix](2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md):
+a touched file failing on main the same way passes too, and one failing differently blocks the card on main's fix.

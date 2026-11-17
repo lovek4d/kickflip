@@ -234,10 +234,12 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     // The runner's own args name every file, so only its children's name the files still running.
     const children = left?.filter((line) => Number(line.split(/\s+/)[1]) !== child.pid);
     if (left) result.hung = { after: duration(limit), files: files.filter((f) => children.some((p) => p.includes(f))).map((f) => path.relative(dir, f)) };
-    result.failures = tapFailures(stdout);
-    // The test files holding a failing test, by the location the runner reports for it.
+    const failed = tapFailures(stdout, dir);
+    result.failures = failed.map((f) => f.text);
+    // The test files holding a failing test, by the location the runner reports for it, each with its failures' keys.
     const places = stdout.split('\n').filter((line) => /^\s*location: /.test(line));
     result.failedFiles = files.map((f) => path.relative(dir, f)).filter((rel) => places.some((line) => line.includes(`/${rel}:`)));
+    result.signatures = Object.fromEntries(result.failedFiles.map((rel) => [rel, failed.filter((f) => f.location?.includes(`/${rel}:`)).map((f) => f.key)]));
     const firstErr = stderr.trim().split('\n')[0];
     result.error = `${signal ? `test runner killed by ${signal}` : `test runner exited ${status}`}${firstErr ? `: ${firstErr}` : ''}`;
     resolve(result);
@@ -247,7 +249,13 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
 const REPORT_EVERY = 2 * 60 * 1000;
 const duration = (ms) => ms % 60000 ? `${ms / 1000} seconds` : `${ms / 60000} minutes`;
 
-function tapFailures(tap) {
+// Each failing test of a TAP run in dir: {text, the name, location and error excerpt a refusal shows; location; key,
+// its name and diagnostic without the location, duration and stack, and dir read as ".", so the same failure in another
+// checkout of the repo has the same key}.
+const UNKEYED = ['location', 'duration_ms', 'stack'];
+function tapFailures(tap, dir) {
+  // The longer first, so a symlinked tmp's real path (/private/var/…) isn't half replaced through its link (/var/…).
+  const here = [...new Set([dir, fs.realpathSync(dir)])].sort((a, b) => b.length - a.length);
   const lines = tap.split('\n');
   const parents = [];
   const failures = [];
@@ -281,7 +289,19 @@ function tapFailures(tap) {
       const start = output.findIndex((line) => /^\w*Error(?: \[[^\]]+\])?:/.test(line));
       if (start >= 0) excerpt = output.slice(start);
     }
-    failures.push(`${name}\n  ${location ? scalar(location) : 'file not reported by test runner'}${excerpt.length ? '\n' + excerpt.slice(0, 3).map((line) => `  ${line}`).join('\n') : ''}`);
+    const kept = [];
+    let dropping = false;
+    for (const line of diagnostic) {
+      const key = line.startsWith(' '.repeat(indent + 2)) && !line.startsWith(' '.repeat(indent + 3)) && /^\s*([\w-]+):/.exec(line)?.[1];
+      if (key) dropping = UNKEYED.includes(key);
+      else if (line.slice(indent + 2).startsWith('...') || line.slice(indent + 2).startsWith('---')) dropping = false;
+      if (!dropping) kept.push(line.slice(indent + 2));
+    }
+    failures.push({
+      text: `${name}\n  ${location ? scalar(location) : 'file not reported by test runner'}${excerpt.length ? '\n' + excerpt.slice(0, 3).map((line) => `  ${line}`).join('\n') : ''}`,
+      location: location && scalar(location),
+      key: here.reduce((k, d) => k.split(d).join('.'), [name, ...kept].join('\n')),
+    });
   }
   return failures;
 }
@@ -562,11 +582,12 @@ export const affectedRun = (base, say = console.log) => (dir, { report } = {}) =
   return nodeTests(dir, { files, report }).then((tests) => ({ ...tests, touched }));
 };
 // docs/adr/2026-11-14-1530-a-land-reruns-an-untouched-failing-test-on-main.md
-// Runs test files on base's commit in a checkout of its own (onCheckout). → the files among them that fail there too.
+// Runs test files on base's commit in a checkout of its own (onCheckout). → {failedFiles: the files among them that
+// fail there too, signatures: each one's failures' keys (nodeTests)}.
 export function failingOnBase(repo, base, files) {
   return onCheckout(repo, base, `to rerun ${files.join(', ')}`, async (dir) => {
     const rerun = await nodeTests(dir, { files: files.filter((f) => fs.existsSync(path.join(dir, f))) });
-    return rerun.ok ? [] : rerun.failedFiles;
+    return rerun.ok ? { failedFiles: [], signatures: {} } : { failedFiles: rerun.failedFiles, signatures: rerun.signatures };
   });
 }
 
@@ -600,23 +621,36 @@ export async function untilHostEases({ say = console.log, report, wait = sleep }
 // Runs the worktree's tests (runTests, else the full suite) once the host eases (untilHostEases), refusing on a failure with each failing test, or on a run cut off at its time limit
 // with the files still running, and outcome, what the refusal left undone.
 // report, when given, is told the run's start, progress and result ({start, update, end}, each taking words; nodeTests).
-// onUntouchedFailure, when given, is told the failing test files when none of them is one the change reaches (the run's
-// touched) and answers which of them fail on base too; when all do, the run passes and the land goes on, the failure
-// left to a Found: call, not the card.
-export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report, onUntouchedFailure, wait }) {
+// onBaseRun, when given, runs the failing test files on base (failingOnBase's answer) once the run fails
+// (docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md). When every one fails there too,
+// and each is one the change doesn't reach (the run's touched; a run with none touched every file) or fails there with
+// the same failures (signatures), the run passes, answering {failingOnBase: those files}, and the land goes on, the
+// failure left to a Found: call, not the card.
+// When every one fails there too but a touched one fails differently, the refusal carries failsOnBase, the failing
+// files, so the land waits on main's fix rather than the card's.
+export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report, onBaseRun, wait }) {
   await untilHostEases({ say, report, wait });
   const tests = await runTests(dir, { report });
-  if (!tests.ok && !tests.hung && onUntouchedFailure && tests.failedFiles?.length && tests.failedFiles.every((f) => tests.touched && !tests.touched.includes(f))) {
-    const onBase = await onUntouchedFailure(tests.failedFiles);
-    if (tests.failedFiles.every((f) => onBase.includes(f))) { say(`${tests.failedFiles.join(', ')} fail on the base too, so the change didn't break them`); return; }
+  let failsOnBase;
+  if (!tests.ok && !tests.hung && onBaseRun && tests.failedFiles?.length) {
+    const onBase = await onBaseRun(tests.failedFiles);
+    if (tests.failedFiles.every((f) => onBase.failedFiles.includes(f))) {
+      const same = (f) => tests.touched?.includes(f) === false
+        || JSON.stringify([...tests.signatures[f]].sort()) === JSON.stringify([...onBase.signatures[f]].sort());
+      if (tests.failedFiles.every(same)) {
+        say(`${tests.failedFiles.join(', ')} fail on the base too, so the change didn't break them`);
+        return { failingOnBase: tests.failedFiles };
+      }
+      failsOnBase = tests.failedFiles;
+    }
   }
   const log = tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : [];
   if (tests.hung) fail([`tests hung past ${tests.hung.after} in ${tests.hung.files.join(', ') || 'the test runner'}; ${outcome}`, ...log].join('\n'));
-  if (!tests.ok) fail([
+  if (!tests.ok) throw Object.assign(new BoardError([
     `tests failed in ${dir} (${tests.fail} failing); ${outcome}`,
     ...(tests.failures?.length ? tests.failures : [tests.error || 'test runner failed without test diagnostics']),
     ...log,
-  ].join('\n'));
+  ].join('\n')), failsOnBase ? { failsOnBase, log: tests.log } : {});
   say(`tests passed: ${tests.pass}`);
 }
 
@@ -653,12 +687,8 @@ export async function prepareLand({ path: dir, branch, repo, base, ref, title },
     say(`${branch} was tested on ${base} as it is now; not testing it again`);
     return head;
   }
-  const onUntouchedFailure = async (files) => {
-    const failing = await failingOnBase(repo, base, files);
-    if (failing.length) await found(`Found: ${failing.join(', ')} fails on ${base} too (flaky or already broken); the land went on`);
-    return failing;
-  };
-  await passTests(dir, { say, runTests, outcome: 'nothing landed', report, onUntouchedFailure });
+  const passed = await passTests(dir, { say, runTests, outcome: 'nothing landed', report, onBaseRun: (files) => failingOnBase(repo, base, files) });
+  if (passed?.failingOnBase) await found(`Found: ${passed.failingOnBase.join(', ')} fails on ${base} too (flaky or already broken); the land went on`);
   git(repo, 'update-ref', testedRef(branch), head);
   return head;
 }

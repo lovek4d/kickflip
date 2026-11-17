@@ -67,7 +67,14 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   const onTestWait = (card) => store.appendStatus(site, key, 'test-waiting', { card });
   // The files its diff changes, which the cards it unblocks compare with the files their notes name.
   const landedFiles = git(tree.repo, 'diff', '--name-only', '--no-renames', `${base}...${tree.branch}`).out.split('\n').filter(Boolean);
-  const landed = await landInTurn({ ...tree, ref }, { hold: !go, onWait, onTestWait, queue, report, found: (words) => store.recordCall(site, key, words, {}),sync: () => remote && syncBase(tree.repo, base) });
+  let landed;
+  try {
+    landed = await landInTurn({ ...tree, ref }, { hold: !go, onWait, onTestWait, queue, report, found: (words) => store.recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
+  } catch (e) {
+    // docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md
+    if (!e.failsOnBase) throw e;
+    return store.waitOnMainFix(site, key, { files: e.failsOnBase, log: e.log, base });
+  }
   if (!go) {
     const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
     await store.appendMessage(site, key, { text });

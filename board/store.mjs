@@ -6232,6 +6232,39 @@ export async function landable(site) {
   return out;
 }
 
+// docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md
+// The land of card key failed on test files that fail on base too (worktree.mjs passTests failsOnBase), log its full
+// output: the card waits on main's fix, an open card whose title names one of the files, by its path or its name less
+// .mjs, else an ask filed for it, related to the card. Blocked by it, the card takes no slot (domain.mjs pullOf). Its
+// build is handed back and verified, restamped so the land after the block is a lander's first (landStep), and its
+// lander lands it once the fix is done. → {said, lines}
+export async function waitOnMainFix(site, key, { files, log, base }) {
+  const { file: slug } = parseKey(key);
+  const names = files.flatMap((f) => [f, path.posix.basename(f).replace(/\.mjs$/, '')]);
+  let fix = null;
+  for (const s of await itemSources(site)) {
+    for (const it of (await readJSON(s.file, null))?.items || []) {
+      if (!fix && `${s.slug}/${it.id}` !== key && !closed(it) && names.some((n) => String(it.title || '').includes(n))) fix = `${s.slug}/${it.id}`;
+    }
+  }
+  const ref = await cardName(site, key);
+  const lines = [];
+  if (fix) {
+    const { item } = await loadItem(site, key);
+    const deps = depCards(slug, item.deps);
+    if (!deps.includes(fix)) lines.push(...(await setItem(site, key, { deps: [...deps, fix].map((d) => (parseKey(d).file === slug ? parseKey(d).id : d)).join(',') })).lines);
+  } else {
+    fix = (await askItem(site, slug, { text: `${base} fails ${files.join(', ')}, so ${ref}'s verified land waits on its fix. Make ${files.length === 1 ? 'it' : 'them'} pass on ${base} again.${log ? ` Full test output: ${log}` : ''}`, relate: key, before: key })).key;
+  }
+  await setItem(site, key, { handBack: true });
+  const file = await builderFile(site, key);
+  const record = await readJSON(file, null);
+  if (record) await writeJSON(file, { ...record, verified: { ...record.verified, at: new Date().toISOString() } });
+  const card = await cardName(site, fix);
+  await appendStatus(site, key, 'land-held-on-base', { card, files: files.join(', ') });
+  return { said: `not landed: ${files.join(', ')} fail on ${base} too, so it is blocked by ${card}, main's fix, and lands once that is done`, lines };
+}
+
 // A card whose lander stopped partway (its process gone) keeps the lander's record open, the verification on it
 // (startBuilder); this closes that record as handed back, so landable finds the card again and the board server's
 // land step for it (domain.mjs landStep) relaunches or faults it, counting from its data/landers.json entry.

@@ -68,6 +68,8 @@ export const HUB_LINES = {
   'blocked-stays': { tone: 'grey', mark: BLOCKED, text: ({ blocked }) => fit('Blocked ', blocked, ': it stays In Progress.') },
   'cant-start-yet': { tone: 'grey', mark: BLOCKED, text: ({ names }) => fit('Can’t start yet: waits on ', names, '. Bumped to the top of Todo.') },
   'split-moved': { tone: 'grey', mark: BLOCKED, text: ({ card, to }) => fit('Split: ', `${card} became ${to}`, ', so it waits on those now.') },
+  // docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md
+  'land-held-on-base': { tone: 'orange', mark: BLOCKED, text: ({ card, files }) => fit('Not landed: main fails it too, so it waits on main’s fix ', `${card} (${files})`, '.') },
   'merge-blocked': { tone: 'grey', mark: BLOCKED, text: ({ blocked }) => fit('Not merged: blocked ', blocked, '.') },
   // Launches, requests and moves.
   pulled: { tone: 'orange', mark: BUILD, text: () => 'Moved to In Progress: slot available' },

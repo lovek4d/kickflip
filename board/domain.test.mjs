@@ -2632,6 +2632,10 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const unblocked = { lane: 'review', unblocked_at: at };
   assert.deepEqual(shape(one(unblocked)), [['w/A1', 'unblocked', at, null]]);
   assert.deepEqual(one({ ...unblocked, lane: 'todo' }), [], 'a Todo task is the pull\'s');
+  // docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md: a verified build whose block
+  // ended is its land step's, so it waits on the lander, never on a second look from the session.
+  const verifiedBack = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z', done: at, handed_back: at, verified: { at } } } };
+  assert.deepEqual(shape(one({ lane: 'progress', unblocked_at: later }, { agents: verifiedBack })), [['w/A1', 'checking', at, null]]);
 
   // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
   // for the orchestrator's re-check of its notes before the pull takes it.

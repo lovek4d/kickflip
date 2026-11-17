@@ -2190,7 +2190,8 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       it.refusal && facts.refusedAt && { kind: 'refused', since: facts.refusedAt, next: `${it.refusal}: fix what refused the build and start it, or say on the task why it waits` },
       it.next === NO_NEXT && lastBuild && { kind: 'unowned', since: lastBuild, next: 'Start a builder on it, or set its Next' },
       // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo whose block ended waits until the session writes on it.
-      facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.blocked && !facts.writes.some((t) => t > facts.unblockedAt)
+      // A verified build waiting to land is its land step's (docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md).
+      facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.blocked && !it.land && !facts.writes.some((t) => t > facts.unblockedAt)
         && { kind: 'unblocked', since: facts.unblockedAt, next: 'Its block ended: act on what it waited for, or set its Next; a thread line ends the wait' },
       // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: a sorted
       // Todo card still owing Implement, with no mark, question, brief or planner, owes nobody anything.
