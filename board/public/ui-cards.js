@@ -258,6 +258,7 @@
   // A stale build's status line and bars keep their lane colour: stale shows only as the footer word. One the
   // orchestrator stopped has no dot.
   function builderStatus(it) {
+    if (it.builder.loggedOut) return `<div class="line3 sub refused">${esc(builderLine(it.builder))}</div>`;
     const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}`;
     if (it.builder.stopped) return `<div class="${classes}">${esc(builderLine(it.builder))}</div>`;
     return `<div class="${classes}">${DOT}${esc(builderLine(it.builder))}</div>`;

@@ -20,7 +20,7 @@ const win = (pct, resets) => ({ used_percentage: num(pct), resets_at: isoOf(rese
 
 // The last line of file, from its end, that holds needle and that pick turns into a value, or null. It reads the last
 // 256KB first, then 2MB.
-function lastMatch(file, needle, pick) {
+export function lastMatch(file, needle, pick) {
   let fd;
   try {
     fd = fs.openSync(file, 'r');

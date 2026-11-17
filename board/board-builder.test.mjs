@@ -836,6 +836,18 @@ test("agent wait marks its spawner waiting while the helper is open, and refuses
   assert.equal('waits' in record(), false);
 });
 
+test('noteLoggedOut puts the login words in the thread once, and again after another status line', async () => {
+  assert.equal((await board('builder', 'start', 'audit/A1', '--site', 'audit', '--label', 'Builder')).code, 0);
+  await store.recordSession(site('audit'), 'audit/A1', 's1', 4242, 'main', 'builder.log');
+  const said = () => lines(site('audit', 'data', 'threads', 'audit__A1.jsonl')).filter((l) => l.kind === 'status').map((l) => l.text);
+  await store.noteLoggedOut(site('audit'), 'audit/A1');
+  await store.noteLoggedOut(site('audit'), 'audit/A1');
+  assert.deepEqual(said(), ['Claude is logged out: run /login']);
+  assert.equal((await board('builder', 'progress', 'audit/A1', '--site', 'audit', '--phase', 'building', 'Back at it')).code, 0);
+  await store.noteLoggedOut(site('audit'), 'audit/A1');
+  assert.deepEqual(said(), ['Claude is logged out: run /login', 'Building: Back at it', 'Claude is logged out: run /login']);
+});
+
 // docs/adr/2026-11-12-1300-builder-done-posts-no-line-to-the-thread.md
 test("builder done on a planner run takes no --text and posts no thread line; a helper's hand-back stays on its record only", async () => {
   assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'grill')).code, 0);

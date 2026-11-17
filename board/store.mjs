@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
+import { BUILD_REFUSED, LOGGED_OUT_WORDS, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
 import { githubStateFile, appendEvent, isBoardSite, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd, boardClaudeModel, claudeModelFor } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel, readLandTests, setLandTests, CLAUDE_MODEL_VALUES } from '../hub/push.mjs';
@@ -5110,6 +5110,15 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
   const file = threadFile(site, key);
   if ((await readLog(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
   await appendLine(file, { ts, who: 'claude', kind: 'status', run: builder.started, ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), ...(live ? { live: true } : {}), text: body });
+}
+
+// The thread's status line for a card whose open run ended on Claude's login error: LOGGED_OUT_WORDS, once until another
+// status line follows it (statusToThread skips a repeat of the last one).
+export async function noteLoggedOut(site, key) {
+  const { source } = await loadItem(site, key);
+  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
+  const run = records.filter((r) => r?.started && !r.done && r.session?.log).sort((a, b) => Number(builds(b)) - Number(builds(a)))[0];
+  if (run) await statusToThread(site, key, 'main', run, { detail: LOGGED_OUT_WORDS }, new Date().toISOString());
 }
 
 // The card's newest build record, a lander's included: a lander's run folds into the build it lands (domain.mjs sectionOf),

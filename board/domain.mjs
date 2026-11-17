@@ -809,7 +809,10 @@ function reviewerOf(agents) {
   const running = agents.filter((a) => a.kind === REVIEWER && a.started && !a.done).at(-1);
   return running ? { target: running.target || 'plan', since: running.started } : null;
 }
-function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
+// The words of a card whose run's log ends on Claude's login error, as its live line and its thread's status line.
+export const LOGGED_OUT_WORDS = 'Claude is logged out: run /login';
+// loggedOut: whether an open run of the card ends on that error (server.mjs snapshot), which reads in red until a run resumes.
+function builderOf(agents, lines = [], now, movedAt = null, alive = null, loggedOut = false) {
   const open = agents.filter((a) => a.started && !a.done && !beside(a));
   const planner = open.every(plans);
   const running = planner ? open : open.filter(builds);
@@ -834,8 +837,8 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
   const live = planner || held ? null : stop ? false : alive;
   const stale = held ? false : live === null ? silent >= BUILDER_STALE_AFTER : !live;
   // The builder line's words, before its age: a stop's words, else stopped (a gone process) then the progress line, or starting until the first one.
-  const words = stop ? stoppedWords(stop.run) : [live === false && 'stopped', progress || (live === false ? null : 'starting')].filter(Boolean).join(' · ');
-  return { progress, words, phase: stepOf(line?.phase) || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, stopped: stop ? stoppedWords(stop.run) : null,
+  const words = loggedOut ? LOGGED_OUT_WORDS : stop ? stoppedWords(stop.run) : [live === false && 'stopped', progress || (live === false ? null : 'starting')].filter(Boolean).join(' · ');
+  return { progress, words, ...(loggedOut ? { loggedOut } : {}), phase: stepOf(line?.phase) || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, stopped: stop ? stoppedWords(stop.run) : null,
     ...(pause ? { pause: { cause: pause.cause, words: pause.words, paused: Boolean(pause.paused) } } : {}) };
 }
 
@@ -1379,7 +1382,7 @@ export function buildBoard(snapshot) {
       items.push(workItem({
         slug, itemFile, it, order, repo, remote, base: snapshot.branch || 'main',
         prs: cardPRs(it, repo).map((p) => ({ ...p, gh: routeRecord(prs, prKeyOf(p)) || null })),
-        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null, routeRecord(snapshot.alive, key) ?? null), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
+        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null, routeRecord(snapshot.alive, key) ?? null, Boolean(routeRecord(snapshot.loggedOut, key))), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)) ?? it.worktree?.path ?? null,
         thread: lines,
         scriptEvents: index.scripts.get(key) || [],

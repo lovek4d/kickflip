@@ -372,7 +372,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathS
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, noteLoggedOut, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -385,6 +385,7 @@ import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { shareEntries } from '../hub/share.mjs';
 import { readUsageGate, heldFor, tasksInProgressCap, launchHeldWords, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { runLimit } from '../hub/usage.mjs';
+import { runLoggedOut } from '../hub/login-error.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
@@ -674,6 +675,19 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }))).filter(Boolean);
   }
 
+  // {<key>: true} of the cards, among the files' liveFiles', that have an open run whose log ends on Claude's login error
+  // (hub/login-error.mjs). A run that resumes after /login writes a new log, which the record names from then on.
+  async function loggedOutCards(files) {
+    const logs = path.join(home, '.claude', 'kickflip', 'logs');
+    const out = Object.create(null);
+    for (const { slug, agents } of files) {
+      for (const [id, byAgent] of Object.entries(agents || {})) {
+        if (Object.values(byAgent).some((r) => r?.started && !r.done && r.session?.log && runLoggedOut(path.join(logs, r.session.log)))) out[`${slug}/${id}`] = true;
+      }
+    }
+    return out;
+  }
+
   // The notes of every card in the item files, files liveFiles', by key: its markdown (store.mjs itemNotes), or null with
   // none or a notes file it can't read, which GET /api/notes answers 404.
   async function cardNotesOf(files) {
@@ -773,11 +787,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       else delete alive[key];
     }
 
+    const loggedOut = await loggedOutCards(files);
+
     const tries = await readJSON(path.join(data, 'try.json'), null);
     return {
       // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: main's log tail rides the board while its build is failing.
       mainLog: tries?.main?.state === 'failed' ? await tryLogTail(here, 'main') : null,
-      ...items, moved, alive, try: tries, main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here),
+      ...items, moved, alive, loggedOut, try: tries, main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here),
       checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
       owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
       topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
@@ -1656,6 +1672,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       logCall({ call: 'planner-gone', key: c.key, result: c.limited ? 'queued' : c.failed ? 'failed' : 'closed', reason: c.limited ? `Its ${c.kind} run stopped at the usage limit, which resets at ${c.limited.until}; it relaunches then.` : `Its ${c.kind} planner's process was gone with its record open.`, inputs: c });
     }
     if (gone.length) dataVersion++;
+    for (const key of Object.keys(await loggedOutCards(await liveFiles()))) await noteLoggedOut(here, key);
     const log = await readLog(events);
     const { items, reviews } = await sharedBoard();
     const hold = await triageHold(log);

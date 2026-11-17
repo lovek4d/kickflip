@@ -75,11 +75,12 @@ test("a verified card's status line and its wait on the orchestrator print its l
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
 
-function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true, skipDraft, moved, alive } = {}) {
+function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true, skipDraft, moved, alive, loggedOut } = {}) {
   return buildBoard({
     now,
     moved,
     alive,
+    loggedOut,
     skipDraft,
     topicItems,
     threads,
@@ -293,6 +294,14 @@ test('only a run that can change its code moves an In Review card to In Progress
 });
 
 // docs/adr/2026-11-13-2030-a-test-run-reports-live-lines-the-thread-does-not-show.md
+test('a card whose open run ended on the login error reads its words and flags it, and loses both once the flag clears', () => {
+  const agents = { A1: { main: { kind: 'claude', started: '2026-10-30T10:00:00Z' } } };
+  const line = { ts: '2026-10-30T10:01:00Z', who: 'claude', kind: 'status', phase: 'building', text: 'Building: 2 test files' };
+  const card = (loggedOut) => board({ now: Date.parse('2026-10-30T10:02:00Z'), agents, threads: { 'w/A1': [line] }, loggedOut }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([card({ 'w/A1': true }).builder.words, card({ 'w/A1': true }).builder.loggedOut], ['Claude is logged out: run /login', true]);
+  assert.deepEqual([card({}).builder.words, 'loggedOut' in card({}).builder], ['Building · 2 test files', false]);
+});
+
 test('a live status line sets the card line and keeps a running build from reading stale, but the thread does not show it', () => {
   const started = '2026-10-30T10:00:00Z';
   const start = { ts: '2026-10-30T10:01:00Z', who: 'claude', kind: 'status', phase: 'building', text: 'Building: 2 test files' };

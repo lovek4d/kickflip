@@ -59,3 +59,26 @@ test('a headless run that ended on an auth error pushes once; an old one does no
 test('a logged-out board row is red and says so', () => {
   assert.deepEqual(siteStatus({ state: 'up', working: true, listen: 'logged-out' }), { shape: 'dot', colour: 'red', word: 'logged out: run /login' });
 });
+
+test("a board whose open run's log ends on the login error holds the episode under its route, and a log its open run names is not headless", async () => {
+  const none = () => ({ status: 1, stdout: '', stderr: '' });
+  const other = { sites: { ...manifest.sites, app: { route: 'app', title: 'App', cmd: ['node', 'board/server.mjs'], dir: path.join(home, 'app') } } };
+  fs.mkdirSync(path.join(home, 'app', 'data', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'app', 'data', 'board.json'), '{}');
+  const log = path.join(logs, 'builder-T-9-x.log');
+  fs.writeFileSync(log, `${JSON.stringify({ type: 'result', is_error: true, result: 'Invalid API key · Please run /login' })}\n`);
+  fs.utimesSync(log, NOW, NOW);
+  const record = path.join(home, 'app', 'data', 'agents', 'T9.json');
+  fs.writeFileSync(record, JSON.stringify({ started: '2026-11-14T11:00:00Z', session: { log: 'builder-T-9-x.log' } }));
+  const sent = [];
+  const check = () => checkLoggedOut({ manifest: other, now: NOW, tmux: none, logDir: logs, stateFile, push: async (m) => { sent.push(m); } });
+  assert.deepEqual((await check()).loggedOut, ['app']);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].url, '/app/');
+  assert.deepEqual([...loggedOutRoutes(stateFile)], ['app']);
+  fs.writeFileSync(record, JSON.stringify({ started: '2026-11-14T11:00:00Z', session: { log: 'builder-T-9-y.log' } }));
+  assert.deepEqual((await check()).loggedOut, ['headless'], 'a recent log no open run names stays headless');
+  fs.writeFileSync(record, JSON.stringify({ started: '2026-11-14T11:00:00Z', done: '2026-11-14T11:30:00Z', session: { log: 'builder-T-9-x.log' } }));
+  fs.rmSync(log);
+  assert.deepEqual((await check()).loggedOut, []);
+});
