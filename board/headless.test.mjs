@@ -209,33 +209,36 @@ test("a headless planner's brief names its card and its notes so far, spells its
   }
   assert.match(proto, /write no output code in .*?\/r\/shop itself/);
   assert.ok(grill.includes('write no output code there'));
-  // docs/adr/2026-11-12-1400-a-grill-ends-asking-to-implement-prototype-or-discuss.md: every grill ends with one
-  // closing question, Implement, Prototype first or Keep discussing, which the board acts on.
-  assert.ok(grill.includes('End every grill with one more question, "What next, given these answers?", whose options are implement (label "Implement"), prototype ("Prototype first") and discuss ("Keep discussing"), in that order, with "next_gate": true in its `question add --file` entry'));
-  assert.ok(grill.includes('the board moves the task to staging on implement, to prototyping on prototype, or back to discussing on discuss'));
-  assert.ok(grill.includes("Recommend implement when your questions settle the task and it doesn't change the hub's or a board's UI, prototype when it does") && grill.includes('Ask it even when it is your only question'));
+  // docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md: a grill ends on the card's Implement ask, never a
+  // question offering Implement.
+  assert.ok(grill.includes(`End the round on the task's Implement ask, never a question: as your last step, once your questions are added, run \`${b} thread w/A1 --implement --text "<what to answer first, then tap Implement>"\``));
+  assert.ok(grill.includes("the board returns the task to discussing with Implement as its next action, and only the owner's Implement tap stages it"));
+  assert.ok(grill.includes('No question offers Implement'));
+  for (const brief of [grill, proto]) assert.ok(!brief.includes('next_gate') && !brief.includes('What next, given these answers?') && !brief.includes('Keep discussing'));
   assert.ok(!grill.includes('prototype_gate') && !grill.includes('Prototype round first?'));
-  assert.ok(!proto.includes('next_gate'));
-  // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a card that keeps its prototype answer is never asked again.
-  for (const [prototype, moves] of [['yes', 'to prototyping'], ['no', 'to staging'], ['ran', 'to staging']]) {
+  // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a kept yes moves the card to prototyping with no
+  // Implement ask; a kept no or ran ends on the ask as any grill does.
+  const yes = plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', prototype: 'yes' });
+  assert.ok(yes.includes("The task keeps the owner's answer to its prototype question, yes, so end with no Implement ask: once every question you ask is answered, or as you finish when you ask none, the board moves the task to prototyping."));
+  assert.ok(!yes.includes('--implement'));
+  for (const prototype of ['no', 'ran']) {
     const kept = plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', prototype });
-    assert.ok(!kept.includes('next_gate') && !kept.includes('End every grill with one more question'), prototype);
-    assert.ok(kept.includes(`The task keeps the owner's answer to its prototype question, ${prototype}, so ask no closing "What next, given these answers?" question: once every question you ask is answered, or as you finish when you ask none, the board moves the task ${moves}.`), prototype);
+    assert.ok(kept.includes("End the round on the task's Implement ask"), prototype);
   }
   // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: the grill never asks about a ticket, and says so.
   assert.ok(!grill.includes('ticket_gate') && !grill.includes('Create a ticket') && !proto.includes('ticket_gate'));
   assert.ok(grill.includes('Never ask whether to make a ticket: the board makes a task\'s ticket when it goes ready.'));
   // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a grill proposes a split as one question.
   assert.ok(grill.includes('separable parts') && grill.includes('"Split as proposed"') && grill.includes('"Keep as one task"'));
-  assert.ok(grill.includes('ahead of the closing question'));
   // docs/adr/2026-11-09-2200-splits-and-waves-follow-vertical-slices-with-stated-conflicts.md: the slicing comes from /to-tickets, the conflicts are named per card.
   assert.ok(grill.includes('~/.claude/skills/to-tickets/SKILL.md') && grill.includes('step 3, "Draft vertical slices"'));
   assert.ok(grill.includes('the earlier proposed tasks it waits on, or none'));
   assert.ok(grill.includes('only when it builds on that task or shares its seam'));
   assert.ok(!grill.includes('which tasks build side by side'));
   assert.ok(!proto.includes('Split as proposed'));
-  // A grill sets no ready itself: the gate's answer moves the card; the owner asking for prototypes ends it prototyping.
-  assert.ok(grill.includes(`end the task \`${b} item set w/A1 --phase prototyping\` instead and skip the closing question`));
+  // A grill sets no ready itself: the owner's Implement tap moves the card; the owner asking for prototypes ends it prototyping.
+  assert.ok(grill.includes(`end the task \`${b} item set w/A1 --phase prototyping\` instead and skip the Implement ask`));
+  assert.ok(grill.includes("Otherwise the owner's Implement tap is what moves the task on"));
   assert.ok(grill.includes('never set it ready yourself'));
   assert.ok(grill.includes('never leave a Next that asks the owner to mark it ready'));
   assert.ok(!proto.includes('--phase ready'));

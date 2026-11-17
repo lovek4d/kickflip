@@ -50,7 +50,7 @@ import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { BRIEF_LINE_LIMIT, lineFault } from './hub-lines.mjs';
 import { BoardError, fail, needSite, optional, pageUrl, text } from './checks.mjs';
 import { appendStatus, blockerNames, cardName, checkNextDeps, depCards, depKey, leftTodo, loadItem, openKeys, ownerFile, parseKey, placeIn, recordOwnerTap, setItem, shownCard, threadFile } from './cards.mjs';
-import { briefOn, cardQuestions, clearNext, dropBrief, hasOpenQuestion, markWaiting, moveOnAnswered, noBrief, publishStaged, resolveAnswered, restoreBrief, setNext, stagedFile, stageImplement, unpickedPrototype } from './questions.mjs';
+import { asksImplement, briefOn, cardQuestions, clearNext, dropBrief, hasOpenQuestion, markWaiting, moveOnAnswered, noBrief, publishStaged, resolveAnswered, restoreBrief, setNext, stagedFile, stageImplement, unpickedPrototype } from './questions.mjs';
 import { askItem } from './asks.mjs';
 import { boardRepoOf, boardTarget } from './settings.mjs';
 
@@ -2073,8 +2073,9 @@ export async function closeRecord(site, key, { dir, agent, startedBetween, note,
 }
 
 // A planner's `builder done`: closeRecord, then, if the card is still in the planner's phase with no question open,
-// staged or screening for it, a fault line (domain.mjs orchestratorWaitOf reads it as a wait). A grill on a card that
-// keeps its prototype answer (gates.prototype) may have nothing to ask: that card moves on instead (moveOnAnswered).
+// staged or screening for it, a fault line (domain.mjs orchestratorWaitOf reads it as a wait). A grill that ended on
+// its Implement ask (asksImplement), or on a card that keeps its prototype answer (gates.prototype), may have nothing to
+// ask: that card moves on instead (moveOnAnswered).
 // → {file, lines}
 export async function stopPlanner(site, key, flags) {
   const record = await readJSON(await builderFile(site, key, undefined, flags.agent), null);
@@ -2088,10 +2089,11 @@ export async function stopPlanner(site, key, flags) {
     const { line, lines } = await appendStatus(site, key, 'visual-unplaced', {});
     return { file, lines: [line.text, ...lines] };
   }
-  const { phase, gates } = (await loadItem(site, key)).item;
+  const { item } = await loadItem(site, key);
+  const { phase, gates } = item;
   const asked = await hasOpenQuestion(site, key) || Boolean((await readJSON(stagedFile(site), {}))[key]);
   if (phase !== { grill: 'grilling', prototype: 'prototyping' }[kind] || asked) return { file, lines: [] };
-  if (kind === 'grill' && gates?.prototype && await moveOnAnswered(site, key)) return { file, lines: [] };
+  if (kind === 'grill' && (gates?.prototype || asksImplement(item)) && await moveOnAnswered(site, key)) return { file, lines: [] };
   const { line, lines } = await appendStatus(site, key, 'planner-unasked', { kind });
   return { file, lines: [line.text, ...lines] };
 }

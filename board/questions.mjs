@@ -5,7 +5,7 @@
 import fs from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { HAD_IMPLEMENT, COMMANDS, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, refOf, roundOf, roundSettledBy, VISUAL, REVIEWER, beside, OWES_IMPLEMENT, markedState } from './domain.mjs';
+import { HAD_IMPLEMENT, COMMANDS, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, refOf, roundOf, roundSettledBy, VISUAL, REVIEWER, beside, OWES_IMPLEMENT, markedState, ownerWaitOf } from './domain.mjs';
 import { appendEvent } from '../hub/boards.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { boardConfig, itemSources, readJSON, readLog, replace, writeJSON } from './files.mjs';
@@ -230,7 +230,7 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
   const topics = new Set((owner.topics || []).map((t) => t.id));
   for (const [i, q] of questions.entries()) {
     const name = `question ${q?.id ?? i + 1}`;
-    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask', 'suggested', 'prototype_gate', 'next_gate'], name);
+    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask', 'suggested', 'prototype_gate'], name);
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
@@ -248,8 +248,8 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
-    if (!q.next_gate && q.options.some((o) => o.id === 'implement' || /^implement\b/i.test(o.label))) fail(`${name} has an Implement option; only a grill's closing question, next_gate, offers Implement (choosing it stages the task), and a final visual ends on the card's Implement tap`);
-    if (q.prototype_gate && q.next_gate) fail(`${name} sets prototype_gate and next_gate; a grill asks one closing question, next_gate`);
+    // docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md
+    if (q.options.some((o) => o.id === 'implement' || /^implement\b/i.test(o.label))) fail(`${name} has an Implement option; Implement is only the card's Implement tap: end the round with thread ${q.topic.startsWith('item:') ? q.topic.slice(5) : '<task>'} --implement --text "<what to answer, then tap Implement>"`);
     for (const flag of Object.keys(GATES)) if (q[flag] !== undefined && checkGate(flag, q, `${name}.${flag}`)) await checkGateFact(site, q, flag, name);
     optional(q.suggested, (v) => checkSuggested(v, q.options, `${name}.suggested`));
     await checkPrototype(site, q, name);
@@ -321,7 +321,7 @@ export async function settleQuestion(site, id, note) {
   if (!key) return settleStale(site, id, said);
   if (!screening[key]) fail(`${id} waits for ${key}'s planner to finish`);
   const q = staged[key].find((x) => x.id === id);
-  if (q.prototype_gate || q.next_gate) fail(`${id} is the task's ${q.next_gate ? 'closing' : 'prototype'} question, which is the owner's; question publish ${key} passes it on`);
+  if (q.prototype_gate) fail(`${id} is the task's prototype question, which is the owner's; question publish ${key} passes it on`);
   const at = new Date().toISOString();
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...(owner.items || []), { ...q, asked_at: at, resolved: `Settled by the orchestrator: ${said}`, resolved_at: at }] });
@@ -407,8 +407,7 @@ async function publishQuestions(site, owner, items, questions, lines) {
   return { file: ownerFile(site), lines: [...lines, ...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
 }
 
-// docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md,
-// docs/adr/2026-11-12-1400-a-grill-ends-asking-to-implement-prototype-or-discuss.md
+// docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
 // A gate flag set true goes on a card's own topic with exactly its gate's options, in order. field names the flag.
 // → whether the flag is set
 function checkGate(flag, q, field) {
@@ -422,12 +421,9 @@ function checkGate(flag, q, field) {
 // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md
 // A gate question's flag, the fact on the card it decides, gates.<kind>, and what each of its options keeps in gates:
 // the owner's answer, kept so no later grill asks it again. A prototype yes becomes ran once the board moves the card to
-// prototyping on it (moveOnAnswered). next_gate marks a grill's closing "What next, given these answers?": Implement
-// keeps prototype no and Prototype first keeps yes, as the older prototype_gate's no and yes do; Keep discussing keeps
-// gates.next discuss instead, spent once the board returns the card to discussing on it, so the next grill asks again.
+// prototyping on it (moveOnAnswered).
 const GATES = {
   prototype_gate: { kind: 'prototype', keeps: { yes: { prototype: 'yes' }, no: { prototype: 'no' } } },
-  next_gate: { kind: 'prototype', keeps: { implement: { prototype: 'no' }, prototype: { prototype: 'yes' }, discuss: { next: 'discuss' } } },
 };
 // A gate question asks only while its fact is unset.
 async function checkGateFact(site, q, flag, name) {
@@ -461,7 +457,7 @@ async function resolveGate(site, key, kind, note) {
 // docs/adr/2026-11-07-0700-staging-then-ready.md, docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
 // The owner's Send acted on with no orchestrator step. A gate question resolves and its answer becomes the card's gate
 // fact (keepGate). A prototype yes while another of its card's questions is open has a thread line say the card waits
-// for them. Every answer on a card goes into the card's notes verbatim, and the card then moves on once nothing is left
+// for them. A no marks the card waiting on its Implement ask. Every answer on a card goes into the card's notes verbatim, and the card then moves on once nothing is left
 // open (moveOnAnswered).
 // → {prototype: [keys], staged: [keys]}: the cards whose prototype planner the server starts, and the cards staged.
 export async function settleAnswers(site, answers) {
@@ -470,13 +466,15 @@ export async function settleAnswers(site, answers) {
     const q = asked.get(String(a.id));
     const flag = Object.keys(GATES).find((f) => q?.[f]);
     if (!flag || !(a.choice in GATES[flag].keeps)) continue;
-    const chose = flag === 'next_gate' ? `Next: ${q.options.find((o) => o.id === a.choice).label}` : `Prototype round: ${a.choice}`;
-    const said = `${chose}. The board moves the task on once every question is answered.`;
+    const said = `Prototype round: ${a.choice}. The board moves the task on once every question is answered.`;
     await markResolved(site, await readJSON(ownerFile(site), { topics: [], items: [] }), [q.id], said);
     const key = q.topic.slice(5);
     const card = await loadItem(site, key).catch(() => null);
     if (!card) continue;
     await keepGate(site, key, flag, a.choice, said);
+    // docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md: a no is not Implement; it puts the card's
+    // Implement ask on it, which carries it back to discussing once nothing is open (moveOnAnswered).
+    if (a.choice === 'no' && owesImplement(card.item)) await markWaiting(site, key, 'implement');
     if (GATES[flag].keeps[a.choice].prototype === 'yes' && card.item.phase === 'grilling' && await hasOpenQuestion(site, key)) {
       await appendStatus(site, key, 'prototype-after');
     }
@@ -509,11 +507,11 @@ export async function settleAnswers(site, answers) {
 
 // docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
 // A card moves on once none of its questions is open: a grilling card whose gates.prototype is yes to prototyping, with
-// a thread line, the yes then spent as ran (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md); a grilling
-// card whose gates.next is discuss back to discussing, the discuss spent
-// (docs/adr/2026-11-12-1400-a-grill-ends-asking-to-implement-prototype-or-discuss.md); a
+// a thread line, the yes then spent as ran (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md); a
 // prototyping or discussing card back to the conversation, discussing (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md);
-// any other stageable card to staging; a take pick leaves the card discussing and owing the final visual's brief
+// a grilling card its grill's Implement ask waits on back to discussing, the ask marked again there so the card owes the
+// owner's tap (docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md); any other stageable card to staging; a
+// take pick leaves the card discussing and owing the final visual's brief
 // (docs/adr/2026-11-17-1800-a-take-pick-owes-a-final-visual-brief.md). The move to prototyping owes the orchestrator's prototype brief.
 // → 'prototyping', 'discussing', 'staging' or null when the card stays.
 export async function moveOnAnswered(site, key, take) {
@@ -529,13 +527,6 @@ export async function moveOnAnswered(site, key, take) {
     await writeJSON(source.file, itemFile);
     return 'prototyping';
   }
-  if (item.phase === 'grilling' && item.gates?.next === 'discuss') {
-    const { source, itemFile, item: kept } = await loadItem(site, key);
-    spendNext(kept);
-    await writeJSON(source.file, itemFile);
-    await discuss(site, key);
-    return 'discussing';
-  }
   if (!(await stageable(site, key))) return null;
   // A card the owner's Implement already staged keeps its place: the pick is in its notes, and no visual is owed.
   if (take && ['staging', 'ready'].includes(item.phase)) return null;
@@ -550,18 +541,19 @@ export async function moveOnAnswered(site, key, take) {
     await discuss(site, key);
     return 'discussing';
   }
+  if (asksImplement(item)) {
+    await discuss(site, key);
+    await markWaiting(site, key, 'implement');
+    return 'discussing';
+  }
   await stage(site, key);
   return 'staging';
 }
 
-// Drops item's gates.next, the owner's Keep discussing, once a move has acted on it or overridden it; gates goes with
-// it when nothing else is kept.
-export function spendNext(item) {
-  if (!item.gates?.next) return;
-  const { next, ...gates } = item.gates;
-  if (Object.keys(gates).length) item.gates = gates;
-  else delete item.gates;
-}
+// docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md
+// Whether raw item is a grilling card its grill's Implement ask waits on: the planner's thread --implement, a mark set
+// while it grills.
+export const asksImplement = (item) => item.phase === 'grilling' && ownerWaitOf(item) === 'implement';
 
 // docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
 // Runs one card's follow-up to an owner Send, which is already recorded: any failure becomes a fault line on the card.
@@ -723,7 +715,7 @@ async function stageable(site, key) {
   return !(await unpickedPrototype(site, key));
 }
 // Stages the card, keeping the time of a stage it is already in, with a "Marked as staged" status line when it newly
-// stages. A Keep discussing the stage overrides is spent (spendNext).
+// stages.
 async function stage(site, key, sendId) {
   const { source, itemFile, item } = await loadItem(site, key);
   if (item.phase === 'staging') return;
@@ -735,7 +727,6 @@ async function stage(site, key, sendId) {
   delete item.filed_held;
   delete item.ready_at;
   delete item.ready_main;
-  spendNext(item);
   await writeJSON(source.file, itemFile);
   await appendCommand(site, key, { command: 'staged', sendId, ts: at });
 }
@@ -845,9 +836,14 @@ export async function markWaiting(site, key, on) {
   await writeJSON(source.file, itemFile);
 }
 export const ownerMark = (item, on) => ({ on, at: new Date().toISOString(), ...markedState(item) });
-function refuseImplementOwed(key, item) {
+// The word for what raw item already had of Implement (staged, ready or past Todo), or undefined while it owes one.
+const hadImplement = (item) => {
   const { phase, lane } = markedState(item);
-  const had = HAD_IMPLEMENT[lane === 'todo' ? phase : lane];
+  return HAD_IMPLEMENT[lane === 'todo' ? phase : lane];
+};
+export const owesImplement = (item) => !hadImplement(item);
+function refuseImplementOwed(key, item) {
+  const had = hadImplement(item);
   if (had) fail(`${key} is already ${had}, so it owes no Implement: write in its thread without --implement`);
 }
 // The readied line's words: "Marked as ready · " and the orchestrator's check whole, which item set refuses when the

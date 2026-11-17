@@ -518,7 +518,7 @@ export const OWES_IMPLEMENT = ['new', 'discussing'];
 // contradicts. A mark from before marks held them stands as it was. An item with no phase or lane yet reads new in
 // Todo, as the board's settle pass writes it.
 export const markedState = (item) => ({ phase: item.phase || 'new', lane: item.lane || 'todo' });
-function ownerWaitOf(it) {
+export function ownerWaitOf(it) {
   const mark = it.waits_on_owner;
   if (!mark) return null;
   const now = markedState(it);

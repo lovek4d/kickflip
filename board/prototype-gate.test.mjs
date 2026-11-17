@@ -89,7 +89,8 @@ test("a remaining question the orchestrator resolves counts as answered: the gri
   await addQuestions(no.site, [other, gate]);
   await settleAnswers(no.site, [no.answer('q-gate', 'no')]);
   await resolveQuestion(no.site, 'q-other', 'Settled by your note');
-  assert.equal(no.card(), 'staging');
+  assert.equal(no.card(), 'discussing');
+  assert.equal(no.read().waits_on_owner.on, 'implement');
 
   const prototyping = world('prototyping');
   await addQuestions(prototyping.site, other);
@@ -97,30 +98,34 @@ test("a remaining question the orchestrator resolves counts as answered: the gri
   assert.equal(prototyping.card(), 'prototyping', 'a task not grilling keeps its phase');
 });
 
-// docs/adr/2026-11-07-0700-staging-then-ready.md
-test('no stages the card once its other questions are answered, in either order', async () => {
+// docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md: no is not Implement; the card waits on the owner's tap.
+test("no returns the card to discussing on its Implement ask once its other questions are answered, in either order, unstaged", async () => {
   const first = world();
   await addQuestions(first.site, [other, gate]);
   assert.deepEqual(await settleAnswers(first.site, [first.answer('q-gate', 'no')]), { prototype: [], staged: [] });
   assert.equal(first.card(), 'grilling', 'q-other is still open');
-  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: [], staged: ['t/A1'] });
-  assert.equal(first.card(), 'staging');
-  assert.ok(first.read().staged_at);
+  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: [], staged: [] });
+  assert.equal(first.card(), 'discussing');
+  assert.deepEqual([first.read().waits_on_owner.on, first.read().waits_on_owner.phase], ['implement', 'discussing']);
+  assert.equal(first.read().staged_at, undefined);
+  assert.deepEqual(first.read().gates, { prototype: 'no' });
 
   const last = world();
   await addQuestions(last.site, [other, gate]);
   await settleAnswers(last.site, [last.answer('q-other', 'a')]);
   assert.equal(last.card(), 'grilling');
   await settleAnswers(last.site, [last.answer('q-gate', 'no')]);
-  assert.equal(last.card(), 'staging');
-  assert.deepEqual([last.thread().at(-1).command, last.thread().at(-1).text], ['staged', 'Marked as staged']);
+  assert.equal(last.card(), 'discussing');
+  assert.equal(last.read().waits_on_owner.on, 'implement');
+  assert.ok(!last.thread().some((l) => l.command === 'staged'));
 });
 
-test('a gate asked alone, answered no, stages the card; yes leaves a card no longer grilling alone', async () => {
+test('a gate asked alone, answered no, returns the card to discussing on its Implement ask; yes leaves a card no longer grilling alone', async () => {
   const alone = world();
   await addQuestions(alone.site, gate);
   await settleAnswers(alone.site, [alone.answer('q-gate', 'no')]);
-  assert.equal(alone.card(), 'staging');
+  assert.equal(alone.card(), 'discussing');
+  assert.equal(alone.read().waits_on_owner.on, 'implement');
 
   const moved = world('prototyping');
   await addQuestions(moved.site, [other, gate]);

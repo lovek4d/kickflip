@@ -1,5 +1,7 @@
 # An Implement option is only a last-wave closing question
 
+Superseded by [Implement is only the card's tap](2026-11-18-0100-implement-is-only-the-cards-tap.md) (#1003): no question offers Implement; a grill ends on the card's Implement ask.
+
 Owner, 11/17 on T-606: after a final visual the card asks for the Implement tap, not a "Build it as shown?" question. An
 Implement option belongs only to the closing question of a last-wave series, a grill's next_gate, and choosing it
 stages the card.

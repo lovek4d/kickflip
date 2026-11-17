@@ -29,7 +29,7 @@ import { parseCheck, checkText } from '../shared/owner-check.mjs';
 import { BoardError, fail, needSite, text, optional, cardTitle, pageUrl, domId } from './checks.mjs';
 import { storedTickets, settingsOf, markDescription, refuseSecondProposal, boardRepoOf, boardTarget } from './settings.mjs';
 import { leaveNew, refuseFiled, inIntake, IMPLEMENT_NOT_FILED, refuseMoved } from './asks.mjs';
-import { publishStaged, spendNext, cardOfTopic, noteStamp, freeNotesName, writeNotesFile, appendNotes, refuseCardNotes, DRAFT_HINT, markWaiting, readiedText, owe, dropOwed, cardQuestions, resolveAnswered, hasOpenQuestion, setNext, closeQuestions, unpickedPrototype, clip, ownerQuote, planPath, itemNotes } from './questions.mjs';
+import { publishStaged, cardOfTopic, noteStamp, freeNotesName, writeNotesFile, appendNotes, refuseCardNotes, DRAFT_HINT, markWaiting, readiedText, owe, dropOwed, cardQuestions, resolveAnswered, hasOpenQuestion, setNext, closeQuestions, unpickedPrototype, clip, ownerQuote, planPath, itemNotes } from './questions.mjs';
 import { onlyRebased, requestPause, isLanding, clearRefusal, builderFiles, closeBuilders } from './runs.mjs';
 
 export async function siteDir(route) {
@@ -727,7 +727,7 @@ export async function checkNextDeps(site, key, item, next) {
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 // Ready means a builder can start from the card alone: it has a size, a notes file, and that file names the id of every
-// question on the card the owner answered, bar a gate question (prototype_gate, next_gate) answered with no note (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+// question on the card the owner answered, bar a gate question (prototype_gate, or the next_gate an older grill closed on) answered with no note (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
 const NOTES_COMMAND = (key) => `item notes ${key} --heading "<heading>" --file <draft.md>`;
 function checkSizeAndNotes(key, item) {
   const starts = 'a builder starts from it, so pass';
@@ -991,10 +991,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     delete item.filed_held;
     delete item.ready_main;
     if (phase === 'ready') item.ready_at = new Date().toISOString(); else delete item.ready_at;
-    if (phase === 'staging') {
-      item.staged_at = new Date().toISOString();
-      spendNext(item);
-    }
+    if (phase === 'staging') item.staged_at = new Date().toISOString();
     if (triaged) item.triaged = { at: new Date().toISOString(), phase };
   }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the phase the card is in.

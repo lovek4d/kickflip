@@ -10,8 +10,8 @@ import { isBoardSite, listBoards, readManifest, withManifestLock, writeManifest 
 import { itemSources, readJSON, readLog, replace, writeJSON } from './files.mjs';
 import { hasPR, storedPRs } from '../shared/card-prs.mjs';
 import { BoardError } from './checks.mjs';
-import { archiveWrite, depKey, leftTodo, ownerFile, parseKey, readArchive, threadFile, ticketWrite, writeArchive } from './cards.mjs';
-import { splitSharedNotes, topicQuestionsAll } from './questions.mjs';
+import { archiveWrite, depKey, leftTodo, loadItem, ownerFile, parseKey, readArchive, threadFile, ticketWrite, writeArchive } from './cards.mjs';
+import { cardOfTopic, owesImplement, resolveQuestion, splitSharedNotes, stagedFile, topicQuestionsAll } from './questions.mjs';
 import { builderFiles } from './runs.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { migrateBoardRepos, migrateHubBoard } from '../hub/board-repo.mjs';
@@ -90,7 +90,7 @@ export const migrateStatuses = (site, archived = () => readArchive(site)) => tic
 // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md
 // Each card not in Done with no gates takes gates.prototype from its prototype_gate questions the owner answered yes
 // or no, the newest answer deciding; a yes reads ran once its card is past grilling or its thread has the
-// prototype-round line after it. A next_gate answer is always kept as it is given (keepGate), so it needs no backfill.
+// prototype-round line after it. An older grill's next_gate answer was kept as it was given, so it needs no backfill.
 // Run by the board server as it starts. → one line per item file changed.
 export const migrateGates = (site) => ticketWrite(site, async () => {
   const { asked } = await topicQuestionsAll(site);
@@ -115,6 +115,44 @@ export const migrateGates = (site) => ticketWrite(site, async () => {
   }
   return lines;
 });
+
+// docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md
+// No question offers Implement. Each next_gate question an older grill closed on ("What next, given these answers?")
+// still unresolved resolves with a note in its card's thread, the card marked waiting on its Implement where it still
+// owes one, so once nothing else is open it returns to discussing on that ask (moveOnAnswered); one a grill the owner
+// sent it to holds waits for that grill. A staged one is dropped, and gates.next, an older Keep discussing, goes from
+// every card. Run by the board server as it starts. → one line per item file changed.
+const CLOSED_NEXT = "Implement is only the task's tap now, so this closing question closes: tap Implement when the plan reads right.";
+const CLOSED_NEXT_HAD = "Implement is only the task's tap now, so this closing question closes; the task has had its Implement.";
+export async function dropNextGates(site) {
+  const staged = await readJSON(stagedFile(site), {});
+  const unstaged = Object.entries(staged).map(([key, qs]) => [key, qs.filter((q) => !q.next_gate)]);
+  if (unstaged.some(([key, qs]) => qs.length !== staged[key].length)) await writeJSON(stagedFile(site), Object.fromEntries(unstaged.filter(([, qs]) => qs.length)));
+  const resolved = new Map();
+  const { asked } = await topicQuestionsAll(site);
+  for (const q of asked.filter((x) => x.next_gate && !['resolved', 'requested'].includes(x.state))) {
+    const key = cardOfTopic(q.topic);
+    const card = key && await loadItem(site, key).catch(() => null);
+    const owes = Boolean(card) && owesImplement(card.item);
+    await resolveQuestion(site, q.id, owes ? CLOSED_NEXT : CLOSED_NEXT_HAD, owes ? { waitsOn: 'implement' } : {});
+    const slug = key ? parseKey(key).file : q.topic;
+    resolved.set(slug, (resolved.get(slug) || 0) + 1);
+  }
+  const lines = [...resolved].map(([slug, n]) => `${slug}: ${n} closing questions resolved, Implement is only the tap`);
+  for (const entry of await itemSources(site)) {
+    const itemFile = await readJSON(entry.file, null);
+    const kept = (Array.isArray(itemFile?.items) ? itemFile.items : []).filter((it) => it.gates?.next);
+    for (const it of kept) {
+      const { next, ...gates } = it.gates;
+      if (Object.keys(gates).length) it.gates = gates;
+      else delete it.gates;
+    }
+    if (!kept.length) continue;
+    await writeJSON(entry.file, itemFile);
+    lines.push(`${entry.slug}: ${kept.length} tasks dropped their Keep discussing`);
+  }
+  return lines;
+}
 
 // docs/adr/2026-11-16-1400-todo-sorts-strictly-by-created.md
 // Each live card with no created time takes the time of the first line of its thread. Todo sorts strictly by created, so
@@ -391,6 +429,7 @@ export const MIGRATIONS = [
   { id: 'staging', scope: 'board', run: ({ site }) => stageImplementAsks(site) },
   { id: 'recheck-staging', scope: 'board', run: ({ site }) => restageRechecks(site) },
   { id: 'split-notes', scope: 'board', run: ({ site, archived }) => splitSharedNotes(site, archived) },
+  { id: 'no-next-gate', scope: 'board', run: ({ site }) => dropNextGates(site) },
   { id: 'dead-fields', scope: 'board', run: async ({ site, archived }) => { await stripDeadFields(site, archived); return []; } },
 ];
 

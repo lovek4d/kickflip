@@ -1,5 +1,7 @@
 # A grill ends asking to implement, prototype or discuss
 
+Superseded by [Implement is only the card's tap](2026-11-18-0100-implement-is-only-the-cards-tap.md) (#1003): no question offers Implement; a grill ends on the card's Implement ask.
+
 Card #590 (T-206). A grill was the one way a card reached staging without the owner's Implement: a "no" on its closing "Prototype round first?" question staged it, so the owner approved a build by answering a question about prototypes. The owner asked for a question about building instead, and for no ticket question. Owner's answers: one closing question, Implement / Prototype first / Keep discussing; cards whose grill already asked the old question keep it.
 
 Supersedes the question of [every grill ends with a prototype question](2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md); the board still acts on the answer with no orchestrator step, and [a grill still waits for every answer before it changes phase](2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md).
