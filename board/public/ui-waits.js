@@ -11,7 +11,7 @@
     stale: 'find out why it stalled', calls: "verify the builder's calls", checking: 'land the checked build', grill: 'start the grill',
     prototype: 'draw the prototype', unasked: "post the planner's question", visual: "place the visual's page", recheck: 'recheck the ready task',
     refused: 'sort out the refused build', unowned: 'set what happens next', unblocked: 'act on the ended block', script: 'read the script result', triage: 'run the overnight triage',
-    'pr-review': 'review the pull request', 'review-answer': "act on the held review's answer", 'arch-review': 'run the architecture review',
+    'pr-review': 'review the pull request', 'review-failed': "sort out the held review's failed answer", 'arch-review': 'run the architecture review',
     'slack-question': 'answer the Slack message', limbo: 'ask Implement, ask questions or close it',
   });
   // docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md

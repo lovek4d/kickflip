@@ -479,6 +479,37 @@ test("review post posts the session's words as one Comment review on a listed in
   assert.equal(posts().length, 2);
 });
 
+// docs/adr/2026-11-16-2000-the-server-applies-the-owners-post-or-skip-on-a-held-review.md
+test("applyReviewAnswer records a held review posted for Skip, posts its held text for Post, and leaves it held when the post fails", async (t) => {
+  const { applyReviewAnswer, heldReview } = await import('./store.mjs');
+  const dir = path.join(home, 'fake-gh-answer');
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeGh(dir)}:${oldPath}`;
+  t.after(() => { process.env.PATH = oldPath; });
+  writeAccounts(dir, { owner: 'token-owner' });
+  const pr = { number: 437, title: 'One endpoint', author: 'quinn', url: 'https://github.com/o/r/pull/437', head: 'abc', touches: ['w/A1'], asked: true };
+  const held = { ...pr, state: 'needs', text: 'Clashes with #47.', at: '2026-11-05T09:00:00.000Z' };
+  write(site('orch', 'data', 'incoming.json'), { at: 'x', repo: 'o/incoming', prs: [pr] });
+  const posts = () => tokens(dir).filter((c) => c.args[0] === 'api' && c.args[1].endsWith('/reviews') && c.args.includes('-f'));
+  const rec = () => read(site('orch', 'data', 'reviews.json'))['437'];
+
+  write(site('orch', 'data', 'reviews.json'), { 437: held });
+  await applyReviewAnswer(site('orch'), 437, 'skip');
+  assert.deepEqual([rec().state, rec().text, rec().review_url, posts().length], ['posted', 'Clashes with #47.', undefined, 0]);
+  await assert.rejects(heldReview(site('orch'), 437), /PR #437 has no held review/);
+  await assert.rejects(applyReviewAnswer(site('orch'), 437, 'post'), /no held review/);
+
+  write(site('orch', 'data', 'reviews.json'), { 437: held });
+  await applyReviewAnswer(site('orch'), 437, 'post');
+  assert.deepEqual([rec().state, rec().review_url, posts().length], ['posted', 'https://github.com/o/incoming/pull/437#pullrequestreview-1', 1]);
+  assert.match(posts()[0].args.find((a) => a.startsWith('body=')), /Clashes with #47\.\n\n<!-- claude-bridge -->$/);
+
+  write(site('orch', 'data', 'reviews.json'), { 437: held });
+  writeReviews(dir, 437, [{ id: 5, user: { login: 'ann' }, submitted_at: '2026-11-05T10:00:00Z', body: '', state: 'COMMENTED' }]);
+  await assert.rejects(applyReviewAnswer(site('orch'), 437, 'post'), /got a review after 2026-11-05T09:00:00.000Z/);
+  assert.deepEqual([rec().state, posts().length], ['needs', 1]);
+});
+
 test('main set publishes an install with the same URL and sha checks as card installs', async () => {
   for (const url of ['https://example.com/main.apk', 'itms-services://?action=download-manifest&url=https://m/main.plist']) {
     assert.equal((await board('--site', 'orch', 'main', 'set', '--install', url, '--install-sha', 'ABCDEF1')).code, 0);

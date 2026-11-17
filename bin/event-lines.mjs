@@ -20,7 +20,7 @@ export const shownFile = (dir, session) => path.join(dir, 'data', `.shown-${sess
 // itself (Block, Unblock, Done, Reopen, Unbump, a bare or worded Grill, Prototype, Visual or Review) and an unblock wake nobody. A lifted
 // pause (usage-resumed) wakes nobody either: the watcher reads the gate itself, and the work it held wakes the session.
 export const RECORD_ONLY = ['main-pulled', 'settings', 'reviewers-removed', 'reviewers-added','repo-changed', 'ping', 'hello',
-  'card-hold', 'card-done', 'card-reopen', 'card-unbump', 'card-unblocked', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'review-request', 'usage-resumed',
+  'card-hold', 'card-done', 'card-reopen', 'card-unbump', 'card-unblocked', 'review-answer', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'review-request', 'usage-resumed',
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: the orchestrator's own answer.
   'board-ask-answered',
   // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: a slack command's record.
@@ -37,7 +37,7 @@ export const PLAIN = {
   ping: (e) => `ping ${e.id} from the hub answered`,
   hello: (e) => `ping ${e.id} from the hub answered`,
   'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${[e.data?.cards?.length && `${e.data.cards.length} tasks wait on open questions`, e.data?.description && 'the board\'s description is due a check (board.mjs description)'].filter(Boolean).join('; ')}; run the triage, then board.mjs reply ${e.id}`,
-  // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: pr-review, review-answer,
+  // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: pr-review, review-failed,
   // arch-review and slack-question each wait on the orchestrator until the command its line names runs.
   'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle; read its diff and review post it, or review record it`,
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
@@ -48,7 +48,7 @@ export const PLAIN = {
   // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
   'check-github': (e) => (e.data?.reason === 'morning' ? 'the daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any task stuck with no wait; a thread line on each task you act on, nothing else' : 'GitHub check asked: run one GitHub tick'),
   'github-change': (e) => `${e.data?.prs?.length ?? 0} PRs changed on GitHub: run one GitHub tick`,
-  'review-answer': (e) => (e.data?.answer === 'skip' ? `skip answered on the review of PR #${e.data?.pr}: record it posted, post nothing` : `post answered on the review of PR #${e.data?.pr}: review post it`),
+  'review-failed': (e) => `${e.data?.answer === 'skip' ? 'skip' : 'post'} answered on the held review of PR #${e.data?.pr}, but the board could not apply it (${e.data?.error}): ${e.data?.answer === 'skip' ? `review record ${e.data?.pr} --state posted --text <why>` : `fix the cause and review post ${e.data?.pr} --file <review.md> --read-at <time>`}`,
   'arch-review': (e) => `architecture review asked on ${e.data?.key}: review ${e.data?.repo} on ${e.data?.branch} and file the findings`,
   rules: (e) => `${e.data?.scope === 'hub' ? 'hub' : 'board'} rules changed: the rule lines below are the new ones; follow them from now`,
   'prototype-overdue': (e) => `prototype overdue on ${e.data?.key}: dispatch its prototype agent now`,

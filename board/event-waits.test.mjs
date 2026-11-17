@@ -25,14 +25,16 @@ test('a pr-review waits until review post or review record records a review at i
   assert.deepEqual(eventWaits(events, { incoming: { repo: 'o/r', prs: [] } }), []);
 });
 
-test('a review-answer waits until the held review is recorded again: posted for post, recorded posted for skip', () => {
+test('a review-failed waits until the held review is recorded again; the owner\'s review-answer waits on nobody', () => {
   const held = { 12: { number: 12, head: 'aaa', state: 'needs', at: AT } };
   for (const answer of ['post', 'skip']) {
-    const events = [{ id: 'e2', ts: LATER, kind: 'review-answer', data: { pr: 12, answer } }];
+    const events = [{ id: 'e2', ts: LATER, kind: 'review-failed', data: { pr: 12, answer, error: 'gh down' } }];
     const waits = eventWaits(events, { incoming, reviews: held });
-    assert.deepEqual(brief(waits), [{ key: 'e2', ref: 'PR #12', kind: 'review-answer', since: LATER, picked: null, link: '#review=12' }]);
+    assert.deepEqual(brief(waits), [{ key: 'e2', ref: 'PR #12', kind: 'review-failed', since: LATER, picked: null, link: '#review=12' }]);
+    assert.match(waits[0].title, /failed on the held review of PR #12: gh down/);
     assert.match(waits[0].next, answer === 'post' ? /review post 12 --file/ : /review record 12 --state posted/);
     assert.deepEqual(eventWaits(events, { incoming, reviews: { 12: { ...held[12], state: 'posted', at: '2026-11-15T10:30:00.000Z' } } }), []);
+    assert.deepEqual(eventWaits([{ id: 'e3', ts: LATER, kind: 'review-answer', data: { pr: 12, answer } }], { incoming, reviews: held }), []);
   }
 });
 

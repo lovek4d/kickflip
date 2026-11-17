@@ -1068,6 +1068,7 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .rv-detail { display: grid; gap: 10px; padding: 0 12px 12px 38px; font-size: 14px; min-width: 0; }
 .rv-line .rv-detail { padding-left: 12px; }
 .rv-detail p { margin: 0; }
+.rv-detail .rv-failure { color: var(--color-danger); }
 .rv-review { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 10px 12px; min-width: 0; overflow-wrap: anywhere; display: grid; gap: 8px; }
 .rv-review > * { margin: 0; }
 .rv-links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }

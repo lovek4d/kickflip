@@ -39,11 +39,15 @@ test('a new head on a posted PR is due again; a held one waits on the owner', ()
   assert.deepEqual([held.cards[0].state, held.due], ['needs', null]);
 });
 
-test("the owner's answer to a held review reads reviewing until the session records it", () => {
+test("the owner's answer to a held review leaves it held; one the server failed to apply shows its error until recorded again", () => {
   const answer = { id: 'a1', ts: ago(5), kind: 'review-answer', data: { pr: 437, answer: 'post' } };
+  const failed = { id: 'f1', ts: ago(4), kind: 'review-failed', data: { pr: 437, answer: 'post', error: 'gh down' } };
   const records = { 437: record(437, { state: 'needs', at: ago(10) }) };
-  assert.equal(of({ incoming: incoming(pr(437)), records, events: [answer] }).cards[0].state, 'reviewing');
-  assert.equal(of({ incoming: incoming(pr(437)), records: { 437: { ...records[437], state: 'posted', at: ago(1) } }, events: [answer] }).cards[0].state, 'posted');
+  assert.deepEqual([of({ incoming: incoming(pr(437)), records, events: [answer] }).cards[0].state, of({ incoming: incoming(pr(437)), records, events: [answer] }).cards[0].failure], ['needs', null]);
+  const shown = of({ incoming: incoming(pr(437)), records, events: [answer, failed] }).cards[0];
+  assert.deepEqual([shown.state, shown.failure], ['needs', 'gh down']);
+  const recorded = of({ incoming: incoming(pr(437)), records: { 437: { ...records[437], state: 'posted', at: ago(1) } }, events: [answer, failed] }).cards[0];
+  assert.deepEqual([recorded.state, recorded.failure], ['posted', null]);
 });
 
 test('cards run needs you, reviewing, posted; a posted review over a day old or on a closed PR folds under earlier', () => {

@@ -4,25 +4,32 @@
 // from others that touch this board's cards or ask the owner for review (hub/incoming.mjs). records is
 // data/reviews.json {<number>: {number, title, author, url, touches, asked, head, state: posted|needs, text,
 // review_url?, at}}, which `board.mjs review record` writes. events is the board's event log: a pr-review {pr, head}
-// the server sent reads reviewing until a review is recorded at that head, and a review-answer {pr, answer} to a held
-// review reads reviewing until the session records it again.
+// the server sent reads reviewing until a review is recorded at that head. A review-answer {pr, answer} to a held review
+// is applied by the server itself (store.mjs applyReviewAnswer); one that failed leaves a review-failed {pr, answer,
+// error}, which the held review's card shows in red until the review is recorded again.
 const DAY = 86400000;
 const ORDER = { needs: 0, reviewing: 1, posted: 2 };
 const newest = (events, kind, pr) => events.filter((e) => e.kind === kind && e.data?.pr === pr).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
 
-// The pr-review or review-answer event a listed PR p's review is under way for, given its record rec: a review-answer
-// newer than a held review's record, else a pr-review at p's head with no review recorded at that head since; or null.
+// The pr-review event a listed PR p's review is under way for, given its record rec: a pr-review at p's head with no
+// review recorded at that head since; or null.
 function pendingAsk(p, rec, events) {
   const ask = newest(events, 'pr-review', p.number);
-  const answer = rec?.state === 'needs' && newest(events, 'review-answer', p.number);
-  if (answer && String(answer.ts) > String(rec.at)) return answer;
   if (ask && ask.data.head === p.head && !(rec?.head === p.head && String(rec.at) > String(ask.ts))) return ask;
   return null;
 }
 // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md
-// The pr-review and review-answer events a review is under way for, one per listed PR: each stays until review post
-// or review record records that PR again (reviewsOf's reviewing). → [event]
+// The pr-review events a review is under way for, one per listed PR: each stays until review post or review record
+// records that PR again (reviewsOf's reviewing). → [event]
 export const pendingReviewAsks = ({ incoming, records = {}, events = [] }) => (incoming?.prs || []).map((p) => pendingAsk(p, records[p.number], events)).filter(Boolean);
+
+// The review-failed event of a listed PR's held review whose Post it or Skip the server could not apply: the newest one
+// after the held record, until the review is recorded again. → [event]
+export const failedReviewAnswers = ({ incoming, records = {}, events = [] }) => (incoming?.prs || []).map((p) => {
+  const rec = records[p.number];
+  const failed = rec?.state === 'needs' && newest(events, 'review-failed', p.number);
+  return failed && String(failed.ts) > String(rec.at) ? failed : null;
+}).filter(Boolean);
 
 // → {on, shown, at, repo, cards, earlier, waiting, due}. cards are the live PRs, needs you then reviewing then posted;
 // earlier the posted reviews whose PR left the list or that are over a day old, newest first, each with open saying
@@ -33,8 +40,9 @@ export function reviewsOf({ on, incoming, records = {}, events = [], refs = new 
   const card = (p, rec, state, at) => ({
     number: p.number, title: p.title, author: p.author, url: p.url, asked: Boolean(p.asked),
     touches: (p.touches || []).map((key) => ({ key, ref: refs.get(key) || key })), state, at,
-    text: rec?.text || null, reviewUrl: rec?.review_url || null,
+    text: rec?.text || null, reviewUrl: rec?.review_url || null, failure: failures.get(p.number) || null,
   });
+  const failures = new Map(failedReviewAnswers({ incoming, records, events }).map((e) => [e.data.pr, e.data.error]));
   const cards = [];
   const owed = [];
   for (const p of listed.values()) {

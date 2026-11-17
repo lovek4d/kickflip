@@ -372,7 +372,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathS
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, noteLoggedOut, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -1398,6 +1398,15 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           const refused = await reaskRefused(String(body.question || ''));
           if (refused) return json(res, 400, { error: refused });
         }
+        if (kind === 'review-answer') {
+          try {
+            if (!['post', 'skip'].includes(body.answer)) throw new BoardError(`a review answer is post or skip, not "${body.answer}"`);
+            await heldReview(here, Number(body.pr));
+          } catch (e) {
+            if (e instanceof BoardError) return json(res, 400, { error: e.message });
+            throw e;
+          }
+        }
         // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a new task's card is filed
         // before its event is written, so the watcher's line names the card.
         const preset = kind === 'ask' ? newEventId() : undefined;
@@ -1427,6 +1436,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           });
         }
         if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
+        // The owner's Post it or Skip on a held review is applied here, without waking the orchestrator; a failure
+        // leaves a review-failed event, a red line on the review's card and a wait.
+        if (kind === 'review-answer') {
+          try { await applyReviewAnswer(here, Number(body.pr), body.answer); }
+          catch (e) { await appendEvent('review-failed', { pr: Number(body.pr), answer: body.answer, error: e.message }); }
+        }
         // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
         return json(res, 200, { id, board: await answerBoard(req, since) });
       }

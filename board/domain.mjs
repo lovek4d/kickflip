@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import { ticketBadge, ticketIn } from './tickets.mjs';
 import { prLinks, reviewLinks, reviewTime, reviewersOf } from './review.mjs';
 import { remoteFromInput } from '../hub/repos.mjs';
-import { reviewsOf, reviewNeeds, reviewActions, pendingReviewAsks } from './auto-review.mjs';
+import { reviewsOf, reviewNeeds, reviewActions, pendingReviewAsks, failedReviewAnswers } from './auto-review.mjs';
 import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.mjs';
 import vm from 'node:vm';
 import { checkWords, parseCheck } from '../shared/owner-check.mjs';
@@ -2212,21 +2212,22 @@ export const triageWaitOf = (event, picked = null) => ({ key: event.id, ref: eve
 // waits in event order, each keyed by its event id, with link, the board page's hash the owner's push opens. None is
 // picked: the watcher marks none of these working, since a mark on an event no task holds reads working until a reply
 // (buildBoard workingOn), and these clear by their own commands instead:
-//   pr-review and review-answer, until review post or review record records the PR again (auto-review.mjs
-//   pendingReviewAsks, from incoming, data/incoming.json, and reviews, data/reviews.json);
+//   pr-review, until review post or review record records the PR again (auto-review.mjs pendingReviewAsks, from
+//   incoming, data/incoming.json, and reviews, data/reviews.json), and review-failed, the server's failed Post it or
+//   Skip on a held review, until the PR is recorded again (failedReviewAnswers);
 //   arch-review, until its audit task in items (the built board's) asks a question or closes;
 //   slack-question, until slack thread (a message that expects no reply), slack answer, slack task or slack skip
 //   appends slack-handled {id, by} for it (store.mjs).
 // → [{key, ref, title, kind, since, picked, next, link}]
 export function eventWaits(events, { items = [], incoming = null, reviews = {} } = {}) {
-  const reviewing = new Set(pendingReviewAsks({ incoming, records: reviews, events }).map((e) => e.id));
+  const reviewing = new Set([...pendingReviewAsks({ incoming, records: reviews, events }), ...failedReviewAnswers({ incoming, records: reviews, events })].map((e) => e.id));
   const handled = new Set(events.filter((e) => e.kind === 'slack-handled').map((e) => e.data?.id));
   const byKey = new Map(items.map((i) => [i.key, i]));
   const waitOf = {
     'pr-review': (e) => reviewing.has(e.id) && { ref: `PR #${e.data.pr}`, title: `Review asked on PR #${e.data.pr}${e.data.title ? ` ${e.data.title}` : ''}`, link: `#review=${e.data.pr}`,
       next: `Review PR #${e.data.pr} at its head: review post ${e.data.pr} --file <review.md> --read-at <time>, or review record ${e.data.pr} --state posted|needs` },
-    'review-answer': (e) => reviewing.has(e.id) && { ref: `PR #${e.data.pr}`, title: `${e.data.answer === 'skip' ? 'Skip' : 'Post'} answered on the held review of PR #${e.data.pr}`, link: `#review=${e.data.pr}`,
-      next: e.data.answer === 'skip' ? `Record it posted, posting nothing: review record ${e.data.pr} --state posted --text <why>` : `Post the held review: review post ${e.data.pr} --file <review.md> --read-at <time>` },
+    'review-failed': (e) => reviewing.has(e.id) && { ref: `PR #${e.data.pr}`, title: `${e.data.answer === 'skip' ? 'Skip' : 'Post'} failed on the held review of PR #${e.data.pr}: ${e.data.error}`, link: `#review=${e.data.pr}`,
+      next: e.data.answer === 'skip' ? `Record it posted, posting nothing: review record ${e.data.pr} --state posted --text <why>` : `Fix the cause and post the held review: review post ${e.data.pr} --file <review.md> --read-at <time>` },
     'arch-review': (e) => {
       const audit = byKey.get(e.data?.key);
       return audit && audit.lane !== 'done' && !audit.questions && { ref: audit.ref, title: `Architecture review of ${e.data.repo}`, link: `#selectedCard=${encodeURIComponent(audit.key)}`,

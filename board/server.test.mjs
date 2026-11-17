@@ -1196,6 +1196,34 @@ test('hiding and unhiding many events at once keeps every change', async () => {
   await Promise.all(ids.map((id) => post('/api/hide', { id, hidden: true })));
 });
 
+// docs/adr/2026-11-16-2000-the-server-applies-the-owners-post-or-skip-on-a-held-review.md
+test("a review-answer on a held review is applied by the server: Skip records it posted, a Post that fails leaves a review-failed, and an answer with no held review is refused", async () => {
+  const eventsFile = path.join(site, 'data', 'events.jsonl');
+  const reviewsFile = path.join(site, 'data', 'reviews.json');
+  const pr = { number: 437, title: 'One endpoint', author: 'quinn', url: 'https://github.com/o/r/pull/437', head: 'abc', touches: [], asked: false };
+  const held = { ...pr, state: 'needs', text: 'Clashes with #47.', at: '2026-11-05T09:00:00.000Z' };
+  const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const kinds = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  try {
+    fs.writeFileSync(path.join(site, 'data', 'incoming.json'), JSON.stringify({ at: 'x', repo: null, prs: [pr] }));
+    fs.writeFileSync(reviewsFile, JSON.stringify({ 437: held }));
+    const refused = await send({ kind: 'review-answer', pr: 438, answer: 'skip' });
+    assert.deepEqual([refused.status, (await refused.json()).error], [400, 'PR #438 has no held review to answer']);
+    await ok200(send({ kind: 'review-answer', pr: 437, answer: 'skip' }));
+    const skipped = JSON.parse(fs.readFileSync(reviewsFile, 'utf8'))[437];
+    assert.deepEqual([skipped.state, skipped.text], ['posted', 'Clashes with #47.']);
+    assert.equal(kinds().some((e) => e.kind === 'review-failed'), false);
+
+    fs.writeFileSync(reviewsFile, JSON.stringify({ 437: held }));
+    await ok200(send({ kind: 'review-answer', pr: 437, answer: 'post' }));
+    const failed = kinds().filter((e) => e.kind === 'review-failed').at(-1);
+    assert.deepEqual([failed.data.pr, failed.data.answer, typeof failed.data.error], [437, 'post', 'string']);
+    assert.equal(JSON.parse(fs.readFileSync(reviewsFile, 'utf8'))[437].state, 'needs');
+    const card = (await (await fetch(`${base}/api/board`)).json()).reviews.cards.find((c) => c.number === 437);
+    assert.deepEqual([card.state, card.failure], ['needs', failed.data.error]);
+  } finally { fs.rmSync(reviewsFile, { force: true }); fs.rmSync(path.join(site, 'data', 'incoming.json'), { force: true }); }
+});
+
 test("the board lists its own title and reviewers from board.json, whatever its waves hold", async () => {
   const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
   const board = async () => (await (await fetch(`${base}/api/board`)).json());

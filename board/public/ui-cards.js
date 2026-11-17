@@ -493,7 +493,8 @@
       : '<p class="muted small">Nothing posted yet. Right before posting, Claude reads the PR’s reviews again and adds only new points.</p>';
     const links = `<div class="rv-links"><a href="${esc(c.url)}" target="_blank" rel="noopener">PR #${c.number} on GitHub ${LINK_ARROW}</a>${c.reviewUrl ? `<a href="${esc(c.reviewUrl)}" target="_blank" rel="noopener">The review on GitHub ${LINK_ARROW}</a>` : ''}</div>`;
     const acts = c.state === 'needs' ? `<div class="rv-acts"><button type="button" data-review-answer="post" data-review="${c.number}">Post it</button><button type="button" class="ghost" data-review-answer="skip" data-review="${c.number}">Skip</button></div>` : '';
-    return `<div class="rv-detail">${text}${links}${acts}</div>`;
+    const failure = c.failure ? `<p class="rv-failure small">Couldn’t apply your answer: ${esc(c.failure)}</p>` : '';
+    return `<div class="rv-detail">${failure}${text}${links}${acts}</div>`;
   }
   const reviewChipsOf = (c) => [badge('quiet', `from ${esc(c.author)}`), ...c.touches.map((t) => badge(c.state === 'needs' ? 'danger' : 'quiet', `touches ${esc(t.ref)}`)), c.asked ? badge('normal', 'asked you') : ''].join(' ');
   const reviewWhen = (c) => `${c.state === 'reviewing' ? 'started ' : ''}${ago(c.at)}`;

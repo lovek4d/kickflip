@@ -1271,6 +1271,24 @@ export async function postIncomingReview(site, number, { words, readAt }) {
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
 }
 
+// The held review of PR number, from data/reviews.json: the one `review record --state needs` wrote and the owner has not
+// answered. Refuses a PR with no held review.
+export async function heldReview(site, number) {
+  const rec = (await readJSON(path.join(site, 'data', 'reviews.json'), {}))[number];
+  if (rec?.state !== 'needs') fail(`PR #${number} has no held review to answer`);
+  return rec;
+}
+
+// The owner's Post it or Skip on a held review, applied without the orchestrator: Skip records the review posted, as
+// `review record` does, and Post posts the held text as `review post` does, read at the time the review was held.
+// → {lines}
+export async function applyReviewAnswer(site, number, answer) {
+  const held = await heldReview(site, number);
+  if (answer === 'post') return postIncomingReview(site, number, { words: held.text, readAt: held.at });
+  if (answer !== 'skip') fail(`a review answer is post or skip, not "${answer}"`);
+  return recordReview(site, number, { state: 'posted', text: held.text });
+}
+
 // The join handshake (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md): data/handshake.json
 // {ping: {id, at, session}, ack: {id, at} | null, done_at?}, written by hub/boards.mjs handshake.
 // A file an older board wrote keeps its ping under `hello`, which reads as the ping.

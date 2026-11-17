@@ -681,18 +681,18 @@ test('an event no task holds stays on the orchestrator list past its wake, wakes
   const board = server(t, siteDir);
   await board.start();
   append({ id: 'p1', kind: 'pr-review', data: { pr: 12, head: 'aaa', title: 'Fix limiter' } });
-  append({ id: 'r1', kind: 'review-answer', data: { pr: 13, answer: 'post' } });
+  append({ id: 'r1', kind: 'review-failed', data: { pr: 13, answer: 'post', error: 'gh down' } });
   append({ id: 'a1', kind: 'arch-review', data: { key: 't/A1', repo: '/code/r', branch: 'main' } });
   append({ id: 's1', kind: 'slack-question', data: { reviewer: 'Ann', from: 'reviewer', answer: true } });
   await board.changed(eventsFile);
   assert.deepEqual(wakes().at(-1).opened.map((w) => w.key), ['p1', 'r1', 'a1', 's1']);
-  assert.deepEqual(waits(), [['p1', 'pr-review', 'PR #12', null], ['r1', 'review-answer', 'PR #13', null], ['a1', 'arch-review', 'A1', null], ['s1', 'slack-question', 'Slack · Ann', null]]);
+  assert.deepEqual(waits(), [['p1', 'pr-review', 'PR #12', null], ['r1', 'review-failed', 'PR #13', null], ['a1', 'arch-review', 'A1', null], ['s1', 'slack-question', 'Slack · Ann', null]]);
   // The watcher printing the events changes nothing: each stays until its own command runs.
   const woken = wakes().length;
   clock.advance(15);
   await board.minute();
   assert.equal(wakes().length, woken + 1);
-  assert.deepEqual(wakes().at(-1).again.filter((w) => ids.has(w.key)).map((w) => [w.key, w.kind]), [['p1', 'pr-review'], ['r1', 'review-answer'], ['a1', 'arch-review'], ['s1', 'slack-question']], 'a re-wake repeats each');
+  assert.deepEqual(wakes().at(-1).again.filter((w) => ids.has(w.key)).map((w) => [w.key, w.kind]), [['p1', 'pr-review'], ['r1', 'review-failed'], ['a1', 'arch-review'], ['s1', 'slack-question']], 'a re-wake repeats each');
   assert.match(wakes().at(-1).again[0].next, /review post 12/);
   clock.advance(15);
   await board.minute();
