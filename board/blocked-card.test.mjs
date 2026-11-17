@@ -27,6 +27,16 @@ test('a staged blocked card has no staging wait, and one unblocked has', () => {
   assert.equal(kinds([card({ phase: 'staging', staged_at: at(3), held: true, pick_up_at: '2026-11-19T00:00:00Z' })]).includes('staging'), false);
 });
 
+test('a staging wait that comes back at its card unblocking is unpicked, though picked up before the block', () => {
+  const staging = { phase: 'staging', staged_at: at(3) };
+  const reply = { ts: at(4), who: 'claude', text: 'Picked up.' };
+  const picked = (item, threads) => orchestratorWaits(buildBoard({ now: Date.parse(at(59)), owner: {}, events: [], threads, working: {}, prs: {},
+    files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [card({ ...staging, ...item })] } }] })).find((w) => w.kind === 'staging').picked;
+  assert.equal(picked({}, { 'w/A1': [reply] }), at(4));
+  assert.equal(picked({ unblocked_at: at(30) }, { 'w/A1': [reply] }), null, 'the pickup is older than the unblock');
+  assert.equal(picked({ unblocked_at: at(2) }, { 'w/A1': [reply] }), at(4), 'a pickup after the unblock stands');
+});
+
 test("the owner's block words carry the notice colour", () => {
   assert.match(css, /\.card-owner-block \{ color: var\(--color-notice\); \}/);
 });

@@ -2906,10 +2906,11 @@ async function moveWaiters(site, key, { entries, words, waiters }) {
 // ended, which domain.mjs orchestratorWaitOf reads as a wait until the session writes on the card. ts is its Unblocked line's.
 // A ready card in Todo records it as recheck_at, which keeps the pull off it until the orchestrator re-checks its notes
 // against what landed and releases it with item set --phase ready --text
-// (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md). One still planning is judged in staging.
+// (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md). One in staging records unblocked_at too, which
+// domain.mjs orchestratorWaitsOf reads as ending the pickup its staging wait had before the block.
 async function markUnblocked(site, key, ts) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (leftTodo(item)) item.unblocked_at = ts;
+  if (leftTodo(item) || item.phase === 'staging') item.unblocked_at = ts;
   else if (item.phase === 'ready') item.recheck_at = ts;
   else return;
   await writeJSON(source.file, itemFile);

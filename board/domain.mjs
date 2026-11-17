@@ -2311,7 +2311,9 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const held = waits.filter((wait) => wait?.since);
   return (held.length > 1 ? held.filter((wait) => wait.kind !== 'limbo') : held).map((wait) => {
     const since = String(wait.since);
-    const picked = 'picked' in wait ? wait.picked : [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
+    const found = 'picked' in wait ? wait.picked : [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
+    // A staging wait that comes back when its card unblocks is new: a pickup from before the block doesn't count.
+    const picked = wait.kind === 'staging' && found && facts.unblockedAt && String(found) < String(facts.unblockedAt) ? null : found;
     return { kind: wait.kind, since, picked, next: wait.next, ...(wait.daily ? { daily: true } : {}) };
   });
 }

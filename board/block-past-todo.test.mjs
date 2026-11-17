@@ -87,6 +87,12 @@ test('a finishing dep unblocks a card In Review, waking the orchestrator', async
   assert.ok(itemOf().unblocked_at, 'it records when the block ended, which makes the orchestrator wait');
 });
 
+test('a finishing dep records unblocked_at on a staging card, which reopens its staging wait unpicked', async () => {
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'staging', staged_at: '2026-11-16T10:00:00.000Z', deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
+  assert.equal((await onOrch('item', 'set', 'w/ENG-1', '--done', '--text', 'Done.')).code, 0);
+  assert.ok(itemOf().unblocked_at);
+});
+
 // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md
 test('a finishing dep makes a ready Todo card wait on the orchestrator to re-check its notes, and --phase ready --text releases it', async () => {
   write(at('waves', 'w', 'a1-notes.md'), 'Build it.\n');
