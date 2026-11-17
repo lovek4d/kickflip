@@ -481,7 +481,7 @@
       if (mods || inField(e.target)) { lastS = lastH = -Infinity; return; }
       const now = Date.now();
       if (key === 'h') {
-        if (!matchMedia(DESKTOP).matches || (!help && dialogOpen(e.target))) { lastH = -Infinity; return; }
+        if (!matchMedia(DESKTOP).matches || help) { lastH = -Infinity; return; }
         if (now - lastH <= TWICE_MS) { lastH = -Infinity; e.preventDefault(); toggleHelp(); return; }
         lastH = now;
         return;

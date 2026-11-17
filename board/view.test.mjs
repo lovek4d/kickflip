@@ -2969,10 +2969,17 @@ test("s s shows each sidebar row's key and the Boards label's hint, and the next
   assert.deepEqual([opened.at(-1), sheet.open], ['/ios/', false]);
   press('n');
   assert.equal(sheet.open, true);
+  // Another dialog open (a side sheet left behind after a thread send) no longer blocks n n; the open New task sheet does.
+  sheet.close();
+  dialog = {};
+  press('n');
+  press('n');
+  assert.equal(sheet.open, true);
+  dialog = null;
   board.unmount();
 });
 
-test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, and h h again or Escape closes it; it stays shut from a text field, with a modifier, between other keys, with another dialog open, or on a phone", () => {
+test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, and h h again or Escape closes it; it stays shut from a text field, with a modifier, between other keys, or on a phone; another open dialog doesn't block it, and h h does nothing while it is open", () => {
   const page = fakePage(memoryStorage().localStorage);
   const { win } = page;
   const { Element } = miniDom(page.Target, win.document);
@@ -3004,6 +3011,8 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
   twice();
   assert.ok(sheet());
   twice();
+  assert.ok(sheet(), 'h h does nothing while the help is open');
+  press('Escape');
   assert.equal(sheet(), null);
 
   twice({ target: field });
@@ -3017,7 +3026,8 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
   const other = body.appendChild(new Element('dialog'));
   other.open = true;
   twice();
-  assert.equal(sheet(), null);
+  assert.ok(sheet(), 'another open dialog no longer blocks h h');
+  press('Escape');
   other.remove();
   desktop.matches = false;
   twice();

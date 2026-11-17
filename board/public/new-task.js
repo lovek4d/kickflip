@@ -53,7 +53,7 @@ globalThis.BoardNewTask = (function () {
       BoardUI.closeSheet(sheet, B.later);
     }
     B.on($('#compose'), 'click', openSheet);
-    // n pressed twice opens the sheet, as the + button's tooltip says, unless a field or another dialog has focus. With
+    // n pressed twice opens the sheet, as the + button's tooltip says, unless a field has focus or the sheet is already open. With
     // nothing focused the key goes to <body>, outside the view, so this listens on the document, and a framed page's
     // own document is given to the same handler (view-frame.js). A key switch mode used (sidebar.js) comes
     // defaultPrevented and doesn't count.
@@ -63,7 +63,7 @@ globalThis.BoardNewTask = (function () {
       if (ev.defaultPrevented) { lastN = -Infinity; return; }
       if (ev.key !== 'n' || ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || ev.isComposing) return;
       const field = ev.target.closest && ev.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-      if (field || document.querySelector('dialog[open]') || B.root.classList.contains('down')) { lastN = -Infinity; return; }
+      if (field || sheet.open || B.root.classList.contains('down')) { lastN = -Infinity; return; }
       if (ev.timeStamp - lastN > TWICE_MS) { lastN = ev.timeStamp; return; }
       lastN = -Infinity;
       ev.preventDefault();
