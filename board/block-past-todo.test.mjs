@@ -15,7 +15,7 @@ const waveFile = () => at('waves', 'w', 'wave.json');
 const setA1 = (fields) => { const w = read(waveFile()); Object.assign(w.items.find((i) => i.id === 'A1'), fields); write(waveFile(), w); };
 const recordFile = () => at('waves', 'w', 'agents', 'A1.json');
 const events = () => lines(site('orch', 'data', 'events.jsonl'));
-const onOrch = (...args) => boardWith(['--site', 'orch', ...args], { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
+const onOrch = (...args) => boardWith(['--site', 'orch', ...args]);
 
 test('blocking a handed-back card, with nothing running, leaves it In Progress with its hand-back', async () => {
   setA1({ lane: 'progress', phase: 'ready' });

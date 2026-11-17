@@ -1,8 +1,7 @@
 // An in-process hub for tests (hub.mjs startHub). Several hub modules (push, prompts, boards, live, router, sessions)
 // read os.homedir() as they load, so this module sets HOME as it loads: a test file imports it before anything else,
 // and its tests share that one scratch home. The home's bin holds stand-ins that fail for every tool the hub would
-// otherwise run on the host (gh, tailscale, launchctl, claude, tmux, …), and a Restart hub or self-restart runs
-// /usr/bin/true, never the host's hub service.
+// otherwise run on the host (gh, tailscale, launchctl, claude, tmux, …).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,7 +20,6 @@ Object.assign(process.env, {
   KICKFLIP_CLAUDE: '/usr/bin/false',
   KICKFLIP_TMUX: '/usr/bin/false',
   KICKFLIP_TAILSCALE: path.join(bin, 'tailscale'),
-  KICKFLIP_RESTART_CMD: JSON.stringify(['/usr/bin/true']),
 });
 
 export const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
@@ -29,7 +27,8 @@ export const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recur
 // A Mac with nothing running, so the busy gate never holds work.
 export const idleMachine = () => ({ load: 0, cores: 8, pressure: 'normal' });
 
-// Starts a hub on port 0 with no timers of its own (the test runs each pass) and an idle Mac, closed after the test.
+// Starts a hub on port 0 with no timers of its own (the test runs each pass) and an idle Mac, closed after the test; a
+// Restart hub or self-restart stops it and leaves the test process running.
 // options go to startHub. → startHub's hub, with base, its URL, lines, what it has logged, and logged(pattern, n = 1),
 // which resolves with the nth line, logged so far or next, that matches.
 export async function inProcessHub(t, options = {}) {
@@ -45,7 +44,7 @@ export async function inProcessHub(t, options = {}) {
     const seen = lines.filter((line) => pattern.test(line));
     return seen.length >= n ? Promise.resolve(seen[n - 1]) : new Promise((resolve) => waiters.add({ pattern, left: n - seen.length, resolve }));
   };
-  const hub = await startHub({ ticks: false, readMachine: idleMachine, log, ...options });
+  const hub = await startHub({ ticks: false, readMachine: idleMachine, log, exit: () => {}, ...options });
   t.after(() => hub.close());
   return { ...hub, base: `http://127.0.0.1:${hub.port}`, lines, logged };
 }

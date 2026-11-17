@@ -185,15 +185,11 @@ export function scratchRepo() {
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: Auto-merge off holds a verified build for the owner's Merge.
 export const heldBoard = () => write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), auto_merge: false });
 export const worktree = () => at('kickflip', 'worktrees', 'A1');
-export const restarts = () => (fs.existsSync(path.join(home, 'restarts')) ? fs.readFileSync(path.join(home, 'restarts'), 'utf8').trim().split('\n') : []);
-export const land = () => boardWith(['land', 'w/A1'], {
-  KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', "require('fs').appendFileSync(process.argv[1], process.argv.slice(2).join(' ') + '\\n')", path.join(home, 'restarts')]),
-});
+export const land = () => boardWith(['land', 'w/A1']);
 export const branches = (repo) => git(repo, 'branch', '--format=%(refname:short)').split('\n');
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md
-export const finishEnv = { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) };
-export const onOrch = (...args) => boardWith(['--site', 'orch', ...args], finishEnv);
+export const onOrch = (...args) => boardWith(['--site', 'orch', ...args]);
 export const record = (id = 'A1') => read(at('waves', 'w', 'agents', `${id}.json`));
 export const itemOf = (id = 'A1') => read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === id);
 export const threadOf = (id = 'A1') => lines(site('orch', 'data', 'threads', `w__${id}.jsonl`));

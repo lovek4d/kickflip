@@ -16,7 +16,9 @@ export function runCommand(command, argv, { env = process.env, timeout = 10000 }
 // The service that keeps the hub running on this host, picked by platform: a launchd login item on macOS, a systemd
 // user unit on Linux (docs/adr/2026-11-01-1542-the-hub-runs-under-the-hosts-service-manager.md). Every launchctl or systemctl
 // call goes through run(command, argv, {env, timeout}) → {status, stdout, error}. On any other platform, manager is
-// null, install throws and restart returns why.
+// null, install throws and restart returns why. restart() is for another process (kickflip update, kickflip restart):
+// the manager's SIGTERM has the running hub stop through close() before it starts again. The hub restarts itself by
+// exiting instead (docs/adr/2026-11-17-1357-the-hub-restarts-itself-through-close.md).
 // → {manager, item, file, id, restartCommand, definition(), node(), install(), restart(), remove(), status(), notes()}
 export function hubService({ platform = process.platform, home = os.homedir(), uid = process.getuid?.(), env = process.env, run = runCommand } = {}) {
   const exec = (command, argv, options = {}) => {

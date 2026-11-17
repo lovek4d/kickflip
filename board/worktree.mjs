@@ -15,7 +15,6 @@ import { boardAt, readJSON, readManifest, samePath } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
-import { hubService } from '../shared/service.mjs';
 import { squashMessage, subjectFault } from './commit-message.mjs';
 import { checkRelease, landRelease } from './release.mjs';
 import { affectedTests } from './affected.mjs';
@@ -304,18 +303,6 @@ function tapFailures(tap, dir) {
     });
   }
   return failures;
-}
-
-// Restarts the hub ('hub') through its service (../shared/service.mjs). KICKFLIP_RESTART_CMD='["<cmd>", …]' replaces
-// it, with what to restart appended, so a test never reaches the host's service manager.
-export function restartRunner(what) {
-  if (!process.env.KICKFLIP_RESTART_CMD) return hubService().restart();
-  let cmd;
-  try { cmd = JSON.parse(process.env.KICKFLIP_RESTART_CMD); } catch {}
-  if (!Array.isArray(cmd) || !cmd.length || !cmd.every((a) => typeof a === 'string')) fail('KICKFLIP_RESTART_CMD must be a JSON array of strings');
-  cmd = [...cmd, what];
-  const r = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8' });
-  return r.status === 0 ? null : (r.stderr || r.error?.message || `exit ${r.status}`).trim().split('\n')[0];
 }
 
 // Brings a checked worktree's branch into the live repo's base branch (builderRepo's base), saying each step: refuses

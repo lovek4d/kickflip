@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { hubService } from './service.mjs';
 import { tempDir } from './temp-dir.mjs';
 
@@ -123,15 +121,4 @@ test('a service manager missing from PATH fails each step with its error, and an
   await assert.rejects(other.install('x'), /launchd on macOS or systemd on Linux, not on freebsd/);
   assert.match(other.restart(), /not on freebsd/);
   assert.equal(other.status().running, false);
-});
-
-test("land's hub restart goes through the host's service manager", () => {
-  stub('launchctl');
-  stub('systemctl');
-  const worktree = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'board', 'worktree.mjs');
-  const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import { restartRunner } from ${JSON.stringify(worktree)}; console.log(JSON.stringify(restartRunner('hub')));`], {
-    env: { HOME: home, PATH: bin, KICKFLIP_CLAUDE: '/usr/bin/false' }, encoding: 'utf8',
-  });
-  assert.equal(r.stdout.trim(), 'null', r.stderr);
-  assert.deepEqual(calls(), [process.platform === 'darwin' ? `launchctl kickstart -k gui/${process.getuid()}/local.claude.kickflip-hub` : 'systemctl --user restart kickflip-hub.service']);
 });

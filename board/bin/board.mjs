@@ -842,8 +842,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          branch push (and draft PR) instead of the fast-forward.
                                                          --owner-step <t>, as builder done takes it, keeps the
                                                          landed task in In Review on that step until the owner's
-                                                         Done, or until its --check passes. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
-                                                         the restarts, called with hub or board <route>
+                                                         Done, or until its --check passes.
   merge <file>/<id> [--after-approval "<why trivial>"]   merges the task's PRs (gh pr merge --squash) in its order and
          [--confirmed "<owner's words>"]                 records it merged, once GitHub reads every open one approved,
                                                          its checks green with none pending and its merge state CLEAN,

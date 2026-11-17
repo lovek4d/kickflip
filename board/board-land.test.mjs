@@ -5,7 +5,7 @@ import path from 'node:path';
 import { land as landWorktree } from './worktree.mjs';
 import { fakeGh, prView, writePR, writeReviews, writeMerge, writeLimit, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
-import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, worktree, restarts, land, branches, finishEnv, onOrch, record, itemOf, threadOf, addEvents } from './board-fixture.mjs';
+import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, worktree, land, branches, onOrch, record, itemOf, threadOf, addEvents } from './board-fixture.mjs';
 
 test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and leaves its refusal off the card's thread", async () => {
   const dir = path.join(home, 'fake-gh');
@@ -157,7 +157,7 @@ test('land refuses a new ADR named with a number instead of a timestamp, naming 
 test("land --site refuses a squash message whose subject isn't Conventional or runs past 100 characters, or that still holds a \"# Conflicts:\" note, naming the commit it comes from, and changes nothing; one with no Refs trailer gets the card's", async () => {
   const repo = scratchRepo();
   assert.equal((await board('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
-  const landOn = () => boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
+  const landOn = () => boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.']);
   const say = (message) => { write(path.join(worktree(), 'card.txt'), message); git(worktree(), 'add', '-A'); git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '-m', message); return git(worktree(), 'rev-parse', '--short', 'HEAD'); };
   const refused = async (message) => {
     const c = say(message);
@@ -221,7 +221,7 @@ test('a branch already one commit with the squash message lands as that commit, 
   assert.equal((await board('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nThe detail.\n\nRefs: A1\nCo-Authored-By: X');
   const head = git(worktree(), 'rev-parse', 'HEAD');
-  const r = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], finishEnv);
+  const r = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.']);
   assert.equal(r.code, 0, r.err);
   assert.equal(git(repo, 'rev-parse', 'main'), head);
 });
@@ -276,7 +276,6 @@ test('land refuses a worktree with uncommitted changes, with no commit beyond ma
   assert.equal(git(repo, 'rev-parse', 'main'), main);
   assert.ok(fs.existsSync(worktree()));
   assert.ok(branches(repo).includes('A1'));
-  assert.deepEqual(restarts(), []);
 });
 
 test("a local board, or one with no GitHub repo or git remote, branches from its own folder's local branch and lands there, never kickflip's clone", async () => {
@@ -313,7 +312,7 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
   fs.rmSync(at('waves', 'w', 'agents'), { recursive: true });
   git(project, 'worktree', 'add', '--quiet', '-b', 'A1', worktree(), 'main');
   commit(worktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
-  const landed = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
+  const landed = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.']);
   assert.equal(landed.code, 0, landed.err);
   assert.match(landed.out, new RegExp(`main fast-forwarded to \\w+ in ${project}`));
   assert.equal(fs.readFileSync(path.join(project, 'card.txt'), 'utf8'), 'card');
@@ -336,7 +335,7 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   commit(worktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
 
   git(project, 'switch', '--quiet', '-c', 'feature');
-  const landTrunk = () => boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
+  const landTrunk = () => boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.']);
   const refused = await landTrunk();
   assert.deepEqual([refused.code, refused.err], [1, `${project} is on feature, not trunk; switch it to trunk (git -C ${project} switch trunk) and land again\n`]);
 
@@ -379,7 +378,7 @@ test('land refuses a commit with an empty subject, naming it, and leaves main as
   assert.equal(git(repo, 'rev-parse', 'main'), main);
 });
 
-test('land rebases onto a moved main, fast-forwards main, and removes the worktree and branch; a repo other than the running kickflip clone restarts nothing', async () => {
+test('land rebases onto a moved main, fast-forwards main, and removes the worktree and branch', async () => {
   const repo = scratchRepo();
   assert.equal((await board('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
   commit(worktree(), 'board/server.mjs', '2\n');
@@ -397,7 +396,6 @@ test('land rebases onto a moved main, fast-forwards main, and removes the worktr
   assert.equal(git(repo, 'rev-parse', 'main~1'), git(repo, 'rev-parse', moved));
   assert.equal(git(repo, 'log', '-1', '--format=%B', 'main').trim(), 'change board/server.mjs');
   assert.equal(fs.readFileSync(path.join(repo, 'board', 'server.mjs'), 'utf8'), '2\n');
-  assert.deepEqual(restarts(), []);
   assert.equal(fs.existsSync(worktree()), false);
   assert.deepEqual(branches(repo), ['main']);
 });
@@ -430,9 +428,7 @@ test('land on --site needs --text, refuses before landing what closing would ref
   const repo = scratchRepo();
   assert.equal((await board('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
   commit(worktree(), 'shared/notes.md', 'b\n', 'feat: notes\n\nRefs: A1');
-  const landOn = (...more) => boardWith(['land', 'w/A1', '--site', 'orch', ...more], {
-    KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']),
-  });
+  const landOn = (...more) => boardWith(['land', 'w/A1', '--site', 'orch', ...more]);
   assert.equal((await landOn()).code, 2);
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [question('q1', { topic: 'item:w/A1' })] });
   const main = git(repo, 'rev-parse', 'main');
@@ -454,9 +450,7 @@ test('land --owner-step lands the code and leaves the card open on its owner ste
   const repo = scratchRepo();
   assert.equal((await board('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
   commit(worktree(), 'shared/notes.md', 'b\n', 'feat: notes\n\nRefs: A1');
-  const landOn = (...more) => boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked on the phone.', ...more], {
-    KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']),
-  });
+  const landOn = (...more) => boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked on the phone.', ...more]);
   const main = git(repo, 'rev-parse', 'main');
   assert.deepEqual([(await landOn('--owner-step', ' ')).code, (await landOn('--owner-step', ' ')).err], [1, '--owner-step must be non-empty text\n']);
   assert.equal(git(repo, 'rev-parse', 'main'), main);
@@ -579,7 +573,6 @@ test('land refuses a rebase that conflicts, naming the files, and leaves the bra
   assert.deepEqual([r.code, r.err], [1, `rebasing A1 onto main conflicts in shared/notes.md; resolve it in ${worktree()} and land again\n`]);
   assert.deepEqual([git(repo, 'rev-parse', 'main'), git(worktree(), 'rev-parse', 'HEAD'), git(worktree(), 'status', '--porcelain')], [main, head, '']);
   assert.equal(fs.readFileSync(path.join(worktree(), 'shared', 'notes.md'), 'utf8'), 'branch\n');
-  assert.deepEqual(restarts(), []);
 });
 
 // docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md
@@ -670,7 +663,7 @@ test('a land records the commit it fast-forwarded main to on the card', async ()
   const repo = scratchRepo();
   assert.equal((await board('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
   commit(worktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
-  const landed = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
+  const landed = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.']);
   assert.equal(landed.code, 0, landed.err);
   assert.equal(itemOf('A1').landed_sha, git(repo, 'rev-parse', 'main'));
 });

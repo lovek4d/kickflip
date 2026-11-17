@@ -56,8 +56,8 @@
 //   /_hub/check-update POST from the version in the hub page's footer: runs upgrade.mjs check() now and answers its result
 //                     ({state: clone | same | pulling | failed, latest?, error?, commit?})
 //   /_hub/restart-hub POST from the hub page's Restart hub: answers {restarting, command} (the hub service's restart
-//                     command, for a restart by hand), then runs that restart (board/worktree.mjs restartRunner), which
-//                     replaces this process; 409 while one is out
+//                     command, for a restart by hand), then restarts the hub through close() (restartSelf); 409 while
+//                     one is out
 //   /_hub/wake       POST {route} from a board page's tap while the board is asleep: the session check resumes its
 //                     session now, as for an event that landed → {route, listen} (boards.mjs listenState)
 //   /_hub/machine.json GET what is loading this Mac, for the sheet the Hub row's busy word opens: {load, cores, average,
@@ -255,7 +255,6 @@ import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
 import { shareEntries, sharedRoutes, shareReach, routeOfPath, sharedSidebar, shareTracker } from './share.mjs';
-import { restartRunner } from '../board/worktree.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { POLLS, CLOCKS, dueOn } from '../shared/polls.mjs';
@@ -321,11 +320,13 @@ function httpProbe(port) {
 //   awake: the Keep awake controller (awake.mjs caffeinate);
 //   log(...parts): each line the hub logs, stamped on stdout by default;
 //   ticks: false runs neither of its clocks (shared/polls.mjs CLOCKS), so no reconcile, tick, hung check, new-code
-//   check, share save or nightly suite of its own, and no poll it wasn't asked for: the caller runs each pass.
-// → {port, reconcile(), hung(), tick(), poll(options), settled(), close()}: reconcile, hung, tick and poll run one pass
-// and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a request, is
-// done; close() stops every site and the server, as the hub does on SIGTERM.
-export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, awake = caffeinate({ log }), ticks = true } = {}) {
+//   check, share save or nightly suite of its own, and no poll it wasn't asked for: the caller runs each pass;
+//   exit(code) ends the process once the hub has stopped (shutdown()).
+// → {port, reconcile(), hung(), tick(), poll(options), settled(), close(), shutdown()}: reconcile, hung, tick and poll
+// run one pass and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a
+// request, is done; close() stops every site and the server; shutdown() runs close(), at most STOP_WITHIN, then exit(0),
+// as the hub does on SIGTERM and to restart itself.
+export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, awake = caffeinate({ log }), ticks = true, exit = (code) => process.exit(code) } = {}) {
   const HOME = path.join(os.homedir(), '.claude', 'kickflip');
   const MANIFEST = path.join(HOME, 'manifest.json');
   const LOGS = path.join(HOME, 'logs');
@@ -372,6 +373,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   const children = new Set();
   let shuttingDown = false;
   const KILL_AFTER = 5000;
+  const STOP_WITHIN = 6000;
   const keyOf = (s) => JSON.stringify([s.cmd, s.cwd || s.dir, s.port, s.env || {}, s.restart_at || 0]);
   const runs = (s) => Array.isArray(s?.cmd) && s.cmd.length > 0 && Boolean(s.port);
   // How a site is served: 'cmd', a server the hub runs; 'port', one it only forwards to; 'files', its dir served by the hub.
@@ -618,7 +620,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     stop(route);
     Object.assign(procs.get(route), { restarts: 0, nextStart: clock() + 1500, why: 'code' });
   }
-  const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: () => restartRunner('hub'), idle: async () => codeRestartHeld(), log });
+  const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: restartSelf, idle: async () => codeRestartHeld(), log });
   const reconcileLogged = () => reconcile().catch((e) => log('reconcile failed:', e.message));
   const timers = [];
 
@@ -879,6 +881,25 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       await closed;
     })();
     return closing;
+  }
+
+  // Stops the hub through close(), waiting at most STOP_WITHIN, past a site's KILL_AFTER, then exits.
+  let stopped = null;
+  function shutdown() {
+    stopped ||= Promise.race([close(), new Promise((resolve) => setTimeout(resolve, STOP_WITHIN).unref())]).finally(() => exit(0));
+    return stopped;
+  }
+
+  // The hub's own restart, for new code or the hub page's Restart hub: it stops as a SIGTERM stops it (shutdown()), so
+  // its passes and sends finish and its board servers finish theirs, and the service that keeps it running (launchd's
+  // KeepAlive, systemd's Restart=always) starts it again on the exit
+  // (docs/adr/2026-11-17-1357-the-hub-restarts-itself-through-close.md). → null, or why it can't: with no service
+  // manager on the host, an exit would stop the hub for good.
+  function restartSelf() {
+    const service = hubService();
+    if (!service.manager) return service.restart();
+    shutdown();
+    return null;
   }
 
   // ---------- status ----------
@@ -1219,7 +1240,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         // The restart stops this process, so it runs once the answer is flushed.
         track(new Promise((resolve) => res.once('finish', () => {
           log('restarting the hub from the hub page');
-          const why = restartRunner('hub');
+          const why = restartSelf();
           if (why) { hubRestarting = false; log(`hub restart failed: ${why}`); }
           resolve();
         })));
@@ -1857,13 +1878,12 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       timers.push(setInterval(() => { n++; for (const p of dueOn(clock, n)) jobs[p.id](); }, ms)); // poll: none, each job names its own
     }
   }
-  return { port: PORT, reconcile, hung: checkHung, tick, poll: runPoll, settled, close };
+  return { port: PORT, reconcile, hung: checkHung, tick, poll: runPoll, settled, close, shutdown };
 }
 
 // node hub/hub.mjs: the hub on KICKFLIP_HUB_PORT, else 4500, until SIGTERM or SIGINT.
 if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
   const hub = await startHub({ port: Number(process.env.KICKFLIP_HUB_PORT || 4500) });
-  const stop = () => Promise.race([hub.close(), new Promise((resolve) => setTimeout(resolve, 6000))]).finally(() => process.exit(0));
-  process.on('SIGTERM', stop);
-  process.on('SIGINT', stop);
+  process.on('SIGTERM', hub.shutdown);
+  process.on('SIGINT', hub.shutdown);
 }

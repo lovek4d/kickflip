@@ -9,7 +9,7 @@ import { opensPRs, settingsOf } from './store.mjs';
 import { SUMMARY_HINT } from './domain.mjs';
 import { fakeGh, writeLimit, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
-import { boardWith, bin, home, at, site, write, read, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, land, branches, finishEnv, onOrch, record, itemOf, threadOf, remoteBoard, tapMerge, onHome } from './board-fixture.mjs';
+import { boardWith, bin, home, at, site, write, read, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, land, branches, onOrch, record, itemOf, threadOf, remoteBoard, tapMerge, onHome } from './board-fixture.mjs';
 
 
 test('builder done on a build that keeps a worktree finishes the card: it needs --text, lands it and closes the card and its record; a failed finish refuses with the reason and keeps the builder on', async () => {
@@ -174,7 +174,7 @@ test("builder verified leaves a card handed back while one of its questions is o
 test('on a GitHub board, builder done sends the build for review: it pushes the branch, opens a draft PR, and the card moves to it with its record closed', async () => {
   const ghDir = path.join(home, 'gh');
   const origin = remoteBoard(() => ({ github: 'owner/project' }));
-  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
@@ -198,7 +198,7 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
 test("while GitHub's limit holds, builder done pushes the branch but opens no PR, and says so with the reset time in the card's thread", async () => {
   const ghDir = path.join(home, 'gh');
   remoteBoard(() => ({ github: 'owner/project' }));
-  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'fix: the first commit\n\nRefs: A1');
@@ -224,7 +224,7 @@ test("while GitHub's limit holds, builder done pushes the branch but opens no PR
 test("on a GitHub board, builder done on a card whose PR is open force-pushes the rebased branch with a lease, keeps the PR, and records a rebase run's push", async () => {
   const ghDir = path.join(home, 'gh');
   const origin = remoteBoard(() => ({ github: 'owner/project' }));
-  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
@@ -355,7 +355,7 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   const fake = path.join(home, 'claude');
   fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`);
   fs.chmodSync(fake, 0o755);
-  const env = { ...finishEnv, KICKFLIP_CLAUDE: fake };
+  const env = { KICKFLIP_CLAUDE: fake };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
   const manifest = read(at('kickflip', 'manifest.json'));
   manifest.sites.orch.owner = { repo };
@@ -394,7 +394,7 @@ test("a tapped Merge whose rebase conflicts resumes the card's builder session, 
   const fake = path.join(home, 'claude');
   fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`);
   fs.chmodSync(fake, 0o755);
-  const env = { ...finishEnv, KICKFLIP_CLAUDE: fake };
+  const env = { KICKFLIP_CLAUDE: fake };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
   const manifest = read(at('kickflip', 'manifest.json'));
   manifest.sites.orch.owner = { repo };
@@ -489,7 +489,7 @@ const hubBoard = () => {
 test('on Merge, a hub card branches from its folder\'s main and lands there, opening no PR and pushing nothing without Push main', async () => {
   const ghDir = path.join(home, 'gh');
   const { origin, folder } = hubBoard();
-  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
   const main = git(origin, 'rev-parse', 'main');
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
@@ -509,7 +509,7 @@ test("on Draft PR or Ready PR, a hub card branches from origin's main, and its f
   const { origin, folder } = hubBoard();
   const titles = { A1: 'feat: one', A2: 'feat: two' };
   write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: titles.A1 }, { id: 'A2', title: titles.A2 }] });
-  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
   const folderMain = git(folder, 'rev-parse', 'main');
   const originMain = git(origin, 'rev-parse', 'main');
