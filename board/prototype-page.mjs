@@ -3,7 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { takeFile } from './store.mjs';
+import { takeFile } from './questions.mjs';
 
 export const PROTOTYPE_TEMPLATE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public', 'prototype.html');
 export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

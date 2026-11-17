@@ -3,7 +3,7 @@ import { carryCursor, isBoardSite, listBoards, readManifest, watcherCursor, with
 import { routeRecord, validRoute } from './routes.mjs';
 import { stopSession, withSessionLock } from './sessions.mjs';
 import { liveSessions } from './live.mjs';
-import { openBoardBuilders } from '../board/store.mjs';
+import { openBoardBuilders } from '../board/runs.mjs';
 import { closeBoardBuilders } from '../board/runs.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };

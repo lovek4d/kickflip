@@ -3,7 +3,7 @@
 // What is loading this Mac, for the sheet the Hub row's status words open (ui-sidebar.js loadSheet): the load now and over
 // the last hour (the samples the hub's tick keeps, shared/machine-gate.mjs), and this Mac's processes from one ps call,
 // sorted into groups. All of it is mechanical; no model reads any of it.
-// - builder: a board's open builder or planner record's process (board/store.mjs openBoardBuilders).
+// - builder: a board's open builder or planner record's process (board/runs.mjs openBoardBuilders).
 // - session: a running Claude Code session's process (~/.claude/sessions, live.mjs), named by the board it owns.
 // - orphan: a process of this user's left to launchd (parent pid 1) that isn't the hub: a node process older than a
 //   day, or any process with no terminal that has burned HOT_CPU% or more for over HOT_AGE, outside an app or the system.
@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ps as runPs, sessionRecords } from './live.mjs';
 import { listBoards } from './boards.mjs';
-import { openBoardBuilders } from '../board/store.mjs';
+import { openBoardBuilders } from '../board/runs.mjs';
 import { readMachine, readMachineSamples, readMachineState } from '../shared/machine-gate.mjs';
 import { audit as writeAudit, hubAudit } from '../shared/audit.mjs';
 

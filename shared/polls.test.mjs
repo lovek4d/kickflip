@@ -69,7 +69,7 @@ test('a cadence reads as words, with a clock job’s ticks when it waits more th
 test('the watcher and the CLI wait loops are in the registry, and a tick’s gates read as checked each tick', () => {
   const by = (id) => POLLS.find((p) => p.id === id);
   assert.deepEqual(['watcher-pass', 'board-asks-wait', 'helper-wait', 'builder-asks-wait'].map((id) => [by(id).every, by(id).where]),
-    [[2000, 'bin/wait-events.mjs'], [2000, 'board/store.mjs'], [2000, 'board/store.mjs'], [2000, 'board/store.mjs']]);
+    [[2000, 'bin/wait-events.mjs'], [2000, 'board/asks.mjs'], [2000, 'board/runs.mjs'], [2000, 'board/runs.mjs']]);
   assert.equal(by('watcher-pass').group, 'sessions');
   for (const id of ['board-asks-wait', 'helper-wait', 'builder-asks-wait']) assert.equal(by(id).group, 'backoff', id);
   const steps = Object.fromEntries(by('tick').steps.map((s) => [s.name, s.cadence]));

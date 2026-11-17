@@ -1246,7 +1246,7 @@ const COMMANDS = {
   'builder start': [['file/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'dispatch'], (site, [key], { worktree, repo, dispatch, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
     const make = (opts) => boardWorktree(site, key.split('/')[1], { repo, ...opts });
-    // A build on a board works in its own worktree even when the start doesn't ask for one (store.mjs startBuilder).
+    // A build on a board works in its own worktree even when the start doesn't ask for one (board/runs.mjs startBuilder).
     const onBoard = site && f.dir === undefined && boardAt(site);
     return store.startBuilder(site, key, { ...f, dispatch: dispatch ? 'session' : undefined, worktree: worktree ? make : undefined, ownWorktree: onBoard ? make : undefined });
   }],
@@ -1411,7 +1411,7 @@ const SAID = {
 
 // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
 // The orchestrator's commands on a card, each naming the cards it acted on: once one succeeds, those cards' working
-// marks end (store.mjs markActedOn). A builder's own commands aren't here.
+// marks end (board/cards.mjs markActedOn). A builder's own commands aren't here.
 // name: (site, args, flags, result) → [card key]
 const onCard = (site, [key]) => [key];
 const ACTS = {

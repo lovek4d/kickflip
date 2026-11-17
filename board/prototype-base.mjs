@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { boardAt } from '../hub/boards.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
 import { buildScriptOf } from './build-script.mjs';
-import { BoardError } from './store.mjs';
+import { BoardError } from './checks.mjs';
 
 const execFileAsync = promisify(execFile);
 const git = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 60_000 })).stdout.trim();

@@ -113,9 +113,9 @@ export const POLLS = Object.freeze([
   { id: 'stream-ping', group: 'pages', name: 'Hub stream ping', what: 'Keeps Tailscale Serve from idling an open page’s stream out.', every: 25 * SECOND, runs: 'Hub', where: 'hub/stream.mjs' },
 
   // Back-offs, not polls
-  { id: 'board-asks-wait', group: 'backoff', name: 'asks --wait', what: 'only while a board’s ask to another board is unanswered; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/store.mjs' },
-  { id: 'helper-wait', group: 'backoff', name: 'agent wait', what: 'only while a builder’s helper runs; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/store.mjs' },
-  { id: 'builder-asks-wait', group: 'backoff', name: 'builder asks --wait', what: 'only while a builder’s ask waits on the orchestrator; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/store.mjs' },
+  { id: 'board-asks-wait', group: 'backoff', name: 'asks --wait', what: 'only while a board’s ask to another board is unanswered; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/asks.mjs' },
+  { id: 'helper-wait', group: 'backoff', name: 'agent wait', what: 'only while a builder’s helper runs; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/runs.mjs' },
+  { id: 'builder-asks-wait', group: 'backoff', name: 'builder asks --wait', what: 'only while a builder’s ask waits on the orchestrator; gives up after 9 min and is run again', every: 2 * SECOND, runs: 'Each board', where: 'board/runs.mjs' },
   { id: 'try-group-wait', group: 'backoff', name: 'Try run stop wait', what: 'only while a stopped try run’s processes are exiting', every: 20, runs: 'Hub', where: 'hub/try.mjs' },
   { id: 'agent-session-wait', group: 'backoff', name: 'Agent session wait', what: 'only while a starting agent hasn’t named its session yet', every: 100, runs: 'Each board', where: 'board/agents.mjs' },
   { id: 'try-port-wait', group: 'backoff', name: 'Try run port wait', what: 'only while a try run starts', every: 250, runs: 'Hub', where: 'hub/try.mjs' },

@@ -1,5 +1,5 @@
 // docs/adr/2026-11-16-1915-the-hub-status-opens-the-load-sheet-at-any-load-collapsed.md
-// The processes a build left running detached, which builder done refuses to finish over (store.mjs refuseDetached):
+// The processes a build left running detached, which builder done refuses to finish over (runs.mjs refuseDetached):
 // this user's, left to launchd (parent pid 1), started since the build began, working in its worktree (their working
 // directory, or a path on their command line, inside it), and not git's or the calling command's own ancestors (a
 // resumed builder's session is left to launchd and works in its worktree, yet is the one finishing).

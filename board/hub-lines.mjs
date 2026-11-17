@@ -1,6 +1,6 @@
 // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md
 // Every line the board (Kickflip) writes to a card's thread is a status line: a mark and a few words, never a message.
-// This table holds each kind of them, its mark (board/public/ui.js MARK_ICONS) and its words from its inputs; store.mjs
+// This table holds each kind of them, its mark (board/public/ui.js MARK_ICONS) and its words from its inputs; cards.mjs
 // appendStatus writes them, and appendMessage the orchestrator's own words. A fault line is red, counts as unread and
 // freshens the queued push; every other one is quiet.
 //
@@ -86,7 +86,7 @@ export const HUB_LINES = {
   'screen-timeout': { tone: 'blue', mark: QUESTIONS, text: () => 'Questions passed to you unscreened: the orchestrator didn’t screen them in 15 minutes.' },
   'ask-moved': { tone: 'grey', mark: MOVE, text: ({ board }) => fit('Moved to ', board, '.') },
   // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md: on a handed ticket's
-  // thread, grey, linking the task it became on the other board (store.mjs handoff); and drawn from a handed ask's own
+  // thread, grey, linking the task it became on the other board (asks.mjs handoff); and drawn from a handed ask's own
   // event (domain.mjs threadOf), never written, above the ask on the receiving board; blue, as created.
   'handed-to': { tone: 'grey', mark: MOVE, text: ({ route, ref }) => fit('Handed to ', `/${route} · ${ref}`) },
   'handed-from': { tone: 'blue', mark: 'ask-link', text: ({ source }) => fit('Handed from ', source) },
@@ -94,14 +94,14 @@ export const HUB_LINES = {
   // orchestrator filed (domain.mjs askedLine), never written, above the ask; blue, as created.
   'asked-from': { tone: 'blue', mark: 'ask-link', text: ({ phrase }) => fit('', phrase) },
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: on the asking card, grey and
-  // quiet, the question the card's agent put to another board (store.mjs askBoard); the answer follows as that board's
+  // quiet, the question the card's agent put to another board (asks.mjs askBoard); the answer follows as that board's
   // message.
   'board-asked': { tone: 'grey', mark: 'ask-link', text: ({ route, question }) => fit(`Asked ${route}: `, question), longest: { route: 'a-long-board-route-name' } },
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: drawn from a routed ask's own
   // event (domain.mjs threadOf), never written, above the ask; blue, as the owner reads it and may move the ask.
   'ask-routed': { tone: 'blue', mark: 'ask-link', text: ({ via, reason }) => fit(`Routed here from ${via}: `, reason), longest: { via: 'a handoff' } },
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: on the ask's thread, the card it
-  // became merged into another (store.mjs relateAsk), which hides the ask's own row and feeds the top banner.
+  // became merged into another (asks.mjs relateAsk), which hides the ask's own row and feeds the top banner.
   'card-merged': { tone: 'grey', mark: MOVE, text: ({ card }) => fit('Merged into ', card, '.') },
   'pr-found': { tone: 'blue', mark: MOVE, text: ({ pr, branch }) => fit(`Found PR #${pr} on branch `, branch, '.'), longest: { pr: 100000 } },
   'ci-passed': { tone: 'green', mark: DONE, text: ({ pr }) => `CI passed, so PR #${pr} is marked ready for review.`, longest: { pr: 100000 } },
@@ -171,5 +171,5 @@ export function detailOf(line, inputs = {}) {
 }
 // A stored line's mark and fault from its kind; a kind no longer in the table draws no mark.
 export const hubLineOf = (m) => ({ mark: HUB_LINES[m.line]?.mark || '', fault: Boolean(HUB_LINES[m.line]?.fault), tone: HUB_LINES[m.line]?.fault ? 'red' : HUB_LINES[m.line]?.tone });
-// The thread line kind of every line store.mjs appendStatus writes.
+// The thread line kind of every line cards.mjs appendStatus writes.
 export const HUB = 'hub';

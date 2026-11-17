@@ -292,19 +292,22 @@ test('the board writes a thread only through appendStatus and appendMessage: no 
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
   const sources = ['board', 'board/bin', 'hub', 'shared', 'bin'].flatMap((dir) => fs.readdirSync(path.join(root, dir))
     .filter((f) => /\.m?js$/.test(f) && !f.includes('.test.')).map((f) => path.join(root, dir, f)));
+  const data = ['cards', 'questions', 'asks', 'settings', 'runs'].map((m) => path.join('board', `${m}.mjs`));
+  let raw = 0;
   for (const file of sources) {
     const code = fs.readFileSync(file, 'utf8');
     const name = path.relative(root, file);
     assert.doesNotMatch(code, /appendFile(Sync)?\([^)]*thread/i, `${name} appends to a thread file itself`);
-    if (name !== path.join('board', 'store.mjs')) continue;
-    // In the store, every raw write to a thread is a line of a kind or a command, or one of the line a writer built:
-    // appendStatus's, appendMessage's, appendCommand's and a move's.
+    if (!data.includes(name)) continue;
+    // In the board's data modules, every raw write to a thread is a line of a kind or a command, or one of the line a
+    // writer built: appendStatus's, appendMessage's, appendCommand's and a move's.
     const writes = [...code.matchAll(/appendLine\((?:threadFile\([^)]*\)|file), ([^\n]*)\);\n/g)];
-    assert.ok(writes.length > 0);
+    raw += writes.length;
     for (const w of writes) {
       const writer = [...code.slice(0, w.index).matchAll(/function (\w+)\(/g)].at(-1)[1];
       if (w[1] === 'line') assert.ok(['appendStatus', 'appendMessage', 'appendCommand', 'moveCard'].includes(writer), `${writer} writes a line it built`);
       else assert.match(w[1], /\b(kind|command)\b/, `${writer} writes a plain thread line: ${w[1]}`);
     }
   }
+  assert.ok(raw > 0);
 });

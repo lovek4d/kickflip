@@ -6,7 +6,7 @@
 // Land has no release of its own: a release in a repo with no script is refused.
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { BoardError } from './store.mjs';
+import { BoardError } from './checks.mjs';
 import { releaseVersion } from './commit-message.mjs';
 import { buildScriptError } from './build-script.mjs';
 

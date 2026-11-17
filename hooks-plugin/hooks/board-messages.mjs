@@ -51,7 +51,7 @@ async function shownOn(board, session, now) {
 }
 
 // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
-// A board-launched builder's session gets the news its card holds for it (store.mjs takeNews), found by the pointer
+// A board-launched builder's session gets the news its card holds for it (board/runs.mjs takeNews), found by the pointer
 // data/builder-news/<session id>.json that names the card.
 async function newsOn(board, session) {
   const key = readJSON(path.join(board.dir, 'data', 'builder-news', `${session}.json`))?.key;

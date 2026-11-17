@@ -23,7 +23,7 @@ import { buildScriptOf } from './build-script.mjs';
 import { HUB, hubLineOf, hubText } from './hub-lines.mjs';
 import { startTitleFault } from './commit-message.mjs';
 import { scriptLogName } from './scripts.mjs';
-// The ask thread's line that says its card merged into another (hub-lines.mjs, store.mjs relateAsk).
+// The ask thread's line that says its card merged into another (hub-lines.mjs, asks.mjs relateAsk).
 const MERGED_LINE = 'card-merged';
 
 // Page scripts with no exports, which the page loads as is, so node runs them the same way.
@@ -53,17 +53,17 @@ export function scriptStateOf(offer, events, live) {
   return { state: offer.id === live ? 'waiting' : 'replaced' };
 }
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
-// The lanes a card is stored in (its item file entry's `lane`, which store.mjs placeIn alone writes), and their names in a
+// The lanes a card is stored in (its item file entry's `lane`, which cards.mjs placeIn alone writes), and their names in a
 // move's thread line.
 export const LANES = Object.freeze({ todo: 'Todo', progress: 'In Progress', review: 'In Review', done: 'Done' });
-// The thread line kind of a card's move from one lane to another (store.mjs moveCard).
+// The thread line kind of a card's move from one lane to another (cards.mjs moveCard).
 export const MOVE = 'move';
 // How long a run may go without a status line or transcript movement before it reads stale
 // (docs/adr/2026-11-13-2030-stale-is-a-footer-word-after-15-minutes.md).
 export const BUILDER_STALE_AFTER = 15 * 60000;
-// The status line kind (hub-lines.mjs) for a Build tap the board server refused (store.mjs startTappedBuild).
+// The status line kind (hub-lines.mjs) for a Build tap the board server refused (runs.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
-// The thread line kinds of a builder's ask and the orchestrator's answer or deferral of it (store.mjs askOrchestrator).
+// The thread line kinds of a builder's ask and the orchestrator's answer or deferral of it (runs.mjs askOrchestrator).
 export const BUILDER_ASK = Object.freeze({ ask: 'builder-ask', answer: 'builder-answer' });
 const DAY = 86400000;
 // Done holds closed work cards and answered asks (docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md).
@@ -106,7 +106,7 @@ function laneOf(item, pr, running, checking, pushed, reopened, skipDraft, rebasi
 // The label a lander's builder record carries (headless.mjs landerBrief): it lands a verified build.
 export const LANDER = 'Lander';
 // docs/adr/2026-11-16-0830-a-builder-hands-back-with-a-summary-message.md
-// What the summary a build's done owes says (store.mjs recordSummary).
+// What the summary a build's done owes says (runs.mjs recordSummary).
 export const SUMMARY_HINT = 'what you built, in a few plain sentences: what changed for the owner, and what you left out';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
@@ -116,7 +116,7 @@ export const SUMMARY_HINT = 'what you built, in a few plain sentences: what chan
 // verification the card waits to land, entry its data/landers.json entry {verified, pid, log, relaunched, handedBack}
 // (relaunched counts the launches after the first for that verification), alive whether the entry's process lives,
 // held the words for what holds the server's launches of its kind now (shared/usage-gate.mjs launchHeldWords) or null,
-// and limited whether the entry's run ended on the usage limit, which spends no relaunch. skip is what store.mjs
+// and limited whether the entry's run ended on the usage limit, which spends no relaunch. skip is what runs.mjs
 // landable skips the card for, as landSkipOf gives it with what blocks the card, or null: {step: 'worktree-gone'},
 // {step: 'blocked', blocked: blockWordsOf's words} or {step: 'asking'} (a question on it is open).
 // running: the lander launched for this verification lives. fault: a relaunched lander exited without landing too, or
@@ -163,7 +163,7 @@ function prStateOf(pr, mergedAt) {
 export const unlanded = (i) => i.pr?.status === PR_STATE.closed;
 
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
-// When the card's newest build handed back for the orchestrator's check (store.mjs handBackCalls, relaunchLander): that
+// When the card's newest build handed back for the orchestrator's check (runs.mjs handBackCalls, relaunchLander): that
 // record closed with handed_back, and no build has started since. Install builds don't count. → the time, or null.
 export function handedBackAt(agents) {
   const newest = newestBuild(agents);
@@ -238,7 +238,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github' || m.via =
 // The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
 const STILL_MERGING = ['lander-handoff', 'land-waiting', 'test-waiting'];
 function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, landing, eta, thread, events, scriptEvents, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
-  // An archived PR the board no longer reads the hub's check for draws what it kept (store.mjs keptPRs). A hub record
+  // An archived PR the board no longer reads the hub's check for draws what it kept (cards.mjs keptPRs). A hub record
   // read without its url (a Done card's PR) keeps the one its repo and number give.
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, ...(p.gh || p.kept || {}), url: (p.gh || p.kept)?.url || prURL(p), status: prStateOf(p.gh, p.merged_at) }));
   const least = leastReady(prs.map((p) => p.gh));
@@ -257,14 +257,14 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md).
   const doneAt = String(closed || '');
   const neverLanded = views.length > 0 && views.every((v) => v.status === PR_STATE.closed);
-  // The owner's Reopen put the card back in Todo, discussing (store.mjs recordOwnerTap): it reads as a Todo card until a
+  // The owner's Reopen put the card back in Todo, discussing (cards.mjs recordOwnerTap): it reads as a Todo card until a
   // build takes it, merged PR or not, and still counts as finished for the cards waiting on it
   // (docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md).
   const backInTodo = it.lane === 'todo' && Boolean(it.reopened_at);
   const reopenedAt = !backInTodo && (it.lane === 'done' || it.reopened_at || prStatus === PR_STATE.merged) && !neverLanded
     ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() || it.reopened_at || undefined : undefined;
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a card the orchestrator answered
-  // (store.mjs answerCard) before it was sorted or closed waits as a reopened card Claude has answered does: on the
+  // (asks.mjs answerCard) before it was sorted or closed waits as a reopened card Claude has answered does: on the
   // owner's Done in In Review, or on the orchestrator while the owner's reply is unanswered.
   const answeredAt = it.answered_at && !it.phase && !it.closed_at && !reopenedAt ? String(it.answered_at) : undefined;
   const reopenAt = reopenedAt || answeredAt;
@@ -333,7 +333,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   // A held Merge handed to a lander (finish.mjs landHeld) is still merging; the card stays In Review while it runs.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'command', MOVE].includes(m.kind) && !STILL_MERGING.includes(m.line)).map((m) => String(m.ts)).sort().pop() || '';
-  // A held card's tap is recorded on it (store.mjs tapMerge), and the board server's land writes its outcome there.
+  // A held card's tap is recorded on it (cards.mjs tapMerge), and the board server's land writes its outcome there.
   const tappedAt = [mergeAt, mergeReady && it.merge_ready.tapped].filter(Boolean).map(String).sort().pop();
   const merging = waitsOn === 'merge' && Boolean(tappedAt) && tappedAt > lastClaudeAt;
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a tap queued behind another land says so in a status line.
@@ -362,7 +362,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const briefing = BRIEF_KINDS.find((k) => k !== REVIEWER && (it.briefs || []).some((b) => b.kind === k && !b.brief)) ?? null;
   // A checked card with nothing left to verify waits to land: its land step (landStep), read from the server's lander
   // for it (landers {<key>: {...entry, alive, limited}}), what holds a launch of its kind (landHeld {<kind>: words}) and
-  // what store.mjs landable skips it for (landSkips {<key>: skip}), as runs.mjs launchLanders reads them.
+  // what runs.mjs landable skips it for (landSkips {<key>: skip}), as runs.mjs launchLanders reads them.
   const verifiedAt = agents.map((a) => a.verified?.at).filter(Boolean).map(String).sort().at(-1) ?? null;
   const lander = routeRecord(landers, key);
   // The step itself is taken once the board knows what blocks the card (buildBoard landOf).
@@ -514,7 +514,7 @@ const mergeable = (pr, needsApproval) => !mergeBlockers(pr, { needsApproval }).l
 // The phases a Todo card owes the owner's Implement from; a staged or ready one has had it.
 export const OWES_IMPLEMENT = ['new', 'discussing'];
 // The orchestrator's mark on raw item it (implement or close), or null: a mark holds the phase and lane it was set in
-// (store.mjs ownerMark) and stands only while the card keeps both, so no stored mark owes what the card's state
+// (questions.mjs ownerMark) and stands only while the card keeps both, so no stored mark owes what the card's state
 // contradicts. A mark from before marks held them stands as it was. An item with no phase or lane yet reads new in
 // Todo, as the board's settle pass writes it.
 export const markedState = (item) => ({ phase: item.phase || 'new', lane: item.lane || 'todo' });
@@ -651,7 +651,7 @@ export function footerOf(it) {
 export const blockWordsOf = (it) => [it.blockedBy?.length && `by ${it.blockedBy.map((d) => d.ref).join(', ')}`, it.blockedUntil && `until ${it.blockedUntil}`].filter(Boolean).join(' and ');
 const mergeBlockedWords = (it) => `Blocked ${blockWordsOf(it)}`;
 // docs/adr/2026-11-14-0031-a-land-step-reads-landables-skips.md: what a verified built card's land skips for, given
-// store.mjs landable's skip: a gone worktree, which a block can't hide, else what blocks the card, else landable's.
+// runs.mjs landable's skip: a gone worktree, which a block can't hide, else what blocks the card, else landable's.
 export const landSkipOf = (it, skip) => (skip?.step === 'worktree-gone' ? skip
   : it.blockedBy?.length || it.blockedUntil ? { step: 'blocked', blocked: blockWordsOf(it) } : skip ?? null);
 // The card's land step from its landStep inputs (workItem landFrom) and what blocks it; the card's status line reads
@@ -690,14 +690,14 @@ function placeOwnerWait(it, questionById, autoMerge) {
 
 // docs/adr/2026-10-29-1639-a-started-card-never-returns-to-todo.md
 // docs/adr/2026-11-03-0202-a-card-moves-to-in-progress-only-once-building-starts.md
-// A work card has started once it is stored past Todo (store.mjs placeIn: a build's start moves it, a block or a
+// A work card has started once it is stored past Todo (cards.mjs placeIn: a build's start moves it, a block or a
 // launch that failed moves it back); one never placed, once building has: a build agent's record, running or finished.
 // A PR, a pushed branch and a hand-back place it on their own (laneOf).
 const started = (storedLane, agents) => (storedLane ? storedLane !== 'todo' : agents.some(builds));
 
 // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md
 // An In Progress card shows its builder line while a builder record is open, else its Next. buildBoard gives one with
-// neither this as its Next; owesNext is store.mjs's check before a write that would leave one so.
+// neither this as its Next; owesNext is cards.mjs's check before a write that would leave one so.
 export const NO_NEXT = 'none set yet';
 // Whether a work item's item file entry and builder records leave its card started with no open record and no Next, where
 // nothing else gives it a line or places it: a PR or pushed branch (GitHub or the owner's merge words most of those,
@@ -780,12 +780,12 @@ export function prototypeWaits(built, events) {
   return out;
 }
 
-// An item's agents, oldest first, from its records by agent name. A past run's record (store.mjs keepPastRun, named
+// An item's agents, oldest first, from its records by agent name. A past run's record (runs.mjs keepPastRun, named
 // past-<ms>) is no agent of the card; only the thread, which folds its lines, asks for it with withPast.
 function agentsOf(records = {}, withPast = false) {
   return Object.entries(records).filter(([name, r]) => r && typeof r === 'object' && (withPast || !name.startsWith('past-'))).map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
-    // pid: the headless process the board launched for it (store.mjs recordSession), none for a session's own agent.
+    // pid: the headless process the board launched for it (runs.mjs recordSession), none for a session's own agent.
     log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], summary: r.summary || null, verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null, ...(r.pause ? { pause: r.pause } : {}), ...(r.rerun ? { rerun: r.rerun } : {}),
     ...(r.kind === HELPER ? { writes: Boolean(r.writes), requested: r.requested || null } : {}), ...(r.waits ? { waits: r.waits } : {}),
     ...(r.kind === REVIEWER ? { target: r.target || 'plan' } : {}),
@@ -951,7 +951,7 @@ function agentName(a) {
 
 // docs/adr/2026-11-03-1313-an-answer-stops-waiting-once-its-acted-on.md
 // Whether an owner answer at ts is acted on by its question's resolution: resolved, at or after ts when it records when.
-// The note Send resolves an answered question with (store.mjs resolveSentAnswers): the answer waits on the orchestrator
+// The note Send resolves an answered question with (questions.mjs resolveSentAnswers): the answer waits on the orchestrator
 // until its next thread line, not on a resolution (docs/adr/2026-11-15-1200-an-answered-question-folds-on-send.md).
 export const ANSWERED = 'Answered';
 const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || String(q.resolved_at) >= String(ts));
@@ -965,7 +965,7 @@ const actedBy = (q, ts) => resolvedSince(q, ts) && q.resolved !== ANSWERED;
 // card (a grill-more's) resolve it
 // (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md,
 // docs/adr/2026-11-15-1100-grill-more-hands-its-question-to-the-grill.md). answerEvents are owner-answer events and
-// requestEvents prototype-request and grill-more events, oldest first; store.mjs reads their states to close a card's questions.
+// requestEvents prototype-request and grill-more events, oldest first; questions.mjs reads their states to close a card's questions.
 // reask is the owner's newest reask-request for a resolved question while it is newer than `resolved_at`: question add
 // with reask_of resolves the question again once the session asks it again.
 export function ownerQuestion(q, answerEvents, requestEvents = [], reaskEvents = []) {
@@ -1111,7 +1111,7 @@ function routedLine(e) {
   return [{ ...m, ...hubLineOf(m), html: null, link: r.link || null, via: null }];
 }
 // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md
-// A handed ask's source, from its event's `from {route, key?, ref?, id?}` (store.mjs handoff, moveAsk): its words,
+// A handed ask's source, from its event's `from {route, key?, ref?, id?}` (asks.mjs handoff, moveAsk): its words,
 // "/<route> · <ref>" or "/<route>" for a moved ask, and a link to the card it came from there; or null.
 function sourceOf(e) {
   const from = e.data?.from;
@@ -1126,7 +1126,7 @@ function handedLine(e) {
   return [{ ...m, ...hubLineOf(m), html: null, link: source.link, via: null }];
 }
 // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
-// An ask the orchestrator filed (store.mjs askItem), from its event's asked {by, key?, ref?}: who asked, by name, under
+// An ask the orchestrator filed (asks.mjs askItem), from its event's asked {by, key?, ref?}: who asked, by name, under
 // its message, and a blue From line a moment before it, linked to the task a builder or planner asked from.
 const askerOf = (asked) => (asked.by === 'orchestrator' ? 'Orchestrator' : `${asked.ref}'s ${asked.by}`);
 // Who asked an asked ask, as the board's text to the orchestrator names it, and the words that say it is not the owner's.
@@ -1155,7 +1155,7 @@ const slackOf = (e) => (e.data?.slack ? { via: 'slack', link: e.data.slack.link,
 // same words and the card's ref from cards (by key, {ref}), or its id once it has left the board, never its key.
 const refText = (key, cards) => cards.get(key)?.ref ?? key.slice(key.indexOf('/') + 1);
 const naming = (m, words, key, cards) => ({ ...m, card: key, words, text: `${words} ${refText(key, cards)}`, link: `#selectedCard=${encodeURIComponent(key)}` });
-// A link's line (store.mjs postLinkLines) names the other card by its stored key, under the command's words. A card's
+// A link's line (cards.mjs postLinkLines) names the other card by its stored key, under the command's words. A card's
 // Created ticket line (hub-lines.mjs ticket-made) names the card itself, so it reads the ticket the card has now.
 const namedLine = (m, key, cards) => (m.card ? naming(m, COMMANDS[m.command], m.card, cards)
   : m.kind === HUB && m.line === 'ticket-made' ? naming(m, hubLineOf(m).mark, key, cards) : m);
@@ -1222,7 +1222,7 @@ function sectionOf(agentList, a) {
   return agentList.filter((x) => builds(x) && x.label !== LANDER && x.started && String(x.started) < String(a.started)).pop()?.started ?? a.started;
 }
 // docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md
-// When event id, sent at ts, was handed to the session: its stamp in data/delivered.json (store.mjs markDelivered), else
+// When event id, sent at ts, was handed to the session: its stamp in data/delivered.json (cards.mjs markDelivered), else
 // its working mark. An event sent before the board kept stamps (delivered.since) counts as handed when sent; a later one
 // with neither is not handed yet (null).
 // The waking events whose plain line (bin/event-lines.mjs) asks the session to write nothing on the card: a bump with no
@@ -1252,7 +1252,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   const answers = index.answers.get(`item:${key}`) || [];
   // An answer is acted on, and waits on Claude no more, once its question is resolved after it, a later prototype
   // round names its question (round_of), or a build starts on the card after it. Send's own resolution (ANSWERED,
-  // store.mjs resolveSentAnswers) acts on nothing: the answer waits until the orchestrator's next line, as a reply does.
+  // questions.mjs resolveSentAnswers) acts on nothing: the answer waits until the orchestrator's next line, as a reply does.
   const rounded = new Set([...asked.values()].map((q) => q.round_of).filter(Boolean));
   const buildsFrom = agentsOf(agents, true).filter(builds).map((a) => String(a.started || '')).filter(Boolean);
   const acted = new Set(answers
@@ -1391,7 +1391,7 @@ export function buildBoard(snapshot) {
     itemFiles.push({ slug, title: itemFile.title || slug, status: itemFile.status || null, reviewers: (itemFile.reviewers || []).map((r) => r.name) });
     itemFile.items.forEach((it, order) => {
       const key = `${slug}/${it.id}`;
-      // An archived card's own ask is linked to it as well (store.mjs archiveCards), and counts once, as its from_ask.
+      // An archived card's own ask is linked to it as well (cards.mjs archiveCards), and counts once, as its from_ask.
       const folded = (foldedInto.get(key) || []).filter((id) => id !== it.from_ask);
       const askIds = [it.from_ask, ...folded].filter((id) => asks.has(id));
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
@@ -1427,7 +1427,7 @@ export function buildBoard(snapshot) {
       if (asks.has(it.from_ask)) card.created = asks.get(it.from_ask).ts;
       card.askMsg = msgs.find((m) => m.kind === 'ask' && m.eventId === it.from_ask) || null;
       // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md: when the orchestrator ingested the ask
-      // (store.mjs leaveNew), and the owner's message and files, for the New strip's line to the card.
+      // (asks.mjs leaveNew), and the owner's message and files, for the New strip's line to the card.
       card.ingested = it.sorted_at && card.askMsg ? { at: it.sorted_at, text: card.askMsg.text, files: card.askMsg.files, ...(card.askMsg.asked ? { asked: true } : {}) } : null;
       storedLinks.set(key, { parent: it.parent ? linkKey(slug, it.parent) : null, related: (it.related || []).map((r) => linkKey(slug, r)) });
       if (card.lane === 'done') closedWork.set(key, card.closedAt || String(card.updatedAt || ''));
@@ -1477,7 +1477,7 @@ export function buildBoard(snapshot) {
   // no row of its own. It lives in the card it became, or the one it was folded or merged into (data/ask-links.json,
   // which also holds an archived card's own ask), and its old links open that card. One sent to another board (its
   // thread's ask-moved line) lives there. One with none of these yet is unfiled, for the board server to file
-  // (store.mjs fileAsks).
+  // (asks.mjs fileAsks).
   for (const e of asks.values()) {
     const key = `ask:${e.id}`;
     const lines = routeRecord(threads, key) || [];
@@ -1488,7 +1488,7 @@ export function buildBoard(snapshot) {
     }
     moved.set(key, card);
     // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: an ask whose card merged into
-    // another card (store.mjs relateAsk) shows in the New strip, with the owner's whole message and files
+    // another card (asks.mjs relateAsk) shows in the New strip, with the owner's whole message and files
     // (docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md).
     const merged = lines.filter((m) => m.line === MERGED_LINE).at(-1);
     const into = works.get(card);
@@ -1650,7 +1650,7 @@ export function buildBoard(snapshot) {
   const answers = items.flatMap((i) => (i.answered && claudeAt.get(i.key) ? [{ key: i.key, id: i.id, text: i.title, at: claudeAt.get(i.key) }] : []))
     .sort((a, b) => b.at.localeCompare(a.at));
   merges.sort((a, b) => b.at.localeCompare(a.at));
-  // unfiled: the asks with no card yet, for the board server to file (store.mjs fileAsks).
+  // unfiled: the asks with no card yet, for the board server to file (asks.mjs fileAsks).
   return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, boardAsks: newBoardAsks(events, working), owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews }, snapshot);
 }
 
@@ -1968,7 +1968,7 @@ function intakeWaits(items, events, working, moved) {
 }
 // docs/adr/2026-11-16-1100-a-thread-entry-that-starts-a-wait-reads-waiting-until-it-clears.md
 // A tap's status line (a command line the board wrote, with no event of its own) whose ts is an open wait's since, the
-// board stamping both with one moment (store.mjs stage), reads that wait's footer state as a message does: waiting until
+// board stamping both with one moment (questions.mjs stage), reads that wait's footer state as a message does: waiting until
 // the orchestrator picks it up, then working. A line starting no wait keeps no state.
 function markWaitStarts(thread, waits) {
   for (const m of thread) {
@@ -1987,7 +1987,7 @@ function waitFirst(it, wait) {
 }
 
 // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
-// The orchestrator's wait on each card whose finished grill left questions for it to screen (store.mjs readScreening,
+// The orchestrator's wait on each card whose finished grill left questions for it to screen (questions.mjs readScreening,
 // {<key>: {since, ids}}), on its card's item as orchestrator, ahead of any other wait the card has.
 function screenWaits(items, screening) {
   for (const it of items) {
@@ -2026,7 +2026,7 @@ export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase'
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'blocks', 'blockers', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
 
-// The built board's Done cards that move to the archive (store.mjs archiveCards): past the newest `keep` by when they
+// The built board's Done cards that move to the archive (cards.mjs archiveCards): past the newest `keep` by when they
 // closed, finished in their item file, and none that the board still links: one an unfinished card names as a dep,
 // parent, child or related card, and one with a question not yet resolved.
 export function archivedOf(built, keep = DONE_KEPT) {
@@ -2057,7 +2057,7 @@ function phaseOf(it) {
 }
 
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
-// The moves the board server's settle pass makes after a build (store.mjs moveCard): each work card whose built lane
+// The moves the board server's settle pass makes after a build (cards.mjs moveCard): each work card whose built lane
 // differs from its stored one moves to it, with why as its thread line. Done is left to what closes
 // a card (item set --done, a land, a merge, the owner's Done), which records why itself, and a stored Done shown
 // elsewhere moves only once a message or question reopened it: an owner step shows a landed card in In Review while it
@@ -2099,7 +2099,7 @@ export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'ca
 //   {do: 'passNews', text}           a running builder hears the owner's words
 //   {do: 'stage', as}                staged as is (a bare Implement), as an Implement, or again after a Reply (reply);
 //                                    an Implement stops the planners it ends
-//   {do: 'record', nothing, stops}   the tap written to the item file (store.mjs recordOwnerTap); one with nothing to
+//   {do: 'record', nothing, stops}   the tap written to the item file (cards.mjs recordOwnerTap); one with nothing to
 //                                    write refuses with nothing; stops: the agents the write closed are stopped
 //   {do: 'resume'}                   the run a Block stopped starts again
 //   {do: 'merge', held}              a held card's Merge starts its land; any other merges the PR
@@ -2332,7 +2332,7 @@ export const triageWaitOf = (event, picked = null) => ({ key: event.id, ref: eve
 //   Skip on a held review, until the PR is recorded again (failedReviewAnswers);
 //   arch-review, until its audit task in items (the built board's) asks a question or closes;
 //   slack-question, until slack thread (a message that expects no reply), slack answer, slack task or slack skip
-//   appends slack-handled {id, by} for it (store.mjs).
+//   appends slack-handled {id, by} for it (slack-store.mjs).
 // → [{key, ref, title, kind, since, picked, next, link}]
 export function eventWaits(events, { items = [], incoming = null, reviews = {} } = {}) {
   const reviewing = new Set([...pendingReviewAsks({ incoming, records: reviews, events }), ...failedReviewAnswers({ incoming, records: reviews, events })].map((e) => e.id));
@@ -2358,8 +2358,8 @@ export function eventWaits(events, { items = [], incoming = null, reviews = {} }
 }
 
 // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
-// The questions other boards in the hub asked this one (store.mjs askBoard), each from its board-ask event {text, from
-// {route, title, key?, ref?}}, with the answer its board-ask-answered event {id, text} holds (store.mjs answerBoardAsk).
+// The questions other boards in the hub asked this one (asks.mjs askBoard), each from its board-ask event {text, from
+// {route, title, key?, ref?}}, with the answer its board-ask-answered event {id, text} holds (asks.mjs answerBoardAsk).
 // → [{id, at, text, from, answer: {text, at} | null}], in asked order.
 export function boardAsksOf(events) {
   const answers = new Map(events.filter((e) => e.kind === 'board-ask-answered').map((e) => [e.data?.id, { text: String(e.data?.text || ''), at: String(e.ts) }]));

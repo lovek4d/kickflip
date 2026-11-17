@@ -12,8 +12,9 @@ import { cardPRs, parsePRRef, prKeyOf, prURL } from '../shared/card-prs.mjs';
 import { reviewLinks, reviewTime, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
-// The card and settings functions store.mjs still holds.
-import { BoardError, addItem, appendMessage, askCardOf, boardRepoOf, boardTarget, domId, needSite, sameName, settingsOf, storedTickets, text } from './store.mjs';
+import { BoardError, domId, needSite, text } from './checks.mjs';
+import { addItem, appendMessage, askCardOf } from './cards.mjs';
+import { boardRepoOf, boardTarget, sameName, settingsOf, storedTickets } from './settings.mjs';
 
 const fail = (msg) => { throw new BoardError(msg); };
 

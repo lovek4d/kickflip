@@ -4,7 +4,7 @@
 // script-result event (docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md). The
 // server starts it detached, so a restart of the server doesn't stop the run.
 import path from 'node:path';
-import { readScriptOffer, recordScriptResult } from '../store.mjs';
+import { readScriptOffer, recordScriptResult } from '../cards.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { logsDir, runScript, scriptLogName, scriptPidName } from '../scripts.mjs';
 

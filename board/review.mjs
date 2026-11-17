@@ -18,7 +18,7 @@ export function topicItems() {
   return items;
 }
 
-// Each reviewer's first posted link among a card's PRs, from data/pr-slack.json (board/store.mjs) and the card's
+// Each reviewer's first posted link among a card's PRs, from data/pr-slack.json (board/slack-store.mjs) and the card's
 // [{repo, number}]. → {<reviewer>: {ts, channel}}
 export function prLinks(record = {}, prs = []) {
   const links = {};

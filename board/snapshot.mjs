@@ -10,8 +10,11 @@ import { boardConfig, itemSources, readJSON, readLog } from './files.mjs';
 import { buildBoard } from './domain.mjs';
 import { topicItems } from './review.mjs';
 import { transcriptMovedAt } from './transcript.mjs';
-import { alive as runAlive, queuedPlanners, readLanders } from './runs.mjs';
-import { BoardError, itemNotes, landable, opensPRs, readActedOn, readAgents, readAskLinks, readDelivered, readHidden, readReplyIndex, readScreening, readWorking, replyFilesOf, settingsOf, threadFile } from './store.mjs';
+import { alive as runAlive, landable, queuedPlanners, readLanders } from './runs.mjs';
+import { BoardError } from './checks.mjs';
+import { readActedOn, readAgents, readAskLinks, readDelivered, readHidden, readReplyIndex, readWorking, replyFilesOf, threadFile } from './cards.mjs';
+import { itemNotes, readScreening } from './questions.mjs';
+import { opensPRs, settingsOf } from './settings.mjs';
 import { boardAt, githubStateFile } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
 import { routeRecord } from '../hub/routes.mjs';
@@ -117,7 +120,7 @@ export async function loggedOutCards(files, home = os.homedir()) {
   return out;
 }
 
-// The notes of every card in the item files, files liveFiles', by key: its markdown (store.mjs itemNotes), or null with
+// The notes of every card in the item files, files liveFiles', by key: its markdown (questions.mjs itemNotes), or null with
 // none or a notes file it can't read, which GET /api/notes answers 404.
 export async function cardNotesOf(files) {
   return Object.fromEntries(await Promise.all(files.flatMap(({ slug, dir, itemFile }) => itemFile.items.map(async (it) => {
@@ -128,7 +131,7 @@ export async function cardNotesOf(files) {
   }))));
 }
 
-// The item files with archive entries' items (store.mjs readArchive) back among their cards, so an archived card links
+// The item files with archive entries' items (cards.mjs readArchive) back among their cards, so an archived card links
 // to the live cards it names and that name it, as it did on the board, with their builder records.
 async function withArchived(site, entries) {
   const files = await liveFiles(site);
@@ -166,8 +169,8 @@ const NEEDS_REPLY = new Set(['ask', 'owner-answer', 'grill-more', 'visual-reques
 // Reads every source buildBoard needs for board site: item files and their builder records, PR state from the hub's
 // GitHub check (prViewOf), item threads, page events with Claude's replies, owner questions and legacy review-link
 // fallbacks; outside is outsideData's. home is the HOME whose run logs it reads.
-// - archived: archive entries (store.mjs readArchive), whose cards and questions it reads beside the item files' and
-//   owner.json's, and no PR state for them: their badges draw what they kept (store.mjs keptPRs).
+// - archived: archive entries (cards.mjs readArchive), whose cards and questions it reads beside the item files' and
+//   owner.json's, and no PR state for them: their badges draw what they kept (cards.mjs keptPRs).
 // - items: true reads the item files, their threads and settings alone, enough for the cards' builders.
 export async function readSnapshot(site, outside, { archived = [], items: itemsOnly = false, home = os.homedir() } = {}) {
   const here = path.resolve(site);
@@ -204,7 +207,7 @@ export async function readSnapshot(site, outside, { archived = [], items: itemsO
   // alive and landers: each run's process and each verification's lander (runs.mjs).
   const alive = await runAlive(here);
   const landers = await readLanders(here);
-  // landSkips {<key>: skip}: what store.mjs landable skips each verified card for, so its land step reads what
+  // landSkips {<key>: skip}: what runs.mjs landable skips each verified card for, so its land step reads what
   // runs.mjs tick will do. Only a card with a verified record can wait to land, so with none landable isn't read.
   const verifiedAny = files.some(({ agents }) => Object.values(agents || {}).some((byAgent) => Object.values(byAgent).some((r) => r?.verified)));
   const landSkips = verifiedAny ? Object.fromEntries((await landable(here)).filter((c) => c.skip).map((c) => [c.key, c.skip])) : {};

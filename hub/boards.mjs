@@ -136,7 +136,7 @@ export const isBoardSite = (s) => Array.isArray(s?.cmd) && s.cmd.some((a) => BOA
 // (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md).
 export const buildsLocally = (s) => s.local === true || !(s.github || s.remote);
 
-// The item files a board shows, keyed as board/store.mjs itemSources keys them: a file board's slug is board.json `slug`,
+// The item files a board shows, keyed as board/files.mjs itemSources keys them: a file board's slug is board.json `slug`,
 // else the file's basename, so a github-change names the same <file>/<id> the board's cards use.
 function filesOf(dir, cfg, kind) {
   if (kind === 'file') {
@@ -401,7 +401,7 @@ export async function checkListening({ manifest, now = new Date(), running = liv
 }
 
 // ---------- handshake ----------
-// data/handshake.json {ping: {id, at, session}, ack: {id, at} | null, done_at?}: board/store.mjs
+// data/handshake.json {ping: {id, at, session}, ack: {id, at} | null, done_at?}: board/settings.mjs
 // ackPing records the session's answer, and the board shows its setup checklist until that and the GitHub link pass.
 export const handshakeFile = (dir) => path.join(dir, 'data', 'handshake.json');
 

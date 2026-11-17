@@ -5,7 +5,7 @@
 // data/reviews.json {<number>: {number, title, author, url, touches, asked, head, state: posted|needs, text,
 // review_url?, at}}, which `board.mjs review record` writes. events is the board's event log: a pr-review {pr, head}
 // the server sent reads reviewing until a review is recorded at that head. A review-answer {pr, answer} to a held review
-// is applied by the server itself (store.mjs applyReviewAnswer); one that failed leaves a review-failed {pr, answer,
+// is applied by the server itself (asks.mjs applyReviewAnswer); one that failed leaves a review-failed {pr, answer,
 // error}, which the held review's card shows in red until the review is recorded again.
 const DAY = 86400000;
 const ORDER = { needs: 0, reviewing: 1, posted: 2 };

@@ -1,12 +1,12 @@
 // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
 // The owner-step checks, run on each of the hub's checks (github.mjs checkGitHub): every card whose code landed (done
 // or merged) and that waits on an owner step with a code check (shared/owner-check.mjs) gets its check run once,
-// however many boards show it. A pass closes the card as the owner's Done does (board/store.mjs passOwnerCheck). A run
+// however many boards show it. A pass closes the card as the owner's Done does (board/cards.mjs passOwnerCheck). A run
 // that finds nothing yet does nothing. One that can't run counts in state.ownerChecks, and BROKEN_AFTER in a row mark
-// the check broken (board/store.mjs breakOwnerCheck), which stops it and wakes the session to fix it.
+// the check broken (board/cards.mjs breakOwnerCheck), which stops it and wakes the session to fix it.
 import { wavesDir } from './boards.mjs';
 import { parseCheck, runCheck } from '../shared/owner-check.mjs';
-import { passOwnerCheck, breakOwnerCheck } from '../board/store.mjs';
+import { passOwnerCheck, breakOwnerCheck } from '../board/cards.mjs';
 
 export const BROKEN_AFTER = 3;
 

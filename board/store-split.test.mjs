@@ -42,3 +42,44 @@ test("the hub's Slack modules take no Slack function from store.mjs", () => {
 test("the hub's migrations come from migrations.mjs", () => {
   assert.deepEqual(fromStore('hub/hub.mjs').filter((n) => MIGRATIONS.includes(n)), []);
 });
+
+// docs/adr/2026-11-17-1137-cards-questions-asks-and-settings-leave-store-mjs.md
+// Cards, questions, asks and settings each have their module too, the run records join runs.mjs, and store.mjs keeps
+// no code: it re-exports each concept's functions for board.mjs and the tests.
+const CONCEPTS = {
+  'checks.mjs': ['BoardError', 'needSite', 'text', 'domId'],
+  'cards.mjs': ['setItem', 'addItem', 'moveCard', 'mergeCard', 'archiveCards', 'appendStatus', 'appendMessage', 'cardName', 'threadFile', 'askCardOf'],
+  'questions.mjs': ['addQuestions', 'settleAnswers', 'resolveQuestion', 'publishUnscreened', 'addNotes', 'writeBrief', 'addPrototype', 'itemNotes'],
+  'asks.mjs': ['fileAsk', 'fileAsks', 'askItem', 'triageItem', 'moveAsk', 'handoff', 'writeReply', 'recordReview'],
+  'settings.mjs': ['settingsOf', 'saveBoardSettings', 'setBoardSetting', 'readBoardRules', 'setReviewers', 'readHandshake', 'boardTarget'],
+  'runs.mjs': ['startBuilder', 'startTappedBuild', 'startPlanner', 'closeRecord', 'stopPlanner', 'landable', 'builderProgress', 'recordCall', 'openBoardBuilders'],
+};
+const MODULES = [...Object.keys(CONCEPTS), 'slack-store.mjs', 'migrations.mjs'];
+// The helpers store.mjs exported for slack-store.mjs and migrations.mjs alone while the cards were still in it.
+const INTERIM = ['ownerFile', 'needSite', 'text', 'domId', 'askCardOf', 'sameName', 'storedTickets', 'topicQuestionsAll', 'leftTodo', 'depKey',
+  'ticketWrite', 'archiveWrite', 'writeArchive', 'boardTarget', 'builderFiles'];
+const source = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
+const importsStore = (rel) => /from '(?:\.\.\/board|\.)\/store\.mjs'|import\('(?:\.\.\/board|\.)\/store\.mjs'\)/.test(source(rel));
+
+test('each concept is its own module, and store.mjs re-exports its functions', async () => {
+  for (const [file, names] of Object.entries(CONCEPTS)) {
+    const mod = await import(`./${file}`);
+    assert.deepEqual(names.filter((n) => !(n in mod)), [], file);
+    assert.deepEqual(names.filter((n) => !INTERIM.includes(n) && store[n] !== mod[n]), [], `store.mjs re-exports ${file}`);
+  }
+});
+
+test('store.mjs holds no code: only re-exports, none from slack-store.mjs', () => {
+  const code = source('board/store.mjs').split('\n').filter((l) => l && !l.startsWith('//'));
+  assert.deepEqual(code.filter((l) => !/^export \{[^}]*\} from '\.\/[\w-]+\.mjs';$/.test(l)), []);
+  assert.equal(importsStore('board/slack-store.mjs'), false);
+  assert.doesNotMatch(source('board/store.mjs'), /slack-store\.mjs'/);
+});
+
+test('no concept module imports store.mjs', () => {
+  assert.deepEqual(MODULES.filter((file) => importsStore(`board/${file}`)), []);
+});
+
+test("store.mjs exports none of the helpers it held for slack-store.mjs and migrations.mjs", () => {
+  assert.deepEqual(INTERIM.filter((n) => n in store), []);
+});

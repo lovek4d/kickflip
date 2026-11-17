@@ -9,12 +9,12 @@
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // build_target names the script, .kickflip/build-<target>, else .kickflip/build.
 // auto_merge (false when absent) lets the session merge
-// an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
+// an approved, green, clean PR itself; off, the card shows the owner's Merge (settings.mjs settingsOf). rules are the owner's standing instructions to this
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
 // github}] (board.mjs reviewers), which the settings page lists and new item files copy. items is "waves" (every
 // ~/.claude/waves/*/wave.json, the default) or an item file (data/items.json format) relative to the site dir; slug names a file's items
 // (its keys are <slug>/<id>), defaulting to the file's basename. Reviewer links live per PR in
-// data/pr-slack.json (store.mjs); review.mjs also reads an item's older review_link_ts. from_ask names the ask event that created the item,
+// data/pr-slack.json (slack-store.mjs); review.mjs also reads an item's older review_link_ts. from_ask names the ask event that created the item,
 // and next is Claude's next step for it. install {url, label?, built_at, sha?} is a device build the card's Install
 // button opens (board.mjs item set --install); public/installs/ holds its files, served without a login like all of
 // public/, since iOS's installer fetches the manifest and .ipa with no cookies. A builder working on an item has a record in
@@ -92,7 +92,7 @@
 //                                (data/ask-links.json), then data/threads/ask__<event id>.jsonl and item-message
 //                                events whose key is ask:<event id>
 //   GET  /api/notes?item=w/id    {key, ref, title, markdown}: the item's notes file, only a .md inside its item file's
-//                                folder, or with no file its short notes text (store.mjs readNotes); otherwise 404
+//                                folder, or with no file its short notes text (questions.mjs readNotes); otherwise 404
 //                                {error}. /api/plan is the same, for pages loaded before the rename
 //   GET  /api/notes?all=1        {notes: {<key>: markdown}}: the notes the board's sync carries for every card on it that
 //                                has them, which a page loads after a whole board, since that carries none
@@ -112,11 +112,11 @@
 //                                with no sendId whose text, author and card match one recorded in the last 30 seconds.
 //                                Implement with no text or files on a Todo or ready card writes no line of its own
 //                                and stages the card for the orchestrator's review, with no event
-//                                (store.mjs implementAsIs). One with text or files on a Todo card stages it
-//                                there, its open questions skipped and its words in its notes (store.mjs stageImplement),
+//                                (runs.mjs implementAsIs). One with text or files on a Todo card stages it
+//                                there, its open questions skipped and its words in its notes (questions.mjs stageImplement),
 //                                and appends the message. Any other message on a ready Todo card stages it again with its
-//                                words in the notes (store.mjs stageReply; docs/adr/2026-11-07-0700-staging-then-ready.md)
-//                                An owner-answer with a note and no take resolves its question (store.mjs
+//                                words in the notes (questions.mjs stageReply; docs/adr/2026-11-07-0700-staging-then-ready.md)
+//                                An owner-answer with a note and no take resolves its question (questions.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
 //                                recorded with prototype_again: true: the card reads prototyping with Next "Prototype
 //                                again", and the board launches the next round's planner itself (domain.mjs picksNoTake).
@@ -134,7 +134,7 @@
 //                                PROTOTYPE_WAIT with no prototype agent running on the card (domain.mjs prototypeWaits).
 //                                Either one on a Todo card owes the orchestrator's brief for its planner, an
 //                                orchestrator wait, and on a discussing, ready or staging card first moves the card
-//                                to grilling or prototyping (store.mjs planAgain).
+//                                to grilling or prototyping (questions.mjs planAgain).
 //                                visual-request {key, text?, files?, question?, note?, choice?} asks for a visual, of one question too: it owes the orchestrator's
 //                                visual brief, the card's phase as it is. Once the orchestrator writes a brief (item
 //                                brief), the server launches its agent, a planner while no other agent but a visual
@@ -150,7 +150,7 @@
 //                                item set appends card-unblocked {key} when a blocked card's last dep finishes,
 //                                including owner-blocked cards, a record that wakes no session: the pull takes the card.
 //                                reviewers {add?: [{name, slack_user, github}], remove?: [name]} is Board settings' reviewers
-//                                Save: the server removes the names and adds the people itself (store.mjs removeReviewers,
+//                                Save: the server removes the names and adds the people itself (settings.mjs removeReviewers,
 //                                addReviewers, with each DM opened through the hub's Slack token and each login checked on
 //                                GitHub), and appends reviewers-removed {remove} and reviewers-added {add: [name]}, records the
 //                                session doesn't act on. An unknown name, a Slack or GitHub refusal or a malformed list → 400
@@ -164,34 +164,34 @@
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
 //                                card-merge {key} on a card whose verified branch waits for the owner's Merge (no PR)
-//                                records the tap on the card (store.mjs tapMerge) and runs `board.mjs merge <key>`
+//                                records the tap on the card (cards.mjs tapMerge) and runs `board.mjs merge <key>`
 //                                detached, so a land that restarts this server finishes, its output in
 //                                ~/.claude/kickflip/logs/merge-<id>-<time>.log, with no event and no session
 //                                (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). KICKFLIP_MERGE_CMD='["<cmd>", …]'
 //                                replaces node and board.mjs, called with --site <route> merge <key>. On a card with a
-//                                PR the server merges it (store.mjs mergeCard) and appends no event; a refusal → 400
+//                                PR the server merges it (cards.mjs mergeCard) and appends no event; a refusal → 400
 //                                {error} and a thread line.
-//                                card-build {key} is the owner's Build: the server starts the build itself (store.mjs
+//                                card-build {key} is the owner's Build: the server starts the build itself (runs.mjs
 //                                startTappedBuild, board/worktree.mjs boardWorktree) and launches its builder, Claude
 //                                or Codex, headless in its worktree (headless.mjs launchBuilder), appending no event; a
 //                                refusal leaves its reason in the card's thread, and a launch that fails puts the card
-//                                back in Todo with the reason (store.mjs abandonLaunch).
+//                                back in Todo with the reason (runs.mjs abandonLaunch).
 //                                On a card an unfinished dep blocks, or with every implementer slot taken (domain.mjs
 //                                pullOf), the tap bumps the card instead (card-bump, a thread line), leaving it in Todo
-//                                for the pull (store.mjs bumpBlocked; docs/adr/2026-11-05-0802-todo-has-no-queue.md,
+//                                for the pull (runs.mjs bumpBlocked; docs/adr/2026-11-05-0802-todo-has-no-queue.md,
 //                                docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).
 //                                A
 //                                checking card whose calls are all verified and that has no open question gets one
-//                                headless lander per verification, tracked in data/landers.json (store.mjs landable;
+//                                headless lander per verification, tracked in data/landers.json (runs.mjs landable;
 //                                docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md,
 //                                docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
 //                                A card whose open PR conflicts gets one headless rebase run per head and base, tracked
-//                                in data/rebases.json (domain.mjs rebasesDue, store.mjs startRebase;
+//                                in data/rebases.json (domain.mjs rebasesDue, runs.mjs startRebase;
 //                                docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
 //                                card-hold and card-done are written to the item file first, with the owner's thread
-//                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); an Unblock relaunches
+//                                line, and a Done unblocks blocked cards (cards.mjs recordOwnerTap); an Unblock relaunches
 //                                the run its Block stopped (runs.mjs resume). card-reopen {key} is a Done card's Reopen: it
-//                                moves the card back to Todo, discussing, before its event (store.mjs recordOwnerTap),
+//                                moves the card back to Todo, discussing, before its event (cards.mjs recordOwnerTap),
 //                                and one on a card not in Done → 400 {error}. card-cancel {key} is a staged or ready Todo card's Cancel: it moves the card back to discussing before its event, its Implement owed again, and one on any other card → 400 {error}. None of them wakes a session, nor do card-unbump,
 //                                grill-more, prototype-request or visual-request
 //                                (docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md); one whose item
@@ -205,13 +205,13 @@
 //                                {key, id, exit, output, timedOut, ms, log} when the script ends
 //                                (docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md).
 //                                An owner-answer goes into its card's notes verbatim, and one that leaves an unstarted
-//                                card with nothing open stages it (store.mjs settleAnswers).
+//                                card with nothing open stages it (questions.mjs settleAnswers).
 //                                What waits on the owner (domain.mjs ownerActions) is one live notification per board,
 //                                tagged board-<route> (domain.mjs ownerRow), tracked in data/action-pushes.json: its
 //                                first push alerts, each change re-pushes it silently, and once nothing waits it drops
 //                                its queued push, or closes the one already on the owner's devices (hub/push.mjs withdraw).
 //                                Within a minute of an owner block's until or pick_up_at the server unblocks it
-//                                (store.mjs pickUp), at most once per time even across a restart.
+//                                (cards.mjs pickUp), at most once per time even across a restart.
 //                                The Auto jobs below run on every board change and once at start, and on the minute
 //                                check only once a usage pause lifts or while an overnight triage is due. The server always starts and launches the build of the top pullable Todo cards, one per
 //                                implementer slot max_implementers leaves free, each card In Progress taking one
@@ -223,7 +223,7 @@
 //                                end, an idle board with two or more cards waiting on open questions (domain.mjs
 //                                triageOf) gets overnight-triage {date, topic, cards} first, unless nothing changed
 //                                since the last triage, tracked in data/triaged.json. A board due a description check
-//                                (store.mjs descriptionDue) gets it too, with description: true, and cards [] when
+//                                (settings.mjs descriptionDue) gets it too, with description: true, and cards [] when
 //                                no two cards wait. Until Claude
 //                                replies to it the pull leaves the cards it names, to the end of quiet hours, and it is an
 //                                orchestrator wait of kind triage
@@ -242,7 +242,7 @@
 //                                {day, waits} naming the last day's waits 15 minutes or more unpicked; it never
 //                                pushes the owner (checkWaits), checked on every board change and each minute
 //                                Each minute it passes the owner a finished grill's questions left 15 minutes unscreened
-//                                by the orchestrator (store.mjs publishUnscreened)
+//                                by the orchestrator (questions.mjs publishUnscreened)
 //                                With idle_notification on, a board strictly idle for 15 minutes (domain.mjs
 //                                strictlyIdle) pushes "<board> has gone idle" once per idle stretch, checked on every
 //                                board change and each minute, tracked in data/idle.json (checkIdle)
@@ -256,26 +256,26 @@
 //                                while a review is open → {key, ref, existing: true}; a review that must wait → 409 {error}
 //   POST /api/hide               {id, hidden} → data/hidden.json; the page clears an event for
 //                                every device, without waking Claude
-//   POST /api/read               {marks: {card key: time}} → data/read.json (store.mjs markRead), each mark only moving
+//   POST /api/read               {marks: {card key: time}} → data/read.json (cards.mjs markRead), each mark only moving
 //                                forward, without waking Claude; every board answer carries each card's mark as its
 //                                readAt, and a card new to the board gets one as the server first sees it. A bad body → 400 {error}
 //   GET  /api/rules              {board, hub}: board.json's rules and the hub's from settings.json (hub/rules.mjs)
-//   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
+//   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (settings.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, build_target?, claude_model?} (store.mjs readBoardSettings),
+//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, build_target?, claude_model?} (settings.mjs readBoardSettings),
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices,
 //                                builders: Board Settings' Builders control, shared/model-views.mjs buildersView}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets)
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
-//                                (store.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
+//                                (settings.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
 //   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null, claude_model?: opus | auto | sonnet | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id, builders}; a bad body → 400 {error}
 //   POST /api/share              {add: login} | {remove: login} | {login, level: view | full} → board.json's share, the
 //                                logins the board is shared with, a bare login View and {login, level: 'full'} Full
-//                                (store.mjs saveBoardShare; docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md,
+//                                (settings.mjs saveBoardShare; docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md,
 //                                docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md),
 //                                waking no session. → {share}; a bad body → 400 {error}. The hub's GET /_hub/share/<route>
 //                                answers who they are, when each was last seen and who was just refused.
@@ -324,7 +324,7 @@ function lastLogLine(lines) {
 // and an event only of a kind Full allows, recorded with data.shared_by {login, name}, which the thread names them by; anything
 // else → 403 {error} (sharedWriter; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
-// Claude's replies to event <id> are data/replies/<id>.md, .html (written before markdown replies) or .json, then <id>~2.md, <id>~3.md … (store.mjs replyFilesOf).
+// Claude's replies to event <id> are data/replies/<id>.md, .html (written before markdown replies) or .json, then <id>~2.md, <id>~3.md … (cards.mjs replyFilesOf).
 import { cardNotesOf, liveFiles, loggedOutCards, outsideData as readOutside, readSnapshot, shownEvents as readShownEvents, tryLogTail, withReply as eventWithReply } from './snapshot.mjs';
 import { builderRepo, git, moveQueuedLand } from './worktree.mjs';
 import * as runs from './runs.mjs';
@@ -354,7 +354,12 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathS
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { BOARD_CLI, pidAlive, stopAgents, stopRuns } from './headless.mjs';
-import { heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, passNews, requestPause, BoardError, publishUnscreened, openAgents, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readMarks, readNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
+import { BoardError } from './checks.mjs';
+import { readScriptOffer, readAgents, tapMerge, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
+import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
+import { heldReview, applyReviewAnswer, dropAskCard, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
+import { finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, saveBoardShare, setBoardPause, settingsOf } from './settings.mjs';
+import { noteLoggedOut, dropPause, markPaused, passNews, requestPause, openAgents, implementAsIs, clearStall } from './runs.mjs';
 import { runMigrations } from './migrations.mjs';
 import { appendEvents as appendBoardEvents, appendLine, boardConfig, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
@@ -527,7 +532,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // An answer to a question that already has one recorded is skipped
   // (docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md).
   // One Send's follow-ups run after another's, so two Sends never settle a card at once. A failure is a fault line on
-  // its card (store.mjs followUp).
+  // its card (questions.mjs followUp).
   let afterChain = Promise.resolve();
   function afterSend(work) {
     afterChain = afterChain.then(work).catch((err) => console.error('Send follow-up failed:', err.message));
@@ -796,7 +801,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return run;
   }
 
-  // A card's item file entry and builder records, else its archive entry's (store.mjs readArchive), whose questions its
+  // A card's item file entry and builder records, else its archive entry's (cards.mjs readArchive), whose questions its
   // thread reads beside owner.json's.
   async function itemOf(key) {
     const [slug, id] = key.split('/');
@@ -949,7 +954,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   const ready = new Promise((resolve) => { started = resolve; });
   const server = http.createServer((req, res) => track(ready.then(() => answer(req, res))));
   // docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md
-  // Runs a tap's effects (domain.mjs tapPlan) in order through store.mjs; a refusal on the way is a BoardError whose
+  // Runs a tap's effects (domain.mjs tapPlan) in order through the board's data modules; a refusal on the way is a BoardError whose
   // status answer() sends. → the tap's event id, or a Build's (runs.mjs start), or null for a tap that records none.
   async function applyTap(effects, kind, body, sendId) {
     const key = String(body.key || '');
@@ -968,7 +973,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         await tapMerge(here, key);
         runHeldMerge(key);
       }
-      // A refusal is a thread line too (store.mjs mergeCard).
+      // A refusal is a thread line too (cards.mjs mergeCard).
       else if (effect.do === 'merge') await mergeCard(here, key, { tapped: true });
       else if (effect.do === 'build') {
         const full = !pullOf((await sharedBoard()).items, { cap: tasksInProgressCap(readUsageGate({ dir: here }), settingsOf(await config()).max_implementers), pulled: await sentOf(PULL) }).free;
@@ -1201,7 +1206,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const settings = await readBoardSettings(here);
         return json(res, 200, { settings, paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES, builders: buildersView(readClaudeModel(), settings.claude_model ?? null) });
       }
-      // Board Settings' Description: the hub's manifest entry, which the router reads (store.mjs readBoardDescription).
+      // Board Settings' Description: the hub's manifest entry, which the router reads (settings.mjs readBoardDescription).
       if (p === '/api/description' && req.method === 'GET') return json(res, 200, readBoardDescription(here));
       if (p === '/api/description' && req.method === 'POST') {
         const body = await readBody(req);
@@ -1614,7 +1619,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return keys.length > 0;
   }
 
-  // A push this server sends on its own (store.mjs sendPush), logged with why, under the card it is about when key names
+  // A push this server sends on its own (cards.mjs sendPush), logged with why, under the card it is about when key names
   // one, and what it read; one kickflip push refuses is logged as not sent and left at that, so a missing device isn't
   // retried each minute.
   async function sendOwnPush(push, { key, reason, inputs }) {
@@ -1769,7 +1774,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
 
   // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
-  // Each card the build places in a lane other than its stored one moves there (domain.mjs movesOf, store.mjs moveCard),
+  // Each card the build places in a lane other than its stored one moves there (domain.mjs movesOf, cards.mjs moveCard),
   // with a thread line saying why, and each whose phase in its lane changed takes it quietly, as the server starts and after each board change. A settle asked for while one runs
   // runs again after it.
   let settling = null;
@@ -1791,7 +1796,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
   // The Done cards past the newest DONE_KEPT move to the archive with their resolved questions (domain.mjs archivedOf,
-  // store.mjs archiveCards), as the server starts and after each board change, each with when it closed and its PRs as last read. A check asked
+  // cards.mjs archiveCards), as the server starts and after each board change, each with when it closed and its PRs as last read. A check asked
   // for while one runs runs again after it.
   let archiving = null;
   let archiveAgain = false;
@@ -1808,7 +1813,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md,
   // docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md
   // Each ask with no card, one another board or the hub wrote, or one from before every ask was a card, is filed as its
-  // T-<n> card (store.mjs fileAsks): as the server starts, and after a board change that leaves one unfiled.
+  // T-<n> card (asks.mjs fileAsks): as the server starts, and after a board change that leaves one unfiled.
   async function fileNewAsks({ starting = false } = {}) {
     try {
       if (!starting && !(await sharedBoard()).unfiled.length) return;
@@ -1816,7 +1821,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     } catch (err) { console.error('Ask filing failed:', err.message); }
   }
   // docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
-  // Each card new to the board is read up to now, and a card gone from it loses its mark (store.mjs markRead), as the
+  // Each card new to the board is read up to now, and a card gone from it loses its mark (cards.mjs markRead), as the
   // server starts and after each board change.
   async function markNewCards() {
     try { await markRead(here, (await sharedBoard()).items.map((i) => i.key)); } catch (err) { console.error('Read marks failed:', err.message); }
@@ -1855,7 +1860,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   track(checkIdle());
   started();
 
-  // A write no one told the server of (a git or hand edit, a write outside store.mjs, a lost POST) sends no change signal,
+  // A write no one told the server of (a git or hand edit, a write outside board.mjs and this server, a lost POST) sends no change signal,
   // so no page reloads and no pass runs on it. Each minute the board is stamped, and a change number that moved since
   // the last stamp signals a change (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md). It reads no folder.
   async function signalMissedWrites() {

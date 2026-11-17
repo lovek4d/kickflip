@@ -14,7 +14,7 @@ import path from 'node:path';
 import { appendEvent, listBoards, readJSON, saveJSON } from './boards.mjs';
 import { savedSlack, slackStatus, missingScope, setSearching, isSignedOff, slackUserId } from './slack.mjs';
 import { queueRequest } from './router.mjs';
-import { appendMessage, appendStatus } from '../board/store.mjs';
+import { appendMessage, appendStatus } from '../board/cards.mjs';
 import { boardPosts, followedSlackThreads, markSlackPost, markSlackThreadHeard, slackOutbox } from '../board/slack-store.mjs';
 
 export const INTAKE_FILE = path.join(os.homedir(), '.claude', 'kickflip', 'slack-intake.json');

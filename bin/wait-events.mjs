@@ -11,8 +11,8 @@
 //                             docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md); on a board it marks each ask,
 //                             item-message and overnight-triage working in data/working.json, moves the mark of an ask
 //                             whose ask-edited it prints to now (the stamp sorting commands check), stamps each event it
-//                             woke for delivered in data/delivered.json (board/store.mjs markDelivered), and answers a ping for the
-//                             session (board/store.mjs ackPing), then prints:
+//                             woke for delivered in data/delivered.json (board/cards.mjs markDelivered), and answers a ping for the
+//                             session (board/settings.mjs ackPing), then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
 //                             each wait on the orchestrator, a line for each of a card's waits, bumped cards first, then lanes top-down, from data/orchestrator-waits.json,
 //                             (in full when new or changed since the last wake, the rest on one

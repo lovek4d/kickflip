@@ -6,27 +6,28 @@
 // stopped. A bump moves the card's queued lands first (worktree.mjs moveQueuedLand). Each stop takes runner {ps, grace}:
 // the ps that reads the process table (live.mjs ps by default) and the grace headless.mjs stopRuns gives a stopped
 // process before SIGKILL.
-import * as store from './store.mjs';
+import { BoardError } from './checks.mjs';
+import { cardName, appendMessage, appendStatus } from './cards.mjs';
 import { stopRuns } from './headless.mjs';
-import { launchedBuilds, pidLines, startsBy, stoppedLines, stopProcess } from './runs.mjs';
+import { bumpCard, isLanding, launchedBuilds, markStalled, markStopped, pidLines, startsBy, stopHeldMerge, stoppedLines, stopProcess } from './runs.mjs';
 import { clearStoppedLand, landLock, landQueue, moveQueuedLand, runningLand } from './worktree.mjs';
 import { orchestratorDid, stoppedWords } from './domain.mjs';
 import { ps as livePs } from '../hub/live.mjs';
 
-const fail = (msg) => { throw new store.BoardError(msg); };
+const fail = (msg) => { throw new BoardError(msg); };
 
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 // The orchestrator's stall of a card it can't restart (item stall): the card is flagged with the reason, each open build
 // record is marked stopped so nothing relaunches it (the card keeps its slot), and its board-launched run stops as builder stop
 // (runs.mjs stop) stops it. A run already gone, or one a session runs, has nothing the board can stop. Its worktree stays. → its lines
 export async function stallCard(site, key, reason, runner = {}) {
-  const ref = await store.cardName(site, key);
-  const words = await store.markStalled(site, key, reason);
-  await store.markStopped(site, key, await store.isLanding(site, key) ? 'land' : 'build');
+  const ref = await cardName(site, key);
+  const words = await markStalled(site, key, reason);
+  await markStopped(site, key, await isLanding(site, key) ? 'land' : 'build');
   const agent = (await launchedBuilds(site, key, runner))[0];
   const processes = agent ? await stopRuns([agent.pid], runner) : [];
   clearStoppedLand(ref, processes.map((p) => p.pid));
-  await store.appendMessage(site, key, { text: `stalled by orchestrator: ${words}` });
+  await appendMessage(site, key, { text: `stalled by orchestrator: ${words}` });
   return { lines: [`${ref} stalled: ${words}`, ...pidLines(processes)] };
 }
 
@@ -35,7 +36,7 @@ const pgidOf = (pid, { ps = livePs }) => Number(ps(['-o', 'pgid=', '-p', String(
 // A land run by the card's headless builder or lander stops that agent whole, since its done would otherwise be run
 // again; the land a held card's Merge tap started stops alone, and the card's Merge shows again.
 export async function stopLand(site, key, runner = {}) {
-  const ref = await store.cardName(site, key);
+  const ref = await cardName(site, key);
   const land = runningLand(ref);
   // A pid since reused started after its marker was written.
   const started = land && startsBy(runner)([land.pid])?.get(land.pid);
@@ -46,9 +47,9 @@ export async function stopLand(site, key, runner = {}) {
   let processes;
   if (agent) processes = await stopProcess(site, key, 'land', agent.pid, runner);
   else if (land.merge && group === land.pid) {
-    await store.stopHeldMerge(site, key);
+    await stopHeldMerge(site, key);
     processes = await stopRuns([land.pid], runner);
-    await store.appendStatus(site, key, 'run-stopped', { words: stoppedWords('land') });
+    await appendStatus(site, key, 'run-stopped', { words: stoppedWords('land') });
   } else fail(`${ref}'s land runs in a session the board didn't launch; stop it in that session`);
   clearStoppedLand(ref, processes.map((p) => p.pid));
   return { lines: stoppedLines(ref, 'land', processes) };
@@ -56,10 +57,10 @@ export async function stopLand(site, key, runner = {}) {
 
 // The orchestrator's bump (on) or unbump: the board's bump of the card, and its place in the land queue.
 export async function bump(site, key, on) {
-  const ref = await store.cardName(site, key);
-  const at = await store.bumpCard(site, key, on);
+  const ref = await cardName(site, key);
+  const at = await bumpCard(site, key, on);
   const moved = moveQueuedLand(site, key, on ? at : null);
-  if (on && moved) await store.appendStatus(site, key, 'land-moved-first', { words: orchestratorDid('land', 'moved first') });
+  if (on && moved) await appendStatus(site, key, 'land-moved-first', { words: orchestratorDid('land', 'moved first') });
   return { lines: [on ? `${ref} bumped${moved ? ': its land moved first' : ''}` : `${ref} unbumped`] };
 }
 

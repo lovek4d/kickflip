@@ -280,15 +280,15 @@ const ADDS = [
   /\bitems\.(push|unshift|splice)\(/, /\bitems:\s*\[\s*\.\.\./, /\.items\s*=\s*\[/, /\bitems\.concat\(/,
 ];
 const KNOWN = {
-  'board/store.mjs createItem': 'a new task: a T-<n> task, or named from the ticket assignTicket links or makes',
-  'board/store.mjs fileAsk': "a new ask's New task: a T-<n> task from nextTaskId, under the tickets lock",
-  'board/store.mjs fileAsks': "old asks with no task filed as T-<n> tasks from nextTaskId, under the tickets lock",
+  'board/cards.mjs createItem': 'a new task: a T-<n> task, or named from the ticket assignTicket links or makes',
+  'board/asks.mjs fileAsk': "a new ask's New task: a T-<n> task from nextTaskId, under the tickets lock",
+  'board/asks.mjs fileAsks': "old asks with no task filed as T-<n> tasks from nextTaskId, under the tickets lock",
   'board/migrations.mjs migrateFollowups':"old follow-ups moved into tasks, keeping the tickets they had",
-  'board/store.mjs askNotNew': 'a list of the tasks an ask became, read only',
+  'board/asks.mjs askNotNew': 'a list of the tasks an ask became, read only',
   'board/slack-store.mjs reviewDigest': "a reviewer's list of PRs",
-  'board/store.mjs publishQuestions': "owner.json's questions",
-  'board/store.mjs settleQuestion': "owner.json's questions: a screened one, settled",
-  'board/store.mjs restoreArchived': 'an archived task and its questions back, with the ticket they had',
+  'board/questions.mjs publishQuestions': "owner.json's questions",
+  'board/questions.mjs settleQuestion': "owner.json's questions: a screened one, settled",
+  'board/cards.mjs restoreArchived': 'an archived task and its questions back, with the ticket they had',
   'board/domain.mjs buildBoard': 'the board view, read only',
   'board/server.mjs thread': "an archived task's questions read beside owner.json's, read only",
   'board/snapshot.mjs withArchived': 'archived tasks read beside their wave files to build a Done page, read only',
@@ -340,10 +340,10 @@ test('every write that adds to an items list is a known one, and a ticket comes 
       for (const name of Object.keys(callers)) if (new RegExp(`\\b${name}\\(`).test(line) && !TOP.test(line)) callers[name].add(`${file} ${enclosing(lines, i)}`);
     });
   }
-  assert.deepEqual(found, KNOWN, 'a new write adds to an items list: if it makes a task, key it as createItem does (store.mjs), then list it in KNOWN');
-  assert.deepEqual([...callers.resolveTicket], ['board/store.mjs assignTicket']);
-  assert.deepEqual([...callers.assignTicket].sort(), ['board/store.mjs changeItem', 'board/store.mjs createItem']);
-  const create = bodyOf(fs.readFileSync(path.join(root, 'board/store.mjs'), 'utf8'), 'createItem');
+  assert.deepEqual(found, KNOWN, 'a new write adds to an items list: if it makes a task, key it as createItem does (cards.mjs), then list it in KNOWN');
+  assert.deepEqual([...callers.resolveTicket], ['board/cards.mjs assignTicket']);
+  assert.deepEqual([...callers.assignTicket].sort(), ['board/cards.mjs changeItem', 'board/cards.mjs createItem']);
+  const create = bodyOf(fs.readFileSync(path.join(root, 'board/cards.mjs'), 'utf8'), 'createItem');
   assert.ok(create.indexOf('assignTicket(') >= 0 && create.indexOf('assignTicket(') < create.indexOf('itemFile.items.push('), 'createItem links or makes the ticket before it adds the task');
   assert.ok(create.indexOf('nextTaskId(') >= 0 && create.indexOf('nextTaskId(') < create.indexOf('itemFile.items.push('), 'createItem keys a task before it adds the task');
 });

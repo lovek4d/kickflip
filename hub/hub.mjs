@@ -246,7 +246,8 @@ import { BuildError, startBuild, killBuild, stopTries, endUnsharedTries, tryTick
 import { serveFiles } from './files.mjs';
 import { upgrader } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
-import { fallBackFromLinear, saveUpload } from '../board/store.mjs';
+import { saveUpload } from '../board/cards.mjs';
+import { fallBackFromLinear } from '../board/settings.mjs';
 import { runMigrations } from '../board/migrations.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
@@ -646,7 +647,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
 
   // ---------- polling ----------
   try { if (await migrateSettings()) log('settings: migrated the polling windows to quiet hours'); } catch (e) { log('settings migration failed:', e.message); }
-  // A board on Linear falls back to internal tickets while Hub has no Linear key (store.mjs fallBackFromLinear).
+  // A board on Linear falls back to internal tickets while Hub has no Linear key (board/settings.mjs fallBackFromLinear).
   const linearFallback = async () => { try { for (const line of await fallBackFromLinear()) log(`linear: ${line}`); } catch (e) { log('linear fallback failed:', e.message); } };
   await linearFallback();
 

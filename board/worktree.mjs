@@ -9,7 +9,8 @@ import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { BoardError, opensPRs, settingsOf } from './store.mjs';
+import { BoardError } from './checks.mjs';
+import { opensPRs, settingsOf } from './settings.mjs';
 import { readLandTests } from '../shared/hub-settings.mjs';
 import { boardAt, readJSON, readManifest, samePath } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
@@ -81,7 +82,7 @@ function removeLeftover(root, dir, id, { ref, base, busy }) {
 // Where the board at site's builders branch from and land (hub/board-repo.mjs boardRepo): a board on GitHub or a plain
 // git remote from its branch of its shared clone, fetched first; a local board from its repo's local copy of its
 // recorded branch (`kickflip join` saves the folder's default branch), else main. The hub board is local while its
-// Landing is Merge; on Draft PR or Ready PR (store.mjs opensPRs) it branches from origin's branch, fetched first, and
+// Landing is Merge; on Draft PR or Ready PR (settings.mjs opensPRs) it branches from origin's branch, fetched first, and
 // finishes with a PR, still in its folder (docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md).
 // With no site, or a site that isn't a board, the running kickflip clone's main. repo stands in for the board's folder.
 // → {repo, base, remote}

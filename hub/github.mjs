@@ -21,7 +21,7 @@ import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { overnightOn } from './overnight.mjs';
 import { githubStateFile, wakeStateFile, wavesDir, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
-import { appendMessage, appendStatus, setItem, mergeCard } from '../board/store.mjs';
+import { appendMessage, appendStatus, setItem, mergeCard } from '../board/cards.mjs';
 import { allLanded, cardPRs, leastReady, prNames } from '../shared/card-prs.mjs';
 
 const PR_ENDED = ['MERGED', 'CLOSED'];
@@ -281,7 +281,7 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
     const repo = board.github || board.files.find((w) => w.slug === p.file)?.itemFile.repo;
     const prs = siblings.filter((c) => c.next.state === 'MERGED').map((c) => ({ repo: c.p.repo, number: c.p.pr }));
     const closedPRs = siblings.map((c) => ({ repo: c.p.repo, number: c.p.pr }));
-    // A merge closes with the board's merged line (store.mjs closingLine).
+    // A merge closes with the board's merged line (board/cards.mjs closingLine).
     const closing = landed ? undefined : ['prs-closed', { prs: prNames(closedPRs, repo) }];
     try { await setItem(board.dir, card, { merged: prs, force: true, closing }); merged.set(file, landed); }
     catch (err) { failed.push(`${board.route}: could not record ${card} ${landed ? 'merged' : 'closed'} (${err.message})`); merged.set(file, false); }
@@ -307,7 +307,7 @@ async function readyGreenDraft(board, { p, key }, view, readied, failed) {
 }
 
 // docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md: on a board with auto-merge on, a card whose PR
-// GitHub reads approved, green and CLEAN is merged here (store.mjs mergeCard, which rereads every PR on the card), once
+// GitHub reads approved, green and CLEAN is merged here (board/cards.mjs mergeCard, which rereads every PR on the card), once
 // a check however many of its PRs show it. A refusal such as commits after the approval is left to the session, which
 // the github-change event wakes; a gh failure is reported.
 async function mergeApproved(board, { p }, view, tried, failed) {

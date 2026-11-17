@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { landQueue } from '../board/worktree.mjs';
-import { openBoardBuilders } from '../board/store.mjs';
+import { openBoardBuilders } from '../board/runs.mjs';
 
 export const autoRestartsFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'auto-restarts.jsonl');
 // How long a board's Hub row says it was restarted.

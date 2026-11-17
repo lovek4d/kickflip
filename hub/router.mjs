@@ -21,7 +21,7 @@ import { withFileLock } from './locks.mjs';
 import { claudeBin, inherited } from './sessions.mjs';
 import { readUsageGate } from '../shared/usage-gate.mjs';
 import { boardAsksOf, refOf } from '../board/domain.mjs';
-import { copyUpload } from '../board/store.mjs';
+import { copyUpload } from '../board/asks.mjs';
 
 const WEB = path.join(os.homedir(), '.claude', 'kickflip');
 // The hub's own site for uploads: the hub page's New task box uploads here, before any board is picked, and filing copies

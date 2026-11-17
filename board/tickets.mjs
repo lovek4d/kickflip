@@ -68,7 +68,7 @@ async function issueRunner(source, run) {
 
 const linearCall = async (fn) => { try { return await fn(); } catch (e) { refuse(e.message); } };
 
-// → {ticket, created}: created when kickflip made the ticket rather than linking one (store.mjs keeps it as
+// → {ticket, created}: created when kickflip made the ticket rather than linking one (cards.mjs keeps it as
 // ticket_created, which lets moveTicket move it). A Linear board without Hub's key is refused, so a card never goes
 // with a ticket it couldn't make (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
 export async function resolveTicket(source, { ticket, title, body = '', repo }, { run = runRepo, linearFetch } = {}) {

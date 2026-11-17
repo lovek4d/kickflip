@@ -8,7 +8,7 @@
 // HEAD has no .kickflip/release.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { BoardError } from './store.mjs';
+import { BoardError } from './checks.mjs';
 import { writeJSON } from './files.mjs';
 import { hasReleaseScript, RELEASE_SCRIPT } from './release.mjs';
 

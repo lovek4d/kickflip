@@ -17,7 +17,10 @@ import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo, git } from './worktree.mjs';
 import { standardWords } from './commit-message.mjs';
-import { appendBuilderResumed, appendStatus, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
+import { BoardError } from './checks.mjs';
+import { appendBuilderResumed, appendStatus } from './cards.mjs';
+import { readBoardRules } from './settings.mjs';
+import { briefFacts, recordedSession, recordSession } from './runs.mjs';
 import { HELPER, plans, REVIEWER, SUMMARY_HINT, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
@@ -266,7 +269,7 @@ export function reviewerBrief({ route, key, ref, title, notes, thread, repo, age
 }
 
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
-// The brief for a helper another agent on the card asked for (store.mjs requestHelper): its task, in cwd, its own
+// The brief for a helper another agent on the card asked for (runs.mjs requestHelper): its task, in cwd, its own
 // worktree when it writes, else the card's or the board's repo read-only. card as builderBrief's, with agent its name,
 // task, writes and cwd. It reports and finishes as its own agent, and its done --text is what its spawner reads.
 export function helperBrief({ route, key, ref, title, notes, thread, agent, task, writes, cwd, rules = [], links = [] }) {
@@ -294,7 +297,7 @@ export function helperBrief({ route, key, ref, title, notes, thread, agent, task
   ].filter((l, i, all) => l !== '' || all[i - 1] !== '').join('\n');
 }
 
-// The agents launchBuilder started, of agents each {pid, at} as store.mjs openAgents reads them, whose process still
+// The agents launchBuilder started, of agents each {pid, at} as runs.mjs openAgents reads them, whose process still
 // runs. Pids get reused, so a pid counts only while its process started within LAUNCH_WINDOW before the session was
 // recorded; with no answer from ps, none does.
 const LAUNCH_WINDOW = 60_000;
@@ -313,7 +316,7 @@ export function agentMayRun(agent, { starts = processStarts } = {}) {
   return starts([agent.pid]) === null || launchedAgents([agent], { starts }).length > 0;
 }
 
-// Whether a card already has a builder, from its open builder records (store.mjs openRuns): one with no process yet is a
+// Whether a card already has a builder, from its open builder records (runs.mjs openRuns): one with no process yet is a
 // start whose launch is still to come, and one with a process counts while agentMayRun says it may run. A card that has
 // one is never started again, so a second pull pass, or a resume, never puts a second builder beside the first.
 export function hasBuilder(runs, { starts = processStarts } = {}) {
@@ -366,7 +369,7 @@ const logsDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'logs');
 const logFile = (id, role) => path.join(logsDir(), `${role}-${id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
 
 // Launches the agent of a build startTappedBuild started ({key, kind, model}), the rebase run when the card has one
-// open (store.mjs startRebase's rebase_run, so a relaunch after a restart briefs it the same), with lander the lander of
+// open (runs.mjs startRebase's rebase_run, so a relaunch after a restart briefs it the same), with lander the lander of
 // a verified card, or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, a grill's text? and
 // files?, a prototype's asks [{text?, files?, question?, note?, choice?}]}) or the visual agent startVisual opened ({key, kind: visual, model, agent, text?, files?}), through the
 // adapter, launch (agents.mjs launchAgent's arguments and answer; launchAgent itself unless a test passes its own): a
@@ -420,7 +423,7 @@ export const resumeBrief = ({ ref, worktree, cleared }) => `The board paused you
 
 // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
 // The words a handed-back builder's own session is resumed with on the orchestrator's builder resume: the news since its
-// hand-back (store.mjs takeRerun's lines), the orchestrator's last.
+// hand-back (runs.mjs takeRerun's lines), the orchestrator's last.
 export const rerunBrief = ({ ref, worktree, news }) => [
   `The orchestrator resumes your handed-back build of task ${ref} to change it. Carry on in ${worktree}, on the same branch, following your brief as before: amend your build to what follows, record your calls, and finish with builder done again. Your builder record is open again, so don't run builder start.`,
   ...news,
@@ -476,7 +479,7 @@ export function handoffLines({ why, commits, stat, last }) {
 
 // The one seam where the board puts a card's builder session back to work: every resume (a cleared pause, a verified
 // land, a Merge tap's conflict, a PR rebase run) goes through here, and none of them knows how. card is {key, kind,
-// model}; brief(facts) the words the session is resumed with, facts as store.mjs briefFacts'. A Claude build whose
+// model}; brief(facts) the words the session is resumed with, facts as runs.mjs briefFacts'. A Claude build whose
 // record keeps a session id resumes it in the card's worktree, unless resumeChoice, reading the session's log
 // (session.log, the basename recordSession keeps), sends it to a fresh agent: launched with the handoff, why the
 // sentence saying why it carries on, land whether it lands (a lander or rebase run), and a "Fresh builder" thread line.
