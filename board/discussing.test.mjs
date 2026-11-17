@@ -262,3 +262,22 @@ test("item add --phase discussing writes --text as the card's first thread line,
   assert.deepEqual(lines(audit('data', 'threads', 'audit__D2.jsonl')).filter((l) => !l.command).map((l) => [l.who, l.text]), [['claude', 'Opening message.']]);
   assert.match((await board('item', 'add', 'audit/D3', '--relate', 'audit/A1', '--title', 'feat: grill', '--phase', 'grilling', '--text', 'x', '--site', 'audit')).err, /--text goes with/);
 });
+
+// docs/adr/2026-11-17-1900-item-add-implement-marks-the-first-message-as-the-implement-ask.md
+test('item add --implement marks the first message as the Implement ask, and a first message asking for the tap without it is refused', async () => {
+  await store();
+  const add = (id, ...rest) => board('item', 'add', `audit/${id}`, '--relate', 'audit/A1', '--title', 'feat: talk it', '--site', 'audit', ...rest);
+  const found = (id) => read(audit('data', 'items.json')).items.find((i) => i.id === id);
+  const unflagged = await add('D4', '--phase', 'discussing', '--text', 'Tap Implement to build it.');
+  assert.notEqual(unflagged.code, 0);
+  assert.match(unflagged.err, /pass --implement/);
+  assert.equal(found('D4'), undefined);
+  const r = await add('D4', '--phase', 'discussing', '--text', 'Tap Implement to build it.', '--implement');
+  assert.deepEqual([r.code, r.err], [0, '']);
+  assert.equal(found('D4').waits_on_owner.on, 'implement');
+  assert.deepEqual(lines(audit('data', 'threads', 'audit__D4.jsonl')).filter((l) => !l.command).map((l) => l.text), ['Tap Implement to build it.']);
+  assert.equal((await add('D5', '--phase', 'discussing', '--text', 'Opening message.')).code, 0);
+  assert.equal(found('D5').waits_on_owner, undefined);
+  assert.match((await add('D6', '--phase', 'grilling', '--implement')).err, /--implement goes with --phase discussing/);
+  assert.match((await board('item', 'add', 'audit/D7', '--ask', 'x', '--implement', '--site', 'audit')).err, /drop --implement/);
+});

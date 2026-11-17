@@ -1681,7 +1681,7 @@ export async function blockLines(site, added, blocked, deps, options) {
 // relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, phase
 // is required, so no card an agent adds reads New; a card added with no phase starts discussing. filed is the
 // orchestrator's item add on a board, which names where the task came from and links the tasks it names.
-async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, block, parent, split, size, model, phase, state, relate, fromAsk, text: said, intake = false, filed = false, replyOn }, options) {
+async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, block, parent, split, size, model, phase, state, relate, fromAsk, text: said, implement, intake = false, filed = false, replyOn }, options) {
   const { file: slug, id } = key.includes('/') ? parseKey(key) : { file: key };
   if (id !== undefined) domId(id, 'the item id');
   checkPhase(phase, state);
@@ -1764,6 +1764,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   }
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), { spunOut: true });
   if (said !== undefined && !ask) await appendMessage(site, added, { text: said });
+  if (implement) await markWaiting(site, added, 'implement');
   if (proposes) await markDescription(site, { description_proposal: added, description_checked_at: created });
   return { file: source.file, key: added, lines: [] };
 }

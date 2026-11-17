@@ -353,6 +353,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          Never ready: a task goes ready only from staging
          [--text <t>]                                    with --phase discussing, required: the task's first thread
                                                          line, after Created from, in the same write; it reads the owner's turn
+         [--implement]                                   with --phase discussing and --text: the first message is the
+                                                         Implement ask, as thread --implement marks it. A --text that asks
+                                                         the owner to tap Implement is refused without it
          [--from-ask <eventId> --text <t>]               files the task from that ask in this one command, as
                                                          item set's --from-ask, refusing an ask that is already a
                                                          task, and a Quick build ask: no grill starts before the ask is on
@@ -1119,19 +1122,21 @@ const COMMANDS = {
     return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f['blocked-by'], blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check, replyOn: f['reply-on'] }, options);
   }],
-  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'blocks', 'blocked-by', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'split', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by', 'reply-on', 'from'], async (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'blocks', 'blocked-by', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'split', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by', 'reply-on', 'from', 'implement'], async (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new task\'s notes with item add --notes-from <draft.md>');
     await store.refuseUnborn(site, f.text);
     // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
     if (f.ask !== undefined) {
-      const decided = ['title', 'notes', 'notes-from', 'phase', 'state', 'size', 'model', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'from-ask', 'text'].find((k) => f[k] !== undefined);
+      const decided = ['title', 'notes', 'notes-from', 'phase', 'state', 'size', 'model', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'from-ask', 'text', 'implement'].find((k) => f[k] !== undefined);
       if (decided) throw new UsageError(`--ask files the orchestrator's request as an ask; triage titles, notes and sorts it, so drop --${decided}`);
       return store.askItem(needSite(site, 'item add --ask'), key, { text: f.ask, parent: f.parent, split: f.split, relate: f.relate, deps: f['blocked-by'], before: f.blocks, from: f.from, by: f.by, replyOn: f['reply-on'] }, options);
     }
     if (f.by !== undefined) throw new UsageError('--by names who asked, with --ask');
+    if (f.implement && f.phase !== 'discussing') throw new UsageError('--implement goes with --phase discussing and --text: the first message is the Implement ask');
+    store.refuseUnflaggedTap(f.text, f);
     if (f.phase === 'discussing' && f.text === undefined && f['from-ask'] === undefined) throw new UsageError('item add --phase discussing needs --text "<first message>": the task opens with it, after Created from, and reads the owner\'s turn');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], before: f.blocks, deps: f['blocked-by'], ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], block: f.blocked, parent: f.parent, split: f.split, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true, filed: Boolean(site), replyOn: f['reply-on'] }, options);
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], before: f.blocks, deps: f['blocked-by'], ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], block: f.blocked, parent: f.parent, split: f.split, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, implement: f.implement, intake: true, filed: Boolean(site), replyOn: f['reply-on'] }, options);
   }],
   'item notes': [['file/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');
