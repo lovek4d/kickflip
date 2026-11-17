@@ -430,3 +430,13 @@ test("a digest header's count is edited as its reviewer's PRs leave review, to A
   await poll(new Date('2026-11-02T22:05:00Z'));
   assert.equal(header(), `Orch Digest\nAll reviewed${SIGN_OFF} · _updated 14:05_`);
 });
+
+test("a digest lists a reviewer's PRs oldest in review first, whatever order the cards sit in the file", async () => {
+  write(waveFile, { repo: 'o/r', items: [
+    { id: 'A1', title: 'New', prs: [{ number: 1 }], review_since: '2026-11-02T10:00:00Z' },
+    { id: 'A2', title: 'Old', prs: [{ number: 2 }], review_since: '2026-10-30T10:00:00Z' },
+  ] });
+  setPRs({ 'o/r#1': pr(), 'o/r#2': pr({ title: 'Docs' }) });
+  const { reviewers } = await reviewDigest(site, { now: monday });
+  assert.deepEqual(reviewers[0].items.map((i) => i.pr), ['o/r#2', 'o/r#1']);
+});

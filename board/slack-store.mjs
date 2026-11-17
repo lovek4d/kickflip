@@ -9,7 +9,7 @@ import { ticketBadge } from './tickets.mjs';
 import { boardConfig, editJSON, itemSources, readJSON, readLog } from './files.mjs';
 import { prSize } from '../hub/pr-report.mjs';
 import { cardPRs, parsePRRef, prKeyOf, prURL } from '../shared/card-prs.mjs';
-import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
+import { reviewLinks, reviewTime, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
 // The card and settings functions store.mjs still holds.
@@ -190,7 +190,11 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
       if (item.lane === 'done') continue;
       const key = `${source.slug}/${item.id}`;
       const legacy = reviewLinks(itemFile, item, key, topics);
-      for (const p of cardPRs(item, boardRepoOf(site, itemFile))) {
+      const prs = cardPRs(item, boardRepoOf(site, itemFile));
+      // When the card went into review, as the In review lane sorts it (domain.mjs reviewSince): its first link sent to any reviewer.
+      const sentAt = [...prs.flatMap((p) => Object.values(record[prKeyOf(p)]?.links || {})), ...Object.values(legacy)].map((l) => reviewTime(l.ts)).filter(Boolean).sort()[0];
+      const since = item.review_since || sentAt || item.merge_ready?.at || item.pushed?.at || item.created || '';
+      for (const p of prs) {
         const pr = prKeyOf(p);
         const gh = routeRecord(cache.prs, pr);
         for (const r of people) if (linkOwed(gh, record, pr, r.name)) reviewers.get(r.name).linked = true;
@@ -200,7 +204,7 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
           const ts = record[pr]?.links?.[r.name]?.ts || routeRecord(legacy, r.name)?.ts || null;
           const age = ts ? (now.getTime() - Number(ts) * 1000) / 86400000 : null;
           const old = age > 2 ? Math.floor(age) : null;
-          reviewers.get(r.name).items.push({ key, pr, title: item.title, url: prURL(p), sent_ts: ts, ...(old ? { days_old: old } : {}),
+          reviewers.get(r.name).items.push({ since, key, pr, title: item.title, url: prURL(p), sent_ts: ts, ...(old ? { days_old: old } : {}),
             message: prLink(pr, gh, item, { ticket: ticketOfCard(cfg, item, boardRepoOf(site, itemFile)), old }) });
         }
       }
@@ -210,6 +214,10 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
   const today = ((await readJSON(digestFile(site), {})).digests || []).filter((d) => d.date === date);
   const waiting = await readiness.waiting('slack');
   for (const sent of today) if (!reviewers.has(sent.reviewer)) reviewers.set(sent.reviewer, { name: sent.reviewer, items: [] });
+  for (const r of reviewers.values()) {
+    r.items.sort((a, b) => (a.since ? 0 : 1) - (b.since ? 0 : 1) || a.since.localeCompare(b.since));
+    for (const item of r.items) delete item.since;
+  }
   const list = [...reviewers.values()].map((r) => {
     const sent = today.find((d) => d.reviewer === r.name);
     const owed = sent?.replies ? !sent.posting_at && (!sent.ts || sent.replies.some((reply) => !held(reply)))
