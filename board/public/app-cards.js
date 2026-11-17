@@ -300,7 +300,7 @@ BoardView.part((B) => {
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread })}</div>
+            <div class="title-wrap">${workLines(it, { unread, words: B.searchWords() })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;

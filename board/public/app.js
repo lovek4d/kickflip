@@ -286,7 +286,7 @@ window.BoardView = (function () {
       else open();
       return true;
     }
-    // A card the Todo filter hides opens on the owner's yes to resetting the filter; a no leaves everything as it was
+    // A card the Todo filter or the board search hides opens on the owner's yes to resetting the filters; a no leaves everything as it was
     // (declined runs then, for what the address must drop).
     async function showHidden(open, declined = () => {}) {
       if (await B.resetFilterToShow()) open(); else declined();
@@ -547,12 +547,20 @@ window.BoardView = (function () {
     return full ? `<b>Full.</b> ${from} You can answer and act. Merge and Board settings are ${by ? `${BoardUI.esc(by)}’s` : 'the owner’s'}.`
       : `<b>View only.</b> ${from} You can look and open Visit links.`;
   }
+  // The board search's magnifier and its bar under the header (app-search.js).
+  const MAGNIFIER = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`;
+  const searchButton = `<button class="ghost icon" id="searchOpen" type="button" aria-label="Search tasks" title="Search tasks (press f twice or /)" aria-controls="searchBar" aria-expanded="false">${MAGNIFIER(18)}</button>`;
+  const searchBar = `<div id="searchBar" class="search-bar" role="search" hidden>${MAGNIFIER(16)}`
+    + '<input id="searchField" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Search tasks" aria-label="Search tasks">'
+    + '<span class="search-hint" aria-hidden="true">↵ open · esc close</span>'
+    + '<button type="button" class="ghost icon search-clear" data-search-clear aria-label="Clear search" title="Clear search (Esc)">✕</button></div>';
   function markup({ title = '', shared = null } = {}) {
     const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
-    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true, navAfter: '<span id="waitsChip"></span>' })}
+    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true, navAfter: `${searchButton}<span id="waitsChip"></span>` })}
 <div class="split">
 <main>
-${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
+${strip}  ${searchBar}
+  <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="startBanner" class="start-banner-slot" aria-live="polite" hidden></section>
   <section id="pauseBanner" class="hub-view" hidden></section>
   <section id="promptStrip" class="hub-view" aria-label="Prompts waiting on you" hidden></section>

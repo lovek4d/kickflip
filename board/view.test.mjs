@@ -23,7 +23,7 @@ function boardPatch(from, to, threads = { from: {}, to: {} }, notes = { from: {}
 }
 
 const SCRIPTS = ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-waits.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-search.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 // The time every test here builds its data from. A fake page's clock starts at it and moves only by its advance(ms)
@@ -3003,7 +3003,7 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
   assert.deepEqual([...sheet().querySelectorAll('.sc-group')].map((g) => [g.querySelector('h3').textContent,
     [...g.querySelectorAll('.sc-row')].map((r) => [r.querySelector('.sc-what').firstChild.textContent, [...r.querySelectorAll('kbd')].map((k) => k.textContent).join(' ')])]), [
     ['Anywhere', [['Switch boards and pages', 's s'], ['This help', 'h h'], ['Close', 'Esc']]],
-    ['On a board', [['New task', 'n n']]],
+    ['On a board', [['New task', 'n n'], ['Search tasks', 'f f']]],
     ['Writing', [['Send', '⌘ ↵']]],
   ]);
   assert.equal(press('Escape').defaultPrevented, true);
@@ -8466,4 +8466,158 @@ test("a New board served while its orchestrator starts opens as a board with the
   sidebar({ sites: [{ route: 'shop', title: 'Shop', board: true, icon: '' }], starting: [{ ...start, step: 'landing', joined: true }] });
   assert.equal(banner().hidden, true, 'the banner goes once the session joins');
   assert.equal(banner().innerHTML, '');
+});
+
+// docs/adr/2026-11-17-0613-a-search-bar-narrows-the-board-as-you-type.md
+const searchBoard = () => ({
+  ...boardOf([
+    workCard('T-330', { ref: 'T-330', title: 'Search the board', lane: 'progress' }),
+    workCard('T-33', { ref: 'T-33', title: 'Fix the header', lane: 'review' }),
+    workCard('T-12', { ref: 'T-12', title: 'Board search ranking', phase: 'ready', ticket: { id: 'LIN-7', source: 'linear', url: 'https://linear.app/x/issue/LIN-7' } }),
+    workCard('T-40', { ref: 'T-40', title: 'Old search work', lane: 'done', sortAt: '2026-10-30T07:00:00.000Z' }),
+    workCard('T-41', { ref: 'T-41', title: 'Unrelated', lane: 'done', sortAt: '2026-10-30T06:00:00.000Z' }),
+    newAsk('n1', '2026-10-30T08:00:00.000Z', 'waiting', 'Search should mark words'),
+  ]),
+  reviews: { shown: true, at: '2026-10-30T09:00:00.000Z', repo: 'o/r', waiting: 0, earlier: [],
+    cards: [{ number: 12, title: 'Search deps bump', author: 'quinn', url: 'https://github.com/o/r/pull/12', asked: false, touches: [], state: 'posted', at: '2026-10-30T09:00:00.000Z', text: null, reviewUrl: null }] },
+});
+function searchOnDom(opts = {}) {
+  const b = boardOnDom({ board: searchBoard(), threads: {}, ...opts });
+  const field = () => b.root.querySelector('#searchField');
+  const bar = () => b.root.querySelector('#searchBar');
+  const type = async (text) => { field().value = text; b.page.fire(b.root, 'input', { target: field() }); await b.settle(); };
+  const counts = () => b.root.querySelectorAll('details.lane').map((l) => [l.dataset.lane, l.querySelector(':scope > summary .count').textContent]);
+  const shown = () => b.root.querySelectorAll('#newStrip .new-entry, #lanes details.rv-card, #lanes details.item').map((el) => el.dataset.key || `PR ${el.dataset.review}`);
+  const lane = (id) => b.root.querySelector(`details.lane[data-lane="${id}"]`);
+  let at = 0;
+  const press = (key, ev = {}) => { const e = b.page.fire(b.doc, 'keydown', { key, target: b.doc.body, timeStamp: at += 100, ...ev }); return b.settle().then(() => e); };
+  const wait = (ms) => { at += ms; };
+  return { ...b, field, bar, type, counts, shown, lane, press, wait };
+}
+
+test('the magnifier opens a search bar; typing narrows the New strip, Auto Review and every lane to the cards holding every typed word in their title, key or ticket, any case, each header reading x of y, even 0, with the words marked in the titles', async () => {
+  const b = searchOnDom();
+  await b.settle();
+  assert.equal(b.bar().hidden, true);
+  assert.deepEqual(b.counts(), [['new', '1'], ['reviews', '1'], ['review', '1'], ['progress', '1'], ['todo', '1'], ['done', '2']]);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#searchOpen') });
+  await b.settle();
+  assert.equal(b.bar().hidden, false);
+  assert.equal(b.doc.activeElement, b.field());
+  assert.equal(b.field().getAttribute('enterkeyhint'), 'search');
+
+  await b.type('search');
+  assert.deepEqual(b.shown(), ['w/n1', 'PR 12', 'w/T-330', 'w/T-12', 'w/T-40']);
+  assert.deepEqual(b.counts(), [['new', '1 of 1'], ['reviews', '1 of 1'], ['review', '0 of 1'], ['progress', '1 of 1'], ['todo', '1 of 1'], ['done', '1 of 2']]);
+  assert.match(b.root.querySelector('details.item[data-key="w/T-330"] .title').innerHTML, /<mark>Search<\/mark> the board/);
+  assert.match(b.root.querySelector('details.item[data-key="w/T-12"] .title').innerHTML, /Board <mark>search<\/mark> ranking/);
+  assert.match(b.root.querySelector('details.rv-card .title').innerHTML, /<mark>Search<\/mark> deps bump/);
+  assert.match(b.root.querySelector('#newStrip .new-msg').innerHTML, /<mark>Search<\/mark> should mark words/);
+
+  await b.type('BOARD  search');
+  assert.deepEqual(b.shown(), ['w/T-330', 'w/T-12'], 'every word, in any order');
+  await b.type('t-33');
+  assert.deepEqual(b.shown(), ['w/T-33', 'w/T-330'], 'a whole key is any text');
+  await b.type('lin-7');
+  assert.deepEqual(b.shown(), ['w/T-12'], 'the ticket id');
+  await b.type('zzz');
+  assert.deepEqual(b.shown(), []);
+  assert.deepEqual(b.counts(), [['new', '0 of 1'], ['reviews', '0 of 1'], ['review', '0 of 1'], ['progress', '0 of 1'], ['todo', '0 of 1'], ['done', '0 of 2']]);
+  assert.equal(b.root.querySelectorAll('#lanes .empty').length, 0, 'no match is just the 0 counts');
+  await b.type('  ');
+  assert.deepEqual(b.counts(), [['new', '1'], ['reviews', '1'], ['review', '1'], ['progress', '1'], ['todo', '1'], ['done', '2']], 'a blank search narrows nothing');
+  b.view.unmount();
+});
+
+test('a folded lane opens while it holds matches and folds again after, its stored state untouched; Esc and the × each clear the search and close the bar', async () => {
+  const b = searchOnDom({ stored: [['site:board-a:lanes', JSON.stringify({ review: false })]] });
+  await b.settle();
+  assert.deepEqual([b.lane('review').open, b.lane('done').open], [false, false]);
+  await b.press('/');
+  await b.type('old');
+  assert.deepEqual([b.lane('review').open, b.lane('done').open], [false, true]);
+  await b.type('header');
+  assert.deepEqual([b.lane('review').open, b.lane('done').open], [true, false]);
+  await b.press('Escape', { target: b.field() });
+  assert.deepEqual([b.bar().hidden, b.field().value], [true, '']);
+  assert.deepEqual([b.lane('review').open, b.lane('done').open], [false, false]);
+  assert.equal(b.storage.get('site:board-a:lanes'), JSON.stringify({ review: false }));
+  assert.equal(b.root.querySelectorAll('mark').length, 0);
+
+  await b.press('/');
+  await b.type('header');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-search-clear]') });
+  await b.settle();
+  assert.deepEqual([b.bar().hidden, b.field().value, b.shown().length], [true, '', 7]);
+  b.view.unmount();
+});
+
+test('f twice or / opens the search from outside a text box; not from a field, with a modifier, with f pressed slowly or apart, or once a key went to switch mode', async () => {
+  const b = searchOnDom();
+  await b.settle();
+  const closed = async () => { await b.press('Escape', { target: b.field() }); assert.equal(b.bar().hidden, true); };
+  await b.press('f');
+  assert.equal((await b.press('f')).defaultPrevented, true);
+  assert.deepEqual([b.bar().hidden, b.doc.activeElement], [false, b.field()]);
+  await closed();
+  assert.equal((await b.press('/')).defaultPrevented, true);
+  assert.equal(b.bar().hidden, false);
+  assert.equal((await b.press('/', { target: b.field() })).defaultPrevented, false, '/ types in the search itself');
+  await closed();
+
+  const box = b.root.appendChild(b.doc.createElement('textarea'));
+  const pairs = [
+    [['f', { target: box }], ['f', { target: box }], ['/', { target: box }]],
+    [['f', { metaKey: true }], ['f', { metaKey: true }], ['/', { ctrlKey: true }]],
+    [['f'], ['x'], ['f']],
+    [['f'], ['f', { defaultPrevented: true }]],
+    [['f'], ['wait'], ['f']],
+  ];
+  for (const keys of pairs) {
+    for (const [key, ev] of keys) if (key === 'wait') b.wait(500); else await b.press(key, ev);
+    assert.equal(b.bar().hidden, true, keys.map(([key]) => key).join(' '));
+    b.wait(1000);
+  }
+  b.view.unmount();
+});
+
+test('Enter in the search opens the top match on a desktop, the New strip first, keeping the filter; on a phone Enter or a drag on the page hides the keyboard and keeps the filter', async () => {
+  const desk = searchOnDom({ width: 1280 });
+  await desk.settle();
+  await desk.press('/');
+  await desk.type('board');
+  assert.equal((await desk.press('Enter', { target: desk.field() })).defaultPrevented, true);
+  await desk.settle();
+  assert.equal(desk.root.querySelector('details.item[data-key="w/T-330"]').open, true);
+  assert.match(desk.page.win.location.hash, /selectedCard=w%2FT-330/);
+  assert.deepEqual([desk.bar().hidden, desk.field().value, desk.shown()], [false, 'board', ['w/T-330', 'w/T-12']]);
+  desk.view.unmount();
+
+  const phone = searchOnDom();
+  await phone.settle();
+  await phone.press('/');
+  await phone.type('board');
+  await phone.press('Enter', { target: phone.field() });
+  assert.equal(phone.doc.activeElement, null, 'the keyboard hides');
+  assert.equal(phone.root.querySelector('details.item[data-key="w/T-330"]').open, false);
+  assert.deepEqual([phone.bar().hidden, phone.shown()], [false, ['w/T-330', 'w/T-12']]);
+  phone.field().focus();
+  phone.page.fire(phone.doc, 'touchmove', { target: phone.root.querySelector('details.item') });
+  assert.equal(phone.doc.activeElement, null);
+  assert.deepEqual(phone.shown(), ['w/T-330', 'w/T-12']);
+  phone.view.unmount();
+});
+
+test('a link to a card the search hides asks to reset filters: yes ends the search and opens the card', async () => {
+  const b = searchOnDom({ width: 1280, confirm: true });
+  await b.settle();
+  await b.press('/');
+  await b.type('board');
+  b.page.win.location.hash = '#selectedCard=w%2FT-33';
+  b.page.fire(vm.runInContext('window', b.page.win), 'hashchange');
+  await b.settle();
+  assert.deepEqual(b.confirms, ['This task is not currently visible, reset filters?']);
+  assert.deepEqual([b.bar().hidden, b.field().value], [true, '']);
+  assert.equal(b.root.querySelector('details.item[data-key="w/T-33"]').open, true);
+  b.view.unmount();
 });

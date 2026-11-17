@@ -611,8 +611,30 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 /* INT-55: the header's right group (the time then ↻, settings) sits one gap apart; each control paints disabled until app-header.js wires it */
 .top .nav { gap: 2px; }
 .top .nav .refresh { flex-direction: row-reverse; gap: 2px; }
-.top .nav #refresh, .top .nav a.icon { display: inline-flex; align-items: center; justify-content: center; margin: 0; padding: 4px; border: 0; line-height: 1; }
+.top .nav #refresh, .top .nav #searchOpen, .top .nav a.icon { display: inline-flex; align-items: center; justify-content: center; margin: 0; padding: 4px; border: 0; line-height: 1; }
 .top .nav #status { line-height: 1.1; white-space: nowrap; }
+.top .nav #searchOpen { color: var(--muted); }
+.top .nav #searchOpen:hover, .top .nav #searchOpen[aria-expanded="true"] { color: var(--text); }
+/* The board search (docs/adr/2026-11-17-0613-a-search-bar-narrows-the-board-as-you-type.md, app-search.js): a full-width
+   bar at the top of the lanes, pinned under the header on a desktop and under the status bar on a phone, whose
+   shadow paints the status bar's strip while the lanes scroll beneath. The words a card holds are marked in its title. */
+.search-bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 4; display: flex; align-items: center; gap: 8px; margin: 0 -16px 12px; padding: 8px 16px;
+  background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: 0 calc(-1 * env(safe-area-inset-top, 0px)) 0 var(--bg); color: var(--muted); }
+.search-bar[hidden] { display: none; }
+.search-bar svg { flex: none; }
+.search-bar input { flex: 1; min-width: 0; padding: 6px 10px; color: var(--text); }
+.search-bar input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.search-bar .search-hint { flex: none; font-size: 12px; white-space: nowrap; }
+.search-bar .search-clear { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 32px; min-height: 32px; padding: 0; font-size: 16px; color: var(--muted); }
+.search-bar .search-clear:hover { color: var(--text); }
+mark { background: var(--accent-soft); color: inherit; border-radius: 2px; }
+@media (max-width: 899px) {
+  .search-bar .search-hint { display: none; }
+  .search-bar .search-clear { min-width: 44px; min-height: 44px; }
+}
+@media (min-width: 900px) {
+  .search-bar { top: 56px; margin-top: -12px; }
+}
 .top .nav #refresh:disabled, .top .nav a.icon[aria-disabled="true"] { opacity: .35; pointer-events: none; }
 /* The foot of the board (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md): the bulb and the gear, centred under the lanes.
    [the bulb runs an architecture review of the board's repo](docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md): it glows orange while an architecture review runs */
@@ -888,7 +910,7 @@ main > * { transition: opacity .25s ease; }
     position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 7;
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
-  .top .nav #refresh, .top .nav a.icon, .top .pages-switch { min-width: 44px; min-height: 44px; }
+  .top .nav #refresh, .top .nav #searchOpen, .top .nav a.icon, .top .pages-switch { min-width: 44px; min-height: 44px; }
   body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));

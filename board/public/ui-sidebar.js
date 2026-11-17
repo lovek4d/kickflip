@@ -130,7 +130,7 @@
       { keys: ['h', 'h'], what: 'This help' },
       { keys: ['Esc'], what: 'Close', sub: 'The help, a sheet, the drawer or switch mode' },
     ] },
-    { group: 'On a board', rows: [{ keys: ['n', 'n'], what: 'New task' }] },
+    { group: 'On a board', rows: [{ keys: ['n', 'n'], what: 'New task' }, { keys: ['f', 'f'], what: 'Search tasks', sub: 'Or /' }] },
     { group: 'Writing', rows: [{ keys: ['⌘', '↵'], what: 'Send', sub: 'Ctrl ↵ off a Mac' }] },
   ];
   // The shortcuts sheet's content, inside its <dialog aria-labelledby="shortcutsTitle">.

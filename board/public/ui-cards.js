@@ -35,6 +35,30 @@
   }
   // docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md: a Merge-mode Done card's commit, in the PR badge's place: the short sha in mono, purple, linking the commit on GitHub.
   const commitChip = (it) => !it.commit ? '' : badge('merged', `<code>${esc(it.commit.sha)}</code>`, { href: it.commit.url, title: 'Landed commit', attrs: it.commit.url ? EXTERNAL : {} });
+  // docs/adr/2026-11-17-0613-a-search-bar-narrows-the-board-as-you-type.md
+  // The board search's words: what was typed, lowercased, split on spaces. Something matches when every word appears in
+  // one of its fields, any case, a whole key ("T-33") being text like any other.
+  const searchWords = (query) => String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const matchesWords = (words, fields) => {
+    const hay = fields.filter(Boolean).join('\n').toLowerCase();
+    return words.every((w) => hay.includes(w));
+  };
+  // A task matches on its title, key and ticket.
+  const cardMatches = (it, words) => matchesWords(words, [it.title, it.ref, it.id, it.ticket?.id, ...(it.linear || []).map((l) => l.id)]);
+  // text through escape (escText by default), each place a word appears wrapped in <mark>.
+  function marked(text, words = [], escape = escText) {
+    const s = String(text ?? '');
+    if (!words.length) return escape(s);
+    const lower = s.toLowerCase();
+    const hit = new Array(s.length).fill(false);
+    for (const w of words) for (let i = lower.indexOf(w); i >= 0; i = lower.indexOf(w, i + 1)) hit.fill(true, i, i + w.length);
+    let out = '';
+    for (let i = 0, j; i < s.length; i = j) {
+      for (j = i; j < s.length && hit[j] === hit[i];) j++;
+      out += hit[i] ? `<mark>${escape(s.slice(i, j))}</mark>` : escape(s.slice(i, j));
+    }
+    return out;
+  }
   const linearChips = (it) => (it.linear || []).map((l) => badge('quiet', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
   const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge('quiet', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: EXTERNAL });
   // docs/adr/2026-11-17-0300-a-task-with-no-ticket-shows-its-t-n-on-the-badge.md: a card with no ticket is a task, its
@@ -354,7 +378,7 @@
   // board asked this one until its orchestrator answers it (the board's boardAsks, domain.mjs newBoardAsks).
   const unreadSince = (seen, key, at) => String(at) > String(seen[key] || '');
   function newEntries(d, seen) {
-    const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, sent: it.created, ask: it.ask, text: it.ask.text, note: it.ask.note, files: it.ask.files, asked: it.ask.asked }));
+    const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, ref: it.ref, sent: it.created, ask: it.ask, text: it.ask.text, note: it.ask.note, files: it.ask.files, asked: it.ask.asked }));
     const made = d.items.filter((it) => it.ingested && unreadSince(seen, it.key, it.ingested.at))
       .map((it) => ({ id: it.fromAsk, key: it.key, sent: it.created, at: it.ingested.at, text: it.ingested.text, files: it.ingested.files, asked: it.ingested.asked, made: it, lane: it.lane }));
     const added = (d.merges || []).filter((m) => unreadSince(seen, m.key, m.at))
@@ -394,17 +418,17 @@
   // no edit or delete. Its files still uploading or failed (e.uploads, attach.js's list under the box send:<send id>)
   // draw as upload tiles in a [data-uploads] box, whose X attach.js reads
   // (docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md).
-  function newEntry(e, edit) {
+  function newEntry(e, edit, words = []) {
     // Another board's question: who asked, linking the asking task, then waiting… or processing... as an ask reads; no
     // edit or delete, as the orchestrator answers it.
     if (e.question) {
       const q = e.question;
       const line = [`<a class="new-source" href="${esc(q.from.link)}">Asked from ${esc(q.from.words)}</a>`, q.state === 'working' ? processing(q.since) : PICKUP_WAIT].join(' · ');
-      return `<div class="new-entry new-question" data-new="${esc(e.id)}"><div class="new-msg">${esc(e.text)}</div><div class="new-line sub">${newTime(e.sent)} · ${line}</div></div>`;
+      return `<div class="new-entry new-question" data-new="${esc(e.id)}"><div class="new-msg">${marked(e.text, words, esc)}</div><div class="new-line sub">${newTime(e.sent)} · ${line}</div></div>`;
     }
     if (e.unsent) {
       const files = globalThis.BoardUI.sentFiles(e.files, e.uploads);
-      return `<div class="new-entry" data-new="${esc(e.id)}" data-send="${esc(e.id)}"><div class="new-msg">${esc(e.text)}</div>${files}<div class="new-line sub">${newTime(e.sent)} · ${globalThis.BoardUI.pickUp(e.unsent)}</div></div>`;
+      return `<div class="new-entry" data-new="${esc(e.id)}" data-send="${esc(e.id)}"><div class="new-msg">${marked(e.text, words, esc)}</div>${files}<div class="new-line sub">${newTime(e.sent)} · ${globalThis.BoardUI.pickUp(e.unsent)}</div></div>`;
     }
     const done = e.made || e.into;
     const actions = done ? `<button type="button" class="ghost icon new-dismiss" ${readsAt(e)} aria-label="Dismiss" title="Dismiss">${globalThis.BoardUI.DISMISS}</button>`
@@ -412,7 +436,7 @@
     const line = e.made ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Ticket created: <b>${esc(e.made.ref)}</b>${globalThis.BoardUI.laneRing(e.lane)}</a>`
       : e.into ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Added to <b>${esc(e.into.ref)}</b>${globalThis.BoardUI.laneRing(e.lane)}</a>`
       : askLine(e.ask);
-    const body = edit ? editForm(e.id, edit.text) : `<div class="new-msg">${esc(e.text)}</div>${e.note ? `<blockquote class="quote new-note">${esc(e.note)}</blockquote>` : ''}${globalThis.BoardUI.attachments(e.files)}`;
+    const body = edit ? editForm(e.id, edit.text) : `<div class="new-msg">${marked(e.text, words, esc)}</div>${e.note ? `<blockquote class="quote new-note">${esc(e.note)}</blockquote>` : ''}${globalThis.BoardUI.attachments(e.files)}`;
     return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${[newTime(e.sent), line].filter(Boolean).join(' · ')}</div></div>`;
   }
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
@@ -443,18 +467,26 @@
   // state.edits, by ask id. label heads it, New on a board; empty is what an empty strip says, which a board's never draws.
   // New is a lane's <details> (data-lane new) and its entries the asked ones (an ask the orchestrator filed) leave sit
   // under an Orchestrator sub-head, a <details> too (data-lane new-orchestrator), at the bottom. open: the lanes' remembered
-  // state (app-lanes.js), New's open by default and Orchestrator's closed. The count is the main list's.
-  const newStrip = (entries, edits, { label = 'New', empty = '', open = {} } = {}) => {
-    const draw = (e) => (e.routed ? routedEntry(e.routed) : newEntry(e, edits.get(e.id)));
+  // state (app-lanes.js), New's open by default and Orchestrator's closed. The count is the main list's. words: the board
+  // search's (searchWords), which keep only the entries holding every word in their text or their card's key, title or
+  // ticket, mark them, count each list as x of y and open a list that holds a match.
+  const newMatches = (e, words) => matchesWords(words, [e.text, e.ref, e.made?.ref, e.made?.title, e.made?.ticket?.id, e.into?.ref]);
+  const newStrip = (entries, edits, { label = 'New', empty = '', open = {}, words = [] } = {}) => {
+    const draw = (e) => (e.routed ? routedEntry(e.routed) : newEntry(e, edits.get(e.id), words));
+    const keep = (list) => (words.length ? list.filter((e) => newMatches(e, words)) : list);
+    const count = (shown, all) => (words.length ? `${shown.length} of ${all.length}` : `${all.length}`);
+    const opened = (shown, stored) => (words.length && shown.length ? true : stored);
     const main = entries.filter((e) => !e.asked);
     const orchestrator = entries.filter((e) => e.asked);
-    const group = orchestrator.length ? `<details class="new-orchestrator" data-lane="new-orchestrator" ${open['new-orchestrator'] ? 'open' : ''}><summary><span class="lane-name">Orchestrator</span><span class="count">${orchestrator.length}</span></summary>${orchestrator.map(draw).join('')}</details>` : '';
-    const rows = main.length ? main.map(draw).join('') : orchestrator.length ? '' : `<div class="new-entry new-empty">${esc(empty)}</div>`;
-    return `<details class="lane new-lane" data-lane="new" ${open.new ?? true ? 'open' : ''}><summary><span class="lane-name">${esc(label)}</span><span class="count">${main.length}</span></summary><div class="list">${rows}${group}</div></details>`;
+    const [mainShown, orchestratorShown] = [keep(main), keep(orchestrator)];
+    const group = orchestrator.length ? `<details class="new-orchestrator" data-lane="new-orchestrator" ${opened(orchestratorShown, open['new-orchestrator']) ? 'open' : ''}><summary><span class="lane-name">Orchestrator</span><span class="count">${count(orchestratorShown, orchestrator)}</span></summary>${orchestratorShown.map(draw).join('')}</details>` : '';
+    const rows = mainShown.length ? mainShown.map(draw).join('') : orchestrator.length || words.length ? '' : `<div class="new-entry new-empty">${esc(empty)}</div>`;
+    return `<details class="lane new-lane" data-lane="new" ${opened(mainShown, open.new ?? true) ? 'open' : ''}><summary><span class="lane-name">${esc(label)}</span><span class="count">${count(mainShown, main)}</span></summary><div class="list">${rows}${group}</div></details>`;
   };
 
   const RISK_TONES = { low: 'ready', medium: 'notice', high: 'danger' };
-  function workLines(it, { unread = 0 } = {}) {
+  // words: the board search's, marked in the title.
+  function workLines(it, { unread = 0, words = [] } = {}) {
     const ids = it.ticket ? ticketChip(it) : it.linear?.length ? linearChips(it) : taskChip(it);
     // A card shows its ticket, or Task when it has none.
     const chips = `${prChips(it)}${commitChip(it)}${reviewChips(it)}${installChip(it)}`;
@@ -476,7 +508,7 @@
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
     const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${escText(`Check can't run: ${it.ownerCheck.broken}`)}</div>`
       : `<div class="line3 sub check">${escText(`Checks: ${it.ownerCheck.words}`)}</div>`;
-    return `${cardActions(it)}<div class="line1 title">${ids ? `${ids} ` : ''}${escText(it.title)}</div>
+    return `${cardActions(it)}<div class="line1 title">${ids ? `${ids} ` : ''}${marked(it.title, words)}</div>
       ${status}${reviewer}${check}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${timeLine(it, unread, progressBar(phaseStrip(it)))}`;
@@ -498,28 +530,34 @@
   }
   const reviewChipsOf = (c) => [badge('quiet', `from ${esc(c.author)}`), ...c.touches.map((t) => badge(c.state === 'needs' ? 'danger' : 'quiet', `touches ${esc(t.ref)}`)), c.asked ? badge('normal', 'asked you') : ''].join(' ');
   const reviewWhen = (c) => `${c.state === 'reviewing' ? 'started ' : ''}${ago(c.at)}`;
-  function reviewCard(c, open) {
+  function reviewCard(c, open, words) {
     return `<details class="rv-card" data-review="${c.number}"${open ? ' open' : ''}><summary><span class="status ${REVIEW_DOTS[c.state]}"></span><div class="title-wrap">
-      <div class="line1 title">${badge('normal', `PR #${c.number}`)} ${escText(c.title)}</div>
+      <div class="line1 title">${badge('normal', `PR #${c.number}`)} ${marked(c.title, words)}</div>
       <div class="line3 sub${c.state === 'reviewing' ? ' agent' : ''}">${c.state === 'reviewing' ? DOT : ''}<span class="rv-word s-${c.state}">${REVIEW_WORDS[c.state]}</span> · ${esc(reviewWhen(c))}</div>
       <div class="line2 meta">${reviewChipsOf(c)}</div></div></summary>${reviewDetail(c)}</details>`;
   }
-  const reviewLine = (c, open) => `<details class="rv-line" data-review="${c.number}"${open ? ' open' : ''}><summary><div class="title">${badge('normal', `PR #${c.number}`)} ${escText(c.title)}</div>
+  const reviewLine = (c, open, words) => `<details class="rv-line" data-review="${c.number}"${open ? ' open' : ''}><summary><div class="title">${badge('normal', `PR #${c.number}`)} ${marked(c.title, words)}</div>
     <div class="sub">${esc([c.author, c.state === 'posted' ? `posted ${ago(c.at)}` : 'not posted', c.open ? '' : 'closed'].filter(Boolean).join(' · '))}</div></summary>${reviewDetail(c)}</details>`;
-  // reviews: the built board's reviews; open: {lane, earlier, cards: Set of open PR numbers}.
-  function reviewLane(reviews, { open = {} } = {}) {
+  // reviews: the built board's reviews; open: {lane, earlier, cards: Set of open PR numbers}. words: the board search's,
+  // which keep the PRs holding every word in their title or number, count the lane and its fold as x of y, and open them
+  // while they hold a match.
+  const reviewMatches = (c, words) => matchesWords(words, [c.title, `PR #${c.number}`]);
+  function reviewLane(reviews, { open = {}, words = [] } = {}) {
     if (!reviews?.shown) return '';
-    const { cards, earlier } = reviews;
-    const needs = cards.filter((c) => c.state === 'needs').length;
+    const keep = (list) => (words.length ? list.filter((c) => reviewMatches(c, words)) : list);
+    const count = (shown, all) => (words.length ? `${shown.length} of ${all.length}` : `${all.length}`);
+    const [cards, earlier] = [keep(reviews.cards), keep(reviews.earlier)];
+    const needs = reviews.cards.filter((c) => c.state === 'needs').length;
     const shown = (n) => open.cards?.has(n);
-    const fold = earlier.length ? `<details class="fold" data-fold="reviews-earlier"${open.earlier ? ' open' : ''}><summary><span class="lane-name">Posted earlier</span><span class="count">${earlier.length}</span></summary>
-      <div class="fold-list">${earlier.map((c) => reviewLine(c, shown(c.number))).join('')}</div></details>` : '';
+    const fold = earlier.length ? `<details class="fold" data-fold="reviews-earlier"${open.earlier || words.length ? ' open' : ''}><summary><span class="lane-name">Posted earlier</span><span class="count">${count(earlier, reviews.earlier)}</span></summary>
+      <div class="fold-list">${earlier.map((c) => reviewLine(c, shown(c.number), words)).join('')}</div></details>` : '';
     const waiting = reviews.waiting ? `${reviews.waiting} incoming PR${reviews.waiting === 1 ? '' : 's'} wait${reviews.waiting === 1 ? 's' : ''} until the board is idle.`
       : `No incoming PR touches this board’s work yet.${reviews.at ? ` Checked ${esc(reviews.repo)} ${ago(reviews.at)}.` : ''}`;
-    const list = cards.length ? cards.map((c) => reviewCard(c, shown(c.number))).join('') : `<div class="empty">${waiting}</div>`;
-    return `<details class="lane" data-lane="reviews"${open.lane === false ? '' : ' open'}><summary><span class="lane-name">Auto Review</span><span class="count">${cards.length}</span>${needs ? `<span class="lane-github"><span class="rv-late">${needs} needs you</span></span>` : ''}</summary>
+    const list = cards.length ? cards.map((c) => reviewCard(c, shown(c.number), words)).join('') : words.length ? '' : `<div class="empty">${waiting}</div>`;
+    const lane = words.length && (cards.length || earlier.length) ? true : open.lane !== false;
+    return `<details class="lane" data-lane="reviews"${lane ? ' open' : ''}><summary><span class="lane-name">Auto Review</span><span class="count">${count(cards, reviews.cards)}</span>${needs ? `<span class="lane-github"><span class="rv-late">${needs} needs you</span></span>` : ''}</summary>
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane, searchWords, cardMatches, marked });
 })();
