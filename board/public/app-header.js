@@ -11,6 +11,7 @@ BoardView.part((B) => {
 
   function renderHeader(d) {
     renderStatus();
+    renderPrompts();
     $('#setup').hidden = !d.setup;
     $('#setup').innerHTML = setupCard(d.setup);
     if ($('#linksSheet').open) $('#linksList').innerHTML = linksList(d.links);
@@ -60,6 +61,16 @@ BoardView.part((B) => {
       if (out?.pause) renderPause(out.pause);
     } catch { toast('Could not reach the hub. Is the host awake?'); }
   });
+  // docs/adr/2026-11-16-1930-a-joined-boards-prompts-show-on-the-board.md
+  // The board session's pending prompts (domain.mjs withHub's prompts) as the strip under the pause banner
+  // (ui-prompts.js promptStrip), answered through prompts.js; an answered row fades until the next board drops it.
+  const prompts = PromptAnswers.wire(B, { list: () => state.board?.prompts || [], paint: () => renderPrompts(), notify: toast });
+  function renderPrompts() {
+    const el = $('#promptStrip');
+    const html = BoardUI.promptStrip(state.board?.prompts || [], { state: prompts.state, answered: (p) => !prompts.shows(p) });
+    el.hidden = !html;
+    BoardUI.setHTML(el, html);
+  }
   // A board load and its open threads landed; via is ui-header.js nextFresh's.
   function landed(via) {
     state.fresh = nextFresh(state.fresh, { via, at: new Date().toISOString(), sig: freshSig(state.board, state.threadCache, state.openItems) });

@@ -2810,9 +2810,31 @@ test("a prompt line's tapped answer waits, disabled with its label kept behind t
   assert.deepEqual(looks(ui.promptItem(ask, { sending: '0:Blue' })), [['data-prompt-opt="Red"', 'disabled'], ['data-prompt-opt="Blue"', 'waits'], ['data-prompt-choice="deny"', 'disabled']]);
   assert.doesNotMatch(text(ui.promptItem(perm, { sending: 'allow' })), /Sending/);
   assert.equal(text(ui.promptItem(perm, { sending: 'allow' })).includes('Allow once'), true);
-  // On the hub page a board session's prompt names its board first (docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md).
-  assert.match(ui.promptItem({ ...perm, board: 'Shop' }), /<span class="muted small">Shop · /);
-  assert.doesNotMatch(ui.promptItem(perm), /Shop/);
+  // The hub page lists only prompts of sessions that own no board, so a line names when and where it was asked.
+  assert.match(ui.promptItem(perm), /<span class="muted small">just now · ~\/repo<\/span>/);
+});
+
+// docs/adr/2026-11-16-1930-a-joined-boards-prompts-show-on-the-board.md
+test("a joined board's prompt strip draws one red pause-banner row per prompt, with Allow once, Always and Deny, and an answered row fading", () => {
+  const at = new Date(NOW).toISOString();
+  const perm = { id: 'p1', cwd: '~/repo', tool: 'Bash', action: 'run npm test', detail: 'npm test <x>', rule: 'Bash(npm test)', questions: null, at };
+  const write = { id: 'p2', cwd: '~/repo', tool: 'Write', action: 'write app.html', detail: '', rule: 'Write(//r/app.html)', questions: null, at };
+  assert.equal(ui.promptStrip([]), '');
+  const strip = ui.promptStrip([perm, write]);
+  assert.match(strip, /^<ul class="prompt-strip">/);
+  const rows = strip.split('<li ').slice(1).map((row) => `<li ${row}`);
+  assert.equal(rows.length, 2, 'one row a prompt');
+  assert.match(rows[0], /^<li class="hold-banner ub-banner ub-going prompt-row" data-prompt="p1" role="alert"><svg/);
+  assert.equal(text(rows[0]), 'Orchestrator waits on you · Bash: npm test <x> Allow once Always Deny');
+  assert.match(rows[0], /<button type="button" class="btn primary" data-prompt-choice="allow">Allow once<\/button><button type="button" class="btn quiet" data-prompt-choice="always">Always<\/button><button type="button" class="btn quiet deny" data-prompt-choice="deny">Deny<\/button>/);
+  assert.equal(text(rows[1]), 'Orchestrator waits on you · Write: write app.html Allow once Always Deny', 'no detail reads its action');
+
+  const looks = (html) => [...html.matchAll(/<button[^>]*?data-prompt-choice="(\w+)"[^>]*>/g)].map(([tag, name]) => [name, / disabled aria-busy="true"/.test(tag) ? 'waits' : / disabled/.test(tag) ? 'disabled' : 'on']);
+  assert.deepEqual(looks(ui.promptStrip([perm], { state: () => ({ sending: 'allow' }) })), [['allow', 'waits'], ['always', 'disabled'], ['deny', 'disabled']]);
+  const answered = ui.promptStrip([perm, write], { answered: (p) => p.id === 'p1' });
+  assert.match(answered, /class="hold-banner ub-banner ub-going prompt-row prompt-answered" data-prompt="p1"/, 'an answered row fades out');
+  assert.deepEqual(looks(answered.split('<li ')[1]), [['allow', 'disabled'], ['always', 'disabled'], ['deny', 'disabled']]);
+  assert.doesNotMatch(answered.split('<li ')[2], /prompt-answered|disabled/);
 });
 
 test("This device's Turn on and Test wait in place of their label while they run", () => {
@@ -3320,7 +3342,7 @@ test("a New board served while its orchestrator starts: its New asks read waitin
   assert.match(banner({ stalled: true, quietSince: at(180) }), /<span class="sb-sub sb-step sb-stalled">stalled · 3m quiet<\/span><span class="sb-start-actions"><button type="button" class="sb-start-retry" data-start-retry="shop">Retry<\/button>/);
   const asking = banner({ prompt: { id: 'p1', tool: 'Bash', action: 'run kickflip doctor --fix', detail: 'kickflip doctor --fix', questions: null } });
   assert.match(asking, /^<div class="start-banner down"/, 'a prompt waiting on the owner is red');
-  assert.match(asking, /<div class="sb-prompt" role="alert" data-start-prompt="p1"><b>waiting on you · Bash: kickflip doctor --fix<\/b><div class="sb-prompt-btns"><button type="button" class="primary" data-start-answer="allow">Allow<\/button>/);
+  assert.match(asking, /<div class="sb-prompt" role="alert" data-start-prompt="p1"><b>waiting on you · Bash: kickflip doctor --fix<\/b><div class="sb-prompt-btns"><button type="button" class="primary" data-start-answer="allow">Allow once<\/button><button type="button" data-start-answer="always" data-start-rule="[^"]*">Always<\/button>/);
   const ended = banner({ failed: true, ended: true, error: 'Its session ended before it joined the hub.' });
   assert.match(ended, /^<div class="start-banner down" data-starting="shop"><span class="sb-text"><b>orchestrator didn’t start<\/b><span class="sb-sub">Its session ended before it joined the hub\.<\/span><span class="sb-start-actions"><button type="button" class="sb-start-retry" data-start-retry="shop">Retry<\/button><\/span><\/span><\/div>$/);
   assert.doesNotMatch(banner({ failed: true, error: 'x', branch: undefined }), /Retry/);
@@ -3329,7 +3351,7 @@ test("a New board served while its orchestrator starts: its New asks read waitin
 });
 
 // docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md
-test("a starting board's row shows its session's last activity, an orange stalled with Retry, a red prompt block with Allow and Deny, and an ended session's failed row", () => {
+test("a starting board's row shows its session's last activity, an orange stalled with Retry, a red prompt block with Allow once, Always and Deny, and an ended session's failed row", () => {
   const now = Date.parse('2026-11-16T22:00:00.000Z');
   const at = (seconds) => new Date(now - seconds * 1000).toISOString();
   const base = { route: 'shop', title: 'Shop', step: 'starting', stepAt: at(42), branch: 'main', failed: false };
@@ -3343,7 +3365,7 @@ test("a starting board's row shows its session's last activity, an orange stalle
   assert.doesNotMatch(row({ stalled: true, quietSince: at(180), branch: undefined }), /Retry/, 'only a New board start can run again');
 
   const asking = row({ activity: 'running kickflip doctor', prompt: { id: 'p1', tool: 'Bash', action: 'run kickflip doctor --fix', detail: 'kickflip doctor --fix <x>', questions: null } });
-  assert.match(asking, /<div class="sb-prompt" role="alert" data-start-prompt="p1"><b>waiting on you · Bash: kickflip doctor --fix &lt;x&gt;<\/b><div class="sb-prompt-btns"><button type="button" class="primary" data-start-answer="allow">Allow<\/button><button type="button" class="deny" data-start-answer="deny">Deny<\/button><\/div><\/div>/);
+  assert.match(asking, /<div class="sb-prompt" role="alert" data-start-prompt="p1"><b>waiting on you · Bash: kickflip doctor --fix &lt;x&gt;<\/b><div class="sb-prompt-btns"><button type="button" class="primary" data-start-answer="allow">Allow once<\/button><button type="button" data-start-answer="always" data-start-rule="[^"]*">Always<\/button><button type="button" class="deny" data-start-answer="deny">Deny<\/button><\/div><\/div>/);
   assert.match(row({ prompt: { id: 'p2', tool: 'mcp__x__y', action: 'use x y', detail: '', questions: null } }), /<b>waiting on you · mcp__x__y: use x y<\/b>/);
   const question = { question: 'Which <repo>?', header: '', multiSelect: false, options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] };
   assert.match(row({ prompt: { id: 'p3', tool: 'AskUserQuestion', questions: [question] } }),

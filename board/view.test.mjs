@@ -8349,7 +8349,7 @@ test("a starting row answers its session's prompt in place and retries a stalled
   const page = repoPage(true);
   const { win, doc } = page;
   const stepAt = new Date(NOW).toISOString();
-  const prompt = { id: 'p1', tool: 'Bash', action: 'run kickflip doctor --fix', detail: 'kickflip doctor --fix', questions: null };
+  const prompt = { id: 'p1', tool: 'Bash', action: 'run kickflip doctor --fix', detail: 'kickflip doctor --fix', rule: 'Bash(kickflip doctor --fix)', questions: null };
   const question = { id: 'p2', tool: 'AskUserQuestion', questions: [{ question: 'Which repo?', header: '', multiSelect: false, options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] }] };
   let data = { sites: [], starting: [{ route: 'shop', title: 'Shop', branch: 'main', step: 'starting', stepAt, failed: false, activity: 'running kickflip doctor', prompt }] };
   const posted = [];
@@ -8362,7 +8362,13 @@ test("a starting row answers its session's prompt in place and retries a stalled
   win.Sidebar.mount({ data });
   const aside = doc.getElementById('sidebar');
   const tap = (sel) => page.fire(aside, 'click', { target: aside.querySelector(sel) });
-  assert.match(aside.querySelector('.sb-prompt').textContent, /waiting on you · Bash: kickflip doctor --fix\s*Allow\s*Deny/);
+  assert.match(aside.querySelector('.sb-prompt').textContent, /waiting on you · Bash: kickflip doctor --fix\s*Allow once\s*Always\s*Deny/);
+  // Always confirms first, as the board's strip and the hub page do, naming the rule it adds.
+  const confirms = [];
+  win.BoardDialogs.confirm = async (text) => { confirms.push(text); return false; };
+  tap('[data-start-answer="always"]');
+  await tick(); await tick();
+  assert.deepEqual([confirms, posted], [['Always allow Bash(kickflip doctor --fix) for the rest of this session?'], []], 'a cancelled Always sends nothing');
   tap('[data-start-answer="allow"]');
   assert.deepEqual([aside.querySelector('[data-start-answer="allow"]').getAttribute('aria-busy'), aside.querySelector('[data-start-answer="deny"]').disabled], ['true', true]);
   assert.deepEqual(posted, [['/_hub/prompts/p1/answer', { choice: 'allow' }]]);
@@ -8387,6 +8393,38 @@ test("a starting row answers its session's prompt in place and retries a stalled
   answer({ ok: false, status: 400, text: async () => JSON.stringify({ error: 'Only a board that didn’t start can be retried.' }) });
   await tick(); await tick();
   assert.equal(aside.querySelector('.sb-start-refused').textContent, 'Only a board that didn’t start can be retried.');
+});
+
+// docs/adr/2026-11-16-1930-a-joined-boards-prompts-show-on-the-board.md
+test("a joined board's pending prompts show as a strip right under the pause banner, answered in place, an answered row fading until the board's next copy drops it", async () => {
+  const at = '2026-10-30T10:00:00.000Z';
+  const perm = { id: 'p1', cwd: '~/repo', tool: 'Bash', action: 'run kickflip doctor', detail: 'kickflip doctor', rule: 'Bash(kickflip doctor)', questions: null, at };
+  const write = { id: 'p2', cwd: '~/repo', tool: 'Write', action: 'write app.html', detail: '/r/app.html', rule: 'Write(//r/app.html)', questions: null, at };
+  const b = boardOnDom({ board: { ...boardOf([]), version: 'v1', prompts: [perm, write] }, threads: {}, confirm: true });
+  await b.settle();
+  const markup = b.root.innerHTML;
+  assert.ok(markup.indexOf('id="pauseBanner"') < markup.indexOf('id="promptStrip"') && markup.indexOf('id="promptStrip"') < markup.indexOf('id="answers"'), 'the strip sits right under the pause banner');
+  const strip = b.root.querySelector('#promptStrip');
+  const row = (id) => strip.querySelector(`li[data-prompt="${id}"]`);
+  assert.equal(strip.hidden, false);
+  assert.match(row('p1').textContent, /Orchestrator waits on you · Bash: kickflip doctor\s*Allow once\s*Always\s*Deny/);
+  assert.match(row('p2').textContent, /Write: \/r\/app\.html/);
+
+  b.page.fire(b.root, 'click', { target: row('p1').querySelector('[data-prompt-choice="allow"]') });
+  await b.settle();
+  assert.deepEqual(b.posts, [['/_hub/prompts/p1/answer', { choice: 'allow' }]]);
+  assert.match(row('p1').getAttribute('class'), /prompt-answered/, 'the answered row fades');
+  assert.doesNotMatch(row('p2').getAttribute('class'), /prompt-answered/);
+
+  b.page.fire(b.root, 'click', { target: row('p2').querySelector('[data-prompt-choice="always"]') });
+  await b.settle();
+  assert.deepEqual(b.confirms, ['Always allow Write(//r/app.html) for the rest of this session?']);
+  assert.deepEqual(b.posts.at(-1), ['/_hub/prompts/p2/answer', { choice: 'always' }]);
+
+  await b.change({ board: { ...boardOf([]), version: 'v2', prompts: [] } });
+  assert.equal(strip.hidden, true, "the board's next copy drops the answered prompts");
+  assert.equal(strip.innerHTML, '');
+  b.view.unmount();
 });
 
 // docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md

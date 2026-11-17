@@ -83,7 +83,8 @@
     ? HubUI.row({ icon: HubUI.tile('coffee', 'var(--color-quiet)'), title: 'Keep awake', sub: esc(a.unsupported), wrap: true, attrs: ' id="keep-awake"' })
     : `<form class="row field" id="keep-awake" method="post" action="/_hub/settings/keep-awake">${HubUI.tile('coffee', a.on ? 'var(--color-notice)' : 'var(--color-quiet)')}<label class="body"><span class="text"><span class="title">Keep awake</span><span class="sub wrap">${AWAKE_NOTE}</span></span><input type="checkbox" id="awake" name="keep_awake" value="on" class="toggle" data-submit${a.on ? ' checked' : ''}></label></form>`;
 
-  // Every pending prompt waits here, a board session's naming its board (prompts.js).
+  // The pending prompts of sessions that own no board wait here (prompts.js); a board session's show on its board
+  // (ui-prompts.js promptStrip).
   function promptsHtml(list, prompts) {
     const shown = list.filter(prompts.shows);
     return shown.length ? `<section class="waiting"><h2>Needs you · ${shown.length}</h2><ul>${shown.map((p) => BoardUI.promptItem(p, prompts.state(p))).join('')}</ul></section>` : '';

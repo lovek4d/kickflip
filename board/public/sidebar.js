@@ -233,7 +233,7 @@
         onClose: () => aside.querySelector('[data-new-board]')?.focus({ preventScroll: true }),
       });
     }
-    aside.addEventListener('click', (e) => {
+    aside.addEventListener('click', async (e) => {
       const refreshApp = e.target.closest?.('[data-app-reload]');
       if (refreshApp) {
         if (!refreshApp.disabled && update !== 'reloading') { setUpdate('reloading'); reload(); }
@@ -260,6 +260,7 @@
       if (answer) {
         const id = answer.closest('[data-start-prompt]').dataset.startPrompt;
         const body = answer.dataset.startOption !== undefined ? { choice: 'allow', answers: { [answer.dataset.startQuestion]: answer.dataset.startOption } } : { choice: answer.dataset.startAnswer };
+        if (body.choice === 'always' && !(await BoardDialogs.confirm(`Always allow ${answer.dataset.startRule} for the rest of this session?`))) return;
         startTap(answer, `/_hub/prompts/${encodeURIComponent(id)}/answer`, body);
         return;
       }

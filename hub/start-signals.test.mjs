@@ -65,7 +65,7 @@ test('a live starting session shows its last activity, reads stalled after three
   assert.deepEqual([quiet.failed, quiet.stalled, quiet.quietSince], [false, true, iso(NOW - STALL_AFTER)]);
   const asking = row({ running, activity: { at: NOW - STALL_AFTER, text: 'running kickflip doctor' }, prompt });
   assert.equal(asking.stalled, undefined);
-  assert.deepEqual(asking.prompt, { id: 'p1', board: null, title: '~/x', cwd: '~/.claude/kickflip/repos/owner/my_project', tool: 'Bash', action: 'run kickflip doctor --fix', detail: 'kickflip doctor --fix', rule: 'Bash(kickflip doctor --fix)', questions: null, at: prompt.at });
+  assert.deepEqual(asking.prompt, { id: 'p1', title: '~/x', cwd: '~/.claude/kickflip/repos/owner/my_project', tool: 'Bash', action: 'run kickflip doctor --fix', detail: 'kickflip doctor --fix', rule: 'Bash(kickflip doctor --fix)', questions: null, at: prompt.at });
   assert.equal(row({ running, activity: null }).stalled, undefined, 'with no transcript found only the 15-minute limit applies');
   assert.deepEqual([row({ running, activity: null, prompt }).prompt?.id, row({ running, activity: null, prompt }).activity], ['p1', undefined], 'a prompt shows with no transcript found');
   assert.equal(row({ running, activity: { at: NOW - STALL_AFTER - 1, text: 'x' } }, { since: iso(NOW - 60_000) }).stalled, undefined, 'quiet counts from the start at the earliest');

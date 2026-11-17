@@ -227,7 +227,8 @@
     return `${s.step === 'cloning' ? `cloning (${s.percent || 0}%)` : s.activity || START_STEPS[s.step]} · ${seconds}s`;
   }
   // What follows a starting row's caption: Retry on a stalled New board start, or the red block of the prompt its
-  // session waits on (hub/prompts.mjs shown), answered in place (sidebar.js): Allow and Deny, a single one-pick question's
+  // session waits on (hub/prompts.mjs shown), answered in place (sidebar.js): Allow once, Always and Deny, as a joined
+  // board's strip has (ui-prompts.js promptStrip), a single one-pick question's
   // options and Skip, or a link to the hub page for a question that takes more.
   function startExtra(s) {
     if (s.stalled) return s.branch ? `<span class="sb-start-actions"><button type="button" class="sb-start-retry" data-start-retry="${esc(s.route)}">Retry</button></span>` : '';
@@ -235,7 +236,7 @@
     if (!p) return '';
     const q = p.questions?.[0];
     const asks = q ? `asks: ${q.question}` : `${p.tool}: ${p.detail || p.action}`;
-    const buttons = !q ? '<button type="button" class="primary" data-start-answer="allow">Allow</button><button type="button" class="deny" data-start-answer="deny">Deny</button>'
+    const buttons = !q ? `<button type="button" class="primary" data-start-answer="allow">Allow once</button><button type="button" data-start-answer="always" data-start-rule="${esc(p.rule)}">Always</button><button type="button" class="deny" data-start-answer="deny">Deny</button>`
       : p.questions.length === 1 && !q.multiSelect ? `${q.options.map((o) => `<button type="button" data-start-question="${esc(q.question)}" data-start-option="${esc(o.label)}">${esc(o.label)}</button>`).join('')}<button type="button" class="deny" data-start-answer="deny">Skip</button>`
         : '<a href="/_hub/">Answer on the hub page</a>';
     return `<div class="sb-prompt" role="alert" data-start-prompt="${esc(p.id)}"><b>waiting on you · ${esc(asks)}</b><div class="sb-prompt-btns">${buttons}</div></div>`;

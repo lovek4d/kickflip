@@ -62,6 +62,7 @@ BoardView.part((B) => {
     const url = prompt ? `/_hub/prompts/${encodeURIComponent(prompt.dataset.startPrompt)}/answer` : `/_hub/new-board/${encodeURIComponent(button.dataset.startRetry)}/retry`;
     const body = button.dataset.startOption !== undefined ? { choice: 'allow', answers: { [button.dataset.startQuestion]: button.dataset.startOption } }
       : prompt ? { choice: button.dataset.startAnswer } : {};
+    if (body.choice === 'always' && !(await BoardDialogs.confirm(`Always allow ${button.dataset.startRule} for the rest of this session?`))) return;
     try {
       const response = await BoardUI.waitOn(button, fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), { group: $('#startBanner').querySelectorAll('button') });
       if (!response.ok && response.status !== 404 && response.status !== 409) {

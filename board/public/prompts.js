@@ -1,4 +1,5 @@
-// Answering pending prompts from their Needs you lines (ui-prompts.js promptItem) on the hub page,
+// Answering pending prompts from their Needs you lines (ui-prompts.js promptItem) on the hub page and their rows in a
+// board's prompt strip (ui-prompts.js promptStrip),
 // through the hub's POST /_hub/prompts/<id>/answer (docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md).
 // Allow once, Deny, Skip and a single question's option send on the tap. Always allow confirms first, naming its rule,
 // since it covers every later call like it until the session ends. Several questions, or one taking several picks,

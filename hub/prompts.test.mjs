@@ -45,13 +45,12 @@ const kept = (inputs, choice = 'always') => {
   return store;
 };
 
-// docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md
-test("every pending prompt is answered on the hub page: a board session's push opens the hub, and the page names its board", () => {
+// docs/adr/2026-11-16-1930-a-joined-boards-prompts-show-on-the-board.md
+test("a board session's prompt push opens its board, and a prompt of a session that owns no board opens the hub page", () => {
   const ours = promptRecord(bash('npm test'), { board, live });
   const nobody = promptRecord({ ...bash('ls'), session_id: 's-nobody', cwd: path.join(home, 'work') }, { board: null, live });
-  assert.deepEqual([pushOf(ours).url, pushOf(nobody).url], ['/_hub/', '/_hub/']);
+  assert.deepEqual([pushOf(ours).url, pushOf(nobody).url], ['/shop/', '/_hub/']);
   assert.equal(pushOf(ours).body, 'npm test');
-  assert.deepEqual([shown(ours).board, shown(nobody).board], ['Shop', null]);
 });
 
 test('remembered rules persist by session and match only the exact command, path, domain or bare tool', () => {
@@ -490,7 +489,8 @@ test('a remembered match bypasses prompts and push, survives a hub restart, and 
   const data = async () => (await (await fetch(`${base}/_hub/api/hub`)).json());
   const queue = () => JSON.parse(fs.readFileSync(web('push', 'queue.json'), 'utf8')).items;
   const first = await post(bash('npm test'));
-  assert.deepEqual((await data()).prompts.map((x) => [x.id, x.board]), [[first.id, 'Shop']], "the hub page lists a board session's prompt, naming its board");
+  assert.deepEqual((await data()).prompts, [], "the hub page leaves a board session's prompt to its board");
+  assert.deepEqual((await (await fetch(`${base}/shop/api/board`)).json()).prompts.map((x) => [x.id, x.tool, x.detail]), [[first.id, 'Bash', 'npm test']], 'its board lists it');
   assert.equal((await answer(first.id, { choice: 'always' })).status, 200);
   const wait = await (await fetch(`${base}/_hub/prompts/${first.id}/wait`)).json();
   assert.equal(wait.answer.choice, 'always');

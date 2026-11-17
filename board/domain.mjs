@@ -1623,7 +1623,8 @@ export function buildBoard(snapshot) {
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
-// A built board with the hub's side added: prompts, this board's pending prompts (../hub/prompts.mjs shown), lead Needs
+// A built board with the hub's side added: prompts, this board's pending prompts (../hub/prompts.mjs shown), which the
+// page's prompt strip draws (docs/adr/2026-11-16-1930-a-joined-boards-prompts-show-on-the-board.md) and which lead Needs
 // you, and listen (hub/boards.mjs listenState) names the watcher's state. buildBoard adds its snapshot's; the server
 // adds them to the build it shares, so the hub's state, which changes outside the board's data, is read each time.
 // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: a listen state that isn't listening
@@ -1640,12 +1641,12 @@ const ASK_WAITS = ({ since, ...ask }) => ({ ...ask, state: ask.state === 'workin
 // the hub serves before its orchestrator joins; its watcher reads starting, and each New ask waiting reads starting,
 // which the New strip words "waiting for the orchestrator".
 const ASK_STARTS = (ask) => (ask.state === 'waiting' ? { ...ask, state: 'starting' } : ask);
-export function withHub(built, { listen, busy, prompts, now = Date.now() } = {}) {
+export function withHub(built, { listen, busy, prompts = [], now = Date.now() } = {}) {
   const needs = [...promptLines(prompts), ...built.needs];
   const waited = notListening(listen, busy) ? built.items.map((it) => (it.working || it.ask?.state === 'working' ? { ...it, working: false, ...(it.ask ? { ask: ASK_WAITS(it.ask) } : {}) } : it)) : built.items;
   const items = listen === 'starting' ? waited.map((it) => (it.ask ? { ...it, ask: ASK_STARTS(it.ask) } : it)) : waited;
   const boardAsks = notListening(listen, busy) ? built.boardAsks.map(ASK_WAITS) : built.boardAsks;
-  return { ...built, items, boardAsks, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking', starting: 'starting' }[listen] || 'stopped', requested: requestedAt(built.checks.requested, now) } };
+  return { ...built, items, boardAsks, prompts, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking', starting: 'starting' }[listen] || 'stopped', requested: requestedAt(built.checks.requested, now) } };
 }
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
@@ -1743,7 +1744,7 @@ function needsOf(items, topics, questions) {
   return [...fromItems, ...fromTopics.sort(oldestFirst)];
 }
 // The ? page's queue and its count, one list: each Needs you line that waits on the owner on that page, in Needs you's
-// order (oldest first), a held review after the cards and a prompt left out, which shows on the hub page
+// order (oldest first), a held review after the cards and a prompt left out, which shows in the board's prompt strip
 // (docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md,
 // docs/adr/2026-11-15-1200-waiting-on-you-is-one-list-of-rows-opening-the-questions-sheet.md). Every entry has kind; a
 // question is its topic's id and since, a tap its key, title, since, word (what the owner does) and label (its action's

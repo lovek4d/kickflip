@@ -899,7 +899,7 @@ test("a board session's permission prompt pushes to the hub page, counts in that
   const waiting = await (await fetch(`${base}/_hub/needs.json?fresh=1`)).json();
   assert.equal(waiting.total, waiting.sites.orch.count + waiting.sites.shop.count);
   assert.ok(waiting.sites.orch.count >= 1);
-  assert.deepEqual(pushes().find((x) => x.tag === `prompt-${prompt.id}`), { title: 'Orch wants to run npm test', url: '/_hub/', tag: `prompt-${prompt.id}` });
+  assert.deepEqual(pushes().find((x) => x.tag === `prompt-${prompt.id}`), { title: 'Orch wants to run npm test', url: '/orch/', tag: `prompt-${prompt.id}` });
 
   const r = await fetch(`${base}/_hub/prompts/${prompt.id}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ choice: 'always' }) });
   assert.equal(r.status, 200);

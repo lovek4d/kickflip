@@ -553,6 +553,7 @@ window.BoardView = (function () {
 ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="startBanner" class="start-banner-slot" aria-live="polite" hidden></section>
   <section id="pauseBanner" class="hub-view" hidden></section>
+  <section id="promptStrip" class="hub-view" aria-label="Prompts waiting on you" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
   <div id="tryMain"></div>
   <section id="newStrip" class="new-strip" aria-label="New" hidden></section>
