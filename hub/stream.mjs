@@ -3,7 +3,7 @@
 // api/stream (docs/adr/2026-10-29-1639-the-board-reloads-on-a-change-signal.md) and passes each change on as
 // `event: change` with data {route}. A board whose stream comes back, such as after a restart, gets one change too,
 // since it may have changed while its stream was down. `event: sidebar` carries what /_hub/sidebar.json would answer
-// whenever that differs from the last one sent: after a board's change, and on a timer for what no stream reports,
+// whenever that differs from the last one sent: after a board's change, and on the hub's 15 s clock for what no stream reports,
 // such as a site going down or a page's waiting count; and when a board's data/watcher.json is written or removed, since
 // a session's watcher starting or exiting is what the sidebar's listening word follows (boards.mjs listenState); a write that only moves its checks counter wakes nothing. A
 // shared person's page (hub/share.mjs) gets only their boards' changes and their own view of each sidebar.
@@ -13,8 +13,9 @@ import path from 'node:path';
 
 // targets() → [{route, port}], the boards to hold; sidebar({fresh}) → the sidebar data, fresh naming the routes whose
 // waiting counts to refetch; watched() → [{route, dir}], the boards whose data/watcher.json to watch; watch is fs.watch, which a test replaces.
-// → {handle(req, res, viewer), close(), changed(route), refresh()}; viewer is null for the owner, or {routes: Set, view(sidebar data) → data}
-export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000, sidebarMs = 15_000, pingMs = 25_000, settleMs = 300, watch = fs.watch, log = () => {} }) {
+// → {handle(req, res, viewer), close(), changed(route), refresh(), reconcile()}; the hub's 15 s clock runs refresh() and reconcile()
+// (shared/polls.mjs), and the stream's own timer is the ping; viewer is null for the owner, or {routes: Set, view(sidebar data) → data}
+export function hubStream({ targets, watched = () => [], sidebar, pingMs = 25_000, settleMs = 300, watch = fs.watch, log = () => {} }) {
   const clients = new Map(); // res → viewer
   const upstreams = new Map(); // route → {port, req}
   const watchers = new Map(); // dir → fs.FSWatcher on dir/data
@@ -129,11 +130,7 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
   function startHolding() {
     reconcile();
     watchWatchers();
-    timers = [
-      setInterval(() => { reconcile(); watchWatchers(); }, retryMs), // poll: stream-reconnect
-      setInterval(() => refreshSidebar(), sidebarMs), // poll: sidebar-refresh
-      setInterval(() => write(': ping\n\n'), pingMs), // poll: stream-ping
-    ];
+    timers = [setInterval(() => write(': ping\n\n'), pingMs)]; // poll: stream-ping
   }
   function stopHolding() {
     for (const t of timers) clearInterval(t);
@@ -172,10 +169,11 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
   }
 
   // changed(route) passes on a change the board's own stream can't see, such as a pending prompt; refresh() resends
-  // the sidebar when it differs.
+  // the sidebar when it differs; reconcile() reconnects a board stream that dropped and watches each board's watcher file.
   return {
     handle, close,
     changed: (route) => { if (clients.size) changed(route); },
+    reconcile: () => { if (clients.size) { reconcile(); watchWatchers(); } },
     refresh: () => { if (clients.size) refreshSidebar(); },
   };
 }

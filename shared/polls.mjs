@@ -48,7 +48,7 @@ export const POLLS = Object.freeze([
     every: MINUTE, cadence: PRESENCE, runs: 'Hub', where: 'hub/hub.mjs' },
 
   // Sessions and prompts
-  { id: 'reconcile', group: 'sessions', name: 'Reconcile', what: 'The hub’s process supervisor: starts, stops and restarts board servers (crashed, removed or changed), and ends a shared page whose share was taken away.',
+  { id: 'reconcile', group: 'sessions', name: 'Reconcile', what: 'The hub’s process supervisor: starts, stops and restarts board servers (crashed, removed or changed), ends a shared page whose share was taken away, and reconnects the hub to a board’s change stream that dropped and watches each board’s watcher file, while a page is open.',
     ...on('quarter', 1), runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'hung-check', group: 'sessions', name: 'Hung boards', what: 'Restarts a board server that hasn’t answered for a minute, and pushes you if it still hasn’t 2 minutes on.',
     ...on('quarter', 1), runs: 'Hub', where: 'hub/hub.mjs' },
@@ -105,13 +105,11 @@ export const POLLS = Object.freeze([
 
   // Pages
   { id: 'start-steps', group: 'pages', name: 'Start-step ticker', what: 'Counts up a starting board’s steps in the sidebar, only while one starts.', every: SECOND, runs: 'Each open page', where: 'board/public/sidebar.js' },
-  { id: 'stream-reconnect', group: 'pages', name: 'Board streams', what: 'Reconnects the hub to a board’s change stream that dropped, and watches each board’s watcher file, while a page is open.',
-    every: 2 * SECOND, runs: 'Hub', where: 'hub/stream.mjs' },
   { id: 'run-log', group: 'pages', name: 'Run log', what: 'Reads a run’s log again while it’s open and the run hasn’t finished.', every: 3 * SECOND, runs: 'Each open page', where: 'board/public/app-reader.js' },
   { id: 'log-page', group: 'pages', name: 'Log page', what: 'Reads a site’s log again while the log page is open.', every: 3 * SECOND, runs: 'Each open page', where: 'board/public/log.html' },
   { id: 'page-tick', group: 'pages', name: 'Page timer', what: 'One timer per open page repaints the header’s “updated” line every 15 s, and every 30 s the “thinking…” counts, the waits sheet’s ages and the hub page’s refresh.', every: 15 * SECOND, runs: 'Each open page', where: 'board/public/app.js' },
   { id: 'down-check', group: 'pages', name: 'Down-check, stream down', what: 'Reloads the board, and Waiting on you, only while the page’s stream is down: one check on the page timer.', every: 15 * SECOND, runs: 'Each open page', where: 'board/public/app.js' },
-  { id: 'sidebar-refresh', group: 'pages', name: 'Sidebar refresh', what: 'Sends open pages the board list again.', every: 15 * SECOND, runs: 'Hub', where: 'hub/stream.mjs' },
+  { id: 'sidebar-refresh', group: 'pages', name: 'Sidebar refresh', what: 'Sends open pages the board list again.', ...on('quarter', 1), runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'stream-ping', group: 'pages', name: 'Hub stream ping', what: 'Keeps Tailscale Serve from idling an open page’s stream out.', every: 25 * SECOND, runs: 'Hub', where: 'hub/stream.mjs' },
 
   // Back-offs, not polls

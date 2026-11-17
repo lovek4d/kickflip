@@ -138,7 +138,7 @@ test("a board's change reaches /_hub/stream as change {route} with the sidebar's
   let board = await fakeBoard();
   const port = board.port;
   let waiting = 0;
-  const relay = hubStream({ targets: () => [{ route: 'ios', port }], sidebar: async ({ fresh }) => ({ waiting, fresh: [...fresh] }), retryMs: 30, settleMs: 10 });
+  const relay = hubStream({ targets: () => [{ route: 'ios', port }], sidebar: async ({ fresh }) => ({ waiting, fresh: [...fresh] }), settleMs: 10 });
   const hub = http.createServer((req, res) => relay.handle(req, res));
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const page = listen(hub.address().port);
@@ -155,11 +155,11 @@ test("a board's change reaches /_hub/stream as change {route} with the sidebar's
 
     await board.stop();
     board = await fakeBoard(port);
-    // The hub's retry finds the board's stream gone and connects again: tick it until the restarted board has a stream.
+    // The hub's reconcile, which its clock runs, finds the board's stream gone and connects again: run it until the restarted board has a stream.
     let reconnected = false;
     board.streams(1).then(() => { reconnected = true; });
     while (!reconnected) {
-      t.mock.timers.tick(30);
+      relay.reconcile();
       await new Promise((resolve) => setImmediate(resolve));
     }
     await page.waitFor((events) => events.filter((e) => e.type === 'change').length === 2);
@@ -186,7 +186,7 @@ test("a watcher file written or removed in a board's data folder sends the sideb
   let asked = 0;
   const watch = (folder, onEvent) => { watching.push({ folder, onEvent }); return { on() {}, close() {} }; };
   let listening = false;
-  const relay = hubStream({ targets: () => [], watched: () => [{ route: 'ios', dir }], watch, sidebar: async () => { asked += 1; return { listening }; }, retryMs: 30, settleMs: 10, sidebarMs: 60_000 });
+  const relay = hubStream({ targets: () => [], watched: () => [{ route: 'ios', dir }], watch, sidebar: async () => { asked += 1; return { listening }; }, settleMs: 10 });
   const hub = http.createServer((req, res) => relay.handle(req, res));
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const page = listen(hub.address().port);
@@ -220,7 +220,7 @@ test("a shared person's stream carries only their boards' changes and their view
   const ios = await fakeBoard();
   const web = await fakeBoard();
   let waiting = 0;
-  const relay = hubStream({ targets: () => [{ route: 'ios', port: ios.port }, { route: 'web', port: web.port }], sidebar: async () => ({ waiting, routes: ['ios', 'web'] }), retryMs: 30, settleMs: 10 });
+  const relay = hubStream({ targets: () => [{ route: 'ios', port: ios.port }, { route: 'web', port: web.port }], sidebar: async () => ({ waiting, routes: ['ios', 'web'] }), settleMs: 10 });
   const hub = http.createServer((req, res) => relay.handle(req, res, req.url.endsWith('?shared') ? { routes: new Set(['web']), view: (data) => ({ routes: data.routes.filter((r) => r === 'web') }) } : null));
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const owner = listen(hub.address().port);

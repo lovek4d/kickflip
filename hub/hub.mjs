@@ -1842,7 +1842,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   // The hub's clock (shared/polls.mjs CLOCKS): each job runs every so many ticks of its clock, as its registry
   // entry says (docs/adr/2026-11-17-0330-every-poll-is-in-one-registry-and-the-hub-runs-on-two-clocks.md).
   const jobs = {
-    reconcile: reconcileLogged, // poll: reconcile
+    reconcile: () => { reconcileLogged(); stream.reconcile(); }, // poll: reconcile
+    'sidebar-refresh': () => stream.refresh(), // poll: sidebar-refresh
     tick, // poll: tick
     'hung-check': () => checkHung().catch((e) => log('hung check failed:', e.message)), // poll: hung-check
     'self-restart': () => (codeRestarts ? track(selfRestart.check()).catch((e) => log('self-restart check failed:', e.message)) : null), // poll: self-restart
