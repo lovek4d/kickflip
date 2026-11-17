@@ -385,7 +385,7 @@
   // A card waiting on its owner step has the owner's Done at its top right, before its "…": a check icon that confirms,
   // then sends card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
   const CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
-  const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep || `published ${it.release.version}`}`)}">${CHECK}</button>`;
+  const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep || `published ${it.release.version}`}`)}"${it.sending?.includes('finish') ? BoardUI.BUSY : ''}>${CHECK}</button>`;
 
   // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
   // A card's links, both ways (domain.mjs linkCards): its Parent and Children, which carry follow-ups, its Related to,
@@ -416,7 +416,7 @@
   const LINK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
   const linkedItem = (key, depth, label) => `<button type="button" role="menuitem" data-linked="${esc(key)}" data-depth="${depth}">${LINK}<span>${label}</span></button>`;
   function cardMenu(it) {
-    const bump = it.bumpable ? cardBumpItem(it.key, Boolean(it.bumpedAt)) : '';
+    const bump = it.bumpable ? cardBumpItem(it.key, Boolean(it.bumpedAt), it.sending?.includes('bump')) : '';
     const linked = hasLinks(it) ? linkedItem(it.key, 'hop', 'Linked · 1 hop') + linkedItem(it.key, 'all', 'Linked · all') : '';
     return [bump, linked].filter(Boolean).join('<div class="sep" role="separator"></div>');
   }

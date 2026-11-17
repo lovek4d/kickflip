@@ -3793,7 +3793,8 @@ test("a message the board never recorded survives a reload: the page shows it as
   b.view.unmount();
 });
 
-test("a tapped Implement draws as Cancel while its send is in the outbox, so a second tap can't send it again", async () => {
+// docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md
+test("a tapped Implement waits, disabled, while its send is in the outbox, so a second tap can't send it again", async () => {
   const sends = heldSends();
   const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
   await b.settle();
@@ -3802,7 +3803,8 @@ test("a tapped Implement draws as Cancel while its send is in the outbox, so a s
   assert.equal(second(), 'Implement');
   b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-intent="build"]') });
   await b.settle();
-  assert.equal(second(), 'Cancel');
+  assert.equal(second(), 'Implement');
+  assert.deepEqual(waitState(form().querySelector('button[data-intent="build"]')), [true, false, 'true']);
   assert.equal(sentNoIds(b).filter(([, d]) => d.intent === 'build').length, 1);
   b.view.unmount();
 });
@@ -3824,7 +3826,7 @@ test("a reply-box tap carries the version of the card it was drawn on, and one t
 });
 
 // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
-test("Implement shows its line at once and its button turns to Cancel at the tap: an empty box's line reads Marked as staged · sending…, and the board's line, matched by sendId, takes its place; with text the message's footer reads Implement · sending…", async () => {
+test("Implement shows its line at once and its button waits, disabled, from the tap: an empty box's line reads Marked as staged · sending…, and the board's line, matched by sendId, takes its place; with text the message's footer reads Implement · sending…", async () => {
   const sends = heldSends();
   const b = boardOnDom({ open: ['w/T1', 'w/T2'], board: boardOf([workCard('T1'), workCard('T2')]), threads: { 'w/T1': [], 'w/T2': [] }, send: sends.send });
   await b.settle();
@@ -3832,10 +3834,10 @@ test("Implement shows its line at once and its button turns to Cancel at the tap
   const implement = (key) => form(key).querySelector('button[data-intent="build"]');
   const tap = async (key, text) => { form(key).querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form(key), submitter: implement(key) }); await b.settle(); };
   await tap('w/T1', 'Use the blue');
-  assert.deepEqual([form('w/T1').querySelector('textarea').value, threadLines(b, 'w/T1'), implement('w/T1')], ['', ['Use the blue (Implement · sending…)'], null]);
+  assert.deepEqual([form('w/T1').querySelector('textarea').value, threadLines(b, 'w/T1'), waitState(implement('w/T1'))], ['', ['Use the blue (Implement · sending…)'], [true, false, 'true']]);
   assert.equal(b.sent[0][1].intent, 'build');
   await tap('w/T2', '');
-  assert.deepEqual([threadLines(b, 'w/T2'), implement('w/T2')], [['Marked as staged · sending…'], null]);
+  assert.deepEqual([threadLines(b, 'w/T2'), waitState(implement('w/T2'))], [['Marked as staged · sending…'], [true, false, 'true']]);
   const sendId = b.sent.at(-1)[1].sendId;
   b.server.threads['w/T2'] = [{ ts: '2026-10-30T10:06:00.000Z', who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staged', text: 'Marked as staged', sendId }];
   sends.answer();
@@ -4393,7 +4395,8 @@ test("waitOn on a toggle, select or field keeps its face, disabled, with a spinn
 });
 
 // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md
-test("a bump or unbump goes through the outbox: its icon flips at once, never waiting, and its row reads sending… in the New strip until the POST's board moves the card with no reload of its own; a refusal reads not sent with Retry and X, and X puts the icon back", async () => {
+// docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md
+test("a bump or unbump goes through the outbox: its menu item waits and the card keeps its icon and place, and its row reads sending… in the New strip until the POST's board moves the card with no reload of its own; a refusal reads not sent with Retry and X, and brings the menu item back", async () => {
   const T1 = workCard('T1', { bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z', sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
   const T2 = workCard('T2', { bumpable: true, sortAt: '2026-10-03T00:00:00.000Z', order: 1 });
   const T3 = workCard('T3', { bumpable: true, sortAt: '2026-10-02T00:00:00.000Z', order: 2 });
@@ -4408,7 +4411,9 @@ test("a bump or unbump goes through the outbox: its icon flips at once, never wa
 
   b.page.fire(b.root, 'click', { target: bumpItem(b, 'w/T3') });
   await b.settle();
-  assert.deepEqual([waitState(icon('w/T3')), icon('w/T3').classList.contains('bumped'), rows()], [IDLE, true, ['Moved T3 to the top · sending…']]);
+  assert.deepEqual([order(), icon('w/T3').classList.contains('bumped'), rows()], [['w/T1', 'w/T2', 'w/T3'], false, ['Moved T3 to the top · sending…']]);
+  assert.deepEqual(waitState(bumpItem(b, 'w/T3')), [true, false, 'true']);
+  b.page.fire(b.root, 'click', { target: icon('w/T3') });
   const loads = boardGets(b);
   b.server.board = boardOf([{ ...T3, bumpedAt: '2026-10-30T10:00:00.000Z' }, T1, T2]);
   sends.answer();
@@ -4418,10 +4423,12 @@ test("a bump or unbump goes through the outbox: its icon flips at once, never wa
 
   b.page.fire(b.root, 'click', { target: bumpItem(b, 'w/T1') });
   await b.settle();
-  assert.deepEqual([waitState(icon('w/T1')), icon('w/T1').classList.contains('bumped')], [IDLE, false]);
+  assert.deepEqual([waitState(icon('w/T1')), icon('w/T1').classList.contains('bumped')], [IDLE, true]);
   sends.answer(false, 'Couldn’t write the event: the board folder is read-only.');
   await b.settle();
-  assert.deepEqual([order(), icon('w/T1').classList.contains('bumped'), rows()], [['w/T3', 'w/T1', 'w/T2'], false, ['Unbumped T1 · not sent']]);
+  assert.deepEqual([order(), icon('w/T1').classList.contains('bumped'), rows()], [['w/T3', 'w/T1', 'w/T2'], true, ['Unbumped T1 · not sent']]);
+  assert.deepEqual(waitState(bumpItem(b, 'w/T1')), IDLE, 'a send that failed brings the menu item back');
+  b.page.fire(b.root, 'click', { target: icon('w/T1') });
   assert.match(b.root.textContent, /Couldn’t write the event: the board folder is read-only\./);
   b.page.fire(b.root, 'click', { target: b.root.querySelector('#newStrip button[data-unsend]') });
   await b.settle();
@@ -4605,7 +4612,7 @@ test("deleting an ask from the New strip is one events POST through the outbox: 
 
 // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md: each tap on a card's face or action row, the
 // card it sits on, the event it sends, and its line while unsent: a card tap's in its thread, a bump's in the New strip.
-// Done, which moves its card at the tap, is the reply box test's.
+// Each one's button waiting while it sends is SENDING_TAPS's.
 const HOLD_CHOICES = [{ value: '1h', label: '1h', ms: 3_600_000 }];
 const CARD_TAPS = [
   { name: 'Unblock', card: workCard('H1', { ownerBlock: { until: null }, holdable: true }), act: 'resume', kind: 'card-hold', line: 'Unblocked' },
@@ -4643,6 +4650,54 @@ for (const row of CARD_TAPS) {
     b.view.unmount();
   });
 }
+
+// docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md: every card button that sends is
+// disabled with the spinner in its label's place (ui.js BUSY) while its tap is in the outbox, the card stays in its lane,
+// open as it was, and the Action needed that tap resolves clears at once; a refused tap (409) brings both back.
+const CLOSE = { kind: 'close', url: '#selectedCard=w%2FR1', label: 'Done' };
+const SENDING_TAPS = [
+  { name: "the thread box's Done", card: workCard('R1', { lane: 'review', finishable: true, action: CLOSE, resolvedBy: 'done', awaitsDone: true }), button: 'form[data-reply] [data-confirm="finish"]', submit: true, clears: true },
+  { name: "the ticket actions' Done", card: workCard('R1', { lane: 'review', finishable: true, action: CLOSE, resolvedBy: 'done', awaitsDone: true }), button: '.detail .actions [data-confirm="finish"]', clears: true },
+  { name: 'the owner check', card: workCard('R1', { lane: 'review', finishable: true, ownerStep: 'Deploy it', action: CLOSE, resolvedBy: 'done', awaitsDone: true }), button: '.owner-done', clears: true },
+  { name: 'Implement', card: workCard('T1', { action: { kind: 'implement', url: '#selectedCard=w%2FT1', label: 'Implement' }, resolvedBy: 'implement' }), button: 'form[data-reply] [data-intent="build"]', submit: true, clears: true },
+  { name: 'Cancel', card: workCard('S1', { staging: true }), button: 'form[data-reply] [data-confirm="cancel"]', submit: true },
+  { name: 'Block', card: workCard('P1', { lane: 'progress', holdable: true }), button: 'form[data-reply] [data-confirm="hold"]', submit: true, sheet: true },
+  { name: 'Unblock', card: workCard('H1', { lane: 'progress', holdable: true, ownerBlock: { until: null }, blocked: true }), button: '.detail .actions [data-confirm="resume"]' },
+  { name: 'Reopen', card: workCard('D1', { lane: 'done' }), button: 'form[data-reply] [data-confirm="reopen"]', submit: true },
+  { name: 'Merge', card: workCard('M1', { lane: 'review', action: { kind: 'merge', url: '#selectedCard=w%2FM1', label: 'Merge' }, resolvedBy: 'merge' }), button: '[data-confirm="merge"]', clears: true },
+  { name: 'Bump', card: workCard('B1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 1 }), bump: true },
+  ...[['Prototype', 'proto'], ['Grill', 'grill'], ['Visual', 'visual'], ['Review', 'review']].map(([name, attr]) => ({ name, card: workCard('A1'), button: `form[data-reply] button[data-${attr}]` })),
+];
+const PENDING = [true, false, 'true'];
+for (const row of SENDING_TAPS) {
+  test(`${row.name} spins disabled while its tap sends, its card staying in its lane${row.clears ? ' with its Action needed cleared' : ''}, and a refused tap (409) brings the button back`, async () => {
+    let refuse;
+    const send = () => new Promise((resolve, reject) => { refuse = () => reject(Object.assign(new Error('send failed: 409'), { status: 409, reason: 'It moved on.' })); });
+    const other = workCard('Z9', { lane: row.card.lane, bumpable: true, sortAt: '2026-09-01T00:00:00.000Z', order: 0 });
+    const cards = [other, row.card];
+    const b = boardOnDom({ open: [row.card.key], board: { ...boardOf(cards), holdChoices: HOLD_CHOICES }, threads: { [row.card.key]: [] }, send, confirm: true });
+    await b.settle();
+    const card = () => b.root.querySelector(`details.item[data-key="${row.card.key}"]`);
+    const button = () => (row.bump ? bumpItem(b, row.card.key) : card().querySelector(row.button));
+    const face = () => [card().closest('.lane').dataset.lane, card().open, b.root.querySelectorAll('details.item').map((el) => el.dataset.key), Boolean(card().querySelector('.card-action'))];
+    const before = face();
+    assert.deepEqual(waitState(button()), IDLE);
+    const tapped = button();
+    if (row.submit) b.page.fire(b.root, 'submit', { target: tapped.closest('form'), submitter: tapped });
+    else b.page.fire(b.root, 'click', { target: tapped });
+    if (row.sheet) b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
+    await b.settle();
+    assert.equal(b.sent.length, 1);
+    assert.deepEqual(waitState(button()), PENDING, 'the button spins, disabled');
+    assert.deepEqual(face(), [...before.slice(0, 3), row.clears ? false : before[3]], 'the card keeps its lane, open state and place');
+    refuse();
+    await b.settle();
+    assert.deepEqual(waitState(button()), IDLE, 'a refused tap brings the button back');
+    assert.deepEqual(face(), before);
+    b.view.unmount();
+  });
+}
+
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
 test("a Merge tap spins until a board shows the card left In Review or the merge refused, with no idle Merge in between, even when a reload races the POST", async () => {
@@ -5257,7 +5312,7 @@ test("a lane or card opening or shutting by a tap leaves its title where it was,
   assert.equal(top(box()), boxAt);
 });
 
-test("Done closes the card and holds the card still on screen as the card moves to Done, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves flashes once, and a card another hand updates takes the tint in its place", async () => {
+test("Done closes the card as the board moves it to Done and holds the cards still on screen, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves flashes once, and a card another hand updates takes the tint in its place", async () => {
   const board = boardOf([askCard('b1', 'progress'), { ...askCard('a1', 'review'), finishable: true }, workCard('C1')]);
   const b = boardOnDom({ open: ['w/a1'], board, threads: {}, confirm: true });
   await b.settle();
@@ -5282,8 +5337,9 @@ test("Done closes the card and holds the card still on screen as the card moves 
   board.items[1] = { ...board.items[1], lane: 'done', finishable: false };
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
+  // The tap's thread line grows the open card first, and the move then holds the cards that kept their lane still.
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-84]]);
+    ['done', false, '[]', [-100]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
@@ -5322,26 +5378,6 @@ test("Done tapped with the card's thread field focused moves the card to Done cl
   await b.settle();
   await b.change({ board });
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems')], ['done', false, '[]']);
-});
-
-// docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md
-test("a Done tapped in a card's thread closes the card and moves it to Done before the server answers, and a refusal (409) puts it back in its lane", async () => {
-  const pending = [];
-  const send = () => new Promise((resolve, reject) => pending.push({ resolve, reject }));
-  const board = boardOf([{ ...askCard('a1', 'review'), finishable: true }, workCard('C1')]);
-  const b = boardOnDom({ open: ['w/a1'], board, threads: {}, confirm: true, send });
-  await b.settle();
-  layOut(b);
-  const card = () => b.root.querySelector('details.item[data-key="w/a1"]');
-  const face = () => [card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems')];
-  b.page.fire(b.root, 'click', { target: card().querySelector('form[data-reply="w/a1"] [data-confirm="finish"]') });
-  await b.settle();
-  assert.equal(pending.length, 1, 'the server has not answered');
-  assert.deepEqual(face(), ['done', false, '[]']);
-  pending[0].reject(Object.assign(new Error('send failed: 409'), { status: 409, reason: 'moved' }));
-  await b.settle();
-  assert.equal(card().closest('details.lane').dataset.lane, 'review', 'a refused Done leaves the card where it was');
-  b.view.unmount();
 });
 
 // docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md
@@ -6776,7 +6812,8 @@ test("the thread's Review button, fifth after Visual, sends what /review sends: 
 });
 
 // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
-test("Prototype, Grill and Visual show their line at once as sending…, their button never waiting; the board's line takes its place, a failed one reads not sent, and Retry resends it in place under its send id", async () => {
+// docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md
+test("Prototype, Grill and Visual show their line at once as sending…, each button waiting while its own request sends; the board's line takes its place, a failed one reads not sent and frees its button, and Retry resends it in place under its send id", async () => {
   const sends = heldSends();
   const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] }, send: sends.send, confirm: true });
   await b.settle();
@@ -6784,19 +6821,22 @@ test("Prototype, Grill and Visual show their line at once as sending…, their b
   const button = (sel) => form().querySelector(sel);
   const tap = async (sel, text = '') => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'click', { target: button(sel) }); await b.settle(); };
   await tap('button[data-proto]');
-  assert.deepEqual([waitState(button('button[data-proto]')), threadLines(b, 'w/A1')], [IDLE, ['Prototype requested · sending…']]);
+  const PENDING = [true, false, 'true'];
+  assert.deepEqual([waitState(button('button[data-proto]')), waitState(button('button[data-grill]')), threadLines(b, 'w/A1')], [PENDING, IDLE, ['Prototype requested · sending…']]);
   await tap('button[data-grill]', 'Ask about the colours');
   await tap('button[data-visual]');
   assert.deepEqual([waitState(button('button[data-grill]')), waitState(button('button[data-visual]')), threadLines(b, 'w/A1')],
-    [IDLE, IDLE, ['Prototype requested · sending…', 'Ask about the colours (Grill requested · sending…)', 'Visual requested · sending…']]);
+    [PENDING, PENDING, ['Prototype requested · sending…', 'Ask about the colours (Grill requested · sending…)', 'Visual requested · sending…']]);
   assert.equal(b.sent.length, 1, 'one at a time, in order');
   b.server.threads['w/A1'] = [{ ts: '2026-10-30T10:00:00.000Z', who: 'love', via: 'site', kind: 'prototype-request', text: 'Prototype requested', request: true, command: 'prototype', eventId: 'e1', reply: null, state: 'waiting' }];
   sends.answer();
   await b.settle();
   assert.deepEqual(threadLines(b, 'w/A1'), ['Prototype requested · waiting…', 'Ask about the colours (Grill requested · sending…)', 'Visual requested · sending…']);
+  assert.deepEqual(waitState(button('button[data-proto]')), IDLE, 'the board has the prototype request');
   sends.answer(false, REFUSED);
   await b.settle();
   assert.deepEqual(threadLines(b, 'w/A1'), ['Prototype requested · waiting…', 'Ask about the colours (Grill requested · not sent)', 'Visual requested · sending…']);
+  assert.deepEqual([waitState(button('button[data-grill]')), waitState(button('button[data-visual]'))], [IDLE, PENDING]);
   assert.equal(b.root.querySelector('.toast').textContent, REFUSED);
   const grillId = b.sent[1][1].sendId;
   b.page.fire(b.root, 'click', { target: b.root.querySelector(`[data-thread="w/A1"] button[data-resend="${grillId}"]`) });
@@ -6807,7 +6847,8 @@ test("Prototype, Grill and Visual show their line at once as sending…, their b
 });
 
 // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
-test("a reply box's Block, after its sheet, and Unblock, Done and Reopen, after their confirm, show their line at once as sending…, their button never waiting, end plain once the board has them, and a failed one retries in place", async () => {
+// docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md
+test("a reply box's Block, after its sheet, and Unblock, Done and Reopen, after their confirm, show their line at once as sending…, their button waiting and their card in its lane, end plain once the board has them, and a failed one frees its button and retries in place", async () => {
   const cards = [
     workCard('P1', { lane: 'progress', holdable: true }),
     workCard('H1', { lane: 'progress', holdable: true, ownerBlock: { until: null }, blocked: true }),
@@ -6824,11 +6865,11 @@ test("a reply box's Block, after its sheet, and Unblock, Done and Reopen, after 
   b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
   await b.settle();
   for (const key of ['w/H1', 'w/R1', 'w/D1']) await tap(key);
-  // A Done closes its card at the tap and draws it in Done, so its thread isn't on screen (docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md).
   const R1 = b.root.querySelector('details.item[data-key="w/R1"]');
-  assert.deepEqual([R1.closest('details.lane').dataset.lane, R1.open], ['done', false]);
-  assert.deepEqual(cards.filter((c) => c.key !== 'w/R1').map((c) => [threadLines(b, c.key), waitState(second(c.key))]), [
-    [['Blocked · sending…'], IDLE], [['Unblocked · sending…'], IDLE], [['Reopened · sending…'], IDLE],
+  assert.deepEqual([R1.closest('details.lane').dataset.lane, R1.open], ['review', true]);
+  const PENDING = [true, false, 'true'];
+  assert.deepEqual(cards.map((c) => [threadLines(b, c.key), waitState(second(c.key))]), [
+    [['Blocked · sending…'], PENDING], [['Unblocked · sending…'], PENDING], [['Marked done · sending…'], PENDING], [['Reopened · sending…'], PENDING],
   ]);
   assert.deepEqual(sentNoIds(b), [['card-hold', { key: 'w/P1', hold: true, for: '1h' }], ['card-hold', { key: 'w/H1', hold: false }], ['card-done', { key: 'w/R1' }], ['card-reopen', { key: 'w/D1' }]]);
   b.server.threads['w/P1'] = [{ ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'command', command: 'hold', request: true, mark: 'Blocked', text: 'Blocked until 11:00 AM' }];
@@ -6837,7 +6878,7 @@ test("a reply box's Block, after its sheet, and Unblock, Done and Reopen, after 
   assert.deepEqual(threadLines(b, 'w/P1'), ['Blocked until 11:00 AM']);
   sends.answer(false, REFUSED);
   await b.settle();
-  assert.deepEqual(threadLines(b, 'w/H1'), ['Unblocked · not sent']);
+  assert.deepEqual([threadLines(b, 'w/H1'), waitState(second('w/H1'))], [['Unblocked · not sent'], IDLE]);
   const resumeId = b.sent[1][1].sendId;
   b.page.fire(b.root, 'click', { target: b.root.querySelector(`[data-thread="w/H1"] button[data-resend="${resumeId}"]`) });
   await b.settle();

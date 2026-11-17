@@ -89,24 +89,32 @@
     return { open: keys.filter((k) => open.has(k)), rest: [...shut.filter((k) => !held.has(k)), ...shut.filter((k) => held.has(k))] };
   };
 
-  // The board's items as this browser's outbox has them drawn: a card whose Done is in the outbox, queued or in flight,
-  // sits in Done and no longer offers Done, as the board will show it once it answers. A Done tapped with the thread
-  // field focused (follow) stays where it is until then (app-core.js steady anchors on the field). A card whose Merge is
-  // in it reads merging, its Merge busy, and one whose bump or unbump is in it carries its icon as bumped or not
-  // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md), so a second tap never doubles one. A Todo card whose Implement is in it, not failed, reads staged, so its Implement draws as Cancel at the tap.
+  // The board's items as this browser's outbox has them drawn
+  // (docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md): a card with a tap in the
+  // outbox, queued or in flight and not failed, carries its tapped buttons as sending, a list of acts ('finish', 'build',
+  // 'merge', 'hold', 'resume', 'reopen', 'cancel', 'bump', and the requests 'prototype', 'grill', 'visual' and 'review'),
+  // which draws each of those buttons busy (ui.js BUSY), and drops the Action needed a tapped button resolves. Its lane,
+  // phase and order stay as the board has them until the board answers. A Merge also reads merging (ui-cards.js mergeButton).
+  const TAP_ACTS = { 'card-done': () => 'finish', 'card-merge': () => 'merge', 'card-hold': (m) => (m.fields.hold ? 'hold' : 'resume'), 'card-reopen': () => 'reopen',
+    'card-cancel': () => 'cancel', 'card-bump': () => 'bump', 'card-unbump': () => 'bump',
+    'prototype-request': () => 'prototype', 'grill-more': () => 'grill', 'visual-request': () => 'visual', 'review-request': () => 'review' };
+  const tapAct = (m) => (m.intent === 'build' ? 'build' : TAP_ACTS[m.kind]?.(m));
   const tapped = (items, outbox) => {
-    const done = new Set(outbox.filter((m) => m.kind === 'card-done' && !m.follow).map((m) => m.key));
-    const merging = new Set(outbox.filter((m) => m.kind === 'card-merge').map((m) => m.key));
-    const bumps = new Map(outbox.filter((m) => m.kind === 'card-bump' || m.kind === 'card-unbump').map((m) => [m.fields.key, m.kind === 'card-bump' ? m.ts : null]));
-    const implementing = new Set(outbox.filter((m) => m.intent === 'build' && !m.failed).map((m) => m.key));
-    if (!done.size && !merging.size && !bumps.size && !implementing.size) return items;
-    return items.map((i) => {
-      let it = i;
-      if (done.has(i.key)) it = { ...it, lane: 'done', finishable: false, phase: globalThis.BoardUI.PHASES.progress.includes(i.phase) ? null : i.phase };
-      if (merging.has(i.key)) it = { ...it, merging: true };
-      if (bumps.has(i.key)) it = { ...it, bumpedAt: bumps.get(i.key) };
-      if (implementing.has(i.key) && i.lane === 'todo') it = { ...it, staging: !i.ready };
-      return it;
+    const sending = new Map();
+    for (const m of outbox) {
+      const act = !m.failed && tapAct(m);
+      if (!act) continue;
+      const key = m.key ?? m.fields.key;
+      sending.set(key, [...new Set([...(sending.get(key) || []), act])]);
+    }
+    if (!sending.size) return items;
+    const { BUTTON } = globalThis.BoardUI;
+    const resolves = { finish: BUTTON.done, build: BUTTON.implement, merge: BUTTON.merge };
+    return items.map((it) => {
+      const acts = sending.get(it.key);
+      if (!acts) return it;
+      const clears = it.resolvedBy && acts.some((act) => resolves[act] === it.resolvedBy);
+      return { ...it, sending: acts, ...(acts.includes('merge') ? { merging: true } : {}), ...(clears ? { action: null, resolvedBy: null } : {}) };
     });
   };
 

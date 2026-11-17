@@ -219,7 +219,7 @@
   const doneTone = (it) => (it.awaitsDone || it.resolvedBy === globalThis.BoardUI.BUTTON.done ? 'closes' : '');
   function doneButton(it) {
     const tone = doneTone(it);
-    return sendButton('Done', 1, `${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}"`);
+    return sendButton('Done', 1, `${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}"${it.sending?.includes('finish') ? globalThis.BoardUI.BUSY : ''}`);
   }
 
   Object.assign(globalThis.BoardUI, { DISMISS, pickUp, threadMessages, threadFrom, withReplies, doneButton, doneTone, SYSTEM_KINDS });

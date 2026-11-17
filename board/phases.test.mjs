@@ -237,11 +237,11 @@ test('a card outside In Progress draws no word for a build step phase, and every
   for (const lane of ['todo', 'review', 'done']) for (const phase of PHASES[lane]) assert.equal(phaseWord(card({ lane, phase })).length, 1, `${lane} ${phase}`);
 });
 
-test('a Done tap in the outbox draws the card in Done without its build step phase', () => {
+// docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md
+test('a Done tap in the outbox leaves the card in its lane with its phase, sending its Done, until the board moves it', () => {
   const items = [{ key: 'w/A1', lane: 'progress', phase: 'checking' }, { key: 'w/B1', lane: 'todo', phase: 'ready' }];
   const drawn = ui.tapped(items, [{ kind: 'card-done', key: 'w/A1' }, { kind: 'card-done', key: 'w/B1' }]);
-  assert.deepEqual(drawn.map((i) => [i.lane, i.phase ?? null]), [['done', null], ['done', 'ready']]);
-  assert.deepEqual(phaseWord(card(drawn[0])), []);
+  assert.deepEqual(drawn.map((i) => [i.lane, i.phase, [...i.sending]]), [['progress', 'checking', ['finish']], ['todo', 'ready', ['finish']]]);
 });
 
 test('the start-up clear takes a build step phase off a card stored outside In Progress, once', async () => {

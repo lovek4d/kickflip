@@ -256,7 +256,7 @@ window.BoardView = (function () {
     // refused, back as it was.
     // A card whose questions all have a sent answer set in the answer outbox draws answered the same way.
     const drawn = (d) => BoardUI.answered(BoardUI.tapped(d.items, store.get('outbox', [])), store.get(BoardUI.ANSWER_OUTBOX, []), d.owner);
-    const tapSign = (items, board) => JSON.stringify(items.filter((i, n) => i !== board[n]).map((i) => [i.key, i.lane, i.merging, i.bumpedAt, i.action?.kind, i.questions?.open]));
+    const tapSign = (items, board) => JSON.stringify(items.filter((i, n) => i !== board[n]).map((i) => [i.key, i.sending, i.action?.kind, i.questions?.open]));
     const doneTaps = () => tapSign(drawn(state.board), state.board.items);
     let drawnDone = '';
     B.atUnmount(BoardUI.onOutbox(() => {

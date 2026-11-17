@@ -1,5 +1,7 @@
 # Done moves its card at the tap and rolls back if refused
 
+Superseded by [a sending card button spins, and the lane waits for the board](2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md): the card stays in its lane, its Done busy, until the board moves it.
+
 A Done tapped in a card's thread goes through this browser's outbox, but its card used to close and change lane only once
 the board answered: seconds on a busy host, with the card open and its line reading "sending…".
 

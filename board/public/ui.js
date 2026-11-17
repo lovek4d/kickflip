@@ -182,7 +182,7 @@
   // (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md,
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md,
   // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md).
-  const cardBumpItem = (key, bumped) => `<button type="button" role="menuitem" data-card-bump="${esc(key)}"${bumped ? ' data-bumped' : ''}>${BUMP}<span>${bumped ? 'Unbump' : 'Bump'}</span></button>`;
+  const cardBumpItem = (key, bumped, busy = false) => `<button type="button" role="menuitem" data-card-bump="${esc(key)}"${bumped ? ' data-bumped' : ''}${busy ? BUSY : ''}>${BUMP}<span>${bumped ? 'Unbump' : 'Bump'}</span></button>`;
   // A working dot beats on every pulse's one clock; an agent's dot is still. Both take their line's colour.
   const WORKING_DOT = globalThis.BoardUI.iconText('pulse', 'current', '');
   const AGENT_DOT = globalThis.BoardUI.iconText('dot', 'current', '');

@@ -24,13 +24,15 @@ BoardView.part((B) => {
     : item?.lane === 'review' ? ['review', doneTone(item)].filter(Boolean).join(' ')
     : item?.lane === 'progress' ? (item.ownerBlock ? 'progress-blocked' : 'progress')
     : item?.lane === 'done' ? 'done' : 'one');
-  const sendsOf = (item) => [laneSends(item), item?.resolvedBy === BUTTON.implement && 'implement-resolves', replyTone(item) && 'reply-resolves'].filter(Boolean).join(' ');
+  const sendsOf = (item) => [laneSends(item), item?.resolvedBy === BUTTON.implement && 'implement-resolves', replyTone(item) && 'reply-resolves', item?.sending && `sending-${item.sending.join("-")}`].filter(Boolean).join(' ');
   const pair = (kind, html) => `<span class="send-actions" data-sends="${kind}">${html}</span>`;
   const sends = (kind, item) => {
     const reply = sendButton('Reply', 0, ' data-intent="reply"', replyTone(item));
-    const card = (label, act, cls = '') => sendButton(label, 1, `${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${esc(item.key)}"`);
+    // A second button whose tap is sending waits (ui.js BUSY) until the board answers (ui-snapshot.js tapped).
+    const busy = (act) => (item?.sending?.includes(act) ? BoardUI.BUSY : '');
+    const card = (label, act, cls = '') => sendButton(label, 1, `${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${esc(item.key)}"${busy(act)}`);
     const second = kind.startsWith('todo-') ? card('Cancel', 'cancel')
-      : kind.startsWith('todo') ? sendButton('Implement', 1, ` class="build${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"`)
+      : kind.startsWith('todo') ? sendButton('Implement', 1, ` class="build${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"${busy('build')}`)
       : kind.startsWith('review') ? doneButton(item)
       : kind.startsWith('progress-blocked') ? card('Unblock', 'resume', 'unblock')
       : kind.startsWith('progress') ? card('Block', 'hold')
@@ -45,9 +47,15 @@ BoardView.part((B) => {
     const kind = sendsOf(item);
     if (at.dataset.sends !== kind) { at.insertAdjacentHTML('afterend', sends(kind, item)); at.remove(); }
     // The row is built once and a card moves lanes without a rebuild, so its words follow the card's lane here: hidden
-    // outside New and Todo (style.css), disabled with Implement once Implement is tapped and the card stays in Todo.
+    // outside New and Todo (style.css), disabled while Implement sends and once the card is staged or ready. A request
+    // whose own send is in the outbox waits (ui.js BUSY) until the board has it.
     el.dataset.requestWords = requestShown(item) ? 'shown' : 'hidden';
-    for (const b of el.querySelectorAll('.request-row button')) b.disabled = kind.startsWith('todo-');
+    for (const b of el.querySelectorAll('.request-row button')) {
+      const busy = Boolean(item?.sending?.includes(requestOf(b)));
+      b.disabled = busy || kind.startsWith('todo-') || Boolean(item?.sending?.includes('build'));
+      if (busy) b.setAttribute('aria-busy', 'true');
+      else b.removeAttribute('aria-busy');
+    }
   }
 
   // Each open card's ui-threads.js threadMessages view. Opening a card marks it seen (app-core.js markSeen) before its
@@ -287,7 +295,8 @@ BoardView.part((B) => {
   // of reach (linkDown) and waits, with the ones behind it, for it to come back. One the board answers with an error,
   // or that has no answer in 15 s (ui.js sendWithin), stays as not sent and holds the ones behind it until Retry or X,
   // so the board gets them in the order they were written; a tap refused for a card that moved leaves with a toast
-  // instead. A Done closes its card and draws it in Done at the tap (app-cards.js confirmTap, ui-snapshot.js tapped), and a refusal puts it back in its lane; a card tap's change of lane or hold changes the box's send buttons. The New task box's
+  // instead. A card tap's button waits while the tap is in the outbox (ui-snapshot.js tapped), and its card changes lane
+  // only with the board's answer; a card tap's change of lane or hold changes the box's send buttons. The New task box's
   // asks (no key) go the same way; the board their answer lands holds each one's own New strip row.
   const flushing = new Set();
   async function flush(key) {
@@ -343,9 +352,9 @@ BoardView.part((B) => {
   // files the tap takes into its own box, to send once they are all up.
   // A tap keeps the version of the card it was drawn on (domain.mjs version), which the board checks the card against.
   // said: a keyless tap's words in the New strip.
-  function enqueue(key, { kind, text = '', files = [], intent, fields, attached, follow, said } = {}) {
+  function enqueue(key, { kind, text = '', files = [], intent, fields, attached, said } = {}) {
     const version = key && state.board?.items.find((i) => i.key === key)?.version;
-    const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, ...(kind ? { kind } : {}), text, files, ...(intent ? { intent } : {}), ...(fields ? { fields } : {}), ...(follow ? { follow } : {}), ...(said ? { said } : {}), ...(version ? { version } : {}), ts: new Date().toISOString() };
+    const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, ...(kind ? { kind } : {}), text, files, ...(intent ? { intent } : {}), ...(fields ? { fields } : {}), ...(said ? { said } : {}), ...(version ? { version } : {}), ts: new Date().toISOString() };
     if (attached) {
       BoardAttach.move(attached, sendBox(m), B.site.root);
       m.uploads = BoardAttach.saved(sendBox(m), B.site.root);

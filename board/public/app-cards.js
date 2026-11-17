@@ -275,7 +275,8 @@ BoardView.part((B) => {
 
   function actions(it) {
     const key = esc(it.key);
-    const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}">${label}</button>`;
+    // A button whose tap is sending waits (ui.js BUSY) until the board answers (ui-snapshot.js tapped).
+    const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}"${it.sending?.includes(act) ? BoardUI.BUSY : ''}>${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : it.ownerBlock ? ask('resume', 'Unblock', 'unblock') : ask('hold', 'Block');
     // The ticket actions row: a work card's Done, right of Block, in every lane but Done. An In Review card's Done is
@@ -540,32 +541,21 @@ BoardView.part((B) => {
     confirmTap(b);
   });
   // A data-confirm button's tap, the action row's or the thread box's (on ⌥↵ too): Block's sheet, or its confirm, then
-  // its event through the card's outbox, its line in the thread at once and its button free
+  // its event through the card's outbox, its line in the thread at once and its button busy until the board answers
   // (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md,
   // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
   async function confirmTap(b) {
     const { key, confirm: act } = b.dataset;
-    // Read before the confirm takes the focus: a Done tapped with the card's thread field focused keeps the card open,
-    // and the page follows it to Done (app-core.js steady anchors on the field).
-    const follow = act === 'finish' && document.activeElement?.matches?.('textarea') && document.activeElement.closest('form[data-reply]')?.dataset.reply === key;
     const it = state.board.items.find((i) => i.key === key);
     if (it && act === 'hold') { openHold(it); return; }
     if (!it || (act !== 'cancel' && !(await B.confirm(CONFIRM[act](it, it.ref))))) return;
-    // A Done not followed closes its card at the tap, before the outbox draws the card in Done
-    // (docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md).
+    // The card stays where it is, open or closed, its button busy, until the board moves it
+    // (docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md).
     // Merge: docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md.
-    if (act === 'finish' && !follow) closeCard(key);
-    B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done', ...(follow ? { follow } : {}) }, reopen: { kind: 'card-reopen' }, cancel: { kind: 'card-cancel' }, merge: { kind: 'card-merge' } }[act]);
-  }
-
-  function closeCard(key) {
-    const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
-    if (card) BoardUI.closeDetails(card);
-    state.openItems.delete(key);
-    store.set('openItems', [...state.openItems]);
+    B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done' }, reopen: { kind: 'card-reopen' }, cancel: { kind: 'card-cancel' }, merge: { kind: 'card-merge' } }[act]);
   }
 
   function cardOf(key) { return state.board.items.find((i) => i.key === key); }
 
-  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap, closeCard, keepCardMenu });
+  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap, keepCardMenu });
 });
