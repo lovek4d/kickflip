@@ -119,9 +119,9 @@ button.chip { border: 0; }
 .detail { padding: 4px 12px 14px 38px; }
 .grid { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 13px; margin: 6px 0 10px; }
 .grid dt { color: var(--muted); }
-.grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; text-wrap: balance; }
 /* A link row's labels open their cards, with room to tap (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md). */
-.grid dd a.card-link { text-decoration: underline; text-underline-offset: 2px; }
+.grid dd a.card-link { text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
 .external-links-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .grid .external-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 0; }
 .external-link { white-space: nowrap; }
