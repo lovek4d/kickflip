@@ -240,6 +240,20 @@
         : '<a href="/_hub/">Answer on the hub page</a>';
     return `<div class="sb-prompt" role="alert" data-start-prompt="${esc(p.id)}"><b>waiting on you · ${esc(asks)}</b><div class="sb-prompt-btns">${buttons}</div></div>`;
   }
+  // docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md
+  // The banner across the top of a New board the hub serves while its orchestrator starts: the start's bars and
+  // caption, as its sidebar row draws them, then the prompt its session waits on or a stalled start's Retry (startExtra),
+  // orange while it works and red while the owner is needed; a failed start reads why, red, with Retry for a New board
+  // start. Nothing once its session joins, or with no start (s undefined).
+  function startBanner(s, now = Date.now()) {
+    if (!s || s.joined) return '';
+    const open = (tone) => `<div class="start-banner ${tone}" data-starting="${esc(s.route)}"><span class="sb-text">`;
+    if (s.failed) {
+      const retry = s.branch ? `<span class="sb-start-actions"><button type="button" class="sb-start-retry" data-start-retry="${esc(s.route)}">Retry</button></span>` : '';
+      return `${open('down')}<b>orchestrator didn’t start</b><span class="sb-sub">${esc(s.error || 'failed to start')}</span>${retry}</span></div>`;
+    }
+    return `${open(s.prompt ? 'down' : 'wait')}<b>orchestrator starting</b>${startSteps(s)}<span class="sb-sub sb-step${s.stalled ? ' sb-stalled' : ''}">${esc(startCaption(s, now))}</span>${startExtra(s)}</span></div>`;
+  }
   function startSteps(s) {
     const at = STEP_KEYS.indexOf(s.step);
     const label = `${START_STEPS[s.step]}, step ${at + 1} of ${STEP_KEYS.length}`;
@@ -309,11 +323,12 @@
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
     const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;
+    // A starting row's title opens its board once the hub serves it (s.served), an empty board while its orchestrator starts.
     const pending = (data?.starting || []).map((s) => (s.failed
       ? `<button type="button" class="sb-row sb-starting sb-failed" data-starting="${esc(s.route)}" data-failed-start="${esc(s.route)}" aria-haspopup="dialog">${plus}`
         + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub">${s.ended ? 'session ended' : 'failed to start'}</span></span></button>`
-      : `<div class="sb-row sb-starting" data-starting="${esc(s.route)}"><span class="icon sb-plus sb-start-icon" aria-hidden="true">${svg(ICONS[s.step], 20)}</span>`
-        + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span>${startSteps(s)}<span class="sb-sub sb-step${s.stalled ? ' sb-stalled' : ''}">${esc(startCaption(s, now))}</span>${startExtra(s)}</span></div>`)).join('');
+      : `<div class="sb-row sb-starting${s.route === here ? ' on' : ''}" data-starting="${esc(s.route)}"${s.route === here ? ' aria-current="page"' : ''}><span class="icon sb-plus sb-start-icon" aria-hidden="true">${svg(ICONS[s.step], 20)}</span>`
+        + `<span class="sb-text">${s.served ? `<a class="sb-title" href="/${esc(s.route)}/">${esc(s.title)}</a>` : `<span class="sb-title">${esc(s.title)}</span>`}${startSteps(s)}<span class="sb-sub sb-step${s.stalled ? ' sb-stalled' : ''}">${esc(startCaption(s, now))}</span>${startExtra(s)}</span></div>`)).join('');
     const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
@@ -349,5 +364,5 @@
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, loadSheet, START_STEPS, startSteps, startCaption, updateRow, restartRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords, hubDot });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, loadSheet, START_STEPS, startSteps, startCaption, startBanner, updateRow, restartRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords, hubDot });
 })();

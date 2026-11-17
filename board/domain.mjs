@@ -1633,11 +1633,16 @@ const notListening = (listen, busy) => (Boolean(listen) && listen !== 'listening
 const GITHUB_GIVE_UP = 5 * 60000;
 const requestedAt = (requested, now) => (requested?.state === 'pending' && now - Date.parse(requested.at) > GITHUB_GIVE_UP ? { ...requested, state: 'gave-up' } : requested);
 const ASK_WAITS = ({ since, ...ask }) => ({ ...ask, state: ask.state === 'working' ? 'waiting' : ask.state });
+// docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md: listen 'starting' is a New board
+// the hub serves before its orchestrator joins; its watcher reads starting, and each New ask waiting reads starting,
+// which the New strip words "waiting for the orchestrator".
+const ASK_STARTS = (ask) => (ask.state === 'waiting' ? { ...ask, state: 'starting' } : ask);
 export function withHub(built, { listen, busy, prompts, now = Date.now() } = {}) {
   const needs = [...promptLines(prompts), ...built.needs];
-  const items = notListening(listen, busy) ? built.items.map((it) => (it.working || it.ask?.state === 'working' ? { ...it, working: false, ...(it.ask ? { ask: ASK_WAITS(it.ask) } : {}) } : it)) : built.items;
+  const waited = notListening(listen, busy) ? built.items.map((it) => (it.working || it.ask?.state === 'working' ? { ...it, working: false, ...(it.ask ? { ask: ASK_WAITS(it.ask) } : {}) } : it)) : built.items;
+  const items = listen === 'starting' ? waited.map((it) => (it.ask ? { ...it, ask: ASK_STARTS(it.ask) } : it)) : waited;
   const boardAsks = notListening(listen, busy) ? built.boardAsks.map(ASK_WAITS) : built.boardAsks;
-  return { ...built, items, boardAsks, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped', requested: requestedAt(built.checks.requested, now) } };
+  return { ...built, items, boardAsks, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking', starting: 'starting' }[listen] || 'stopped', requested: requestedAt(built.checks.requested, now) } };
 }
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md

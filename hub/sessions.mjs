@@ -2,7 +2,8 @@
 // {session, label, since, repo, model?}: repo is the folder the session runs in, where `claude --resume` finds it. A
 // session `kickflip start` launched for a route with no site yet waits in the manifest's `starting` {<route>: owner}
 // until its join moves it into the site. A New board request (new-board.mjs) records {title, repo, asked_at} there
-// first, then the hub's start merges its owner in, or `error` when claude failed. Board sessions start in the background (`claude --bg`) in auto mode, with
+// first, then its board `site` once the clone is ready, which the hub serves until the join takes it over
+// (docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md), then the hub's start merges its owner in, or `error` when claude failed. Board sessions start in the background (`claude --bg`) in auto mode, with
 // worktree.bgIsolation "none" so it stays in the repo folder, since its builders make their own worktrees, and with
 // the hook that brings its prompts to the owner's phone. The hub board (`hub: true`) is the one exception: its session
 // runs in the foreground inside a tmux session the hub starts, with the same flags and hook, and `kickflip hub`
@@ -85,7 +86,8 @@ export function startHealth(rec, { running, activity, prompt } = {}, now = Date.
 
 // The sidebar's Starting rows. clonePercent(route) is a running clone's percent (new-board.mjs), which a cloning row
 // carries. listening(route) is whether a joined board hears its events: its row stays until then, and a late one reads
-// why it failed. signals(rec) is a record's startSignals. A record whose route has joined shows only while landing.
+// why it failed. signals(rec) is a record's startSignals. A record whose route has joined shows only while landing. A
+// served one's board opens at its route while it starts (new-board.mjs serveStart).
 export function startingBoards(manifest, now = Date.now(), clonePercent = () => undefined, listening = () => true, signals = () => ({})) {
   return Object.entries(manifest.starting || {}).filter(([route, rec]) => (routeRecord(manifest.sites, route) ? rec.joined_at && !listening(route) : true)).map(([route, rec]) => {
     const { failed, error, ...health } = startHealth(rec, signals(rec), now);
@@ -93,7 +95,7 @@ export function startingBoards(manifest, now = Date.now(), clonePercent = () => 
       route, title: rec.title || rec.label || route, repo: rec.repo, ...startStep(rec),
       ...(rec.phase === 'cloning' && clonePercent(route) !== undefined ? { percent: clonePercent(route) } : {}),
       ...(rec.branch ? { branch: rec.branch, tickets: rec.tickets } : {}),
-      askedAt: rec.asked_at || rec.since, failed, ...(rec.joined_at ? { joined: true } : {}),
+      askedAt: rec.asked_at || rec.since, failed, ...(rec.joined_at ? { joined: true } : {}), ...(rec.site ? { served: true } : {}),
       ...(error ? { error } : failed && rec.joined_at ? { error: 'Its session joined, but the board is not listening yet.' } : {}),
       ...health,
     };

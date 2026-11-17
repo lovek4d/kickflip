@@ -370,10 +370,13 @@
   const processing = (since) => (since ? globalThis.BoardUI.counted('processing', 'processing...', since) : PROCESSING);
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: a New task waiting for
   // pick-up reads a grey "waiting…", its dot still, counting up from when it was asked through the shared duration.
-  const pickupWait = (askedAt) => globalThis.BoardUI.counted('pickup-wait', 'waiting…', askedAt);
+  const pickupWait = (askedAt, word = 'waiting…') => globalThis.BoardUI.counted('pickup-wait', word, askedAt);
   // A handed ask's source line links the card it came from
-  // (docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md).
-  const askLine = (ask) => [ask.from && `<a class="new-source" href="${esc(ask.from.link)}">From ${esc(ask.from.words)}</a>`, ask.edited && 'Edited', ask.state === 'working' ? processing(ask.since) : ask.state === 'waiting' && pickupWait(ask.askedAt)].filter(Boolean).join(' · ');
+  // (docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md). On a New board whose
+  // orchestrator hasn't joined yet, a waiting ask reads waiting for the orchestrator (state starting, domain.mjs withHub;
+  // docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md).
+  const askWait = (ask) => (ask.state === 'starting' ? pickupWait(ask.askedAt, 'waiting for the orchestrator') : ask.state === 'waiting' && pickupWait(ask.askedAt));
+  const askLine = (ask) => [ask.from && `<a class="new-source" href="${esc(ask.from.link)}">From ${esc(ask.from.words)}</a>`, ask.edited && 'Edited', ask.state === 'working' ? processing(ask.since) : askWait(ask)].filter(Boolean).join(' · ');
   // An entry waiting or processing edits and deletes its ask, its edit box in place of its text (edit, from
   // app-asks.js's state.edits); an ingested one links to its card, in blue, and dismisses with no confirm. The link and
   // Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the entry too.

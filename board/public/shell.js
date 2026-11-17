@@ -78,8 +78,9 @@ window.AppShell = (function () {
       if (strip) strip.innerHTML = BoardView.sharedStrip(here);
     }
     sidebar = Sidebar.mount({ data, poll: false, reload, open: (href) => { if (!open(href)) location.assign(href); } });
-    const boards = () => new Set((data?.sites || []).filter((s) => s.board).map((s) => s.route));
-    const titleOf = (route) => data?.sites?.find((s) => s.route === route)?.title || route;
+    // A New board the hub serves while its orchestrator starts (a starting entry's served) is a board too.
+    const boards = () => new Set([...(data?.sites || []).filter((s) => s.board), ...(data?.starting || []).filter((s) => s.served)].map((s) => s.route));
+    const titleOf = (route) => [...(data?.sites || []), ...(data?.starting || [])].find((s) => s.route === route)?.title || route;
 
     // route → the views' change listeners; a view subscribes through BoardView.create's signal.
     const listeners = new Map();
@@ -279,7 +280,8 @@ window.AppShell = (function () {
       const siteRoot = hub ? '/_hub' : '/' + encodeURIComponent(route);
       let v;
       if (board) {
-        v = BoardView.create(root, siteRoot, { signal: signalFor(route), streaming, pause: () => data?.sites?.find((s) => s.route === route)?.pause || data?.pause, away: () => data?.away });
+        v = BoardView.create(root, siteRoot, { signal: signalFor(route), streaming, pause: () => data?.sites?.find((s) => s.route === route)?.pause || data?.pause, away: () => data?.away,
+          starting: () => data?.starting?.find((s) => s.route === route) });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
           reload: () => go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'reload'), closeSidebar: sidebar.close,

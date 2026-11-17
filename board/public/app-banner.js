@@ -43,5 +43,35 @@ BoardView.part((B) => {
     location.hash = hash;
   });
 
-  Object.assign(B, { renderBanner });
+  // docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md
+  // The start banner over a New board the hub serves while its orchestrator starts (ui-sidebar.js startBanner), drawn
+  // from the sidebar's data on each of its copies (app-header.js renderStatus), so it goes once the session joins.
+  function renderStart() {
+    const el = $('#startBanner');
+    const html = BoardUI.startBanner(B.starting?.());
+    el.hidden = !html;
+    BoardUI.setHTML(el, html);
+  }
+  // Its taps, as the sidebar's starting row takes them (sidebar.js startTap): Retry starts the board again, and an
+  // answer goes to the prompt its session waits on. The tapped button waits until the hub answers; a prompt already
+  // answered or gone is done, and any other refusal shows as a toast. The hub's next sidebar copy redraws the banner.
+  B.on($('#startBanner'), 'click', async (ev) => {
+    const button = ev.target.closest('[data-start-retry], [data-start-answer], [data-start-option]');
+    if (!button) return;
+    const prompt = button.closest('[data-start-prompt]');
+    const url = prompt ? `/_hub/prompts/${encodeURIComponent(prompt.dataset.startPrompt)}/answer` : `/_hub/new-board/${encodeURIComponent(button.dataset.startRetry)}/retry`;
+    const body = button.dataset.startOption !== undefined ? { choice: 'allow', answers: { [button.dataset.startQuestion]: button.dataset.startOption } }
+      : prompt ? { choice: button.dataset.startAnswer } : {};
+    try {
+      const response = await BoardUI.waitOn(button, fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), { group: $('#startBanner').querySelectorAll('button') });
+      if (!response.ok && response.status !== 404 && response.status !== 409) {
+        const text = await response.text();
+        let refused;
+        try { refused = JSON.parse(text).error || text; } catch { refused = text; }
+        B.toast(refused || 'Could not send.');
+      }
+    } catch { B.toast('Could not send. Is the host awake?'); }
+  });
+
+  Object.assign(B, { renderBanner, renderStart });
 });

@@ -563,6 +563,15 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .answer-banner { display: flex; align-items: center; gap: 4px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 10px; padding: 2px 4px 2px 0; margin-bottom: 12px; }
 .answer-banner[hidden] { display: none; }
+/* The start banner over a New board while its orchestrator starts (app-banner.js renderStart): orange while it starts,
+   red while a prompt waits on the owner or the start failed (AGENTS.md colour priority). */
+.start-banner-slot[hidden] { display: none; }
+.start-banner { display: block; padding: 10px 12px; border-radius: 10px; margin: 0 0 12px; font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--color-notice) 40%, transparent); background: color-mix(in srgb, var(--color-notice) 8%, transparent); }
+.start-banner.down { border-color: color-mix(in srgb, var(--color-danger) 40%, transparent); background: color-mix(in srgb, var(--color-danger) 8%, transparent); }
+.start-banner > .sb-text > b { color: var(--color-notice); }
+.start-banner.down > .sb-text > b { color: var(--color-danger); }
+.start-banner .sb-sub { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .answer-banner .answer-open { flex: 1; min-width: 0; display: flex; align-items: baseline; border: 0; background: transparent; padding: 8px 4px 8px 12px; text-align: left; white-space: nowrap; }
 .answer-banner .answer-open strong { color: var(--accent); flex: none; }
 .answer-banner .sep, .answer-banner .more { flex: none; white-space: pre; }

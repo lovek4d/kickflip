@@ -1,4 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { ticketSource } from '../board/tickets.mjs';
+import { boardFiles, freePort } from './board-site.mjs';
 import { isListening, listBoards, readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { repoService, validateGithub, validateBranch, validateRemote } from './repos.mjs';
@@ -64,9 +68,26 @@ async function recordStart(route, outcome) {
   });
 }
 
-// The Starting row's record before its start has an outcome.
-const startingRecord = ({ title, purpose, repo, github, remote, branch, tickets }, repos) => ({
-  title, purpose, repo, ...(github ? { github } : { remote }), branch, tickets,
+// docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md
+// Gives the route's Starting record its board site, {dir, port, cmd}: the board's files in the sites folder, as
+// `kickflip board` makes them, and a free port. The hub serves it from then on (boards.mjs servedSites), an empty board
+// whose New takes asks, until the session's join takes the site over. A record that has one keeps it, so a Retry serves
+// the same board. A route that joined or left meanwhile is left alone.
+async function serveStart(route) {
+  await withManifestLock(async () => {
+    const m = readManifest();
+    const pending = routeRecord(m.starting, route);
+    if (!pending || routeRecord(m.sites, route) || pending.site) return;
+    const dir = path.join(os.homedir(), '.claude', 'kickflip', 'sites', route);
+    const cmd = boardFiles(dir, { title: pending.title, items: 'data/items.json', tickets: pending.tickets, repo: pending.repo, ref: pending.branch });
+    m.starting[route] = { ...pending, site: { dir, port: await freePort(m), cmd } };
+    await writeManifest(m);
+  });
+}
+
+// The Starting row's record before its start has an outcome. A served start's site stays.
+const startingRecord = ({ title, purpose, repo, github, remote, branch, tickets, site }, repos) => ({
+  title, purpose, repo, ...(github ? { github } : { remote }), branch, tickets, ...(site ? { site } : {}),
   phase: repos.cloned(github || remote) ? 'starting' : 'cloning', asked_at: new Date().toISOString(),
 });
 
@@ -90,6 +111,7 @@ async function start(route, { purpose, repo, github, remote, branch }, { run, li
   };
   try {
     try { await repos.ensure(github || remote, branch, { progress }); } finally { clonePercents.delete(route); }
+    await serveStart(route);
     await recordStart(route, { phase: 'starting' });
     changed();
     const r = await startSession(route, { repo, prompt: joinFlags({ purpose }), run, live, clones: repos.base });
@@ -155,16 +177,20 @@ export async function retryBoard(route, { run, live = liveSessions, stop, repos 
   return { route, started: start(route, board, { run, live, repos, changed }) };
 }
 
+// Removes a failed start's Starting record, and with it the board the hub served for it: its folder goes, and the
+// hub's reconcile stops its server once the route leaves the manifest.
 export async function dismissBoard(route, { live = liveSessions } = {}) {
   const running = live();
-  return withManifestLock(async () => {
+  const served = await withManifestLock(async () => {
     const manifest = readManifest();
-    failedStart(manifest, route, 'dismissed', running);
+    const pending = failedStart(manifest, route, 'dismissed', running);
     delete manifest.starting[route];
     if (!Object.keys(manifest.starting).length) delete manifest.starting;
     await writeManifest(manifest);
-    return { route };
+    return routeRecord(manifest.sites, route) ? null : pending.site;
   });
+  if (served) fs.rmSync(served.dir, { recursive: true, force: true });
+  return { route };
 }
 
 // Drops the Starting records of boards that have landed: joined, and now listening (docs/adr/2026-11-04-2030-landing-it-lasts-until-the-board-listens.md),

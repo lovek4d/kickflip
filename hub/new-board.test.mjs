@@ -22,7 +22,7 @@ const { repoService, repoPath, validateBranch, runRepo, githubGitArgv } = await 
 const { boardRepo, changeBoardRepo, migrateBoardRepos, githubFromOrigin } = await import('./board-repo.mjs');
 const { startingBoards, STARTING_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
 const { routeFromName, ROUTE_RE } = await import('./routes.mjs');
-const { saveJSON, readManifest, listBoards, prsOf, linksOf } = await import('./boards.mjs');
+const { saveJSON, readManifest, listBoards, prsOf, linksOf, servedSites, startingAt, isBoardSite } = await import('./boards.mjs');
 const { linearClient } = await import('./linear.mjs');
 const { setOrchestratorModel } = await import('./push.mjs');
 const { fakeLinear, linearWorld } = await import('../shared/test-helpers.mjs');
@@ -96,11 +96,12 @@ test('new repo requests clone before starting a session and store the board bran
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
-  assert.deepEqual(rec, { title: "Bob's audit", purpose: 'Review $HOME changes', repo, github: 'owner/new-project', branch: 'release/next', tickets: null, phase: 'starting', phase_at: rec.phase_at, asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
+  assert.deepEqual(rec, { title: "Bob's audit", purpose: 'Review $HOME changes', repo, github: 'owner/new-project', branch: 'release/next', tickets: null, phase: 'starting', phase_at: rec.phase_at, asked_at: pending.asked_at, site: rec.site, session: rec.session, label: "Bob's audit", since: rec.since });
+  assert.equal(rec.site.dir, path.join(home, '.claude', 'kickflip', 'sites', 'bob-s-audit'), 'its board is served once the clone is ready');
   assert.ok(rec.phase_at >= pending.asked_at && rec.since >= rec.phase_at);
   assert.ok(fs.existsSync(path.join(repo, '.git')));
   const at = Date.parse(rec.asked_at);
-  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, step: 'starting', stepAt: rec.phase_at, branch: 'release/next', tickets: null, askedAt: rec.asked_at, failed: false }]);
+  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, step: 'starting', stepAt: rec.phase_at, branch: 'release/next', tickets: null, askedAt: rec.asked_at, failed: false, served: true }]);
   assert.equal(startingBoards(readManifest(), at + STARTING_WAIT)[0].failed, true);
   noEvents();
   await assert.rejects(dismissBoard(request.route), { status: 400 });
@@ -209,7 +210,7 @@ test("a claude that fails marks the Starting row Didn't start at once with its f
     const rec = readManifest().starting[route];
     assert.deepEqual([rec.error, rec.session], [error, undefined]);
     assert.equal(Boolean(rec.phase_at), i === 0, 'only the first start clones; an existing clone starts on starting orchestrator, so its phase never changes');
-    assert.deepEqual(startingBoards(readManifest(), Date.parse(rec.asked_at)), [{ route, title: `Broken ${i}`, repo: path.join(base, 'owner/project'), step: 'starting', stepAt: rec.phase_at || rec.asked_at, branch: 'main', tickets: null, askedAt: rec.asked_at, failed: true, error }]);
+    assert.deepEqual(startingBoards(readManifest(), Date.parse(rec.asked_at)), [{ route, title: `Broken ${i}`, repo: path.join(base, 'owner/project'), step: 'starting', stepAt: rec.phase_at || rec.asked_at, branch: 'main', tickets: null, askedAt: rec.asked_at, failed: true, served: true, error }]);
     noEvents();
     assert.deepEqual(await dismissBoard(route), { route });
     assert.equal(readManifest().starting, undefined);
@@ -234,7 +235,8 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   const again = await retryBoard('retry-me', { run: working.run, live, stop, repos, changed: () => changes.push('retry-me') });
   assert.equal(again.route, 'retry-me');
   const reset = readManifest().starting['retry-me'];
-  assert.deepEqual(reset, { title: 'Retry me', purpose: 'Try it again', repo, github: 'owner/project', branch: 'main', tickets, phase: 'starting', asked_at: reset.asked_at });
+  assert.deepEqual(reset, { title: 'Retry me', purpose: 'Try it again', repo, github: 'owner/project', branch: 'main', tickets, site: reset.site, phase: 'starting', asked_at: reset.asked_at });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(reset.site.dir, 'board.json'), 'utf8')).tickets, tickets, 'the served board has its tickets');
   assert.ok(reset.asked_at >= failedAt);
   assert.equal(startingBoards(readManifest())[0].failed, false);
   await assert.rejects(retryBoard('retry-me', { run: working.run, live, stop, repos }), { status: 400, message: 'Only a board that didn’t start can be retried.' });
@@ -509,6 +511,42 @@ test('Settings clone changes update repo, branch and session folder and notify t
   assert.equal(cloneCalls.length, before);
   await assert.rejects(changeBoardRepo('settings', { github: '../escape', branch: 'main' }, { repos, event }), { status: 400 });
   await assert.rejects(changeBoardRepo('missing', { github: 'owner/project', branch: 'main' }, { repos, event }), { status: 404 });
+});
+
+// docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md
+test('a New board is served once its clone is ready: its Starting record holds the board site, Retry serves the same one, its join takes it over, and Dismiss removes it', async () => {
+  saveJSON(manifestFile, { sites });
+  const broken = claude({ status: 1, stdout: '', stderr: 'Not signed in' });
+  const first = await requestBoard(input('Served early'), { run: broken.run, live, repos });
+  const second = await requestBoard(input('Served too'), { run: broken.run, live, repos });
+  await Promise.all([first.started, second.started]);
+  const siteDir = (route) => path.join(home, '.claude', 'kickflip', 'sites', route);
+  const rec = readManifest().starting['served-early'];
+  assert.deepEqual([rec.site.dir, rec.site.cmd.at(-1), isBoardSite(rec.site)], [siteDir('served-early'), siteDir('served-early'), true]);
+  assert.notEqual(rec.site.port, readManifest().starting['served-too'].site.port, 'each start takes its own port');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir('served-early'), 'board.json'), 'utf8')), { title: 'Served early', items: 'data/items.json' });
+  assert.ok(fs.existsSync(path.join(siteDir('served-early'), 'data', 'items.json')));
+  assert.deepEqual(servedSites(readManifest())['served-early'], { ...rec.site, title: 'Served early' });
+  assert.equal(startingAt(siteDir('served-early')), true);
+  assert.deepEqual(startingBoards(readManifest()).map((s) => [s.route, s.served, s.failed]), [['served-early', true, true], ['served-too', true, true]]);
+
+  const working = claude();
+  const again = await retryBoard('served-early', { run: working.run, live, stop: async () => {}, repos });
+  const { session } = await again.started;
+  assert.deepEqual(readManifest().starting['served-early'].site, rec.site, 'Retry serves the same board');
+
+  const bin = fileURLToPath(new URL('../bin/kickflip.mjs', import.meta.url));
+  const joined = spawnSync(process.execPath, [bin, 'board', 'Served early', '--session', session, '--repo', path.join(base, 'owner/project')], { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
+  assert.equal(joined.status, 0, joined.stderr);
+  const site = readManifest().sites['served-early'];
+  assert.deepEqual([site.dir, site.port, site.cmd], [rec.site.dir, rec.site.port, rec.site.cmd], 'the join takes the served site over, so the hub keeps its server running');
+  assert.deepEqual(servedSites(readManifest())['served-early'], site);
+  assert.equal(startingAt(siteDir('served-early')), false);
+
+  assert.deepEqual(await dismissBoard('served-too'), { route: 'served-too' });
+  assert.equal(fs.existsSync(siteDir('served-too')), false);
+  assert.equal(servedSites(readManifest())['served-too'], undefined);
+  noEvents();
 });
 
 test('join transfers the reserved repo and branch before or after the start result, and rejoin keeps the selected session folder', () => {

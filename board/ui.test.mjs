@@ -3300,6 +3300,34 @@ test("New draws an ask the orchestrator filed under a collapsed Orchestrator sub
   assert.doesNotMatch(strip(items.slice(0, 1)), /new-orchestrator/);
 });
 
+// docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md
+test("a New board served while its orchestrator starts: its New asks read waiting for the orchestrator, its sidebar row opens it, and its banner carries the start's step, prompt, stall and failure until it joins", () => {
+  const sent = ago(1);
+  const strip = ui.newStrip(ui.newEntries({ items: [{ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix it', files: [], state: 'starting' } }], merges: [] }, {}), new Map());
+  assert.match(strip, /<span class="pickup-wait" data-since="[^"]+" data-word="waiting for the orchestrator"><span class="it it-current">.*?<\/span>waiting for the orchestrator(?: \([^)]+\))?<\/span>/);
+  assert.match(strip, /data-edit="a1"[^]*data-withdraw="a1"/, 'it still edits and deletes');
+
+  const now = Date.parse('2026-11-16T22:00:00.000Z');
+  const at = (seconds) => new Date(now - seconds * 1000).toISOString();
+  const base = { route: 'shop', title: 'Shop', step: 'starting', stepAt: at(42), branch: 'main', failed: false, served: true };
+  const sidebar = (here) => ui.sidebar({ sites: [], starting: [base] }, { now, here });
+  assert.match(sidebar(''), /<div class="sb-row sb-starting" data-starting="shop">.*?<a class="sb-title" href="\/shop\/">Shop<\/a>/);
+  assert.match(sidebar('shop'), /<div class="sb-row sb-starting on" data-starting="shop" aria-current="page">/);
+  assert.match(ui.sidebar({ sites: [], starting: [{ ...base, served: undefined }] }, { now }), /<span class="sb-title">Shop<\/span>/, 'a start not served yet has nothing to open');
+
+  const banner = (s) => ui.startBanner({ ...base, ...s }, now);
+  assert.match(banner({ activity: 'joining the hub' }), /^<div class="start-banner wait" data-starting="shop"><span class="sb-text"><b>orchestrator starting<\/b><span class="sb-steps">.*<\/span><span class="sb-sub sb-step">joining the hub · 42s<\/span><\/span><\/div>$/);
+  assert.match(banner({ stalled: true, quietSince: at(180) }), /<span class="sb-sub sb-step sb-stalled">stalled · 3m quiet<\/span><span class="sb-start-actions"><button type="button" class="sb-start-retry" data-start-retry="shop">Retry<\/button>/);
+  const asking = banner({ prompt: { id: 'p1', tool: 'Bash', action: 'run kickflip doctor --fix', detail: 'kickflip doctor --fix', questions: null } });
+  assert.match(asking, /^<div class="start-banner down"/, 'a prompt waiting on the owner is red');
+  assert.match(asking, /<div class="sb-prompt" role="alert" data-start-prompt="p1"><b>waiting on you · Bash: kickflip doctor --fix<\/b><div class="sb-prompt-btns"><button type="button" class="primary" data-start-answer="allow">Allow<\/button>/);
+  const ended = banner({ failed: true, ended: true, error: 'Its session ended before it joined the hub.' });
+  assert.match(ended, /^<div class="start-banner down" data-starting="shop"><span class="sb-text"><b>orchestrator didn’t start<\/b><span class="sb-sub">Its session ended before it joined the hub\.<\/span><span class="sb-start-actions"><button type="button" class="sb-start-retry" data-start-retry="shop">Retry<\/button><\/span><\/span><\/div>$/);
+  assert.doesNotMatch(banner({ failed: true, error: 'x', branch: undefined }), /Retry/);
+  assert.equal(banner({ step: 'landing', joined: true }), '', 'the banner goes once the session joins');
+  assert.equal(ui.startBanner(undefined, now), '');
+});
+
 // docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md
 test("a starting board's row shows its session's last activity, an orange stalled with Retry, a red prompt block with Allow and Deny, and an ended session's failed row", () => {
   const now = Date.parse('2026-11-16T22:00:00.000Z');

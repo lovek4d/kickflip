@@ -8388,3 +8388,41 @@ test("a starting row answers its session's prompt in place and retries a stalled
   await tick(); await tick();
   assert.equal(aside.querySelector('.sb-start-refused').textContent, 'Only a board that didn’t start can be retried.');
 });
+
+// docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md
+test("a New board served while its orchestrator starts opens as a board with the start's banner, whose Retry posts to the hub, and the banner goes once the session joins", async () => {
+  const stepAt = new Date(Date.now() - 5000).toISOString();
+  const start = { route: 'shop', title: 'Shop', branch: 'main', step: 'starting', stepAt, askedAt: stepAt, failed: false, served: true };
+  const posted = [];
+  const fetch = async (url, options = {}) => {
+    const u = new URL(url, 'https://mac.ts.net/');
+    if (u.pathname.endsWith('/api/board')) return { ok: true, json: async () => boardOf([]) };
+    if (options.method === 'POST') { posted.push([u.pathname, JSON.parse(options.body)]); return { ok: true, status: 200, text: async () => '{}' }; }
+    return { ok: true, json: async () => [] };
+  };
+  const sources = [];
+  class EventSource {
+    static CLOSED = 2;
+    constructor() { this.readyState = 1; this.listeners = new Map(); sources.push(this); }
+    addEventListener(type, fn) { this.listeners.set(type, fn); }
+    close() { this.readyState = EventSource.CLOSED; }
+  }
+  const { doc, page } = await shellPage('/shop/', { fetch, EventSource, realBoards: true, sidebarData: { sites: [], starting: [start] } });
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  await settle();
+  const banner = () => doc.querySelector('#startBanner');
+  const sidebar = (data) => sources.at(-1).listeners.get('sidebar')({ data: JSON.stringify(data) });
+  assert.ok(doc.querySelector('.view-board'), 'the route opens as a board');
+  assert.equal(banner().hidden, false);
+  assert.match(banner().textContent, /orchestrator starting\s*starting orchestrator · \d+s/);
+
+  sidebar({ sites: [], starting: [{ ...start, failed: true, ended: true, error: 'Its session ended before it joined the hub.' }] });
+  assert.match(banner().textContent, /orchestrator didn’t start\s*Its session ended before it joined the hub\.\s*Retry/);
+  page.fire(banner(), 'click', { target: banner().querySelector('[data-start-retry="shop"]') });
+  await settle();
+  assert.deepEqual(posted, [['/_hub/new-board/shop/retry', {}]]);
+
+  sidebar({ sites: [{ route: 'shop', title: 'Shop', board: true, icon: '' }], starting: [{ ...start, step: 'landing', joined: true }] });
+  assert.equal(banner().hidden, true, 'the banner goes once the session joins');
+  assert.equal(banner().innerHTML, '');
+});

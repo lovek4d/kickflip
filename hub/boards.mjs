@@ -181,6 +181,19 @@ export function hubBoard(manifest = readManifest()) {
   return found ? boardOf(...found) : undefined;
 }
 
+// docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md
+// Every site the hub serves, by route: the manifest's sites, and the board site of each starting New board whose
+// route has no site yet (new-board.mjs serveStart), which a join then takes over as its site.
+export function servedSites(manifest = readManifest()) {
+  const starting = Object.entries(manifest?.starting || {}).filter(([route, rec]) => rec.site && !routeRecord(manifest.sites, route)).map(([route, rec]) => [route, { ...rec.site, title: rec.title }]);
+  return { ...Object.fromEntries(starting), ...manifest?.sites };
+}
+
+// Whether the board served from `dir` is a starting New board's, served before its orchestrator joins (servedSites).
+export function startingAt(dir, manifest = readManifest()) {
+  return Object.entries(manifest?.starting || {}).some(([route, rec]) => rec.site && !routeRecord(manifest.sites, route) && samePath(rec.site.dir, dir));
+}
+
 // Two paths name one folder when they are equal or resolve to the same real folder, as a saved path through a link does.
 export function samePath(a, b) {
   const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };

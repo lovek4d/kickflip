@@ -32,6 +32,7 @@ BoardView.part((B) => {
   const renderStatus = () => {
     $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.() });
     renderPause(B.pause?.());
+    B.renderStart();
     const moon = $('.away-moon');
     const away = Boolean(B.away?.());
     moon.classList.toggle('on', away);

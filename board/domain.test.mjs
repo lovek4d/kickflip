@@ -713,6 +713,18 @@ test("withHub reads a card and its New ask waiting once the session stops listen
   assert.deepEqual(built.workingOn.map((w) => w.id), ['a1']);
 });
 
+// docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md
+test("withHub reads a New board served before its orchestrator joins as starting: its watcher reads starting and each New ask waits for the orchestrator", () => {
+  const ask = (id) => ({ id, ts: '2026-10-23T08:00:00Z', kind: 'ask', data: { text: 'Hi' }, reply: null });
+  const files = [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'Hi', from_ask: 'a1' }, { id: 'T-2', title: 'Hi', from_ask: 'a2' }, { id: 'T-3', title: 'Plain' }] } }];
+  const built = buildBoard({ fromWaves: false, files, events: [ask('a1'), ask('a2')], working: { a2: '2026-10-23T08:01:00Z' } });
+  const shown = withHub(built, { listen: 'starting' });
+  assert.equal(shown.checks.watcher, 'starting');
+  assert.deepEqual(shown.items.map((i) => [i.id, i.ask?.state ?? null, i.working ?? false]), [['T-1', 'starting', false], ['T-2', 'starting', false], ['T-3', null, false]]);
+  assert.equal(withHub(built, { listen: 'deaf' }).checks.watcher, 'stopped');
+  assert.equal(withHub(built, { listen: 'deaf' }).items[0].ask.state, 'waiting');
+});
+
 // docs/adr/2026-11-12-0200-sorting-a-card-answers-its-own-ask.md
 test("a card's own ask reads answered once the card has a phase, so a readied Quick build pulls; the owner's other messages stay working, and a ready card working still pulls", () => {
   const ask = { id: 'a1', ts: '2026-10-23T08:00:00Z', kind: 'ask', data: { text: 'Hi' }, reply: null };

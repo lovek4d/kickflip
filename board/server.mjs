@@ -374,7 +374,7 @@ import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
 import { HAD_IMPLEMENT, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
-import { githubStateFile, boardAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
+import { githubStateFile, boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { nodeBin } from '../bin/install.mjs';
@@ -888,7 +888,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const generatedAt = now().toISOString();
     const { title, reviewers } = await config();
     const self = boardAt(here);
-    const listen = self ? listenState(self) : 'deaf';
+    // A New board the hub serves before its orchestrator joins reads starting (domain.mjs withHub).
+    const listen = self ? listenState(self) : startingAt(here) ? 'starting' : 'deaf';
     const built = withHub(await sharedBoard(), { listen, busy: self ? sessionBusy(self) : true, prompts: self ? pendingFor(self.route).map(shown) : [], now: now().getTime() });
     built.items = built.items.map((it) => (it.worktree && !existsSync(it.worktree) ? { ...it, worktree: null } : it));
     const links = self ? linksOf(self, { listen }) : null;

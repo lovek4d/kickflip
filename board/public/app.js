@@ -9,6 +9,7 @@
 // opts, from the app shell (shell.js):
 //   signal(fn) → off   calls fn on each change signal for this board, from the hub's one stream
 //   streaming() → bool true while that stream is open, when the board's 30 s check rests
+//   starting() → this board's starting entry from the sidebar's data while its orchestrator starts, else undefined
 // Load this after ui-*.js, attach.js and toasts.js, and before the app-*.js files.
 window.BoardView = (function () {
   const parts = [];
@@ -143,7 +144,7 @@ window.BoardView = (function () {
     const keep = (fn) => { if (B.alive()) keepers.push(fn); };
     const place = places.get(B.route) || null;
     places.delete(B.route);
-    Object.assign(B, { store, state, signal, streaming: opts.streaming || (() => false), pause: opts.pause, away: opts.away, place, keep });
+    Object.assign(B, { store, state, signal, streaming: opts.streaming || (() => false), pause: opts.pause, away: opts.away, starting: opts.starting, place, keep });
 
     function mount() {
       if (B.alive()) return;
@@ -550,6 +551,7 @@ window.BoardView = (function () {
 <div class="split">
 <main>
 ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
+  <section id="startBanner" class="start-banner-slot" aria-live="polite" hidden></section>
   <section id="pauseBanner" class="hub-view" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
   <div id="tryMain"></div>

@@ -183,7 +183,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import net from 'node:net';
 import readline from 'node:readline/promises';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -192,8 +191,8 @@ import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { joinName, routeFromName, routeRecord, validRoute } from '../hub/routes.mjs';
 import { defaultBranch, githubFromOrigin } from '../hub/repos.mjs';
-import { repoHas, onboardingItems } from '../board/onboarding.mjs';
-import { uninstallStatusLine, storedPath, nodeBin, watcherCommand, tailnetUrl } from './install.mjs';
+import { boardFiles, connects, freePort as findPort } from '../hub/board-site.mjs';
+import { uninstallStatusLine, nodeBin, watcherCommand, tailnetUrl } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { tailscaleBin } from '../shared/tailscale.mjs';
 import { runDoctor } from './doctor.mjs';
@@ -204,7 +203,6 @@ const HOME = path.join(os.homedir(), '.claude', 'kickflip');
 const MANIFEST = path.join(HOME, 'manifest.json');
 const LOGS = path.join(HOME, 'logs');
 const HUB_PORT = Number(process.env.KICKFLIP_HUB_PORT || 4500);
-const FIRST_SITE_PORT = 4600;
 const COLOR_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -280,30 +278,8 @@ async function withLock(fn) {
   try { return await withManifestLock(fn); } catch (e) { if (e.code === 'ELOCKED') fail(e.message); throw e; }
 }
 
-function connects(port) {
-  return new Promise((resolve) => {
-    const s = net.connect({ port, host: '127.0.0.1' });
-    const done = (v) => { s.destroy(); resolve(v); };
-    s.setTimeout(500, () => done(false));
-    s.on('connect', () => done(true));
-    s.on('error', () => done(false));
-  });
-}
-function bindable(port) {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(false));
-    srv.listen(port, '0.0.0.0', () => srv.close(() => resolve(true)));
-  });
-}
-async function freePort(m) {
-  const taken = new Set([...Object.values(m.sites), ...Object.values(m.closed || {}).map((c) => c.site)].map((s) => s?.port));
-  for (let p = FIRST_SITE_PORT; p < FIRST_SITE_PORT + 400; p++) {
-    if (taken.has(p)) continue;
-    if (!(await connects(p)) && (await bindable(p))) return p;
-  }
-  fail('no free port found from ' + FIRST_SITE_PORT);
-}
+// A port for a new site (../hub/board-site.mjs freePort), or a failure when none is free.
+const freePort = (m) => findPort(m).catch((e) => fail(e.message));
 
 // The host's tailnet name, or '' when Tailscale isn't installed or running, so a site's address falls back to loopback.
 function tailnetHost() {
@@ -343,26 +319,6 @@ function takeName(command) {
   if (args.name !== undefined) fail(`${command} takes the name as its first word, not --name: kickflip ${command} <name>`, 2);
   if (args._.length !== 1) fail(`${command} needs one name, which gives its route: kickflip ${command} <name>`, 2);
   args.name = args._.shift();
-}
-
-// The board template's files in dir: board.json with its title, items ("waves" or an item file, made when
-// missing with the onboarding cards, board/onboarding.mjs) and, when given, tickets. repo and ref are where main's
-// build and release scripts, CONTEXT.md and ADRs are looked for. → the board server's cmd for dir
-function boardFiles(dir, { title, items, tickets, repo, ref }) {
-  fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
-  const cfgFile = path.join(dir, 'board.json');
-  const cfg = fs.existsSync(cfgFile) ? JSON.parse(fs.readFileSync(cfgFile, 'utf8')) : {};
-  cfg.title = title;
-  cfg.items = storedPath(items || cfg.items || 'waves');
-  if (tickets) cfg.tickets = tickets;
-  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n');
-  const itemsFile = cfg.items === 'waves' ? null : path.resolve(dir, cfg.items);
-  if (itemsFile && !fs.existsSync(itemsFile)) {
-    fs.mkdirSync(path.dirname(itemsFile), { recursive: true });
-    const cards = onboardingItems(itemsFile, { has: repoHas(repo, ref) });
-    fs.writeFileSync(itemsFile, JSON.stringify({ title: cfg.title, items: cards }, null, 2) + '\n');
-  }
-  return [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), dir];
 }
 
 // A background session for the route (../hub/sessions.mjs startSession), recorded as its site's owner, or in
@@ -620,14 +576,18 @@ const commands = {
       if (args.hub && args.template !== 'board' && !isBoardSite({ dir: '', cmd: args.cmd ? JSON.parse(args.cmd) : existing?.cmd })) notBoard(route);
       const site = existing ? { ...existing } : {};
       let created = false;
+      // The site the hub already serves for a New board while its orchestrator starts, which this join takes over, the
+      // running server and all (../hub/new-board.mjs serveStart).
+      const startingSite = routeRecord(m.starting, route);
+      const served = !existing && args.template === 'board' && startingSite?.site && (!startingSite.session || startingSite.session === args.session) ? startingSite.site : null;
       if (!existing) {
-        site.dir = path.resolve(args.dir || path.join(HOME, 'sites', route));
+        site.dir = path.resolve(args.dir || served?.dir || path.join(HOME, 'sites', route));
         const empty = !fs.existsSync(site.dir) || fs.readdirSync(site.dir).length === 0;
         if (empty && !args.cmd && !args.template) {
           fs.cpSync(path.join(SKILL, 'starter'), site.dir, { recursive: true });
           created = true;
         }
-        site.port = args.port ? Number(args.port) : await freePort(m);
+        site.port = args.port ? Number(args.port) : served?.port ?? await freePort(m);
         site.cmd = args.cmd ? JSON.parse(args.cmd) : [nodeBin(), path.join(site.dir, 'server.mjs')];
         site.watch = ['data/events.jsonl'];
         site.created = now;

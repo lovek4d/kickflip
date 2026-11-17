@@ -54,23 +54,26 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 .sidebar .sb-new { width: 100%; text-align: left; border: 0; background: transparent; font: inherit; }
 .sidebar .sb-starting { color: var(--muted); }
 .sidebar .sb-starting:hover, .sidebar .sb-starting:active { background: transparent; }
+/* A served start's title opens its board. */
+.sidebar .sb-starting a.sb-title { color: var(--text); text-decoration: none; }
 /* A starting board's steps on the board's phase bars, spread evenly across the row, its step and seconds below
-   (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md). */
-.sidebar .sb-steps { display: flex; margin: 6px 0 4px; }
-.sidebar .sb-steps .phase-bars { flex: 1 1 auto; min-width: 0; display: flex; gap: 3px; }
-.sidebar .sb-steps .phase-bars i { flex: 1 1 0; width: auto; min-width: 0; }
-.sidebar .sb-step { font-variant-numeric: tabular-nums; }
+   (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md). The banner over a New board served
+   while its orchestrator starts draws the same (docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md). */
+:is(.sidebar, .start-banner) .sb-steps { display: flex; margin: 6px 0 4px; }
+:is(.sidebar, .start-banner) .sb-steps .phase-bars { flex: 1 1 auto; min-width: 0; display: flex; gap: 3px; }
+:is(.sidebar, .start-banner) .sb-steps .phase-bars i { flex: 1 1 0; width: auto; min-width: 0; }
+:is(.sidebar, .start-banner) .sb-step { font-variant-numeric: tabular-nums; }
 /* A stalled session reads orange with Retry; the prompt it waits on is a red block with its answers
    (docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md). */
-.sidebar .sb-step.sb-stalled { color: var(--color-notice); }
-.sidebar .sb-start-actions { display: flex; gap: 6px; margin-top: 4px; }
-.sidebar .sb-prompt { margin-top: 6px; padding: 8px; border: 1px solid var(--color-danger); border-radius: 8px;
+:is(.sidebar, .start-banner) .sb-step.sb-stalled { color: var(--color-notice); }
+:is(.sidebar, .start-banner) .sb-start-actions { display: flex; gap: 6px; margin-top: 4px; }
+:is(.sidebar, .start-banner) .sb-prompt { margin-top: 6px; padding: 8px; border: 1px solid var(--color-danger); border-radius: 8px;
   background: color-mix(in srgb, var(--color-danger) 10%, transparent); color: var(--text); font-size: 12px; }
-.sidebar .sb-prompt b { display: block; margin-bottom: 6px; color: var(--color-danger); overflow-wrap: anywhere; }
-.sidebar .sb-prompt-btns { display: flex; flex-wrap: wrap; gap: 6px; }
-.sidebar .sb-prompt button, .sidebar .sb-start-retry { font-size: 12px; padding: 4px 12px; min-height: 30px; }
-.sidebar .sb-prompt button.deny { color: var(--color-danger); }
-.sidebar .sb-start-refused { display: block; margin-top: 4px; color: var(--color-danger); font-size: 12px; }
+:is(.sidebar, .start-banner) .sb-prompt b { display: block; margin-bottom: 6px; color: var(--color-danger); overflow-wrap: anywhere; }
+:is(.sidebar, .start-banner) .sb-prompt-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+:is(.sidebar, .start-banner) .sb-prompt button, :is(.sidebar, .start-banner) .sb-start-retry { font-size: 12px; padding: 4px 12px; min-height: 30px; }
+:is(.sidebar, .start-banner) .sb-prompt button.deny { color: var(--color-danger); }
+:is(.sidebar, .start-banner) .sb-start-refused { display: block; margin-top: 4px; color: var(--color-danger); font-size: 12px; }
 /* At join the board's row fades in, ringed for a moment (sidebar.js). */
 .sidebar .sb-joined { animation: sb-join 2.5s ease-out both; }
 @keyframes sb-join {

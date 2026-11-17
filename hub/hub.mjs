@@ -221,7 +221,7 @@ import { migrateTriage, overnightJobs, setOvernight } from './overnight.mjs';
 import { runNightlySuite } from './nightly-suite.mjs';
 import { checkIncoming } from './incoming.mjs';
 import { drainRoutes, queueRequest, routedRows } from './router.mjs';
-import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
+import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubCodeState, readJSON, migrateCellarNode, servedSites } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -498,7 +498,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   async function reconcilePass() {
     if (shuttingDown) return;
     if (codeRestarts) await selfRestart.check();
-    const { sites } = loadManifest();
+    // A starting New board's site runs too (boards.mjs servedSites), and its join keeps the entry, so the server runs on.
+    const sites = servedSites(loadManifest());
     for (const route of [...procs.keys()]) {
       if (closingResponses.has(route)) continue;
       if (!routeRecord(sites, route)) { log(`${route} left the manifest; stopping it`); stop(route); procs.delete(route); }
@@ -1055,7 +1056,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   upgrade.tick();
 
   const stream = hubStream({
-    targets: () => Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s) && s.port).map(([route, s]) => ({ route, port: s.port })),
+    targets: () => Object.entries(servedSites(loadManifest())).filter(([, s]) => isBoardSite(s) && s.port).map(([route, s]) => ({ route, port: s.port })),
     watched: () => listBoards(loadManifest()).map(({ route, dir }) => ({ route, dir })),
     sidebar: async ({ fresh }) => (await sidebarState({ fresh })).data,
     log,
@@ -1730,7 +1731,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       res.end('Requests must come from the app’s own pages.');
       return;
     }
-    const sites = new Set(Object.keys(loadManifest().sites));
+    const served = servedSites(loadManifest());
+    const sites = new Set(Object.keys(served));
     if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
       const here = url.pathname === '/' ? '' : url.pathname.startsWith('/_hub/') ? url.pathname.slice(1) : decodeURIComponent(url.pathname.split('/')[1]);
       shellPage(here, viewer).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest', 'x-app-shell': '1' }, html))
@@ -1755,7 +1757,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
 
     const route = url.pathname.split('/')[1];
-    const site = routeRecord(loadManifest().sites, route);
+    const site = routeRecord(served, route);
     if (!site) { res.writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'x-kickflip-down': 'removed' }); res.end(`${head('No Site')}<a class="back" href="/_hub/">‹ Hub</a><h1>No site at /${esc(route)}</h1></main></body></html>`); return; }
     if (url.pathname === '/' + route) { res.writeHead(302, { location: '/' + route + '/' + url.search }).end(); return; }
 
@@ -1801,7 +1803,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const { verdict } = await access(req);
     if (verdict !== 'owner') { refuseUpgrade(socket, verdict === 'shared' ? 'view-only' : verdict === 'home' ? 'other' : verdict); return; }
     const route = requestURL(req).pathname.split('/')[1];
-    const site = routeRecord(loadManifest().sites, route);
+    const site = routeRecord(servedSites(loadManifest()), route);
     if (!site?.port) { socket.destroy(); return; }
     const prefix = `/${route}`;
     pipeUpgrade({ req, socket, head, port: site.port, path: req.url.slice(prefix.length) || '/', replace: ['x-forwarded-prefix'], extra: [`X-Forwarded-Prefix: ${prefix}`] });
