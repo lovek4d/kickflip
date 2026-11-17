@@ -268,7 +268,7 @@ test('with auto implement on the board starts and launches the build of the top 
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 test('a starting server turns a waiting Implement ask into staging, starts nothing for it, and launches the briefed round of a card sent back from staging, once', async (t) => {
-  const { dir, siteDir, dataDir } = scratch(t, 'staging-round', Date.now());
+  const { dir, siteDir, dataDir, clock } = scratch(t, 'staging-round', Date.now());
   const waveFile = path.join(dataDir, 'items.json');
   const now = Date.now();
   fs.mkdirSync(path.join(dataDir, 'agents'), { recursive: true });
@@ -281,11 +281,14 @@ test('a starting server turns a waiting Implement ask into staging, starts nothi
   put(path.join(dataDir, 'agents', 'G1.json'), JSON.stringify({ kind: 'grill', started: iso(now - 120000), done: iso(now - 90000) }));
   const { claude, launched } = launchingBoard(dir, siteDir, { stays: true });
   Object.assign(process.env, { KICKFLIP_CODEX: 'true', KICKFLIP_CLAUDE: claude });
+  // The launched process counts as the board's only if it started before the session's recorded time (headless.mjs
+  // launchedAgents), and the frozen clock stands at the test's start: a slow spawn would start it after.
+  clock.set(now + 30000);
   await server(t, siteDir).start();
   assert.deepEqual(launched('grill'), ['t/G1'], 'the round sent back from staging launches from its brief');
   const g1 = JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'G1');
   assert.deepEqual([g1.briefs, JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'G1.json'), 'utf8')).brief.brief.heading], [undefined, 'Brief for grill round 2'], 'the launch takes the brief off the task onto the record');
-  assert.ok(!fs.existsSync(path.join(dataDir, 'threads', 't__G1.jsonl')), 'the round posts no thread line of its own');
+  assert.deepEqual(lines(path.join(dataDir, 'threads', 't__G1.jsonl')), [], 'the round posts no thread line of its own');
   const q1 = JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1');
   assert.deepEqual([q1.phase, q1.staged_at, q1.implement_at], ['staging', iso(now - 60000), undefined]);
   assert.deepEqual(launched('claude', 'codex', 'prototype'), [], 'a staging task starts nothing');
