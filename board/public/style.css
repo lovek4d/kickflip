@@ -374,7 +374,7 @@ form[data-reply] .row > .send-actions, .note-tools + .send-actions { margin-top:
 /* A composer's send buttons (ui.js sendButton), each with its key as a small gray hint where there is a keyboard and
    room. A pair takes a row of two halves; a Todo card's reply box wraps its pair under the row. */
 .send-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
-.send-actions button, [data-sends] button, .view-questions .bar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.send-actions button, [data-sends] button, .qs-foot button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .send-actions button { min-height: 44px; }
 form[data-reply] .row { flex-wrap: wrap; }
 form[data-reply] .row > .send-actions { flex: 0 0 100%; }
@@ -878,11 +878,6 @@ main > * { transition: opacity .25s ease; }
 .view-questions .q.resolved .opt:has(input:checked) .det { display: block; }
 .view-questions .q.resolved .opt:not(:has(input:checked)) { opacity: .6; }
 .view-questions .q.resolved .reask-line { margin-top: 10px; }
-.view-questions .bar { position: sticky; bottom: var(--app-bottom, 0px); padding: 10px 0 max(10px, env(safe-area-inset-bottom)); background: var(--bg); z-index: 2;
-  display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
-/* The + rides above the sticky Send bar rather than over its Send. */
-.view-questions .bar #qstatus { min-width: 0; }
-.view-questions .bar #qstatus.sent { color: var(--color-success); font-weight: 600; }
 /* With nothing waiting, its two lines sit at the centre of what the page or the desktop pane shows. */
 .view-questions .q-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--muted); text-align: center;
   min-height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(16px, env(safe-area-inset-top))); }
@@ -951,8 +946,6 @@ main > * { transition: opacity .25s ease; }
   :root:has(body > .top, body.has-sidebar > :not(.sidebar) > .top) {
     --app-bottom: calc(49px + max(4px, env(safe-area-inset-bottom)));
   }
-  /* The nav under the bar already pads the safe area (--app-bottom), so the gap under Send stays the 10px above it. */
-  .view-questions .bar { padding-bottom: 10px; }
   body > .top, body.has-sidebar > :not(.sidebar) > .top {
     position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 7;
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
@@ -1104,9 +1097,23 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .reader-sheet .ps-sheet h3 { margin: 0 0 6px; font-size: 14px; }
 .reader-sheet .ps-sheet button { display: flex; justify-content: space-between; gap: 12px; width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--text); padding: 10px 2px; text-align: left; }
 .reader-sheet .ps-sheet button span + span { color: var(--muted); }
-/* The questions sheet (app-questions-sheet.js) draws Waiting on you's question cards in the reader sheet's frame. */
-.qs-body { padding: 0; }
-.qs-round { margin: 14px 0 0; font-size: 13px; font-weight: 600; }
+/* The questions sheet (app-questions-sheet.js) draws its question cards in the reader sheet's frame: the cards scroll in
+   its body, 12px under the head and 12px over the footer, and Send sits in the footer, flush to the sheet's bottom edge
+   with a hairline above. The form holding body and footer draws no box, so the sheet's form rules don't reach them. The
+   footer pads the keyboard (--kb, dialogs.js fitSheet) and the safe area the bottom bar doesn't (--app-bottom). */
+.qs-form { display: contents; }
+.questions-sheet .reader-body { padding: 0; }
+.qs-body { padding: 0 16px; }
+.qs-round { margin: 16px 0 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.qs-round + .q { margin-top: 6px; }
+.qs-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); background: var(--panel);
+  padding: 10px 16px calc(max(10px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))) + var(--kb, 0px)); }
+.qs-foot #qstatus { min-width: 0; }
+.qs-foot button { min-height: 40px; padding: 0 18px; }
+@media (max-width: 699px) {
+  .qs-body { padding: 0 12px; }
+  .qs-foot { padding-left: 12px; padding-right: 12px; }
+}
 .reader-row { padding: 5px 14px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .reader-row.text { padding-top: 9px; }
 .reader-row.end { margin: 6px 14px 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); }
@@ -1146,7 +1153,6 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .rv-links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
 .rv-links a { color: var(--accent); text-decoration: none; }
 .rv-acts { display: flex; flex-wrap: wrap; gap: 8px; }
-.view-questions .bar #qstatus .try-spin { color: var(--accent); margin-right: 6px; }
 
 /* From 900px the pane beside the lanes holds Waiting on you (app-pane.js,
    docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md). */

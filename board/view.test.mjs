@@ -7636,9 +7636,21 @@ test("a card's Questions button opens the sheet on the latest answered batch onc
   }
 });
 
-test("the questions sheet's content takes the sheet's own padding and no margin of its own", () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /\.qs-body \{ padding: 0; \}/);
+// The cards scroll in the sheet's body and Send sits in a footer under it, its status counting the questions answered.
+test("the questions sheet's Send and status sit in a footer outside its scrolling body, the status counting what is answered", async () => {
+  const s = sheetOnDom();
+  await s.settle();
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
+  const foot = s.sheet().querySelector('.qs-foot');
+  assert.ok(foot && foot.querySelector('#send') && foot.querySelector('#qstatus'), 'the footer holds Send and the status');
+  assert.equal(foot.closest('.reader-body'), null, 'outside the scrolling body');
+  assert.equal(s.sheet().querySelector('.reader-body form'), null, 'the form wraps the body and the footer, not the cards alone');
+  assert.equal(foot.closest('form'), s.sheet().querySelector('.reader-body').closest('form'));
+  assert.equal(s.sheet().querySelector('#qstatus').textContent, '0 of 2 answered');
+  s.pick('qa');
+  assert.equal(s.sheet().querySelector('#qstatus').textContent, '1 of 2 answered');
+  assert.ok(s.sheet().classList.contains('keyboard-sheet'), 'the open sheet follows the keyboard (dialogs.js fitSheet)');
+  s.view.unmount();
 });
 
 test('a prototype question opens in the sheet with its View prototypes link, and from 900px the sheet is not modal and a row in the pane opens its topic in it', async () => {

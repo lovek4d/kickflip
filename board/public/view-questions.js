@@ -25,10 +25,7 @@
 <main>
   ${embedded ? '<span class="muted small" id="progress" hidden></span>' : ''}<section id="page"></section>
 </main>${embedded ? '' : `
-<dialog class="sheet reader-sheet questions-sheet" aria-label="questions">
-  <div class="reader-head"><h2>questions</h2><span class="reader-ref"></span><button type="button" class="ghost" data-qs="close" aria-label="Close">✕</button></div>
-  <div class="reader-body" tabindex="0"></div>
-</dialog>`}`,
+${BoardQuestionsSheet.markup(' aria-label="questions"')}`}`,
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;

@@ -1,5 +1,5 @@
-// Waiting on you's page and the desktop pane: the pane scrolls on its own, the Send bar ends either, and the board's ?
-// shows at every width.
+// Waiting on you's page and the desktop pane: the pane scrolls on its own, nothing pads on below either, and the
+// board's ? shows at every width.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,16 +32,4 @@ test('the desktop right pane never scrolls sideways: its content wraps to the pa
   assert.match(pane, /overflow-x: hidden/);
   assert.match(wide, /\.board-pane \* \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
   assert.match(wide, /\.board-pane pre[^{]*\{[^}]*white-space: pre-wrap;/);
-});
-
-test('the Send bar stacks above the notes\' attach buttons, with equal padding above and below', () => {
-  const bar = css.match(/\.view-questions \.bar \{[^}]*\}/)[0];
-  const clip = css.match(/\.dz > \.attach \{[^}]*z-index: (\d+)/);
-  assert.match(bar, /padding: 10px 0 max\(10px, env\(safe-area-inset-bottom\)\)/);
-  assert.ok(Number(bar.match(/z-index: (\d+)/)?.[1]) > Number(clip[1]));
-});
-
-test('on a phone the Send bar keeps 10px under Send, the nav below it already padding the safe area', () => {
-  const phone = css.slice(css.indexOf('@media (max-width: 899px)'));
-  assert.match(phone, /\.view-questions \.bar \{ padding-bottom: 10px; \}/);
 });

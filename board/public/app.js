@@ -648,10 +648,7 @@ ${BoardNewTask.markup()}
   <div class="reader-body" tabindex="0"></div>
   <button type="button" class="reader-new" data-reader="end" hidden></button>
 </dialog>
-<dialog id="questionsSheet" class="sheet reader-sheet" aria-labelledby="questionsTitle">
-  <div class="reader-head"><h2 id="questionsTitle">questions</h2><span class="reader-ref"></span><button type="button" class="ghost" data-qs="close" aria-label="Close">✕</button></div>
-  <div class="reader-body" tabindex="0"></div>
-</dialog>
+${BoardQuestionsSheet.markup(' id="questionsSheet" aria-label="questions"')}
 <dialog id="lightbox" class="lightbox" aria-labelledby="lightboxName">
   <div class="lightbox-head"><b id="lightboxName" class="lightbox-name"></b><button type="button" class="ghost" data-lightbox="close" aria-label="Close">✕</button></div>
   <img alt="">

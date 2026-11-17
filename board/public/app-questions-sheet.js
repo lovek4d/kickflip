@@ -68,7 +68,10 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   const boxesOf = (m) => Object.keys(m.uploads || {});
   const pending = () => BoardUI.pendingAnswers(openOf().filter((q) => !entryOf(q.id)), attachedOf);
   const numberOf = (q) => (board().ownerTopics.find((t) => t.id === q.topic)?.questions.indexOf(q.id) ?? -1) + 1;
-  const status = (text) => { const st = sheet.querySelector('#qstatus'); if (st) st.textContent = text; };
+  const status = (text) => { sheet.querySelector('#qstatus').textContent = text; };
+  // While open, the sheet follows the phone's keyboard (dialogs.js fitSheet): its --kb lifts the footer above it.
+  let unfit = null;
+  const unfitted = () => { unfit?.(); unfit = null; };
   const refusal = (e) => (e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?');
   // A question's entry in the outbox as its card draws it: a set's with that question's answer and files.
   const sendingOf = (q) => {
@@ -87,10 +90,9 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     sheet.querySelector('.reader-ref').textContent = it ? `${it.ref} · ${it.title}` : d.ownerTopics.find((t) => t.id === topic)?.title || '';
     const links = linkContext(d.items, key, { base: './' });
     const groups = batches();
-    body.innerHTML = `<div class="view-questions qs-body" data-request-words="${BoardUI.requestShown(it) ? 'shown' : 'hidden'}"><form data-qsform>
+    body.innerHTML = `<div class="view-questions qs-body" data-request-words="${BoardUI.requestShown(it) ? 'shown' : 'hidden'}">
       ${groups.map((g) => `${groups.length > 1 && g.line ? `<h3 class="qs-round">${esc(g.line.text)} <span class="muted">· ${esc(time(g.line.ts))}</span></h3>` : ''}${g.qs.map((q) => card(q, links)).join('')}`).join('')}
-      <div class="bar"><span class="muted small" id="qstatus" role="status"></span>${BoardUI.sendButton('Send', 0, ' id="send"')}</div>
-    </form></div>`;
+    </div>`;
     BoardAttach.paintAll();
     updateBar();
   }
@@ -103,10 +105,12 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     BoardAttach.paintAll();
     updateBar();
   }
+  // Send is on once a question is answered, and the status counts those answered of the questions still to send.
   function updateBar() {
-    const button = sheet.querySelector('#send');
-    if (!button) return;
-    button.disabled = !pending().length;
+    const answered = pending().length;
+    const left = openOf().filter((q) => !entryOf(q.id)).length;
+    sheet.querySelector('#send').disabled = !answered;
+    status(left ? `${answered} of ${left} answered` : '');
   }
   // After a recorded tap: the sheet draws the board it landed, or closes once the topic has no open question.
   const redraw = () => { if (!sheet.open) return; if (openOf().length) draw(); else close(); };
@@ -144,7 +148,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
       if (live) kept = new Set(openOf().map((q) => q.id));
       else { kept = new Set(answered); kept = new Set(batches()[0].qs.map((q) => q.id)); }
     }
-    if (!sheet.open) modal = !matchMedia('(min-width: 900px)').matches;
+    if (!sheet.open) { modal = !matchMedia('(min-width: 900px)').matches; unfit ||= BoardDialogs.fitSheet(sheet); }
     if (!sheet.open || !auto) BoardUI.openSheet(sheet, { modal });
     draw();
     return true;
@@ -319,9 +323,20 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   // The view going takes its sheet out of the sheet stack (ui.js openSheet).
   atUnmount(() => sheet.close());
   on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
+  // A sheet closed and not shown again (ui.js restack closes and shows it at once) stops following the keyboard.
+  on(sheet, 'close', () => { if (!sheet.open) unfitted(); });
+  atUnmount(unfitted);
 
   return { open, followCard, leaveCard, shows, close, redraw, resend, retry, drop, holds, linkChanged, isOpen: () => sheet.open };
 };
+// docs/adr/2026-11-17-2000-the-questions-sheets-send-is-a-fixed-footer.md
+// The sheet's dialog: the reader sheet's head, the cards scrolling in its body, and under them a footer with the status
+// and Send, flush to the sheet's bottom edge. One form holds the body and the footer, so Send and ⌘↵ submit the cards.
+BoardQuestionsSheet.markup = (attrs = '') => `<dialog class="sheet reader-sheet questions-sheet"${attrs}>
+  <div class="reader-head"><h2>questions</h2><span class="reader-ref"></span><button type="button" class="ghost" data-qs="close" aria-label="Close">✕</button></div>
+  <form class="qs-form"><div class="reader-body" tabindex="0"></div>
+    <div class="qs-foot"><span class="muted small" id="qstatus" role="status"></span>${BoardUI.sendButton('Send', 0, ' id="send"')}</div></form>
+</dialog>`;
 
 // The board's sheet, over the lanes and the pane. Needs app-core.js and app-threads.js, whose card threads draw the
 // answer outbox's lines (B.answerChanged).
