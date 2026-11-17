@@ -355,7 +355,8 @@ form[data-reply] .row > .send-actions, .note-tools + .send-actions { margin-top:
 [data-request-words="hidden"] .request-row { display: none; }
 .request-row .req { flex: 1 1 0; min-width: 0; margin: 0; padding: 6px 8px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; white-space: nowrap; }
-.request-row .req .key-hint { color: var(--muted); }
+.request-row .req .req-word { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.request-row .req .key-hint { color: var(--muted); flex: none; }
 .request-row .req:hover { background: var(--chip); }
 .request-row .req:disabled { opacity: .35; }
 /* A composer's send buttons (ui.js sendButton), each with its key as a small gray hint where there is a keyboard and

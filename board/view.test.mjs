@@ -3295,7 +3295,7 @@ test("a thread's request words show only while its card is in Todo, disabled wit
     return [el.dataset.requestWords, [...el.querySelectorAll('.request-row button')].map((x) => x.disabled).join()];
   };
   assert.deepEqual([row('w/T1'), row('w/S1'), row('w/P1'), row('w/R1')],
-    [['shown', 'false,false,false,false,false'], ['shown', 'true,true,true,true,true'], ['hidden', 'false,false,false,false,false'], ['hidden', 'false,false,false,false,false']]);
+    [['shown', 'false,false,false,false'], ['shown', 'true,true,true,true'], ['hidden', 'false,false,false,false'], ['hidden', 'false,false,false,false']]);
   assert.equal(b.root.querySelectorAll('[data-thread="w/P1"] button[data-intent="reply"]').length, 1, 'send stays');
   b.view.unmount();
 });
@@ -3845,7 +3845,7 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
 });
 
 // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-test("a thread box's row holds only What's left?, Prototype, Grill, Visual and Review, with the attach icon inside the text box, and the send pair below", async () => {
+test("a thread box's row holds only Prototype, Grill, Visual and Review, with the attach icon inside the text box, and the send pair below", async () => {
   const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
@@ -3854,7 +3854,7 @@ test("a thread box's row holds only What's left?, Prototype, Grill, Visual and R
   assert.deepEqual(row('w/T1'), ['request-row', 'todo']);
   assert.deepEqual(row('w/P1'), ['request-row', 'progress']);
   for (const key of ['w/T1', 'w/P1']) {
-    assert.deepEqual(icons(key), ['quick', 'proto', 'grill', 'visual', 'review']);
+    assert.deepEqual(icons(key), ['proto', 'grill', 'visual', 'review']);
     assert.ok(form(key).querySelector('.dz .attach'));
     assert.equal(form(key).querySelector('.request-row .attach'), null);
     assert.ok(form(key).querySelector('.dz .dz-hint'));
@@ -5235,7 +5235,7 @@ test("Done closes the card and holds the card still on screen as the card moves 
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-78]]);
+    ['done', false, '[]', [-82]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
@@ -6880,7 +6880,7 @@ test("the thread's Review button, fifth after Visual, sends what /review sends: 
   await b.settle();
   const form = () => b.root.querySelector('form[data-reply="w/A1"]');
   const box = () => form().querySelector('textarea');
-  assert.deepEqual(form().querySelector('.request-row').children.map((c) => c.textContent).map((t) => t.replace(/(⌥|Alt\+).$/, '')), ["What's left?", 'Prototype', 'Grill', 'Visual', 'Review']);
+  assert.deepEqual(form().querySelector('.request-row').children.map((c) => c.textContent).map((t) => t.replace(/(⌥|Alt\+).$/, '')), ['Prototype', 'Grill', 'Visual', 'Review']);
   const tap = async (text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: form().querySelector('button[data-review]') }); await b.settle(); };
   await tap();
   await tap('Check the diff');
@@ -8163,19 +8163,19 @@ test("a catch-up that finds the saved copy replaced meanwhile, by the board's ow
 });
 
 // docs/adr/2026-11-16-0630-the-request-row-is-outlined-buttons-spread-with-key-hints.md
-test("Alt+L, Alt+G in a thread's box press What's left? and Grill, the typed text going with Grill", async () => {
+test("Alt+L in a thread's box does nothing; Alt+G presses Grill, the typed text going with it", async () => {
   const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] } });
   await b.settle();
   const form = () => b.root.querySelector('form[data-reply="w/A1"]');
   const box = () => form().querySelector('textarea');
   // The mini DOM's elements have no click(): a button's click reaches the board's root as a tap does.
-  for (const btn of form().querySelectorAll('button[data-quick], button[data-grill]')) btn.click = () => b.page.fire(b.root, 'click', { target: btn });
+  for (const btn of form().querySelectorAll('button[data-grill]')) btn.click = () => b.page.fire(b.root, 'click', { target: btn });
   const key = (target, code) => b.page.fire(b.root, 'keydown', { key: 'x', code, altKey: true, target }).defaultPrevented;
-  assert.equal(key(box(), 'KeyL'), true);
+  assert.equal(key(box(), 'KeyL'), false);
   box().value = 'Go deeper on the sync';
   assert.equal(key(box(), 'KeyG'), true);
   await b.settle();
-  assert.deepEqual(sentNoIds(b), [['item-message', { key: 'w/A1', text: "What's left?" }], ['grill-more', { key: 'w/A1', text: 'Go deeper on the sync' }]]);
+  assert.deepEqual(sentNoIds(b), [['grill-more', { key: 'w/A1', text: 'Go deeper on the sync' }]]);
   b.view.unmount();
 });
 

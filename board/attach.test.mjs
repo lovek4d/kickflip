@@ -162,7 +162,7 @@ test("pressing a composer's send button or its eye, fire or image leaves the tex
   const p = attachPage();
   const { sendButton, protoButton, grillButton, visualButton } = p.win.BoardUI;
   p.composer.querySelector('.row').insertAdjacentHTML('beforeend',
-    `${protoButton('a')}${grillButton('a')}${visualButton('a')}<button type="button" class="chip">What's left?</button>${sendButton('Reply', 0)}${sendButton('Done', 1, ' data-confirm="finish"')}`);
+    `${protoButton('a')}${grillButton('a')}${visualButton('a')}<button type="button" class="chip">Other</button>${sendButton('Reply', 0)}${sendButton('Done', 1, ' data-confirm="finish"')}`);
   const pressed = (sel) => p.fire(p.composer.querySelector(sel), 'mousedown').defaultPrevented;
   for (const sel of ['button[type=submit][data-nth="0"]', 'button[data-confirm]', '[data-proto]', '[data-grill]', '[data-visual]']) {
     assert.equal(pressed(sel), true, sel);

@@ -973,20 +973,20 @@ test('an open question has its eye on and nothing locked, a resolved one has no 
   assert.doesNotMatch(ui.questionCard(question), /disabled|pr-busy|try-spin/);
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved' }), /data-proto/);
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: under the note box, the thread
-  // reply's row without What's left?: Prototype, Grill and Visual, the attach icon inside the note box.
+  // reply's row: Prototype, Grill and Visual, the attach icon inside the note box.
   const card = ui.questionCard(question);
   assert.match(card, /<div class="dz"><textarea class="note"[^>]*><\/textarea><label class="attach"[\s\S]*<div class="dz-hint"/);
   assert.ok(card.includes(`<div class="note-tools"><div class="pending-files" data-files></div>${ui.requestRow('q:q1', { protoLabel: 'Ask for a prototype instead' })}</div>`));
   assert.deepEqual([...ui.requestRow('q:q1').matchAll(/data-(proto|grill|visual|attach)/g)].map((m) => m[1]), ['proto', 'grill', 'visual']);
-  assert.deepEqual([...ui.requestRow('q:q1', { quick: true }).matchAll(/data-(quick|proto|grill|visual|attach)/g)].map((m) => m[1]), ['quick', 'proto', 'grill', 'visual']);
   assert.match(ui.requestRow('q:q1'), /^<span class="request-row">/);
   // Each word carries its key hint, ⌥ on a Mac and Alt+ elsewhere (style.css shows it where there is a keyboard).
-  assert.match(ui.requestRow('q:q1', { quick: true }), /What's left\?<span class="key-hint" aria-hidden="true">(⌥|Alt\+)L<\/span>/);
-  assert.match(ui.requestRow('q:q1'), /Grill<span class="key-hint" aria-hidden="true">(⌥|Alt\+)G<\/span>/);
+  assert.doesNotMatch(ui.requestRow('q:q1', { review: true }), /data-quick|What's left/);
+  // Each word is in its own span that clips with an ellipsis, beside the hint (style.css .req-word).
+  assert.match(ui.requestRow('q:q1'), /<span class="req-word">Grill<\/span><span class="key-hint" aria-hidden="true">(⌥|Alt\+)G<\/span>/);
   // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: Review is a thread's fifth word, after Visual; a question's and the New task's row has none.
-  assert.deepEqual([...ui.requestRow('q:q1', { quick: true, review: true }).matchAll(/data-(quick|proto|grill|visual|review)/g)].map((m) => m[1]), ['quick', 'proto', 'grill', 'visual', 'review']);
+  assert.deepEqual([...ui.requestRow('q:q1', { review: true }).matchAll(/data-(proto|grill|visual|review)/g)].map((m) => m[1]), ['proto', 'grill', 'visual', 'review']);
   assert.doesNotMatch(ui.requestRow('q:q1'), /data-review/);
-  assert.match(ui.requestRow('q:q1', { review: true }), /Review<span class="key-hint" aria-hidden="true">(⌥|Alt\+)R<\/span>/);
+  assert.match(ui.requestRow('q:q1', { review: true }), /Review<\/span><span class="key-hint" aria-hidden="true">(⌥|Alt\+)R<\/span>/);
   assert.equal(ui.requestOf({ hasAttribute: (a) => a === 'data-review' }), 'review');
   // Alt+letter presses its word's button within a scope: not with Ctrl or ⌘, not a button that is disabled or absent.
   const grill = { disabled: false };

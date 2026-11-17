@@ -80,7 +80,7 @@
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-  // Under the note box, the thread reply's row without What's left?: the files, then the request words
+  // Under the note box, the thread reply's row: the files, then the request words
   // and attach (ui.js requestRow). Prototype sends `prototype-request {key?, question, note, choice}` for that
   // question alone, which then reads requested until its prototype round arrives; Grill sends `grill-more` the same
   // way, which reads requested, Grilling deeper, until the grill's next questions resolve it, and Visual `visual-request`,

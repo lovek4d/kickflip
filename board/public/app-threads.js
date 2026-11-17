@@ -189,11 +189,11 @@ BoardView.part((B) => {
     // The reply form is built once per card, so a refresh never drops what is being typed.
     if (!el.querySelector('.msgs')) {
       const draft = store.get('draft:' + key, '');
-      // The row: the request words, What's left? first, with the attach at their right, and the send buttons
+      // The row: the request words, with the attach at their right, and the send buttons
       // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`)}
         <div class="pending-files" data-files></div>
-        <div class="row">${requestRow(key, { quick: true, review: true })}${sends('one')}</div></form>`;
+        <div class="row">${requestRow(key, { review: true })}${sends('one')}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncSends(el, key);
@@ -407,11 +407,6 @@ BoardView.part((B) => {
     flush(m.key);
   });
 
-  B.on(B.root, 'click', (ev) => {
-    const b = ev.target.closest('form[data-reply] button[data-quick]');
-    if (!b) return;
-    enqueue(b.closest('form').dataset.reply, { text: b.dataset.quick });
-  });
   // Sends the composer's draft through the outbox, as a request when flag names one, else as a message with the tapped
   // button's intent; no button waits.
   async function post(f, flag, button) {
