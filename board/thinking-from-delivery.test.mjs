@@ -68,3 +68,18 @@ test("an owner message's thread view keeps its handover time while it is thinkin
   assert.deepEqual(msgs.map((m) => [m.state, m.since]), [['working', at(7)]]);
   assert.deepEqual(threadOf('w/A1', { events: [said(5)], delivered: stamps({ m5: at(7) }), listening: false }).map((m) => m.state), ['waiting'], 'a session not listening');
 });
+
+test("a card stops reading thinking when the orchestrator's next handover brings no write on it", () => {
+  const unblocked = { id: 'u1', ts: at(3), kind: 'card-unblocked', data: { key: 'w/A1' } };
+  const other = { id: 'o1', ts: at(4), kind: 'item-message', data: { key: 'w/B1', text: 'Elsewhere' }, reply: null };
+  const second = { id: 'u2', ts: at(5), kind: 'card-unblocked', data: { key: 'w/A1' } };
+  // Nothing handed over since: the orchestrator is still on it.
+  assert.equal(cardOf({ events: [unblocked], delivered: stamps({ u1: at(9) }) }).working, true);
+  // A later handover, of another card's event, without a write on this card: it moved on.
+  assert.equal(cardOf({ events: [unblocked, other], delivered: stamps({ u1: at(9), o1: at(12) }) }).working, false);
+  // Handed in the same batch: still on it.
+  assert.equal(cardOf({ events: [unblocked, other], delivered: stamps({ u1: at(9), o1: at(9) }) }).working, true);
+  // A new event on the card in the latest handover starts it again, from that handover.
+  const again = cardOf({ events: [unblocked, other, second], delivered: stamps({ u1: at(9), o1: at(12), u2: at(15) }) });
+  assert.deepEqual([again.working, again.workingSince], [true, at(15)]);
+});

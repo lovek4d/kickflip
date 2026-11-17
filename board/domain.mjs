@@ -1571,15 +1571,17 @@ export function buildBoard(snapshot) {
   const workingOn = events.filter((e) => routeRecord(working, e.id) && unanswered(e))
     .map((e) => ({ id: e.id, kind: e.kind, key: cardOf(e), data: e.data, since: routeRecord(working, e.id) }));
   // docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md: a card also
-  // thinks from the first handover of any of its events (data/delivered.json) after the orchestrator's last write on it,
-  // a thread line or a command (actedOn), until its next one. A Done card thinks no more, and an event that asks for no
-  // write (WRITES_NOTHING) makes none think.
+  // thinks from the latest handover of any of its events (data/delivered.json) after the orchestrator's last write on it,
+  // a thread line or a command (actedOn), until its next one or until any later handover: the orchestrator's next wake
+  // without a write on the card means it moved on. A Done card thinks no more, and an event that asks for no write
+  // (WRITES_NOTHING) makes none think.
   const lastWrite = (card) => [claudeAt.get(card), routeRecord(actedOn, card), closedAt(card)].filter(Boolean).map(String).sort().pop() || '';
+  const lastHandover = Object.values(delivered.events || {}).map(String).sort().pop() || '';
   const thinkingFrom = new Map();
   for (const e of events) {
     const at = !WRITES_NOTHING.includes(e.kind) && routeRecord(delivered.events || {}, e.id);
     const card = at && cardOf(e);
-    if (!card || !byKey.has(card) || byKey.get(card).lane === 'done' || String(at) <= lastWrite(card)) continue;
+    if (!card || !byKey.has(card) || byKey.get(card).lane === 'done' || String(at) <= lastWrite(card) || String(at) < lastHandover) continue;
     if (!thinkingFrom.has(card) || String(at) < thinkingFrom.get(card)) thinkingFrom.set(card, String(at));
   }
   for (const it of items) {
