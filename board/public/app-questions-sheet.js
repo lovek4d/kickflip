@@ -121,7 +121,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
 
   // id: a question's or a topic's. auto: the sheet follows the opened card (followCard); otherwise the owner opened it,
   // and followCard leaves it. A sheet already open for that topic stays as it is, except that a tap that isn't auto makes
-  // it the owner's. → false for one the board doesn't have, or a topic with no open question.
+  // it the owner's. → false for one the board doesn't have; for a topic with no open question, false when auto or when
+  // none was ever answered, else the sheet opens on its latest batch, answered.
   function open(id, { auto = false } = {}) {
     const t = topicOf(id);
     if (!t) return false;
@@ -131,10 +132,16 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     }
     const was = topic;
     topic = t;
-    if (!openOf().length) { topic = was; return false; }
+    const live = openOf().length > 0;
+    const answered = board().owner.filter((q) => q.topic === t && q.state !== 'open').map((q) => q.id);
+    if (!live && (auto || !answered.length)) { topic = was; return false; }
     autoOpen = auto;
     BoardUI.cutClose(sheet);
-    if (t !== was || !sheet.open) kept = new Set(openOf().map((q) => q.id));
+    if (t !== was || !sheet.open) {
+      // With nothing open, the sheet shows the topic's latest batch, answered.
+      if (live) kept = new Set(openOf().map((q) => q.id));
+      else { kept = new Set(answered); kept = new Set(batches()[0].qs.map((q) => q.id)); }
+    }
     if (!sheet.open) {
       modal = !matchMedia('(min-width: 900px)').matches;
       BoardUI.openSheet(sheet, { modal });

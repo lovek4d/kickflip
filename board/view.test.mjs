@@ -7490,6 +7490,25 @@ test("on a wide board a Questions button opens the sheet beside the pane on the 
   s.view.unmount();
 });
 
+test("a card's Questions button opens the sheet on the latest answered batch once every question is answered, on a phone and from 900px, where opening the card by itself opens none", async () => {
+  const done = (id) => openQuestion(id, 'item:w/A1', { state: 'answered', answers: [{ ts: '2026-11-14T11:00:00.000Z', choice: 'A', note: '', files: [] }] });
+  const base = questionsBoard([done('qa'), done('qb')], []);
+  base.ownerTopics[0].answered = 2;
+  const board = { ...base, items: [workCard('A1', { lane: 'progress', actionButton: 'openQuestions', resolvedBy: 'openQuestions', questions: { topic: 'item:w/A1', first: 'qa', open: 0, answered: 2, state: 'answered' } })] };
+  for (const width of [390, 1280]) {
+    const s = sheetOnDom({ width, board });
+    await s.settle();
+    if (width === 1280) {
+      s.page.fire(s.root, 'click', { target: s.root.querySelector('details.item[data-key="w/A1"] > summary'), button: 0 });
+      assert.equal(s.sheet().open, false, 'opening the card opens none with nothing open');
+    }
+    s.page.fire(s.root, 'click', { target: s.root.querySelector('button.button[data-questions="qa"]'), button: 0 });
+    await s.settle();
+    assert.deepEqual([s.sheet().open, s.ids()], [true, ['qb']], `${width}px: the latest batch, answered`);
+    s.view.unmount();
+  }
+});
+
 test("the questions sheet's content takes the sheet's own padding and no margin of its own", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.qs-body \{ padding: 0; \}/);
