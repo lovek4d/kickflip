@@ -229,3 +229,28 @@
   .hub-view .poll-steps li { flex-direction:column; gap:2px; }
   .hub-view .poll-steps li em { text-align:left; max-width:none; }
 }
+
+/* Hub › Slack's PR state emoji (slack-emoji.js): a row per state with its emoji cell, which opens a popover grid. The
+   group lets the popover overflow it, and makes room below while one is open. */
+.hub-view .group.se-rows { overflow:visible; }
+.hub-view .group.se-rows.se-opened { margin-bottom:290px; }
+.hub-view .se-row { position:relative; }
+.hub-view .se-tag { display:inline-block; margin-left:6px; padding:0 7px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:11px; font-weight:400; vertical-align:1px; }
+.hub-view .se-default { padding:0; font-size:inherit; text-decoration:underline; }
+.hub-view .se-cell { flex:none; display:inline-flex; align-items:center; gap:4px; height:38px; padding:0 10px; font:inherit; color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:8px; cursor:pointer; }
+.hub-view .se-cell[aria-expanded="true"] { border-color:var(--accent); }
+.hub-view .se-cell:disabled { opacity:.5; cursor:default; }
+.hub-view :is(.se-img, .se-char) { display:inline-grid; place-items:center; width:24px; height:24px; font-size:20px; line-height:1; }
+.hub-view .se-img { object-fit:contain; }
+.hub-view .se-name { font-size:12px; color:var(--text); }
+.hub-view .se-pop { position:absolute; z-index:3; right:10px; top:calc(100% - 4px); width:min(320px, calc(100% - 20px)); padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:0 12px 30px rgba(0,0,0,.28); }
+.hub-view .se-q { box-sizing:border-box; width:100%; margin-bottom:6px; padding:6px 9px; font:inherit; font-size:16px; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:7px; }
+.hub-view .se-q:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+.hub-view .se-found { max-height:220px; overflow-y:auto; }
+.hub-view .se-sec { margin:6px 2px 3px; font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+.hub-view .se-now { margin-bottom:0; padding-top:6px; border-top:1px solid var(--line); text-transform:none; letter-spacing:0; }
+.hub-view .se-grid { display:flex; flex-wrap:wrap; gap:2px; }
+.hub-view .se-pick { display:grid; place-items:center; width:36px; height:36px; padding:0; background:none; border:0; border-radius:7px; cursor:pointer; }
+.hub-view .se-pick :is(.se-img, .se-char) { width:26px; height:26px; font-size:22px; }
+.hub-view .se-pick.sel { background:var(--chip); box-shadow:inset 0 0 0 1px var(--line); }
+@media (hover: hover) { .hub-view .se-pick:hover { background:color-mix(in srgb, var(--chip) 70%, transparent); } }

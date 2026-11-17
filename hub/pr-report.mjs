@@ -104,7 +104,7 @@ export async function fetchPR({ repo, pr, since, comments = true }) {
 // (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). GraphQL has no `since`,
 // so each PR brings its last 50 comments, reviews and review threads of 20 comments, and reportOf filters them by time.
 const AUTHOR = 'author { __typename login }';
-// Title, size and whether anyone approved are for the PR's Slack link and its reactions; url, merge
+// Title, size and whether anyone approved are for the PR's Slack link and its state line; url, merge
 // time, branch, update time and each reviewer's latest state are for the board's badges
 // (docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md).
 const PR_QUERY_FIELDS = 'state isDraft reviewDecision mergeable mergeStateStatus headRefOid title additions deletions changedFiles url mergedAt headRefName updatedAt'

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fakeSlack, slackWorld } from '../shared/test-helpers.mjs';
-import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack, isSignedOff, slackDay } from './slack.mjs';
+import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack, isSignedOff, slackDay, setPREmoji, readPREmoji, setSlack, readSlack } from './slack.mjs';
 
 test("the digest's day opens at quiet hours' end, the Mac's time read in the Slack timezone, on weekdays only", () => {
   write(kf('settings.json'), { quiet: { start: '22:00', end: '07:30', hold: true } });
@@ -122,6 +122,28 @@ test('the hub saves the Slack token from its settings form and serves only the w
   assert.equal(read(path.join(web, 'secrets.json')).slack, undefined);
 });
 
+test("the hub serves Hub › Slack's PR state emoji from the workspace's own, and saves a pick and its reset", async (t) => {
+  write(path.join(kf(), 'manifest.json'), { version: 1, sites: {} });
+  const world = slackWorld();
+  const server = await fakeSlack(world).serve();
+  t.after(() => server.close());
+  process.env.KICKFLIP_SLACK_URL = server.url;
+  const { base } = await inProcessHub(t);
+  const names = (view) => view.rows.map((r) => r.emoji.name);
+  // With no token, the standard emojis stand in.
+  assert.deepEqual(names(await (await fetch(`${base}/_hub/api/slack-emoji`)).json()), ['white_check_mark', 'large_purple_circle', 'x']);
+  write(kf('secrets.json'), { slack: { token: world.token, team: 'Acme', user: 'love', user_id: 'U0' } });
+  const view = await (await fetch(`${base}/_hub/api/slack-emoji`)).json();
+  assert.deepEqual([names(view), view.customs.map((e) => e.name)], [['git_approved', 'git_merged', 'x'], ['claude_kickflip', 'git_approved', 'git_merged']]);
+  const pick = (body) => fetch(`${base}/_hub/settings/slack-emoji`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
+  const picked = await (await pick('state=approved&emoji=tada')).json();
+  assert.deepEqual([picked.rows[0].emoji, picked.rows[0].sub], [{ name: 'tada', char: '🎉' }, ':tada: · changed from :git_approved:']);
+  assert.deepEqual(readPREmoji(), { approved: 'tada' });
+  assert.deepEqual(names(await (await pick('state=approved&emoji=')).json()), ['git_approved', 'git_merged', 'x']);
+  const bad = await pick('state=reviewing&emoji=tada');
+  assert.deepEqual([bad.status, (await bad.json()).error], [400, 'Unknown PR state reviewing']);
+});
+
 test('every post ends with a “- :claude_kickflip:” line, or “- :robot_face:” when the workspace lacks the emoji or the token lacks emoji:read, and the emoji is looked up once per client', async () => {
   for (const [name, change, line] of [['has it', {}, '- :claude_kickflip:'], ['no emoji', { noEmoji: true }, '- :robot_face:'], ['no scope', { emojiMissingScope: true }, '- :robot_face:']]) {
     const world = Object.assign(slackWorld(), change);
@@ -134,18 +156,34 @@ test('every post ends with a “- :claude_kickflip:” line, or “- :robot_face
   }
 });
 
-test('a PR reaction uses the custom git_approved and git_merged when the workspace has them, else the standard emojis, and x as it is; a failed emoji.list reads as none', async () => {
+test("a PR state line's emoji is the custom git_approved and git_merged when the workspace has them, else the standard ones, and x for closed; a failed emoji.list reads as none", async () => {
   for (const [name, change, want] of [
-    ['has them', {}, ['git_approved', 'git_merged', 'x']],
-    ['no custom', { noEmoji: true }, ['white_check_mark', 'large_purple_circle', 'x']],
-    ['no scope', { emojiMissingScope: true }, ['white_check_mark', 'large_purple_circle', 'x']],
+    ['has them', {}, { approved: 'git_approved', merged: 'git_merged', closed: 'x' }],
+    ['no custom', { noEmoji: true }, { approved: 'white_check_mark', merged: 'large_purple_circle', closed: 'x' }],
+    ['no scope', { emojiMissingScope: true }, { approved: 'white_check_mark', merged: 'large_purple_circle', closed: 'x' }],
   ]) {
     const world = Object.assign(slackWorld(), change);
     const slack = fakeSlack(world);
     const client = slackClient(world.token, { fetch: slack.fetch });
-    assert.deepEqual([await client.prEmoji('git_approved'), await client.prEmoji('git_merged'), await client.prEmoji('x')], want, name);
+    assert.deepEqual(await client.prEmojis(), want, name);
+    assert.deepEqual(Object.keys(await client.workspaceEmoji()), change.noEmoji || change.emojiMissingScope ? [] : ['claude_kickflip', 'git_approved', 'git_merged'], name);
     assert.equal(slack.calls.filter((c) => c.method === 'emoji.list').length, 1, name);
   }
+});
+
+test("Hub's pick of a PR state's emoji wins over its default, one set in slack.json beside the identity, which a Slack setting keeps; an empty pick goes back to the default", async () => {
+  const world = slackWorld();
+  const client = () => slackClient(world.token, { fetch: fakeSlack(world).fetch });
+  await setPREmoji('approved', 'tada');
+  await setPREmoji('closed', 'no_entry');
+  await setSlack({ timezone: 'Europe/London' });
+  assert.deepEqual(readPREmoji(), { approved: 'tada', closed: 'no_entry' });
+  assert.deepEqual(await client().prEmojis(), { approved: 'tada', merged: 'git_merged', closed: 'no_entry' });
+  await setPREmoji('approved', '');
+  assert.deepEqual(readPREmoji(), { closed: 'no_entry' });
+  assert.equal(readSlack().timezone, 'Europe/London');
+  await assert.rejects(setPREmoji('changes', 'x'), /Unknown PR state changes/);
+  await assert.rejects(setPREmoji('merged', ':tada:'), /emoji must be an emoji name/);
 });
 
 test('an edit is signed off with its time in the Slack timezone, in italics, and still reads as ours', async () => {

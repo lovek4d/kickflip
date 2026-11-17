@@ -42,7 +42,7 @@ export function summarize(out) {
     mergeable: out.mergeable || null, mergeStateStatus: out.mergeStateStatus || null, head: out.head || null,
     failing: [...new Set(out.failing || [])].sort(), pending: Number(out.pending) || 0,
     eventId: newest ? String(newest.id) : null, eventAt: newest?.at || null,
-    // For the PR's Slack link and its reactions (board/slack-store.mjs reviewDue)
+    // For the PR's Slack link and its state line (board/slack-store.mjs reviewDue)
     title: out.title ?? null, additions: out.additions ?? null, deletions: out.deletions ?? null, files: out.files ?? null,
     approved: Boolean(out.approved),
     // What a board's badges draw, which boards read from here (board/snapshot.mjs readSnapshot,

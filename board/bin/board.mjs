@@ -488,14 +488,15 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   integrations                                          readiness rows as one JSON line
   review due                                            one JSON line of the Slack sends the hub owes, from local state
                                                          and data/pr-slack.json: {date, links: [{pr, key, reviewer,
-                                                         slack_user, text, attachments}], reactions: [{pr, reviewer, reply?,
-                                                         channel, ts, emoji}], digest: review digest's answer while
-                                                         due, else null}. links: each open, non-draft PR's link to
-                                                         each reviewer without one, in the reviewer's thread for
-                                                         date; no other message about a PR is owed. reactions:
-                                                         git_approved once anyone approved, git_merged on merge, x
-                                                         on close, on every posted link and reply. The hub sends
-                                                         and records each. While Slack isn't ready: {waiting} and
+                                                         slack_user, state, text, attachments}], edits: [{pr, reviewer,
+                                                         reply?, channel, ts, state, text, attachments}], digest:
+                                                         review digest's answer while due, else null}. links: each
+                                                         open, non-draft PR's link to each reviewer without one, in
+                                                         the reviewer's thread for date; no other message about a PR
+                                                         is owed. edits: each posted link and digest reply whose
+                                                         state line (Approved by <name>, Merged, Closed, or none)
+                                                         isn't the PR's now, edited in place, with no reaction. The
+                                                         hub sends and records each. While Slack isn't ready: {waiting} and
                                                          nothing owed
   review post <pr> --file <review.md>                   posts the session's words as one Comment review (never an
           --read-at <time>                               approval or a request for changes) on an incoming PR at

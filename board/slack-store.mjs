@@ -1,4 +1,4 @@
-// Slack, from the board's side: each PR's link and reactions, each reviewer's day thread and digest, the Slack threads
+// Slack, from the board's side: each PR's link and its state line, each reviewer's day thread and digest, the Slack threads
 // a board's tasks were filed from, and the orchestrator's `slack` commands. The hub sends what these owe
 // (hub/review-send.mjs, hub/slack-intake.mjs) and records each send here. Its files are written through files.mjs.
 import fs from 'node:fs/promises';
@@ -11,7 +11,7 @@ import { prSize } from '../hub/pr-report.mjs';
 import { cardPRs, parsePRRef, prKeyOf, prURL } from '../shared/card-prs.mjs';
 import { reviewLinks, reviewTime, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
-import { SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
+import { PR_EMOJI, SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
 import { BoardError, domId, needSite, text } from './checks.mjs';
 import { addItem, appendMessage, askCardOf } from './cards.mjs';
 import { boardRepoOf, boardTarget, sameName, settingsOf, storedTickets } from './settings.mjs';
@@ -21,13 +21,15 @@ const fail = (msg) => { throw new BoardError(msg); };
 // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md,
 // docs/adr/2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md,
 // docs/adr/2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md
-// data/pr-slack.json {<owner/repo#n>: {links: {<reviewer>: {channel, thread_ts, ts, reactions: [emoji]}},
-// replies: [{id, text, to: {<reviewer>: {channel?, ts, reactions}}}]}}: each PR's Slack messages, apart from the cards
+// data/pr-slack.json {<owner/repo#n>: {links: {<reviewer>: {channel, thread_ts, ts, state}},
+// replies: [{id, text, to: {<reviewer>: {channel?, ts, state}}}]}}: each PR's Slack messages, apart from the cards
 // that hold it. Every reviewer of a PR has their own link message, in the owner's DM with them: a reply in that day's
 // thread when it has thread_ts, else posted top-level before the day threads. replies are the PR's other messages
-// already posted, which get the link's reactions: a one-PR digest reply, and the bumps sent before they stopped; one
-// never posted is never sent. A message carries ts once posted, and posting_at while its post is out or after its ts
-// couldn't be recorded; either way it is never posted again.
+// already posted: a one-PR digest reply (id digest-<date>), whose state line follows the link's, and the bumps sent
+// before they stopped, which keep their words; one never posted is never sent. A message carries ts once posted, and
+// posting_at while its post is out or after its ts couldn't be recorded; either way it is never posted again. state is
+// the words of the state line it shows, '' for none; a message posted before state lines has reactions [emoji] in its
+// place, which the hub no longer adds to.
 const prSlackFile = (site) => path.join(needSite(site), 'data', 'pr-slack.json');
 export const readPRSlack = (site) => readJSON(prSlackFile(site), {});
 const held = (message) => Boolean(message?.ts || message?.posting_at);
@@ -53,18 +55,19 @@ async function postOnce(file, find, post) {
   return ts;
 }
 
-// due: one of review due's links; thread: the reviewer's day thread {channel, ts}; post() → ts.
+// due: one of review due's links, or slack link's, with the words of the state line it shows; thread: the reviewer's
+// day thread {channel, ts}; post() → ts.
 export const postLink = (site, due, thread, post) => postOnce(prSlackFile(site), (all) => {
   const rec = all[due.pr] ||= { links: {}, replies: [] };
-  return Object.assign(rec.links[due.reviewer] ||= { reactions: [] }, { channel: thread.channel, thread_ts: thread.ts });
+  return Object.assign(rec.links[due.reviewer] ||= {}, { channel: thread.channel, thread_ts: thread.ts, state: due.state });
 }, post);
-// due: one of review due's reactions, once Slack has it. due.reply is the reply's index in the PR's replies, and absent
+// due: one of review due's edits, once Slack has it. due.reply is the reply's index in the PR's replies, and absent
 // for the reviewer's link; a due whose message isn't there is a bug.
-export const recordReaction = (site, due) => editJSON(prSlackFile(site), (all) => {
+export const recordEdit = (site, due) => editJSON(prSlackFile(site), (all) => {
   const rec = all[due.pr];
   const message = due.reply === undefined ? rec?.links[due.reviewer] : rec?.replies[due.reply]?.to[due.reviewer];
   if (!message) fail(`no recorded Slack message for ${due.reviewer} on ${due.pr}${due.reply === undefined ? '' : ` reply ${due.reply}`}`);
-  message.reactions = [...new Set([...(message.reactions || []), due.emoji])];
+  message.state = due.state;
 });
 
 // docs/adr/2026-11-14-0451-a-prs-slack-link-is-a-bar-coloured-by-the-builders-risk.md
@@ -73,32 +76,55 @@ export const recordReaction = (site, due) => editJSON(prSlackFile(site), (all) =
 // session's `slack link`): no text, and one attachment whose colour bar is the card's risk (grey with none), headed by
 // the card's ticket id linking its issue (the attachment's small author line; none without a ticket), titled by the
 // PR's title linking the PR, then “+N/-M · K files · <risk> risk”, the size from GitHub and the risk word repeating the
-// colour, then from two days old its own line, “_(N days old)_”. The Slack client signs off the attachment's text, so
-// the sign-off stays the message's last line. ticket: ticketBadge's {id, url}; old: whole days since the PR's first
-// link to that reviewer, when over two. → {text, attachments}
+// colour, then from two days old its own line, “_(N days old)_”, then while the PR has a state (prState) its state
+// line, the state's emoji and words, “:git_merged: Merged”. The Slack client signs off the attachment's text, so the
+// sign-off stays the message's last line, just under the state line. ticket: ticketBadge's {id, url}; old: whole days
+// since the PR's first link to that reviewer, when over two; state: prState's; emojis: {<state kind>: emoji name}, the
+// hub's (hub/slack.mjs prEmojis), a kind not in it taking its standard emoji. → {text, attachments}
 const RISK_COLOURS = { low: '#2eb67d', medium: '#e8912d', high: '#e01e5a' };
 const NO_RISK_COLOUR = '#9e9e9e';
-function prLink(pr, gh, item, { ticket, old } = {}) {
+function prLink(pr, gh, item, { ticket, old, state, emojis = {} } = {}) {
   const [repo, number] = pr.split('#');
   const title = gh.title || item.title;
   const size = Number.isInteger(gh.additions) ? [`+${gh.additions}/-${gh.deletions}`, `${gh.files} file${gh.files === 1 ? '' : 's'}`] : [];
   const line = [...size, item.risk && `${item.risk} risk`].filter(Boolean).join(' · ');
   const age = old && `(${old} days old)`;
+  const stateLine = state && `:${emojis[state.kind] || PR_EMOJI[state.kind].standard}: ${state.words}`;
   return {
     text: '',
     attachments: [{
       color: RISK_COLOURS[item.risk] || NO_RISK_COLOUR, ...(ticket ? { author_name: ticket.id, author_link: ticket.url } : {}),
-      title, title_link: prURL({ repo, number }), text: [line, age && `_${age}_`].filter(Boolean).join('\n'),
-      fallback: [ticket?.id, `${repo.split('/').pop()}#${number} ${title}`, line, age].filter(Boolean).join(' · '),
+      title, title_link: prURL({ repo, number }), text: [line, age && `_${age}_`, stateLine].filter(Boolean).join('\n'),
+      fallback: [ticket?.id, `${repo.split('/').pop()}#${number} ${title}`, line, age, state?.words].filter(Boolean).join(' · '),
     }],
   };
+}
+// docs/adr/2026-11-18-0000-a-prs-state-is-a-line-in-its-message-not-reactions.md
+// The state a PR's message shows the reviewer whose github login is github: merged, closed, or approved once it is
+// approved (approved below) or that reviewer approved it, naming each person whose latest review approves, by their
+// name among people (the card's reviewers) or else their login, and no bot; null while it is open and none of those.
+// → {kind: 'approved'|'merged'|'closed', words} | null
+function prState(gh, github, people) {
+  if (gh.state === 'MERGED') return { kind: 'merged', words: 'Merged' };
+  if (gh.state === 'CLOSED') return { kind: 'closed', words: 'Closed' };
+  if (!approved(gh) && !(github && gh.reviews?.[github] === 'APPROVED')) return null;
+  const by = Object.entries(gh.reviews || {}).filter(([login, review]) => review === 'APPROVED' && !login.endsWith('[bot]')).map(([login]) => people.find((p) => p.github === login)?.name || login);
+  return { kind: 'approved', words: by.length ? `Approved by ${by.length > 1 ? `${by.slice(0, -1).join(', ')} and ${by.at(-1)}` : by[0]}` : 'Approved' };
+}
+// The words of the state line a recorded message shows. One posted before state lines has reactions in its place,
+// which named no approver: it shows now's words while its reaction's kind is now's, else that kind.
+const LEGACY_REACTIONS = [['git_merged', 'merged'], ['x', 'closed'], ['git_approved', 'approved']];
+function shownState(message, now) {
+  if (message.state !== undefined) return message.state;
+  const kind = LEGACY_REACTIONS.find(([emoji]) => message.reactions?.includes(emoji))?.[1];
+  return kind && kind === now?.kind ? now.words : kind || '';
 }
 // A card's ticket for its PR's message, null without one.
 const ticketOfCard = (cfg, item, repo) => (cfg.tickets ? ticketBadge(storedTickets(cfg.tickets), item.ticket, { repo }) : null);
 // docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: a PR is approved on
 // GitHub's review decision, which counts a code owner's approval when the branch asks for one; on a branch that asks
 // for no review (no decision) any human approval does (hub/pr-report.mjs leaves a bot's out of `approved`). The digest,
-// review due's headers and the git_approved reaction all ask this one test.
+// review due's headers and the approved state line all ask this one test.
 // A reviewer's digest holds a PR while GitHub still needs an approval for it (its decision is neither APPROVED nor empty,
 // as on a branch that asks for no review) and that reviewer, by their github login, has not approved it themselves; the
 // approval of a bot or another person takes it out of nobody else's digest.
@@ -108,48 +134,64 @@ const approved = (gh) => (gh?.reviewDecision ? gh.reviewDecision === 'APPROVED' 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `review due`: each Slack send still owed, from local state with no GitHub call; the hub sends them each poll.
 // date: the Slack day, whose thread a link goes in. links: a fresh link to each reviewer of a card's PR that the hub
-// last read open and out of draft, once per PR. reactions: git_approved once approved, then git_merged on merge
-// or x on a close, on each posted link and reply. digest: review digest's answer while one is due, else null. While
+// last read open and out of draft, once per PR, with the PR's state line. edits: each posted link and digest reply to
+// a reviewer of a card's PR whose state line isn't the one the PR's state asks for now, as the whole message again; a
+// PR the hub holds no state for is left as it is. digest: review digest's answer while one is due, else null.
+// emojis() → prLink's emojis, asked only when a link or edit is owed, so a quiet poll makes no Slack call for them. While
 // Slack isn't ready → waiting and nothing owed.
 export async function reviewDue(site, options) {
   needSite(site);
   const waiting = await readiness.waiting('slack');
-  if (waiting) return { waiting, links: [], reactions: [], headers: [], digest: null };
+  if (waiting) return { waiting, links: [], edits: [], headers: [], digest: null };
   const cfg = await boardConfig(site);
   const cache = await readJSON(githubStateFile(), {});
   const record = await readPRSlack(site);
   const links = [];
-  const reviewersByPR = new Map();
+  // Each PR's first card with its ticket, and the reviewers of every card holding it.
+  const cards = new Map();
   const githubOf = new Map();
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, {});
     const people = reviewersOf(itemFile, cfg.reviewers);
     for (const r of people) githubOf.set(r.name, r.github);
     for (const item of itemFile.items || []) {
+      const ticket = ticketOfCard(cfg, item, boardRepoOf(site, itemFile));
       for (const p of cardPRs(item, boardRepoOf(site, itemFile))) {
         const pr = prKeyOf(p);
-        if (!reviewersByPR.has(pr)) reviewersByPR.set(pr, new Set());
-        for (const r of people) reviewersByPR.get(pr).add(r.name);
+        if (!cards.has(pr)) cards.set(pr, { item, ticket, people: [] });
+        const card = cards.get(pr);
+        card.people.push(...people.filter((r) => !card.people.some((q) => q.name === r.name)));
         if (item.lane === 'done') continue;
         const gh = routeRecord(cache.prs, pr);
         for (const r of people) {
           if (!linkOwed(gh, record, pr, r.name) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;
-          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, ...prLink(pr, gh, item, { ticket: ticketOfCard(cfg, item, boardRepoOf(site, itemFile)) }) });
+          const state = prState(gh, r.github, people);
+          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, state: state?.words || '', message: (emojis) => prLink(pr, gh, item, { ticket, state, emojis }) });
         }
       }
     }
   }
-  const reactions = [];
+  const edits = [];
   for (const [pr, rec] of Object.entries(record)) {
     const gh = routeRecord(cache.prs, pr);
-    const react = (name, message, reply) => {
-      if (!message.ts || !reviewersByPR.get(pr)?.has(name)) return;
-      const wanted = [(approved(gh) || gh?.reviews?.[githubOf.get(name)] === 'APPROVED') && 'git_approved', gh?.state === 'MERGED' ? 'git_merged' : gh?.state === 'CLOSED' && 'x'].filter(Boolean);
-      for (const emoji of wanted) if (!message.reactions?.includes(emoji)) reactions.push({ pr, reviewer: name, ...(reply === undefined ? {} : { reply }), channel: message.channel || rec.links[name].channel, ts: message.ts, emoji });
+    const card = cards.get(pr);
+    if (!gh || !card) continue;
+    const edit = (name, message, reply) => {
+      if (!message.ts || !card.people.some((r) => r.name === name)) return;
+      const state = prState(gh, githubOf.get(name), card.people);
+      const words = state?.words || '';
+      if (shownState(message, state) === words) return;
+      // A digest reply showed the link's age on the day it went.
+      const age = reply === undefined ? 0 : (Number(message.ts) - Number(rec.links[name]?.ts)) / 86400;
+      edits.push({ pr, reviewer: name, ...(reply === undefined ? {} : { reply }), channel: message.channel || rec.links[name].channel, ts: message.ts, state: words,
+        message: (emojis) => prLink(pr, gh, card.item, { ticket: card.ticket, old: age > 2 ? Math.floor(age) : null, state, emojis }) });
     };
-    for (const [name, link] of Object.entries(rec.links)) react(name, link);
-    rec.replies.forEach((reply, at) => { for (const [name, sent] of Object.entries(reply.to)) react(name, sent, at); });
+    for (const [name, link] of Object.entries(rec.links)) edit(name, link);
+    rec.replies.forEach((reply, at) => { if (reply.id?.startsWith('digest-')) for (const [name, sent] of Object.entries(reply.to)) edit(name, sent, at); });
   }
+  const owed = [...links, ...edits];
+  const emojis = owed.length ? await options?.emojis?.() : undefined;
+  for (const due of owed) { Object.assign(due, due.message(emojis)); delete due.message; }
   // headers: each posted digest header whose count of PRs still pending that reviewer differs from the count it shows,
   // with the header's text at the new count. A header an earlier build put in a reply carries that reply's lead and tail.
   const headers = [];
@@ -160,7 +202,7 @@ export async function reviewDue(site, options) {
     if (n !== d.live.shown) headers.push({ date: d.date, reviewer: d.reviewer, channel: d.channel, ts, n, text: `${d.live.lead ?? ''}${digestHeader(cfg.title, n)}${d.live.tail ?? ''}` });
   }
   const digest = await reviewDigest(site, options);
-  return { date: slackDay(options?.now).date, links, reactions, headers, digest: digest.due ? digest : null };
+  return { date: slackDay(options?.now).date, links, edits, headers, digest: digest.due ? digest : null };
 }
 // due: one of review due's headers, once Slack has its edit.
 export const recordHeader = (site, due) => editJSON(digestFile(site), (all) => { dayEntry(due.date, due.reviewer)(all).live.shown = due.n; });
@@ -414,8 +456,8 @@ async function openDayThread(site, client, reviewer, now) {
 }
 
 // `slack link`: a PR's link, the one PR message format (prLink), sent through the hub's Slack in the reviewer's day
-// thread as review due sends the board's own, and recorded so the PR's reactions follow it and the board sends no
-// second. pr: owner/repo#n, a PR URL or a number in the board's repo. The size is from GitHub (readPR), the risk from
+// thread as review due sends the board's own, and recorded with no state line, so review due edits in the PR's and the
+// board sends no second. pr: owner/repo#n, a PR URL or a number in the board's repo. The size is from GitHub (readPR), the risk from
 // the card holding the PR, none without one.
 export async function slackLink(site, pr, to, { now = new Date(), readPR = prSize } = {}, slack = savedSlack()) {
   needSite(site);
@@ -436,7 +478,7 @@ export async function slackLink(site, pr, to, { now = new Date(), readPR = prSiz
   try { size = await readPR({ repo, pr: ref.number, login: settingsOf(cfg).github_login }); } catch (e) { fail(e.message); }
   const message = prLink(key, size, card, { ticket });
   const thread = await openDayThread(site, client, reviewer, now);
-  await slackCall(postLink(site, { pr: key, reviewer: reviewer.name }, thread, () => client.post({ channel: thread.channel, thread_ts: thread.ts, ...message })));
+  await slackCall(postLink(site, { pr: key, reviewer: reviewer.name, state: '' }, thread, () => client.post({ channel: thread.channel, thread_ts: thread.ts, ...message })));
   return { lines: [`sent ${key} to ${reviewer.name}'s day thread`] };
 }
 
@@ -486,15 +528,16 @@ export async function postDigest(site, date, reviewer, { channel, post }) {
   for (const [i, reply] of sent.replies.entries()) {
     if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text, attachments: reply.attachments }));
   }
-  // A one-PR reply is a message about that PR, so it joins the PR's posted replies and gets its reactions (the digest
-  // file keeps only the days still heard); a reply naming several PRs gets none.
+  // A one-PR reply is a message about that PR, so it joins the PR's posted replies and its state line follows the PR's
+  // (the digest file keeps only the days still heard); a reply naming several PRs has none. It went while the PR waited
+  // on that reviewer, so it shows no state.
   const posted = entry(await readJSON(file, {})).replies.filter((r) => r.pr && r.ts);
   if (posted.length) await editJSON(prSlackFile(site), (all) => {
     const id = `digest-${date}`;
     for (const reply of posted) {
       const rec = all[reply.pr] ||= { links: {}, replies: [] };
       const bump = rec.replies.find((r) => r.id === id) || rec.replies[rec.replies.push({ id, text: reply.text, to: {} }) - 1];
-      bump.to[reviewer.name] ||= { channel: sent.channel, ts: reply.ts, reactions: [] };
+      bump.to[reviewer.name] ||= { channel: sent.channel, ts: reply.ts, state: '' };
     }
   });
   return { channel: sent.channel, ts: top };

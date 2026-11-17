@@ -100,6 +100,10 @@
 //   /_hub/settings/slack POST token=<Slack user token, xoxp->, checked with Slack's auth.test and saved, as refused if
 //                     Slack refuses it, or remove=1 → /_hub/api/settings's JSON, whose `slack` names only the workspace
 //                     and user, or 400 {error}, 502 {error} when Slack can't be reached (slack.mjs)
+//   /_hub/api/slack-emoji GET Hub › Slack's emoji for each PR state's line (views.mjs prEmojiView), from the workspace's
+//                     own emoji, none without a token
+//   /_hub/settings/slack-emoji POST state=approved|merged|closed, emoji=<name>, empty for the default (slack.mjs
+//                     setPREmoji) → /_hub/api/slack-emoji's JSON, or 400 {error}
 //   /_hub/settings/quiet POST start=HH:MM, end=HH:MM, or set=hold with value=on (absent for off), one schedule.mjs editQuiet change → /_hub/api/settings's
 //                     JSON, or 400 {error}
 //   /_hub/settings/overnight POST job=<id> with value=on (absent for off) turns an Overnight work job on or off (overnight.mjs
@@ -210,7 +214,7 @@ import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrc
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
-import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED } from './views.mjs';
+import { capital, hubView, settingsView, flushView, prEmojiView, SNOOZE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeOn, awakeUnsupported } from './awake.mjs';
 import { endOf } from './duration.mjs';
 import { nodeBin } from '../bin/install.mjs';
@@ -258,7 +262,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { POLLS, CLOCKS, dueOn } from '../shared/polls.mjs';
 import { pollsPage } from './polls-page.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
-import { SlackError, slackStatus, removeSlackToken, saveSlackToken } from './slack.mjs';
+import { SlackError, slackStatus, removeSlackToken, saveSlackToken, savedSlack, readPREmoji, setPREmoji } from './slack.mjs';
 import { sendReviews } from './review-send.mjs';
 import { fileSlackAsks, followSlackAsks, postSlackReplies } from './slack-intake.mjs';
 import { createAnswering } from './answering.mjs';
@@ -1181,6 +1185,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil, overnight: overnightJobs() }), closed: closedBoards() };
   };
 
+  const slackEmojiData = async () => prEmojiView({ picks: readPREmoji(), customs: await savedSlack()?.workspaceEmoji() || {} });
+
   const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
 
   async function hubRoute(req, res, url, viewer = null) {
@@ -1503,6 +1509,13 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
       }
       return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#slack');
+    }
+    if (p === '/_hub/api/slack-emoji' && req.method === 'GET') return sendJSON(200, await slackEmojiData());
+    if (p === '/_hub/settings/slack-emoji' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req, 4 * 1024));
+      try { await setPREmoji(f.get('state'), f.get('emoji') || ''); } catch (e) { return sendJSON(400, { error: e.message }); }
+      log(`slack: ${f.get('state')} PR emoji ${f.get('emoji') ? `set to ${f.get('emoji')}` : 'back to its default'}`);
+      return sendJSON(200, await slackEmojiData());
     }
     if (p === '/_hub/api/linear' && req.method === 'GET') {
       const status = linearStatus();

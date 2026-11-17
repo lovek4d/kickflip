@@ -207,7 +207,7 @@ test('board.mjs slack thread, slack answer, slack say and slack task run through
   } finally { await server.close(); }
 });
 
-test("slack link sends the PR's one message format, the bar with no mention, in the reviewer's day thread, recorded so the board sends no second and reactions follow", async () => {
+test("slack link sends the PR's one message format, the bar with no mention, in the reviewer's day thread, recorded with no state line so the board sends no second and edits its state line in", async () => {
   const { world, poll, slack, day } = await opened();
   const client = slackClient(world.token, { fetch: slack.fetch });
   write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Limits', pr: 1 }, { id: 'A2', title: 'Docs', pr: 2, risk: 'high' }] });
@@ -218,7 +218,8 @@ test("slack link sends the PR's one message format, the bar with no mention, in 
     color: '#e01e5a', title: 'Docs of o/r#2', title_link: 'https://github.com/o/r/pull/2', text: '+3/-0 · 1 file · high risk\n- :claude_kickflip:', mrkdwn_in: ['text'],
     fallback: 'r#2 Docs of o/r#2 · +3/-0 · 1 file · high risk',
   }]]);
-  assert.equal(read(path.join(site, 'data', 'pr-slack.json'))['o/r#2'].links.Ann.ts, world.messages.at(-1).ts);
+  assert.deepEqual([read(path.join(site, 'data', 'pr-slack.json'))['o/r#2'].links.Ann.ts, read(path.join(site, 'data', 'pr-slack.json'))['o/r#2'].links.Ann.state], [world.messages.at(-1).ts, '']);
+  const sentTs = world.messages.at(-1).ts;
 
   // A PR URL and a number in the board's repo name the PR as well; a PR on no card has no risk; the same PR goes once.
   await slackLink(site, 'https://github.com/x/y/pull/9', 'ann', { now: sunday, readPR }, client);
@@ -234,6 +235,10 @@ test("slack link sends the PR's one message format, the bar with no mention, in 
   await poll();
   assert.equal(world.messages.filter((m) => m.attachments?.some((a) => a.title_link === 'https://github.com/o/r/pull/2')).length, 1);
   assert.ok(world.messages.length >= before);
+  // Its merge edits the state line in, as on the board's own link.
+  write(kf('github-state.json'), { prs: { 'o/r#1': pr, 'o/r#2': { ...pr, state: 'MERGED', title: 'Docs of o/r#2', additions: 3, deletions: 0, files: 1 } } });
+  await poll();
+  assert.equal(world.messages.find((m) => m.ts === sentTs).attachments[0].text, '+3/-0 · 1 file · high risk\n:git_merged: Merged\n- :claude_kickflip: · _updated 09:00_');
 });
 
 test('prLink is the only builder of a PR message: no other source file makes a PR attachment', () => {

@@ -684,17 +684,19 @@ test("review due lists each PR's owed links, thread replies and reactions, and t
   });
   write(at('kickflip', 'github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', head: 'h1', title: 'Open PR', additions: 1, deletions: 2, files: 3 }, 'o/r#2': { state: 'OPEN', isDraft: true }, 'o/r#3': { state: 'MERGED' } } });
   const owed = due();
-  assert.deepEqual(owed.links, [{ pr: 'o/r#1', key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', text: '',
+  assert.deepEqual(owed.links, [{ pr: 'o/r#1', key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', state: '', text: '',
     attachments: [{ color: '#9e9e9e', title: 'Open PR', title_link: 'https://github.com/o/r/pull/1', text: '+1/-2 · 3 files', fallback: 'r#1 Open PR · +1/-2 · 3 files' }] }]);
   // A bump queued before bumps stopped is never owed.
   assert.equal('replies' in owed, false);
-  assert.deepEqual(owed.reactions, [{ pr: 'o/r#3', reviewer: 'Bob', channel: 'D2', ts: '3.2', emoji: 'git_merged' }]);
+  // Ann's link shows the merge as the reaction it got before state lines; Bob's is edited to show it.
+  assert.deepEqual(owed.edits, [{ pr: 'o/r#3', reviewer: 'Bob', channel: 'D2', ts: '3.2', state: 'Merged', text: '',
+    attachments: [{ color: '#9e9e9e', title: 'Merged', title_link: 'https://github.com/o/r/pull/3', text: ':large_purple_circle: Merged', fallback: 'r#3 Merged · Merged' }] }]);
   assert.deepEqual([owed.digest.due, owed.digest.reviewers.map((r) => r.name)], [true, ['Ann', 'Bob']]);
   slackToken({ refused_at: '2026-11-02T00:00:00Z' });
-  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', links: [], reactions: [], headers: [], digest: null });
+  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', links: [], edits: [], headers: [], digest: null });
 });
 
-test("review due reacts git_approved once GitHub's review decision is APPROVED, or on any approval where the branch asks for no review", async () => {
+test("review due edits in the approved state line once GitHub's review decision is APPROVED, or on any approval where the branch asks for no review", async () => {
   const due = () => {
     const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
       process.exitCode = await main(['--site', 'orch', 'review', 'due'], {now: new Date('2026-11-02T17:00:00Z')});`;
@@ -714,10 +716,10 @@ test("review due reacts git_approved once GitHub's review decision is APPROVED, 
     'o/r#3': { ...open, reviewDecision: null, approved: true },
     'o/r#4': { ...open, reviewDecision: null, approved: false },
   } });
-  assert.deepEqual(due().reactions.map((r) => [r.pr, r.emoji]), [['o/r#1', 'git_approved'], ['o/r#3', 'git_approved']]);
+  assert.deepEqual(due().edits.map((e) => [e.pr, e.state]), [['o/r#1', 'Approved'], ['o/r#3', 'Approved']]);
 });
 
-test("review due reacts git_approved on a reviewer's messages once that reviewer approved or GitHub's decision is APPROVED, never for a bot's or another's approval", async () => {
+test("review due edits in the approved state line on a reviewer's messages once that reviewer approved or GitHub's decision is APPROVED, never for a bot's or another's approval, and names no bot", async () => {
   const due = () => {
     const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
       process.exitCode = await main(['--site', 'orch', 'review', 'due'], {now: new Date('2026-11-02T17:00:00Z')});`;
@@ -731,12 +733,12 @@ test("review due reacts git_approved on a reviewer's messages once that reviewer
   write(site('orch', 'data', 'pr-slack.json'), Object.fromEntries([1, 2].map((pr) => [`o/r#${pr}`, { head: `h${pr}`, links: { Ann: { channel: 'D1', ts: `${pr}.1`, reactions: [] }, Bob: { channel: 'D2', ts: `${pr}.2`, reactions: [] } }, replies: [] }])));
   const open = { state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED' };
   write(at('kickflip', 'github-state.json'), { prs: {
-    // Ann approved, and so did a bot: only Ann's message reacts.
+    // Ann approved, and so did a bot: only Ann's message shows it.
     'o/r#1': { ...open, approved: true, reviews: { ann: 'APPROVED', 'github-actions[bot]': 'APPROVED' } },
-    // GitHub's gate is met: every reviewer's message reacts.
+    // GitHub's gate is met: every reviewer's message shows it.
     'o/r#2': { ...open, reviewDecision: 'APPROVED' },
   } });
-  assert.deepEqual(due().reactions.map((r) => [r.pr, r.reviewer, r.emoji]), [['o/r#1', 'Ann', 'git_approved'], ['o/r#2', 'Ann', 'git_approved'], ['o/r#2', 'Bob', 'git_approved']]);
+  assert.deepEqual(due().edits.map((e) => [e.pr, e.reviewer, e.state]), [['o/r#1', 'Ann', 'Approved by Ann'], ['o/r#2', 'Ann', 'Approved'], ['o/r#2', 'Bob', 'Approved']]);
 });
 
 test('review digest waits without changing the record while Slack is not ready', async () => {

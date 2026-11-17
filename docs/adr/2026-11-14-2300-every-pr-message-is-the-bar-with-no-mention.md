@@ -14,3 +14,5 @@ The digest never moved to the bar: its header and replies kept their mention, an
 - **The bar gains two lines**: the card's ticket id as the attachment's author line, small and linked to its issue (`ticketBadge`: Linear `TEAM-n`, GitHub `#n`; none for a card with no ticket), and, only from two days old, “_(N days old)_” on its own line below the stats, the age being the days since the PR's first link to that reviewer. The PR title stays the attachment's bold link.
 - **A thread an earlier build opened with a header line** gets the bars alone, with no header of its own and so no count to keep current; the reply that once carried the header and a listing of the PRs is gone.
 - **Reactions are unchanged**: approved and merged stay emoji reactions on each message. Showing status in the text is its own task.
+
+Superseded in part: the reactions are now a state line in the bar ([a PR's state is a line in its message, not reactions](2026-11-18-0000-a-prs-state-is-a-line-in-its-message-not-reactions.md)).

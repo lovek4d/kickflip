@@ -23,7 +23,7 @@ export function readSlack() {
   const saved = identityOf(read(fileOf()));
   if (fields.some((key) => saved[key])) return saved;
   const bridge = identityOf(read(path.join(os.homedir(), '.claude', 'slack-bridge', 'state.json')).config);
-  return fields.some((key) => bridge[key]) ? save(bridge) : saved;
+  return fields.some((key) => bridge[key]) ? identityOf(save({ ...read(fileOf()), ...bridge })) : saved;
 }
 
 export async function setSlack(changes) {
@@ -36,7 +36,21 @@ export async function setSlack(changes) {
       try { new Intl.DateTimeFormat('en', { timeZone: value }); } catch { throw new Error('timezone must be an IANA timezone such as Area/City'); }
     }
   }
-  return withFileLock(fileOf(), () => save({ ...readSlack(), ...changes }));
+  return withFileLock(fileOf(), () => save({ ...read(fileOf()), ...readSlack(), ...changes }));
+}
+
+// slack.json's pr_emoji {<state kind>: emoji name}: Hub › Slack's pick of an emoji for a PR state's line, one set for
+// every board; a kind with none takes its default (prEmojiDefault).
+export const readPREmoji = () => Object.fromEntries(Object.entries(read(fileOf()).pr_emoji || {}).filter(([kind, name]) => PR_EMOJI[kind] && typeof name === 'string'));
+// Picks name, an emoji's name without colons, for kind's line; an empty name goes back to the default.
+export async function setPREmoji(kind, name) {
+  if (!PR_EMOJI[kind]) throw new Error(`Unknown PR state ${kind}`);
+  if (name && !/^[a-z0-9_+'-]{1,100}$/.test(name)) throw new Error('emoji must be an emoji name such as white_check_mark');
+  return withFileLock(fileOf(), () => {
+    const all = read(fileOf());
+    const { [kind]: _, ...picks } = all.pr_emoji || {};
+    save({ ...all, pr_emoji: name ? { ...picks, [kind]: name } : picks });
+  });
 }
 
 // now's day in the Slack timezone: its date, and open on a weekday from quiet hours' end to the day's end, when the
@@ -75,8 +89,16 @@ const api = () => process.env.KICKFLIP_SLACK_URL || 'https://slack.com/api';
 // Slack reads these methods' arguments from form encoding or the query string and ignores a JSON body; every other
 // method takes JSON.
 const READS = ['users.list', 'emoji.list', 'search.messages', 'conversations.history', 'conversations.replies'];
-// The standard emoji a PR reaction uses when the workspace lacks its custom one.
-const STANDARD_PR_EMOJI = { git_approved: 'white_check_mark', git_merged: 'large_purple_circle' };
+// docs/adr/2026-11-18-0000-a-prs-state-is-a-line-in-its-message-not-reactions.md
+// Each PR state's emoji in its message's state line by default: its custom one while the workspace has it, else its
+// standard one. Hub › Slack's pick for a state (readPREmoji) wins over both.
+export const PR_EMOJI = {
+  approved: { custom: 'git_approved', standard: 'white_check_mark' },
+  merged: { custom: 'git_merged', standard: 'large_purple_circle' },
+  closed: { standard: 'x' },
+};
+// A state's default emoji, given the workspace's custom emoji {name: url}.
+export const prEmojiDefault = (kind, customs) => (customs[PR_EMOJI[kind].custom] ? PR_EMOJI[kind].custom : PR_EMOJI[kind].standard);
 const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired', 'account_inactive'];
 
 // The last line of every message the hub or the orchestrator posts: the kickflip emoji, or 🤖 while the workspace lacks
@@ -152,11 +174,15 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     post: async ({ channel, text, thread_ts, attachments }) => (await call('chat.postMessage', { channel, ...await signedOff({ text, attachments }), unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
     // Edits a message this token posted, signed off as a post is and named updated at at's time.
     update: async ({ channel, ts, text, attachments, at = new Date() }) => { await call('chat.update', { channel, ts, ...await signedOff({ text, attachments }, at), unfurl_links: false }); },
-    // The emoji a PR reaction state reacts with: its custom one when the workspace has it, else the standard one;
-    // any other state, such as x for closed, reacts as it is.
-    async prEmoji(state) {
-      const standard = STANDARD_PR_EMOJI[state];
-      return !standard || (await customEmoji())[state] ? state : standard;
+    // Each PR state's emoji for its state line: {approved, merged, closed} → emoji name.
+    async prEmojis() {
+      const customs = await customEmoji();
+      const picks = readPREmoji();
+      return Object.fromEntries(Object.keys(PR_EMOJI).map((kind) => [kind, picks[kind] || prEmojiDefault(kind, customs)]));
+    },
+    // The workspace's own emoji, {name: image url}, its aliases left out; none without the emoji:read scope.
+    async workspaceEmoji() {
+      return Object.fromEntries(Object.entries(await customEmoji()).filter(([, url]) => !String(url).startsWith('alias:')));
     },
     // A reaction already there counts as added.
     async react({ channel, ts, name }) {

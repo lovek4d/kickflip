@@ -1,6 +1,7 @@
 // HubSettings: summary rows open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
 // settingsView's words from GET /_hub/api/settings. Linear's key and Slack's token open the same modal from the button on their Integrations rows (view-hub.js),
-// with no summary row of their own ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)). Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, Quiet
+// with no summary row of their own ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)); Slack's
+// holds its PR state emoji (slack-emoji.js) under the token. Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, Quiet
 // hours' times and hold to /_hub/settings/quiet, its Overnight work toggles to /_hub/settings/overnight, and saves at once, as Linear's key and Slack's token do through linear-key.js; Done waits for
 // a key's save to land. The rules editor saves through POST /_hub/settings/rules
 // and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
@@ -74,6 +75,7 @@
       let rules = null;
       let rulesJSON = '';
       let tokenSlot = null;
+      let emojiSlot = null;
       const pickers = HubKit.durationPickers(B);
 
       // The per-device OLED key app.html's head script reads before paint; colors.css reads the data-oled it sets.
@@ -92,11 +94,16 @@
         } else if (active === 'quiet') {
           content.innerHTML = quietRows(last.quiet);
         } else if (active === 'linear' || active === 'slack') {
-          if (tokenSlot) tokenSlot.set(last[active]);
-          else {
-            tokenSlot = LinearKey.mount(content, { kind: active, state: last[active],
+          if (tokenSlot) {
+            tokenSlot.set(last[active]);
+            emojiSlot?.set(LinearKey.works(last.slack));
+          } else {
+            // Slack's PR state emoji sit under its token while it works (slack-emoji.js).
+            if (active === 'slack') content.innerHTML = '<div class="slack-token"></div><div class="slack-emoji"></div>';
+            tokenSlot = LinearKey.mount(active === 'slack' ? B.$('.slack-token') : content, { kind: active, state: last[active],
               saved(out) { last = out; flash = null; paint(); ctx.sidebarChanged?.(); },
               busy: (on) => LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), on) });
+            if (active === 'slack') emojiSlot = SlackEmoji.mount(B.$('.slack-emoji'), { on: LinearKey.works(last.slack) });
           }
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">/${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening === b.route ? BoardUI.BUSY : reopening ? ' disabled' : ''}>Reopen</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
@@ -149,6 +156,7 @@
         unfitModal?.(); unfitModal = null;
         modal.close();
         tokenSlot?.destroy(); tokenSlot = null;
+        emojiSlot?.destroy(); emojiSlot = null;
         content.innerHTML = '';
         rules = null;
         active = null;
