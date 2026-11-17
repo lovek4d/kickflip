@@ -5284,22 +5284,17 @@ export async function waitOnMainFix(site, key, { files, log, base }) {
 
 // A card whose lander stopped partway (its process gone) keeps the lander's record open, the verification on it
 // (startBuilder); this closes that record as handed back, so landable finds the card again and the board server's
-// land step for it (domain.mjs landStep) relaunches or faults it, counting from its data/landers.json entry.
+// land step for it (domain.mjs landStep) relaunches or faults it, counting from its data/landers.json entry
+// (runs.mjs).
 export async function relaunchLander(site, key) {
   await setItem(site, key, { handBack: true });
 }
 
-// `board.mjs lander <card>`, the orchestrator's restart of a card's land: hands back a lander's open record as
-// relaunchLander does, and drops the card's data/landers.json entry, so the server's next pass launches the land as a
-// verification's first, with its relaunch to spend again. Refuses a card with neither.
-export async function restartLander(site, key) {
+// Whether any agent record on the card is open (started, not done).
+export async function hasOpenRecord(site, key) {
   const { source, item } = await loadItem(site, key);
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
-  const file = path.join(site, 'data', 'landers.json');
-  const open = records.some((r) => r?.started && !r.done);
-  if (!open && !Object.hasOwn(await readJSON(file, {}), key)) fail(`${key} has no open builder and no lander; only a task whose lander stopped or exited has a land to restart`);
-  if (open) await relaunchLander(site, key);
-  await editJSON(file, (sent) => { delete sent[key]; });
+  return records.some((r) => r?.started && !r.done);
 }
 
 // land's check: refuses while a builder record on the card holds unverified calls, naming the commands per agent.
@@ -5443,13 +5438,14 @@ export async function takeHoldStopped(site, key) {
   return { kind: record.kind ?? null, label: record.label ?? null, brief: record.brief ?? null };
 }
 
-// The record stays, marked done, so the item's thread can show when the agent finished (domain.mjs threadOf).
+// Closes an agent's builder record (runs.mjs stop without kill, and finish, reach it from outside this module). The
+// record stays, marked done, so the item's thread can show when the agent finished (domain.mjs threadOf).
 // startedBetween [from, to] (ms) leaves a record alone unless it started in that window, so a caller closing an
 // agent's own record never closes one a later agent restarted on the same item. next sets the item's Next. requireNext,
 // for `builder done`, refuses closing the last open record of a card that would then sit In Progress with no Next
 // (docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md); the SubagentStop hook and a board's
 // close stop records whatever the card is left with.
-export async function stopBuilder(site, key, { dir, agent, startedBetween, note, next, requireNext = false }) {
+export async function closeRecord(site, key, { dir, agent, startedBetween, note, next, requireNext = false }) {
   const file = await builderFile(site, key, dir, agent);
   const record = await readJSON(file, null);
   if (!record || record.done) return file;
@@ -5480,14 +5476,14 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note,
   return file;
 }
 
-// A planner's `builder done`: stopBuilder, then, if the card is still in the planner's phase with no question open,
+// A planner's `builder done`: closeRecord, then, if the card is still in the planner's phase with no question open,
 // staged or screening for it, a fault line (domain.mjs orchestratorWaitOf reads it as a wait). A grill on a card that
 // keeps its prototype answer (gates.prototype) may have nothing to ask: that card moves on instead (moveOnAnswered).
 // → {file, lines}
 export async function stopPlanner(site, key, flags) {
   const record = await readJSON(await builderFile(site, key, undefined, flags.agent), null);
   const kind = record?.kind;
-  const file = await stopBuilder(site, key, flags);
+  const file = await closeRecord(site, key, flags);
   // docs/adr/2026-11-14-2015-a-clean-visual-end-with-no-page-reads-unplaced.md: a visual agent's page is a visual thread line since its record started.
   if (kind === VISUAL) {
     if (!record.started || record.done) return { file, lines: [] };
@@ -5529,7 +5525,7 @@ export async function closeGonePlanners(site, { alive, failure, limited = () => 
       const agent = named.join('@') || 'main';
       const until = limited(record);
       if (until) {
-        await stopBuilder(site, key, { agent });
+        await closeRecord(site, key, { agent });
         closed.push({ key, kind: record.kind, failed: null, limited: { until, brief: record.brief ?? null } });
         continue;
       }
@@ -5558,10 +5554,3 @@ export async function openBoardBuilders(site) {
   return builders;
 }
 
-export async function closeBoardBuilders(site) {
-  const builders = await openBoardBuilders(site);
-  for (const builder of builders) await stopBuilder(site, builder.key, {
-    agent: builder.agent, note: 'Board closed. Builder record stopped; work is kept for reopening.',
-  });
-  return builders;
-}

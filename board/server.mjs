@@ -139,7 +139,7 @@
 //                                visual brief, the card's phase as it is. Once the orchestrator writes a brief (item
 //                                brief), the server launches its agent, a planner while no other agent but a visual
 //                                one works on the card, a visual agent beside any other once no other visual runs
-//                                there (launchBriefs; docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md)
+//                                there (runs.mjs tick; docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md)
 //                                review-request {key, text?, files?} is /review in a task's thread: it owes the orchestrator's
 //                                reviewer brief on any open card, and once written the server launches a reviewer beside
 //                                any other agent once no other reviewer runs there
@@ -190,7 +190,7 @@
 //                                docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
 //                                card-hold and card-done are written to the item file first, with the owner's thread
 //                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); an Unblock relaunches
-//                                the run its Block stopped (resumeRun). card-reopen {key} is a Done card's Reopen: it
+//                                the run its Block stopped (runs.mjs resume). card-reopen {key} is a Done card's Reopen: it
 //                                moves the card back to Todo, discussing, before its event (store.mjs recordOwnerTap),
 //                                and one on a card not in Done → 400 {error}. card-cancel {key} is a staged or ready Todo card's Cancel: it moves the card back to discussing before its event, its Implement owed again, and one on any other card → 400 {error}. None of them wakes a session, nor do card-unbump,
 //                                grill-more, prototype-request or visual-request
@@ -217,7 +217,7 @@
 //                                implementer slot max_implementers leaves free, each card In Progress taking one
 //                                (domain.mjs pullOf), bumped cards first, whether or not the board is idle, each once,
 //                                tracked in data/pulled.json, its record dispatched: 'hub'. The helpers board.mjs agent
-//                                launch asked for (launchHelpers), the landers and the rebase runs take no slot.
+//                                launch asked for (runs.mjs tick), the landers and the rebase runs take no slot.
 //                                Neither appends an event.
 //                                With the hub's Triage overnight on, once a night from the middle of the hub's quiet hours to their
 //                                end, an idle board with two or more cards waiting on open questions (domain.mjs
@@ -325,8 +325,9 @@ function lastLogLine(lines) {
 // else → 403 {error} (sharedWriter; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's replies to event <id> are data/replies/<id>.md, .html (written before markdown replies) or .json, then <id>~2.md, <id>~3.md … (store.mjs replyFilesOf).
-import { cardNotesOf, liveFiles, loggedOutCards, outsideData as readOutside, readLanders, readSnapshot, shownEvents as readShownEvents, tryLogTail, withReply as eventWithReply } from './snapshot.mjs';
-import { boardWorktree, builderRepo, git, helperWorktree, moveQueuedLand, prWorktree } from './worktree.mjs';
+import { cardNotesOf, liveFiles, loggedOutCards, outsideData as readOutside, readSnapshot, shownEvents as readShownEvents, tryLogTail, withReply as eventWithReply } from './snapshot.mjs';
+import { builderRepo, git, moveQueuedLand } from './worktree.mjs';
+import * as runs from './runs.mjs';
 import { readRunTranscript } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { readSync, writeSync, stamp, patchSince } from './sync.mjs';
@@ -341,7 +342,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, beside, queuedPlannerKey, queuedPlannerCard, VISUAL, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, landSkipOf, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf,rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -352,10 +353,10 @@ import { buildersView } from '../shared/model-views.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathSync } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
-import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, startHelper, startVisual, startReviewer, openAgents, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, moveCard, startPlanner, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readMarks, readNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
+import { BOARD_CLI, pidAlive, stopAgents, stopRuns } from './headless.mjs';
+import { heldReview, applyReviewAnswer, noteLoggedOut, readScriptOffer, restageStaleReady, readAgents, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, passNews, requestPause, BoardError, publishUnscreened, openAgents, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readMarks, readNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile } from './store.mjs';
 import { runMigrations } from './migrations.mjs';
-import { appendEvents as appendBoardEvents, appendLine, boardConfig, editJSON, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
+import { appendEvents as appendBoardEvents, appendLine, boardConfig, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { joinOf } from '../hub/sessions.mjs';
@@ -366,8 +367,7 @@ import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { shareEntries } from '../hub/share.mjs';
-import { readUsageGate, heldFor, tasksInProgressCap, launchHeldWords, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
-import { runLimit } from '../hub/usage.mjs';
+import { readUsageGate, heldFor, tasksInProgressCap, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
@@ -950,7 +950,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   const server = http.createServer((req, res) => track(ready.then(() => answer(req, res))));
   // docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md
   // Runs a tap's effects (domain.mjs tapPlan) in order through store.mjs; a refusal on the way is a BoardError whose
-  // status answer() sends. → the tap's event id, or a Build's (handOff), or null for a tap that records none.
+  // status answer() sends. → the tap's event id, or a Build's (runs.mjs start), or null for a tap that records none.
   async function applyTap(effects, kind, body, sendId) {
     const key = String(body.key || '');
     let id = null;
@@ -963,7 +963,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       else if (effect.do === 'stage' && effect.as === 'implement') stopAgents(await stageImplement(here, key, body));
       else if (effect.do === 'stage' && effect.as === 'reply') await stageReply(here, key, body);
       else if (effect.do === 'record') await recordTap(key, kind, body, effect);
-      else if (effect.do === 'resume') await resumeRun(key);
+      else if (effect.do === 'resume') heldIf(await runs.resume(here, key, runIo));
       else if (effect.do === 'merge' && effect.held) {
         await tapMerge(here, key);
         runHeldMerge(key);
@@ -972,7 +972,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       else if (effect.do === 'merge') await mergeCard(here, key, { tapped: true });
       else if (effect.do === 'build') {
         const full = !pullOf((await sharedBoard()).items, { cap: tasksInProgressCap(readUsageGate({ dir: here }), settingsOf(await config()).max_implementers), pulled: await sentOf(PULL) }).free;
-        id = await handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'tap', { full }));
+        // A build's launch wakes no session, so the tap answers with no event id.
+        await runs.start(here, key, 'build', { ...runIo, dispatch: 'tap', full });
+        id = null;
       }
       else if (effect.do === 'plan') await planAgain(here, key, effect.kind, effect.ask);
       else if (effect.do === 'moveLand') moveQueuedLand(here, key, effect.first ? now().toISOString() : null);
@@ -1366,7 +1368,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const sent = due.length ? await readLog(events) : [];
       for (const { key, ownerBlock: { until } } of due) {
         await pickUp(here, key, until, { announce: !sent.some((e) => e.kind === 'card-unblocked' && e.data?.key === key && e.data?.until === until) });
-        await resumeRun(key);
+        heldIf(await runs.resume(here, key, runIo));
         logCall({ call: 'pick-up', key, result: 'resumed', reason: 'Its block ended.', inputs: { until } });
       }
     } catch (err) {
@@ -1395,7 +1397,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).  // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
   // board. An unanswered triage holds only the cards it names, until quiet hours end, and a card pulled and not yet started holds the
   // review. None goes out while usage is paused or the Mac is busy (shared/usage-gate.mjs heldFor), each launch checking
-  // again (launchHeldNow); the minute check runs the jobs again once the hold lifts, since it lives outside the board's
+  // again (runs.mjs heldNow); the minute check runs the jobs again once the hold lifts, since it lives outside the board's
   // data. Near the line the pull's cap is halved (tasksInProgressCap). A grill or prototype asked for during a hold launches first. A check asked for while one runs runs again after it.
   let checkingAuto = null;
   let autoAgain = false;
@@ -1417,18 +1419,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
   async function runAuto() {
     const settings = settingsOf(await config());
-    // docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md: before the board is read, so the line
-    // lands now and the card's next brief launches in this pass.
-    const gone = await closeGonePlanners(here, {
-      alive: (record) => agentMayRun({ pid: record.session.pid, at: record.session.at }),
-      failure: (record) => runFailure(path.join(home, '.claude', 'kickflip', 'logs', record.session.log ?? '')),
-      limited: (record) => (record.session.log ? runLimit(path.join(home, '.claude', 'kickflip', 'logs', record.session.log)) : null),
-    });
-    for (const c of gone) {
-      if (c.limited) await editJSON(queuedPlanners, (queued) => { queued[queuedPlannerKey(c.key, c.kind)] = { kind: c.kind, kept: c.limited.brief, until: c.limited.until }; });
-      logCall({ call: 'planner-gone', key: c.key, result: c.limited ? 'queued' : c.failed ? 'failed' : 'closed', reason: c.limited ? `Its ${c.kind} run stopped at the usage limit, which resets at ${c.limited.until}; it relaunches then.` : `Its ${c.kind} planner's process was gone with its record open.`, inputs: c });
-    }
-    if (gone.length) dataVersion++;
+    // Before the board is read, so a gone planner's line lands now and the card's next brief launches in this pass.
+    await runs.closeGone(here, runIo);
     for (const key of Object.keys(await loggedOutCards(await liveFiles(here), home))) await noteLoggedOut(here, key);
     const log = await readLog(events);
     const { items, reviews } = await sharedBoard();
@@ -1438,15 +1430,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const cap = tasksInProgressCap(gate, settings.max_implementers);
     if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
     boardPaused = gate.manual === 'board';
-    heldByPause = heldFor(gate, 'claude');
-    if (!heldByPause) await launchQueuedPlanners();
-    if (!heldByPause) await launchBriefs(items);
-    if (!heldByPause) await launchLanders(items, stoppedKeys(items));
-    if (!heldByPause) await launchRebases(items, stoppedKeys(items));
     const resumes = await checkPauses(items, gate, cap);
-    if (!heldByPause) for (const key of resumes) await resumeBuild(key);
-    if (!heldByPause) for (const it of items.filter((i) => i.kind === 'work' && i.lane === 'progress' && i.agents?.some((a) => a.name === 'main' && a.rerun))) await rerunBuild(it.key);
     const { idle, pullable, retitle, waiting, pulls, helpers } = pullOf(items, { cap, pulled, hold });
+    heldByPause = (await runs.tick(here, items, runIo, { resumes, helpers })).held;
     const ready = idle && !heldByPause;
     // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: the pull refuses a ready card it can't title its PR by,
     // once, as builder start would, and the refusal stays on the Todo card until it is retitled.
@@ -1459,20 +1445,17 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       logCall({ call: 'pull', key, result: 'refused', reason: why, inputs: { title: card.title } });
       dataVersion++;
     }
-    if (!heldByPause) await launchHelpers(helpers);
     await checkTriage(log, items, ready);
     const held = pullable.filter((k) => hold.includes(k));
     if (held.length) logCall({ call: 'pull', result: 'held', reason: 'An overnight triage waits for the session\'s reply and names these tasks, so the pull leaves them until it is answered or quiet hours end.', inputs: { cards: held } });
     const startPull = async (key) => {
-      const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub');
-      logCall({ call: 'pull', key, result: startResult(started), reason: 'An implementer slot was free and it was the top ready task in Todo.', inputs: { cap, pullable, waiting } });
-      return handOff(started);
+      const { started } = await runs.start(here, key, 'build', runIo);
+      logCall({ call: 'pull', key, result: runs.startResult(started), reason: 'An implementer slot was free and it was the top ready task in Todo.', inputs: { cap, pullable, waiting } });
     };
     // A card that already has a builder, as a pass an instant earlier left it, is not started again.
     const unstarted = [];
     for (const key of heldByPause ? [] : pulls) {
-      const tracked = (await readJSON(path.join(data, 'headless-builders.json'), {}))[key];
-      if (!hasBuilder(await openRuns(here, key)) && !(tracked?.pid && pidAlive(tracked.pid))) { unstarted.push(key); continue; }
+      if (await runs.unstarted(here, key)) { unstarted.push(key); continue; }
       logCall({ call: 'pull', key, result: 'skipped', reason: 'It already has a builder.', inputs: {} });
     }
     if (await sendPulls(PULL, waiting, unstarted, startPull)) return;
@@ -1483,140 +1466,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
   }
 
-  // Whether a launch of kind the board would make now is held (shared/usage-gate.mjs heldFor). A hold found partway
-  // through a pass marks the board held, so the minute check brings in the next pass once it lifts.
-  function launchHeldNow(kind = 'claude') {
-    const held = heldFor(readUsageGate({ dir: here }), kind);
-    if (held) heldByPause = true;
-    return held;
-  }
-
-  // What a start the server made came to, for the audit log: started, bumped behind its blockers, or refused.
-  const startResult = (started) => (!started ? 'refused' : started.bumped ? 'bumped' : 'started');
-
-  // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
-  // A build the server started ({key, kind, model, worktree}, startTappedBuild's) launches its builder here, Claude or
-  // Codex. A launch that fails puts the card back in Todo with the reason (store.mjs abandonLaunch). The start wrote
-  // the card's files, so the cached board is dropped: one built mid-start would show the card neither pullable nor
-  // building, and the next pull would fill its slot again. → null, the tap's event id, since no event wakes the session.
-  async function handOff(started) {
-    dataVersion++;
-    if (!started || started.bumped) return null;
-    const entry = { kind: started.kind, model: started.model, relaunched: false };
-    try {
-      // A pause on its kind or a busy host that began after the pull
-      // or the tap, holds the launch; reviveHeadless launches it once the hold lifts. A busy Mac says so on the card
-      // (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
-      const gate = readUsageGate({ dir: here });
-      if (heldFor(gate, started.kind)) {
-        logCall({ call: 'launch-held', key: started.key, result: 'held', reason: pauseReasonFor(gate, started.kind), inputs: { kind: started.kind, model: started.model ?? null, gate } });
-        if (gate.machine.state === 'busy') await appendStatus(here, started.key, 'host-busy');
-        await trackLaunch(started.key, { ...entry, pid: null });
-      } else {
-        const { pid, log } = await launchBuilder(here, started, { launch });
-        await trackLaunch(started.key, { ...entry, pid, log });
-      }
-    } catch (e) {
-      await abandonLaunch(here, started.key, `the launch failed: ${e.message}`);
-    }
-    return null;
-  }
-
-  // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
-  // Each requested helper domain.mjs pullOf lets launch ({key, name}) opens its record (store.mjs startHelper), one that
-  // writes in its own worktree off the card's branch, and launches headless. One that can't start or launch leaves a
-  // thread line and its record closed, which its spawner's agent wait reports. Its open record keeps it off the list from
-  // then on, so the cached board is dropped, as handOff does.
-  async function launchHelpers(helpers) {
-    for (const { key, name } of helpers) {
-      if (launchHeldNow()) return;
-      dataVersion++;
-      try {
-        const started = await startHelper(here, key, name, (opts) => helperWorktree(key.split('/')[1], name, opts));
-        if (!started) continue;
-        logCall({ call: 'helper', key, result: 'launching', reason: 'A helper was asked for and pullOf let it launch.', inputs: { name, model: started.model, worktree: started.worktree } });
-        try { await launchBuilder(here, started, { launch }); } catch (e) {
-          await abandonPlanner(here, key, ['helper-failed', { name, error: e.message }], name);
-        }
-      } catch (e) {
-        if (!(e instanceof BoardError)) throw e;
-        await abandonPlanner(here, key, ['helper-failed', { name, error: e.message }], name);
-      }
-    }
-  }
-
-  // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
-  // Each agent due from a written brief (domain.mjs briefsDue) launches: a grill or prototype planner (launchPlanner), or
-  // a visual agent headless in the board's repo beside whatever else runs on the card
-  // (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md, store.mjs startVisual), so an agent's
-  // finish, which changes its record, brings in the card's next brief. A visual that can't start or launch leaves a thread
-  // line and its record, if any, closed. Passes run one at a time, and the starts read the card again, so a brief opens
-  // one record however stale items is.
-  let briefsPass = Promise.resolve();
-  function launchBriefs(items) {
-    const pass = briefsPass.then(() => launchBriefed(items));
-    briefsPass = pass.catch(() => {});
-    return pass;
-  }
-  async function launchBriefed(items) {
-    for (const { key, kind } of briefsDue(items)) {
-      if (launchHeldNow()) return;
-      dataVersion++;
-      if (!beside({ kind })) { await launchPlanner(key, kind); continue; }
-      const named = kind === VISUAL ? 'visual agent' : kind;
-      try {
-        const started = await (kind === VISUAL ? startVisual : startReviewer)(here, key);
-        if (!started) continue;
-        try { await launchBuilder(here, started, { launch }); } catch (e) {
-          await abandonPlanner(here, key, ['planner-failed', { kind: named, error: e.message }], started.agent);
-        }
-      } catch (e) {
-        if (!(e instanceof BoardError)) throw e;
-        await appendStatus(here, key, 'planner-failed', { kind: named, error: e.message });
-      }
-    }
-  }
-
-  // A planner, kind grill or prototype, opens on the card from its written brief, or from kept, the briefs entry of the
-  // run a Block stopped, and launches headless in the board's repo (store.mjs startPlanner), unless an agent already works
-  // on it. One that can't start or launch leaves a thread line and its record closed. One due while the board's launches
-  // are held (heldFor) waits in data/queued-planners.json {<key>#<kind>: {kind, kept}}, with a thread line saying so, and
-  // launches when the hold lifts (launchQueuedPlanners); another of the same kind on the card replaces it.
-  // (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md)
-  const queuedPlanners = path.join(data, 'queued-planners.json');
-  async function launchPlanner(key, kind, kept = null) {
-    const gate = readUsageGate({ dir: here });
-    if (heldFor(gate, 'claude')) {
-      heldByPause = true;
-      await editJSON(queuedPlanners, (queued) => { queued[queuedPlannerKey(key, kind)] = { kind, ...(kept ? { kept } : {}) }; });
-      logCall({ call: 'planner-queued', key, result: kind, reason: pauseReasonFor(gate, 'claude'), inputs: { kind, gate } });
-      await appendStatus(here, key, gate.machine.state === 'busy' ? 'host-busy' : 'planner-held', { kind });
-      return;
-    }
-    try {
-      const started = await startPlanner(here, key, kind, kept);
-      if (!started) return;
-      try { await launchBuilder(here, started, { launch }); } catch (e) {
-        await abandonPlanner(here, key, ['planner-failed', { kind, error: e.message }]);
-      }
-    } catch (e) {
-      if (!(e instanceof BoardError)) throw e;
-      await appendStatus(here, key, 'planner-failed', { kind, error: e.message });
-    }
-  }
-
-  // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
-  // An unblocked card (the owner's Unblock, or its pick-up time) gets back the run its block stopped, with no session: a grill
-  // or prototype launches again, and a build starts afresh as the pull starts one. A card whose block stopped nothing is
-  // the pull's. A lander or rebase run is left to the board's own lander and rebase jobs. A start the board refuses is its
-  // thread line, and a card left with nothing running is the orchestrator's wait (domain.mjs orchestratorWaitOf).
-  async function resumeRun(key) {
-    const run = await takeHoldStopped(here, key);
-    if (!run) return;
-    logCall({ call: 'resume', key, result: run.kind, reason: 'Its hold stopped this run.', inputs: run });
-    if (run.kind === 'grill' || run.kind === 'prototype') await launchPlanner(key, run.kind, run.brief);
-    else if (run.label === 'Builder') await handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
-  }
+  // docs/adr/2026-11-17-2345-a-board-launched-run-lives-in-one-runs-module.md: the server's context for runs.mjs, whose
+  // launches go through launch, log to the board's audit log, and drop the cached board when they write a card's files.
+  const runIo = { launch, log: logCall, stale: () => { dataVersion++; }, event: (kind, data) => appendEvent(kind, data), home };
+  // A pass that found the board's launches held marks the board held, so the minute check brings in the next pass once
+  // it lifts.
+  const heldIf = (pass) => { if (pass.held) heldByPause = true; };
 
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
   // One pass of the card pauses (domain.mjs pauseWork) over the built items, with gate the usage gate: each running build
@@ -1639,165 +1494,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }
     for (const key of work.stop) {
       await markPaused(here, key);
-      const agent = launchedAgents((await openRuns(here, key)).filter((r) => !plans(r)))[0];
+      const agent = (await runs.launchedBuilds(here, key))[0];
       const stopped = agent ? await stopRuns([agent.pid]) : [];
       logCall({ call: 'pause', key, result: 'hard stop', reason: 'Its builder reached no stopping point within 15 minutes of the pause.', inputs: { stopped: stopped.map((p) => p.pid) } });
     }
     if (work.ask.length || work.drop.length || work.stop.length) dataVersion++;
     pausesLive = work.ask.length > 0 || items.some((i) => i.builder?.pause);
     return work.resume;
-  }
-
-  // A paused build nothing pauses any more resumes: its pause comes off with a "Resumed: …" line (store.mjs
-  // resumePaused), and a build the board launched resumes in its own session (headless.mjs resumeBuilder), tracked as a
-  // fresh launch. A session's own builder is the orchestrator's to resume: builder-resume wakes it.
-  async function resumeBuild(key) {
-    // A builder whose hard stop got no answer from ps may still run: the pause stays until its process is gone.
-    if (hasBuilder((await openRuns(here, key)).filter((r) => r.pid))) return;
-    const resumed = await resumePaused(here, key);
-    if (!resumed) return;
-    const { pause, record } = resumed;
-    const cleared = PAUSE_CLEARS[pause.cause][1];
-    dataVersion++;
-    const entry = { call: 'resume', key, reason: `Nothing pauses it any more: ${cleared}.`, inputs: { pause } };
-    if (!record.session?.pid) {
-      logCall({ ...entry, result: 'woke the orchestrator' });
-      return appendEvent('builder-resume', { key, cleared });
-    }
-    const kind = providerOf(record.kind) ?? 'claude';
-    try {
-      const why = `The board paused this build, and the pause has cleared: ${cleared}.`;
-      const { pid, log, resumed } = await resumeBuilder(here, { key, kind, model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => resumeBrief({ ...facts, cleared }), why, launch });
-      await trackLaunch(key, { kind, model: record.model, pid, log, relaunched: false });
-      logCall({ ...entry, result: resumed ? 'resumed' : 'fresh builder' });
-    } catch (e) {
-      logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-      await appendStatus(here, key, 'resume-failed', { error: e.message });
-    }
-  }
-
-  // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
-  // A handed-back build the orchestrator's builder resume marked rerun opens again (store.mjs takeRerun) and its
-  // builder's own session resumes with the news since its hand-back (headless.mjs resumeBuilder), tracked as a fresh
-  // launch, as a cleared pause's resume is.
-  async function rerunBuild(key) {
-    const taken = await takeRerun(here, key);
-    if (!taken) return;
-    const { record, news } = taken;
-    dataVersion++;
-    const entry = { call: 'rerun', key, reason: "The orchestrator's builder resume on its handed-back build.", inputs: { news } };
-    try {
-      const { pid, log, resumed } = await resumeBuilder(here, { key, kind: 'claude', model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => rerunBrief({ ...facts, news }), why: news.join(' '), launch });
-      await trackLaunch(key, { kind: 'claude', model: record.model, pid, log, relaunched: false });
-      logCall({ ...entry, result: resumed ? 'resumed' : 'fresh builder' });
-    } catch (e) {
-      logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-      await appendStatus(here, key, 'resume-failed', { error: e.message });
-    }
-  }
-
-  // The planners launchPlanner queued during a hold, oldest asked first, each once, until a launch is held again.
-  async function launchQueuedPlanners() {
-    for (const [queuedKey, { kind, kept, until }] of Object.entries(await readJSON(queuedPlanners, {}))) {
-      const key = queuedPlannerCard(queuedKey);
-      if (launchHeldNow()) return;
-      if (until && Date.parse(until) > Date.now()) continue;
-      await editJSON(queuedPlanners, (queued) => { delete queued[queuedKey]; });
-      logCall({ call: 'planner-queued', key, result: 'launching', reason: 'The hold it waited on has lifted.', inputs: { kind } });
-      if (beside({ kind })) await restoreBrief(here, key, kept);
-      else await launchPlanner(key, kind, kept);
-      dataVersion++;
-    }
-  }
-
-  // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
-  // data/headless-builders.json {<key>: {kind, model, pid, log, relaunched, until?}}: the headless builders launched, with
-  // their run logs, for reviveHeadless.
-  // trackLaunch sets a key's entry, or with null drops it (a lander takes the card over from its builder).
-  async function trackLaunch(key, entry) {
-    await editJSON(path.join(data, 'headless-builders.json'), (tracked) => { if (entry) tracked[key] = entry; else delete tracked[key]; });
-  }
-  // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
-  // At startup: a build the previous process started but died before launching (store.mjs cutOffBuilds) that
-  // headless-builders.json doesn't list gets its builder now, as the pull would have launched it.
-  async function launchCutOffBuilds() {
-    try {
-      const tracked = await readJSON(path.join(data, 'headless-builders.json'), {});
-      for (const started of (await cutOffBuilds(here)).filter((c) => !tracked[c.key])) {
-        logCall({ call: 'launch-cut-off', key: started.key, result: 'launching', reason: 'A restart cut off the launch after its build started.', inputs: { kind: started.kind, model: started.model ?? null } });
-        await handOff(started);
-      }
-    } catch (e) { console.error('Cut-off launch check failed:', e.message); }
-  }
-  // docs/adr/2026-11-15-1630-a-pulled-card-whose-launch-was-lost-launches-again.md
-  // A card In Progress that has no agent record (store.mjs lostLaunches) had its pull cut off after the card moved and
-  // before its build started: it starts as the pull would have, at boot and each minute. A card moved within the last
-  // LOST_GRACE_MS may be a start still under way, so only boot, which has none, takes it at once.
-  const LOST_GRACE_MS = 120000;
-  async function launchLostBuilds(grace = LOST_GRACE_MS) {
-    try {
-      if (heldFor(readUsageGate({ dir: here }), 'claude')) return;
-      const { items } = await sharedBoard();
-      const blocked = new Set(items.filter((c) => c.blockedBy?.length).map((c) => c.key));
-      for (const key of (await lostLaunches(here, new Date(Date.now() - grace).toISOString())).filter((k) => !blocked.has(k))) {
-        const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub');
-        logCall({ call: 'launch-lost', key, result: startResult(started), reason: 'It was In Progress with no agent record: its pull was cut off before its build started.', inputs: {} });
-        await handOff(started);
-      }
-    } catch (e) { console.error('Lost launch check failed:', e.message); }
-  }
-  // The cards whose run the orchestrator stopped (domain.mjs builderOf), which nothing relaunches.
-  const stoppedKeys = (items) => new Set(items.filter((c) => c.builder?.stopped).map((c) => c.key));
-  // Once a minute: a headless builder whose usage isn't held and whose process exited with its record open launches again
-  // once, and after that leaves a thread line; its record stays open, so its stale wait brings in the orchestrator. One
-  // whose run log ends on the usage limit (hub/usage.mjs runLimit) keeps its relaunch: it reads paused, and the pause pass
-  // resumes it once the limit resets (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md,
-  // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md). A paused build is never relaunched.
-  let revivingHeadless = false;
-  async function reviveHeadless() {
-    if (revivingHeadless) return;
-    revivingHeadless = true;
-    try {
-      const file = path.join(data, 'headless-builders.json');
-      const tracked = await readJSON(file, {});
-      if (!Object.keys(tracked).length) return;
-      const { items } = buildBoard(await readSnapshot(here, await outsideData(), { items: true }));
-      const open = new Set(items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
-      const handBack = async (card) => {
-        logCall({ call: 'relaunch', key: card.key, result: 'handed back', reason: 'Its builder exited twice with its record open.', inputs: tracked[card.key] });
-        await appendStatus(here, card.key, 'exited-twice');
-      };
-      const relaunch = async (card) => {
-        const was = tracked[card.key];
-        const entry = { call: 'relaunch', key: card.key, inputs: was,
-          reason: was.pid === null ? 'Its launch was held by a pause or a busy host, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
-        try {
-          const { pid, log } = await launchBuilder(here, card, { launch });
-          logCall({ ...entry, result: was.pid === null ? 'launched' : 'relaunched' });
-          return { pid, log };
-        } catch (e) {
-          logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-          await appendStatus(here, card.key, 'relaunch-failed', { error: e.message });
-          return { pid: null };
-        }
-      };
-      // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md: the run the limit stopped
-      // is the same pause, resumed in its own session once the limit resets.
-      const atLimit = async (card, until) => {
-        logCall({ call: 'relaunch', key: card.key, result: 'paused', reason: `Its run stopped at the usage limit, which resets at ${until}.`, inputs: tracked[card.key] });
-        await requestPause(here, card.key, { cause: 'usage', words: 'usage limit', until });
-        await markPaused(here, card.key);
-        dataVersion++;
-      };
-      const paused = new Set(items.filter((c) => c.builder?.pause?.paused).map((c) => c.key));
-      const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind) => heldFor(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items), paused,
-        limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit });
-      if (JSON.stringify(next) !== JSON.stringify(tracked)) await writeJSON(file, next, { from: tracked });
-    } catch (err) {
-      console.error('Headless builder check failed:', err.message);
-    } finally {
-      revivingHeadless = false;
-    }
   }
 
   // Once a minute: a tapped script run whose runner died (a reboot, a kill) is recorded failed, with the log's tail as its
@@ -1826,155 +1529,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     closeSync(out);
     child.on('error', (e) => appendStatus(here, key, 'land-failed', { why: `the land couldn't start (${e.message})` }).catch(() => {}));
     child.unref();
-  }
-
-  // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
-  // data/landers.json (readLanders): the lander launched for each card's verification, its process and log, and how many
-  // times it was relaunched for that verification. Each card whose verified build waits to land (store.mjs landable)
-  // takes the one step domain.mjs landStep gives it: running and a skip (domain.mjs landSkipOf: worktree-gone, blocked, asking)
-  // leave it, held waits for the hold to clear (the minute check brings in the next pass), launch lands it through its builder (headless.mjs landByBuilder: the first launch resumes
-  // the builder, a relaunch is a fresh lander), and fault, the first time, puts the exited-twice line on the card and marks
-  // the entry handedBack, so the orchestrator's wait on it is a stale one. A lander whose process has gone while its own
-  // record is still open stopped partway: its card is handed back again (store.mjs relaunchLander) and takes its step in
-  // this pass. A lander the orchestrator stopped (stopped, the keys whose card reads it) is neither sent back nor
-  // relaunched. A dead lander whose card has no lander open and isn't handed back (landed, archived, or built again) has
-  // its entry dropped; relaunchLander would restore an archived card from the archive. A lander is only ever due on a
-  // handed-back card, so with none handed back (anyChecking false) and none sent back, landable's read of the wave files
-  // is skipped. Bumped cards' landers go first; each runs on its card's own slot
-  // (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).
-  async function launchLanders(items, stopped) {
-    const anyChecking = items.some((i) => i.waitsOn === 'checking');
-    const status = Object.fromEntries(items.map((i) => [i.key, i.waitsOn === 'checking' ? 'checking'
-      : i.lane !== 'done' && i.agents?.some((a) => a.started && !a.done && a.label === LANDER) ? 'landing' : null]));
-    const file = path.join(data, 'landers.json');
-    const sent = await readLanders(here);
-    // A run seen ending on the usage limit keeps that mark, since the limit's reset clears what runLimit reads.
-    const kept = Object.fromEntries(Object.entries(sent).map(([key, { alive: _, limited, ...entry }]) => [key, { ...entry, ...(limited ? { limited } : {}) }]));
-    const stored = await readJSON(file, {});
-    const was = JSON.stringify(stored);
-    const save = async () => {
-      // The cards' land steps read it. Merged with what restartLander wrote meanwhile.
-      if (JSON.stringify(kept) !== was) await writeJSON(file, kept, { from: stored });
-    };
-    let sentBack = false;
-    for (const [key, entry] of Object.entries(sent)) {
-      if (!entry.pid || entry.alive || stopped.has(key) || status[key] === 'checking') continue;
-      if (status[key] !== 'landing') { delete kept[key]; continue; }
-      await relaunchLander(here, key);
-      sentBack = true;
-      logCall({ call: 'lander', key, result: 'handed back again', reason: 'Its lander exited with its record still open.', inputs: kept[key] });
-    }
-    if (!anyChecking && !sentBack) return save();
-    const gate = readUsageGate({ dir: here });
-    const cards = new Map(items.map((i) => [i.key, i]));
-    const due = (await landable(here)).filter((c) => cards.has(c.key) && !cards.get(c.key).finished);
-    for (const c of byBump(items, due)) {
-      const step = landStep({ verified: c.verified, entry: sent[c.key], alive: sent[c.key]?.alive, limited: sent[c.key]?.limited, skip: landSkipOf(cards.get(c.key), c.skip), held: launchHeldWords(gate, c.kind ?? 'claude') });
-      const inputs = { verified: c.verified, before: kept[c.key] ?? null };
-      if (step.step === 'held') heldByPause = true;
-      if (step.step === 'fault' && !kept[c.key].handedBack) {
-        logCall({ call: 'lander', key: c.key, result: 'handed back', reason: 'Its lander was relaunched and exited again without landing.', inputs });
-        await appendStatus(here, c.key, 'exited-twice', { run: 'lander' });
-        kept[c.key] = { ...kept[c.key], handedBack: true };
-      }
-      if (step.step !== 'launch') continue;
-      const entry = { call: 'lander', key: c.key, reason: step.relaunched ? 'Its lander exited without landing, the first time.' : 'Its build was verified and waits to land.', inputs };
-      try {
-        const { pid, log, resumed } = await landByBuilder(here, c, { fresh: step.fresh, launch });
-        kept[c.key] = { verified: c.verified, pid, log, relaunched: step.relaunched };
-        logCall({ ...entry, result: resumed ? 'resumed its builder' : 'launched' });
-        await trackLaunch(c.key, null);
-      } catch (e) {
-        logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-        kept[c.key] = { verified: c.verified, pid: null, relaunched: step.relaunched };
-        await appendStatus(here, c.key, 'lander-failed', { error: e.message });
-      }
-    }
-    await save();
-  }
-
-  // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-  // The due runs [{key}] with the bumped cards' first, the earliest bump first, the rest in their order.
-  const bumpOf = (items, key) => items.find((i) => i.key === key)?.bumpedAt || '';
-  const byBump = (items, due) => [...due.filter((d) => bumpOf(items, d.key)).sort((a, b) => bumpOf(items, a.key).localeCompare(bumpOf(items, b.key))), ...due.filter((d) => !bumpOf(items, d.key))];
-
-  // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
-  // data/rebases.json {<key>: {conflict, pid}}: the conflict (the PR's head @ the base) each rebase run was started for, so
-  // each conflict gets one run, and its process. Each card whose open PR conflicts (domain.mjs rebasesDue) gets a headless
-  // rebase run in its worktree, or one made from the PR's branch (store.mjs startRebase). A start or launch that fails
-  // leaves a thread line and keeps its conflict, so it isn't retried until the PR's head or base moves. A run takes no
-  // implementer slot (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).
-  // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md: a run whose process has gone with its
-  // record still open takes landStep's step for its conflict, as a lander does for its verification: relaunched once as
-  // a fresh run when no hold stands, then, exiting again, the exited-twice line and handedBack, so its card reads stopped
-  // (snapshot alive). A run the orchestrator stopped (stopped) is neither.
-  async function launchRebases(items, stopped) {
-    const file = path.join(data, 'rebases.json');
-    const sent = await readJSON(file, {});
-    const was = JSON.stringify(sent);
-    const { base } = builderRepo(here);
-    const gate = readUsageGate({ dir: here });
-    for (const [key, run] of Object.entries(sent)) {
-      if (!Number.isInteger(run.pid) || run.handedBack || stopped.has(key) || pidAlive(run.pid)) continue;
-      const open = items.find((i) => i.key === key)?.agents?.find((a) => a.started && !a.done && a.label === REBASE_LABEL);
-      if (!open) continue;
-      const limited = Boolean(run.limited) || (Boolean(run.log) && Boolean(runLimit(run.log)));
-      // landStep reads a run's conflict where it reads a lander's verification.
-      const step = landStep({ verified: run.conflict, entry: { ...run, verified: run.conflict }, limited, held: launchHeldWords(gate, open.kind ?? 'claude') });
-      const inputs = { conflict: run.conflict, before: run };
-      if (step.step === 'fault') {
-        logCall({ call: 'rebase-run', key, result: 'handed back', reason: 'Its rebase run was relaunched and exited again with its record open.', inputs });
-        await appendStatus(here, key, 'exited-twice', { run: 'rebase run' });
-        sent[key] = { ...run, handedBack: true };
-      } else if (step.step === 'held') {
-        heldByPause = true;
-        if (limited) sent[key] = { ...run, limited };
-      } else {
-        try {
-          const { pid, log } = await landByBuilder(here, { key, kind: open.kind ?? 'claude', model: open.model }, { fresh: step.fresh, launch });
-          sent[key] = { conflict: run.conflict, pid, log, relaunched: step.relaunched };
-          logCall({ call: 'rebase-run', key, result: 'relaunched', reason: 'Its rebase run exited with its record open, the first time.', inputs });
-        } catch (e) {
-          logCall({ call: 'rebase-run', key, result: 'failed', reason: `Its rebase run exited with its record open. The launch failed: ${e.message}`, inputs });
-          await appendStatus(here, key, 'rebase-launch-failed', { error: e.message });
-          sent[key] = { conflict: run.conflict, pid: null, relaunched: step.relaunched };
-        }
-      }
-    }
-    const due = byBump(items, rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base));
-    if (!due.length) {
-      // A card's alive reads it (snapshot).
-      if (JSON.stringify(sent) !== was) await writeJSON(file, sent);
-      return;
-    }
-    try {
-      for (const d of due) {
-        if (launchHeldNow()) break;
-        const id = d.key.split('/')[1];
-        const entry = { call: 'rebase-run', key: d.key, reason: `Its PR #${d.pr} conflicts with ${base}.`, inputs: { pr: d.pr, conflict: d.conflict, before: sent[d.key] ?? null } };
-        sent[d.key] = { conflict: d.conflict, pid: null };
-        let started;
-        try {
-          started = await startRebase(here, d.key, { pr: d.pr, conflict: d.conflict, base }, () => prWorktree(here, id, d.branch));
-        } catch (e) {
-          if (!(e instanceof BoardError)) throw e;
-          logCall({ ...entry, result: 'refused', reason: `${entry.reason} The start refused: ${e.message}` });
-          await appendStatus(here, d.key, 'rebase-failed', { pr: d.pr, error: e.message });
-          continue;
-        } finally { dataVersion++; }
-        try {
-          const { pid, log } = await landByBuilder(here, started, { launch });
-          sent[d.key] = { ...sent[d.key], pid, log };
-          logCall({ ...entry, result: 'launched' });
-        } catch (e) {
-          logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-          await appendStatus(here, d.key, 'rebase-launch-failed', { error: e.message });
-        }
-      }
-    } finally {
-      // Written even when a start throws, so a run already launched in this pass isn't started again.
-      await writeJSON(file, sent);
-    }
   }
 
   // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
@@ -2288,8 +1842,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   const archived = archiveReader(here);
   // docs/adr/2026-11-17-0601-migrations-run-once-per-ledger-from-one-list.md
   await runMigrations('board', { site: here, archived });
-  await launchCutOffBuilds();
-  await launchLostBuilds(0);
+  await runs.revive(here, async () => (await sharedBoard()).items, runIo, { boot: true });
   await fileNewAsks({ starting: true });
   await settleLanes();
   await checkArchive();
@@ -2316,9 +1869,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     dataVersion++;
     track(signalMissedWrites());
     track(checkPrototypeWaits());
-    track(reviveHeadless());
+    track(runs.revive(here, async () => buildBoard(await readSnapshot(here, await outsideData(), { items: true })).items, runIo));
     track(failDeadScriptRuns().catch((err) => console.error('Script run check failed:', err.message)));
-    track(launchLostBuilds());
     // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
     track(publishUnscreened(here).then((keys) => { if (keys.length) dataVersion++; }, (err) => console.error('Screen publish failed:', err.message)));
     track(checkPickUps());

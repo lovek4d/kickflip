@@ -134,7 +134,7 @@ export const HUB_LINES = {
   'visual-unplaced': { mark: FAULT, fault: true, text: () => 'Its visual agent ended without placing its page, so it waits on the orchestrator.' },
   'planner-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ kind, error }) => fit(`Couldn't start the ${kind}: `, error), longest: { kind: 'visual agent' } },
   'helper-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ name, error }) => fit(`Couldn't start helper ${name}: `, error), longest: { name: 'a-helper-name-of-24-char' } },
-  // run names what exited: the builder, the lander or the rebase run (server.mjs reviveHeadless, launchLanders, launchRebases).
+  // run names what exited: the builder, the lander or the rebase run (runs.mjs reviveHeadless, launchLanders, launchRebases).
   'exited-twice': { mark: FAULT, fault: true, text: ({ run = 'builder' }) => `Its ${run} exited twice unfinished; it waits on the orchestrator.`, longest: { run: 'rebase run' } },
   'resume-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("Couldn't resume the builder headless: ", error) },
   'relaunch-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("Couldn't relaunch the builder headless: ", error) },

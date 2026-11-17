@@ -111,7 +111,7 @@ export const SUMMARY_HINT = 'what you built, in a few plain sentences: what chan
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 // docs/adr/2026-11-14-0031-a-land-step-reads-landables-skips.md
-// The one next step of a verified card's land: the board server's launchLanders acts on it, and the card's status line
+// The one next step of a verified card's land: runs.mjs launchLanders acts on it, and the card's status line
 // and the orchestrator's waits line print it, so no line promises a launch the server won't make. verified is the
 // verification the card waits to land, entry its data/landers.json entry {verified, pid, log, relaunched, handedBack}
 // (relaunched counts the launches after the first for that verification), alive whether the entry's process lives,
@@ -362,7 +362,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const briefing = BRIEF_KINDS.find((k) => k !== REVIEWER && (it.briefs || []).some((b) => b.kind === k && !b.brief)) ?? null;
   // A checked card with nothing left to verify waits to land: its land step (landStep), read from the server's lander
   // for it (landers {<key>: {...entry, alive, limited}}), what holds a launch of its kind (landHeld {<kind>: words}) and
-  // what store.mjs landable skips it for (landSkips {<key>: skip}), as the server's launchLanders reads them.
+  // what store.mjs landable skips it for (landSkips {<key>: skip}), as runs.mjs launchLanders reads them.
   const verifiedAt = agents.map((a) => a.verified?.at).filter(Boolean).map(String).sort().at(-1) ?? null;
   const lander = routeRecord(landers, key);
   // The step itself is taken once the board knows what blocks the card (buildBoard landOf).
@@ -819,7 +819,7 @@ const stepOf = (phase) => (phase === 'testing' ? 'building' : phase);
 // {<worktree path>: ms}, snapshot.mjs readSnapshot); a run with no readable transcript has its progress lines alone. alive is
 // whether the card's headless process lives (snapshot.mjs readSnapshot alive), null when the board tracks none for it, or
 // 'held' while the board holds its launch for a usage pause: held, never stale, since the board launches it once the
-// pause lifts (server.mjs reviveHeadless), so it is no wait on the orchestrator.
+// pause lifts (runs.mjs reviveHeadless), so it is no wait on the orchestrator.
 // A live one is never stale; a gone one is stale at once; an untracked one is stale after BUILDER_STALE_AFTER of silence
 // (docs/adr/2026-11-13-2030-stale-is-a-footer-word-after-15-minutes.md).
 // A run the orchestrator stopped (a record's stopped {run, at}, written since that record last started) reads stopped

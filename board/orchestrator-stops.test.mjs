@@ -9,7 +9,8 @@ import { once } from 'node:events';
 import readline from 'node:readline';
 import { home, at, site, write, read, lines, board } from './board-fixture.mjs';
 import { fakePs, until } from '../shared/test-helpers.mjs';
-import { stopRuns, reviveBuilders } from './headless.mjs';
+import { stopRuns } from './headless.mjs';
+import { reviveBuilders } from './runs.mjs';
 import { holdingLandLock, moveQueuedLand, landQueue } from './worktree.mjs';
 import { buildBoard, stoppedWords } from './domain.mjs';
 

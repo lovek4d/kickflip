@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { appendEvent as hubAppendEvent } from '../hub/boards.mjs';
 import { appendEvent, appendEvents, editJSON, readJSON, tellOnWrite, writeJSON } from './files.mjs';
-import { restartLander } from './store.mjs';
+import { restartLander } from './runs.mjs';
 
 // docs/adr/2026-11-17-0521-every-process-writes-site-data-through-one-files-module.md
 const siteOf = (route) => {

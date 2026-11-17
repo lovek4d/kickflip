@@ -93,6 +93,7 @@ async function main() {
   const own = backgroundIdsIn(text);
   if ((input.background_tasks ?? []).some((t) => own.has(t.id))) return;
   const store = await import('../store.mjs');
+  const runs = await import('../runs.mjs');
   for (const s of starts) {
     try {
       if (s.site !== null && !/^[\w-]+$/.test(s.site)) throw new Error(`--site ${s.site} is not a route`);
@@ -100,7 +101,7 @@ async function main() {
       if (s.key.includes('$') || s.agent.includes('$')) throw new Error('the key or --agent names a shell variable');
       const site = s.site === null ? null : await store.siteDir(s.site);
       const dir = s.dir === undefined ? undefined : expandHome(s.dir);
-      await store.stopBuilder(site, s.key, { dir, agent: s.agent, startedBetween: [s.from, s.to] });
+      await runs.stop(site, s.key, { dir, agent: s.agent, startedBetween: [s.from, s.to] });
     } catch (e) {
       process.stderr.write(`builder-stop-hook: ${s.key}${s.agent === 'main' ? '' : ` --agent ${s.agent}`}: ${e.message}\n`);
     }

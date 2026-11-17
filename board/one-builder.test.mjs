@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { startBoard, untilTestEnds } from '../shared/test-helpers.mjs';
-import { hasBuilder, reviveBuilders } from './headless.mjs';
+import { hasBuilder } from './headless.mjs';
+import { reviveBuilders } from './runs.mjs';
 
 // docs/adr/2026-11-13-2345-a-card-never-gets-a-second-builder-while-its-first-is-alive.md
 test('a card whose open record has no process yet, or a process that may run, has a builder; ps giving no answer reads as may run, not dead', () => {

@@ -341,7 +341,7 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   assert.deepEqual(pulls(), ['t/A1'], 'the day\'s pull');
   await board.minute();
   assert.deepEqual(triages(), [], 'never in the day');
-  // The fake builder exits at once, so the minute check relaunches it once and then hands it back (reviveHeadless); the
+  // The fake builder exits at once, so the minute check relaunches it once and then hands it back (runs.mjs reviveHeadless); the
   // swap below waits for that, or a relaunch under load would rewrite the record the swap removes. That waits on the
   // process's exit, which settled() can't see, so it runs the minute until the hand-back shows.
   const tracked = path.join(dataDir, 'headless-builders.json');

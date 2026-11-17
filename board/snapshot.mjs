@@ -10,14 +10,13 @@ import { boardConfig, itemSources, readJSON, readLog } from './files.mjs';
 import { buildBoard } from './domain.mjs';
 import { topicItems } from './review.mjs';
 import { transcriptMovedAt } from './transcript.mjs';
-import { pidAlive } from './headless.mjs';
+import { alive as runAlive, queuedPlanners, readLanders } from './runs.mjs';
 import { BoardError, itemNotes, landable, opensPRs, readActedOn, readAgents, readAskLinks, readDelivered, readHidden, readReplyIndex, readScreening, readWorking, replyFilesOf, settingsOf, threadFile } from './store.mjs';
 import { boardAt, githubStateFile } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { launchHeldWords, readUsageGate } from '../shared/usage-gate.mjs';
-import { runLimit } from '../hub/usage.mjs';
 import { runLoggedOut } from '../hub/login-error.mjs';
 
 const dataOf = (site) => path.join(site, 'data');
@@ -90,17 +89,6 @@ async function latestReply(site) {
   const times = await Promise.all(names.map((n) => fs.stat(path.join(replies, n)).then((st) => st.mtimeMs, () => 0)));
   const last = Math.max(0, ...times);
   return last ? new Date(last).toISOString() : null;
-}
-
-// data/landers.json {<key>: {verified, pid, log, relaunched, handedBack?}}, each entry read with whether its process
-// lives (alive) and, once gone, whether its run ended on the usage limit (limited), as landStep reads them. An entry
-// from before landers kept their pid is a verification alone.
-export async function readLanders(site) {
-  return Object.fromEntries(Object.entries(await readJSON(path.join(dataOf(site), 'landers.json'), {})).map(([key, v]) => {
-    const entry = typeof v === 'string' ? { verified: v, pid: null } : v;
-    const alive = Number.isInteger(entry.pid) && pidAlive(entry.pid);
-    return [key, { ...entry, alive, limited: !alive && (Boolean(entry.limited) || (Boolean(entry.log) && Boolean(runLimit(entry.log)))) }];
-  }));
 }
 
 // The item files the board reads, each with its builder records.
@@ -213,27 +201,13 @@ export async function readSnapshot(site, outside, { archived = [], items: itemsO
     }
   }
 
-  // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md
-  // alive {<key>: whether its headless process lives}: a card's tracked builder, else its lander (domain.mjs builderOf).
-  // A gone process reads false only once the board has stopped relaunching it (handedBack, reviveHeadless); before that
-  // the next minute's pass relaunches it, as launchLanders does a lander, so it reads as untracked. A builder whose launch
-  // a usage pause holds (pid null, handOff) reads 'held' until reviveHeadless launches it. A rebase run reads the same
-  // way from data/rebases.json (launchRebases).
-  const alive = Object.create(null);
-  const headless = await readJSON(path.join(data, 'headless-builders.json'), {});
+  // alive and landers: each run's process and each verification's lander (runs.mjs).
+  const alive = await runAlive(here);
   const landers = await readLanders(here);
   // landSkips {<key>: skip}: what store.mjs landable skips each verified card for, so its land step reads what
-  // launchLanders will do. Only a card with a verified record can wait to land, so with none landable isn't read.
+  // runs.mjs tick will do. Only a card with a verified record can wait to land, so with none landable isn't read.
   const verifiedAny = files.some(({ agents }) => Object.values(agents || {}).some((byAgent) => Object.values(byAgent).some((r) => r?.verified)));
   const landSkips = verifiedAny ? Object.fromEntries((await landable(here)).filter((c) => c.skip).map((c) => [c.key, c.skip])) : {};
-  const rebases = await readJSON(path.join(data, 'rebases.json'), {});
-  for (const [key, entry] of [...Object.entries(landers), ...Object.entries(rebases), ...Object.entries(headless)]) {
-    if (entry?.pid === null && routeRecord(headless, key) === entry) alive[key] = 'held';
-    if (!Number.isInteger(entry?.pid)) continue;
-    if (pidAlive(entry.pid)) alive[key] = true;
-    else if (entry.handedBack) alive[key] = false;
-    else delete alive[key];
-  }
 
   const tries = await readJSON(path.join(data, 'try.json'), null);
   return {
@@ -243,7 +217,7 @@ export async function readSnapshot(site, outside, { archived = [], items: itemsO
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(here),
     owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
     topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
-    screening: await readScreening(here), queuedPlanners: await readJSON(path.join(data, 'queued-planners.json'), {}), landers, landHeld: outside.landHeld, landSkips,
+    screening: await readScreening(here), queuedPlanners: await queuedPlanners(here), landers, landHeld: outside.landHeld, landSkips,
   };
 }
 

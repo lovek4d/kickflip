@@ -14,7 +14,8 @@ import { ownTests } from '../affected.mjs';
 import { pidAlive } from '../headless.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
-import { bump, queueLines, stallCard, stopBuilder, stopLand } from '../stop.mjs';
+import { bump, queueLines, stallCard, stopLand } from '../stop.mjs';
+import * as runs from '../runs.mjs';
 import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 import { checkTakesRender } from '../render-check.mjs';
@@ -1011,18 +1012,7 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ti
     if (text === undefined) throw new store.BoardError(`builder done finishes ${key}: pass --text "<what you checked>", or --next "<what happens next>" to stop without finishing`);
     return finishCard(site, key, { text, ownerStep, title });
   }
-  // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md: a helper hands back its
-  // result as its record's closing note, which agent wait prints.
-  if (onBoard && await store.isHelper(site, key, f.agent)) {
-    if (text === undefined) throw new UsageError(`a helper hands back its result: pass --text "<what you did or found>"`);
-    return store.stopBuilder(site, key, { ...f, note: text });
-  }
-  if (onBoard && await store.isPlanner(site, key, f.agent)) {
-    if (text !== undefined) throw new UsageError('a grill\'s or prototype\'s done takes no --text: what it asked is its posted questions and its notes section');
-    return store.stopPlanner(site, key, { ...f, requireNext: true });
-  }
-  if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the task, the main build with a worktree and no --next, or on a helper\'s');
-  return store.stopBuilder(site, key, { ...f, requireNext: true });
+  return runs.finish(site, key, { ...f, text }, { usage: UsageError });
 }
 
 // The words each flag of item set adds to the line it prints; null for a flag that only shapes another (--text is the
@@ -1317,7 +1307,7 @@ const COMMANDS = {
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;
   }],
-  'builder stop': [['file/id'], [], (site, [key], f, { ps, grace }) => stopBuilder(needSite(site, 'builder stop'), key, { ps, grace })],
+  'builder stop': [['file/id'], [], (site, [key], f, { ps, grace }) => runs.stop(needSite(site, 'builder stop'), key, { kill: true, ps, grace })],
   'item stall': [['file/id'], ['reason'], (site, [key], f, { ps, grace }) => stallCard(needSite(site, 'item stall'), key, f.reason, { ps, grace })],
   'land stop': [['file/id'], [], (site, [key], f, { ps, grace }) => stopLand(needSite(site, 'land stop'), key, { ps, grace })],
   'land queue': [[], [], () => queueLines()],
@@ -1337,7 +1327,7 @@ const COMMANDS = {
   'item unbump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item unbump'), key, false)],
   lander: [['file/id'], [], async (site, [key]) => {
     if (!site) throw new UsageError('lander needs --site <route>');
-    await store.restartLander(site, key);
+    await runs.restartLander(site, key);
     return { lines: [`${await store.cardName(site, key)} is handed back again; the server launches a lander for it within a minute, unless a hold stands`] };
   }],
   merge: [['file/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
