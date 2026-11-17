@@ -1,5 +1,7 @@
 # The desktop pane is back, without the Needs you deck
 
+Superseded in part by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): the pane keeps the last sheet, and with none open shows a landing with filter chips in place of Waiting on you.
+
 #607. [The board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md) (#561) took out more than the owner asked for. The owner: "by that i meant the needs you orange backdrop section at the top of the main board view, not the open questions itself".
 
 From 900px, phone landscape included, the board is lanes | pane again, as before #561:

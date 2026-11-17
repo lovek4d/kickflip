@@ -130,7 +130,7 @@ test('notifications leaves a held question push out, alone or beside others', ()
 });
 
 // docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
-test("notifications sends a board's live row as itself, beside the board's other pushes and though it opens Waiting on you", () => {
+test("notifications sends a board's live row as itself, beside the board's other pushes and though it opens the filtered board", () => {
   const row = { id: 'r', title: 'X (2)', body: '2 builds wait on you', url: '/x/questions.html', tag: 'board-x', kind: 'action' };
   const idle = { id: 'i', title: 'X has gone idle', url: '/x/', tag: 'idle', kind: 'reminder' };
   const wait = { id: 'w', title: 'A1 waits on the orchestrator', url: '/x/#selectedCard=w%2FA1', tag: 'wait-w/A1', kind: 'reminder' };

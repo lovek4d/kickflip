@@ -1,6 +1,6 @@
 // Drag-resizing of the desktop columns (docs/adr/2026-11-10-1600-the-desktop-columns-drag-and-this-device-keeps-their-widths.md).
 // A `.col-handle[data-col="sidebar"|"pane"]` drags its column's edge: the sidebar rail's, or the seam between the lanes
-// and the Waiting on you pane. Widths are clamped (sidebar 220–420px, the lanes and the pane each 360px or more), kept
+// and the pane. Widths are clamped (sidebar 220–420px, the lanes and the pane each 360px or more), kept
 // per device for every board, and set on <html> as --sb-w and --pane-w, which style.css and sidebar.css read. A double-click
 // on a handle forgets the width; ←/→ on a focused handle moves it 16px. Loaded after the body's first elements so the
 // stored widths land before the first paint of the board.

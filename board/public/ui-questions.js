@@ -1,4 +1,4 @@
-// Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
+// Owner questions, for the questions sheet (app-questions-sheet.js). Needs ui.js and ui-links.js.
 (function () {
   const { esc, escText, time, ago, replyBody, sentFiles, dropZone, requestRow, linkText, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
   // ui-markdown.js loads after this file, so markdown is looked up when a question draws.
@@ -19,7 +19,7 @@
   // Whether the owner has resolved a question: an answer is sent, whatever Claude has done with it since, or Claude
   // resolved it. A sent question draws as resolvedCard, locked.
   const isSent = (q) => q.state === 'answered' || q.state === 'replied' || q.state === 'resolved';
-  // A question's unsent {choice, note} on this device, in localStorage under qdraft:<id>. view-questions.js and the
+  // A question's unsent {choice, note} on this device, in localStorage under qdraft:<id>. The questions sheet and the
   // prototype viewer's Choose this (prototype-switcher.js) write it.
   const getDraft = (id) => { try { return JSON.parse(localStorage.getItem('qdraft:' + id) || '{}'); } catch { return {}; } };
   const setDraft = (id, v) => { try { localStorage.setItem('qdraft:' + id, JSON.stringify(v)); } catch {} };
@@ -43,8 +43,8 @@
     const choice = choiceOf(q, getDraft(q.id));
     return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: noteOf(q, getDraft(q.id)).trim(), ...(files.length ? { files } : {}) };
   }
-  // The handlers that write a question's draft as the owner picks and types in root's forms, shared by Waiting on you and
-  // the thread's questions sheet (on is a view's B.on); changed runs after each write. A radio can't be unchecked natively:
+  // The handlers that write a question's draft as the owner picks and types in root's forms, the questions
+  // sheet's (on is a view's B.on); changed runs after each write. A radio can't be unchecked natively:
   // a pointer or Space press on a checked radio is noted, and its click clears it.
   function wireAnswerForm(on, root, changed) {
     const draftOf = (el) => { const sec = el.closest('section.q'); return sec && { id: sec.dataset.q, d: getDraft(sec.dataset.q) }; };
@@ -192,38 +192,6 @@
       ${answerHistory(q, links)}
     </section>`;
   }
-  // /api/board's ownerTopics, each card's topic named from its card, which the board sends in its place while the card
-  // is on the board (board/server.mjs pageBoard). cards: the board's items.
-  function cardTopics(topics, cards) {
-    const byKey = new Map(cards.map((c) => [c.key, c]));
-    return topics.map((t) => {
-      const c = t.title === undefined && byKey.get(t.card);
-      return c ? { ...t, title: `${c.ref}: ${c.title}` } : t;
-    });
-  }
-  // docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md
-  // The ? page's rows and its count, which the header's badge reads too, so the two agree: the board's queue (what
-  // waits on the owner, oldest first) with each question entry as its topic with an open question, {topic}, and each
-  // tap as {tap}; a topic the queue doesn't name follows, in the topics' order. topics: /api/board's, named by cardTopics.
-  // outbox: this browser's unsent taps (app-threads.js); a card whose Implement or Done is in it, queued or in flight,
-  // has no tap row, the row following the tap rather than the board's answer, and returns if the board refuses the
-  // tap and it leaves the outbox (docs/adr/2026-11-15-1400-waiting-on-you-follows-the-tap-not-the-board.md).
-  // answering: the answer outbox's entries whose questions are still open on the board (unsentAnswers): a topic counts
-  // only its open questions not among them, and with none has no row; a failed one's questions count again and its
-  // topic reads failed, so a set that wasn't sent is back on the list
-  // (docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md).
-  function queueRows(queue, topics, outbox = [], answering = []) {
-    const sending = (t) => answering.filter((m) => m.topic === t.id && !m.failed).reduce((n, m) => n + idsOf(m).length, 0);
-    const failed = (t) => answering.some((m) => m.topic === t.id && m.failed);
-    const open = topics.map((t) => ({ ...t, open: t.open - sending(t), ...(failed(t) ? { failed: true } : {}) })).filter((t) => t.state !== 'resolved' && t.open > 0);
-    const tapped = new Set(outbox.filter((m) => m.intent === 'build' || m.kind === 'card-done').map((m) => m.key));
-    const rows = [];
-    for (const entry of queue || []) {
-      if (entry.kind !== 'question') { if (!tapped.has(entry.key)) rows.push({ tap: entry }); }
-      else { const topic = open.find((t) => t.id === entry.id); if (topic) rows.push({ topic }); }
-    }
-    return [...rows, ...open.filter((t) => !rows.some((r) => r.topic === t)).map((topic) => ({ topic }))];
-  }
   // A prototype viewer's Round pill and its sheet, on the full page (prototype-switcher.js) and in the board's right pane
   // (app-pane.js). rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds
   // lists them ({n, q, url, confirm, state}). The pill names the round qid is in, out of the newest round's number; a
@@ -244,14 +212,11 @@
   const onOutbox = (fn) => { outboxListeners.add(fn); return () => outboxListeners.delete(fn); };
   const outboxChanged = () => outboxListeners.forEach((fn) => fn());
   // The answer outbox: the questions sheet's answer sets and requests the board hasn't recorded yet, kept in this browser
-  // under the board's own keys (app-questions-sheet.js). unsentAnswers: its entries whose questions owner (/api/board's)
-  // still has open. idsOf: the questions an entry is for, a set's each answer's, a request's its one. answerBox: where a
-  // set's answer to question id keeps its files until the set sends (attach.js).
+  // under the board's own keys (app-questions-sheet.js). idsOf: the questions an entry is for, a set's each answer's, a
+  // request's its one. answerBox: where a set's answer to question id keeps its files until the set sends (attach.js).
   const ANSWER_OUTBOX = 'answer-sets';
   const idsOf = (m) => (m.answers ? m.answers.map((a) => a.id) : [m.id]);
   const answerBox = (sendId, id) => `send:${sendId}:${id}`;
-  // A visual request leaves its question open, so it is no answer.
-  const unsentAnswers = (owner, store) => store.get(ANSWER_OUTBOX, []).filter((m) => m.request?.kind !== 'visual-request' && (owner || []).some((q) => idsOf(m).includes(q.id) && q.state === 'open'));
 
-  Object.assign(globalThis.BoardUI, { onOutbox, outboxChanged, ANSWER_OUTBOX, idsOf, answerBox, unsentAnswers, isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet, cardTopics, queueRows });
+  Object.assign(globalThis.BoardUI, { onOutbox, outboxChanged, ANSWER_OUTBOX, idsOf, answerBox, isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet });
 })();

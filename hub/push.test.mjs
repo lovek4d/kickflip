@@ -240,7 +240,7 @@ test("a silent push updates its notification at once, through quiet hours; while
   device.needs = orchWaits(0, '');
   await flushQueue();
   assert.deepEqual(device.received.slice(1).map(({ title, url, tag, silent }) => [title, url, tag, silent]), [['Learn (2)', '/learn/questions.html', 'board-learn', undefined]],
-    'the live row goes as itself, alerting, though it opens Waiting on you');
+    'the live row goes as itself, alerting, though it opens the filtered board');
 
   await push.setNotifications({ on: false }, NOON, home);
   assert.deepEqual(await deliver({ title: 'Orch (1)', url: '/orch/', tag: 'board-orch' }, { kind: 'action', silent: true, at: NOON }), { dropped: true });

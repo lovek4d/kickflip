@@ -1,8 +1,6 @@
 // The board view's header and GitHub status: the time since the last change signal or refresh, refresh, the In Review
 // header's GitHub line (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md);
 // the GitHub mark's Hub links sheet and a new board's setup checklist (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md);
-// the ?, the way to Waiting on you on phone widths (from 900px the pane is beside the lanes and the ? is hidden), with the
-// open-question count as its badge (docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md);
 // and the wake: any tap on an asleep board's page, refresh included, asks the hub to resume its session
 // (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md); and the board menu the board's
 // name opens, with Join in terminal, Settings, Repo review and Pause. Needs app-core.js.
@@ -16,20 +14,7 @@ BoardView.part((B) => {
     $('#setup').hidden = !d.setup;
     $('#setup').innerHTML = setupCard(d.setup);
     if ($('#linksSheet').open) $('#linksList').innerHTML = linksList(d.links);
-    renderBadge(d);
   }
-  // The ? badge counts the rows Waiting on you draws, which an Implement or Done in the outbox drops at once, and an
-  // answer in the answer outbox too.
-  function renderBadge(d) {
-    const open = BoardUI.queueRows(d.queue, BoardUI.cardTopics(d.ownerTopics || [], d.items || []), B.store.get('outbox', []), BoardUI.unsentAnswers(d.owner, B.store)).length;
-    const ask = $('#questionsLink');
-    const badge = ask.querySelector('.q-badge');
-    badge.hidden = !open;
-    badge.textContent = open ? String(open) : '';
-    ask.setAttribute('aria-label', open ? `Open questions, ${open} open` : 'Open questions');
-    B.syncQuestionsLink();
-  }
-  B.atUnmount(BoardUI.onOutbox(() => { if (state.board) renderBadge(state.board); }));
   // The status line, and the moon right of the title while the owner reads away (hub/presence.mjs ownerTracker).
   const renderStatus = () => {
     $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.() });

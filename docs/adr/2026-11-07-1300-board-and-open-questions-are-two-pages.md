@@ -1,5 +1,7 @@
 # Board and Open questions are two pages
 
+Superseded by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): the board is the one page; questions.html redirects to it.
+
 Card #323. The owner, verbatim: "open questions page should not be accessible on desktop at all in fact, consider refactoring/restructuring to make that more clear. they are two pages, and on desktop side by side, on mobile nav between the two". Amends [Needs you is a deck on a phone and a pane on a desktop](2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md) and [on desktop, a prototype goes back to the board](2026-11-07-0200-on-desktop-a-prototype-goes-back-to-the-board.md), and folds in #322 ([the + is the board page's alone](2026-11-07-0100-the-plus-is-the-board-pages-alone.md) had already done it).
 
 - **One rule in the shell.** From 900px, `shell.js` `go` turns every view of `questions.html` into the board at the board's own URL, with no topic in the address bar, and asks the board's pane to open the topic (`app-needs.js` `focusQuestion`). That covers a link anywhere on the board, a push tap, a framed page's hand-off, a history entry and a cold load. On the board already showing, it changes no URL and adds no history entry, so an open card stays open. #312's click catcher on the board is gone; the router's own click handling reaches the same rule.

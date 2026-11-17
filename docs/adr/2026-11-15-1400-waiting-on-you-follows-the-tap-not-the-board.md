@@ -1,5 +1,7 @@
 # Waiting on you follows the tap, not the board
 
+Superseded by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): there is no Waiting on you and no Tap row.
+
 An Implement or Done tapped in a card's thread goes through this browser's outbox. Its Tap row in Waiting on you, and
 its count in the ? badge, used to stay until the server's new board arrived: seconds on a busy host, until reconnect
 offline.

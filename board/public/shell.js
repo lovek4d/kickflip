@@ -1,5 +1,5 @@
 // The app shell (app.html; docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md): the sidebar, mounted once, beside one view at a
-// time. A board's view is BoardView (app.js); Waiting on you and Notes are AppViews.questions and .notes,
+// time. A board's view is BoardView (app.js); Notes is AppViews.notes,
 // the Hub page AppViews.hub with its settings modals, and every other page AppViews.frame. Board Settings mounts over the board
 // as a modal. Each page is {className, title(view, {siteTitle}), markup(view, {siteTitle}), create(root,
 // siteRoot, ctx)}; a hub page's siteRoot is /_hub. Following a link to any of them, the sidebar's included, swaps the
@@ -8,8 +8,7 @@
 // (hub/stream.mjs): `change {route}` signals the open board and catches up the saved copy of any other (keepFresh),
 // and `sidebar` repaints the sidebar. A board the shell
 // leaves is unmounted, and paints live from its saved copy when it comes back
-// (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md); below 900px its Waiting on you is no leaving: the
-// two stay mounted and switch in place (docs/adr/2026-11-14-2332-on-a-phone-the-board-and-waiting-on-you-switch-in-place.md).
+// (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
 // A push tap reaches it from hub/sw.js as {open: url}, and a page framed inside it hands it a view's URL through
 // AppShell.open(url, {replace, frames}) → true when the shell shows it in place; frames false refuses a frame view.
 // AppShell.reload() reloads the app past the shell the service worker keeps.
@@ -101,7 +100,7 @@ window.AppShell = (function () {
     const BUILD = document.documentElement.dataset.build;
     const syncedAt = new Map();
     async function keepFresh(route) {
-      if (!boards().has(route) || [current, kept].some((entry) => entry?.view.kind === 'board' && entry.route === route)) return;
+      if (!boards().has(route) || (current?.view.kind === 'board' && current.route === route)) return;
       if (Date.now() - (syncedAt.get(route) ?? -Infinity) < 60_000) return;
       syncedAt.set(route, Date.now());
       const key = new URL(`/${encodeURIComponent(route)}/`, location.href).href;
@@ -210,25 +209,6 @@ window.AppShell = (function () {
       v.mount();
     }
 
-    // Below 900px a board and its Waiting on you are kept mounted together: showing one hides the other, which keeps
-    // its scroll, open card and drafts, and the next switch shows it again, with no remount and no fetch. kept: the
-    // hidden one, {view, route, root, v, y} with y its scroll, or null. Any other view unmounts both.
-    let kept = null;
-    const paired = (view) => view.kind === 'board' || view.kind === 'questions';
-    const together = (view) => Boolean(current) && !wide.matches && current.route === view.route && paired(current.view) && paired(view);
-    const still = matchMedia('(prefers-reduced-motion: reduce)');
-    // A short slide: Waiting on you comes in from the right, the board from the left. Only the page's content slides:
-    // a transform on the root would carry the fixed bottom bar and the + with it, and fade them.
-    const slide = (root, back) => {
-      if (still.matches) return;
-      for (const part of root.querySelectorAll(':scope > main, :scope > .split')) {
-        part.animate?.([{ transform: `translateX(${back ? -24 : 24}px)`, opacity: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 180, easing: 'ease-out' });
-      }
-    };
-    function drop(entry) {
-      entry.v.unmount();
-      entry.root.remove();
-    }
     function present(view) {
       const hub = view.route === undefined;
       const siteTitle = hub ? 'Hub' : titleOf(view.route);
@@ -247,36 +227,13 @@ window.AppShell = (function () {
       const board = view.kind === 'board';
       const hub = route === undefined;
       const siteTitle = hub ? 'Hub' : titleOf(route);
-      // back: the kept view this one is, shown again; from 900px (a widening) too, though nothing is kept there.
-      const back = kept && kept.route === route && kept.view.kind === view.kind ? kept : null;
-      const hide = together(view) && current.view.kind !== view.kind;
-      // A view shown again in its own place, such as a reload, leaves the kept one as it is.
-      if (kept && !back && !(together(view) && current.view.kind === view.kind)) drop(kept);
-      if (back || !together(view)) kept = null;
       const was = current;
-      if (was && hide) {
-        was.y = scrollY;
-        was.root.hidden = true;
-        kept = was;
-      } else if (was) was.v.unmount();
-      if (back) {
-        if (!hide) was?.root.remove();
-        back.root.hidden = false;
-        current = { view, route, root: back.root, v: back.v };
-        present(view);
-        scrollTo(0, back.y);
-        slide(back.root, board);
-        current.v.B?.renderStatus?.();
-        // A link that names another card or question than the one it was left on moves it there.
-        if (board ? view.hash !== back.view.hash : view.id !== back.view.id) dispatchEvent(new HashChangeEvent('hashchange'));
-        if (modal) showSettings();
-        return;
-      }
+      was?.v.unmount();
       const page = board ? null : AppViews[view.kind];
       const root = document.createElement('div');
       root.className = board ? 'view-board' : page.className;
       root.innerHTML = board ? BoardView.markup({ title: siteTitle, shared: shared && sharedHere(route) }) : page.markup(view, { siteTitle });
-      if (hide) { was.root.parentNode.insertBefore(root, was.root.nextSibling); slide(root, board); } else if (was) was.root.replaceWith(root); else scrim.after(root);
+      if (was) was.root.replaceWith(root); else scrim.after(root);
       const siteRoot = hub ? '/_hub' : '/' + encodeURIComponent(route);
       let v;
       if (board) {
@@ -308,52 +265,30 @@ window.AppShell = (function () {
     }
     const openHere = (href) => { if (!opener(href)) location.assign(href); };
 
-    // The board and Waiting on you follow their own hash, so a link that only moves it keeps the view.
+    // The board follows its own hash, so a link that only moves it keeps the view.
     const sameView = (a, b) => a.kind === b.kind && a.route === b.route && (a.kind !== 'notes' || a.item === b.item) && (a.kind !== 'frame' || a.url === b.url);
-    const dirty = () => [current, kept].some((entry) => entry?.root.querySelector('[data-dirty]'));
+    const dirty = () => Boolean(current?.root.querySelector('[data-dirty]'));
     addEventListener('beforeunload', (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });
 
-    // go(view, href, how, from): router.js's, with how 'replace' for a framed page's hand-off and 'reload' for a view's
+    // go(view, href, how): router.js's, with how 'replace' for a framed page's hand-off and 'reload' for a view's
     // own refresh. → true, or a promise of whether the view switched once the owner answers about an unsaved edit.
     let router = null;
-    const wide = matchMedia('(min-width: 900px)');
-    // Board and Waiting on you are a board's two pages (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md):
-    // from 900px the board shows Waiting on you in its pane, so every view of the questions page, a link, a push, a
-    // hand-off, a history entry or a cold load, shows the board at its own URL and opens the question's topic there (id,
-    // or null for none). Below 900px only a questions view naming a card's question or topic does, and the board opens
-    // that card under its questions sheet; Waiting on you with no id, and a topic of no card, stay the page
-    // (docs/adr/2026-11-16-0828-on-a-phone-a-cards-questions-open-over-the-card.md). A board's card page, a prototype or a
-    // visual, does the same at every width and opens in the board's reader sheet
-    // (docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md).
-    const inPane = (view) => (view?.kind === 'questions' && (wide.matches || (Boolean(view.id) && cardsQuestion(view))))
-      || AppRouter.isCardPage(view, boards());
-    // The board of route mounted here, shown or kept behind its Waiting on you, else none.
-    const mountedBoard = (route) => [current, kept].find((entry) => entry?.view.kind === 'board' && entry.route === route)?.v.B;
-    // Whether a phone's questions view names a card's question or topic. With no board of its route loaded here it is
-    // taken to, and the board, once loaded, sends a topic of no card back to the page (paneAsk).
-    const cardsQuestion = (view) => {
-      const board = mountedBoard(view.route)?.state?.board;
-      return !board || Boolean(BoardUI.cardOfQuestion(board, view.id));
-    };
-    // ask(B) → true once the board did what the view asks. A board just shown takes a moment to fill its pane, so it is
-    // asked again until it has.
-    // An open question also opens its questions sheet (app-questions-sheet.js).
-    function paneAsk(view, href) {
-      if (view.kind !== 'questions') return (B) => B.openPage?.(href);
-      if (wide.matches) return (B) => B.focusQuestion?.(view.id);
-      return (B) => {
-        if (!B.state?.board) return false;
-        if (!BoardUI.cardOfQuestion(B.state.board, view.id)) { go(view, href, 'replace'); return true; }
-        return B.focusQuestion(view.id);
-      };
-    }
+    // A questions URL, the old Waiting on you page's (docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md),
+    // and a board's card page, a prototype or a visual, are no views of their own: every way to one, a link, a push, a
+    // hand-off, a history entry or a cold load, shows the board at its own URL and asks it there. The board opens a
+    // question's card under its questions sheet, or with no card shows the Questions filter (app-pane.js focusQuestion),
+    // and opens a card page in its reader sheet (docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md).
+    const inPane = (view) => view?.kind === 'questions' || AppRouter.isCardPage(view, boards());
+    // ask(B) → true once the board did what the view asks. A board just shown takes a moment to load, so it is asked
+    // again until it has.
+    const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openPage?.(href));
     // A newer ask drops the retries of an older one, so a late retry never sets an earlier pick over the later one.
     let asked = 0;
     function askPane(ask, tries = 50, mine = ++asked) {
       if (mine !== asked || current?.view.kind !== 'board' || ask(current.v.B) || tries <= 0) return;
       setTimeout(() => askPane(ask, tries - 1, mine), 100);
     }
-    function go(view, href, how, from) {
+    function go(view, href, how) {
       if (!AppRouter.mounted(view)) return false;
       if (inPane(view)) {
         const ask = paneAsk(view, href);
@@ -366,7 +301,7 @@ window.AppShell = (function () {
           sidebar.close();
           return true;
         }
-        return Promise.resolve(go(board, boardHref, how, from)).then((shown) => { if (shown) askPane(ask); return shown; });
+        return Promise.resolve(go(board, boardHref, how)).then((shown) => { if (shown) askPane(ask); return shown; });
       }
       if (view.kind === 'settings') {
         if (current?.view.kind === 'board' && current.route === view.route) {
@@ -378,7 +313,7 @@ window.AppShell = (function () {
           return true;
         }
         const board = { kind: 'board', route: view.route, hash: '' };
-        return Promise.resolve(go(board, AppRouter.urlOf(board), how, from)).then((shown) => {
+        return Promise.resolve(go(board, AppRouter.urlOf(board), how)).then((shown) => {
           if (!shown) return false;
           router.replace(href);
           showSettings();
@@ -393,8 +328,8 @@ window.AppShell = (function () {
       }
       const stays = how !== 'reload' && current && sameView(current.view, view);
       const finish = () => {
-        const moved = how === 'push' ? router.push(href, from) : how === 'replace' ? router.replace(href) : null;
-        if (moved === 'up') { sidebar.close(); return true; }
+        if (how === 'push') router.push(href);
+        if (how === 'replace') router.replace(href);
         if (!stays) show(view);
         else {
           current.view = view;
@@ -403,11 +338,8 @@ window.AppShell = (function () {
         sidebar.close();
         return true;
       };
-      // What the switch would tear down: on a phone's switch between a board and its Waiting on you, only the board's
-      // Settings, and on a reload there, only the view reloaded.
-      const lost = (entry) => Boolean(entry?.root.querySelector('[data-dirty]'));
-      const switches = !stays && together(view);
-      const loses = stays ? settings && lost(current) : switches ? lost(how === 'reload' ? current : settings) : dirty();
+      // Staying, the switch tears down only the board's Settings.
+      const loses = stays ? Boolean(settings) && dirty() : dirty();
       if (!loses) { if (stays && settings) removeSettings(); return finish(); }
       return BoardDialogs.confirm('Leave without saving? Your unsaved edits here will be lost.').then((leave) => (leave ? (removeSettings(), finish()) : false));
     }
@@ -431,10 +363,6 @@ window.AppShell = (function () {
       history.replaceState(history.state, '', AppRouter.urlOf(first));
     }
     router = AppRouter.listen({ boards, go });
-    // Widening past 900px on Waiting on you swaps to the board with it open in the pane.
-    wide.addEventListener('change', () => {
-      if (current && inPane(current.view)) go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'replace');
-    });
     opener = (url, { replace = false, frames = true } = {}) => {
       const view = AppRouter.viewOf(url, { boards: boards() });
       if (!AppRouter.mounted(view) || (!frames && view.kind === 'frame')) return false;

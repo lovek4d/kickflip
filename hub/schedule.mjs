@@ -200,7 +200,7 @@ const routeOf = (url) => /^\/([^/?#]+)(?:[/?#]|$)/.exec(url || '')?.[1] ?? null;
 
 // A board's live notification (board/domain.mjs ownerRow), tagged board-<route>.
 const isLiveRow = (item) => /^board-/.test(item.tag || '');
-// A push to the open questions page: one held when its hold ends is left out, since the page and the badge keep it.
+// A push to a questions link: one held when its hold ends is left out, since its card on the board keeps it.
 const isQuestionLink = (url) => /^\/[^/?#]+\/questions\.html(?:[?#]|$)/.test(url || '');
 
 // The notifications a queue of {id, title, body, url, tag, kind}, oldest first, goes out as, keeping only the newest
@@ -209,7 +209,7 @@ const isQuestionLink = (url) => /^\/[^/?#]+\/questions\.html(?:[?#]|$)/.test(url
 // waits. A board missing from `sites`, or null there, gets "N updates" with the first titles. Each comes out as
 // {title, body, url, tag, kind, members: the queued ids it stands for}, in queue order of each board's first push kept
 // (docs/adr/2026-11-02-1733-queued-pushes-go-as-one-summary-per-board.md). A board's live notification goes as itself,
-// even to the questions page, never in its board's summary
+// even to a questions link, never in its board's summary
 // (docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md).
 export function notifications(items, sites = {}) {
   const newest = new Map();

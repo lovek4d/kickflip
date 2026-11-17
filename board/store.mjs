@@ -331,9 +331,9 @@ export function pushLine(message) {
 
 // Where a push lands (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). A card or ask link (#selectedCard=) gains
 // &reply, so the board opens that thread with its reply box focused. A page other than the board gains from=push, so
-// the back arrow of a page outside the page tree goes to the card or the board
-// (docs/adr/2026-10-30-1125-back-follows-the-page-tree.md), and a prototype page tied to a question (?q=) sends the owner to the
-// card's thread instead once that question has a pick.
+// its back arrow goes to its own href, the card or the board, rather than back out of the app (router.js entryOf,
+// ui-page-header.js backStep), and a prototype page tied to a question (?q=) sends the owner to the card's thread
+// instead once that question has a pick.
 export function pushUrl(url) {
   if (!url || !url.startsWith('/')) return url;
   const u = new URL(url, 'http://board');

@@ -1,4 +1,4 @@
-// The desktop columns drag: the sidebar's edge and the lanes | Waiting on you seam (docs/adr/2026-11-10-1600-the-desktop-columns-drag-and-this-device-keeps-their-widths.md).
+// The desktop columns drag: the sidebar's edge and the lanes | pane seam (docs/adr/2026-11-10-1600-the-desktop-columns-drag-and-this-device-keeps-their-widths.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -25,7 +25,7 @@
 
   // The owner's last sent pick is the latest answer that chose an option; a note-only answer keeps the earlier pick.
   const pickedChoice = (question) => [...(question?.answers || [])].reverse().find((a) => a.choice)?.choice ?? null;
-  // The pick a question shows on Waiting on you (ui-questions.js choiceOf): drafted, this device's unsent pick, which Send
+  // The pick a question shows in the questions sheet (ui-questions.js choiceOf): drafted, this device's unsent pick, which Send
   // would send, else the last answer's, else the option the overnight triage suggested. A resolved question is locked at
   // its last answer, and one waiting on the prototype the owner asked for at the request's pick.
   const locked = (question) => question.state === 'resolved' || question.state === 'requested';
@@ -247,7 +247,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
       else if (act === 'next') go(takeAt(keys, take, 1));
       else if (act === 'pick') pick();
     });
-    // ✕ follows the hidden header's back arrow, so it goes where back goes (router.js page tree).
+    // ✕ follows the hidden header's back arrow, so it goes where back goes (ui-page-header.js backStep).
     top.addEventListener('click', (e) => {
       const round = e.target.closest('[data-ps-round]')?.dataset.psRound;
       if (round) { replaceWith(site.url(round)); return; }

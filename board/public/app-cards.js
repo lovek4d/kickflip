@@ -374,7 +374,7 @@ BoardView.part((B) => {
     const card = ev.target.closest?.('details.item > summary')?.parentNode;
     if (!card || ev.target.closest('button[data-card-menu]')) return;
     if (card.open) { B.leaveCardQuestions(card.dataset.key); return; }
-    B.select({ card: card.dataset.key }, { board: false });
+    B.select(card.dataset.key, { board: false });
     B.followCardQuestions(card.dataset.key);
   });
 
@@ -402,7 +402,7 @@ BoardView.part((B) => {
     } else {
       state.openItems.delete(key);
       // Collapsing the card the URL selects drops its selectedCard, so a reload doesn't reopen it.
-      if (AppRouter.fragmentOf(location.hash).selectedCard === key) { B.saveFragment({ selectedCard: null }); B.syncQuestionsLink(); }
+      if (AppRouter.fragmentOf(location.hash).selectedCard === key) B.saveFragment({ selectedCard: null });
     }
     store.set('openItems', [...state.openItems]);
   }, true);

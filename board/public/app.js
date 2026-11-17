@@ -238,7 +238,8 @@ window.BoardView = (function () {
         setHTML($('#lanes'), B.lanesHtml(d, items), { keep: '[data-thread]' });
         for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
         B.moveStrips(items, strips);
-        B.renderPane(d);
+        B.renderFilter();
+        B.renderPane(d, items);
         B.renderBanner(d);
         B.renderLinked();
         B.keepCardMenu();
@@ -264,25 +265,25 @@ window.BoardView = (function () {
     }));
 
     // #review=<PR number> opens that review in the Auto Review lane (app-lanes.js openReview), as a held review's push does.
-    // #selectedCard=<file>/<id> (or the older #item=) opens that card, and &openItemsCard=<topic id> opens that pill in the pane; push notifications link here, with &reply to land in the thread's reply box
+    // #selectedCard=<file>/<id> (or the older #item=) opens that card; push notifications link here, with &reply to land in the thread's reply box
     // (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). An ask now in a work item's thread opens that item.
+    // #show=<box>,… sets the board filter to show only those boxes (app-lanes.js showOnly), as a needs-you push does, and
+    // leaves the address (docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md).
     let focusKey = null;
     let replyKey = null;
     let hashRead = false;
     // A board this page left goes back to where the owner left it once it first renders, unless its URL names a card.
     const returnToPlace = () => B.restorePlace({ linked: /^#(?:selectedCard|item|review)=/.test(location.hash) });
-    // The pane's pill the fragment names opens once the pane has loaded (app-selection.js replayTopic); a phone has no
-    // pane, its pill is the Waiting on you page (shell.js go). pill: false when the caller has just set the pill itself.
-    function readHash({ pill = true } = {}) {
-      const { selectedCard, openItemsCard, review, reply } = AppRouter.fragmentOf(location.hash);
+    function readHash() {
+      const { selectedCard, review, reply, show } = AppRouter.fragmentOf(location.hash);
       if (review && state.board) { B.openReview(review); return; }
-      if (pill) B.replayTopic(openItemsCard);
+      if (show) { B.saveFragment({}); B.showOnly(show); }
       if (!selectedCard) return;
       const key = BoardUI.record(state.board?.moved, selectedCard) || selectedCard;
       const hidden = state.board?.items.find((i) => i.key === key);
       if (hidden && B.hiddenOnBoard(hidden)) {
         // The address stays until the owner answers; a no drops the card from it.
-        showHidden(() => { readHash({ pill: false }); render(); scrollToFocus(); }, () => B.saveFragment({ selectedCard: null }));
+        showHidden(() => { readHash(); render(); scrollToFocus(); }, () => B.saveFragment({ selectedCard: null }));
         return;
       }
       focusKey = key;
@@ -300,8 +301,7 @@ window.BoardView = (function () {
       const hash = AppRouter.hashWith(location.hash, changes);
       if (hash !== location.hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
     };
-    // Hidden while its Waiting on you shows on a phone (shell.js show), the address is that page's.
-    B.on(window, 'hashchange', () => { if (B.root.hidden) return; readHash(); if (state.board) { render(); scrollToFocus(); } });
+    B.on(window, 'hashchange', () => { readHash(); if (state.board) { render(); scrollToFocus(); } });
     // A card link whose hash is already the page's fires no hashchange, so its tap opens the card here.
     B.on(B.root, 'click', (ev) => {
       const a = ev.target.closest?.('a[href^="#item="], a[href^="#selectedCard="]');
@@ -314,7 +314,7 @@ window.BoardView = (function () {
     function focusOnBoard({ key, changes }) {
       const it = state.board?.items.find((i) => i.key === key);
       if (!it) return false;
-      const open = () => { B.saveFragment(changes); readHash({ pill: false }); render(); scrollToFocus(); };
+      const open = () => { B.saveFragment(changes); readHash(); render(); scrollToFocus(); };
       if (B.hiddenOnBoard(it)) showHidden(open);
       else open();
       return true;
@@ -593,7 +593,7 @@ window.BoardView = (function () {
     + '<button type="button" class="ghost icon search-clear" data-search-clear aria-label="Clear search" title="Clear search (Esc)">✕</button></div>';
   function markup({ title = '', shared = null } = {}) {
     const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
-    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true, navAfter: `${searchButton}<span id="waitsChip"></span>`, titleMenu: '<div id="boardMenu" class="board-menu" role="menu" aria-labelledby="boardMenuOpen" hidden></div>' })}
+    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', moon: true, navAfter: `${searchButton}<span id="boardFilter" class="board-filter-slot"></span><span id="waitsChip"></span>`, titleMenu: '<div id="boardMenu" class="board-menu" role="menu" aria-labelledby="boardMenuOpen" hidden></div>' })}
 <div class="split">
 <div id="boardLoading" class="board-loading" role="status"><svg class="board-loading-moon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${HubUI.TILE_PATHS.moon}</svg>
   <h2 class="board-loading-name">${BoardUI.esc(title)}</h2><p class="board-loading-line">Loading board...</p><p class="board-loading-slow" hidden>The host is slow to answer.</p></div>
@@ -610,8 +610,8 @@ ${strip}  ${searchBar}
   <div id="lanes"></div>
   <div id="downLanding" hidden></div>
 </main>
-<div class="col-handle" data-col="pane" role="separator" aria-orientation="vertical" aria-label="Resize the Waiting on you pane" tabindex="0"></div>
-<aside id="boardPane" class="board-pane" aria-label="Waiting on you"></aside>
+<div class="col-handle" data-col="pane" role="separator" aria-orientation="vertical" aria-label="Resize the pane" tabindex="0"></div>
+<aside id="boardPane" class="board-pane" aria-label="Pane"></aside>
 </div>
 <div id="cardMenu" class="card-menu" role="menu" hidden></div>
 ${BoardNewTask.markup()}

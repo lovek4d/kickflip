@@ -1,5 +1,7 @@
 # The phone switch slides the view, not the bottom bar
 
+Superseded by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): there is no phone switch.
+
 #752. The owner, verbatim: "Page footer blinks in and out switching between board and open questions". Amends [On a phone the board and Waiting on you switch in place](2026-11-14-2332-on-a-phone-the-board-and-waiting-on-you-switch-in-place.md), whose 180 ms slide animated the shown view's root.
 
 Below 900px the bar under the page (`header.top`, fixed to the bottom) and the + are fixed children of the view's root. A `transform` or `opacity` animation on that root makes it their containing block and fades them, so on every switch they slid 24px and faded from 0.6 as the other view's bar was swapped in: a blink.

@@ -1,5 +1,7 @@
 # On a phone the board and Waiting on you switch in place
 
+Superseded by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): there is no Waiting on you to switch to.
+
 #747. The owner, verbatim: "Could we have the open questions page a view switch instead of new page on mobile? Want to go true SPA". Amends [Board and Open questions are two pages](2026-11-07-1300-board-and-open-questions-are-two-pages.md) and [the desktop pane is back without the Needs you deck](2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md), whose phone ? opened Waiting on you as its own page.
 
 Below 900px the shell (`shell.js show`) unmounted the board for Waiting on you and mounted it again on the way back, so the board's scroll, open card and drafts were redrawn from its saved copy and it read as a page change.

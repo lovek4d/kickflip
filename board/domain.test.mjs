@@ -620,7 +620,7 @@ test("needs lists card lines in the board's order, then a topic with no card by 
   const newer = board({ owner, item: { created: '2026-10-23T13:00:00Z' } });
   assert.deepEqual(names(newer), ['A1: One', 'Site']);
   const pills = (b) => b.ownerTopics.filter((t) => t.open > 0).map((t) => t.id);
-  assert.deepEqual(pills(board({ owner, item: { created: '2026-10-23T10:00:00Z' } })), ['item:w/A1', 'site'], "Waiting on you's topics follow Needs you");
+  assert.deepEqual(pills(board({ owner, item: { created: '2026-10-23T10:00:00Z' } })), ['item:w/A1', 'site'], "the owner's topics follow Needs you");
   assert.deepEqual(pills(newer), ['item:w/A1', 'site']);
 });
 
@@ -3216,7 +3216,7 @@ test("a Done card with a landed sha has a commit, linking its repo's GitHub comm
 });
 
 // docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
-test("ownerRow is the board's one live notification: nothing owed is none, one entry reads as itself, several are '<Board> (N)' with what each tap unblocks and open Waiting on you", () => {
+test("ownerRow is the board's one live notification: nothing owed is none, one entry reads as itself, several are '<Board> (N)' with what each tap unblocks and open the board filtered to Action needed and Questions", () => {
   const board = { route: 'hub-orchestrator', title: 'Hub Orchestrator' };
   const action = (kind, more = {}) => ({ tag: `item-w/${kind}`, kind, title: `T-1: ${kind}`, body: 'The card', url: '#selectedCard=w%2FT-1', questions: [], ...more });
   assert.equal(ownerRow([], board), null);
@@ -3224,7 +3224,7 @@ test("ownerRow is the board's one live notification: nothing owed is none, one e
   assert.deepEqual(ownerRow([question], board), { tag: 'board-hub-orchestrator', title: 'T-190: Answer 1 question', body: 'Keep the badge?', url: 'questions.html#q1' });
   const two = { ...question, questions: [{ id: 'q1', question: 'Keep?' }, { id: 'q2', question: 'Ship?' }] };
   assert.deepEqual(ownerRow([action('implement'), two, action('pick')], board),
-    { tag: 'board-hub-orchestrator', title: 'Hub Orchestrator (3)', body: '2 builds wait on you · 2 questions', url: 'questions.html' });
+    { tag: 'board-hub-orchestrator', title: 'Hub Orchestrator (3)', body: '2 builds wait on you · 2 questions', url: '#show=action,questions' });
   const every = ['review', 'questions', 'script', 'ready', 'steps', 'merge', 'implement', 'stalled'].map((kind) => action(kind, kind === 'questions' ? { questions: [{ id: 'q', question: 'Q?' }] } : {}));
   assert.equal(ownerRow(every, board).body, '1 stalled · 1 build waits on you · 2 merges wait on you · 1 draft to review · 1 script to run · 1 question · 1 review held');
 });

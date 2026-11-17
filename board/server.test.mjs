@@ -143,15 +143,15 @@ test("what waits on the owner is one live notification for the board: its first 
     assert.deepEqual(row(), [['P1: Answer 1 question', 'Keep the badge?', '/site/questions.html?from=push#p1', false]], 'one item reads as itself, and the first push alerts');
     fs.writeFileSync(ownerFile, JSON.stringify({ topics: [{ id: 'plan', title: 'Plan' }], items: [ask('p1', 'item:t/P1', 'Keep the badge?'), ask('p2', 'item:t/P1', 'Keep the dot?'), ask('p3', 'plan', 'Ship it?')] }));
     await heard(ownerFile);
-    assert.deepEqual(row().slice(1), [['T (2)', '3 questions', '/site/questions.html?from=push', true]], 'several are counted and open Waiting on you, silently');
+    assert.deepEqual(row().slice(1), [['T (2)', '3 questions', '/site/#show=action,questions', true]], 'several are counted and open the board filtered to them, silently');
     await ok200(answer('p1'));
     await heard(ownerFile);
     await ok200(answer('p2'));
     await heard(ownerFile);
-    assert.deepEqual(row().slice(2), [['T (2)', '2 questions', '/site/questions.html?from=push', true], ['Plan · 1 question', 'Ship it?', '/site/questions.html?from=push#p3', true]]);
+    assert.deepEqual(row().slice(2), [['T (2)', '2 questions', '/site/#show=action,questions', true], ['Plan · 1 question', 'Ship it?', '/site/questions.html?from=push#p3', true]]);
     fs.mkdirSync(path.dirname(queue), { recursive: true });
     const keep = [{ tag: 'board-site', url: '/site-other/' }, { tag: 'unrelated', url: '/site/' }];
-    fs.writeFileSync(queue, JSON.stringify({ items: [{ tag: 'board-site', url: '/site/questions.html?from=push' }, ...keep] }));
+    fs.writeFileSync(queue, JSON.stringify({ items: [{ tag: 'board-site', url: '/site/#show=action,questions' }, ...keep] }));
     // The answer resolves p3 in owner.json, a write the server's checks run on once it is told of it.
     await ok200(answer('p3'));
     await heard(ownerFile);
@@ -1322,7 +1322,7 @@ test("an item's notes are served only from a markdown file inside its wave's fol
   assert.deepEqual([moved.status, moved.headers.get('location')], [302, 'notes.html?item=t%2FP1']);
 });
 
-test("the board, its Settings, Waiting on you and Notes serve the app shell, with no sidebar for shell.js to fetch, and a site's own page still renders the shared header", async () => {
+test("the board, its Settings, its old questions.html and Notes serve the app shell, with no sidebar for shell.js to fetch, and a site's own page still renders the shared header", async () => {
   for (const p of ['/', '/settings.html', '/questions.html', '/notes.html?item=t%2FP1']) {
     const r = await fetch(base + p);
     const html = await r.text();

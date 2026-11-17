@@ -42,7 +42,7 @@
 //                                data/owner.json and each PR as the hub's GitHub check last read it (github-state.json).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
 //                                question, context, url, options, urgent, asked_at, resolved, resolved_at, round, round_of, confirm_of}]};
-//                                Waiting on you shows an open `urgent` question alone, first
+//                                the questions sheet marks an open `urgent` question
 //                                checks comes from data/checked.json (the hub's poll writes it),
 //                                whether the board hears its events (../hub/boards.mjs listenState) and Claude's latest writes.
 //                                links: [{link, ok, detail, state, since?}], whether each hub link reaches this
@@ -923,7 +923,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // (GET /api/questions answers a topic's), with its Done cards slim and how many older ones wait in the archive
   // (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md). A card's question topic leaves its title,
   // summary and askedAt to its card while the card is on the board: the page names the topic from the card
-  // (view-questions.js), so a card's change patches the card alone (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md).
+  // (app-questions-sheet.js), so a card's change patches the card alone (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md).
   // It holds nothing of the request's, so every page reads the same board at the same change number. → {board, threads,
   // notes}: threads maps each card on it to its thread (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md), and
   // notes to its notes or null (docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md), which the board's sync carries

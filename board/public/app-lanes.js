@@ -1,5 +1,5 @@
 // The board view's lanes and the Auto Review lane leading them: each lane's header and cards, Done's Show more, and
-// Todo's filter, all narrowed by the board search (app-search.js). A lane lists its cards plainly: deps order them and
+// the board filter in the header, all narrowed by the board search (app-search.js). A lane lists its cards plainly: deps order them and
 // Related to and Parent group them, on the cards
 // (docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md).
 // Needs app-core.js and app-cards.js.
@@ -137,37 +137,41 @@ BoardView.part((B) => {
     $(`[data-review="${number}"]`)?.scrollIntoView({ block: 'start' });
   }
 
-  // docs/adr/2026-11-12-0600-the-todo-header-has-a-filter.md
-  // The Todo header's filter: one box per group of Todo cards, all checked until the owner unchecks one. A card sits under
-  // exactly one box, Blocked if blocked, else its phase's, so the boxes partition the lane and unchecking a box hides exactly
-  // its cards. Blocked is any block: by tasks, a condition or the owner
-  // (docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md). The unchecked boxes are kept on this device (store 'todoFilter'); the menu's open state is in memory.
-  const PHASE_BOXES = { ready: 'ready', staging: 'ready', discussing: 'discussing', new: 'discussing', grilling: 'planning', prototyping: 'planning' };
-  const FILTER_BOXES = [['ready', 'Ready'], ['discussing', 'Discussing'], ['planning', 'Planning'], ['blocked', 'Blocked']];
-  const filterBoxOf = (it) => it.blocked ? 'blocked' : PHASE_BOXES[it.phase];
-  const FUNNEL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>';
+  // docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md
+  // The board filter: the header's funnel, beside search, opens its menu of boxes (ui-cards.js FILTER_BOXES), all
+  // checked until the owner unchecks one. An unchecked box hides every card it matches, in every lane, boxes
+  // overlapping. The funnel has no count: it turns orange while any box is unchecked. The unchecked boxes are kept on
+  // this device (store 'boardFilter'); the menu's open state is in memory.
+  const FUNNEL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>';
   let filterOpen = false;
-  const unchecked = () => store.get('todoFilter', []);
-  const hiddenByFilter = (it) => unchecked().includes(filterBoxOf(it));
-  // A card the Todo filter, the search or a chain keeps off the board: in Todo, not in the New strip, under an unchecked
-  // box; or in any lane, not holding every word searched for, or out of the chain.
-  const hiddenOnBoard = (it) => !it.isNew && ((it.lane === 'todo' && hiddenByFilter(it)) || !BoardUI.cardMatches(it, B.searchWords())
+  const unchecked = () => store.get('boardFilter', []);
+  function setFilter(off) {
+    store.set('boardFilter', off);
+    if (state.board) B.render();
+  }
+  // Shows only what the boxes ids name: a needs-you push (#show=), a questions link of no card and the pane's chips
+  // set it.
+  const showOnly = (ids) => setFilter(BoardUI.filterOnly(ids));
+  const hiddenByFilter = (it) => BoardUI.filterHides(it, unchecked());
+  // A card the filter, the search or a chain keeps off the board: not in the New strip, and matched by an unchecked
+  // box, not holding every word searched for, or out of the chain.
+  const hiddenOnBoard = (it) => !it.isNew && (hiddenByFilter(it) || !BoardUI.cardMatches(it, B.searchWords())
     || B.linkedKeys()?.has(it.key) === false);
   // Asks before opening a card the filters hide → true once the owner has reset the filter and ended the search and the
   // chain, so the card shows.
   async function resetFilterToShow() {
     if (!(await B.confirm('This task is not currently visible, reset filters?')) || !B.alive()) return false;
-    store.set('todoFilter', []);
+    store.set('boardFilter', []);
     B.endSearch();
     B.endLinked();
     return true;
   }
-  const filterHtml = () => {
+  function renderFilter() {
     const off = unchecked();
-    const menu = filterOpen ? `<div class="lane-filter-menu" role="group" aria-label="Show in Todo">${FILTER_BOXES.map(([id, name]) =>
-      `<button type="button" class="lane-filter-box" role="checkbox" aria-checked="${!off.includes(id)}" data-todo-filter="${id}"><span class="box"></span>${name}</button>`).join('')}</div>` : '';
-    return { button: `<button type="button" class="lane-filter${off.length ? ' on' : ''}" aria-label="Filter Todo" aria-expanded="${filterOpen}" title="${off.length ? 'Filtered' : 'Filter'}">${FUNNEL}</button>`, menu };
-  };
+    const menu = filterOpen ? `<div class="board-filter-menu" role="group" aria-label="Show on the board">${BoardUI.FILTER_BOXES.map(({ id, name }) =>
+      `<button type="button" class="board-filter-box" role="checkbox" aria-checked="${!off.includes(id)}" data-board-filter="${id}"><span class="box"></span>${name}</button>`).join('')}</div>` : '';
+    BoardUI.setHTML($('#boardFilter'), `<button type="button" class="ghost icon board-filter${off.length ? ' on' : ''}" aria-label="Filter the board" aria-expanded="${filterOpen}" title="${off.length ? 'Filtered' : 'Filter'}">${FUNNEL}</button>${menu}`);
+  }
 
   // shown is the board's items less pending deletes. A card still New sits in the New strip, not a lane (ui-cards.js
   // newEntries; docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md).
@@ -187,17 +191,15 @@ BoardView.part((B) => {
     return (chain ? '' : reviewsHtml(d, words)) + LANES.map((lane) => {
       // Items arrive in each lane's fixed order (domain.mjs laneOrder).
       const all = shown.filter((i) => i.lane === lane.id);
-      const filter = lane.id === 'todo' ? filterHtml() : null;
       const done = lane.id === 'done';
-      const cards = kept(done ? doneCards(d, all) : lane.id === 'todo' ? all.filter((i) => !hiddenByFilter(i)) : all);
+      const cards = kept((done ? doneCards(d, all) : all).filter((i) => !hiddenByFilter(i)));
       if (chain && !cards.length) return '';
       const total = done ? doneCount(d, all) : all.length;
       const rows = done ? doneRows(d, cards) : lane.capped ? cappedRows(lane.id, cards) : cardsHtml(cards);
       const count = narrowed || (!done && cards.length < all.length) ? `${cards.length} of ${total}` : total;
       const expanded = narrowed && cards.length ? true : laneState[lane.id] ?? lane.open;
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
-        <summary><span class="lane-name">${lane.name}</span><span class="count">${count}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}${filter ? filter.button : ''}</summary>
-        ${filter ? filter.menu : ''}
+        <summary><span class="lane-name">${lane.name}</span><span class="count">${count}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
         <div class="list">${rows || (words.length ? '' : '<div class="empty">Nothing here.</div>')}</div>
       </details>`;
     }).join('');
@@ -216,8 +218,8 @@ BoardView.part((B) => {
   }, true);
 
   // The open menu closes on a click anywhere but the funnel and the menu, and on Escape. The click goes on to what it hit.
-  const closeFilter = () => { if (filterOpen) { filterOpen = false; B.render(); } };
-  B.on(document, 'click', (ev) => { if (!ev.target.closest?.('.lane-filter, .lane-filter-menu')) closeFilter(); }, true);
+  const closeFilter = () => { if (filterOpen) { filterOpen = false; renderFilter(); } };
+  B.on(document, 'click', (ev) => { if (!ev.target.closest?.('#boardFilter')) closeFilter(); }, true);
   B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape') closeFilter(); });
 
   B.on(B.root, 'click', async (ev) => {
@@ -230,13 +232,11 @@ BoardView.part((B) => {
       B.enqueue(undefined, { kind: 'review-answer', fields: { pr, answer: answer.dataset.reviewAnswer }, said: `Review of PR #${pr}: ${skip ? 'Skip' : 'Post it'}` });
       return;
     }
-    const filterBtn = ev.target.closest('button.lane-filter');
-    if (filterBtn) { ev.preventDefault(); filterOpen = !filterOpen; B.render(); return; }
-    const box = ev.target.closest('[data-todo-filter]');
+    if (ev.target.closest('button.board-filter')) { filterOpen = !filterOpen; renderFilter(); return; }
+    const box = ev.target.closest('[data-board-filter]');
     if (box) {
-      const id = box.dataset.todoFilter;
-      store.set('todoFilter', unchecked().includes(id) ? unchecked().filter((x) => x !== id) : [...unchecked(), id]);
-      B.render();
+      const id = box.dataset.boardFilter;
+      setFilter(unchecked().includes(id) ? unchecked().filter((x) => x !== id) : [...unchecked(), id]);
       return;
     }
     const more = ev.target.closest('[data-lane-more]');
@@ -250,5 +250,5 @@ BoardView.part((B) => {
     }
   });
 
-  Object.assign(B, { FOLDS, lanesHtml, openReview, hiddenOnBoard, resetFilterToShow });
+  Object.assign(B, { FOLDS, lanesHtml, openReview, hiddenOnBoard, resetFilterToShow, renderFilter, showOnly });
 });

@@ -49,7 +49,7 @@ BoardView.part((B) => {
     const top = $('#newStrip .new-entry[data-new]') || $('#lanes details.rv-card, #lanes details.rv-line, #lanes details.item');
     if (!top) return;
     if (top.dataset.review) B.openReview(Number(top.dataset.review));
-    else if (top.dataset.key) B.select({ card: top.dataset.key });
+    else if (top.dataset.key) B.select(top.dataset.key);
     else { top.scrollIntoView({ block: 'center' }); B.highlight(top); }
   }
 
@@ -59,7 +59,7 @@ BoardView.part((B) => {
   const TWICE_MS = 500;
   let lastF = -Infinity;
   const inField = (el) => el?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-  const blocked = (ev) => B.root.hidden || B.root.classList.contains('down') || ev.target?.closest?.('dialog') || $('dialog[open]');
+  const blocked = (ev) => B.root.classList.contains('down') || ev.target?.closest?.('dialog') || $('dialog[open]');
   B.on(document, 'keydown', (ev) => {
     if (ev.target === field) {
       if (ev.key === 'Escape') { ev.preventDefault(); endSearch(); }

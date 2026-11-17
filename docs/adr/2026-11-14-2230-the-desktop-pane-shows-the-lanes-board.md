@@ -1,5 +1,7 @@
 # The desktop pane shows the lanes' board
 
+Superseded in part by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): the pane no longer embeds Waiting on you; its landing reads the lanes' board for the chips' counts.
+
 The desktop Waiting on you pane (view-questions.js embedded by app-pane.js) loaded `/api/board` on its own, apart from the lanes: a second download of the same board, polled on its own clock, and painted when its own load landed.
 
 - Embedded, the page holds no load, copy or poll. The lanes' board is its board: app-pane.js's `renderPane` hands it every board the lanes land (`take`), and it paints the held one when the pane mounts.

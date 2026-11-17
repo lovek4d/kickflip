@@ -1,5 +1,7 @@
 # The Todo header has a filter
 
+Superseded by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): one filter in the header covers every lane, kept as `boardFilter`, with Action needed and Questions boxes in place of Planning and Held, and no count.
+
 Superseded in part by [the owner's hold is a block](2026-11-15-2230-the-owners-hold-is-a-block.md): the Held box goes, and Blocked covers the owner's block.
 
 The owner (card #559) wanted to set aside held or blocked cards without leaving the Todo lane.

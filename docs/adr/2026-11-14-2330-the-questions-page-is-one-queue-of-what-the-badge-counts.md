@@ -1,5 +1,7 @@
 # The ? page is one queue of what the badge counts
 
+Superseded by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): there is no ? page, badge or queue; the header filter finds what needs the owner.
+
 #706. The owner: "need to revisit need you badge, seems to overcount by including action needed on things that are not in the open questions. need to find some way to surface those as well, bringing the visible actions up to match the badge". Prototype take C: one queue, oldest first.
 
 Waiting on you lists every Needs you line that waits on the owner there, questions and taps together, and its count is the ? badge's.

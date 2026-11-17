@@ -337,17 +337,14 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.match(logo, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Boards"><img src="kickflip\.png" alt=""><\/a><h1>iOS &lt;Orchestrator&gt;<\/h1><\/div>/);
   assert.match(logo, /<button class="ghost spinning" id="refresh" type="button" disabled/);
   assert.match(logo, /<span class="muted" id="status">…<\/span>/);
-  assert.doesNotMatch(logo, /settingsLink|archBulb|pages-switch/, 'the gear and bulb are rows of the board menu, and only a board page has the switch');
+  assert.doesNotMatch(logo, /settingsLink|archBulb/, 'the gear and bulb are rows of the board menu');
   assert.equal(text(logo), 'iOS <Orchestrator> …');
 
-  // docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md
-  const board = ui.header({ lead: 'logo', title: 'Board', pages: 'questions' });
-  assert.match(board, /<\/span><a href="questions\.html" id="questionsLink" class="ghost icon pages-switch" aria-label="Open questions" title="Open questions"><svg[^>]*><path d="M6\.5 8\.5a5\.5 5\.5 0 1 1 8\.2 4\.8[^"]*"\/><path d="M12 21h\.01"\/><\/svg><span class="q-badge" hidden><\/span><\/a><\/nav>/);
-  // navAfter's slot is right of the refresh and its time, left of the ?: the waiting hourglass, which on a desktop with no ? ends the nav.
-  const withSlot = ui.header({ lead: 'logo', title: 'Board', pages: 'questions', navAfter: '<span id="waitsChip"></span>' });
-  assert.match(withSlot, /id="refresh"[^]*id="status"[^]*<\/span><span id="waitsChip"><\/span><a href="questions\.html" id="questionsLink"/);
-  const questions = ui.header({ lead: 'logo', title: 'Waiting on you', controls: false, trail: '<span id="progress"></span>', pages: 'board' });
-  assert.match(questions, /<span id="progress"><\/span><a class="ghost icon pages-switch back" href="\.\/" aria-label="Back to the board" title="Back to the board"><svg[^>]*><path d="M20 6 9 17l-5-5"\/><\/svg><\/a><\/header>$/);
+  // navAfter's slot is right of the refresh and its time and ends the nav: the board's search, filter and waits mark
+  // (docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md).
+  const withSlot = ui.header({ lead: 'logo', title: 'Board', navAfter: '<span id="waitsChip"></span>' });
+  assert.match(withSlot, /id="refresh"[^]*id="status"[^]*<\/span><span id="waitsChip"><\/span><\/nav>/);
+  assert.doesNotMatch(withSlot, /questionsLink|pages-switch/);
 
   const back = ui.header({ lead: 'back', backHref: '/', backLabel: 'Back to Claude', title: 'Settings', logoSrc: '/_hub/kickflip.png', time: 'now' });
   assert.match(back, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Boards"><img src="\/_hub\/kickflip\.png" alt=""><\/a><a class="back" href="\/" aria-label="Back to Claude"><svg width="24" height="24"[^>]*>.*?<\/svg><\/a><h1>Settings<\/h1><\/div>/);
@@ -355,9 +352,9 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.ok(back.indexOf('class="hub"') < back.indexOf('class="back"'), 'the icon comes before the back button');
   assert.match(back, /id="status">now</);
 
-  const bare = ui.header({ lead: 'back', title: 'Waiting on you', titleId: 'gtitle', backId: 'back', controls: false, trail: '<span class="muted small" id="progress"></span>' });
+  const bare = ui.header({ lead: 'back', title: 'Notes', titleId: 'gtitle', backId: 'back', controls: false, trail: '<span class="muted small" id="progress"></span>' });
   assert.match(bare, /<a class="back" href="\.\/" id="back" aria-label="Back to the board">/);
-  assert.match(bare, /<h1 id="gtitle">Waiting on you<\/h1><\/div><span class="muted small" id="progress"><\/span><\/header><script>[\s\S]*<\/script>$/);
+  assert.match(bare, /<h1 id="gtitle">Notes<\/h1><\/div><span class="muted small" id="progress"><\/span><\/header><script>[\s\S]*<\/script>$/);
   assert.doesNotMatch(bare, /id="refresh"|settingsLink/);
   assert.doesNotMatch(logo, /<script>/);
 });
@@ -567,25 +564,26 @@ test("a back arrow goes one step back after a page on this hub, and to its href 
   assert.equal(tap({ url: `${page}&from=push`, state: { idx: 3 } }), 'href');
 });
 
-test("a board's fragment names the focused card and the selected open-items pill, reads the older #item= link as the card, and rewrites one key without the other", () => {
+test("a board's fragment names the focused card and the filter boxes a link shows, reads the older #item= link as the card, and a card change drops the rest", () => {
   const routerContext = vm.createContext({ Date: PageDate, URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { fragmentOf, hashWith, viewOf } = routerContext.AppRouter;
-  const base = { review: null, reply: false };
-  assert.deepEqual(plain(fragmentOf('#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA2')), { selectedCard: 'w/A1', openItemsCard: 'item:w/A2', ...base });
-  assert.deepEqual(plain(fragmentOf('#item=w%2FA1&reply')), { selectedCard: 'w/A1', openItemsCard: null, review: null, reply: true });
-  assert.deepEqual(plain(fragmentOf('#review=12')), { selectedCard: null, openItemsCard: null, review: 12, reply: false });
-  assert.deepEqual(plain(fragmentOf('')), { selectedCard: null, openItemsCard: null, ...base });
-  assert.equal(hashWith('#item=w%2FA1&reply', { openItemsCard: 'q-1' }), '#selectedCard=w%2FA1&openItemsCard=q-1');
-  assert.equal(hashWith('#selectedCard=w%2FA1&openItemsCard=q-1', { selectedCard: 'w/B' }), '#selectedCard=w%2FB&openItemsCard=q-1');
-  assert.equal(hashWith('#selectedCard=w%2FA1&openItemsCard=q-1', { openItemsCard: null }), '#selectedCard=w%2FA1');
+  const none = { selectedCard: null, review: null, reply: false, show: null };
+  assert.deepEqual(plain(fragmentOf('#selectedCard=w%2FA1')), { ...none, selectedCard: 'w/A1' });
+  assert.deepEqual(plain(fragmentOf('#item=w%2FA1&reply')), { ...none, selectedCard: 'w/A1', reply: true });
+  assert.deepEqual(plain(fragmentOf('#review=12')), { ...none, review: 12 });
+  assert.deepEqual(plain(fragmentOf('#show=action,questions')), { ...none, show: ['action', 'questions'] });
+  assert.deepEqual(plain(fragmentOf('')), none);
+  assert.equal(hashWith('#item=w%2FA1&reply', {}), '#selectedCard=w%2FA1');
+  assert.equal(hashWith('#show=questions', { selectedCard: 'w/B' }), '#selectedCard=w%2FB');
   assert.equal(hashWith('#selectedCard=w%2FA1', { selectedCard: null }), '');
   const read = (url) => plain(viewOf(`https://mac.ts.net${url}`, { boards: new Set(['orch']), base: 'https://mac.ts.net/orch/' }));
-  assert.deepEqual(read('/orch/#selectedCard=w%2FA1&openItemsCard=q-1'), { kind: 'board', route: 'orch', hash: '#selectedCard=w%2FA1&openItemsCard=q-1' });
+  assert.deepEqual(read('/orch/#show=action,questions'), { kind: 'board', route: 'orch', hash: '#show=action,questions' });
   assert.deepEqual(read('/orch/questions.html#openItemsCard=q-1'), { kind: 'questions', route: 'orch', id: 'q-1' });
+  assert.deepEqual(read('/orch/questions.html'), { kind: 'questions', route: 'orch', id: null });
 });
 
-test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts a board, its Settings, Waiting on you and Notes, the hub's pages, and every other page in a frame, in place", () => {
+test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts a board, its Settings, an old Waiting on you link and Notes, the hub's pages, and every other page in a frame, in place", () => {
   const routerContext = vm.createContext({ Date: PageDate, URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { viewOf, urlOf, mounted } = routerContext.AppRouter;
@@ -653,15 +651,14 @@ function appHistory(url, state = null) {
   for (const file of ['ui-page-header.js', 'router.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
   const shown = [];
   const router = context.AppRouter.listen({ boards: () => new Set(['orch']),
-    go: (view, href, how, from) => {
+    go: (view, href, how) => {
       shown.push(`${how} ${view.kind}`);
-      if (how === 'push') router.push(href, from);
+      if (how === 'push') router.push(href);
       if (how === 'replace') router.replace(href);
       return true;
     } });
-  const tap = (href, { cls = '', card = null } = {}) => {
-    const a = { href: new URL(href, location.href).href, target: '', hasAttribute: () => false, classList: { contains: (c) => c === cls },
-      closest: (sel) => (card && sel === 'details.item[open][data-key]' ? { dataset: { key: card } } : null) };
+  const tap = (href, { cls = '' } = {}) => {
+    const a = { href: new URL(href, location.href).href, target: '', hasAttribute: () => false, classList: { contains: (c) => c === cls } };
     const was = [backs, shown.length];
     handlers['document:click']({ defaultPrevented: false, button: 0, target: { closest: () => a }, preventDefault() {} });
     return backs > was[0] ? 'back' : shown.slice(was[1]).join(', ');
@@ -694,32 +691,13 @@ test("in the app, a view's back arrow goes one step back after a view, and to it
   assert.equal(app('https://mac.ts.net/orch/settings.html').tap('./', 'back'), 'push board');
 });
 
-test("in the app, back follows the page tree: Waiting on you goes up to the board, with the card open when the owner came from its thread, however the page was reached", () => {
+// docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md
+test("in the app, an old Waiting on you link is a view the shell shows on the board, so a tap on one is pushed like any page and a push keeps its mark", () => {
+  const board = appHistory('https://mac.ts.net/orch/');
+  assert.equal(board.tap('questions.html#q1'), 'push questions');
+  assert.deepEqual(board.stack(), ['', 'questions.html#q1']);
   const cold = appHistory('https://mac.ts.net/orch/questions.html?from=push#q1');
-  assert.deepEqual([cold.stack(), plain(cold.history.state)], [['', 'questions.html#q1'], { idx: 1, up: 1, pushed: true }]);
-  assert.equal(cold.tap('./', { cls: 'back' }), 'back');
-  assert.deepEqual([cold.stack(), cold.shown.at(-1)], [[''], 'pop board']);
-
-  const reloaded = appHistory('https://mac.ts.net/orch/questions.html#q1', { idx: 1, up: 1 });
-  assert.deepEqual(reloaded.stack(), ['questions.html#q1']);
-
-  const thread = appHistory('https://mac.ts.net/orch/');
-  thread.tap('questions.html#q1', { card: 'w/A1' });
-  assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1', 'questions.html#q1']);
-  assert.equal(thread.tap('./', { cls: 'back' }), 'back');
-  assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1']);
-
-  const needs = appHistory('https://mac.ts.net/orch/#selectedCard=w%2FA1&reply');
-  needs.tap('questions.html#q1');
-  assert.deepEqual(needs.stack(), ['', 'questions.html#q1']);
-  needs.tap('#q2');
-  assert.deepEqual(needs.stack(), ['', 'questions.html#q2']);
-  assert.equal(needs.tap('./', { cls: 'back' }), 'back');
-  assert.deepEqual(needs.stack(), ['']);
-
-  const picked = appHistory('https://mac.ts.net/orch/questions.html#q1');
-  assert.equal(picked.router.replace('https://mac.ts.net/orch/#selectedCard=w%2FA1&reply'), 'up');
-  assert.deepEqual([picked.stack(), picked.shown.at(-1)], [['#selectedCard=w%2FA1&reply'], 'pop board']);
+  assert.deepEqual([cold.stack(), plain(cold.history.state)], [['questions.html#q1'], { idx: 0, pushed: true }]);
 });
 
 // docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md
@@ -1028,13 +1006,6 @@ test("a resolved question keeps Claude's reply under the note, and one with no a
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it' }), /class="ans/);
 });
 
-test("a card's topic, which the board sends with no title, takes its name from its card, and every other topic keeps its own", () => {
-  const cards = [{ key: 'w/B5', kind: 'work', ref: 'B5', title: 'Lane chips' }, { key: 'w/T-3', kind: 'work', ref: 'T-3', title: 'Fix it', isNew: true, ask: { askedAt: ago(1) } }];
-  const named = ui.cardTopics([{ id: 'item:w/B5', card: 'w/B5', open: 1 }, { id: 'item:w/T-3', card: 'w/T-3', open: 1 }, { id: 'plan', title: 'Release plan' }, { id: 'item:w/Z', card: 'w/Z', title: 'Z9: Archived' }], cards);
-  assert.deepEqual(plain(named.map((t) => [t.title, t.summary ?? null])),
-    [['B5: Lane chips', null], ['T-3: Fix it', null], ['Release plan', null], ['Z9: Archived', null]]);
-});
-
 const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png', size: 3 };
 const log = { name: '<b>build</b>.log', url: 'uploads/2-build-.log', type: 'text/plain', size: 9 };
 
@@ -1134,23 +1105,22 @@ test("an open PR's card reads its merge state in a Merge row, after the card lin
   for (const state of ['MERGED', 'CLOSED']) assert.equal(rows({ ...card, pr: { ...pr, state }, prs: [{ ...pr, state }] }).some(([label]) => label === 'Merge'), false);
 });
 
-test("collapsing the card the URL selects drops its selectedCard and keeps the pill; collapsing any other card leaves the URL alone", () => {
+test("collapsing the card the URL selects drops its selectedCard; collapsing any other card leaves the URL alone", () => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }), location: { hash: '' } });
   for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const saved = [];
-  let synced = 0;
   const handlers = {};
   const B = { $: () => ({ addEventListener() {}, removeEventListener() {} }), atUnmount() {}, on: (_, type, fn) => { (handlers[type] ||= []).push(fn); }, later() {}, root: {},
     store: { set() {} }, state: { board: { items: [] }, openItems: new Set(['w/A', 'w/B']) }, seen: {}, thread: () => '',
-    links: (key) => app.BoardUI.linkContext([], key), saveFragment: (changes) => saved.push(changes), syncQuestionsLink: () => { synced++; } };
+    links: (key) => app.BoardUI.linkContext([], key), saveFragment: (changes) => saved.push(changes) };
   app.BoardView = { part: (fn) => fn(B) };
   app.AppRouter = { fragmentOf: () => ({ selectedCard: 'w/A' }) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const collapse = (key) => handlers.toggle.forEach((fn) => fn({ target: { matches: () => true, open: false, dataset: { key } } }));
   collapse('w/B');
-  assert.deepEqual([saved, synced], [[], 0]);
+  assert.deepEqual(saved, []);
   collapse('w/A');
-  assert.deepEqual([JSON.stringify(saved), synced], ['[{"selectedCard":null}]', 1]);
+  assert.equal(JSON.stringify(saved), '[{"selectedCard":null}]');
   assert.deepEqual([...B.state.openItems], []);
 });
 

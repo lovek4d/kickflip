@@ -1,4 +1,4 @@
-// On a desktop window the reader sheet is a panel over the right half where Waiting on you sits, at the width the
+// On a desktop window the reader sheet is a panel over the right half, the pane, at the width the
 // lanes | pane seam gives that half; below 900px it stays the phone sheet.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

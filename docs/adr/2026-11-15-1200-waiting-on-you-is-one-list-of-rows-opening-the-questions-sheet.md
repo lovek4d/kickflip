@@ -1,5 +1,7 @@
 # Waiting on you is one list of rows, each opening the questions sheet
 
+Superseded by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): there are no rows; a card's questions sheet opens from its thread, and the header filter finds the cards.
+
 #761 (T-413). Waiting on you held two shapes: topic pills over the open topic's question form, and tap rows beside them. The owner asked for one list of rows, one per thing waiting on them, every kind in one grammar, each opening its place. Prototype take A won: dense one-line rows, the key in mono, the title, the action owed at the right in its colour. The owner: "Text should wrap (within the column), but this is good." The ? badge counts rows, not questions.
 
 - **One list.** `view-questions.js` draws `BoardUI.queueRows` as rows, in the board's order (oldest first, In Progress ahead), with an urgent question's topic first, under "N need you". Each row is `[key] [title] [action]` on a 56px / 1fr / auto grid: the title wraps within its column and the key and action stay at the top. The phone's page and the desktop pane draw the same rows. With none the page reads "Nothing is waiting on you" and "Answers, picks and taps land here."

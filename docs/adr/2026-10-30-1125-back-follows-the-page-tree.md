@@ -1,5 +1,7 @@
 # Back follows the page tree
 
+Superseded by [one board filter replaces Waiting on you](2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md): with one page left there is no tree; Back is the browser's.
+
 The pages that lead the owner to a pick form a tree: a board, its Waiting on you, and a prototype page tied to one of its questions. Back goes up one level of that tree, not one step of history: from a prototype to Waiting on you on that prototype's question, and from Waiting on you to the board. History is built to match, so the back arrow, the browser's back and the phone's swipe all go the same way.
 
 - **The levels.** A board's view is the top. Waiting on you (`questions.html#<id>`) sits under it. A separately opened prototype page with `?q=<question id>`, framed by the app shell, sits under Waiting on you on that question (`board/public/router.js` `parentsOf`). Every other view keeps [a question's takes show inline, and back goes one step](2026-10-29-1639-a-questions-takes-show-inline.md)'s one step back, and a push to one still takes its arrow to its `backHref`.
