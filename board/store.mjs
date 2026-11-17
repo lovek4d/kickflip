@@ -4746,6 +4746,22 @@ export const migratePhases = (site, archived = () => readArchive(site)) => ticke
   return lines;
 });
 
+// docs/adr/2026-11-17-0400-a-card-outside-in-progress-never-keeps-a-build-step-phase.md
+// A card stored outside In Progress that still holds a build step as its phase (reading, building, checking, landing) loses
+// it, and a Done card then reads how it closed. Run by the board server as it starts. → one line per item file changed.
+export const clearBuildPhases = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  for (const entry of await itemSources(site)) {
+    const itemFile = await readJSON(entry.file, null);
+    const stale = (Array.isArray(itemFile?.items) ? itemFile.items : []).filter((it) => it.lane && it.lane !== 'progress' && PHASES.progress.includes(it.phase));
+    if (!stale.length) continue;
+    for (const it of stale) delete it.phase;
+    await writeJSON(entry.file, itemFile);
+    lines.push(`${entry.slug}: ${stale.length} tasks outside In Progress lost a build step phase`);
+  }
+  return lines;
+});
+
 // docs/adr/2026-11-15-1000-every-new-ticket-starts-discussing.md
 // A Todo card with no phase that no ask made, which the arrival grill used to take, becomes discussing, once, silently. Run by the board server as it starts. → one line per item file changed.
 export const discussNewCards = (site) => ticketWrite(site, async () => {

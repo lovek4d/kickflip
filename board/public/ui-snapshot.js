@@ -101,7 +101,7 @@
     if (!done.size && !merging.size && !bumps.size) return items;
     return items.map((i) => {
       let it = i;
-      if (done.has(i.key)) it = { ...it, lane: 'done', finishable: false };
+      if (done.has(i.key)) it = { ...it, lane: 'done', finishable: false, phase: globalThis.BoardUI.PHASES.progress.includes(i.phase) ? null : i.phase };
       if (merging.has(i.key)) it = { ...it, merging: true };
       if (bumps.has(i.key)) it = { ...it, bumpedAt: bumps.get(i.key) };
       return it;

@@ -292,8 +292,9 @@
     merged: ['merged', 'merged'], closed: ['closed', 'quiet'],
   };
   function phaseWord(it) {
-    if (it.kind !== 'work' || it.lane === 'progress' || !it.phase) return '';
-    const [word, tone] = PHASE_LOOK[it.phase];
+    const look = PHASE_LOOK[it.phase];
+    if (it.kind !== 'work' || it.lane === 'progress' || !look) return '';
+    const [word, tone] = look;
     return `<span class="card-phase ph-${tone}">${word}</span>`;
   }
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md

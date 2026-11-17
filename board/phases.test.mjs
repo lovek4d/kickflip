@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
-import { moveCard, migratePhases } from './store.mjs';
+import { moveCard, migratePhases, clearBuildPhases } from './store.mjs';
 import { footerOf, buildBoard, movesOf, PHASES } from './domain.mjs';
 
 const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
@@ -166,7 +166,7 @@ test('the settle pass writes each In Progress and In Review phase change quietly
 
 // The page's card markup (ui-cards.js), run as the page runs it.
 const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
-for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
+for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-snapshot.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 const ui = context.BoardUI;
 const card = (it) => {
   const full = { key: 'w/A1', id: 'A1', kind: 'work', ref: '#1', title: 'One', sortAt: '2020-01-01T10:00:00.000Z', deps: [], blockedBy: [], reviewers: [], review: {}, pr: null, builder: null, next: null, ...it };
@@ -228,4 +228,29 @@ test('each phase tone takes its colour from shared/colors.css', async () => {
   for (const [tone, colour] of [['quiet', 'quiet'], ['info', 'info'], ['notice', 'notice'], ['success', 'success'], ['merged', 'merged']]) {
     assert.match(css, new RegExp(`\\.card-phase\\.ph-${tone} \\{ color: var\\(--color-${colour}\\); \\}`));
   }
+});
+
+// docs/adr/2026-11-17-0400-a-card-outside-in-progress-never-keeps-a-build-step-phase.md
+test('a card outside In Progress draws no word for a build step phase, and every phase the server sends for one has a word', () => {
+  for (const lane of ['todo', 'review', 'done']) for (const phase of PHASES.progress) assert.deepEqual(phaseWord(card({ lane, phase })), [], `${lane} ${phase}`);
+  for (const lane of ['todo', 'review', 'done']) for (const phase of PHASES[lane]) assert.equal(phaseWord(card({ lane, phase })).length, 1, `${lane} ${phase}`);
+});
+
+test('a Done tap in the outbox draws the card in Done without its build step phase', () => {
+  const items = [{ key: 'w/A1', lane: 'progress', phase: 'checking' }, { key: 'w/B1', lane: 'todo', phase: 'ready' }];
+  const drawn = ui.tapped(items, [{ kind: 'card-done', key: 'w/A1' }, { kind: 'card-done', key: 'w/B1' }]);
+  assert.deepEqual(drawn.map((i) => [i.lane, i.phase ?? null]), [['done', null], ['done', 'ready']]);
+  assert.deepEqual(phaseWord(card(drawn[0])), []);
+});
+
+test('the start-up clear takes a build step phase off a card stored outside In Progress, once', async () => {
+  write(site('audit', 'data', 'items.json'), { ...wave(), items: [
+    { id: 'T1', title: 'Done', lane: 'done', phase: 'checking' },
+    { id: 'T2', title: 'Todo', lane: 'todo', phase: 'building' },
+    { id: 'T3', title: 'Working', lane: 'progress', phase: 'checking' },
+    { id: 'T4', title: 'Ready', lane: 'todo', phase: 'ready' },
+  ] });
+  assert.equal((await clearBuildPhases(site('audit'))).length, 1);
+  assert.deepEqual(read(site('audit', 'data', 'items.json')).items.map((i) => i.phase ?? null), [null, null, 'checking', 'ready']);
+  assert.deepEqual(await clearBuildPhases(site('audit')), []);
 });
