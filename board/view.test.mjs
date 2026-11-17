@@ -392,7 +392,7 @@ test('offline, the board stays readable with no toast and nothing held: the head
   assert.deepEqual([b.root.querySelectorAll('.toast').length, b.root.classList.contains('offline'), B.state.link], [0, true, 'offline']);
   assert.match(b.root.querySelector('#status').innerHTML, /class="fresh" title="Offline: can't reach the host/);
   assert.equal(b.root.querySelector('#settingsLink').getAttribute('aria-disabled'), null);
-  const bump = b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]');
+  const bump = bumpItem(b, 'w/T2');
   assert.equal(b.page.fire(b.root, 'click', { target: bump }).defaultPrevented, true, 'the bump is taken, not held');
   const form = b.root.querySelector('form[data-reply="w/T1"]');
   form.querySelector('textarea').value = 'While away';
@@ -3220,7 +3220,7 @@ test("the board reloads naming the version it shows, so an unchanged board downl
   assert.deepEqual([b.downloads, order()], [['v1'], ['w/T1', 'w/T2']]);
   await b.change({});
   assert.deepEqual([boardGets(b), b.downloads, order()], [2, ['v1'], ['w/T1', 'w/T2']], 'the reload answers 304 and the board stays');
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]') });
+  b.page.fire(b.root, 'click', { target: bumpItem(b, 'w/T2') });
   await b.settle();
   assert.deepEqual(order(), ['w/T2', 'w/T1']);
   await b.change({});
@@ -3245,7 +3245,7 @@ test("a changed board comes as a patch from the version on screen, a reload's an
   await b.change({ board: v2 });
   assert.deepEqual([b.downloads, b.patched, b.view.B.state.board.version], [['v1'], ['v1'], 'v2']);
   assert.match(title('w/T1'), /Renamed T1/);
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]') });
+  b.page.fire(b.root, 'click', { target: bumpItem(b, 'w/T2') });
   await b.settle();
   assert.deepEqual([b.sent.map(([k, d]) => [k, d.since]), b.view.B.state.board.version, order()], [[['card-bump', 'v2']], 'v3', ['w/T2', 'w/T1']]);
   b.view.unmount();
@@ -4328,7 +4328,8 @@ test('confirmations are the browser\'s own window.confirm, whatever labels a cal
   assert.equal(native.length, 4);
 });
 
-test("every bumpable card, closed or open, carries the bump icon at its top right and no bump in its button rows; the icon sends card-bump with no confirm, and on a bumped card it is filled and sends card-unbump", async () => {
+// docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md: the bump sits in the card's "…" menu.
+test("every bumpable card, closed or open, carries the \"…\" at its top right and no bump in its button rows; its menu's Bump sends card-bump with no confirm, and on a bumped card the \"…\" is filled and the menu's Unbump sends card-unbump", async () => {
   const cards = [
     workCard('T1', { bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z' }),
     workCard('T2', { bumpable: true, bumpedAt: '2026-10-30T08:00:00.000Z' }),
@@ -4339,9 +4340,10 @@ test("every bumpable card, closed or open, carries the bump icon at its top righ
   const b = boardOnDom({ open: ['w/T1', 'w/T3', 'w/H1'], board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
-  const icon = (key) => card(key).querySelector('summary .ask-actions button[data-card-bump]');
-  assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, icon(c.key) ? [icon(c.key).getAttribute('aria-label'), icon(c.key).classList.contains('bumped'), icon(c.key).hasAttribute('disabled')] : null])), {
-    'w/T1': ['Unbump', true, false], 'w/T2': ['Unbump', true, false], 'w/T3': ['Bump to top', false, false], 'w/P1': ['Unbump', true, false], 'w/H1': null,
+  const more = (key) => card(key).querySelector('summary .ask-actions button[data-card-menu]');
+  const icon = (key) => bumpItem(b, key);
+  assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, more(c.key) ? [icon(c.key).textContent, more(c.key).classList.contains('bumped')] : null])), {
+    'w/T1': ['Unbump', true], 'w/T2': ['Unbump', true], 'w/T3': ['Bump', false], 'w/P1': ['Unbump', true], 'w/H1': null,
   });
   for (const key of ['w/T1', 'w/T3', 'w/H1']) assert.equal(card(key).querySelector('.detail .actions [data-card-bump]'), null, key);
   assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow')?.textContent.trim() ?? null), [null, 'Block']);
@@ -4368,6 +4370,13 @@ function heldSends() {
   return { send, answer: (ok = true, reason = '') => waiting.shift()[ok ? 'ok' : 'fail'](reason), waiting };
 }
 const boardGets = (b) => b.gets.filter((p) => p.endsWith('/api/board')).length;
+// docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md: a card's Bump or Unbump, in its "…" menu,
+// which this opens unless it is open on the card already.
+function bumpItem(b, key) {
+  const menu = b.root.querySelector('#cardMenu');
+  if (menu.hidden || menu.dataset.key !== key) b.page.fire(b.root, 'click', { target: b.root.querySelector(`details.item[data-key="${key}"] button[data-card-menu]`) });
+  return menu.querySelector('button[data-card-bump]');
+}
 // A waiting button is disabled, marked busy, and keeps its content, which style.css hides behind a spinner.
 const waitState = (el) => [el.disabled, el.classList.contains('tap-waiting'), el.getAttribute('aria-busy')];
 const WAITING = [true, true, 'true'];
@@ -4446,11 +4455,12 @@ test("a bump or unbump goes through the outbox: its icon flips at once, never wa
   const b = boardOnDom({ board: boardOf([T1, T2, T3]), threads: {}, send: sends.send, confirm: true });
   await b.settle();
   const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
-  const icon = (key) => b.root.querySelector(`details.item[data-key="${key}"] button[data-card-bump]`);
+  // The card's "…", filled while bumped (docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md).
+  const icon = (key) => b.root.querySelector(`details.item[data-key="${key}"] button[data-card-menu]`);
   const rows = () => b.root.querySelectorAll('#newStrip .new-entry[data-send]').map((el) => `${el.querySelector('.new-msg').textContent} · ${el.querySelector('.new-line').textContent.split(' · ').slice(1).join(' · ').trim()}`);
   assert.deepEqual(order(), ['w/T1', 'w/T2', 'w/T3']);
 
-  b.page.fire(b.root, 'click', { target: icon('w/T3') });
+  b.page.fire(b.root, 'click', { target: bumpItem(b, 'w/T3') });
   await b.settle();
   assert.deepEqual([waitState(icon('w/T3')), icon('w/T3').classList.contains('bumped'), rows()], [IDLE, true, ['Moved T3 to the top · sending…']]);
   const loads = boardGets(b);
@@ -4460,7 +4470,7 @@ test("a bump or unbump goes through the outbox: its icon flips at once, never wa
   assert.deepEqual([order(), icon('w/T3').classList.contains('bumped'), rows()], [['w/T3', 'w/T1', 'w/T2'], true, []]);
   assert.equal(boardGets(b), loads);
 
-  b.page.fire(b.root, 'click', { target: icon('w/T1') });
+  b.page.fire(b.root, 'click', { target: bumpItem(b, 'w/T1') });
   await b.settle();
   assert.deepEqual([waitState(icon('w/T1')), icon('w/T1').classList.contains('bumped')], [IDLE, false]);
   sends.answer(false, 'Couldn’t write the event: the board folder is read-only.');
@@ -4664,7 +4674,7 @@ async function tapCard(row) {
   const b = boardOnDom({ open: [row.card.key], board: { ...boardOf([row.card]), holdChoices: HOLD_CHOICES }, threads: {}, send: sends.send, confirm: true });
   await b.settle();
   const card = () => b.root.querySelector(`details.item[data-key="${row.card.key}"]`);
-  const button = () => card().querySelector(row.act ? `[data-confirm="${row.act}"]` : 'button[data-card-bump]');
+  const button = () => (row.act ? card().querySelector(`[data-confirm="${row.act}"]`) : bumpItem(b, row.card.key));
   const before = { label: button().textContent, lane: card().closest('.lane').dataset.lane };
   b.page.fire(b.root, 'click', { target: button() });
   if (row.sheet) b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
@@ -6412,14 +6422,14 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
 });
 
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md
-test("Todo has no Queued section: its cards show in the server's order, a bumped one first, each with its bump icon", async () => {
+test("Todo has no Queued section: its cards show in the server's order, a bumped one first, each with Bump or Unbump in its \"…\" menu", async () => {
   const cards = [workCard('P1', { lane: 'progress', bumpable: true }), workCard('T2', { bumpable: true, bumpedAt: '2026-11-04T10:00:00.000Z', ready: true }), workCard('T1', { bumpable: true })];
   const b = boardOnDom({ board: boardOf(cards), threads: {} });
   await b.settle();
   assert.equal(b.root.querySelector('.lane-queue'), null);
   const todo = b.root.querySelector('details.lane[data-lane="todo"]');
   assert.deepEqual(todo.querySelectorAll('details.item').map((el) => el.dataset.key), ['w/T2', 'w/T1']);
-  assert.deepEqual(['w/T2', 'w/T1'].map((key) => todo.querySelector(`details.item[data-key="${key}"] button[data-card-bump]`).getAttribute('aria-label')), ['Unbump', 'Bump to top']);
+  assert.deepEqual(['w/T2', 'w/T1'].map((key) => bumpItem(b, key).textContent), ['Unbump', 'Bump']);
   assert.equal(todo.querySelector('summary .count').textContent, '2');
 });
 
@@ -7071,7 +7081,7 @@ test("a tap whose POST board cannot land because a reload won the race reads sen
   const fetched = b.page.win.fetch;
   b.page.win.fetch = async (url, opts) => { if (hold && String(url).includes('/api/board')) await hold; return fetched(url, opts); };
   const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
-  const bump = () => b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]');
+  const bump = () => bumpItem(b, 'w/T2');
   const sending = () => b.root.querySelectorAll('#newStrip .new-entry[data-send] .new-msg').map((el) => el.textContent);
   b.page.fire(b.root, 'click', { target: bump() });
   await b.settle();
@@ -8750,6 +8760,120 @@ test('a link to a card the search hides asks to reset filters: yes ends the sear
   assert.deepEqual(b.confirms, ['This task is not currently visible, reset filters?']);
   assert.deepEqual([b.bar().hidden, b.field().value], [true, '']);
   assert.equal(b.root.querySelector('details.item[data-key="w/T-33"]').open, true);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
+// A family: T-594 the parent of T-598, T-600 and T-601, T-601 blocked by T-600, T-596 related to T-598; T-610, T-612
+// and T-33 linked to nothing.
+const linkedBoard = () => {
+  const l = (ref) => ({ key: `w/${ref}`, ref });
+  return {
+    ...boardOf([
+      workCard('T-33', { ref: 'T-33', title: 'Fix the header', lane: 'review' }),
+      workCard('T-600', { ref: 'T-600', title: 'Reconcile probes each board', lane: 'progress', parent: l('T-594'), blocks: [l('T-601')] }),
+      workCard('T-601', { ref: 'T-601', title: 'The hub stream rides the clocks, polls gone', bumpable: true, parent: l('T-594'), blockers: [l('T-600')], blockedBy: [l('T-600')] }),
+      workCard('T-610', { ref: 'T-610', title: 'Polls in the colour rule', bumpable: true }),
+      workCard('T-612', { ref: 'T-612', title: 'Done keeps its scroll', bumpable: true, bumpedAt: '2026-10-30T09:00:00.000Z' }),
+      workCard('T-594', { ref: 'T-594', title: 'Re-audit polling', lane: 'done', sortAt: '2026-10-30T07:00:00.000Z', children: [l('T-598'), l('T-600'), l('T-601')] }),
+      workCard('T-598', { ref: 'T-598', title: 'The Polls registry', lane: 'done', sortAt: '2026-10-30T06:00:00.000Z', parent: l('T-594'), related: [l('T-596')] }),
+      workCard('T-596', { ref: 'T-596', title: 'Architecture review', lane: 'done', sortAt: '2026-10-30T05:00:00.000Z', related: [l('T-598')] }),
+      newAsk('n1', '2026-10-30T08:00:00.000Z', 'waiting', 'Something new'),
+    ]),
+    reviews: { shown: true, at: '2026-10-30T09:00:00.000Z', repo: 'o/r', waiting: 0, earlier: [],
+      cards: [{ number: 12, title: 'Deps bump', author: 'quinn', url: 'https://github.com/o/r/pull/12', asked: false, touches: [], state: 'posted', at: '2026-10-30T09:00:00.000Z', text: null, reviewUrl: null }] },
+  };
+};
+function linkedOnDom(opts = {}) {
+  const b = searchOnDom({ board: linkedBoard(), ...opts });
+  const menu = () => b.root.querySelector('#cardMenu');
+  const more = (ref) => b.root.querySelector(`details.item[data-key="w/${ref}"] button[data-card-menu]`);
+  const items = () => (menu().hidden ? null : menu().querySelectorAll('button[role="menuitem"]').map((el) => el.textContent));
+  const open = async (ref) => { b.page.fire(b.root, 'click', { target: more(ref) }); await b.settle(); };
+  const choose = async (ref, label) => {
+    await open(ref);
+    b.page.fire(b.root, 'click', { target: menu().querySelectorAll('button[role="menuitem"]').find((el) => el.textContent === label) });
+    await b.settle();
+  };
+  const banner = () => { const el = b.root.querySelector('#linkedBanner'); return el.hidden ? null : el.textContent.trim(); };
+  return { ...b, menu, more, items, open, choose, banner };
+}
+
+test('a card\'s "…" opens its menu: Bump or Unbump when it can be bumped, Linked · 1 hop and Linked · all when it has links; a card with neither has no "…"; a tap elsewhere or Esc closes it', async () => {
+  const b = linkedOnDom();
+  await b.settle();
+  assert.equal(b.items(), null);
+  await b.open('T-601');
+  assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded'), b.menu().dataset.key], [['Bump', 'Linked · 1 hop', 'Linked · all'], 'true', 'w/T-601']);
+  await b.open('T-601');
+  assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded')], [null, 'false'], 'the "…" again closes it');
+  await b.open('T-612');
+  assert.deepEqual([b.items(), b.more('T-612').classList.contains('bumped')], [['Unbump'], true]);
+  await b.open('T-598');
+  assert.deepEqual(b.items(), ['Linked · 1 hop', 'Linked · all'], 'Done: not bumpable');
+  assert.equal(b.more('T-33'), null);
+  b.page.fire(b.doc, 'click', { target: b.root.querySelector('#lanes') });
+  await b.settle();
+  assert.equal(b.items(), null);
+  await b.open('T-598');
+  const esc = await b.press('Escape');
+  assert.deepEqual([b.items(), esc.defaultPrevented, b.banner()], [null, true, null]);
+  b.view.unmount();
+});
+
+test('Linked · 1 hop shows the card and its direct links, Linked · all the whole chain: a banner reads Linked to the card and the depth, lanes read x of y, a lane with none of the chain and Auto Review hide, and choosing again on a card in the chain re-roots', async () => {
+  const b = linkedOnDom();
+  await b.settle();
+  await b.choose('T-594', 'Linked · 1 hop');
+  assert.deepEqual([b.banner(), b.items()], ['Linked to T-594 · 1 hop', null]);
+  assert.deepEqual(b.shown(), ['w/n1', 'w/T-600', 'w/T-601', 'w/T-594', 'w/T-598']);
+  assert.deepEqual(b.counts(), [['new', '1'], ['progress', '1 of 1'], ['todo', '1 of 3'], ['done', '2 of 3']]);
+  assert.equal(b.lane('done').open, true, 'a folded lane holding the chain opens');
+  assert.deepEqual(b.root.querySelectorAll('details.item.linked-root').map((el) => el.dataset.key), ['w/T-594']);
+
+  await b.choose('T-594', 'Linked · all');
+  assert.equal(b.banner(), 'Linked to T-594 · all');
+  assert.deepEqual(b.shown(), ['w/n1', 'w/T-600', 'w/T-601', 'w/T-594', 'w/T-598', 'w/T-596'], 'related walked too');
+
+  await b.choose('T-600', 'Linked · 1 hop');
+  assert.equal(b.banner(), 'Linked to T-600 · 1 hop', 'the banner moves, never stacks');
+  assert.deepEqual(b.shown(), ['w/n1', 'w/T-600', 'w/T-601', 'w/T-594']);
+  assert.equal(b.root.querySelectorAll('#linkedBanner .hold-banner').length, 1);
+
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#linkedBanner [data-linked-end]') });
+  await b.settle();
+  assert.equal(b.banner(), null);
+  assert.deepEqual(b.counts(), [['new', '1'], ['reviews', '1'], ['review', '1'], ['progress', '1'], ['todo', '3'], ['done', '3']]);
+  assert.equal(b.lane('done').open, false, 'the lane folds again, its stored state untouched');
+  b.view.unmount();
+});
+
+test('typed search narrows within the chain, the banner staying; Esc in the search ends the search, then Esc ends the chain', async () => {
+  const b = linkedOnDom();
+  await b.settle();
+  await b.choose('T-594', 'Linked · all');
+  await b.press('/');
+  await b.type('polls');
+  assert.deepEqual(b.shown(), ['w/T-601', 'w/T-598'], 'T-610 holds the word, not the link');
+  assert.deepEqual(b.counts(), [['new', '0 of 1'], ['todo', '1 of 3'], ['done', '1 of 3']]);
+  assert.equal(b.banner(), 'Linked to T-594 · all');
+  await b.press('Escape', { target: b.field() });
+  assert.deepEqual([b.bar().hidden, b.banner()], [true, 'Linked to T-594 · all']);
+  await b.press('Escape');
+  assert.equal(b.banner(), null);
+  assert.equal(b.shown().length, 10);
+  b.view.unmount();
+});
+
+test('a link to a card the chain hides asks to reset filters: yes ends the chain and opens the card', async () => {
+  const b = linkedOnDom({ width: 1280, confirm: true });
+  await b.settle();
+  await b.choose('T-594', 'Linked · 1 hop');
+  b.page.win.location.hash = '#selectedCard=w%2FT-610';
+  b.page.fire(vm.runInContext('window', b.page.win), 'hashchange');
+  await b.settle();
+  assert.deepEqual([b.confirms, b.banner()], [['This task is not currently visible, reset filters?'], null]);
+  assert.equal(b.root.querySelector('details.item[data-key="w/T-610"]').open, true);
   b.view.unmount();
 });
 

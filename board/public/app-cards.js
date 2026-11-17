@@ -294,10 +294,11 @@ BoardView.part((B) => {
 
   // Its open questions asked since this browser last opened it are one more unread message: the thread's "N new
   // questions" line (app-threads.js; docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
+  // The card a chain is linked to carries linked-root (docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md).
   function card(it) {
     const unseen = (times) => (state.openItems.has(it.key) ? 0 : unreadCount(times, seen[it.key]));
     const unread = unseen(it.othersAt) + Math.min(1, unseen(it.questions?.askedAt));
-    return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
+    return `<details class="item${B.linkedTo()?.key === it.key ? ' linked-root' : ''}" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
             <div class="title-wrap">${workLines(it, { unread, words: B.searchWords() })}</div>
@@ -371,7 +372,7 @@ BoardView.part((B) => {
   // what counts, not the toggle.
   B.on(B.root, 'click', (ev) => {
     const card = ev.target.closest?.('details.item > summary')?.parentNode;
-    if (!card) return;
+    if (!card || ev.target.closest('button[data-card-menu]')) return;
     if (card.open) { B.leaveCardQuestions(card.dataset.key); return; }
     B.select({ card: card.dataset.key }, { board: false });
     B.followCardQuestions(card.dataset.key);
@@ -462,7 +463,62 @@ BoardView.part((B) => {
     B.reload();
   });
 
-  // A work card's bump icon bumps it, or unbumps a bumped one, with no confirm
+  // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
+  // A card's "…" opens its menu (ui-cards.js cardMenu) in one layer over the lanes, under the "…" or above it when
+  // there is no room below; the "…" again, a tap anywhere else, Esc or a scroll closes it, and so does picking an item.
+  // The open menu's card (menuKey) is kept in memory: a repaint redraws the menu from the card as the outbox has it, and
+  // closes it once the card's "…" is gone.
+  let menuKey = null;
+  const moreOf = (key) => $(`details.item[data-key="${CSS.escape(key)}"] button[data-card-menu]`);
+  const menuCard = (key) => BoardUI.tapped(state.board.items, store.get('outbox', [])).find((i) => i.key === key)
+    || state.archived.cards.find((i) => i.key === key) || state.found.cards.find((i) => i.key === key);
+  function drawCardMenu(button) {
+    const menu = $('#cardMenu');
+    menu.dataset.key = menuKey;
+    BoardUI.setHTML(menu, BoardUI.cardMenu(menuCard(menuKey)));
+    menu.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    const r = button.getBoundingClientRect();
+    const below = r.bottom + menu.offsetHeight + 8 <= window.innerHeight;
+    menu.style.setProperty('top', `${below ? r.bottom + 2 : r.top - menu.offsetHeight - 2}px`);
+    menu.style.setProperty('right', `${Math.max(8, document.documentElement.clientWidth - r.right)}px`);
+  }
+  function closeCardMenu() {
+    if (!menuKey) return;
+    moreOf(menuKey)?.setAttribute('aria-expanded', 'false');
+    $('#cardMenu').hidden = true;
+    menuKey = null;
+  }
+  function keepCardMenu() {
+    if (!menuKey) return;
+    const button = moreOf(menuKey);
+    if (button) drawCardMenu(button);
+    else closeCardMenu();
+  }
+  B.on(B.root, 'click', (ev) => {
+    const more = ev.target.closest('button[data-card-menu]');
+    if (more) {
+      ev.preventDefault();
+      const again = menuKey === more.dataset.cardMenu;
+      closeCardMenu();
+      if (again) return;
+      menuKey = more.dataset.cardMenu;
+      drawCardMenu(more);
+      return;
+    }
+    const linked = ev.target.closest('#cardMenu button[data-linked]');
+    if (linked) B.showLinked(linked.dataset.linked, linked.dataset.depth);
+    if (ev.target.closest('#cardMenu button[role="menuitem"]')) closeCardMenu();
+  });
+  B.on(document, 'click', (ev) => { if (!ev.target.closest?.('#cardMenu, button[data-card-menu]')) closeCardMenu(); }, true);
+  B.on(document, 'keydown', (ev) => {
+    if (ev.key !== 'Escape' || !menuKey) return;
+    ev.preventDefault();
+    closeCardMenu();
+  });
+  B.on(document, 'scroll', closeCardMenu, { capture: true, passive: true });
+
+  // A card's Bump bumps it, or its Unbump unbumps it, with no confirm
   // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md). It goes through the outbox with no card thread, so
   // its row shows in the New strip until the board has it, and the card moves as its answer lands
   // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
@@ -510,5 +566,5 @@ BoardView.part((B) => {
 
   function cardOf(key) { return state.board.items.find((i) => i.key === key); }
 
-  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap, closeCard });
+  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap, closeCard, keepCardMenu });
 });

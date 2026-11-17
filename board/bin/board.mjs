@@ -726,7 +726,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          --site, for the task whose open build keeps that worktree, it
                                                          writes the task's live status: its start and result in the
                                                          status log, its progress every 2 minutes on the live status only
-  item bump <file>/<id>                                  the task's bump, as the owner's bump icon sends it (card-bump;
+  item bump <file>/<id>                                  the task's bump, as the owner's Bump sends it (card-bump;
   item unbump <file>/<id>                                card-unbump). A bumped task's land goes ahead in the land queue
                                                          of every land not bumped since, the latest bump first, without
                                                          stopping the one running; a bump of a queued land says so in

@@ -3,7 +3,8 @@
 // the New strip, Auto Review and every lane keep only the tasks holding every word (ui-cards.js searchWords and
 // cardMatches; app-lanes.js, app-asks.js), and Done also fetches the archive's matches (app-lanes.js findArchived). Enter opens the top match on a desktop; on a phone the keyboard's Search key,
 // or a drag on the page, hides the keyboard and keeps the filter. Esc or the × clears the search and closes the bar. The
-// words live in memory only, so a reload ends the search. Needs app-core.js, app.js's render and app-selection.js's select.
+// words live in memory only, so a reload ends the search. The card chain filter, a card menu's Linked, lives here too
+// (below). Needs app-core.js, app.js's render and app-selection.js's select.
 BoardView.part((B) => {
   const { $, state } = B;
   const bar = $('#searchBar');
@@ -70,7 +71,9 @@ BoardView.part((B) => {
       return;
     }
     if (ev.key === 'Escape') {
-      if (!bar.hidden && !ev.defaultPrevented && !inField(ev.target) && !blocked(ev)) endSearch();
+      if (ev.defaultPrevented || inField(ev.target) || blocked(ev)) return;
+      if (!bar.hidden) endSearch();
+      else endLinked();
       return;
     }
     if (ev.defaultPrevented || ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || ev.isComposing
@@ -99,5 +102,28 @@ BoardView.part((B) => {
     if (document.activeElement === field && !bar.contains(ev.target)) field.blur();
   }, { passive: true });
 
-  Object.assign(B, { searchWords, endSearch });
+  // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
+  // A card's Linked · 1 hop or Linked · all (its "…" menu, app-cards.js) narrows the lanes to the card's chain
+  // (ui-cards.js linkedKeys) over every card the page holds: the board's, Done's archive pages and the search's archive
+  // matches. Choosing again on any card re-roots it there. The banner's × or Esc (once the search bar is closed) ends
+  // it. Like the words, it lives in memory only.
+  let linked = null;
+  const linkedTo = () => linked;
+  function linkedKeys() {
+    if (!linked) return null;
+    const byKey = new Map([...state.found.cards, ...state.archived.cards, ...state.board.items].map((c) => [c.key, c]));
+    return BoardUI.linkedKeys(byKey, linked.key, linked.depth);
+  }
+  function showLinked(key, depth) {
+    linked = { key, depth };
+    draw();
+  }
+  function endLinked() {
+    if (!linked) return;
+    linked = null;
+    draw();
+  }
+  B.on(B.root, 'click', (ev) => { if (ev.target.closest?.('[data-linked-end]')) endLinked(); });
+
+  Object.assign(B, { searchWords, endSearch, linkedTo, linkedKeys, showLinked, endLinked });
 });

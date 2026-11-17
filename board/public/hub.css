@@ -152,6 +152,11 @@
 .hub-view .hold-banner.ub-paused > svg { color: var(--muted); }
 .hub-view .hold-banner.ub-going { border-color: color-mix(in srgb, var(--color-danger) 45%, transparent); background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); }
 .hub-view .hold-banner.ub-going > svg { color: var(--color-danger); }
+/* The board's chain banner (app-banner.js renderLinked): blue, information for the owner to see. */
+.hub-view .hold-banner.linked { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 11%, var(--panel)); }
+.hub-view .hold-banner.linked > svg { color: var(--accent); }
+.hub-view .hold-banner.linked b { font-weight: 600; }
+.hub-view .hold-banner.linked > .btn { flex: none; min-width: 32px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 
 /* ui-prompts.js promptStrip: a joined board's prompts, one red pause-banner row each, wrapping its buttons under the
    words on a phone; an answered row fades and folds away. */

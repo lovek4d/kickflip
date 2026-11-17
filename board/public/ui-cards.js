@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-progress-bar.js.
 (function () {
-  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, withCount, PAUSED, badge, cardBumpButton, editButton, withdrawButton, dropZone, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
+  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, withCount, PAUSED, badge, cardBumpItem, editButton, withdrawButton, dropZone, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state and CI show: its mark and tone, with the state and the CI in its title
   // (docs/adr/2026-11-14-1600-a-prs-one-badge-shows-draft-ready-by-ci-or-merged.md): draft grey ●, ready by CI orange ●,
@@ -363,12 +363,48 @@
     return `<div class="hub-view"><div class="dur-chips" role="group" aria-labelledby="holdTitle"><div class="dur-choices">${chips}</div>`
       + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom block until a date and time"></div></div></div>`;
   }
-  // A card waiting on its owner step has the owner's Done where the bump sits: a check icon that confirms, then sends
-  // card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
+  // A card waiting on its owner step has the owner's Done at its top right, before its "…": a check icon that confirms,
+  // then sends card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
   const CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
   const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep}`)}">${CHECK}</button>`;
-  const cardActions = (it) => (it.ownerStep ? `<div class="ask-actions">${ownerDoneButton(it)}</div>`
-    : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}</div>` : '');
+
+  // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
+  // A card's links, both ways (domain.mjs linkCards): its Parent and Children, which carry follow-ups, its Related to,
+  // the cards it waits on (blockers) and the cards it blocks.
+  const linksOf = (it) => [it.parent, ...(it.children || []), ...(it.related || []), ...(it.blockers || []), ...(it.blocks || [])].filter(Boolean).map((l) => l.key);
+  const hasLinks = (it) => linksOf(it).length > 0;
+  // The keys of root's chain, root included: depth 'hop' its direct links, 'all' every card reached through links,
+  // walked depth first with a seen set that stops on a repeat. byKey maps a key to the card held; a link to a card not
+  // held is in the chain but not walked.
+  function linkedKeys(byKey, root, depth) {
+    const seen = new Set([root]);
+    const stack = [root];
+    while (stack.length) {
+      const card = byKey.get(stack.pop());
+      for (const key of card ? linksOf(card) : []) {
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (depth === 'all') stack.push(key);
+      }
+    }
+    return seen;
+  }
+  // The "…" at a card's top right, where it has a menu (cardMenu), filled orange while the card is bumped.
+  const DOTS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+  const moreButton = (it) => `<button type="button" class="ghost icon card-more${it.bumpedAt ? ' bumped' : ''}" data-card-menu="${esc(it.key)}" aria-haspopup="menu" aria-expanded="false" aria-label="More" title="${it.bumpedAt ? 'Bumped · More' : 'More'}">${DOTS}</button>`;
+  // A card's menu (app-cards.js opens it): Bump or Unbump when it can be bumped, then Linked · 1 hop and Linked · all
+  // when it has links, which narrow the board to its chain (app-search.js showLinked).
+  const LINK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+  const linkedItem = (key, depth, label) => `<button type="button" role="menuitem" data-linked="${esc(key)}" data-depth="${depth}">${LINK}<span>${label}</span></button>`;
+  function cardMenu(it) {
+    const bump = it.bumpable ? cardBumpItem(it.key, Boolean(it.bumpedAt)) : '';
+    const linked = hasLinks(it) ? linkedItem(it.key, 'hop', 'Linked · 1 hop') + linkedItem(it.key, 'all', 'Linked · all') : '';
+    return [bump, linked].filter(Boolean).join('<div class="sep" role="separator"></div>');
+  }
+  function cardActions(it) {
+    const buttons = (it.ownerStep ? ownerDoneButton(it) : '') + (it.bumpable || hasLinks(it) ? moreButton(it) : '');
+    return buttons ? `<div class="ask-actions">${buttons}</div>` : '';
+  }
 
   // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
   // The New strip above the lanes. Its entries: each ask the orchestrator has yet to ingest (a card still isNew, which
@@ -559,5 +595,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane, searchWords, cardMatches, marked });
+  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane, searchWords, cardMatches, marked, linkedKeys, hasLinks, cardMenu, LINK });
 })();

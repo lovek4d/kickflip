@@ -58,7 +58,7 @@ BoardView.part((B) => {
   // Open Done's paging stops while the search narrows it: the matches page in by Show more's tap alone.
   function doneRows(d, cards) {
     const searching = B.searchWords().length > 0;
-    const older = searching ? found.left : olderThanBoard(d);
+    const older = B.linkedTo() ? 0 : searching ? found.left : olderThanBoard(d);
     if (older > 0 && !searching && store.get('lanes', {}).done && shownCount('done', cards) + STEP >= cards.length) preloadOlder();
     return cappedRows('done', cards, older);
   }
@@ -149,14 +149,17 @@ BoardView.part((B) => {
   let filterOpen = false;
   const unchecked = () => store.get('todoFilter', []);
   const hiddenByFilter = (it) => unchecked().includes(filterBoxOf(it));
-  // A card the Todo filter or the search keeps off the board: in Todo, not in the New strip, under an unchecked box; or
-  // in any lane, not holding every word searched for.
-  const hiddenOnBoard = (it) => !it.isNew && ((it.lane === 'todo' && hiddenByFilter(it)) || !BoardUI.cardMatches(it, B.searchWords()));
-  // Asks before opening a card the filters hide → true once the owner has reset the filter and ended the search, so the card shows.
+  // A card the Todo filter, the search or a chain keeps off the board: in Todo, not in the New strip, under an unchecked
+  // box; or in any lane, not holding every word searched for, or out of the chain.
+  const hiddenOnBoard = (it) => !it.isNew && ((it.lane === 'todo' && hiddenByFilter(it)) || !BoardUI.cardMatches(it, B.searchWords())
+    || B.linkedKeys()?.has(it.key) === false);
+  // Asks before opening a card the filters hide → true once the owner has reset the filter and ended the search and the
+  // chain, so the card shows.
   async function resetFilterToShow() {
     if (!(await B.confirm('This task is not currently visible, reset filters?')) || !B.alive()) return false;
     store.set('todoFilter', []);
     B.endSearch();
+    B.endLinked();
     return true;
   }
   const filterHtml = () => {
@@ -170,21 +173,28 @@ BoardView.part((B) => {
   // newEntries; docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md).
   // docs/adr/2026-11-17-0613-a-search-bar-narrows-the-board-as-you-type.md: while the board search has words, each lane
   // keeps only the cards holding every word, its count reads x of y even at 0, and a folded lane holding a match opens.
+  // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md: while a card's chain narrows the board
+  // (app-search.js linkedKeys), each lane keeps only the chain's cards, the search's words narrowing them further, and a
+  // lane holding none of them hides, as Auto Review does, its PRs being no card's links. Done shows the chain's Done
+  // cards the page holds, with no Show more past them.
   function lanesHtml(d, shown) {
     const laneState = store.get('lanes', {});
     const words = B.searchWords();
-    const kept = (cards) => (words.length ? cards.filter((it) => BoardUI.cardMatches(it, words)) : cards);
+    const chain = B.linkedKeys();
+    const narrowed = words.length > 0 || chain !== null;
+    const kept = (cards) => cards.filter((it) => (!chain || chain.has(it.key)) && (!words.length || BoardUI.cardMatches(it, words)));
     shown = shown.filter((i) => !i.isNew);
-    return reviewsHtml(d, words) + LANES.map((lane) => {
+    return (chain ? '' : reviewsHtml(d, words)) + LANES.map((lane) => {
       // Items arrive in each lane's fixed order (domain.mjs laneOrder).
       const all = shown.filter((i) => i.lane === lane.id);
       const filter = lane.id === 'todo' ? filterHtml() : null;
       const done = lane.id === 'done';
       const cards = kept(done ? doneCards(d, all) : lane.id === 'todo' ? all.filter((i) => !hiddenByFilter(i)) : all);
+      if (chain && !cards.length) return '';
       const total = done ? doneCount(d, all) : all.length;
       const rows = done ? doneRows(d, cards) : lane.capped ? cappedRows(lane.id, cards) : cardsHtml(cards);
-      const count = words.length || (!done && cards.length < all.length) ? `${cards.length} of ${total}` : total;
-      const expanded = words.length && cards.length ? true : laneState[lane.id] ?? lane.open;
+      const count = narrowed || (!done && cards.length < all.length) ? `${cards.length} of ${total}` : total;
+      const expanded = narrowed && cards.length ? true : laneState[lane.id] ?? lane.open;
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
         <summary><span class="lane-name">${lane.name}</span><span class="count">${count}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}${filter ? filter.button : ''}</summary>
         ${filter ? filter.menu : ''}
@@ -193,10 +203,10 @@ BoardView.part((B) => {
     }).join('');
   }
 
-  // A lane or fold the search opened or shut keeps its own state: the search's toggles store nothing.
+  // A lane or fold the search or a chain opened or shut keeps its own state: their toggles store nothing.
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
-    if (B.searchWords().length && el.matches?.('details.lane, details.new-orchestrator, details.fold')) return;
+    if ((B.searchWords().length || B.linkedTo()) && el.matches?.('details.lane, details.new-orchestrator, details.fold')) return;
     if (el.matches?.('details.lane, details.new-orchestrator')) {
       const s = store.get('lanes', {}); s[el.dataset.lane] = el.open; store.set('lanes', s);
     } else if (el.matches?.('details.fold')) store.set(FOLDS[el.dataset.fold].store, el.open);

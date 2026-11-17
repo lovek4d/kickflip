@@ -176,12 +176,12 @@
   // Deletes or edits an ask in the New strip; app-asks.js handles [data-withdraw] and [data-edit].
   const withdrawButton = (id) => `<button class="ghost icon" data-withdraw="${esc(id)}" aria-label="Delete" title="Delete">${TRASH}</button>`;
   const editButton = (id) => `<button class="ghost icon" data-edit="${esc(id)}" aria-label="Edit" title="Edit">${PENCIL}</button>`;
-  // A card's bump: app-cards.js sends card-bump {key} with no confirm, and on a bumped card, where it is filled orange,
-  // card-unbump {key} (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md,
-  // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
-  const cardBumpButton = (key, bumped) => (bumped
-    ? `<button class="ghost icon bumped" data-card-bump="${esc(key)}" data-bumped aria-pressed="true" aria-label="Unbump" title="Bumped. Tap to unbump">${BUMP}</button>`
-    : `<button class="ghost icon" data-card-bump="${esc(key)}" aria-pressed="false" aria-label="Bump to top" title="Bump to top">${BUMP}</button>`);
+  // A card's Bump, an item of its "…" menu (ui-cards.js cardMenu): app-cards.js sends card-bump {key} with no confirm,
+  // and on a bumped card, whose "…" is filled orange, Unbump sends card-unbump {key}
+  // (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md,
+  // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md,
+  // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md).
+  const cardBumpItem = (key, bumped) => `<button type="button" role="menuitem" data-card-bump="${esc(key)}"${bumped ? ' data-bumped' : ''}>${BUMP}<span>${bumped ? 'Unbump' : 'Bump'}</span></button>`;
   // A working dot beats on every pulse's one clock; an agent's dot is still. Both take their line's colour.
   const WORKING_DOT = globalThis.BoardUI.iconText('pulse', 'current', '');
   const AGENT_DOT = globalThis.BoardUI.iconText('dot', 'current', '');
@@ -627,6 +627,6 @@
     ...globalThis.BoardUI,
     LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, swapSheet, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpItem, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

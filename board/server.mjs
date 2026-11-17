@@ -157,7 +157,7 @@
 //                                {error} and nothing recorded.
 //   GET  /api/reviewer-people    {slack: [{id, name}] | null, slackProblem?, github: [login], githubProblem?}: what Board
 //                                settings' Reviewers picks from, fetched with the hub's Slack token and gh.
-//                                card-bump {key} and card-unbump {key} are a work card's bump icon, sent with no confirm;
+//                                card-bump {key} and card-unbump {key} are a work card's Bump and Unbump, sent with no confirm;
 //                                a bump moves the card's queued lands first, an unbump back in ask order (worktree.mjs
 //                                moveQueuedLand).
 //                                card-hold {key, hold: true, for} is a Block sheet chip or its Custom time

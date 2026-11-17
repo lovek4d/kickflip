@@ -241,6 +241,8 @@ window.BoardView = (function () {
         B.moveStrips(items, strips);
         B.renderPane(d);
         B.renderBanner(d);
+        B.renderLinked();
+        B.keepCardMenu();
         B.renderNew(d);
       });
       lift();
@@ -603,6 +605,7 @@ ${strip}  ${searchBar}
   <section id="pauseBanner" class="hub-view" hidden></section>
   <section id="promptStrip" class="hub-view" aria-label="Prompts waiting on you" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
+  <section id="linkedBanner" class="hub-view" hidden></section>
   <div id="tryMain"></div>
   <section id="newStrip" class="new-strip" aria-label="New" hidden></section>
   <div id="lanes"></div>
@@ -612,6 +615,7 @@ ${strip}  ${searchBar}
 <div class="col-handle" data-col="pane" role="separator" aria-orientation="vertical" aria-label="Resize the Waiting on you pane" tabindex="0"></div>
 <aside id="boardPane" class="board-pane" aria-label="Waiting on you"></aside>
 </div>
+<div id="cardMenu" class="card-menu" role="menu" hidden></div>
 ${BoardNewTask.markup()}
 <dialog id="mainLogSheet" class="sheet" aria-labelledby="mainLogTitle">
   <div class="sheet-body">

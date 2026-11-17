@@ -1829,14 +1829,15 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.match(workLines({ ...blocked, bumpedAt: '2026-11-05T10:00:00.000Z' }), /<a class="card-blocked" href="#selectedCard=site%2FS2">blocked by INT-2<\/a>/);
   assert.deepEqual(lines(workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Open items']);
-  // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: no bumped badge; the bump icon fills orange and unbumps.
+  // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: no bumped badge; the card's "…" fills orange while
+  // bumped (docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md).
   const sortAt = ago(2);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), ownerBlock: { until: null }, sortAt,
     action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } };
   assert.deepEqual(lines(workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', `${ui.cardTime(sortAt)} · blocked · blocked by INT-2`, 'Open items · 1 new message']);
-  assert.match(workLines(waiting), /<button class="ghost icon bumped" data-card-bump="w\/B5" data-bumped aria-pressed="true" aria-label="Unbump"/);
-  assert.doesNotMatch(workLines(waiting), /disabled|data-confirm="bump"/);
-  assert.match(workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
+  assert.match(workLines(waiting), /<div class="ask-actions"><button type="button" class="ghost icon card-more bumped" data-card-menu="w\/B5" aria-haspopup="menu" aria-expanded="false" aria-label="More" title="Bumped · More">/);
+  assert.doesNotMatch(workLines(waiting), /disabled|data-confirm="bump"|data-card-bump/);
+  assert.match(workLines({ ...waiting, bumpedAt: null }), /<button type="button" class="ghost icon card-more" data-card-menu="w\/B5" aria-haspopup="menu" aria-expanded="false" aria-label="More" title="More">/);
   // The card an ask became, once sorted, reads as any task: Task where its ticket would be, and no asked line.
   const fromAsk = { kind: 'work', key: 'w/T-3', id: 'T-3', ref: 'T-3', title: 'Fix it', linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
   assert.deepEqual(lines(workLines(fromAsk)), ['T-3 Fix it', 'thinking…']);
@@ -2849,8 +2850,44 @@ test("a card waiting on its owner step reads the step as its orange Next, with D
   assert.deepEqual(lines(workLines(waiting)).slice(0, 2), ['ENG-1 Five', `Next: ${step}`]);
   assert.match(workLines(waiting), /<div class="line3 sub next">Next: /);
   assert.match(workLines(waiting), /<div class="ask-actions"><button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="w\/B5" aria-label="Done" title="Done: Add the npm trusted publisher"><svg/);
-  assert.doesNotMatch(workLines(waiting), /data-card-bump/);
+  assert.doesNotMatch(workLines(waiting), /data-card-menu/, 'no bump and no links: no "…"');
   assert.doesNotMatch(workLines({ ...waiting, ownerStep: null }), /owner-done/);
+  // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md: with a link, the "…" sits beside the check.
+  assert.match(workLines({ ...waiting, related: [{ key: 'w/B6', ref: 'ENG-2' }] }), /<div class="ask-actions"><button type="button" class="ghost icon owner-done"[^]*?<\/button><button type="button" class="ghost icon card-more" data-card-menu="w\/B5"/);
+});
+
+// docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
+test("a card's chain is its links walked both ways, depth first, stopping on a repeat: 1 hop the direct links, all the whole chain", () => {
+  const link = (key) => ({ key, ref: key.slice(2) });
+  const cards = [
+    { key: 'w/P', children: [link('w/A'), link('w/B'), link('w/C')] },
+    { key: 'w/A', parent: link('w/P'), related: [link('w/R')] },
+    { key: 'w/B', parent: link('w/P'), blocks: [link('w/C')] },
+    { key: 'w/C', parent: link('w/P'), blockers: [link('w/B')], children: [link('w/F')] },
+    { key: 'w/F', parent: link('w/C') },
+    { key: 'w/R', related: [link('w/A'), link('w/GONE')] },
+    { key: 'w/U' },
+  ];
+  const byKey = new Map(cards.map((c) => [c.key, c]));
+  const chain = (root, depth) => [...ui.linkedKeys(byKey, root, depth)].sort();
+  assert.deepEqual(chain('w/P', 'hop'), ['w/A', 'w/B', 'w/C', 'w/P']);
+  assert.deepEqual(chain('w/P', 'all'), ['w/A', 'w/B', 'w/C', 'w/F', 'w/GONE', 'w/P', 'w/R'], 'a link to a card not held is in the chain, not walked');
+  assert.deepEqual(chain('w/B', 'hop'), ['w/B', 'w/C', 'w/P'], 'blocks and the parent');
+  assert.deepEqual(chain('w/C', 'hop'), ['w/B', 'w/C', 'w/F', 'w/P'], 'blocked by, the parent and a follow-up');
+  assert.deepEqual(chain('w/F', 'all'), chain('w/P', 'all'), 'the same chain from any card in it');
+  assert.deepEqual(chain('w/U', 'all'), ['w/U']);
+  assert.deepEqual([ui.hasLinks(cards[6]), ui.hasLinks(cards[4])], [false, true]);
+});
+
+test("a card's menu holds Bump or Unbump when it can be bumped, then Linked · 1 hop and Linked · all when it has links", () => {
+  const items = (html) => [...html.matchAll(/<button type="button" role="menuitem"([^>]*)>.*?<span>([^<]+)<\/span><\/button>/g)].map((m) => [m[2], m[1].trim()]);
+  const related = [{ key: 'w/B6', ref: 'ENG-2' }];
+  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, related })), [
+    ['Bump', 'data-card-bump="w/B5"'], ['Linked · 1 hop', 'data-linked="w/B5" data-depth="hop"'], ['Linked · all', 'data-linked="w/B5" data-depth="all"']]);
+  assert.match(ui.cardMenu({ ...workCard, bumpable: true, related }), /<\/button><div class="sep" role="separator"><\/div><button/);
+  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, bumpedAt: ago(1) })), [['Unbump', 'data-card-bump="w/B5" data-bumped']]);
+  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: false, related })).map(([label]) => label), ['Linked · 1 hop', 'Linked · all']);
+  assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: false, related }), /class="sep"/);
 });
 
 test("a card waiting on its owner step reads its code check under the Next, or that the check can't run", () => {

@@ -5671,7 +5671,7 @@ export async function landFirst(site, key) {
   const closedAt = [item.closed_at, ...storedPRs(item).map((p) => p.merged_at)].filter(Boolean).map(String).sort().pop() || '';
   return bump > closedAt ? bump : null;
 }
-// The orchestrator's bump (on) or unbump of a card, the event the owner's bump icon sends. → the event's time
+// The orchestrator's bump (on) or unbump of a card, the event the owner's Bump sends. → the event's time
 export async function bumpCard(site, key, on) {
   const { item } = await loadItem(site, key);
   if (closed(item)) fail(`${await cardName(site, key)} is done; there is nothing to bump`);
