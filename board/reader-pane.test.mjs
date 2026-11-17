@@ -32,3 +32,16 @@ test('one seam, --sheet-w, gives every desktop sheet its width: no other rule se
   const setters = rules.filter(([sel, body]) => sheetSel.test(sel) && /(^|[\s;])(max-)?width\s*:/.test(body)).map(([sel]) => sel);
   assert.deepEqual(setters, ['.sheet.reader-sheet'], 'only the reader sheet rule sets a width, from --sheet-w');
 });
+
+// The phone page sheet sits on the screen's bottom edge, above the app bar (--app-bottom); a height that ignores that
+// push its top, with the title and close, under the status bar.
+test('on a phone a page in the reader sheet is as tall as the other sheets may be: above the app bar, below the status bar', () => {
+  const phone = css.slice(0, css.indexOf('@media (min-width: 900px) {\n  .split'));
+  const rule = phone.match(/\.reader-sheet\.reader-page \{[^}]*\}/)?.[0] ?? '';
+  const height = rule.match(/(?:^|[\s;{])height:\s*([^;]*);/)?.[1];
+  const maxHeight = rule.match(/max-height:\s*([^;]*);/)?.[1];
+  assert.equal(height, maxHeight);
+  assert.match(height, /var\(--vh, 100dvh\)/);
+  assert.match(height, /var\(--app-bottom, 0px\)/);
+  assert.match(height, /max\(12px, env\(safe-area-inset-top\)\)/);
+});

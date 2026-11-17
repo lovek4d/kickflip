@@ -1082,7 +1082,8 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .reader-body > .muted { padding: 8px 14px; margin: 0; }
 /* A card page (app-reader.js openPage): the page fills the body in a frame, and on a phone the sheet stands near full
    height. Its header holds the Round pill, whose rounds drop over the page, and Open alone ↗. */
-.reader-sheet.reader-page { height: calc(100dvh - max(12px, env(safe-area-inset-top))); max-height: calc(100dvh - max(12px, env(safe-area-inset-top))); }
+.reader-sheet.reader-page { height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(12px, env(safe-area-inset-top)));
+  max-height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(12px, env(safe-area-inset-top))); }
 .reader-page .reader-body { position: relative; display: flex; padding: 0; overflow: hidden; }
 .reader-frame { flex: 1; min-height: 0; width: 100%; border: 0; display: block; background: var(--panel); }
 .reader-tools .ps-chip { height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; }
