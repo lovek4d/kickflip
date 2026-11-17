@@ -676,7 +676,9 @@
   const swipeMayStart = (target, sheet) => {
     if (target.closest('.sheet-head, .settings-head')) return true;
     if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return false;
-    for (let el = target; el && el !== sheet.parentElement; el = el.parentElement) if (el.scrollTop > 0) return false;
+    // A finger in a same-origin frame walks up the frame's page, then on from the frame element in the sheet.
+    for (let el = target; el && el !== sheet.parentElement; el = el.parentElement || el.ownerDocument?.defaultView?.frameElement) if (el.scrollTop > 0) return false;
+    if (target.ownerDocument?.scrollingElement?.scrollTop > 0) return false;
     return true;
   };
   // Registers the drag once per sheet and returns what removes it, for a sheet that outlives a view's mount.
@@ -693,12 +695,12 @@
     };
     const clear = () => { sheet.style.transition = ''; sheet.style.transform = ''; sheet.style.removeProperty('--swipe'); };
     const start = (e) => {
-      from = e.touches.length === 1 && swipeMayStart(e.target, sheet) ? { y: e.touches[0].clientY, at: e.timeStamp } : null;
+      from = e.touches.length === 1 && swipeMayStart(e.target, sheet) ? { y: e.touches[0].screenY, at: e.timeStamp } : null;
       dragging = false;
     };
     const move = (e) => {
       if (!from) return;
-      dy = e.touches[0].clientY - from.y;
+      dy = e.touches[0].screenY - from.y; // screenY: a frame moves with the sheet, so its clientY would not hold still
       if (!dragging && dy < SWIPE.slop) { if (dy < -SWIPE.slop) from = null; return; }
       dragging = true;
       e.preventDefault();
@@ -720,7 +722,24 @@
     };
     const on = [['close', clear], ['touchstart', start, { passive: true }], ['touchmove', move, { passive: false }], ['touchend', end], ['touchcancel', end]];
     for (const [type, fn, opts] of on) sheet.addEventListener(type, fn, opts);
-    const stop = () => { swipers.delete(sheet); for (const [type, fn, opts] of on) sheet.removeEventListener(type, fn, opts); };
+    // A frame's touches stay in its own document: the drag listens there too, and again for each page the frame loads.
+    // A frame of another origin throws and keeps the header-only drag.
+    const framed = new Set();
+    const listenIn = (frame) => {
+      let doc;
+      try { doc = frame.contentDocument; } catch { return; }
+      if (!doc || framed.has(doc)) return;
+      framed.add(doc);
+      for (const [type, fn, opts] of on.slice(1)) doc.addEventListener(type, fn, opts);
+    };
+    const onLoad = (e) => { if (e.target.tagName === 'IFRAME') listenIn(e.target); };
+    sheet.addEventListener('load', onLoad, true);
+    const stop = () => {
+      swipers.delete(sheet);
+      for (const [type, fn, opts] of on) sheet.removeEventListener(type, fn, opts);
+      sheet.removeEventListener('load', onLoad, true);
+      for (const doc of framed) for (const [type, fn, opts] of on.slice(1)) doc.removeEventListener(type, fn, opts);
+    };
     swipers.set(sheet, stop);
     return stop;
   }
