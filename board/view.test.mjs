@@ -4538,7 +4538,7 @@ test("an ask in the New strip edits in place: its edit box opens in its entry, l
   await b.settle();
   assert.equal(form().querySelector('textarea').value, 'Fix the header');
   assert.equal(entry().querySelector('.new-msg'), null);
-  assert.equal(form().querySelector('button'), null, 'no Save or Cancel');
+  assert.deepEqual(form().querySelectorAll('button').map((b) => b.getAttribute('class')), ['paste-chip'], 'no Save or Cancel, only the Paste chip');
   const box = () => form().querySelector('textarea');
   box().value = 'Fix the footer';
   b.page.fire(b.root, 'focusout', { target: box(), relatedTarget: form().querySelector('[data-files]') });
@@ -5281,7 +5281,7 @@ test("Done closes the card and holds the card still on screen as the card moves 
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-82]]);
+    ['done', false, '[]', [-84]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };

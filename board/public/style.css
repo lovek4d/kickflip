@@ -196,6 +196,12 @@ code { overflow-wrap: anywhere; }
 .dz { position: relative; clear: both; border-radius: 8px; }
 .dz > textarea { display: block; padding-bottom: 40px; }
 .dz > .attach { position: absolute; right: 6px; bottom: 6px; width: 32px; height: 32px; z-index: 1; }
+.paste-chip { display: none; position: absolute; left: 6px; bottom: 6px; z-index: 1; align-items: center; background: var(--chip); color: var(--muted);
+  border: 0; border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+/* The drawn pill is small; its hit area is 44px tall. */
+.paste-chip::after { content: ''; position: absolute; inset: -10px -4px; }
+.paste-chip:hover { color: var(--text); }
+.dz:has(> textarea:placeholder-shown) > .paste-chip { display: inline-flex; }
 .dz-hint { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; border-radius: 8px; pointer-events: none;
   background: color-mix(in srgb, var(--panel) 80%, transparent); color: var(--accent); font-weight: 600; font-size: 15px; }
 [data-composer].dragging .dz { outline: 2px dashed var(--accent); outline-offset: 3px; }

@@ -257,3 +257,60 @@ test("saved keeps a box's files for a reload: uploaded ones as sent, the rest by
   BoardAttach.retryFailed('send:s2', '/board-a');
   assert.equal(p.uploads.length, 2, 'a lost file has nothing to send again');
 });
+
+// The Paste chip: a tap reads the clipboard (a fake navigator.clipboard) and, once it settles, the page has what it gave.
+async function tapPaste(p, clipboard) {
+  Object.assign(p.win, { navigator: { clipboard }, Event: class { constructor(type, init) { Object.assign(this, { type, ...init }); } },
+    File: class { constructor(parts, name, init) { Object.assign(this, { name, type: init.type, size: 10, parts }); } } });
+  const notices = [];
+  p.composer.addEventListener('attach-notice', (ev) => notices.push(ev.detail.text));
+  const tap = p.fire(p.composer.querySelector('[data-paste]'), 'click');
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  return { tap, notices };
+}
+const clipItem = (parts) => ({ types: Object.keys(parts), getType: async (t) => parts[t] });
+const blobOf = (text) => ({ text: async () => text });
+
+test('a text box carries a Paste chip', () => {
+  const p = attachPage();
+  assert.equal(p.composer.querySelector('.dz > [data-paste]').textContent, 'Paste');
+});
+
+test('tapping Paste puts the clipboard text in at the cursor and tells the box', async () => {
+  const p = attachPage();
+  p.box.value = 'ab';
+  p.box.setSelectionRange?.(1, 1);
+  p.box._sel = [1, 1, 'none'];
+  p.box.setRangeText = (t, s, e) => { p.box.value = p.box.value.slice(0, s) + t + p.box.value.slice(e); };
+  let inputs = 0;
+  p.box.addEventListener('input', () => inputs++);
+  const { notices } = await tapPaste(p, { read: async () => [clipItem({ 'text/plain': blobOf('XY') })] });
+  assert.equal(p.box.value, 'aXYb');
+  assert.equal(inputs, 1);
+  assert.deepEqual(notices, []);
+});
+
+test('tapping Paste on an image attaches it and leaves the box text alone', async () => {
+  const p = attachPage();
+  const { notices } = await tapPaste(p, { read: async () => [clipItem({ 'image/png': {}, 'text/plain': blobOf('ignored') })] });
+  assert.deepEqual(p.uploads.map((u) => u.file.name), ['pasted.png']);
+  assert.equal(p.box.value, '');
+  assert.deepEqual(notices, []);
+});
+
+test('tapping Paste with nothing on the clipboard toasts Clipboard is empty.', async () => {
+  const p = attachPage();
+  const { notices } = await tapPaste(p, { read: async () => [] });
+  assert.deepEqual(notices, ['Clipboard is empty.']);
+  assert.equal(p.uploads.length, 0);
+});
+
+test('a refused read toasts Clipboard access denied., and a browser without read() falls back to readText', async () => {
+  const p = attachPage();
+  const denied = await tapPaste(p, { read: async () => { throw new Error('NotAllowedError'); } });
+  assert.deepEqual(denied.notices, ['Clipboard access denied.']);
+  const q = attachPage();
+  q.box.setRangeText = (t) => { q.box.value = t; };
+  await tapPaste(q, { readText: async () => 'plain' });
+  assert.equal(q.box.value, 'plain');
+});

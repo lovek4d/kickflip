@@ -97,6 +97,7 @@ window.BoardView = (function () {
       }
       toasts.toast(text);
     };
+    on(root, 'attach-notice', (ev) => toast(ev.detail.text));
     const store = storeFor(route);
   // iOS commits a pending predictive-text word after Send clears the box, which would refill it and resave the draft.
   // So Send blurs first, and input is dropped while the send runs and for a moment after it succeeds.

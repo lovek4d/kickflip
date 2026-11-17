@@ -951,7 +951,7 @@ test('an open question has its Prototype on and nothing locked, a resolved one h
   // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: under the note box, the thread
   // reply's row: Prototype, Grill and Visual, the attach icon inside the note box.
   const card = ui.questionCard(question);
-  assert.match(card, /<div class="dz"><textarea class="note"[^>]*><\/textarea><label class="attach"[\s\S]*<div class="dz-hint"/);
+  assert.match(card, /<div class="dz"><textarea class="note"[^>]*><\/textarea><button[^>]*data-paste[^>]*>Paste<\/button><label class="attach"[\s\S]*<div class="dz-hint"/);
   assert.ok(card.includes(`<div class="note-tools"><div class="pending-files" data-files></div>${ui.requestRow('q:q1', { protoLabel: 'Ask for a prototype instead' })}</div>`));
   assert.deepEqual([...ui.requestRow('q:q1').matchAll(/data-(proto|grill|visual|attach)/g)].map((m) => m[1]), ['proto', 'grill', 'visual']);
   assert.match(ui.requestRow('q:q1'), /^<span class="request-row">/);

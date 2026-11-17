@@ -109,11 +109,11 @@ window.BoardAttach = (function () {
     focused = a && a.tagName === 'TEXTAREA' && input.closest('[data-composer]')?.contains(a) ? a : null;
     ev.preventDefault();
   });
-  // Pressing a composer's send button, or its Prototype, Grill or Visual, does not take focus from the text box either: on a
+  // Pressing a composer's send button, or its Prototype, Grill, Visual or Paste chip, does not take focus from the text box either: on a
   // phone a blur starts closing the keyboard, and the send bar riding on it would slide out from under the finger
   // before the click lands. The click's own handler closes the keyboard once it sends (app-threads.js post, new-task.js).
   document.addEventListener('mousedown', (ev) => {
-    const b = ev.target.closest && ev.target.closest('button[type=submit], button[data-proto], button[data-grill], button[data-visual], button[data-review]');
+    const b = ev.target.closest && ev.target.closest('button[type=submit], button[data-proto], button[data-grill], button[data-visual], button[data-review], button[data-paste]');
     if (b && b.closest('[data-composer]')) ev.preventDefault();
   });
   document.addEventListener('change', (ev) => {
@@ -159,7 +159,39 @@ window.BoardAttach = (function () {
     ev.preventDefault();
     addFiles(c, files);
   });
+  // The Paste chip in an empty text box reads the clipboard at once: text goes in at the cursor, and an image or file
+  // attaches. An empty clipboard or a refused read says so in a toast (an attach-notice event, which app.js shows).
+  const notify = (c, text) => c.dispatchEvent(new CustomEvent('attach-notice', { bubbles: true, detail: { text } }));
+  const NAMES = { 'image/png': 'pasted.png', 'image/jpeg': 'pasted.jpg', 'image/gif': 'pasted.gif', 'image/webp': 'pasted.webp' };
+  async function clipboardOf(items) {
+    const files = [];
+    let text = '';
+    for (const item of items) {
+      const kinds = item.types.filter((t) => !t.startsWith('text/'));
+      for (const type of kinds) files.push(new File([await item.getType(type)], NAMES[type] || 'pasted', { type }));
+      if (!kinds.length && item.types.includes('text/plain')) text += await (await item.getType('text/plain')).text();
+    }
+    return { files, text };
+  }
+  async function paste(c) {
+    let got;
+    try {
+      got = navigator.clipboard.read
+        ? await clipboardOf(await navigator.clipboard.read())
+        : { files: [], text: await navigator.clipboard.readText() };
+    } catch { notify(c, 'Clipboard access denied.'); return; }
+    if (!got.files.length && !got.text) { notify(c, 'Clipboard is empty.'); return; }
+    addFiles(c, got.files);
+    const box = c.querySelector('textarea');
+    if (!got.text || !box) return;
+    box.setRangeText(got.text, box.selectionStart, box.selectionEnd, 'end');
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.focus({ preventScroll: true });
+  }
   document.addEventListener('click', (ev) => {
+    const chip = ev.target.closest && ev.target.closest('[data-paste]');
+    const pc = chip && chip.closest('[data-composer]');
+    if (pc) { ev.preventDefault(); paste(pc); return; }
     const b = ev.target.closest && ev.target.closest('[data-unattach]');
     const c = b && b.closest('[data-composer], [data-uploads]');
     if (c) { ev.preventDefault(); remove(siteOf(c), c.dataset.composer || c.dataset.uploads, b.dataset.unattach); return; }

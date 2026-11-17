@@ -61,8 +61,9 @@
   const CLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
   const attachButton = () => `<label class="attach" title="Attach files"><input type="file" multiple data-attach aria-label="Attach files">${CLIP}</label>`;
   // A composer's text box with its attach button inside at the bottom right, which attach.js outlines
-  // with Drop to attach while files are dragged over the composer.
-  const dropZone = (textarea) => `<div class="dz">${textarea}${attachButton()}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
+  // with Drop to attach while files are dragged over the composer. Its Paste chip sits at the bottom left, and style.css
+  // shows it only while the box is empty (its placeholder showing); attach.js pastes the clipboard on a tap.
+  const dropZone = (textarea) => `<div class="dz">${textarea}<button type="button" class="paste-chip" data-paste>Paste</button>${attachButton()}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
   // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
   // A composer's send buttons: the one with nth 0 presses on ⌘↵ and the one with nth 1, where there is one, on ⌥↵,
   // wherever each sits in the row (Ctrl+↵ and
