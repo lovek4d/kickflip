@@ -112,6 +112,16 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     const last = attachments.at(-1);
     return { text, attachments: [...attachments.slice(0, -1), { ...last, text: end(last.text), mrkdwn_in: ['text'] }] };
   };
+  async function members() {
+    const out = [];
+    let cursor = '';
+    do {
+      const page = await call('users.list', { limit: 200, ...(cursor ? { cursor } : {}) });
+      out.push(...page.members);
+      cursor = page.response_metadata?.next_cursor || '';
+    } while (cursor);
+    return out;
+  }
   return {
     async who() {
       const { team, team_id, user, user_id } = await call('auth.test');
@@ -119,14 +129,13 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     },
     // The workspace's people who can be messaged: [{id, name}] by name. Needs the users:read scope.
     async people() {
-      const out = [];
-      let cursor = '';
-      do {
-        const page = await call('users.list', { limit: 200, ...(cursor ? { cursor } : {}) });
-        for (const m of page.members) if (!m.deleted && !m.is_bot && m.id !== 'USLACKBOT') out.push({ id: m.id, name: m.profile?.real_name || m.real_name || m.name });
-        cursor = page.response_metadata?.next_cursor || '';
-      } while (cursor);
+      const out = (await members()).filter((m) => !m.deleted && !m.is_bot && m.id !== 'USLACKBOT').map((m) => ({ id: m.id, name: m.profile?.real_name || m.real_name || m.name }));
       return out.sort((a, b) => a.name.localeCompare(b.name));
+    },
+    // The id of the workspace's bot user named kickflip (an @Kickflip a person can pick), or undefined without one.
+    // Needs the users:read scope.
+    async botId() {
+      return (await members()).find((m) => m.is_bot && !m.deleted && [m.name, m.real_name, m.profile?.real_name].some((n) => /^kickflip$/i.test(n || '')))?.id;
     },
     // The owner's DM with a user → its channel id
     openDM: async (user) => (await call('conversations.open', { users: user })).channel.id,

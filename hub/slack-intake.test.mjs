@@ -50,7 +50,7 @@ test("intake starts at its first poll: an @kickflip already there, even one stam
   assert.ok(read(INTAKE_FILE).since, 'the first poll records where intake starts');
 });
 
-test('a new @kickflip in a 1:1 DM is queued for the router once, as its sender\'s words with the Slack thread in from, and one search reads each poll', async () => {
+test('a new @kickflip in a 1:1 DM is queued for the router once, as its sender\'s words with the Slack thread in from, and one bot-user lookup and one search read each poll without a bot user', async () => {
   const { world, slack, poll } = await started();
   await poll();
   const ts = slack.say({ channel: 'D2', user: 'U2', text: '@kickflip the export button 500s for <@U0>' });
@@ -61,7 +61,7 @@ test('a new @kickflip in a 1:1 DM is queued for the router once, as its sender\'
   }]);
   slack.calls.length = 0;
   assert.deepEqual(await poll(), { filed: [], failed: [] });
-  assert.deepEqual(slack.calls.map((c) => c.method), ['search.messages']);
+  assert.deepEqual(slack.calls.map((c) => c.method), ['users.list', 'search.messages']);
   assert.equal(queued().length, 1);
 });
 
@@ -82,7 +82,7 @@ test("an @kickflip reply carries its thread's opener and the replies before it, 
   assert.equal(queued().length, 1);
 });
 
-test("group DMs, channels, a bare kickflip, our own signed-off posts and a board's day thread file nothing; the owner's own @kickflip does", async () => {
+test("group DMs, channels, our own signed-off posts and a board's day thread file nothing; the owner's own @kickflip does", async () => {
   const { world, slack, poll } = await started();
   const day = '1792800500.000100';
   world.messages.push({ channel: 'D1', user: 'U0', text: 'Orch Digest', ts: day });
@@ -90,12 +90,50 @@ test("group DMs, channels, a bare kickflip, our own signed-off posts and a board
   await poll();
   slack.say({ channel: 'G1', user: 'U1', text: '@kickflip in a group DM' });
   slack.say({ channel: 'C1', user: 'U1', text: '@kickflip in a channel' });
-  slack.say({ channel: 'D2', user: 'U2', text: 'is kickflip down?' });
   slack.say({ channel: 'D2', user: 'U0', text: 'Ask @kickflip in your DM\n- :claude_kickflip:' });
   slack.say({ channel: 'D1', user: 'U1', text: '@kickflip what is left?', thread_ts: day });
   const own = slack.say({ channel: 'D3', user: 'U0', text: '@kickflip note the deploy window' });
   assert.deepEqual(await poll(), { filed: [`Love in D3: ${link(world, 'D3', own)}`], failed: [] });
   assert.deepEqual(queued().map((q) => q.from.by), ['Love']);
+});
+
+test('a plain kickflip in a 1:1 DM files too, and gets one 👀 reaction, once', async () => {
+  const { world, slack, poll } = await started();
+  await poll();
+  const ts = slack.say({ channel: 'D2', user: 'U2', text: 'is kickflip down?' });
+  assert.deepEqual(await poll(), { filed: [`Bob in D2: ${link(world, 'D2', ts)}`], failed: [] });
+  assert.deepEqual(world.reactions.map((r) => `${r.channel} ${r.timestamp} ${r.name}`), [`D2 ${ts} eyes`]);
+  await poll();
+  assert.equal(world.reactions.length, 1);
+});
+
+test("a picked @Kickflip mention of the workspace's bot user files, and without a bot user only the word does", async () => {
+  const { world, slack, poll } = await started();
+  world.people = [...people, { id: 'UB', name: 'kickflip', is_bot: true, profile: { real_name: 'Kickflip' } }];
+  await poll();
+  const ts = slack.say({ channel: 'D2', user: 'U2', text: '<@UB> the export 500s' });
+  slack.say({ channel: 'D1', user: 'U1', text: '<@UOTHER> not the bot' });
+  assert.deepEqual(await poll(), { filed: [`Bob in D2: ${link(world, 'D2', ts)}`], failed: [] });
+  assert.equal(queued().length, 1);
+  assert.deepEqual(world.reactions.map((r) => r.timestamp), [ts]);
+});
+
+test("a <@ID> mention with no bot user in the workspace files nothing", async () => {
+  const { slack, poll } = await started();
+  await poll();
+  slack.say({ channel: 'D2', user: 'U2', text: '<@UB> the export 500s' });
+  assert.deepEqual(await poll(), { filed: [], failed: [] });
+});
+
+test('a reaction Slack refuses is reported and leaves the ask filed', async () => {
+  const { slack, poll } = await started();
+  await poll();
+  slack.say({ channel: 'D2', user: 'U2', text: 'kickflip please' });
+  const failing = (url, opts) => (String(url).includes('reactions.add') ? Promise.resolve(new Response(JSON.stringify({ ok: false, error: 'missing_scope' }))) : slack.fetch(url, opts));
+  const result = await fileSlackAsks({ boards, fetch: failing, now: new Date(1792800900_000) });
+  assert.equal(result.filed.length, 1);
+  assert.equal(result.failed.length, 1);
+  assert.equal(queued().length, 1);
 });
 
 test("a token without search:read files nothing and reads the Slack row degraded with search:read missing until a search works", async () => {

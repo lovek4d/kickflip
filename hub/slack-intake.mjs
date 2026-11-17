@@ -1,8 +1,8 @@
 // docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md
-// An @kickflip in one of the owner's 1:1 Slack DMs, from anyone, goes to the router as a request, which files it as a
+// A message saying kickflip, with or without the @, in one of the owner's 1:1 Slack DMs, from anyone, goes to the router as a request, which files it as a
 // routed ask on the board it fits; the board refuses to sort that ask ready before the owner stages its card. One
 // search.messages call each poll finds the matches. The token is the owner's, with no bot, so the match is on the
-// text "@kickflip". The request's words are the thread up to the match: the opener and the replies before it, then
+// word kickflip in the text, or the mention of the workspace's kickflip bot user when it has one. A filed message gets a 👀 reaction; a failed reaction is reported, never fatal. The request's words are the thread up to the match: the opener and the replies before it, then
 // the match, each as "<name>: <text>". Its from names the Slack thread, {channel, thread_ts, ts}.
 // Not filed: a group DM or channel, our own signed-off posts, a thread already filed, and a board's day thread or its
 // posts' threads, where an @kickflip is a slack-question (review-send.mjs hearBoards).
@@ -17,7 +17,7 @@ import { queueRequest } from './router.mjs';
 import { appendMessage, appendStatus, boardPosts, followedSlackThreads, markSlackPost, markSlackThreadHeard, slackOutbox } from '../board/store.mjs';
 
 export const INTAKE_FILE = path.join(os.homedir(), '.claude', 'kickflip', 'slack-intake.json');
-const NAMED = /@kickflip\b/i;
+const NAMED = /\bkickflip\b/i;
 const KEEP_DAYS = 30;
 
 // A match's thread: the thread_ts its permalink names when it is a reply, else its own ts.
@@ -41,15 +41,25 @@ export async function fileSlackAsks({ boards = listBoards(), fetch, now = new Da
   const filed = [];
   const failed = [];
   if (!slack || slackStatus().refused) return { filed, failed };
+  let botId;
+  try { botId = await slack.botId(); } catch (e) { failed.push(`finding the kickflip bot user: ${e.message}`); }
+  const mention = botId && `<@${botId}>`;
   let matches;
-  try { matches = await slack.search({ query: 'kickflip' }); } catch (e) {
-    if (!missingScope(e)) return { filed, failed: [`searching Slack for @kickflip: ${e.message}`] };
+  try {
+    matches = await slack.search({ query: 'kickflip' });
+    // A picked @Kickflip mention holds no word, so the bot's mention is searched for too, when the workspace has the bot.
+    if (mention) {
+      const seen = new Set(matches.map((m) => `${m.channel?.id}:${m.ts}`));
+      matches.push(...(await slack.search({ query: mention })).filter((m) => !seen.has(`${m.channel?.id}:${m.ts}`)));
+    }
+  } catch (e) {
+    if (!missingScope(e)) return { filed, failed: [...failed, `searching Slack for kickflip: ${e.message}`] };
     setSearching(false);
     return { filed, failed };
   }
   setSearching(true);
   const clock = now.getTime() / 1000;
-  const hits = matches.filter((m) => m.channel?.is_im && !m.channel.is_mpim && NAMED.test(m.text || '') && !isSignedOff(m.text, m.attachments))
+  const hits = matches.filter((m) => m.channel?.is_im && !m.channel.is_mpim && (NAMED.test(m.text || '') || (mention && String(m.text || '').includes(mention))) && !isSignedOff(m.text, m.attachments))
     .sort((a, b) => Number(a.ts) - Number(b.ts));
   const saved = readJSON(INTAKE_FILE, null);
   if (!saved) {
@@ -77,6 +87,7 @@ export async function fileSlackAsks({ boards = listBoards(), fetch, now = new Da
         state.threads[key(m)] = m.ts;
         saveJSON(INTAKE_FILE, state);
         filed.push(`${name(m.user)} in ${m.channel.id}: ${m.permalink}`);
+        try { await slack.react({ channel: m.channel.id, ts: m.ts, name: 'eyes' }); } catch (e) { failed.push(`reacting 👀 to ${m.permalink}: ${e.message}`); }
       } catch (e) { failed.push(`filing ${m.permalink}: ${e.message}`); }
     }
   }
