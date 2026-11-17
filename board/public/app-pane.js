@@ -22,10 +22,11 @@ BoardView.part((B) => {
     if (id.startsWith('review:')) B.openReview(Number(id.slice(7)));
   }
   // What can cover the pane: each closes itself.
-  const paneOverlays = [() => B.closeReader?.(), () => B.closeQuestionsSheet?.()];
+  // A topic's own questions sheet stays open when the pane marks that topic.
+  const paneOverlays = (id) => [() => B.closeReader?.(), () => { if (!B.questionsSheetShows?.(id)) B.closeQuestionsSheet?.(); }];
   // The pane marks its topic: a questions URL (focusQuestion) lands here.
   function showTopic(id) {
-    for (const close of paneOverlays) close();
+    for (const close of paneOverlays(id)) close();
     B.saveFragment({ openItemsCard: id });
   }
   function fitPane() {

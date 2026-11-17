@@ -7414,6 +7414,42 @@ test("from 900px opening a card opens its questions sheet while none is open or 
   phone.view.unmount();
 });
 
+// docs/adr/2026-11-16-2330-a-cards-questions-sheet-opens-once-hides-on-collapse-and-a-tap-keeps-it.md
+test("opening a card whose questions sheet is already open leaves it alone, collapsing a card closes its auto-opened sheet and not one opened by hand, and Questions on an auto-opened sheet makes it the owner's", async () => {
+  const qs = [openQuestion('qa', 'item:w/A1'), openQuestion('qb', 'item:w/A1'), openQuestion('qc', 'item:w/B1')];
+  const board = { ...questionsBoard(qs, []), items: [workCard('A1', { lane: 'progress', questions: { topic: 'item:w/A1', first: 'qa', open: 2, state: 'open' } }), workCard('B1', { questions: { topic: 'item:w/B1', first: 'qc', open: 1, state: 'open' } })] };
+  const s = sheetOnDom({ width: 1280, board });
+  await s.settle();
+  const summary = (key) => s.root.querySelector(`details.item[data-key="w/${key}"] > summary`);
+  const tapCard = (key, open) => { s.root.querySelector(`details.item[data-key="w/${key}"]`).open = open; s.page.fire(s.root, 'click', { target: summary(key), button: 0 }); };
+  const mark = () => { s.sheet().querySelector('form').marked = true; };
+  const marked = () => s.sheet().querySelector('form')?.marked === true;
+  // 1: a card opening whose questions the sheet already shows leaves the sheet alone.
+  tapCard('A1', false);
+  assert.deepEqual([s.sheet().open, s.ids()], [true, ['qb', 'qa']]);
+  mark();
+  assert.equal(marked(), true, 'the mark takes');
+  tapCard('A1', false);
+  assert.equal(s.sheet().classList.contains('closing'), false);
+  assert.equal(marked(), true, 'opening the card again neither redraws nor resets the open sheet');
+  // 2: collapsing the card closes the sheet it opened by itself.
+  tapCard('A1', true);
+  s.page.runTimers();
+  assert.equal(s.sheet().open, false, "collapsing a card closes its auto-opened sheet");
+  // Collapsing another card leaves an auto-opened sheet for the first.
+  tapCard('A1', false);
+  tapCard('B1', true);
+  assert.deepEqual([s.sheet().open, s.ids()], [true, ['qb', 'qa']], "collapsing a card the sheet isn't showing leaves it");
+  // 3: Questions on the open auto sheet makes it the owner's, which stays.
+  s.view.B.openQuestionsSheet('item:w/A1');
+  tapCard('A1', true);
+  s.page.runTimers();
+  assert.equal(s.sheet().open, true, 'a sheet the owner opened stays through a collapse');
+  tapCard('B1', false);
+  assert.deepEqual([s.sheet().open, s.ids()], [true, ['qb', 'qa']], 'and when another card opens');
+  s.view.unmount();
+});
+
 test("a questions URL or push on an open question of a card opens the card with its questions sheet open, and on a phone a card's topic does too", async () => {
   const s = sheetOnDom({ width: 1280 });
   await s.settle();

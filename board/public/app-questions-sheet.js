@@ -120,10 +120,15 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   };
 
   // id: a question's or a topic's. auto: the sheet follows the opened card (followCard); otherwise the owner opened it,
-  // and followCard leaves it. → false for one the board doesn't have, or a topic with no open question.
+  // and followCard leaves it. A sheet already open for that topic stays as it is, except that a tap that isn't auto makes
+  // it the owner's. → false for one the board doesn't have, or a topic with no open question.
   function open(id, { auto = false } = {}) {
     const t = topicOf(id);
     if (!t) return false;
+    if (shows(t) && openOf().length) {
+      if (!auto) autoOpen = false;
+      return true;
+    }
     const was = topic;
     topic = t;
     if (!openOf().length) { topic = was; return false; }
@@ -142,6 +147,12 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   function followCard(key) {
     if (!matchMedia('(min-width: 900px)').matches || (sheet.open && !autoOpen)) return;
     if (!open(`item:${key}`, { auto: true }) && sheet.open) close();
+  }
+  // Whether the sheet is open for that topic and not on its way out.
+  const shows = (t) => sheet.open && !sheet.classList.contains('closing') && topic === t;
+  // A card the owner collapses closes its questions sheet if it opened by itself.
+  function leaveCard(key) {
+    if (sheet.open && autoOpen && topic === `item:${key}`) close();
   }
   function close() {
     BoardUI.closeSheet(sheet, later, () => { topic = null; });
@@ -297,7 +308,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   atUnmount(BoardUI.swipeToDismiss(sheet));
   on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
 
-  return { open, followCard, close, redraw, resend, retry, drop, holds, linkChanged, isOpen: () => sheet.open };
+  return { open, followCard, leaveCard, shows, close, redraw, resend, retry, drop, holds, linkChanged, isOpen: () => sheet.open };
 };
 
 // The board's sheet, over the lanes and the pane. Needs app-core.js and app-threads.js, whose card threads draw the
@@ -315,5 +326,5 @@ BoardView.part((B) => {
     const button = ev.target.closest?.('button[data-questions]');
     if (button) qs.open(button.dataset.questions);
   });
-  Object.assign(B, { openQuestionsSheet: qs.open, followCardQuestions: qs.followCard, closeQuestionsSheet: qs.close, resendAnswers: qs.resend, answersLinkChanged: qs.linkChanged, retryAnswer: qs.retry, dropAnswer: qs.drop, holdsAnswer: qs.holds });
+  Object.assign(B, { openQuestionsSheet: qs.open, followCardQuestions: qs.followCard, leaveCardQuestions: qs.leaveCard, questionsSheetShows: qs.shows, closeQuestionsSheet: qs.close, resendAnswers: qs.resend, answersLinkChanged: qs.linkChanged, retryAnswer: qs.retry, dropAnswer: qs.drop, holdsAnswer: qs.holds });
 });
