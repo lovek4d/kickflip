@@ -512,6 +512,44 @@ test('a board’s build target runs .kickflip/build-<target> for its cards and m
   assert.equal(state().main.target, undefined);
 });
 
+// docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
+test('a board whose scripts are in kickflip runs its site’s scripts/build-<target> for cards and main, in each worktree, and a save rebuilds main', async () => {
+  const { writeScript } = await import('../board/build-script.mjs');
+  const record = (name) => `#!${process.execPath}\nrequire('node:fs').writeFileSync('ran.json', JSON.stringify({ script: ${JSON.stringify(name)}, cwd: process.cwd(), args: process.argv.slice(2) }));\n`;
+  setScript(record('repo'), repo);
+  const sha = commit(repo, 'repo script');
+  git(repo, 'update-ref', 'refs/remotes/origin/main', sha);
+  write(path.join(worktree, 'change'), 'task');
+  commit(worktree, 'task change');
+  config({ scripts: 'kickflip', build_target: 'web' });
+  await tick();
+  assert.equal(state().cards['w/A1'].script, false, 'the repo’s script is not the kickflip one');
+  assert.equal(state().main, null);
+  writeScript(site, 'build-web', record('kickflip v1'));
+  await tick();
+  assert.equal(state().cards['w/A1'].script, true);
+  await manager.settled();
+  const dir = path.join(home, '.claude/kickflip/try/orch-main-a');
+  assert.equal(state().main.state, 'ready');
+  assert.deepEqual(read(path.join(dir, 'ran.json')), { script: 'kickflip v1', cwd: fs.realpathSync(dir), args: ['main', dir] });
+  await start();
+  await manager.settled();
+  assert.equal(state().cards['w/A1'].state, 'ready');
+  assert.deepEqual(read(path.join(worktree, 'ran.json')), { script: 'kickflip v1', cwd: fs.realpathSync(worktree), args: ['w/A1', worktree] });
+  const file = writeScript(site, 'build-web', record('kickflip v2'));
+  fs.utimesSync(file, new Date(), new Date(Date.now() + 5000));
+  await tick();
+  await manager.settled();
+  assert.deepEqual([state().main.state, state().main.sha], ['ready', sha]);
+  assert.equal(read(path.join(dir, 'ran.json')).script, 'kickflip v2', 'the save rebuilt main on the same commit');
+  await tick();
+  await manager.settled();
+  assert.equal(state().main.saved, fs.statSync(file).mtimeMs, 'no save, no rebuild');
+  config({ build_target: 'web' });
+  await tick();
+  assert.equal(state().main, null, 'back on the repo, which has no .kickflip/build-web');
+});
+
 test('a restart serves ready web cards again, keeps killed ones, clears the rest and stops main so the next tick serves it again', async () => {
   write(path.join(site, 'data/try.json'), { kind: 'web', cards: { 'w/A1': { state: 'ready', port: 1, https: 8500, sha: 'a' }, 'w/A2': { killed: true, sha: 'b', head: 'b' }, 'w/A3': { state: 'failed' } }, main: { state: 'running', sha: 'old', script: true, serving: { sha: 'older', https: 8500 } } });
   await manager.initialize(manifest);

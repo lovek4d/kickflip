@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { repoHas, onboardingItems } from '../board/onboarding.mjs';
+import { kickflipHas, repoHas, onboardingItems } from '../board/onboarding.mjs';
 import { storedPath, nodeBin } from '../bin/install.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
@@ -42,7 +42,8 @@ export async function freePort(m) {
 
 // The board template's files in dir: board.json with its title, items ("waves" or an item file, made when
 // missing with the onboarding cards, board/onboarding.mjs) and, when given, tickets. repo and ref are where main's
-// build and release scripts, CONTEXT.md and ADRs are looked for. → the board server's cmd for dir
+// build and release scripts, CONTEXT.md and ADRs are looked for; dir's scripts/ holds the board's own in kickflip.
+// → the board server's cmd for dir
 export function boardFiles(dir, { title, items, tickets, repo, ref }) {
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
   const cfgFile = path.join(dir, 'board.json');
@@ -54,7 +55,7 @@ export function boardFiles(dir, { title, items, tickets, repo, ref }) {
   const itemsFile = cfg.items === 'waves' ? null : path.resolve(dir, cfg.items);
   if (itemsFile && !fs.existsSync(itemsFile)) {
     fs.mkdirSync(path.dirname(itemsFile), { recursive: true });
-    const cards = onboardingItems(itemsFile, { has: repoHas(repo, ref) });
+    const cards = onboardingItems(itemsFile, { has: { ...repoHas(repo, ref), kickflip: kickflipHas(dir) } });
     fs.writeFileSync(itemsFile, JSON.stringify({ title: cfg.title, items: cards }, null, 2) + '\n');
   }
   return [nodeBin(), path.join(cloneRoot(), 'board', 'server.mjs'), dir];

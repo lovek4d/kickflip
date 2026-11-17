@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { PERMISSIONS, permissionFor, permissionsView, readPermissions, recordRefusal, setPermission, settingsFile } from './permissions.mjs';
+import { PERMISSIONS, followScriptsHome, permissionFor, permissionsView, readPermissions, recordRefusal, setPermission, settingsFile } from './permissions.mjs';
+import { writeScript } from './build-script.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const scratch = () => {
@@ -127,5 +128,35 @@ test("Run release script can't be turned on in a repo with no .kickflip/release,
     releaseScriptIn(folder);
     assert.equal((await row()).unavailable, null);
     assert.equal((await setPermission(folder, site, 'runRelease', true)).runRelease, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
+test("on a board whose scripts are in kickflip, Run release script needs the site's scripts/release, writes a rule naming it, and follows a move of the scripts' home", async () => {
+  const { root, folder, site } = scratch();
+  try {
+    releaseScriptIn(folder);
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ scripts: 'kickflip' }));
+    const kickflipRule = `Bash(${path.join(site, 'scripts', 'release')} *)`;
+    const row = async () => (await permissionsView(folder, site)).permissions.find((p) => p.id === 'runRelease');
+    assert.deepEqual([(await row()).unavailable, (await row()).rule], [`No ${path.join(site, 'scripts', 'release')} in kickflip`, kickflipRule], "the repo's script doesn't count");
+    await assert.rejects(setPermission(folder, site, 'runRelease', true), /in kickflip, so Run release script stays off\.$/);
+    writeScript(site, 'release', '#!/bin/sh\n');
+    assert.equal((await setPermission(folder, site, 'runRelease', true)).runRelease, true);
+    assert.deepEqual(read(settingsFile(folder)), { permissions: { allow: [kickflipRule] } });
+    assert.equal(permissionFor(`${path.join(site, 'scripts', 'release')} ship 1.0.0 abc`, site)?.id, 'runRelease');
+    assert.equal(permissionFor('.kickflip/release ship 1.0.0 abc', site), null);
+    assert.equal(await recordRefusal(folder, site, bash(`${path.join(site, 'scripts', 'release')} ship 1.0.0 abc`)), 'runRelease');
+
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({}));
+    await followScriptsHome(folder, site, 'kickflip');
+    assert.deepEqual(read(settingsFile(folder)), { permissions: { allow: ['Bash(.kickflip/release *)'] } });
+    assert.equal((await readPermissions(folder, site)).runRelease, true, 'still on, for the repo script');
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ scripts: 'kickflip' }));
+    await followScriptsHome(folder, site, 'repo');
+    assert.deepEqual(read(settingsFile(folder)), { permissions: { allow: [kickflipRule] } });
+    await setPermission(folder, site, 'runRelease', false);
+    await followScriptsHome(folder, site, 'repo');
+    assert.deepEqual(read(settingsFile(folder)), { permissions: { allow: [] } }, 'an off switch stays off');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

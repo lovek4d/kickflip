@@ -673,6 +673,48 @@ test("a repo's .kickflip/release replaces land's release: check before landing r
   assert.deepEqual([itemOf('A1').lane, itemOf('A1').release], ['done', undefined]);
 });
 
+// docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
+test("a board whose scripts are in kickflip checks and ships a release with its site's scripts/release, whatever the repo holds", async () => {
+  const { writeScript } = await import('./build-script.mjs');
+  const repo = scratchRepo();
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: ['A1', 'A2'].map((id) => ({ id, title: `chore(release): ${id}` })) });
+  const origin = path.join(home, 'origin.git');
+  git(home, 'init', '--quiet', '--bare', origin);
+  git(repo, 'remote', 'add', 'origin', origin);
+  write(path.join(repo, '.kickflip', 'release'), '#!/bin/sh\necho "the repo script ran" >&2\nexit 9\n');
+  fs.chmodSync(path.join(repo, '.kickflip', 'release'), 0o755);
+  write(path.join(repo, 'package.json'), { name: 'x', private: true });
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '--quiet', '-m', 'build: repo release script');
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  const manifest = read(at('kickflip', 'manifest.json'));
+  manifest.sites.orch.owner = { repo };
+  write(at('kickflip', 'manifest.json'), manifest);
+  write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), scripts: 'kickflip' });
+  const script = site('orch', 'scripts', 'release');
+  write(path.join(repo, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)', `Bash(${script} *)`] } });
+  write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
+  const release = async (id, version) => {
+    assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
+    commit(at('kickflip', 'worktrees', id), 'CHANGELOG.md', `${version}\n`, `chore(release): ${version}\n\nRefs: ${id}`);
+    return await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
+  };
+
+  const refused = await release('A1', '0.7.0');
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, new RegExp(`^land: "chore\\(release\\): 0\\.7\\.0" is a release\\. This board has no ${script.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}, so land can't ship it; write one with board\\.mjs script set release and land again\\n`));
+
+  const calls = path.join(home, 'kickflip-release.log');
+  writeScript(site('orch'), 'release', `#!/bin/sh\necho "$1 $2 $3 $(pwd)" >> ${calls}\necho "$1 ok"\n`);
+  const shipped = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
+  assert.equal(shipped.code, 0, shipped.err);
+  const landed = git(repo, 'rev-parse', 'main');
+  assert.ok(shipped.out.includes(`\npushed main to origin\nshipped release 0.7.0 with ${script}\nship ok\n`), shipped.out);
+  const ran = fs.readFileSync(calls, 'utf8').trim().split('\n');
+  assert.deepEqual(ran.map((l) => l.split(' ').slice(0, 3).join(' ')), [`check 0.7.0 ${landed}`, `ship 0.7.0 ${landed}`]);
+  assert.equal(fs.realpathSync(ran[1].split(' ')[3]), fs.realpathSync(repo), 'ship runs in the repo checkout');
+});
+
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md,
 // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md
 test("a finish that joins a release card's land returns once that land records its landed commit, though the release holds the card in In Review, and lands nothing again", async (t) => {

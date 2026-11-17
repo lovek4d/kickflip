@@ -78,7 +78,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   const landedFiles = git(tree.repo, 'diff', '--name-only', '--no-renames', `${base}...${tree.branch}`).out.split('\n').filter(Boolean);
   let landed;
   try {
-    landed = await landInTurn({ ...tree, ref }, { hold: !go, onWait, onTestWait, queue, report, found: (words) => recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
+    landed = await landInTurn({ ...tree, ref, site }, { hold: !go, onWait, onTestWait, queue, report, found: (words) => recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
   } catch (e) {
     // docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md
     if (!e.failsOnBase) throw e;
@@ -130,7 +130,7 @@ export async function landHeld(site, key, { launch = landByBuilder } = {}) {
 // release, the land's (release.mjs landRelease), ships once base reached origin
 // (docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md).
 async function pushBase(site, key, repo, base, release) {
-  const permissions = await readPermissions(repo);
+  const permissions = await readPermissions(repo, site);
   if (!permissions.pushMain) return [];
   const pushed = git(repo, 'push', '--quiet', 'origin', base);
   if (!pushed.ok) {
@@ -139,7 +139,7 @@ async function pushBase(site, key, repo, base, release) {
     return [`landed, but ${why}`];
   }
   if (!release) return [`pushed ${base} to origin`];
-  const shipped = shipRelease(repo, release, permissions);
+  const shipped = shipRelease(repo, release, permissions, site);
   if (shipped.failed) await appendStatus(site, key, 'push-failed', { base: `release ${release.version}`, error: shipped.failed });
   return [`pushed ${base} to origin`, shipped.line];
 }

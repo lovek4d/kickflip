@@ -9,8 +9,8 @@ import { readLandTests, setLandTests, CLAUDE_MODEL_VALUES, settingsFile as hubSe
 import { ticketSource } from './tickets.mjs';
 import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { itemSources, readJSON, readLog, writeJSON } from './files.mjs';
-import { readPermissions } from './permissions.mjs';
-import { validBuildTarget } from './build-script.mjs';
+import { followScriptsHome, readPermissions } from './permissions.mjs';
+import { kickflipHeld, validBuildTarget } from './build-script.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 import { shareEntries, validLogin } from '../hub/share.mjs';
 import { BoardError, fail, needSite, text, bool, domId, onlyKeys } from './checks.mjs';
@@ -152,7 +152,9 @@ export const storedTickets = (value) => { try { return value ? ticketSource(valu
 // ticket source, and github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md),
 // tool_use, normal unless high (docs/adr/2026-11-14-1500-a-tool-use-setting-sets-how-readily-the-orchestrator-uses-tools.md),
 // and build_target, the `.kickflip/build-<target>` the hub runs, absent for `.kickflip/build`
-// (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
+// (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md), and scripts, kickflip when the
+// board runs its scripts from its site's scripts/, absent for the repo's .kickflip/
+// (docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md).
 const validCap = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
 const CAPS = ['max_implementers', 'max_serves'];
 const TOOL_USE = ['normal', 'high'];
@@ -165,6 +167,7 @@ export const settingsOf = (cfg, board) => {
     tool_use: cfg?.tool_use === 'high' ? 'high' : 'normal',
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}),
     ...(validBuildTarget(cfg?.build_target) ? { build_target: cfg.build_target } : {}),
+    ...(kickflipHeld(cfg) ? { scripts: 'kickflip' } : {}),
     // Builders, overriding Hub settings' (usage-gate.mjs claudeModelFor); none on Hub default.
     ...(CLAUDE_MODEL_VALUES.includes(cfg?.claude_model) ? { claude_model: cfg.claude_model } : {}) };
 };
@@ -258,11 +261,11 @@ export async function refuseSecondProposal(site, title) {
 // listBoards entry or hub/board-repo.mjs boardRepo's answer, settings settingsOf's.
 export const opensPRs = (board, settings) => Boolean(board?.github) && (!board.local || board.hub === true) && settings.prs;
 
-// changes {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tool_use?: 'normal' | 'high', tickets?: source, github_login?: login | null, build_target?: target | null, claude_model?: 'opus' | 'auto' | 'sonnet' | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tool_use?: 'normal' | 'high', tickets?: source, github_login?: login | null, build_target?: target | null, scripts?: 'repo' | 'kickflip', claude_model?: 'opus' | 'auto' | 'sonnet' | null} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
 // then pushes main (permissions.mjs pushMain).
 export async function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'tickets', 'github_login', 'build_target', 'claude_model'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'tickets', 'github_login', 'build_target', 'scripts', 'claude_model'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   // The hub's number is written to the hub's settings, after the board's own changes are checked.
@@ -283,6 +286,9 @@ export async function saveBoardSettings(site, changes) {
     } else if (k === 'build_target') {
       if (v === null) changes.build_target = undefined;
       else if (!validBuildTarget(v)) fail('build_target must name .kickflip/build-<target>: letters, digits, ".", "_" or "-", or null for .kickflip/build');
+    } else if (k === 'scripts') {
+      if (!['repo', 'kickflip'].includes(v)) fail('scripts must be repo or kickflip');
+      if (v === 'repo') changes.scripts = undefined;
     } else if (k === 'tool_use') {
       if (!TOOL_USE.includes(v)) fail('tool_use must be normal or high');
     } else if (k === 'claude_model') {
@@ -299,12 +305,18 @@ export async function saveBoardSettings(site, changes) {
   if (landTests !== undefined) {
     try { await setLandTests(landTests); } catch { fail('max_land_tests must be a whole number from 1 to 99'); }
   }
-  return writeBoardJSON(site, (cfg) => {
+  let from;
+  const saved = await writeBoardJSON(site, (cfg) => {
     const board = site ? listBoards().find((b) => samePath(b.dir, site)) : null;
     const before = settingsOf(cfg, board);
+    from = before.scripts || 'repo';
     const settings = { ...settingsOf({ ...cfg, ...changes }, board), max_land_tests: readLandTests() };
     return { set: changes, settings, changed: [...Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])), ...(landTests === undefined ? [] : ['max_land_tests'])] };
   });
+  // A move of the scripts' home keeps an on Run release script switch on, for the new home's release script.
+  const folder = saved.changed.includes('scripts') ? listBoards().find((b) => samePath(b.dir, site))?.owner?.repo : null;
+  if (folder) await followScriptsHome(folder, site, from);
+  return saved;
 }
 // Once Hub has no Linear key, each board in the manifest on Linear falls back to no ticket source, and its session
 // hears of it as any source change, by a settings event. Its old cards keep their Linear tickets. Run by the hub as it
@@ -324,7 +336,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'github_login', 'tickets', 'build_target', 'claude_model'];
+  const names = ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'github_login', 'tickets', 'build_target', 'scripts', 'claude_model'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -339,6 +351,10 @@ export async function setBoardSetting(site, name, value) {
   if (key === 'build_target') {
     const { file, settings } = await saveBoardSettings(site, { build_target: value === 'default' ? null : value });
     return { file, lines: [`build-target ${settings.build_target || 'default'}`] };
+  }
+  if (key === 'scripts') {
+    const { file, settings } = await saveBoardSettings(site, { scripts: value });
+    return { file, lines: [`scripts ${settings.scripts || 'repo'}`] };
   }
   if (key === 'tool_use') {
     const { file, settings } = await saveBoardSettings(site, { tool_use: value });
@@ -356,7 +372,7 @@ export async function setBoardSetting(site, name, value) {
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
 }
-export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || k === 'tool_use' || CAPS.includes(k) ? v : k === 'build_target' ? v || 'default' : k === 'claude_model' ? v || 'hub' : v ? 'on' : 'off'}`);
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || k === 'tool_use' || CAPS.includes(k) ? v : k === 'scripts' ? v || 'repo' : k === 'build_target' ? v || 'default' : k === 'claude_model' ? v || 'hub' : v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {

@@ -337,6 +337,15 @@ test("settings prints the board's settings as JSON, off when absent, and setting
   assert.deepEqual(await board('settings', 'set', 'build-target', 'default', '--site', 'orch'), { code: 0, out: 'build-target default\n', err: '' });
   assert.ok(!('build_target' in cfg()));
 
+  // docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
+  assert.equal(JSON.parse((await board('settings', '--site', 'orch')).out).scripts, undefined, 'the repo by default');
+  assert.deepEqual(await board('settings', 'set', 'scripts', 'kickflip', '--site', 'orch'), { code: 0, out: 'scripts kickflip\n', err: '' });
+  assert.equal(cfg().scripts, 'kickflip');
+  assert.equal(JSON.parse((await board('settings', '--site', 'orch')).out).scripts, 'kickflip');
+  assert.match((await board('settings', 'set', 'scripts', 'cloud', '--site', 'orch')).err, /scripts must be repo or kickflip/);
+  assert.deepEqual(await board('settings', 'set', 'scripts', 'repo', '--site', 'orch'), { code: 0, out: 'scripts repo\n', err: '' });
+  assert.ok(!('scripts' in cfg()));
+
   // docs/adr/2026-11-14-1500-a-tool-use-setting-sets-how-readily-the-orchestrator-uses-tools.md
   assert.equal(JSON.parse((await board('settings', '--site', 'orch')).out).tool_use, 'normal');
   assert.deepEqual(await board('settings', 'set', 'tool-use', 'high', '--site', 'orch'), { code: 0, out: 'tool-use high\n', err: '' });
@@ -778,4 +787,21 @@ test('Pause board saves its end in board.json beside the other settings, takes f
   assert.equal(readUsageGate({ home, dir }).resets_at, 'forever');
   assert.equal(await setBoardPause(dir, 'off', from), null);
   assert.deepEqual(read(path.join(dir, 'board.json')), before);
+});
+
+// docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
+test("script set replaces the board's kickflip-held script from a file or stdin, and script show prints it back", async () => {
+  write(site('orch', 'board.json'), { title: 'Orch', items: 'waves' });
+  assert.match((await board('script', 'show', 'build', '--site', 'orch')).err, /this board has no build script in kickflip/);
+  write(path.join(home, 'build.sh'), '#!/bin/sh\necho port 4000\n');
+  const saved = await board('script', 'set', 'build', '--file', path.join(home, 'build.sh'), '--site', 'orch');
+  assert.deepEqual(saved, { code: 0, out: `saved ${site('orch', 'scripts', 'build')}\nthis board runs the repo’s .kickflip/ scripts until settings set scripts kickflip\n`, err: '' });
+  assert.equal(fs.statSync(site('orch', 'scripts', 'build')).mode & 0o777, 0o700);
+  assert.deepEqual(await board('script', 'show', 'build', '--site', 'orch'), { code: 0, out: '#!/bin/sh\necho port 4000\n', err: '' });
+  assert.equal((await board('settings', 'set', 'scripts', 'kickflip', '--site', 'orch')).code, 0);
+  const piped = run('board.mjs', ['script', 'set', 'release', '--file', '-', '--site', 'orch'], '#!/bin/sh\necho "$1 ok"\n');
+  assert.deepEqual(piped, { code: 0, out: `saved ${site('orch', 'scripts', 'release')}\n`, err: '' });
+  assert.equal(fs.readFileSync(site('orch', 'scripts', 'release'), 'utf8'), '#!/bin/sh\necho "$1 ok"\n');
+  assert.match((await board('script', 'set', 'serve', '--file', path.join(home, 'build.sh'), '--site', 'orch')).err, /no script "serve"/);
+  assert.match((await board('script', 'set', 'build', '--site', 'orch')).err, /script set needs --file/);
 });

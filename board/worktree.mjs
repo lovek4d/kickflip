@@ -647,8 +647,8 @@ export async function passTests(dir, { say = console.log, runTests = nodeTests, 
 // the rebase of that commit onto base when base moved, a release's check (release.mjs checkRelease), and the tests
 // the change affects (affectedRun).
 // title is the builder's --title, the squash commit's subject. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
-// still it, with base not moved past it, is not tested again.
-export async function prepareLand({ path: dir, branch, repo, base, ref, title }, { say = console.log, runTests = affectedRun(base, say), report, found = () => {} } = {}) {
+// still it, with base not moved past it, is not tested again. site is the card's board, whose release script the check runs.
+export async function prepareLand({ path: dir, branch, repo, base, ref, title, site }, { say = console.log, runTests = affectedRun(base, say), report, found = () => {} } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
@@ -670,7 +670,7 @@ export async function prepareLand({ path: dir, branch, repo, base, ref, title },
   }
 
   const head = git(repo, 'rev-parse', branch).out;
-  checkRelease(repo, dir, head);
+  checkRelease(repo, dir, head, site);
   if (git(repo, 'rev-parse', '--verify', '--quiet', testedRef(branch)).out === head) {
     say(`${branch} was tested on ${base} as it is now; not testing it again`);
     return head;

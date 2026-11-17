@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { boardAt } from '../hub/boards.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
-import { buildScriptOf } from './build-script.mjs';
+import { buildNameOf, scriptFileOf, scriptShownOf } from './build-script.mjs';
 import { BoardError } from './checks.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -50,8 +50,9 @@ export async function prototypeBase(site) {
   const branch = source.branch || 'main';
   const base = await ensureBase({ repo: source.repo, ref: mainRefOf(source), dir: baseWorktreeOf(board.route) });
   const how = base.made ? `made from ${branch}` : base.blocked ? `kept: its pages' edits to ${base.blocked.join(', ')} block the move to ${branch}` : `moved to ${branch}`;
-  const script = buildScriptOf(board.build_target);
-  const present = fs.existsSync(path.join(base.dir, script));
+  const name = buildNameOf(board.build_target);
+  const script = scriptShownOf(board, name);
+  const present = fs.existsSync(scriptFileOf(board, name, base.dir));
   return { lines: [
     `base ${base.dir} at ${base.sha.slice(0, 7)}, ${how}`,
     present ? `build script ${script} is there` : `build script ${script} is missing: write one that serves the app and prints "port <n>"`,

@@ -10,7 +10,7 @@ import { boardRepo, githubFromOrigin, mainRefOf } from './board-repo.mjs';
 import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { tailscaleDaemon, tailscaleArgv, recordedFault } from '../shared/tailscale.mjs';
-import { buildScriptError, buildScriptOf } from '../board/build-script.mjs';
+import { buildNameOf, buildScriptError, scriptFileOf, scriptsDirOf } from '../board/build-script.mjs';
 import { appendStatus, setItem } from '../board/cards.mjs';
 import { servedRoundsOpen } from '../board/questions.mjs';
 import { settingsOf } from '../board/settings.mjs';
@@ -58,7 +58,15 @@ const withoutFraming = (headers) => {
 // are no card: each keeps its own entry in try.json, posts no thread line and takes no serve slot.
 const OWN_ENTRY = { main: 'main', [BASE_KEY]: 'prototypes' };
 const isCard = (key) => !Object.hasOwn(OWN_ENTRY, key);
-const scriptAt = (dir, target) => path.join(dir, buildScriptOf(target));
+// The board's build script a run in dir spawns: dir's .kickflip/ one, or the board's kickflip-held one
+// (docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md).
+const scriptAt = (board, dir) => scriptFileOf(board, buildNameOf(board.build_target), dir);
+// When the board's kickflip-held build script was last saved, which main's entry keeps so a save rebuilds main as a new
+// commit would; none for a repo's script, which a commit changes. → mtime in ms, or undefined
+const savedOf = (board) => {
+  if (board.scripts !== 'kickflip') return undefined;
+  try { return fs.statSync(scriptAt(board, null)).mtimeMs; } catch { return undefined; }
+};
 const exists = (file) => fs.existsSync(file);
 const logFileOf = (board, key) => path.join(board.dir, 'data', 'try', `${key.split('/').at(-1)}.log`);
 function failureLog(board, key, error) {
@@ -501,10 +509,11 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   }
   async function launch(board, key, worktree, metadata = {}, preface = '') {
     if (!worktree) throw new BuildError('This task has no valid worktree.');
-    const script = scriptAt(worktree, board.build_target);
+    const script = scriptAt(board, worktree);
     const error = buildScriptError(script);
     if (error) throw new BuildError(error);
-    if (!fs.realpathSync(script).startsWith(fs.realpathSync(worktree) + path.sep)) throw new BuildError('Build script must be inside the worktree.');
+    const kickflip = board.scripts === 'kickflip';
+    if (!fs.realpathSync(script).startsWith(fs.realpathSync(kickflip ? scriptsDirOf(board.dir) : worktree) + path.sep)) throw new BuildError(kickflip ? 'Build script must be inside the board’s scripts folder.' : 'Build script must be inside the worktree.');
     const sha = await git(worktree, 'rev-parse', 'HEAD');
     if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
     const { state } = stateOf(board);
@@ -756,7 +765,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       if (entry?.state === 'running') throw new BuildError('A build is already running for main.', 409);
       if (entry?.state !== 'failed' || !entry.sha) throw new BuildError('Main has no failed build to retry.', 409);
       const { sha, branch, slug, at, script } = entry;
-      return launchMain(board, boardRepo(route, manifest).repo, { sha, branch, slug, at, script, ...(board.build_target ? { target: board.build_target } : {}) });
+      return launchMain(board, boardRepo(route, manifest).repo, { sha, branch, slug, at, script, ...(board.build_target ? { target: board.build_target } : {}), ...(savedOf(board) ? { saved: savedOf(board) } : {}) });
     }
     // The tick checks its own serves before it starts one; an owner's Serve is refused here, a busy host's unless anyway.
     const held = isCard(key) && !auto && !interrupted.has(id) ? servesHeld(board, id) : null;
@@ -888,7 +897,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
               const head = await git(worktree, 'rev-parse', 'HEAD');
               let ahead = 0;
               try { ahead = Number(await git(worktree, 'rev-list', '--count', `${ref}..HEAD`)); } catch {}
-              Object.assign(state.cards[key] ||= {}, { head, ahead, script: exists(scriptAt(worktree, board.build_target)) });
+              Object.assign(state.cards[key] ||= {}, { head, ahead, script: exists(scriptAt(board, worktree)) });
               persist(board);
             } else continue;
             const entry = state.cards[key];
@@ -919,7 +928,9 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
           if (!source.repo || await waiting()) continue;
           const sha = await git(source.repo, 'rev-parse', ref);
           let script = false;
-          try { await git(source.repo, 'cat-file', '-e', `${sha}:${buildScriptOf(board.build_target)}`); script = true; } catch {}
+          if (board.scripts === 'kickflip') script = exists(scriptAt(board, null));
+          else try { await git(source.repo, 'cat-file', '-e', `${sha}:.kickflip/${buildNameOf(board.build_target)}`); script = true; } catch {}
+          const saved = savedOf(board);
           if (!script) {
             const run = runs.get(runKey(board, 'main'));
             if (run) await stopRun(run);
@@ -929,13 +940,13 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
             continue;
           }
           const entry = state.main;
-          if (entry?.state === 'running' || (entry?.sha === sha && (entry.target || null) === (board.build_target || null) && (entry.state === 'failed' || (entry.state === 'ready' && (state.kind !== 'web' || lookup(board.route, 'main', { manifest })))))) continue;
+          if (entry?.state === 'running' || (entry?.sha === sha && (entry.target || null) === (board.build_target || null) && (entry.saved || null) === (saved || null) && (entry.state === 'failed' || (entry.state === 'ready' && (state.kind !== 'web' || lookup(board.route, 'main', { manifest })))))) continue;
           const id = runKey(board, 'main');
           if (starting.has(id)) continue;
           const at = await git(source.repo, 'log', '-1', '--format=%cI', sha);
           let slug = board.github;
           if (!slug) { try { slug = githubFromOrigin(await git(source.repo, 'remote', 'get-url', 'origin')); } catch {} }
-          const metadata = { sha, branch, slug: slug || '', at, script, ...(board.build_target ? { target: board.build_target } : {}) };
+          const metadata = { sha, branch, slug: slug || '', at, script, ...(board.build_target ? { target: board.build_target } : {}), ...(saved ? { saved } : {}) };
           await launchMain(board, source.repo, metadata);
         } catch (e) { log(`try /${board.route} main: ${e.message}`); }
       }

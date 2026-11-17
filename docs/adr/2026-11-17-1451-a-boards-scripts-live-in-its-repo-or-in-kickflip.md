@@ -1,0 +1,20 @@
+# A board's scripts live in its repo or in kickflip
+
+The owner asked on T-673 to offer keeping a board's scripts in kickflip instead of committing them to the repo. This is its first part (T-674): where the scripts live and how every run finds them. Board Settings' Scripts source switch and code box are the second part. Amends [a board's build script serves or builds each card and main](2026-11-01-1846-a-boards-build-script-serves-or-builds-each-card-and-main.md), [Board Settings picks which build script a board runs](2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md), [a repo's .kickflip/release replaces land's tag release](2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md) and [onboarding cards cover only what the repo lacks](2026-11-16-1100-onboarding-cards-cover-only-what-the-repo-lacks.md).
+
+- **Scope.** `build`, `build-<target>` and `release`. There is no other script under `.kickflip/`.
+- **Per board.** Kickflip's copies live in the board's site, `~/.claude/kickflip/sites/<route>/scripts/<name>`, so two boards on one repo each keep their own.
+- **Scripts source.** board.json `scripts`: absent (the repo) or `kickflip`, set by `board.mjs settings set scripts repo|kickflip` or `POST /api/settings {scripts}`. The source picks; the other home's scripts are never run, even when only they exist.
+- **One resolver.** `board/build-script.mjs` `scriptFileOf(home, name, dir)` is the absolute file every run spawns: the run's worktree or checkout's `.kickflip/<name>`, or the site's `scripts/<name>`. Card and main serves (hub/try.mjs), the prototype base serve (render-check.mjs, prototype-base.mjs), release check and ship (release.mjs) all spawn it with the run's worktree as cwd and argv, as before, so a script calling `./something` still resolves in the worktree.
+- **Checks.** buildScriptError applies unchanged. `script set` writes mode 0700 through a temp file and rename. try.mjs's "inside the worktree" realpath check becomes "inside the board's scripts folder" for a kickflip script.
+- **Main.** A kickflip build script has no commit, so main's try.json entry keeps `saved`, the script's mtime, beside `sha` and `target`: a save, or a move between homes, rebuilds main as a new commit would. Main's failure sheet names it `scripts/<name> in kickflip`. A card's serve doesn't rebuild on a save; its next head or a tap does.
+- **Build targets.** Board Settings lists the executable `build-<target>` files in the site's `scripts/` for a kickflip board, else the repo's at main's tip.
+- **Release.** A kickflip board's land checks and ships with `scripts/release`; with none, a release is refused, naming `script set release`. Ship skips the "isn't the landed commit's" guard, which has no meaning for the board's one copy.
+- **Run release script.** The switch's rule names the board's release script, `Bash(.kickflip/release *)` or `Bash(<site>/scripts/release *)`, and it can't be turned on while the source's script is missing. A move of the source moves an on switch's rule to the new home's, so it stays on.
+- **Editing.** `board.mjs script show <name>` prints a kickflip script; `script set <name> --file <file>|-` replaces it. No history: a save replaces the file. No Move into kickflip: kickflip's scripts start empty.
+- **Onboarding.** A new board always starts with the scripts card, "Choose where the build scripts live, and prepare them", whose first-round question is "Build scripts in the repo or in kickflip?" (kickflip recommended), asked even when the repo already has scripts. Its notes say what each home holds (`repoHas`, `kickflipHas`), and the card writes what the chosen home lacks.
+
+Considered:
+- Kickflip's copy winning over the repo's whenever it exists: rejected for an explicit choice per board, so a stray file can't silently change what runs.
+- Rebuilding cards on a save too: a card rebuilds on its head or the owner's tap, as before; main is the build the owner watches for a script change.
+- A per-run copy of a kickflip script into the worktree: rejected, since the script already runs with the worktree as cwd.

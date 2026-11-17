@@ -5,9 +5,10 @@
 // the other files below through bin/board.mjs (store.mjs). Every write goes through files.mjs, as every process's does:
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
-// build_target names the script, .kickflip/build-<target>, else .kickflip/build.
+// build_target names the script, build-<target>, else build; scripts, kickflip, runs the scripts from the site's scripts/,
+// else from the repo's .kickflip/ (build-script.mjs scriptFileOf).
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (settings.mjs settingsOf). rules are the owner's standing instructions to this
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
@@ -266,7 +267,7 @@
 //   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, build_target?, claude_model?} (settings.mjs readBoardSettings),
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices,
 //                                builders: Board Settings' Builders control, shared/model-views.mjs buildersView}
-//   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets)
+//   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets), or in its site's scripts/ while its scripts are in kickflip
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (settings.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
@@ -376,7 +377,7 @@ import { readUsageGate, heldFor, tasksInProgressCap, pauseReasonFor, pausedWords
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
-import { listBuildTargets } from './build-script.mjs';
+import { listBuildTargets, listKickflipTargets } from './build-script.mjs';
 import { diedRuns, logTail, logsDir, readRunnerPid, scriptLogName } from './scripts.mjs';
 import { reviewerPeople } from './reviewer-people.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
@@ -1217,7 +1218,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const self = boardAt(here);
         if (!self) return json(res, 404, { error: 'This board isn’t in the hub’s manifest.' });
         const source = boardRepo(self.route);
-        return json(res, 200, { targets: await listBuildTargets(source.repo, mainRefOf(source)) });
+        // A board whose scripts are in kickflip offers its site's scripts/build-<target> (build-script.mjs listKickflipTargets).
+        return json(res, 200, { targets: self.scripts === 'kickflip' ? listKickflipTargets(here) : await listBuildTargets(source.repo, mainRefOf(source)) });
       }
       if (p === '/api/pause' && req.method === 'POST') {
         const body = await readBody(req);

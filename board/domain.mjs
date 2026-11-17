@@ -19,7 +19,7 @@ import { reviewsOf, reviewNeeds, reviewActions, pendingReviewAsks, failedReviewA
 import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.mjs';
 import vm from 'node:vm';
 import { checkWords, parseCheck } from '../shared/owner-check.mjs';
-import { buildScriptOf } from './build-script.mjs';
+import { buildNameOf, buildScriptOf } from './build-script.mjs';
 import { HUB, hubLineOf, hubText } from './hub-lines.mjs';
 import { startTitleFault } from './commit-message.mjs';
 import { scriptLogName } from './scripts.mjs';
@@ -1465,8 +1465,9 @@ export function buildBoard(snapshot) {
     serving: kind === 'web' && run.serving ? { sha: run.serving.sha.slice(0, 7), at: run.serving.at } : null,
     // A local board's pull from origin (hub/try.mjs pullMain), which Main's refresh icon shows.
     pull: tries.pull ? { running: tries.pull.running === true, error: tries.pull.error || null } : null,
-    // The script main's run used: its board's build target (build-script.mjs buildScriptOf).
-    script: buildScriptOf(run.target),
+    // The script main's run used: its board's build target, the repo's .kickflip/ one, or the board's scripts/ one in
+    // kickflip for a run that keeps when that script was saved (hub/try.mjs savedOf).
+    script: run.saved ? `scripts/${buildNameOf(run.target)} in kickflip` : buildScriptOf(run.target),
     // While its build is failing, the last lines of data/try/main.log, which Main's failure sheet shows
     // (docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md).
     log: run.state === 'failed' ? snapshot.mainLog || [] : null } : null;

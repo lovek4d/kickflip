@@ -18,7 +18,7 @@ import { BoardError } from './checks.mjs';
 import { readPrototypes } from './questions.mjs';
 import { prototypePage } from './prototype-page.mjs';
 import { BASE_KEY, baseWorktreeOf } from './prototype-base.mjs';
-import { buildScriptError, buildScriptOf } from './build-script.mjs';
+import { buildNameOf, buildScriptError, scriptFileOf, scriptShownOf } from './build-script.mjs';
 import { boardAt } from '../hub/boards.mjs';
 
 const board = path.dirname(fileURLToPath(import.meta.url));
@@ -98,7 +98,8 @@ async function serveBase(site) {
   const board = boardAt(site);
   if (!board) throw new BoardError(`${site} is not a board in the hub's manifest, so it has no base prototype worktree to check`);
   const dir = baseWorktreeOf(board.route);
-  const script = path.join(dir, buildScriptOf(board.build_target));
+  const name = buildNameOf(board.build_target);
+  const script = scriptFileOf(board, name, dir);
   const invalid = buildScriptError(script);
   if (invalid) throw new BoardError(`the base prototype worktree can't serve the round: ${invalid} (${script})`);
   const child = spawn(script, [BASE_KEY, dir], { cwd: dir, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
@@ -124,7 +125,7 @@ async function serveBase(site) {
   for (let waited = 0; up && !(await answers()); waited += 250) { if (waited >= 60_000) up = false; else await sleep(250); }
   if (!up) {
     await stop();
-    throw new BoardError(`the base prototype worktree's ${buildScriptOf(board.build_target)} didn't serve on a port, so the round's question is not published:\n${tail.join('\n')}`);
+    throw new BoardError(`the base prototype worktree's ${scriptShownOf(board, name)} didn't serve on a port, so the round's question is not published:\n${tail.join('\n')}`);
   }
   return { origin: `http://127.0.0.1:${port}`, dir, stop };
 }

@@ -21,6 +21,7 @@ import { boardRepo } from '../../hub/board-repo.mjs';
 import { checkTakesRender } from '../render-check.mjs';
 import { prototypeBase } from '../prototype-base.mjs';
 import { detachedIn } from '../detached.mjs';
+import { readScript, scriptsOf, writeScript } from '../build-script.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
@@ -570,8 +571,18 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   settings set auto-build on|off                         on: each push builds its task. Off by default.
                                                          Main builds after every merge either way
   settings set build-target <target>|default            the script the hub runs for each task and main:
-                                                         .kickflip/build-<target>, or .kickflip/build with
-                                                         default (unset). Board Settings' Build target picks it
+                                                         build-<target>, or build with default (unset).
+                                                         Board Settings' Build target picks it
+  settings set scripts repo|kickflip                     where the board's build, build-<target> and release
+                                                         scripts live: repo (the default) runs each worktree's
+                                                         .kickflip/<name>; kickflip runs the board's own
+                                                         ~/.claude/kickflip/sites/<route>/scripts/<name>, one
+                                                         copy for every task and main, in the run's worktree
+  script show <name>                                     prints the board's kickflip-held script <name>: build,
+                                                         build-<target> or release
+  script set <name> --file <script>|-                    replaces the board's kickflip-held script <name> with
+                                                         the file, mode 0700. No earlier save is kept. A saved
+                                                         build script rebuilds main
   settings set claude-model hub|opus|auto|sonnet         Board Settings' Builders: the Claude model builds on this
                                                          board take, overriding Hub settings' Builders. hub (the
                                                          default) follows the hub. Only on the owner's word
@@ -1251,6 +1262,14 @@ const COMMANDS = {
   }],
   'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
+  // docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
+  'script show': [['name'], [], (site, [name]) => ({ lines: [readScript(needSite(site, 'script show'), name).replace(/\n$/, '')] })],
+  'script set': [['name'], ['file'], (site, [name], f) => {
+    if (f.file === undefined) throw new UsageError('script set needs --file <script>, or --file - for stdin');
+    const dir = needSite(site, 'script set');
+    const file = writeScript(dir, name, readInput(f.file));
+    return { lines: [`saved ${file}`, ...(scriptsOf(dir).scripts === 'kickflip' ? [] : ['this board runs the repo’s .kickflip/ scripts until settings set scripts kickflip'])] };
+  }],
   'builder start': [['file/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'dispatch'], (site, [key], { worktree, repo, dispatch, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
     const make = (opts) => boardWorktree(site, key.split('/')[1], { repo, ...opts });
@@ -1310,7 +1329,7 @@ const COMMANDS = {
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
       const report = site ? await store.testReport(site, key, { phase: 'landing' }) : undefined;
-      await landInTurn({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref }, { report });
+      await landInTurn({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref, site }, { report });
       return site ? store.setItem(site, key, { done: true, text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;

@@ -1728,6 +1728,8 @@ test('main maps the recorded branch, commit time and short sha to its web or pub
     const snapshot = { files: [], route: 'orch', try: { kind, main: run }, main: { install: { url: 'https://m/main.apk' } } };
     assert.deepEqual(buildBoard(snapshot).main, { slug: run.slug, branch: 'develop', sha: 'abcdef1', at: run.at, kind, state: 'ready', url: kind === 'web' ? null : 'https://m/main.apk', port: kind === 'web' ? 8501 : null, serving: null, pull: null, script: '.kickflip/build', log: null });
     assert.equal(buildBoard({ ...snapshot, try: { kind, main: { ...run, target: 'ios' } } }).main.script, '.kickflip/build-ios');
+    // docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
+    assert.equal(buildBoard({ ...snapshot, try: { kind, main: { ...run, target: 'ios', saved: 1763390000000 } } }).main.script, 'scripts/build-ios in kickflip');
     // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: a failing main carries its log's last lines.
     assert.deepEqual(buildBoard({ ...snapshot, mainLog: ['npm ERR!', 'exit 1'], try: { kind, main: { ...run, state: 'failed' } } }).main.log, ['npm ERR!', 'exit 1']);
     assert.deepEqual(buildBoard({ ...snapshot, try: { kind, main: { ...run, state: 'failed' } } }).main.log, []);

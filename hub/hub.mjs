@@ -125,7 +125,8 @@
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`kickflip poll-now`)
 //   /_hub/build       POST {route, key, anyway?}, key <file>/<id> or main (retry failed tip), loopback only:
-//                     runs <worktree>/.kickflip/build[-<board's build target>] <key> <worktree>
+//                     runs the board's build[-<build target>] script, <worktree>/.kickflip/ or its site's scripts/
+//                     in kickflip, as <script> <key> <worktree>
 //                     asynchronously; data/try.json and data/try/<id>.log carry its state (try.mjs). A card's new
 //                     serve at the board's max_serves → 409 {error, ask: 'cap'}; on a busy host without anyway: true
 //                     → 409 {error, ask: 'busy'}
