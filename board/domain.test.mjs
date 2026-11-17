@@ -2636,15 +2636,6 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const verifiedBack = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z', done: at, handed_back: at, verified: { at } } } };
   assert.deepEqual(shape(one({ lane: 'progress', unblocked_at: later }, { agents: verifiedBack })), [['w/A1', 'checking', at, null]]);
 
-  // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
-  // for the orchestrator's re-check of its notes before the pull takes it.
-  const recheck = one({ phase: 'ready', recheck_at: at });
-  assert.deepEqual(shape(recheck), [['w/A1', 'recheck', at, null]]);
-  assert.match(recheck[0].next, /question settle <id> --note/);
-  assert.match(recheck[0].next, /item set --phase ready --text/);
-  assert.deepEqual(one({ phase: 'ready', recheck_at: at, blocked_until: 'the API ships' }), [], 'blocked again, it waits on its block');
-  const rechecking = built({ items: [{ id: 'A1', title: 'One', phase: 'ready', recheck_at: at }] });
-  assert.deepEqual([rechecking.items[0].ready, pullOf(rechecking.items).pullable], [false, []], 'the pull leaves it until the re-check releases it');
   assert.deepEqual(one({ ...unblocked, blocked_until: 'the API ships' }), [], 'blocked again');
   assert.equal(one(unblocked, { threads: { 'w/A1': [{ ts: later, who: 'claude', text: 'On it.' }] } }).length, 0, 'the session wrote on it');
 

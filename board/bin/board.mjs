@@ -156,7 +156,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   question settle <id> --note <text>                    a question a finished grill left for the orchestrator to screen
          (a screen wait), which the board already answers: it is published resolved "Settled by the
          orchestrator: <text>", and the answer goes into the task's notes. Refuses the prototype question,
-         which is the owner's. On a ready task waiting on your re-check since its block ended, it answers
+         which is the owner's. On a staged task, as one whose block ended is staged again, it answers
          one of the task's questions again the same way, when what landed made its answer stale
   question publish <file>/<id>                          passes the rest of the task's screened questions on to the owner.
          The board server publishes any left unscreened 15 minutes on, with a thread line

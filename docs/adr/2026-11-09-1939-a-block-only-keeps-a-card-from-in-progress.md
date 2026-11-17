@@ -17,3 +17,7 @@ It supersedes [a blocked card is not grilled until its blockers land](2026-11-05
 
 - A hold's pick-up time is not a block and marks no re-check.
 - Plan waves still leaves out blocked cards: it plans waves, not grills.
+
+## Amended (2026-11-17)
+
+A ready card whose block ends no longer waits on a re-check: it goes back to staging, where the staging judgment is the re-check, and `recheck_at` is gone ([a wait a block held is owed from the block's end](2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md)).

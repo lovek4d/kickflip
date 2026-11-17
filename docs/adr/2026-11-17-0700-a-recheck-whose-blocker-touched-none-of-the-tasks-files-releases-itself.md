@@ -14,3 +14,5 @@ itself and posts the thread line "Recheck: <blocker> touched none of this task's
 A token that looks like a path but isn't one (`Node.js`) counts as a named file; if it is the only one, the task
 releases on any blocker. The notes then are the only place a task can say what it touches, so a card that must not release
 names a real path.
+
+Amended by [a wait a block held is owed from the block's end](2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md): a ready card whose blocker touched a noted file goes back to staging, and one that touched none stays ready.

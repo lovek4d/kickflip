@@ -60,7 +60,7 @@ export const HUB_LINES = {
   // written before still render.
   'ready-expired': { tone: 'grey', mark: MOVE, text: () => 'Ready expired after a day unpulled: re-checking against what landed since' },
   'hold-ended': { tone: 'orange', mark: RESUMED, text: ({ at }) => `Unblocked: its block until ${at} ended.`, longest: { at: AT } },
-  'recheck-released': { tone: 'grey', mark: RESUMED, text: ({ card }) => fit('Recheck: ', card, " touched none of this task's files") },
+  'recheck-released': { tone: 'grey', mark: RESUMED, text: ({ card }) => fit('Stays ready: ', card, " touched none of this task's files") },
   unblocked: { tone: 'orange', mark: RESUMED, text: ({ lifted }) => fit('Unblocked: ', lifted, '.') },
   'unblocked-done': { tone: 'orange', mark: RESUMED, text: ({ card }) => fit('Unblocked: ', card, ' is done.') },
   // Blocks.

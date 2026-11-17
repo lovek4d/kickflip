@@ -683,37 +683,31 @@ async function moveWaiters(site, key, { entries, words, waiters }) {
   for (const w of waiters) await appendStatus(site, w, 'split-moved', { card, to: words });
 }
 
-// docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo records when its block
-// ended, which domain.mjs orchestratorWaitOf reads as a wait until the session writes on the card. ts is its Unblocked line's.
-// A ready card in Todo records it as recheck_at, which keeps the pull off it until the orchestrator re-checks its notes
-// against what landed and releases it with item set --phase ready --text
-// (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md). One in staging records unblocked_at too, which
-// domain.mjs orchestratorWaitsOf reads as ending the pickup its staging wait had before the block.
-async function markUnblocked(site, key, ts) {
-  const { source, itemFile, item } = await loadItem(site, key);
-  if (leftTodo(item) || item.phase === 'staging') item.unblocked_at = ts;
-  else if (item.phase === 'ready') item.recheck_at = ts;
-  else return;
-  await writeJSON(source.file, itemFile);
-}
-
 // docs/adr/2026-11-17-0700-a-recheck-whose-blocker-touched-none-of-the-tasks-files-releases-itself.md
 // The paths a task's notes name: tokens with a folder slash or a file extension of letters. A token names a changed file
 // when it is that file, a folder holding it, or a bare file name (SKILL.md) ending the file's path.
 const namedPaths = (markdown) => [...new Set((markdown.match(/[\w.-]+(?:\/[\w.-]+)+|[\w-]+\.[a-z]\w+/gi) || []).map((t) => t.replace(/^\.\/|[.\/]+$/g, '')).filter((t) => /[a-z]/i.test(t)))];
 const namesFile = (named, file) => file === named || file.startsWith(`${named}/`) || (!named.includes('/') && file.endsWith(`/${named}`));
 
-// A card waiting on its recheck whose blocker landed files (the paths its diff changed) none of its notes name has the
-// wait ended here. Notes naming no path, or no notes, leave the wait to the orchestrator. → whether it released.
-async function releaseRecheck(site, key, files) {
+// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md: a card records when its block ended as
+// unblocked_at, ts its Unblocked line's, which domain.mjs orchestratorWaitsOf reads as when each wait the block held is
+// owed from. A ready card in Todo goes back to staging for the orchestrator to judge again against what landed
+// (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md), unless its blocker landed files (the paths
+// its diff changed) none its notes name: then it stays ready. Notes naming no path, or no notes, send it to staging.
+// → whether it stayed ready.
+async function markUnblocked(site, key, ts, landedFiles) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (!item.recheck_at) return false;
-  const markdown = await itemNotes(source.dir, item);
+  item.unblocked_at = ts;
+  const markdown = item.phase === 'ready' && !leftTodo(item) && landedFiles ? await itemNotes(source.dir, item) : null;
   const named = markdown ? namedPaths(markdown) : [];
-  if (!named.length || files.some((f) => named.some((n) => namesFile(n, f)))) return false;
-  delete item.recheck_at;
+  const staysReady = named.length > 0 && !landedFiles.some((f) => named.some((n) => namesFile(n, f)));
+  if (item.phase === 'ready' && !leftTodo(item) && !staysReady) {
+    Object.assign(item, { phase: 'staging', staged_at: ts });
+    delete item.ready_at;
+    delete item.ready_main;
+  }
   await writeJSON(source.file, itemFile);
-  return true;
+  return staysReady;
 }
 
 export async function checkNextDeps(site, key, item, next) {
@@ -923,11 +917,8 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
       : `${key} is blocked by the owner; start it only once they unblock it, with item set ${key} --unblocked`);
   }
   const handover = pr !== undefined || pushed !== undefined || mergeReady !== undefined;
-  // A card that leaves Todo is never still blocked by the owner, nor waiting on a re-check.
-  if (start || done || handBack || handover) {
-    clearHold(item);
-    delete item.recheck_at;
-  }
+  // A card that leaves Todo is never still blocked by the owner.
+  if (start || done || handBack || handover) clearHold(item);
   if (start) {
     const blockers = shown.blockedBy.map((d) => d.key);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done`);
@@ -982,11 +973,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   // the orchestrator's judgment against the whole board, which --text records in its notes.
   const judged = phase === 'ready' && item.phase === 'staging' && fromAsk === undefined;
   if (judged && said === undefined) fail(`${key} goes ready from staging on your judgment: pass --text "<what you checked it against on the board>", which goes into its notes`);
-  // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready card whose block ended goes back to
-  // the pull on the orchestrator's re-check, which --text records in its notes.
-  const rechecked = phase === 'ready' && item.phase === 'ready' && Boolean(item.recheck_at) && fromAsk === undefined;
-  if (rechecked && said === undefined) fail(`${key}'s block ended, so it builds once you re-check its notes against what landed: pass --text "<what you re-checked>", which goes into its notes`);
-  if (phase === 'ready' && !judged && !rechecked && said !== undefined && fromAsk === undefined && !done) fail(`${key} reads ${item.phase || 'no phase'}, not staging, so there is no judgment for --text to record`);
+  if (phase === 'ready' && !judged && said !== undefined && fromAsk === undefined && !done) fail(`${key} reads ${item.phase || 'no phase'}, not staging, so there is no judgment for --text to record`);
   const readied = phase === 'ready' && item.phase !== 'ready';
   // The orchestrator's check is the readied line's words; --from-ask's --text is a message of its own.
   const readiedLine = judged ? readiedText(said) : undefined;
@@ -999,7 +986,6 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     left = leaveNew(item);
     item.phase = phase;
     if (phase === 'discussing') dropOwed(item);
-    delete item.recheck_at;
     delete item.staged_at;
     delete item.unfiled;
     delete item.filed_held;
@@ -1049,7 +1035,6 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (madeAtReady) await appendStatus(site, key, 'ticket-made', { ticket: item.ticket });
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
-  if (rechecked) await appendNotes(site, key, `Re-checked (orchestrator, ${noteStamp()})`, said);
   if (readied) await appendCommand(site, key, { command: 'readied', ...(readiedLine === undefined ? {} : { text: readiedLine }) });
   // The line and the wait share one moment, as stage writes them (domain.mjs markWaitStarts).
   if (phase === 'staging') await appendCommand(site, key, { command: 'staged', ts: item.staged_at });
@@ -1098,8 +1083,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   const card = await cardName(site, key);
   for (const k of unblocked) {
     const { line } = await appendStatus(site, k, 'unblocked-done', { card });
-    await markUnblocked(site, k, line.ts);
-    if (landedFiles && await releaseRecheck(site, k, landedFiles)) await appendStatus(site, k, 'recheck-released', { card });
+    if (await markUnblocked(site, k, line.ts, landedFiles)) await appendStatus(site, k, 'recheck-released', { card });
     else await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
   return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };

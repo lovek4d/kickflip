@@ -418,7 +418,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: the running reviewer's grey row, what it
     // reviews (diff or plan) and since when.
     reviewer: reviewerOf(agents),
-    storedPhase: it.phase || null, phase: null, recheckAt: it.recheck_at || null, landing,
+    storedPhase: it.phase || null, phase: null, landing,
     // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: whose turn a discussing card is, the orchestrator's
     // while an owner message or answer on it is unanswered, otherwise the owner's.
     turn: lane === 'todo' && it.phase === 'discussing' ? (said.some((m) => m.state === 'waiting' || m.state === 'working') ? 'claude' : 'owner') : undefined,
@@ -1559,9 +1559,8 @@ export function buildBoard(snapshot) {
         it.ask = { eventId: m.eventId, ...(m.sendId ? { sendId: m.sendId } : {}), state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null, note: m.note || null, ...(m.asked ? { asked: true } : {}) };
       }
     }
-    // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a card whose block ended waits for the
-    // orchestrator's re-check before it is ready to build.
-    it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.recheckAt && !it.action;
+    // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md
+    it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.action;
     // docs/adr/2026-11-07-0700-staging-then-ready.md
     it.staging = unstarted && it.phase === 'staging';
     // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped ready card a busy host holds
@@ -1812,7 +1811,7 @@ export function needsAnswer(b) {
 // tap, or a Reply takes a card out of it (docs/adr/2026-11-07-0700-staging-then-ready.md,
 // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md).
 // A refusal on the card stays until a later line (builder pick's) clears it, so the pull doesn't retry a refused start.
-const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.blocked && !i.recheckAt && !i.refusal;
+const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.blocked && !i.refusal;
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // A board's Maximum tasks in progress when board.json sets none.
@@ -2240,8 +2239,7 @@ const STALL_NEXT = "item stall it with the reason when it can't go on";
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
 // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a staged card whose split was answered Split is filed as its split, not set ready.
-const STAGING_NEXT = `Judge the staged task against the whole board, not only its own notes: read its notes and thread; for a discussed task first fold what was agreed into a Build notes section with item notes; ${STAGING_CHECKS}; then item set --phase ready --size <small|large> --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead`;
-const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions against what landed; answer a stale one again with question settle <id> --note, or send the task back with item set --phase grilling when the change is too big; then item set --phase ready --text "<what you re-checked>"';
+const STAGING_NEXT = `Judge the staged task against the whole board, not only its own notes: read its notes and thread; for a discussed task first fold what was agreed into a Build notes section with item notes; for one whose block ended, read its answered questions against what landed and answer a stale one again with question settle <id> --note; ${STAGING_CHECKS}; then item set --phase ready --size <small|large> --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead`;
 // docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md
 const CALLS_HOW = (key) => `read each with builder calls ${key} against the task's notes, the owner's words and the other tasks; answer a Question: call they settle, or send back a build you won't verify, with builder resume ${key} --text "<what to change>"; put a call they don't settle, or one that conflicts with the owner's words, to the owner as a question on the task ("ask": "<ask>" in it for a deferred ask); then builder verified ${key} --note "<what you checked>"; never redo it yourself or with an Agent`;
 const PROTOTYPE_ROUNDS = '; name each prototype to draw as its own round, and each owner request the task owes (a Prototype tap, a no-pick answer) as a round of its own';
@@ -2250,8 +2248,11 @@ const PROTOTYPE_ROUNDS = '; name each prototype to draw as its own round, and ea
 // blocking it. It goes only on a card with no other wait: orchestratorWaitsOf drops it beside the card's others, and
 // waitFirst beside an intake or a screen
 // (docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md).
-const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new') && !it.unsorted && !it.action && !it.blocked
+const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new') && !it.unsorted && !it.action
   && !it.briefs.length && !it.plannerQueued && !it.agents.some((a) => a.started && !a.done);
+// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md: the waits a block holds. Each drops
+// while its card is blocked; once the block ends it is owed from then (unblocked_at), and a pickup from before is void.
+const HELD_BY_BLOCK = new Set(['staging', 'limbo', 'unblocked']);
 function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
   // A requested brief not yet written is owed in every lane, Done included.
@@ -2264,7 +2265,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     && !it.agents.some((a) => a.kind === VISUAL && a.started && (!a.done || String(a.started) > facts.unplaced)) ? facts.unplaced : null;
   const waits = [
     facts.ask && { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}: builder answer ${it.key} ${facts.ask.id} --text "<answer>" from the task's notes, thread and the owner's words, or builder defer ${it.key} ${facts.ask.id} --text "<what to carry on with>" when you aren't confident or the owner's opinion is wanted; never ask the owner mid-build` },
-    it.staging && !it.blocked && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
+    it.staging && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
     answeredAt && !facts.writes.some((t) => t > String(answeredAt)) && { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" },
     facts.triagedAt && { kind: 'investigate', since: facts.triagedAt, next: `Investigate ${it.key}: write its notes (item notes), then reply` },
     // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: the
@@ -2295,26 +2296,23 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       unasked && { kind: 'unasked', since: unasked.at, next: `Its ${unasked.kind} planner ended without its question: read its log, then post the question, start the planner again, or move the task's phase` },
       // docs/adr/2026-11-14-2015-a-clean-visual-end-with-no-page-reads-unplaced.md: held until a page lands or a newer visual agent starts.
       unplaced && { kind: 'visual', since: unplaced, next: 'Its visual agent ended without placing its page: read its log, then place the page with visual add, or ask for the visual again' },
-      // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
-      // for the re-check that releases it to the pull.
-      it.recheckAt && it.lane === 'todo' && it.phase === 'ready' && !it.blocked && { kind: 'recheck', since: it.recheckAt, next: RECHECK_NEXT },
       it.refusal && facts.refusedAt && { kind: 'refused', since: facts.refusedAt, next: `${it.refusal}: fix what refused the build and start it, or say on the task why it waits` },
       it.next === NO_NEXT && lastBuild && { kind: 'unowned', since: lastBuild, next: 'Start a builder on it, or set its Next' },
       // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo whose block ended waits until the session writes on it.
       // A verified build waiting to land is its land step's (docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md).
-      facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.blocked && !it.land && !facts.writes.some((t) => t > facts.unblockedAt)
+      facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.land && !facts.writes.some((t) => t > facts.unblockedAt)
         && { kind: 'unblocked', since: facts.unblockedAt, next: 'Its block ended: act on what it waited for, or set its Next; a thread line ends the wait' },
       // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: a sorted
       // Todo card still owing Implement, with no mark, question, brief or planner, owes nobody anything.
       limbo(it) && { kind: 'limbo', since: facts.limboFrom, next: `${it.ref} owes nobody anything: ask Implement (reply ${it.key} --implement), ask questions, or close it` },
     ]),
   ];
-  const held = waits.filter((wait) => wait?.since);
-  return (held.length > 1 ? held.filter((wait) => wait.kind !== 'limbo') : held).map((wait) => {
-    const since = String(wait.since);
-    const found = 'picked' in wait ? wait.picked : [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
-    // A staging wait that comes back when its card unblocks is new: a pickup from before the block doesn't count.
-    const picked = wait.kind === 'staging' && found && facts.unblockedAt && String(found) < String(facts.unblockedAt) ? null : found;
+  const open = waits.filter((wait) => wait?.since && !(it.blocked && HELD_BY_BLOCK.has(wait.kind)));
+  return (open.length > 1 ? open.filter((wait) => wait.kind !== 'limbo') : open).map((wait) => {
+    const blockEnded = HELD_BY_BLOCK.has(wait.kind) && facts.unblockedAt && String(facts.unblockedAt) > String(wait.since);
+    const since = String(blockEnded ? facts.unblockedAt : wait.since);
+    const pickups = [facts.writes.find((t) => t > since), workingSince].filter((t) => t && (!blockEnded || String(t) >= since));
+    const picked = 'picked' in wait ? wait.picked : pickups.map(String).sort()[0] || null;
     return { kind: wait.kind, since, picked, next: wait.next, ...(wait.daily ? { daily: true } : {}) };
   });
 }

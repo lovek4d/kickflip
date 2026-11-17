@@ -234,6 +234,29 @@ export const stageImplementAsks = (site) => ticketWrite(site, async () => {
   return lines;
 });
 
+// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md
+// A ready card waiting on the re-check its block's end owed, recheck_at, goes to staging from that time, which is also
+// when its block ended; recheck_at on any other card is dropped. Run by the board server as it starts. → one line per
+// item file changed.
+export const restageRechecks = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  for (const entry of await itemSources(site)) {
+    const itemFile = await readJSON(entry.file, null);
+    const marked = (Array.isArray(itemFile?.items) ? itemFile.items : []).filter((it) => it.recheck_at);
+    if (!marked.length) continue;
+    const ready = marked.filter((it) => it.phase === 'ready');
+    for (const it of ready) {
+      Object.assign(it, { phase: 'staging', staged_at: it.recheck_at, unblocked_at: it.recheck_at });
+      delete it.ready_at;
+      delete it.ready_main;
+    }
+    for (const it of marked) delete it.recheck_at;
+    await writeJSON(entry.file, itemFile);
+    lines.push(`${entry.slug}: ${ready.length} ready ${ready.length === 1 ? 'task' : 'tasks'} waiting on a re-check moved to staging`);
+  }
+  return lines;
+});
+
 // docs/adr/2026-11-04-1056-archived-done-cards-are-built-as-they-page-in.md
 // Drops what nothing reads, once: an archive entry's page card, keeping its sortAt as closed_at; an item file entry's summary and an item file's internal flag;
 // and a question's push_tag and no_change, in owner.json and in the archive. It also renames a question's
@@ -366,6 +389,7 @@ export const MIGRATIONS = [
   { id: 'gates', scope: 'board', run: ({ site }) => migrateGates(site) },
   { id: 'discussing', scope: 'board', run: ({ site }) => discussNewCards(site) },
   { id: 'staging', scope: 'board', run: ({ site }) => stageImplementAsks(site) },
+  { id: 'recheck-staging', scope: 'board', run: ({ site }) => restageRechecks(site) },
   { id: 'split-notes', scope: 'board', run: ({ site, archived }) => splitSharedNotes(site, archived) },
   { id: 'dead-fields', scope: 'board', run: async ({ site, archived }) => { await stripDeadFields(site, archived); return []; } },
 ];

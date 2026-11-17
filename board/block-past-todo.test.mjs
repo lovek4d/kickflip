@@ -93,26 +93,26 @@ test('a finishing dep records unblocked_at on a staging card, which reopens its 
   assert.ok(itemOf().unblocked_at);
 });
 
-// docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md
-test('a finishing dep makes a ready Todo card wait on the orchestrator to re-check its notes, and --phase ready --text releases it', async () => {
+// docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md,
+// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md
+test("a finishing dep sends a ready Todo card back to staging, owed from the unblock, its Implement tap kept", async () => {
   write(at('waves', 'w', 'a1-notes.md'), 'Build it.\n');
-  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'ready', size: 'small', plan: 'a1-notes.md', deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'ready', size: 'small', plan: 'a1-notes.md', deps: ['ENG-1'], ready_at: now(), ready_main: 'abc' }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
+  write(site('orch', 'data', 'events.jsonl'), '');
+  fs.appendFileSync(site('orch', 'data', 'events.jsonl'), `${JSON.stringify({ id: 'b1', ts: now(), kind: 'card-bump', data: { key: 'w/A1' }, reply: null })}\n`);
   assert.equal((await onOrch('item', 'set', 'w/ENG-1', '--done', '--text', 'Done.')).code, 0);
   assert.ok(events().some((e) => e.kind === 'card-unblocked' && e.data.key === 'w/A1'));
-  assert.ok(itemOf().recheck_at, 'it waits for the re-check');
-  assert.equal(itemOf().unblocked_at, undefined, 'a Todo task has no past-Todo wait');
-  const bare = await onOrch('item', 'set', 'w/A1', '--phase', 'ready');
-  assert.equal(bare.code, 1);
-  assert.match(bare.err, /pass --text "<what you re-checked/);
-  const released = await onOrch('item', 'set', 'w/A1', '--phase', 'ready', '--text', 'Re-checked against ENG-1: nothing stale.');
-  assert.equal(released.code, 0, released.err);
-  assert.deepEqual([itemOf().phase, itemOf().recheck_at], ['ready', undefined]);
-  assert.match(fs.readFileSync(at('waves', 'w', 'a1-notes.md'), 'utf8'), /## Re-checked \(orchestrator, [^)]+\)\n+Re-checked against ENG-1: nothing stale\./);
+  const unblocked = threadOf().find((l) => l.line === 'unblocked-done');
+  assert.deepEqual([itemOf().phase, itemOf().staged_at, itemOf().unblocked_at, itemOf().ready_at, itemOf().recheck_at], ['staging', unblocked.ts, unblocked.ts, undefined, undefined]);
+  assert.equal(events().some((e) => e.kind === 'card-unbump'), false, 'its Implement tap stays');
+  const judged = await onOrch('item', 'set', 'w/A1', '--phase', 'ready', '--text', 'Re-judged against ENG-1: nothing stale.');
+  assert.equal(judged.code, 0, judged.err);
+  assert.equal(itemOf().phase, 'ready');
 });
 
-test("the re-check answers a stale question again with question settle, only on a card waiting on it", async () => {
+test("the staging re-judge answers a stale question again with question settle, only on a staged card", async () => {
   write(at('waves', 'w', 'a1-notes.md'), 'Build it.\n');
-  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'ready', size: 'small', plan: 'a1-notes.md', recheck_at: now() }, { id: 'ENG-1', title: 'Later', lane: 'done' }] });
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'staging', staged_at: now(), size: 'small', plan: 'a1-notes.md' }, { id: 'ENG-1', title: 'Later', lane: 'done' }] });
   const asked = { id: 'q1', topic: 'item:w/A1', question: 'Which API?', asked_at: '2026-11-08T10:00:00Z', resolved: "Recorded in the task's notes", resolved_at: '2026-11-08T11:00:00Z' };
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [asked, { ...asked, id: 'q2', topic: 'item:w/ENG-1' }] });
   const settled = await onOrch('question', 'settle', 'q1', '--note', 'ENG-1 landed the v2 API: use it.');
@@ -122,22 +122,14 @@ test("the re-check answers a stale question again with question settle, only on 
   assert.match(fs.readFileSync(at('waves', 'w', 'a1-notes.md'), 'utf8'), /- q1 \(Which API\?\): settled by the orchestrator\. "ENG-1 landed the v2 API: use it\."/);
   const other = await onOrch('question', 'settle', 'q2', '--note', 'x');
   assert.equal(other.code, 1);
-  assert.match(other.err, /w\/ENG-1 waits on no re-check/);
+  assert.match(other.err, /w\/ENG-1 isn't staged/);
 });
 
-test('a re-check that sends the card back to grilling ends the wait, and an unblock outside ready marks none', async () => {
-  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', phase: 'ready', recheck_at: now() }, { id: 'A2', title: 'Two', phase: 'grilling', deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
-  assert.equal((await onOrch('item', 'set', 'w/A1', '--phase', 'grilling')).code, 0);
-  assert.deepEqual([itemOf().phase, itemOf().recheck_at], ['grilling', undefined]);
+test('an unblock outside ready leaves the phase, and records when the block ended', async () => {
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', phase: 'grilling', deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
   assert.equal((await onOrch('item', 'set', 'w/ENG-1', '--done', '--text', 'Done.')).code, 0);
-  assert.equal(itemOf('A2').recheck_at, undefined, 'its grill goes on; staging judges it after');
-});
-
-test("a build started on a card waiting on its re-check, as the owner's Implement tap starts one, ends the wait", async () => {
-  setA1({ phase: 'ready', recheck_at: now() });
-  const started = await onOrch('builder', 'start', 'w/A1', '--kind', 'build');
-  assert.equal(started.code, 0, started.err);
-  assert.deepEqual([itemOf().lane, itemOf().recheck_at], ['progress', undefined]);
+  assert.equal(itemOf('A2').phase, 'grilling', 'its grill goes on; staging judges it after');
+  assert.ok(itemOf('A2').unblocked_at);
 });
 
 test('--next naming an unfinished card by its #number is refused without --deps', async () => {
@@ -149,7 +141,7 @@ test('--next naming an unfinished card by its #number is refused without --deps'
 });
 
 // docs/adr/2026-11-17-0700-a-recheck-whose-blocker-touched-none-of-the-tasks-files-releases-itself.md
-const recheckCase = async (notes, files) => {
+const unblockCase = async (notes, files) => {
   const oldHome = process.env.HOME;
   process.env.HOME = home;
   if (notes !== null) write(at('waves', 'w', 'a1-notes.md'), notes);
@@ -157,25 +149,24 @@ const recheckCase = async (notes, files) => {
   await store.setItem(site('orch'), 'w/ENG-1', { done: true, closing: ['handed-closed', {}], landed: 'abc1234', landedFiles: files }).finally(() => { process.env.HOME = oldHome; });
 };
 
-test("a blocker that landed none of the task's noted files releases its recheck with a thread line", async () => {
-  await recheckCase('Change board/server.mjs and docs/adr.\n', ['hub/push.mjs', 'README.md']);
-  assert.equal(itemOf().recheck_at, undefined);
+test("a blocker that landed none of the task's noted files leaves a ready card ready, with a thread line", async () => {
+  await unblockCase('Change board/server.mjs and docs/adr.\n', ['hub/push.mjs', 'README.md']);
   assert.equal(itemOf().phase, 'ready');
-  assert.equal(threadOf().at(-1).text, "Recheck: ENG-1 touched none of this task's files");
+  assert.equal(threadOf().at(-1).text, "Stays ready: ENG-1 touched none of this task's files");
 });
 
-test("a blocker that landed a noted file, or inside a noted folder, still waits on the recheck", async () => {
-  await recheckCase('Change board/server.mjs.\n', ['board/server.mjs']);
-  assert.ok(itemOf().recheck_at);
-  await recheckCase('Write docs/adr.\n', ['docs/adr/x.md']);
-  assert.ok(itemOf().recheck_at);
-  await recheckCase('Edit SKILL.md.\n', ['SKILL.md']);
-  assert.ok(itemOf().recheck_at);
+test("a blocker that landed a noted file, or inside a noted folder, sends the ready card to staging", async () => {
+  await unblockCase('Change board/server.mjs.\n', ['board/server.mjs']);
+  assert.equal(itemOf().phase, 'staging');
+  await unblockCase('Write docs/adr.\n', ['docs/adr/x.md']);
+  assert.equal(itemOf().phase, 'staging');
+  await unblockCase('Edit SKILL.md.\n', ['SKILL.md']);
+  assert.equal(itemOf().phase, 'staging');
 });
 
-test('notes naming no files keep the recheck wait, and so does a blocker with no recorded diff', async () => {
-  await recheckCase('Make it nicer, e.g. faster.\n', ['hub/push.mjs']);
-  assert.ok(itemOf().recheck_at);
-  await recheckCase('Change board/server.mjs.\n', undefined);
-  assert.ok(itemOf().recheck_at);
+test('notes naming no files send the ready card to staging, and so does a blocker with no recorded diff', async () => {
+  await unblockCase('Make it nicer, e.g. faster.\n', ['hub/push.mjs']);
+  assert.equal(itemOf().phase, 'staging');
+  await unblockCase('Change board/server.mjs.\n', undefined);
+  assert.equal(itemOf().phase, 'staging');
 });

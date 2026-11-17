@@ -9,7 +9,7 @@
     intake: 'sort the new task', screen: "screen the grill's questions", ask: 'answer the ask', staging: 'look over the staged task',
     answer: "act on the owner's answer", investigate: 'investigate the task', reply: "act on the owner's reply", brief: 'write the planner brief',
     stale: 'find out why it stalled', calls: "verify the builder's calls", checking: 'land the checked build', grill: 'start the grill',
-    prototype: 'draw the prototype', unasked: "post the planner's question", visual: "place the visual's page", recheck: 'recheck the ready task',
+    prototype: 'draw the prototype', unasked: "post the planner's question", visual: "place the visual's page",
     refused: 'sort out the refused build', unowned: 'set what happens next', unblocked: 'act on the ended block', script: 'read the script result', triage: 'run the overnight triage',
     'pr-review': 'review the pull request', 'review-failed': "sort out the held review's failed answer", 'arch-review': 'run the architecture review',
     'slack-question': 'answer the Slack message', limbo: 'ask Implement, ask questions or close it',

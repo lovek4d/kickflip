@@ -9,3 +9,5 @@ A card in staging now records `unblocked_at` when its block ends (store.mjs `mar
 the orchestrator at once. A pickup after the unblock stands. Other wait kinds are unchanged.
 
 A shorter staging reminder is not needed for this case.
+
+Superseded by [a wait a block held is owed from the block's end](2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md), which applies the void to every wait a block holds.

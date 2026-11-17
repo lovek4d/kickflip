@@ -332,15 +332,15 @@ export async function settleQuestion(site, id, note) {
   return ownerFile(site);
 }
 
-// docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: on a card waiting on the re-check its
-// block's end owes, the orchestrator answers a question the landed work made stale again, in its notes, as it settles
-// a screened one.
+// docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: while judging a staged card, as a ready one
+// whose block ended is judged again, the orchestrator answers a question that what landed made stale again, in its
+// notes, as it settles a screened one.
 async function settleStale(site, id, said) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id && x.topic?.startsWith('item:'));
-  if (!q) fail(`no staged question "${id}"; question settle takes a question a finished grill left for you to screen, or a task's question while it waits on your re-check`);
+  if (!q) fail(`no staged question "${id}"; question settle takes a question a finished grill left for you to screen, or a staged task's question`);
   const key = q.topic.slice('item:'.length);
-  if (!(await loadItem(site, key)).item.recheck_at) fail(`${key} waits on no re-check, so its question ${id} stays answered as it is`);
+  if ((await loadItem(site, key)).item.phase !== 'staging') fail(`${key} isn't staged, so its question ${id} stays answered as it is`);
   const at = new Date().toISOString();
   await writeJSON(ownerFile(site), { ...owner, items: owner.items.map((x) => x === q ? { ...x, resolved: `Settled by the orchestrator: ${said}`, resolved_at: at } : x) });
   await appendNotes(site, key, `Answers (orchestrator, ${noteStamp()})`, `- ${id} (${q.question}): settled by the orchestrator. "${said}"`);
@@ -763,7 +763,6 @@ export async function restageStaleReady(site, main, now = new Date()) {
         Object.assign(item, { phase: 'staging', staged_at: now.toISOString() });
         delete item.ready_at;
         delete item.ready_main;
-        delete item.recheck_at;
         changed = true;
         restaged.push(`${source.slug}/${item.id}`);
       }

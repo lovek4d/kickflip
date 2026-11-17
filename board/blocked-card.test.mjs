@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildBoard, orchestratorWaits } from './domain.mjs';
+import { buildBoard, orchestratorWaits, waitsStep } from './domain.mjs';
 
 const at = (minute) => `2026-11-16T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const built = (items) => buildBoard({ now: Date.parse(at(59)), owner: {}, events: [], threads: {}, working: {}, prs: {},
@@ -27,14 +27,37 @@ test('a staged blocked card has no staging wait, and one unblocked has', () => {
   assert.equal(kinds([card({ phase: 'staging', staged_at: at(3), held: true, pick_up_at: '2026-11-19T00:00:00Z' })]).includes('staging'), false);
 });
 
-test('a staging wait that comes back at its card unblocking is unpicked, though picked up before the block', () => {
-  const staging = { phase: 'staging', staged_at: at(3) };
-  const reply = { ts: at(4), who: 'claude', text: 'Picked up.' };
-  const picked = (item, threads) => orchestratorWaits(buildBoard({ now: Date.parse(at(59)), owner: {}, events: [], threads, working: {}, prs: {},
-    files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [card({ ...staging, ...item })] } }] })).find((w) => w.kind === 'staging').picked;
-  assert.equal(picked({}, { 'w/A1': [reply] }), at(4));
-  assert.equal(picked({ unblocked_at: at(30) }, { 'w/A1': [reply] }), null, 'the pickup is older than the unblock');
-  assert.equal(picked({ unblocked_at: at(2) }, { 'w/A1': [reply] }), at(4), 'a pickup after the unblock stands');
+// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md
+const waitsOf = (item, { threads = {}, events = [], working = {} } = {}) => orchestratorWaits(buildBoard({ now: Date.parse(at(59)), owner: {}, events, threads,
+  working, prs: {}, files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [card(item)] } }] }));
+const held = [['staging', { phase: 'staging', staged_at: at(3) }], ['limbo', { phase: 'discussing' }], ['unblocked', { lane: 'review', unblocked_at: at(3) }]];
+
+test('a staging, limbo or past-Todo unblocked wait drops while its card is blocked', () => {
+  for (const [kind, item] of held) {
+    assert.equal(waitsOf(item).some((w) => w.kind === kind), true, kind);
+    assert.equal(waitsOf({ ...item, blocked_until: 'the API ships' }).some((w) => w.kind === kind), false, `${kind} blocked`);
+  }
+});
+
+test('a staging or limbo wait picked up, blocked and unblocked comes back unpicked, owed from the unblock, and wakes the orchestrator', () => {
+  const pickup = { 'w/A1': [{ ts: at(4), who: 'claude', text: 'Picked up.' }] };
+  for (const [kind, item] of held.slice(0, 2)) {
+    const before = waitsOf(item, { threads: pickup }).filter((w) => w.kind === kind);
+    assert.equal(before[0].picked, at(4), kind);
+    const after = waitsOf({ ...item, unblocked_at: at(30) }, { threads: pickup }).filter((w) => w.kind === kind);
+    assert.deepEqual([after[0].since, after[0].picked], [at(30), null], kind);
+    assert.deepEqual(waitsStep(before, after, new Date(at(31))).added, ['w/A1'], `${kind} wakes`);
+    const again = waitsOf({ ...item, unblocked_at: at(30) }, { threads: { 'w/A1': [...pickup['w/A1'], { ts: at(32), who: 'claude', text: 'On it.' }] } });
+    assert.equal(again.find((w) => w.kind === kind).picked, at(32), `${kind}: a pickup after the unblock stands`);
+    assert.equal(waitsOf({ ...item, unblocked_at: '2026-11-16T09:00:00.000Z' }, { threads: pickup }).find((w) => w.kind === kind).since, item.staged_at || at(0), `${kind}: an unblock before the wait changes nothing`);
+  }
+});
+
+test("a working mark from before the unblock doesn't pick up the wait a block held", () => {
+  const events = [{ id: 'e1', ts: at(4), kind: 'card-unblocked', data: { key: 'w/A1' }, reply: null }];
+  const item = { phase: 'staging', staged_at: at(3) };
+  assert.equal(waitsOf(item, { events, working: { e1: at(5) } }).find((w) => w.kind === 'staging').picked, at(5));
+  assert.equal(waitsOf({ ...item, unblocked_at: at(30) }, { events, working: { e1: at(5) } }).find((w) => w.kind === 'staging').picked, null);
 });
 
 test("the owner's block words carry the notice colour", () => {

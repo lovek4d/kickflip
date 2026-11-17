@@ -154,3 +154,20 @@ test('an Implement message waiting from before staging becomes staging, keeping 
   ]);
   assert.deepEqual(await stageImplementAsks(site('audit')), []);
 });
+
+// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md
+test("a ready card waiting on a re-check from before goes to staging from the block's end; recheck_at elsewhere is dropped", async () => {
+  const { restageRechecks } = await import('./migrations.mjs');
+  write(site('audit', 'data', 'items.json'), { items: [
+    { id: 'A1', title: 'Rechecking', phase: 'ready', recheck_at: '2026-11-05T10:00:00.000Z', ready_at: '2026-11-04T10:00:00.000Z', ready_main: 'abc' },
+    { id: 'A2', title: 'Left', phase: 'grilling', recheck_at: '2026-11-05T11:00:00.000Z' },
+    { id: 'A3', title: 'Plain', phase: 'ready' },
+  ] });
+  assert.deepEqual(await restageRechecks(site('audit')), ['audit: 1 ready task waiting on a re-check moved to staging']);
+  assert.deepEqual(read(site('audit', 'data', 'items.json')).items, [
+    { id: 'A1', title: 'Rechecking', phase: 'staging', staged_at: '2026-11-05T10:00:00.000Z', unblocked_at: '2026-11-05T10:00:00.000Z' },
+    { id: 'A2', title: 'Left', phase: 'grilling' },
+    { id: 'A3', title: 'Plain', phase: 'ready' },
+  ]);
+  assert.deepEqual(await restageRechecks(site('audit')), []);
+});

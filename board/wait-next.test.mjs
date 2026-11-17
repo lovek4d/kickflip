@@ -19,6 +19,7 @@ test("a staged task's wait lists the checks against the whole board, and asks fo
   assert.match(next, /^Judge the staged task against the whole board, not only its own notes: read its notes and thread;/);
   assert.match(next, /check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked \(item set --blocked-by\), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner/);
   assert.match(next, /item set --phase ready --size <small\|large> --text "<what you checked>"/);
+  assert.match(next, /for one whose block ended, read its answered questions against what landed and answer a stale one again with question settle <id> --note;/);
 });
 
 // docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md
