@@ -8,7 +8,7 @@ import { cloneRoot as runningClone, reposDir } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 import { REVIEW_SKILLS, SKILLS_SOURCE, addCommand, skillsState, updateCommand } from '../shared/skills.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
-import { tailscaleBin, tailscaleSkipped } from '../shared/tailscale.mjs';
+import { tailscaleDaemon, otherDaemons } from '../shared/tailscale.mjs';
 import { inspectLinks, installPrefix, ownsStatusLine, hasWatcherStop, hubStatus, tailscaleState, runInstall } from './install.mjs';
 
 const FIX = 'kickflip doctor --fix';
@@ -55,7 +55,7 @@ export function oldBoardClones({ home = os.homedir(), cloneRoot = runningClone()
 // → [{group: prereqs|setup|hub, item, state, detail, fix}]. state is ok; fixable, which `doctor --fix` sets up; yours,
 // which only the person can fix with the fix command; optional, yours but not needed for the hub; or note, which the
 // hub handles itself. Reads only: runs the read commands through run(command, argv, {env}) and asks the hub on port.
-export async function doctorReport({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, username = os.userInfo().username, fetch = globalThis.fetch, tailscale = tailscaleBin({ env, platform }), skipped = tailscaleSkipped(tailscale, { env, platform }) } = {}) {
+export async function doctorReport({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, username = os.userInfo().username, fetch = globalThis.fetch, tailscale = tailscaleDaemon({ env, platform, home, port }), others = otherDaemons(tailscale, { env, platform }) } = {}) {
   const hints = INSTALL[platform === 'darwin' ? 'darwin' : 'other'];
   const items = [];
   let group;
@@ -84,7 +84,7 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
       reach.status === 0 ? `git reaches ${repo} over https` : `git can’t reach ${repo} over https: ${reach.error}`,
       ghAuth ? 'gh auth refresh -h github.com, then kickflip doctor' : 'check this machine reaches https://github.com, then kickflip doctor');
   } else add('GitHub clone', 'yours', 'needs git', hints.git);
-  const ts = await tailscaleState({ run: (command, argv) => execute(command, argv), platform, uid, username, port, tailscale, skipped });
+  const ts = await tailscaleState({ run: (command, argv) => execute(command, argv), platform, uid, username, port, tailscale, others });
   for (const entry of ts.prereqs) add(entry.item, entry.state, entry.detail, entry.fix);
   // Only a hub board's session needs tmux (../hub/sessions.mjs hubSession).
   const tmux = execute('tmux', ['-V']);

@@ -151,8 +151,10 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
     import cp from 'node:child_process';
     import os from 'node:os';
     import { syncBuiltinESMExports } from 'node:module';
-    cp.spawnSync = (bin, argv, options) => {
+    cp.spawnSync = (bin, args, options) => {
       const command = bin === ${JSON.stringify(tailscale)} ? 'tailscale' : bin;
+      // On macOS kickflip reaches brew's daemon as tailscale --socket <path> <args> (../shared/tailscale.mjs).
+      const argv = command === 'tailscale' && args[0] === '--socket' ? args.slice(2) : args;
       fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify([command, ...argv]) + '\\n');
       if (!['git', 'node', 'gh', 'tailscale', 'tmux', ...(process.platform === 'darwin' ? ['launchctl'] : ['systemctl', 'loginctl'])].includes(command)) throw new Error('unexpected command: ' + command);
       if (!${healthy}) return { status: 1, stdout: '', stderr: 'unavailable' };
@@ -160,7 +162,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
       if (command === 'launchctl') stdout = 'state = running';
       if (command === 'systemctl' && argv.join(' ') === '--user is-active kickflip-hub.service') stdout = 'active';
       if (command === 'loginctl' && argv.join(' ') === 'show-user ' + process.getuid() + ' --property=Linger') stdout = 'Linger=yes';
-      if (command === 'tailscale' && argv[0] === 'status') stdout = JSON.stringify({ BackendState: 'Running' });
+      if (command === 'tailscale' && argv[0] === 'status') stdout = JSON.stringify({ BackendState: 'Running', Self: { ID: 'n-doctor', HostName: 'doctor-host' } });
       if (command === 'tailscale' && argv.join(' ') === 'debug prefs') stdout = JSON.stringify({ OperatorUser: os.userInfo().username });
       if (command === 'tailscale' && argv[0] === 'serve' && argv[1] === 'status') stdout = JSON.stringify({ Web: { host: { Handlers: { '/': { Proxy: 'http://127.0.0.1:${port}' } } } } });
       return { status: 0, stdout, stderr: '' };
@@ -217,6 +219,7 @@ test('doctor --fix and init CLI run the same setup once and finish with a JSON r
     assert.equal(calls.filter((call) => process.platform === 'darwin' ? call[0] === 'launchctl' && call[1] === 'bootstrap' : call.join(' ') === 'systemctl --user restart kickflip-hub.service').length, 1);
     assert.equal(calls.filter(([command, sub, flag]) => command === 'tailscale' && sub === 'serve' && flag === '--bg').length, 1);
     assert.ok(fs.existsSync(path.join(fixture.scratch, '.claude', 'settings.json')));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(fixture.scratch, '.claude', 'kickflip', 'settings.json'), 'utf8')).tailscale.node, 'n-doctor');
   }
 });
 

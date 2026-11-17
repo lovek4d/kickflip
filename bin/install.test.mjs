@@ -9,6 +9,9 @@ import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { doctorReport, doctorLines, runDoctor } from './doctor.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
+import { DARWIN_SOCKET } from '../shared/tailscale.mjs';
+
+const CLI = { kind: 'cli', cli: 'tailscale' };
 
 let home;
 let root;
@@ -436,6 +439,30 @@ test('the uninstall command removes the owned status-line link and preserves ski
   assert.equal(fs.readFileSync(settingsFile(), 'utf8'), before);
 });
 
+test('uninstall unmaps / only on the recorded daemon, and leaves it mapped with the fault when another daemon answers', () => {
+  const stub = path.join(home, 'ts-bin', 'tailscale');
+  const log = path.join(home, 'ts-calls');
+  fs.mkdirSync(path.dirname(stub), { recursive: true });
+  fs.writeFileSync(stub, `#!/bin/sh\necho "$@" >> '${log}'\necho '{"BackendState":"Running","Self":{"ID":"nBrew","HostName":"brew-mac"}}'\n`, { mode: 0o755 });
+  const record = (node) => {
+    fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tailscale: { kind: 'cli', cli: stub, node } }));
+  };
+  const uninstall = () => spawnSync(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'uninstall'], {
+    env: { ...process.env, HOME: home, KICKFLIP_TAILSCALE: '', KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: path.join(home, 'no-bin'), KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8',
+  });
+  record('nApp');
+  const refused = uninstall();
+  assert.equal(refused.status, 0, refused.stderr);
+  assert.match(refused.stdout, /; tailscale \/ left mapped: Tailscale's recorded daemon isn't running \(brew-mac answered in its place\); start it, or run kickflip doctor --fix to pick again\./);
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['status --json']);
+  fs.rmSync(log);
+  record('nBrew');
+  const unmapped = uninstall();
+  assert.match(unmapped.stdout, /; tailscale \/ unmapped\./);
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['status --json', 'serve --https=443 --set-path=/ off']);
+});
+
 const CLONE_CONFIG = '-c credential.helper= -c credential.https://github.com.helper=!gh auth git-credential';
 const SKILLS_TREE = 'gh api repos/mattpocock/skills/git/trees/HEAD?recursive=1 --jq .tree[] | select(.type == "tree") | .path + " " + .sha';
 const SKILL_FOLDERS = { 'improve-codebase-architecture': 'skills/engineering', 'codebase-design': 'skills/engineering', grilling: 'skills/productivity', prototype: 'skills/engineering' };
@@ -491,7 +518,7 @@ function healthyDoctor() {
   const env = { PATH: path.join(home, 'doctor-bin'), HOME: home, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' };
   fs.mkdirSync(env.PATH);
   fs.writeFileSync(path.join(env.PATH, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  const options = { home, cloneRoot: root, port, uid: 501, env, platform: 'darwin', tailscale: 'tailscale',
+  const options = { home, cloneRoot: root, port, uid: 501, env, platform: 'darwin', tailscale: CLI, others: [],
     run: (command, argv, passed) => {
       assert.deepEqual(passed.env, command === 'git' && argv.includes('ls-remote') ? { ...env, GIT_TERMINAL_PROMPT: '0' } : env);
       const key = [command, ...argv].join(' ');
@@ -847,7 +874,7 @@ test('the shared install steps run links, settings, launchd and Tailscale once w
   const waits = [];
   const logs = [];
   const port = 19460;
-  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', tailscale: 'tailscale', wait: async (ms) => waits.push(ms), log: (line) => logs.push(line),
+  await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', tailscale: CLI, wait: async (ms) => waits.push(ms), log: (line) => logs.push(line),
     fetch: async (url) => {
       assert.equal(url, `http://127.0.0.1:${port}/_hub/status.json`);
       return { ok: true, json: async () => ({ sites: [] }) };
@@ -878,7 +905,7 @@ test('the shared install steps run links, settings, launchd and Tailscale once w
 test('on Linux the shared install steps start a systemd user unit in place of a login item', async () => {
   reviewSkills();
   const calls = [];
-  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', tailscale: 'tailscale', wait: async () => {}, log: () => {},
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', tailscale: CLI, wait: async () => {}, log: () => {},
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
     run: (command, argv) => {
       calls.push([command, ...argv].join(' '));
@@ -1002,7 +1029,7 @@ test('tailnetUrl gives the hub or a site at this host’s tailnet name, and says
     return status === null ? { status: 1, stdout: '', error: 'spawnSync tailscale ENOENT' } : { status: 0, stdout: JSON.stringify(status) };
   };
   const on = { BackendState: 'Running', CertDomains: ['mac.tailnet-name.ts.net'], Self: { DNSName: 'mac.tailnet-name.ts.net.' } };
-  const url = (route, status) => tailnetUrl(route, { run: runner(status), tailscale: 'tailscale' });
+  const url = (route, status) => tailnetUrl(route, { run: runner(status), tailscale: CLI });
   assert.equal(url(undefined, on), 'https://mac.tailnet-name.ts.net/');
   assert.equal(url('kickflip', on), 'https://mac.tailnet-name.ts.net/kickflip/');
   assert.deepEqual([...new Set(calls)], ['tailscale status --json']);
@@ -1013,28 +1040,85 @@ test('tailnetUrl gives the hub or a site at this host’s tailnet name, and says
   assert.throws(() => tailnetUrl(undefined, { run: runner(on), tailscale: null, platform: 'darwin' }),
     /^Error: Tailscale isn't installed on this host; install Tailscale from https:\/\/tailscale\.com\/download, or brew install --cask tailscale-app$/);
   assert.deepEqual(calls, []);
-  assert.equal(tailnetUrl('kickflip', { run: runner(on), tailscale: APP_CLI }), 'https://mac.tailnet-name.ts.net/kickflip/');
+  assert.equal(tailnetUrl('kickflip', { run: runner(on), tailscale: APP }), 'https://mac.tailnet-name.ts.net/kickflip/');
   assert.deepEqual(calls, [`${APP_CLI} status --json`]);
+  calls.length = 0;
+  assert.equal(tailnetUrl('kickflip', { run: runner(on), tailscale: BREW }), 'https://mac.tailnet-name.ts.net/kickflip/');
+  assert.deepEqual(calls, [`${BREW_CLI} --socket ${DARWIN_SOCKET} status --json`]);
+});
+
+test('tailnetUrl refuses when another daemon answers for the recorded one, naming that machine and the re-pick', () => {
+  const run = () => ({ status: 0, stdout: JSON.stringify({ BackendState: 'Running', CertDomains: ['brew.ts.net'], Self: { ID: 'nBrew', HostName: 'brew-mac', DNSName: 'brew.ts.net.' } }) });
+  assert.throws(() => tailnetUrl(undefined, { run, tailscale: { ...APP, node: 'nApp' } }),
+    /^Error: Tailscale's recorded daemon isn't running \(brew-mac answered in its place\); start it, or run kickflip doctor --fix to pick again$/);
+  assert.equal(tailnetUrl(undefined, { run, tailscale: { ...BREW, node: 'nBrew' } }), 'https://brew.ts.net/');
 });
 
 const APP_CLI = '/Applications/Tailscale.app/Contents/MacOS/Tailscale';
+const APP = { kind: 'app', cli: APP_CLI };
+const BREW_CLI = '/opt/homebrew/bin/tailscale';
+const BREW = { kind: 'tailscaled', cli: BREW_CLI, socket: DARWIN_SOCKET };
+// healthyDoctor's tailscale responses, as daemon answers them.
+const through = (responses, daemon) => {
+  const prefix = [daemon.cli, ...(daemon.socket ? ['--socket', daemon.socket] : [])].join(' ');
+  for (const [key, value] of [...responses]) if (key.startsWith('tailscale ')) responses.set(key.replace('tailscale', prefix), value);
+};
 
-test('doctor names the tailscale binary it found, the GUI app’s included, and runs every check through it', async () => {
-  const { options, responses, calls } = healthyDoctor();
-  for (const [key, value] of [...responses]) if (key.startsWith('tailscale ')) responses.set(key.replace('tailscale', APP_CLI), value);
-  const items = await doctorReport({ ...options, tailscale: APP_CLI });
-  assert.deepEqual(pick(items, 'Tailscale'), { group: 'prereqs', item: 'Tailscale', state: 'ok', detail: `1.90.0 (${APP_CLI})`, fix: null });
-  assert.equal(pick(items, 'tailscale /').state, 'ok');
-  assert.ok(calls.some((call) => call.startsWith(`${APP_CLI} serve status`)));
-  assert.ok(!calls.some((call) => call.startsWith('tailscale ')));
+for (const [daemon, label, prefix] of [[APP, `the Tailscale app, ${APP_CLI}`, APP_CLI], [BREW, `tailscaled, ${BREW_CLI} --socket ${DARWIN_SOCKET}`, `${BREW_CLI} --socket ${DARWIN_SOCKET}`]]) {
+  test(`doctor names the chosen daemon and its machine, and runs every check through it: ${daemon.kind}`, async () => {
+    const { options, responses, calls } = healthyDoctor();
+    through(responses, daemon);
+    const items = await doctorReport({ ...options, tailscale: daemon });
+    assert.deepEqual(pick(items, 'Tailscale'), { group: 'prereqs', item: 'Tailscale', state: 'ok', detail: `1.90.0 (${label}) on mac`, fix: null });
+    assert.equal(pick(items, 'tailscale /').state, 'ok');
+    assert.ok(calls.some((call) => call.startsWith(`${prefix} serve status`)));
+    assert.ok(!calls.some((call) => call.startsWith('tailscale ')));
+  });
+}
+
+test('doctor’s Tailscale line notes another running daemon and its machine, and stays ok', async () => {
+  const { options, responses } = healthyDoctor();
+  through(responses, APP);
+  const items = await doctorReport({ ...options, tailscale: APP, others: [{ daemon: BREW, machine: 'brew-mac' }] });
+  assert.deepEqual(pick(items, 'Tailscale'), { group: 'prereqs', item: 'Tailscale', state: 'ok',
+    detail: `1.90.0 (the Tailscale app, ${APP_CLI}) on mac; also running: tailscaled, ${BREW_CLI} --socket ${DARWIN_SOCKET} on brew-mac`, fix: null });
+  assert.equal(pick(items, 'Tailscale signed in').state, 'ok');
 });
 
-test('doctor’s Tailscale line names a CLI it skipped because its daemon isn’t running, with no fix to run', async () => {
-  const { options, responses } = healthyDoctor();
-  for (const [key, value] of [...responses]) if (key.startsWith('tailscale ')) responses.set(key.replace('tailscale', APP_CLI), value);
-  const items = await doctorReport({ ...options, tailscale: APP_CLI, skipped: ['/opt/homebrew/bin/tailscale'] });
-  assert.deepEqual(pick(items, 'Tailscale'), { group: 'prereqs', item: 'Tailscale', state: 'ok',
-    detail: `1.90.0 (${APP_CLI}); skipped /opt/homebrew/bin/tailscale, whose daemon isn’t running`, fix: null });
+test('with the recorded daemon down, doctor stays on it and faults, and doctor --fix picks again', async () => {
+  const { options, responses, calls } = healthyDoctor();
+  through(responses, APP);
+  // The app is quit, so its CLI falls through to brew's socket and answers as brew's node.
+  responses.set(`${APP_CLI} status --json`, { status: 0, stdout: JSON.stringify({ BackendState: 'Running', Self: { ID: 'nBrew', HostName: 'brew-mac', DNSName: 'brew.ts.net.' } }) });
+  const items = await doctorReport({ ...options, tailscale: { ...APP, node: 'nApp' }, others: [{ daemon: BREW, machine: 'brew-mac' }] });
+  assert.deepEqual(pick(items, 'Tailscale signed in'), { group: 'prereqs', item: 'Tailscale signed in', state: 'fixable',
+    detail: 'the recorded daemon isn’t running; brew-mac answered in its place', fix: 'kickflip doctor --fix' });
+  assert.equal(pick(items, 'Tailscale').detail, `1.90.0 (the Tailscale app, ${APP_CLI}); also running: tailscaled, ${BREW_CLI} --socket ${DARWIN_SOCKET} on brew-mac`);
+  assert.deepEqual(pick(items, 'tailscale /'), { group: 'hub', item: 'tailscale /', state: 'fixable', detail: `nothing (expected the hub on ${options.port})`, fix: 'kickflip doctor --fix' });
+  // Nothing is read from the daemon that answered in its place.
+  assert.ok(!calls.some((call) => call.includes('serve status')));
+  // Down with nothing else running: start it.
+  responses.set(`${APP_CLI} status --json`, { status: 1, stdout: '' });
+  const alone = await doctorReport({ ...options, tailscale: { ...APP, node: 'nApp' } });
+  assert.deepEqual(pick(alone, 'Tailscale signed in'), { group: 'prereqs', item: 'Tailscale signed in', state: 'yours', detail: 'not connected', fix: 'tailscale up' });
+});
+
+test('install picks the daemon again and records it in the hub’s settings, and maps / through it', async () => {
+  const bin = path.join(home, 'ts-bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'tailscale'), `#!/bin/sh\necho '{"BackendState":"Running","Self":{"ID":"nLinux"}}'\n`, { mode: 0o755 });
+  const settingsFile = path.join(home, '.claude', 'kickflip', 'settings.json');
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+  fs.writeFileSync(settingsFile, JSON.stringify({ claudeModel: 'auto', tailscale: { kind: 'cli', cli: '/gone/tailscale', node: 'nOld' } }));
+  const calls = [];
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', env: { PATH: bin }, wait: async () => {}, log: () => {},
+    fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
+    run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
+  });
+  const cli = path.join(bin, 'tailscale');
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), { claudeModel: 'auto', tailscale: { kind: 'cli', cli, node: 'nLinux' } });
+  // The recorded node is checked before / is mapped.
+  assert.deepEqual(calls.filter((call) => call.includes('tailscale')), [`${cli} status --json`, `${cli} serve --bg 19460`, `${cli} serve status --json`]);
 });
 
 test('with no tailscale anywhere, doctor says so once, runs nothing and names the download page on macOS', async () => {
@@ -1060,13 +1144,27 @@ test('with no tailscale, install still starts the hub and skips only the mapping
   assert.equal(logs.at(-1), "skipped mapping tailscale / to the hub: Tailscale isn't installed on this host; install Tailscale from https://tailscale.com/download, or brew install --cask tailscale-app");
 });
 
-test('install maps the hub through the GUI app’s tailscale when that is the one found', async () => {
+test('with the app recorded and quit, install refuses to map / with the recorded-daemon fault, and serves nothing on the daemon that answered', async () => {
   const calls = [];
-  await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailscale: APP_CLI, wait: async () => {}, log: () => {},
+  await assert.rejects(runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailscale: { ...APP, node: 'nApp' }, wait: async () => {}, log: () => {},
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
-    run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
-  });
-  assert.deepEqual(calls.filter((call) => /tailscale/i.test(call)), [`${APP_CLI} serve --bg 19460`, `${APP_CLI} serve status --json`]);
+    run: (command, argv) => {
+      calls.push([command, ...argv].join(' '));
+      return { status: 0, stdout: argv.join(' ') === 'status --json' ? JSON.stringify({ BackendState: 'Running', Self: { ID: 'nBrew', HostName: 'brew-mac' } }) : '{}' };
+    },
+  }), /^Error: Tailscale's recorded daemon isn't running \(brew-mac answered in its place\); start it, or run kickflip doctor --fix to pick again$/);
+  assert.deepEqual(calls.filter((call) => call.includes(APP_CLI)), [`${APP_CLI} status --json`]);
+});
+
+test('install maps the hub through the chosen daemon, the GUI app’s or brew’s with its socket', async () => {
+  for (const [daemon, prefix] of [[APP, APP_CLI], [BREW, `${BREW_CLI} --socket ${DARWIN_SOCKET}`]]) {
+    const calls = [];
+    await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailscale: daemon, wait: async () => {}, log: () => {},
+      fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
+      run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
+    });
+    assert.deepEqual(calls.filter((call) => /tailscale/i.test(call)), [`${prefix} serve --bg 19460`, `${prefix} serve status --json`]);
+  }
 });
 
 test('nodeBin names the Homebrew link only when the running node is the Cellar node', () => {

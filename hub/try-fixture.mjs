@@ -33,7 +33,9 @@ if (args.join(' ') === 'serve status --json') {
   console.error('version warning');
   console.log(fs.readFileSync(path.join(process.env.HOME, 'tailscale.status'), 'utf8'));
 } else if (args.join(' ') === 'status --json') {
-  console.log(JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.ts.net.' } }));
+  // tailscale.node, when written, is the node this daemon answers as.
+  const node = path.join(process.env.HOME, 'tailscale.node');
+  console.log(JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'mac.ts.net.', HostName: 'mac', ...(fs.existsSync(node) && { ID: fs.readFileSync(node, 'utf8') }) } }));
 } else if (args.join(' ') === 'debug prefs') {
   console.log(JSON.stringify({ OperatorUser: require('node:os').userInfo().username }));
 } else if (args.includes('--bg') && fs.existsSync(path.join(process.env.HOME, 'tailscale.fail'))) {

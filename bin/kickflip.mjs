@@ -194,7 +194,7 @@ import { defaultBranch, githubFromOrigin } from '../hub/repos.mjs';
 import { boardFiles, connects, freePort as findPort } from '../hub/board-site.mjs';
 import { uninstallStatusLine, nodeBin, watcherCommand, tailnetUrl } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
-import { tailscaleBin } from '../shared/tailscale.mjs';
+import { tailscaleDaemon, tailscaleArgv, answeredBy, recordedFault } from '../shared/tailscale.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
@@ -281,13 +281,14 @@ async function withLock(fn) {
 // A port for a new site (../hub/board-site.mjs freePort), or a failure when none is free.
 const freePort = (m) => findPort(m).catch((e) => fail(e.message));
 
-// The host's tailnet name, or '' when Tailscale isn't installed or running, so a site's address falls back to loopback.
+// The host's tailnet name, or '' when Tailscale isn't installed or its recorded daemon isn't running, so a site's address
+// falls back to loopback.
 function tailnetHost() {
-  const tailscale = tailscaleBin();
+  const tailscale = tailscaleDaemon();
   if (!tailscale) return '';
   try {
-    const s = JSON.parse(execFileSync(tailscale, ['status', '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
-    return (s.Self?.DNSName || '').replace(/\.$/, '');
+    const s = JSON.parse(execFileSync(...tailscaleArgv(tailscale, ['status', '--json']), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+    return answeredBy(tailscale, s) ? '' : (s.Self?.DNSName || '').replace(/\.$/, '');
   } catch { return ''; }
 }
 const siteUrl = (route) => { const h = tailnetHost(); return h ? `https://${h}/${route}/` : `http://127.0.0.1:${HUB_PORT}/${route}/`; };
@@ -910,9 +911,12 @@ const commands = {
     if (uninstallStatusLine()) out(`removed ${path.join(os.homedir(), '.claude', 'statusline.sh')}`);
     const service = hubService();
     service.remove();
-    const tailscale = tailscaleBin();
-    if (tailscale) try { execFileSync(tailscale, ['serve', '--https=443', '--set-path=/', 'off'], { stdio: 'ignore' }); } catch {}
-    out(`hub stopped and removed from ${service.manager ?? 'the host'}${tailscale ? '; tailscale / unmapped' : ''}. The manifest and sites are kept in ${HOME}`);
+    const tailscale = tailscaleDaemon();
+    const read = (args) => { try { return execFileSync(...tailscaleArgv(tailscale, args), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return ''; } };
+    // The unmap lands only on the recorded daemon (../shared/tailscale.mjs recordedFault).
+    const fault = tailscale?.node && recordedFault(tailscale, read(['status', '--json']));
+    if (tailscale && !fault) read(['serve', '--https=443', '--set-path=/', 'off']);
+    out(`hub stopped and removed from ${service.manager ?? 'the host'}${fault ? `; tailscale / left mapped: ${fault}` : tailscale ? '; tailscale / unmapped' : ''}. The manifest and sites are kept in ${HOME}`);
   },
 
   async push() {

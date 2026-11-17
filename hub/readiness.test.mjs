@@ -6,6 +6,8 @@ import path from 'node:path';
 import { readinessReader, readinessRows } from './readiness.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
+const CLI = { kind: 'cli', cli: 'tailscale' };
+
 const now = Date.parse('2026-11-02T17:00:00Z');
 const tailscale = { installed: true, signedIn: true, pointsAtHub: true, dns: 'host.ts.net', operatorChecked: true, operator: 'love', username: 'love' };
 const ready = () => ({ github: 'love', codex: { usable: true }, linear: { set: true, workspace: 'Work' }, slack: { set: true, team: 'Acme', user: 'love' }, tailscale, notifications: { on: true, devices: DEVICES } });
@@ -49,6 +51,8 @@ test('Tailscale uses the first failing check and doctor fixes; Notifications ign
   assert.equal(row({ ...tailscale, installed: false }, 'darwin').fix.command, 'brew install --cask tailscale-app');
   assert.equal(row({ ...tailscale, installed: false }, 'linux').fix.command, 'curl -fsSL https://tailscale.com/install.sh | sh');
   assert.equal(row({ ...tailscale, signedIn: false, pointsAtHub: false }).fix.command, 'tailscale up');
+  const elsewhere = row({ ...tailscale, signedIn: false, elsewhere: 'brew-mac', pointsAtHub: false });
+  assert.deepEqual([elsewhere.missing, elsewhere.fix.command], ["Tailscale's recorded daemon isn't running; brew-mac answered in its place", 'kickflip doctor --fix']);
   assert.equal(row({ ...tailscale, pointsAtHub: false, operator: 'other' }).fix.command, 'kickflip doctor --fix');
   assert.equal(row({ ...tailscale, operator: 'other' }).fix.command, 'sudo tailscale set --operator=$USER');
   assert.equal(row({ ...tailscale, operatorChecked: false }).detail, 'Serving host.ts.net');
@@ -122,7 +126,7 @@ test('readiness uses the extracted Tailscale checks with an asynchronous runner'
     }[args.join(' ')];
     return { status: 0, stdout: typeof output === 'string' ? output : JSON.stringify(output) };
   };
-  const options = { run, platform: 'linux', uid: 1000, username: 'love', port: 4501, tailscale: 'tailscale' };
+  const options = { run, platform: 'linux', uid: 1000, username: 'love', port: 4501, tailscale: CLI };
   const state = await tailscaleState(options);
   const row = readinessRows({ tailscale: state })[0];
   assert.equal(row.ready, true);

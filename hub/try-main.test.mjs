@@ -644,6 +644,27 @@ test('startup removes only unowned in-range ports and parses stdout despite a ve
   assert.deepEqual(calls(), ['serve status --json', 'serve --https=8500 off', 'serve --https=8599 off']);
 });
 
+test('with the app recorded and quit, a try port is refused with the recorded-daemon fault and no serve lands on the daemon that answered', async (t) => {
+  fakeRelays(t);
+  // The quit app's CLI falls through to brew's socket, so the daemon that answers is brew's node.
+  write(path.join(home, 'tailscale.node'), 'nBrew');
+  t.after(() => fs.rmSync(path.join(home, 'tailscale.node'), { force: true }));
+  const recorded = { kind: 'app', cli: path.join(bin, 'tailscale'), node: 'nApp' };
+  setManager(tryManager({ answers: async () => true, log() {}, daemon: () => recorded }));
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  await start();
+  await manager.settled();
+  assert.equal(state().cards['w/A1'].state, 'failed');
+  assert.match(thread()[0].detail, /Couldn't open try port 8500: Tailscale's recorded daemon isn't running \(mac answered in its place\); start it, or run kickflip doctor --fix to pick again/);
+  assert.deepEqual(calls().filter((call) => call.startsWith('serve')), []);
+  // Once the recorded node answers, the port is served.
+  recorded.node = 'nBrew';
+  await start();
+  await manager.settled();
+  assert.equal(state().cards['w/A1'].state, 'ready');
+  assert.ok(calls().some((call) => call.startsWith('serve --bg --https=8500 ')));
+});
+
 test('a failed Tailscale registration fails the run with stderr and removes the port, and a served card whose server dies serves again', async (t) => {
   const relays = fakeRelays(t);
   setManager(tryManager({ answers: async () => true, log() {} }));

@@ -9,7 +9,7 @@ import { linearStatus } from './linear.mjs';
 import { slackStatus } from './slack.mjs';
 import { readSettings, subscriptions } from './push.mjs';
 import { tailscaleState } from '../bin/install.mjs';
-import { tailscaleBin, tailscaleInstallCommand } from '../shared/tailscale.mjs';
+import { tailscaleDaemon, tailscaleInstallCommand } from '../shared/tailscale.mjs';
 
 // The third entry is the sentence a missing integration shows, or null for a row that shows none. Linear and Slack rows carry keyButton, the words of the
 // button that opens their key modal on the Hub page, in every state (docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md).
@@ -60,6 +60,7 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
       case 'tailscale': {
         let missing, command;
         if (!value.installed) { missing = "Tailscale isn't installed on the host"; command = tailscaleInstallCommand(platform); }
+        else if (value.elsewhere) { missing = `Tailscale's recorded daemon isn't running; ${value.elsewhere} answered in its place`; command = 'kickflip doctor --fix'; }
         else if (!value.signedIn) { missing = "Tailscale isn't signed in"; command = 'tailscale up'; }
         else if (!value.pointsAtHub) { missing = 'Tailscale / is not serving the hub'; command = 'kickflip doctor --fix'; }
         else if (value.operatorChecked && value.operator !== value.username) { missing = `Tailscale operator is ${value.operator || 'none'} (expected ${value.username})`; command = 'sudo tailscale set --operator=$USER'; }
@@ -88,7 +89,7 @@ export function readinessReader({ home = os.homedir(), env = process.env, now = 
     codex,
     linear: () => linearStatus(home),
     slack: () => slackStatus(home),
-    tailscale: () => tailscaleState({ run: asyncRun(env), port, tailscale: tailscaleBin({ env }) }),
+    tailscale: () => tailscaleState({ run: asyncRun(env), port, tailscale: tailscaleDaemon({ env, home, port }) }),
     notifications: () => ({ on: readSettings(home).notifications.on, devices: subscriptions(home) }),
     ...probes,
   };

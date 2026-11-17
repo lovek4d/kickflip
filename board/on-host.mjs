@@ -12,7 +12,7 @@
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { tailscaleBin } from '../shared/tailscale.mjs';
+import { tailscaleDaemon, tailscaleArgv, answeredBy } from '../shared/tailscale.mjs';
 
 const run = promisify(execFile);
 const bare = (address) => String(address || '').trim().replace(/^::ffff:/, '');
@@ -20,13 +20,15 @@ const bare = (address) => String(address || '').trim().replace(/^::ffff:/, '');
 const interfaceAddresses = () => Object.values(os.networkInterfaces()).flat().map((a) => a.address);
 
 // → {login, name, dnsName, addresses} of the host's own tailnet node, name being its user's display name and dnsName its
-// MagicDNS name, or null when tailscale isn't installed or doesn't answer
+// MagicDNS name, or null when tailscale isn't installed, doesn't answer, or another daemon answers for the recorded one
 async function tailnetNode() {
-  const tailscale = tailscaleBin();
+  const tailscale = tailscaleDaemon();
   if (!tailscale) return null;
   try {
-    const { stdout } = await run(tailscale, ['status', '--json'], { timeout: 5000 });
-    const { Self, User } = JSON.parse(stdout);
+    const { stdout } = await run(...tailscaleArgv(tailscale, ['status', '--json']), { timeout: 5000 });
+    const status = JSON.parse(stdout);
+    if (answeredBy(tailscale, status)) return null;
+    const { Self, User } = status;
     const user = User?.[Self.UserID];
     return { login: user?.LoginName, name: user?.DisplayName || null, dnsName: String(Self.DNSName || '').replace(/\.$/, '') || null, addresses: Self.TailscaleIPs || [] };
   } catch { return null; }

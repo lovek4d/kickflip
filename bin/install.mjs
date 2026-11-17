@@ -4,7 +4,7 @@ import path from 'node:path';
 import { SKILLS_SOURCE, addArgv, addCommand, missingSkills } from '../shared/skills.mjs';
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
-import { tailscaleBin, tailscaleInstallHint } from '../shared/tailscale.mjs';
+import { tailscaleDaemon, repickDaemon, tailscaleArgv, answeredBy, recordedFault, daemonLabel, tailscaleRoot, servesHub, tailscaleInstallHint } from '../shared/tailscale.mjs';
 
 // Homebrew's node link survives `brew upgrade`, which removes the versioned Cellar folder process.execPath names.
 // Another install (nvm, a system node) keeps its own execPath.
@@ -121,57 +121,60 @@ export async function hubStatus({ port = Number(process.env.KICKFLIP_HUB_PORT ||
   } catch { return null; }
 }
 
-export function tailscaleRoot(config) {
-  const handlers = Object.entries(config?.Web || {}).filter(([host]) => !/:\d+$/.test(host) || host.endsWith(':443')).flatMap(([, web]) => Object.entries(web.Handlers || {}));
-  return { root: handlers.find(([route]) => route === '/')?.[1]?.Proxy || null, paths: [...new Set(handlers.map(([route]) => route))] };
-}
-
 // The HTTPS address the phone opens: tailscale / is the hub, so the hub is at https://<host>/ and a site at
 // https://<host>/<route>/, as kickflip.mjs siteUrl builds it. Throws the one-line reason when Tailscale isn't installed
-// or running, or the tailnet has no HTTPS certificate for this host. tailscale: the CLI (../shared/tailscale.mjs).
-export function tailnetUrl(route, { run = runCommand, platform = process.platform, tailscale = tailscaleBin({ platform }) } = {}) {
+// or running, or the tailnet has no HTTPS certificate for this host. tailscale: the daemon (../shared/tailscale.mjs).
+export function tailnetUrl(route, { run = runCommand, platform = process.platform, tailscale = tailscaleDaemon({ platform }) } = {}) {
   if (!tailscale) throw new Error(`Tailscale isn't installed on this host; ${tailscaleInstallHint(platform)}`);
-  const r = run(tailscale, ['status', '--json']);
+  const r = run(...tailscaleArgv(tailscale, ['status', '--json']));
   let status = null;
   try { status = r.status === 0 ? JSON.parse(r.stdout) : null; } catch {}
+  const fault = recordedFault(tailscale, r.stdout);
+  if (fault) throw new Error(fault);
   if (status?.BackendState !== 'Running') throw new Error("Tailscale isn't running on this host; start it, or run tailscale up");
   const host = status.Self?.DNSName?.replace(/\.$/, '') || '';
   if (!host || !status.CertDomains?.includes(host)) throw new Error("HTTPS isn't on for this tailnet; turn on HTTPS Certificates on the DNS page of the Tailscale admin console");
   return `https://${host}/${route ? route + '/' : ''}`;
 }
 
-// tailscale: the CLI to run (../shared/tailscale.mjs), null when there is none; skipped: the CLIs passed over to reach it.
-export async function tailscaleState({ skipped = [], run = runCommand, platform = process.platform, uid = process.getuid(), username = os.userInfo().username, port = Number(process.env.KICKFLIP_HUB_PORT || 4500), tailscale = tailscaleBin({ platform }) } = {}) {
+// tailscale: the daemon to run (../shared/tailscale.mjs), null when there is none; others: the other running daemons,
+// [{daemon, machine}], which doctor names. elsewhere: the machine of another daemon that answered for the recorded one,
+// which then isn't running.
+export async function tailscaleState({ others = [], run = runCommand, platform = process.platform, uid = process.getuid(), username = os.userInfo().username, port = Number(process.env.KICKFLIP_HUB_PORT || 4500), tailscale = tailscaleDaemon({ platform, port }) } = {}) {
   const execute = async (args) => {
-    try { return await run(tailscale, args); } catch (e) { return { status: 1, error: e.message }; }
+    try { return await run(...tailscaleArgv(tailscale, args)); } catch (e) { return { status: 1, error: e.message }; }
   };
   const json = (r) => { try { return r.status === 0 ? JSON.parse(r.stdout) : null; } catch { return null; } };
   const version = tailscale ? await execute(['version']) : null;
   const installed = version?.status === 0;
   const status = installed ? json(await execute(['status', '--json'])) : null;
-  const signedIn = status?.BackendState === 'Running';
-  const dns = status?.Self?.DNSName?.replace(/\.$/, '') || '';
-  const operatorChecked = installed && platform === 'linux' && uid !== 0;
+  const elsewhere = answeredBy(tailscale, status);
+  const signedIn = status?.BackendState === 'Running' && !elsewhere;
+  const dns = signedIn ? status.Self?.DNSName?.replace(/\.$/, '') || '' : '';
+  const operatorChecked = installed && !elsewhere && platform === 'linux' && uid !== 0;
   const operator = operatorChecked ? json(await execute(['debug', 'prefs']))?.OperatorUser : null;
-  const serveConfig = installed ? json(await execute(['serve', 'status', '--json'])) : null;
+  const serveConfig = installed && !elsewhere ? json(await execute(['serve', 'status', '--json'])) : null;
   const serve = tailscaleRoot(serveConfig);
-  let pointsAtHub = false;
-  try {
-    const url = new URL(serve.root);
-    pointsAtHub = url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && Number(url.port) === port && url.pathname === '/' && !url.search && !url.hash;
-  } catch {}
+  const pointsAtHub = servesHub(serveConfig, port);
   const entry = (item, ok, detail, fix, state = 'yours') => ({ item, state: ok ? 'ok' : state, detail, fix: ok ? null : fix });
+  const machine = signedIn && (status.Self?.HostName || dns.split('.')[0]);
+  const running = others.map(({ daemon, machine }) => `${daemonLabel(daemon)}${machine ? ` on ${machine}` : ''}`).join(' and ');
+  // A recorded daemon that's down stays chosen; with another running, doctor --fix picks again (owner, gh481-recorded-down).
+  const repick = Boolean(elsewhere || others.length);
   const prereqs = [
-    entry('Tailscale', installed, installed ? `${(version.stdout || 'installed').trim().split('\n')[0]} (${tailscale})${skipped.length ? `; skipped ${skipped.join(', ')}, whose daemon${skipped.length === 1 ? ' isn’t' : 's aren’t'} running` : ''}` : `not on this session’s PATH${platform === 'darwin' ? ' or in Applications' : ''}`, tailscaleInstallHint(platform)),
-    entry('Tailscale signed in', signedIn, signedIn ? `signed in${dns ? ' as ' + dns : ''}` : installed ? 'not connected' : 'needs Tailscale', 'tailscale up'),
+    entry('Tailscale', installed, installed ? `${(version.stdout || 'installed').trim().split('\n')[0]} (${daemonLabel(tailscale)})${machine ? ` on ${machine}` : ''}${running ? `; also running: ${running}` : ''}` : `not on this session’s PATH${platform === 'darwin' ? ' or in Applications' : ''}`, tailscaleInstallHint(platform)),
+    entry('Tailscale signed in', signedIn, signedIn ? `signed in${dns ? ' as ' + dns : ''}` : elsewhere ? `the recorded daemon isn’t running; ${elsewhere} answered in its place` : installed ? 'not connected' : 'needs Tailscale',
+      repick ? 'kickflip doctor --fix' : 'tailscale up', repick ? 'fixable' : 'yours'),
   ];
   if (operatorChecked) prereqs.push(entry('Tailscale operator', operator === username, operator === username ? username : `${operator || 'none'} (expected ${username})`, 'sudo tailscale set --operator=$USER'));
   const mounts = serve.paths.filter((route) => route !== '/');
-  const root = entry('tailscale /', pointsAtHub, `${serve.root || 'nothing'}${pointsAtHub ? '' : ` (expected the hub on ${port})`}${mounts.length ? '; other mounts: ' + mounts.join(', ') : ''}`, signedIn ? 'kickflip doctor --fix' : installed ? 'tailscale up' : tailscaleInstallHint(platform), signedIn ? 'fixable' : 'yours');
-  return { installed, signedIn, dns, operatorChecked, operator, username, pointsAtHub, prereqs, root, serveConfig };
+  const fixable = signedIn || repick;
+  const root = entry('tailscale /', pointsAtHub, `${serve.root || 'nothing'}${pointsAtHub ? '' : ` (expected the hub on ${port})`}${mounts.length ? '; other mounts: ' + mounts.join(', ') : ''}`, fixable ? 'kickflip doctor --fix' : installed ? 'tailscale up' : tailscaleInstallHint(platform), fixable ? 'fixable' : 'yours');
+  return { installed, signedIn, elsewhere, dns, operatorChecked, operator, username, pointsAtHub, prereqs, root, serveConfig };
 }
 
-export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, tailscale = tailscaleBin({ env, platform }), wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log } = {}) {
+// tailscale: the daemon to map / on; by default init's pick made again and recorded (../shared/tailscale.mjs repickDaemon).
+export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log, tailscale = dryRun ? null : repickDaemon({ env, platform, home, port }) } = {}) {
   const state = path.join(home, '.claude', 'kickflip');
   const service = hubService({ platform, home, uid, env, run });
   if (dryRun) {
@@ -206,15 +209,17 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
   if (!up) throw new Error('hub did not start; see ' + hubLog);
   // With no Tailscale the hub still serves this host, so a board starts and lands; doctor and the hub's Tailscale row say what's missing.
   if (!tailscale) return log(`skipped mapping tailscale / to the hub: Tailscale isn't installed on this host; ${tailscaleInstallHint(platform)}`);
-  const mapped = run(tailscale, ['serve', '--bg', String(port)], { env });
+  const fault = tailscale.node && recordedFault(tailscale, run(...tailscaleArgv(tailscale, ['status', '--json']), { env }).stdout);
+  if (fault) throw new Error(fault);
+  const mapped = run(...tailscaleArgv(tailscale, ['serve', '--bg', String(port)]), { env });
   if (mapped.status !== 0) throw new Error(mapped.error || 'tailscale serve failed');
-  const served = run(tailscale, ['serve', 'status', '--json'], { env });
+  const served = run(...tailscaleArgv(tailscale, ['serve', 'status', '--json']), { env });
   let config;
   try { config = JSON.parse(served.stdout); } catch { return; }
   let sites = {};
   try { sites = JSON.parse(fs.readFileSync(path.join(state, 'manifest.json'), 'utf8')).sites || {}; } catch (e) { if (e.code !== 'ENOENT') throw e; }
   for (const route of tailscaleRoot(config).paths) {
-    if (route !== '/' && Object.hasOwn(sites, route.replace(/^\//, '').replace(/\/$/, ''))) run(tailscale, ['serve', '--https=443', '--set-path=' + route, 'off'], { env });
+    if (route !== '/' && Object.hasOwn(sites, route.replace(/^\//, '').replace(/\/$/, ''))) run(...tailscaleArgv(tailscale, ['serve', '--https=443', '--set-path=' + route, 'off']), { env });
   }
 }
 

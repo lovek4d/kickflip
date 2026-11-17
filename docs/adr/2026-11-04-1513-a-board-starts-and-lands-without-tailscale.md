@@ -8,4 +8,4 @@ A board the hub started on a Mac with only the GUI app sat for 15 minutes and fa
 
 Not yet checked: `serve` and `whois` on the App Store build, which is sandboxed; Tailscale's docs list no difference from the standalone build.
 
-Since #410, with more than one CLI kickflip runs the first whose daemon is Running ([kickflip runs the Tailscale CLI whose daemon is running](2026-11-06-1530-kickflip-runs-the-tailscale-cli-whose-daemon-is-running.md)).
+Since #410, with more than one CLI kickflip runs the first whose daemon is Running ([kickflip runs the Tailscale CLI whose daemon is running](2026-11-06-1530-kickflip-runs-the-tailscale-cli-whose-daemon-is-running.md)). Since #481 it records the daemon it uses and reaches it explicitly ([kickflip records the Tailscale daemon it uses, CLI or app](2026-11-17-0311-kickflip-records-the-tailscale-daemon-it-uses.md)).

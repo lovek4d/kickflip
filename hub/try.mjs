@@ -9,7 +9,7 @@ import { listBoards, readManifest, readJSON, saveJSON, appendEvent, githubStateF
 import { boardRepo, githubFromOrigin, mainRefOf } from './board-repo.mjs';
 import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
-import { tailscaleBin } from '../shared/tailscale.mjs';
+import { tailscaleDaemon, tailscaleArgv, recordedFault } from '../shared/tailscale.mjs';
 import { buildScriptError, buildScriptOf } from '../board/build-script.mjs';
 import { appendStatus, recordedWorktree, servedRoundsOpen, setItem, settingsOf } from '../board/store.mjs';
 import { readMachineState } from '../shared/machine-gate.mjs';
@@ -153,7 +153,7 @@ export async function installWorktree(board, key, manifest, { run = execFileAsyn
 
 // run: the commands it runs (git, ps, lsof, tailscale); grace: how long a stopped run's process group has after SIGTERM
 // before SIGKILL.
-export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy', run: exec = execFileAsync, grace = 4000 } = {}) {
+export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy', run: exec = execFileAsync, grace = 4000, daemon: daemonOf = tailscaleDaemon } = {}) {
   const git = gitBy(exec);
   const boards = new Map();
   const runs = new Map();
@@ -315,10 +315,17 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     } else cardPorts.set(id, port);
     return port;
   }
+  // Each call first checks the recorded daemon answers, so no serve lands on another (shared/tailscale.mjs recordedFault).
   const tailscale = async (args) => {
-    const bin = tailscaleBin();
-    if (!bin) throw new Error("Tailscale isn't installed on this host");
-    return exec(bin, args, { encoding: 'utf8', timeout: 10_000 });
+    const daemon = daemonOf();
+    if (!daemon) throw new Error("Tailscale isn't installed on this host");
+    const options = { encoding: 'utf8', timeout: 10_000 };
+    if (daemon.node) {
+      const status = await exec(...tailscaleArgv(daemon, ['status', '--json']), options).catch(() => ({ stdout: '' }));
+      const fault = recordedFault(daemon, status.stdout);
+      if (fault) throw new Error(fault);
+    }
+    return exec(...tailscaleArgv(daemon, args), options);
   };
   async function removePort(port) {
     try { await tailscale(['serve', `--https=${port}`, 'off']); }

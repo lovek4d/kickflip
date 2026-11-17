@@ -7,3 +7,5 @@ Decision (owner, q410-pick-rule): kickflip lists every candidate in its old orde
 Doctor's Tailscale line also names a CLI it passed over (owner, q410-doctor-names-both), for example `1.96.2 (/Applications/Tailscale.app/Contents/MacOS/Tailscale); skipped /opt/homebrew/bin/tailscale, whose daemon isn’t running`. It stays ok, with no fix to run.
 
 Rejected: always preferring the app bundle (breaks a Mac that runs brew's daemon with the app installed but signed out), and removing brew's formula for the person (it's their install).
+
+Superseded by [kickflip records the Tailscale daemon it uses, CLI or app](2026-11-17-0311-kickflip-records-the-tailscale-daemon-it-uses.md).
