@@ -7,6 +7,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
 import { waitsHistory, waitsHistoryLines } from '../domain.mjs';
+import { cardTiming, cardTimingLines, timingDays, timingDaysLines } from '../timing.mjs';
 import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, worktreesDir } from '../worktree.mjs';
 import { ownTests } from '../affected.mjs';
 import { pidAlive } from '../headless.mjs';
@@ -428,6 +429,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          wait 15m or more unpicked, worst first, intake (a task
                                                          stuck in New) first. --since keeps the waits from a date
                                                          (local midnight) or ISO time, --kind one kind
+  report timing [<file>/<id>] [--since <date>]           who each task waited on, from the thread lines and events
+                                                         already stored: on you, on the orchestrator, on a builder
+                                                         or planner, held or queued, and idle for the rest. With a
+                                                         task, its totals and each span; without, each day's closed
+                                                         tasks, with each wait's median and slowest quarter, split
+                                                         between tasks with a builder and without. --since keeps
+                                                         the tasks closed from a date (local midnight) or ISO time
   answer <askId> --text <t>                              answers a question another board asked this one (its
                                                          waits line names it), from what this board knows, links
                                                          welcome: it ends the wait and its New strip entry, posts
@@ -1148,6 +1156,27 @@ const COMMANDS = {
     const log = await store.readLog(path.join(data, 'events.jsonl'));
     const open = (await store.readJSON(path.join(data, 'orchestrator-waits.json'), {})).waits || [];
     return { lines: waitsHistoryLines(waitsHistory(log, { from, kind: f.kind ?? null, open, now: new Date() })) };
+  }],
+  // docs/adr/2026-11-17-0600-report-timing-splits-a-tasks-life-by-who-it-waited-on.md
+  'report timing': [['...file/id?'], ['since'], async (site, keys, f) => {
+    if (keys.length > 1) throw new UsageError('report timing takes one <file>/<id>, or none for the day summary');
+    const from = f.since === undefined ? null : Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(f.since) ? `${f.since}T00:00` : f.since);
+    if (Number.isNaN(from)) throw new UsageError(`report timing --since takes a date or an ISO time, not "${f.since}"`);
+    const dir = needSite(site, 'report timing');
+    const data = path.join(dir, 'data');
+    const archive = await store.readArchive(dir);
+    const live = await Promise.all((await store.itemSources(dir)).map(async (s) => ((await store.readJSON(s.file, {})).items || []).map((item) => ({ key: `${s.slug}/${item.id}`, item }))));
+    const cards = [...live.flat(), ...archive.map((a) => ({ key: a.key, item: { lane: 'done', ...a.item, closed_at: a.item.closed_at || a.closed_at } }))]
+      .filter((c) => !keys.length || c.key === keys[0]);
+    if (keys.length && !cards.length) throw new store.BoardError(`report timing: this board has no task ${keys[0]}`);
+    const questions = [...((await store.readJSON(path.join(data, 'owner.json'), {})).items || []), ...archive.flatMap((a) => a.questions || [])];
+    const events = await store.readLog(path.join(data, 'events.jsonl'));
+    const now = new Date();
+    const timings = await Promise.all(cards.map(async ({ key, item }) => cardTiming({
+      key, item, lines: await store.readLog(store.threadFile(dir, key)), events, now,
+      questions: new Set(questions.filter((q) => q.topic === `item:${key}`).map((q) => q.id)),
+    })));
+    return { lines: keys.length ? cardTimingLines(timings[0]) : timingDaysLines(timingDays(timings, { from })) };
   }],
   answer: [['askId'], ['text'], (site, [id], f) => store.answerBoardAsk(needSite(site, 'answer'), id, f.text)],
   handoff: [['file/id|eventId'], ['to', 'note', 'done'], async (site, [ref], f) => {
