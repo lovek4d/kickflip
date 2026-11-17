@@ -8790,3 +8790,9 @@ test('typing asks the archive for matching Done tasks 250 ms after the last key;
   assert.equal(done().querySelector(':scope > summary .count').textContent, '402');
   b.view.unmount();
 });
+
+test('on a phone the search bar is fixed just above the bottom bar, mirroring the desktop, and its shadow no longer paints the status bar', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const phone = css.match(/@media \(max-width: 899px\) \{\n  \.search-bar \.search-hint[^]*?\n\}/)[0];
+  assert.match(phone, /\.search-bar \{[^}]*position: fixed; top: auto;[^}]*bottom: max\(var\(--app-bottom, 0px\), var\(--kb, 0px\)\);[^}]*left: 0; right: 0;[^}]*border-top: 1px solid var\(--line\); border-bottom: 0; box-shadow: none/);
+});

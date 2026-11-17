@@ -80,6 +80,20 @@ BoardView.part((B) => {
     ev.preventDefault();
     openSearch();
   });
+  // iOS keeps the fixed bar on the layout viewport, so while the field has focus --kb, measured as dialogs.js fitSheet
+  // does, lifts the bar above the keyboard (style.css .search-bar).
+  const vv = window.visualViewport;
+  const fitKeyboard = () => bar.style.setProperty('--kb', (vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0) + 'px');
+  B.on(field, 'focus', () => {
+    fitKeyboard();
+    vv?.addEventListener('resize', fitKeyboard);
+    vv?.addEventListener('scroll', fitKeyboard);
+  });
+  B.on(field, 'blur', () => {
+    vv?.removeEventListener('resize', fitKeyboard);
+    vv?.removeEventListener('scroll', fitKeyboard);
+    bar.style.removeProperty('--kb');
+  });
   // A drag on the page while the search has the keyboard hides it, keeping the filter.
   B.on(document, 'touchmove', (ev) => {
     if (document.activeElement === field && !bar.contains(ev.target)) field.blur();

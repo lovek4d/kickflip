@@ -628,8 +628,7 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .top .nav #searchOpen { color: var(--muted); }
 .top .nav #searchOpen:hover, .top .nav #searchOpen[aria-expanded="true"] { color: var(--text); }
 /* The board search (docs/adr/2026-11-17-0613-a-search-bar-narrows-the-board-as-you-type.md, app-search.js): a full-width
-   bar at the top of the lanes, pinned under the header on a desktop and under the status bar on a phone, whose
-   shadow paints the status bar's strip while the lanes scroll beneath. The words a card holds are marked in its title. */
+   bar at the top of the lanes, pinned under the header on a desktop and fixed just above the bottom bar on a phone. The words a card holds are marked in its title. */
 .search-bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 4; display: flex; align-items: center; gap: 8px; margin: 0 -16px 12px; padding: 8px 16px;
   background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: 0 calc(-1 * env(safe-area-inset-top, 0px)) 0 var(--bg); color: var(--muted); }
 .search-bar[hidden] { display: none; }
@@ -643,6 +642,14 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 2px; }
 @media (max-width: 899px) {
   .search-bar .search-hint { display: none; }
   .search-bar .search-clear { min-width: 44px; min-height: 44px; }
+  /* A phone's bar mirrors the desktop's top: fixed just above the bottom bar (--app-bottom), over the lanes' bottom padding. */
+  .search-bar { position: fixed; top: auto; bottom: max(var(--app-bottom, 0px), var(--kb, 0px)); left: 0; right: 0; box-sizing: border-box; height: var(--search-bar-h); margin: 0;
+    border-top: 1px solid var(--line); border-bottom: 0; box-shadow: none; }
+  /* While the bar is open, the + and the toasts sit above it, and the lanes' bottom padding clears it. */
+  :root { --search-bar-h: 61px; }
+  :root:has(#searchBar:not([hidden])) { --search-lift: var(--search-bar-h); }
+  .fab { bottom: calc(var(--app-bottom, 0px) + var(--search-lift, 0px) + var(--fab-edge)); }
+  .view-board .toast-stack { bottom: calc(var(--app-bottom, 0px) + var(--search-lift, 0px) + 83px + var(--fab-edge)); }
 }
 @media (min-width: 900px) {
   .search-bar { top: 56px; margin-top: -12px; }
@@ -948,7 +955,7 @@ main > * { transition: opacity .25s ease; }
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
   .top .nav #refresh, .top .nav #searchOpen, .top .nav a.icon, .top .pages-switch { min-width: 44px; min-height: 44px; }
-  body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
+  body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + var(--search-lift, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
     max-height: calc(var(--vh, 100dvh) + var(--kb, 0px) - max(var(--app-bottom, 0px), var(--kb, 0px)) - env(safe-area-inset-top) - 12px); }
