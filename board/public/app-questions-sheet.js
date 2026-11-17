@@ -1,7 +1,7 @@
 // The questions sheet (docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md,
 // docs/adr/2026-11-15-1200-waiting-on-you-is-one-list-of-rows-opening-the-questions-sheet.md): every way into a topic's
 // questions opens this one sheet with that topic's open questions, a card's or a page's, drawn by questionCard
-// (ui-questions.js) with each question's eye, fire, image and attach, and answered with Send. A prototype question shows
+// (ui-questions.js) with each question's Prototype, Grill, Visual and attach, and answered with Send. A prototype question shows
 // its options and its View prototypes link. The questions group by the batch that asked them, the newest batch first,
 // where the thread is at hand; one batch shows no heading. It is the reader sheet's shape (app-reader.js): modal below
 // 900px, over the pane and not modal from it, closed by its ✕, Escape, the dim area and a swipe down. It makes no history entry.
@@ -262,7 +262,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   });
 
   // docs/adr/2026-11-02-1822-each-question-has-its-own-prototype-eye.md, docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-  // A question's eye, fire or image puts `prototype-request`, `grill-more` or `visual-request {key?, question, note,
+  // A question's Prototype, Grill or Visual puts `prototype-request`, `grill-more` or `visual-request {key?, question, note,
   // choice, sendId}` for that question in the outbox, its note box the note and its pick so far the choice. The question
   // reads its request and sending… at once; once the board has it the prototype's question leaves the sheet, the
   // grill's reads Grilling deeper and the visual's stays open.

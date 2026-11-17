@@ -104,8 +104,8 @@
 //                                with since: <n>, which isn't recorded, that board is a patch since n as ?since= gives;
 //                                ?board=0, as the hub posts, answers with no board, so the answer builds nothing after the line is written
 //                                ask, item-message and owner-answer may carry files: [upload]
-//                                ask may carry request: 'prototype', 'grill' or 'visual', the New task box's eye, fire
-//                                or image: its filed card owes that kind's brief, with the task's text and files.
+//                                ask may carry request: 'prototype', 'grill' or 'visual', the New task box's Prototype, Grill
+//                                or Visual: its filed card owes that kind's brief, with the task's text and files.
 //                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
 //                                any kind may carry sendId, the page's id for a reply-box tap: one whose kind and sendId
 //                                are recorded answers with the recorded event's id and records nothing. So does an item-message or ask
@@ -1416,7 +1416,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const preset = kind === 'ask' ? newEventId() : undefined;
         const filed = preset ? await fileAsk(here, preset, { id: preset, ts: now().toISOString(), kind, data: body }) : null;
         // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: a new task sent with a request (its
-        // eye, fire or image) owes that kind's brief on its card, with the task's text and files, as the tap on a card does.
+        // Prototype, Grill or Visual) owes that kind's brief on its card, with the task's text and files, as the tap on a card does.
         if (filed && BRIEF_KINDS.includes(body.request)) {
           await planAgain(here, filed, body.request, { ...(body.text ? { text: String(body.text) } : {}), ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}) });
         }

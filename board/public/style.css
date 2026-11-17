@@ -472,7 +472,7 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
    a message footer's, overlapping the line's height rather than growing it
    (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md). */
 .status-line .send-again, .new-line .send-again { display: inline-flex; gap: 2px; margin: -8px 0 -8px 4px; vertical-align: middle; text-indent: 0; }
-/* The thread's eye and fire are toggles: pressed reads as chosen, and the hint under the box says what Send posts. */
+/* A pressed attach toggle reads as chosen. */
 button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chip); }
 /* INT-30: card line order */
 .line6 { margin-top: 4px; }

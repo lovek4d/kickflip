@@ -960,7 +960,7 @@ test("a Quick build ask carries quick: true to the session, and its thread holds
 });
 
 // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md
-test("a new task sent from its eye, fire or image carries its request: its card owes that kind's brief with the task's text, and the ask reads the request in its footer", async () => {
+test("a new task sent from its Prototype, Grill or Visual carries its request: its card owes that kind's brief with the task's text, and the ask reads the request in its footer", async () => {
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const before = fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8');
   const sent = [];

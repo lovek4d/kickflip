@@ -3336,7 +3336,7 @@ test("an open card shows its workflow buttons below a final details line of Note
 });
 
 // docs/adr/2026-11-05-0430-the-eye-and-fire-send-their-request-at-once.md
-test("the thread's eye and fire send their request at once: nothing typed sends the bare request, typed text goes with it, /prototype and /grill in the text still work on Reply, and no toggle or hint remains", async () => {
+test("the thread's Prototype and Grill send their request at once: nothing typed sends the bare request, typed text goes with it, /prototype and /grill in the text still work on Reply, and no toggle or hint remains", async () => {
   const cards = [workCard('A1'), workCard('A2', { prototyping: true })];
   const b = boardOnDom({ open: ['w/A1'], board: boardOf(cards), threads: { 'w/A1': [] } });
   await b.settle();
@@ -5594,7 +5594,7 @@ test("tapping a topic of no card's row opens the questions sheet over the list w
     "a card's row goes to the board through the shell, which opens the card under the board's sheet (shell.js go)");
   await v.tap('topic:triage-1');
   assert.deepEqual([v.sheet().open, v.sheet().modal, v.shown().questions, v.sheet().querySelector('.reader-ref').textContent], [true, true, ['q1', 'q2'], 'Overnight triage']);
-  assert.equal(v.sheet().querySelectorAll('section.q[data-q="q1"] [data-proto], section.q[data-q="q1"] [data-grill], section.q[data-q="q1"] [data-visual]').length, 3, "each question keeps the thread's eye, fire and image");
+  assert.equal(v.sheet().querySelectorAll('section.q[data-q="q1"] [data-proto], section.q[data-q="q1"] [data-grill], section.q[data-q="q1"] [data-visual]').length, 3, "each question keeps the thread's Prototype, Grill and Visual");
   v.answer('q1');
   v.answer('q2');
   await v.send();
@@ -5643,7 +5643,7 @@ test("a Pick a take row opens its prototype, a tap's row opens its card's thread
 });
 
 // docs/adr/2026-11-16-1100-a-questions-requests-go-out-through-the-answer-outbox.md
-test("the sheet's eye, fire and image put their request for that question, with its note and pick, in the outbox at once: it reads its request and sending…, then the visual's opens again and the prototype's leaves the sheet; a refusal opens the question again with its draft and says why", async () => {
+test("the sheet's Prototype, Grill and Visual put their request for that question, with its note and pick, in the outbox at once: it reads its request and sending…, then the visual's opens again and the prototype's leaves the sheet; a refusal opens the question again with its draft and says why", async () => {
   const gate = { promise: Promise.resolve(), refuse: '' };
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], questions: [rowQuestion('q1', 'item:w/T1'), rowQuestion('q2', 'item:w/T1')], at: 'q1', gate });
   await v.settle();
@@ -7283,7 +7283,7 @@ test("a thread's Questions added line keeps its words, orange while a question o
   assert.deepEqual(s.ids(), ['qb', 'qa'], "only card A1's open questions, the newest batch first");
   assert.equal(s.sheet().querySelectorAll('h3.qs-round').length, 2, 'two batches each get a heading');
   assert.equal(s.sheet().querySelector('#readerTitle'), null);
-  assert.equal(s.sheet().querySelectorAll('[data-proto]').length, 2, 'each question has its prototype eye');
+  assert.equal(s.sheet().querySelectorAll('[data-proto]').length, 2, 'each question has its Prototype');
   assert.deepEqual(s.moves, [], 'the sheet makes no history entry');
   s.view.unmount();
 });
@@ -8028,14 +8028,14 @@ test('a selected option and a marked row draw the one blue selected look', async
 });
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
-test("the thread's image button, after the eye and fire, asks for a visual at once, with the typed text if any, as /visual does on Reply", async () => {
+test("the thread's Visual button, after Prototype and Grill, asks for a visual at once, with the typed text if any, as /visual does on Reply", async () => {
   const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] } });
   await b.settle();
   const form = () => b.root.querySelector('form[data-reply="w/A1"]');
   const image = () => form().querySelector('button[data-visual]');
   const box = () => form().querySelector('textarea');
   const icons = [...form().querySelector('.request-row').children];
-  assert.equal(icons.at(-2), image(), 'the image follows the eye and fire, Review last');
+  assert.equal(icons.at(-2), image(), 'Visual follows Prototype and Grill, Review last');
   assert.equal(image().getAttribute('aria-label'), 'Ask for a visual');
   assert.match(box().getAttribute('placeholder'), /\/prototype, \/grill, \/visual or \/review asks for one/);
   const tap = async (text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: image() }); await b.settle(); };

@@ -109,7 +109,7 @@ window.BoardAttach = (function () {
     focused = a && a.tagName === 'TEXTAREA' && input.closest('[data-composer]')?.contains(a) ? a : null;
     ev.preventDefault();
   });
-  // Pressing a composer's send button, or its eye, fire or image, does not take focus from the text box either: on a
+  // Pressing a composer's send button, or its Prototype, Grill or Visual, does not take focus from the text box either: on a
   // phone a blur starts closing the keyboard, and the send bar riding on it would slide out from under the finger
   // before the click lands. The click's own handler closes the keyboard once it sends (app-threads.js post, new-task.js).
   document.addEventListener('mousedown', (ev) => {

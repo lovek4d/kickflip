@@ -956,7 +956,7 @@ test("a question's link opens in place on this hub, and outside the board anywhe
 });
 
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
-test('a question asked for a prototype reads prototype requested with a spinner, locked at the pick and note the request sent, with no eye, until its round arrives', () => {
+test('a question asked for a prototype reads prototype requested with a spinner, locked at the pick and note the request sent, with no Prototype, until its round arrives', () => {
   const asked = { ...question, state: 'requested', request: { id: 'r1', ts: ago(1), note: 'On a phone', choice: question.options[0].id } };
   const html = ui.questionCard(asked);
   assert.match(html, /<span class="try-spin" aria-hidden="true"><\/span>prototype requested/);
@@ -968,7 +968,7 @@ test('a question asked for a prototype reads prototype requested with a spinner,
 });
 
 // docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
-test('an open question has its eye on and nothing locked, a resolved one has no eye; a confirm opens the viewer on its one take and says why it is asked', () => {
+test('an open question has its Prototype on and nothing locked, a resolved one has no Prototype; a confirm opens the viewer on its one take and says why it is asked', () => {
   assert.match(ui.questionCard(question), /<button type="button" class="req" data-proto="q:q1" aria-label="Ask for a prototype instead" title="Ask for a prototype instead">/);
   assert.doesNotMatch(ui.questionCard(question), /disabled|pr-busy|try-spin/);
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved' }), /data-proto/);
@@ -1007,7 +1007,7 @@ test('an open question has its eye on and nothing locked, a resolved one has no 
   assert.doesNotMatch(ui.questionCard({ ...confirm, url: 'prototype-search.html?q=c1', confirm_of: undefined }), /pr-open|one-take confirm/);
 });
 
-test('a resolved question is read-only: its pick checked and locked, no note box or eye, how it was resolved and when it was acted on, and the note said once', () => {
+test('a resolved question is read-only: its pick checked and locked, no note box or Prototype, how it was resolved and when it was acted on, and the note said once', () => {
   const at = new Date(NOW - 3 * 3600_000).toISOString();
   const answer = { ts: new Date(NOW - 4 * 3600_000).toISOString(), choice: 'B', note: 'Drop it, it is noise', files: [], reply: null, acted: true };
   const html = ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it', resolved_at: at, answers: [answer], reask: null });

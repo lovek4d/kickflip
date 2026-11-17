@@ -2035,7 +2035,7 @@ test("a card made from an ask reads New until its session sets ready, grilling o
     prototyping(drew('2026-10-23T10:01:00Z', '2026-10-23T10:30:00Z')).prototyping, prototyping(drew('2026-10-23T10:01:00Z')).prototyping,
   ], [false, true, false, false, true]);
   assert.equal(card({ item: { phase: 'ready' }, ...drew('2026-10-23T09:00:00Z') }).prototyping, true);
-  // A prototype request on one question is the questions page's eye, not the card's tap.
+  // A prototype request on one question is the questions page's Prototype, not the card's tap.
   assert.equal(card({ item: { phase: 'ready' }, events: [{ ...tap, data: { key: 'w/A1', question: 'q1' } }] }).prototyping, false);
 });
 

@@ -561,7 +561,7 @@ const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 // otherwise (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md). An ask waiting on
 // the owner's Done has it in its thread box, beside Reply
 // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md). A grill or prototype is asked for from the
-// thread's fire and eye (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
+// thread's Grill and Prototype (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 function actionButtonOf(it) {
   return it.questions ? BUTTON.openQuestions : null;
 }

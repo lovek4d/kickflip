@@ -81,7 +81,7 @@ globalThis.BoardNewTask = (function () {
     // and the task goes through the outbox (app-threads.js enqueue), its New strip row reading sending… until the board
     // has it. docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md: the box's files go
     // with the task, uploads still running, and it is sent once every one is up; its row shows them meanwhile.
-    // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: the eye, fire and image under the box send
+    // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: the Prototype, Grill and Visual under the box send
     // the task at once with request prototype, grill or visual, as /prototype, /grill or /visual in its text does on
     // either button; a request takes the place of Implement's quick, as a thread's request takes the place of its intent.
     async function sendAsk(button, flag = null) {

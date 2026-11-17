@@ -158,7 +158,7 @@ test('pressing the attach button with no text box focused leaves focus alone', (
 
 // On a phone a press that took focus from the box would start closing the keyboard, and the send bar riding on it would
 // slide out from under the finger before the click landed.
-test("pressing a composer's send button or its eye, fire or image leaves the text box focused; another button takes focus", () => {
+test("pressing a composer's send button or its Prototype, Grill or Visual leaves the text box focused; another button takes focus", () => {
   const p = attachPage();
   const { sendButton, protoButton, grillButton, visualButton } = p.win.BoardUI;
   p.composer.querySelector('.row').insertAdjacentHTML('beforeend',

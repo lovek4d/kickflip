@@ -153,7 +153,7 @@ function orchestratorsBrief(brief, what) {
   return [`Start from the orchestrator's brief, its notes section "${brief.heading}": what the discussion settled, what is still open, and what your ${what} should cover, with the files that matter. Read it before the thread and the notes:`, '', brief.text, ''];
 }
 
-// One of the owner's prototype requests as a line of the planner's brief: for the owner's eye on one question, question
+// One of the owner's prototype requests as a line of the planner's brief: for the owner's Prototype on one question, question
 // (its id), note and choice; else the owner's text and files (uploads, {name, path}).
 function requestLine({ text, files = [], question, note, choice }) {
   if (question) return `   - question ${question}${note ? `, noting "${note}"` : ''}${choice ? `, leaning to option ${choice}` : ''}: draw that question's next round, its question naming round_of ${question}.`;

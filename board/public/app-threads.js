@@ -202,7 +202,7 @@ BoardView.part((B) => {
   }
 
   // docs/adr/2026-11-05-0430-the-eye-and-fire-send-their-request-at-once.md
-  // The composer's eye asks for a prototype, its fire for a grill and its image for a visual: a tap sends the request at
+  // The composer's Prototype asks for prototypes, its Grill for a grill and its Visual for a visual: a tap sends the request at
   // once, with whatever is typed, as /prototype, /grill or /visual in the text does on Reply. Nothing typed sends the
   // bare request (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md). /review, or the Review button,
   // asks for a reviewer (docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md).
