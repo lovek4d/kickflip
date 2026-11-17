@@ -542,7 +542,7 @@ test("an answer to an item's question joins that item's thread", () => {
   assert.deepEqual(msgs[2].reply, { html: 'Kept.' });
 });
 
-test('an internal wave marks its items, and one without a PR reaches Done by its stored lane', () => {
+test('a card without a PR reaches Done by its stored lane', () => {
   const b = buildBoard({
     fromWaves: true,
     files: [
@@ -550,8 +550,8 @@ test('an internal wave marks its items, and one without a PR reaches Done by its
       { slug: 'w', itemFile: { items: [{ id: 'A1', title: 'One' }] } },
     ],
   });
-  const byKey = Object.fromEntries(b.items.map((i) => [i.key, [i.internal, i.lane]]));
-  assert.deepEqual(byKey, { 'site/S1': [true, 'done'], 'site/S2': [true, 'progress'], 'w/A1': [false, 'todo'] });
+  const byKey = Object.fromEntries(b.items.map((i) => [i.key, i.lane]));
+  assert.deepEqual(byKey, { 'site/S1': 'done', 'site/S2': 'progress', 'w/A1': 'todo' });
 });
 
 test("a card pushed to a plain git remote waits In Review on the owner's merge with no action, goes back to In Progress while a builder fixes it, and is Done once merged", () => {
@@ -1434,7 +1434,7 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
   assert.deepEqual(lanesOf(bumped).todo, ['ENG-2', 'ENG-1', 'T2', 'Q1', 'T1', 'Q2']);
 });
 
-test("an internal card's ref reads INT-<n> with no repo, and each card lists when Claude or GitHub wrote in its thread, leaving out builder status lines and the owner's answers", () => {
+test("an S<n> card's ref reads INT-<n>, and each card lists when Claude or GitHub wrote in its thread, leaving out builder status lines and the owner's answers", () => {
   const owner = { items: [{ id: 'q1', topic: 'item:site/S3', question: 'Keep it?' }, { id: 'q2', topic: 'item:site/S3', question: 'Ship it?', state: 'resolved' }] };
   const threads = { 'site/S3': [
     { ts: '2026-10-23T09:00:00Z', who: 'claude', text: 'Built.' },

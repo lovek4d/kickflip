@@ -40,7 +40,6 @@
     const repos = Object.create(null);
     for (const i of items) {
       if (i.repo) repos[i.repo.split('/')[1]] = i.repo;
-      if (i.internal) continue;
       for (const l of i.linear || []) {
         const team = LINEAR_ID.exec(l.id || '')?.[1];
         const prefix = LINEAR_ISSUE.exec(l.url || '')?.[0];

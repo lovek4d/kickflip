@@ -122,6 +122,7 @@ test("the strip drops what nothing reads: an archive entry's page card for its c
       { key: 't/X2', file: 't', archived_at: at(1), closed_at: at(9), item: { id: 'X2', title: 'Kept', lane: 'done', closed_at: at(9) }, questions: [], asks: [] }] });
     const wave = read('items.json');
     wave.items[1].summary = 'Gone too';
+    wave.internal = true;
     write('items.json', wave);
     const owner = read('owner.json');
     Object.assign(owner.items[2], { push_tag: 'item-t/D0', no_change: false });
@@ -132,6 +133,7 @@ test("the strip drops what nothing reads: an archive entry's page card for its c
       { key: 't/X1', file: 't', archived_at: at(1), closed_at: at(8), item: { id: 'X1', title: 'Old', lane: 'done' }, questions: [{ id: 'q-old', topic: 'item:t/X1', question: 'Old?', resolved: 'Answered', resolved_at: at(9) }], asks: [] },
       { key: 't/X2', file: 't', archived_at: at(1), closed_at: at(9), item: { id: 'X2', title: 'Kept', lane: 'done', closed_at: at(9) }, questions: [], asks: [] }]);
     assert.ok(read('items.json').items.every((it) => !('summary' in it)));
+    assert.ok(!('internal' in read('items.json')), "the item file's internal flag is dropped");
     assert.deepEqual(read('owner.json').items[2], ownerOf(3).items[2]);
     const before = ['items.json', 'owner.json', 'done-archive.json'].map((f) => fs.statSync(path.join(site, 'data', f)).mtimeMs);
     await stripDeadFields(site);

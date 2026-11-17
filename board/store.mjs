@@ -4913,7 +4913,7 @@ async function restoreArchived(site, key) {
 }
 
 // docs/adr/2026-11-04-1056-archived-done-cards-are-built-as-they-page-in.md
-// Drops what nothing reads, once: an archive entry's page card, keeping its sortAt as closed_at; an item file entry's summary;
+// Drops what nothing reads, once: an archive entry's page card, keeping its sortAt as closed_at; an item file entry's summary and an item file's internal flag;
 // and a question's push_tag and no_change, in owner.json and in the archive. It also renames a question's
 // suggested.card to suggested.task. Writes only a file that held one. Run by the board server as it starts.
 const DEAD_QUESTION_FIELDS = ['push_tag', 'no_change'];
@@ -4927,7 +4927,10 @@ const holdsDead = (q) => DEAD_QUESTION_FIELDS.some((k) => k in q) || 'card' in (
 export const stripDeadFields = (site, archived = () => readArchive(site)) => archiveWrite(site, async () => {
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
-    if (Array.isArray(itemFile?.items) && itemFile.items.some((it) => 'summary' in it)) await writeJSON(source.file, { ...itemFile, items: itemFile.items.map(stripItem) });
+    if (Array.isArray(itemFile?.items) && ('internal' in itemFile || itemFile.items.some((it) => 'summary' in it))) {
+      const { internal, ...rest } = itemFile;
+      await writeJSON(source.file, { ...rest, items: itemFile.items.map(stripItem) });
+    }
   }
   const owner = await readJSON(ownerFile(site), null);
   if ((owner?.items || []).some(holdsDead)) await writeJSON(ownerFile(site), { ...owner, items: owner.items.map(stripQuestion) });

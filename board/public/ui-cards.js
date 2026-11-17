@@ -451,7 +451,7 @@
 
   const RISK_TONES = { low: 'ready', medium: 'notice', high: 'danger' };
   function workLines(it, { unread = 0 } = {}) {
-    const ids = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
+    const ids = it.ticket ? ticketChip(it) : it.linear?.length ? linearChips(it) : taskChip(it);
     // A card shows its ticket, or Task when it has none.
     const chips = `${prChips(it)}${commitChip(it)}${reviewChips(it)}${installChip(it)}`;
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: preheating, planning prototype

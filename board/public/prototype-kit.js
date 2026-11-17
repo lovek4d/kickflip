@@ -124,7 +124,7 @@
 
   const LANES = [['review', 'In Review'], ['progress', 'In Progress'], ['todo', 'Todo'], ['done', 'Done']];
   function card(it, i) {
-    const full = { key: `w/C${i}`, id: `C${i}`, kind: 'work', internal: !it.linear && !it.ticket, ref: `C${i}`, lane: 'todo', deps: [], blockedBy: [], ownerBlock: null, bumpable: false, isNew: false,
+    const full = { key: `w/C${i}`, id: `C${i}`, kind: 'work', ref: `C${i}`, lane: 'todo', deps: [], blockedBy: [], ownerBlock: null, bumpable: false, isNew: false,
       reviewers: [], review: {}, pr: null, builder: null, next: null, ...it };
     return `<details class="item" data-key="${esc(full.key)}"><summary class="work"><span class="status ${esc(full.lane)}"></span><div class="title-wrap">${BoardUI.workLines(full)}</div></summary></details>`;
   }

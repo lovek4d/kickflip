@@ -1364,7 +1364,7 @@ test("an open card's action row has no Implement, which lives in a Todo card's t
 });
 
 test('the working line reads thinking, in one shared class on the card and in the thread', () => {
-  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true, ask: { askedAt: ago(1) } };
+  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true, ask: { askedAt: ago(1) } };
   assert.match(workLines(ask), /<div class="line3 sub agent"><span class="thinking">/);
   assert.match(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working' }]), /<div class="reply muted small msg-foot"><span>[^<]+<\/span><span>·<\/span><span class="thinking">/);
 });
@@ -1807,7 +1807,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
     assert.deepEqual(lines(workLines({ ...workCard, risk })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●']);
     assert.doesNotMatch(workLines({ ...workCard, risk }), /risk/);
   }
-  const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, prs: [], linear: [{ id: 'ENG-9', url: 'u' }], next: null };
+  const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', pr: null, prs: [], linear: [], next: null };
   assert.deepEqual(lines(workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', 'Open items']);
@@ -1838,7 +1838,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.doesNotMatch(workLines(waiting), /disabled|data-confirm="bump"/);
   assert.match(workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
   // The card an ask became, once sorted, reads as any task: Task where its ticket would be, and no asked line.
-  const fromAsk = { kind: 'work', key: 'w/T-3', id: 'T-3', ref: 'T-3', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
+  const fromAsk = { kind: 'work', key: 'w/T-3', id: 'T-3', ref: 'T-3', title: 'Fix it', linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
   assert.deepEqual(lines(workLines(fromAsk)), ['T-3 Fix it', 'thinking…']);
   assert.deepEqual(lines(workLines(fromAsk, { unread: 2 })), ['T-3 Fix it', 'thinking…', '2 new messages']);
   assert.deepEqual(lines(workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);

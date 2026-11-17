@@ -44,7 +44,7 @@
     if (e.start) {
       return `<div class="line1 title">${escText(e.name)}</div><div class="line3 sub agent">${esc(startCaption(e.start))}</div>${when}${steps}<div class="line6 sub card-time">${startSteps(e.start)}</div>`;
     }
-    const card = { kind: 'work', key: `review/${e.id}`, id: e.id, ref: e.id, title: e.name, internal: true, ownerBlock: null, deps: [], blockedBy: [], bumpable: false, isNew: false, builder: null, next: null, sortAt: ago(6), ...e.card, lane: e.cardLane };
+    const card = { kind: 'work', key: `review/${e.id}`, id: e.id, ref: e.id, title: e.name, ownerBlock: null, deps: [], blockedBy: [], bumpable: false, isNew: false, builder: null, next: null, sortAt: ago(6), ...e.card, lane: e.cardLane };
     return `${workLines(card)}${when}${steps}`;
   }
 

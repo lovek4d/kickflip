@@ -74,12 +74,12 @@ const STALE_AFTER = 7 * DAY;
 
 // board/public/ui-links.js links Linear ids in text from these urls, so a board with no workspace links none.
 const linearRef = (id, tickets) => ({ id, url: tickets?.workspace ? `https://linear.app/${tickets.workspace}/issue/${id}` : null });
-// Internal items keep their stored ids, which key threads, builder records and events; S<n> reads INT-<n>.
+// An old card's S<n> id reads INT-<n>; its stored id keys threads, builder records and events.
 const internalRef = (id) => String(id).replace(/^S(\d+)$/, 'INT-$1');
 // A card reads as its ticket when the ticket is from the board's source (#n or TEAM-n), else by its id, T-<n> for a
 // task; its key keeps the stored id (docs/adr/2026-11-02-2100-a-card-is-named-by-its-boards-ticket-source.md).
 export const refOf = (itemFile, item, tickets) => (ticketIn(tickets, item.ticket) ? item.ticket
-  : itemFile.internal === true ? internalRef(item.id) : item.id);
+  : internalRef(item.id));
 // A stored ticket from another source, an INT-<n> from the retired Internal source included, keeps its own id, unlinked
 // (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md).
 const ticketOf = (tickets, stored, at) => ticketBadge(tickets, stored, at) || (stored ? { id: String(stored), url: null, source: null } : null);
@@ -373,7 +373,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     land,
     key, kind: 'work', order, file: slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
     created: it.created || null, reviewSince: (idle && reopenAt) || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
-    internal: itemFile.internal === true, repo: itemFile.internal === true && !itemFile.repo ? null : repo,
+    repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt) || backInTodo, answered: Boolean(answeredAt), awaitsDone,
     // A planner of the card waits in the server's queue for a launch hold to lift (server.mjs launchPlanner): the
     // card's footer reads paused.
@@ -1361,7 +1361,7 @@ export function buildBoard(snapshot) {
   const remote = snapshot.github ? null : remoteFromInput(snapshot.remote);
   for (const { slug, itemFile, agents: records = {} } of snapshot.files) {
     const repo = snapshot.github || itemFile.repo || null;
-    itemFiles.push({ slug, title: itemFile.title || slug, status: itemFile.status || null, internal: Boolean(itemFile.internal), reviewers: (itemFile.reviewers || []).map((r) => r.name) });
+    itemFiles.push({ slug, title: itemFile.title || slug, status: itemFile.status || null, reviewers: (itemFile.reviewers || []).map((r) => r.name) });
     itemFile.items.forEach((it, order) => {
       const key = `${slug}/${it.id}`;
       // An archived card's own ask is linked to it as well (store.mjs archiveCards), and counts once, as its from_ask.
@@ -1986,7 +1986,7 @@ export const DONE_KEPT = 100;
 // The fields of a Done card the page draws: the Done lane's card and its open detail (ui-cards.js workLines,
 // app-cards.js), unread counts (othersAt), the Notes, Questions and Prototypes buttons, and ui-snapshot.js updateSign.
 // No page file reads `agents`, and the rest are set on a Done card only to be sent.
-export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
+export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fold','ticket', 'ticketSource', 'linear', 'pr', 'prs',
   'review', 'reviewers', 'risk', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'blocks', 'blockers', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
