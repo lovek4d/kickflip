@@ -137,6 +137,9 @@ window.BoardView = (function () {
       // The Done cards Show more paged in from the archive past the board's own (app-lanes.js), and how many older ones
       // the archive holds past them, null before the first page.
       archived: { cards: [], left: null },
+      // While the search has words: the archive's Done cards matching them, fetched as the owner types (app-lanes.js
+      // findArchived), and how many more matches the archive holds past them. key is the words they answer.
+      found: { key: '', cards: [], left: 0 },
     };
     const signal = opts.signal ? (fn) => { if (B.alive()) B.own(opts.signal(fn)); } : null;
     // B.keep(fn): a part adds fn() → {…} to what the board keeps as it unmounts, read before any part's unmount step.

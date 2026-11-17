@@ -8621,3 +8621,41 @@ test('a link to a card the search hides asks to reset filters: yes ends the sear
   assert.equal(b.root.querySelector('details.item[data-key="w/T-33"]').open, true);
   b.view.unmount();
 });
+
+// docs/adr/2026-11-17-1230-search-also-finds-old-done-tasks-in-the-archive.md
+test('typing asks the archive for matching Done tasks 250 ms after the last key; they follow the loaded Done cards, count in x of y, page 100 at a time, and clearing drops them', async () => {
+  const day = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
+  const archive = Array.from({ length: 130 }, (_, n) => workCard(`A${n}`, { ref: `T-${500 + n}`, title: `Old search ${n}`, lane: 'done', sortAt: day(100 + n) }));
+  const b = searchOnDom({ board: { ...searchBoard(), doneArchived: 400 } });
+  const asked = [];
+  b.server.done = (params) => {
+    asked.push([params.get('q'), params.get('before')]);
+    const from = params.get('before') ? archive.findIndex((c) => `${c.sortAt}|${c.key}` === params.get('before')) + 1 : 0;
+    const cards = archive.slice(from, from + 100);
+    return { cards, left: archive.length - from - cards.length };
+  };
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#searchOpen') });
+  await b.type('o');
+  await b.type('old search');
+  assert.deepEqual(asked, [], 'nothing is asked until the typing pauses');
+  b.page.runTimers(250);
+  await b.settle();
+  assert.deepEqual(asked, [['old search', null]], 'one request, for the words as they stand');
+  const done = () => b.lane('done');
+  const keys = () => done().querySelectorAll('details.item').map((el) => el.dataset.key);
+  assert.deepEqual(keys().slice(0, 2), ['w/T-40', 'w/A0'], 'the matches follow the loaded Done cards');
+  assert.equal(keys().length, 10);
+  assert.equal(done().querySelector(':scope > summary .count').textContent, '101 of 402', 'x counts the matches, y stays the true total');
+  assert.equal(done().querySelector('[data-lane-more]').textContent, 'Show more · 121 older tasks');
+  for (let i = 0; i < 9; i++) { b.page.fire(b.root, 'click', { target: done().querySelector('[data-lane-more]') }); await b.settle(); }
+  assert.equal(done().querySelector('[data-lane-more]').textContent, 'Show more · 31 older tasks', 'the older tasks are the matches past those shown, fetched or not');
+  const tap = async () => { b.page.fire(b.root, 'click', { target: done().querySelector('[data-lane-more]') }); await b.settle(); };
+  await tap();
+  assert.deepEqual(asked.at(-1), ['old search', `${day(199)}|w/A99`], 'the next page pages the matches, past the last one held');
+  assert.equal(asked.length, 2);
+  await b.type('');
+  assert.deepEqual(keys().length, 2, 'clearing drops the fetched matches');
+  assert.equal(done().querySelector(':scope > summary .count').textContent, '402');
+  b.view.unmount();
+});

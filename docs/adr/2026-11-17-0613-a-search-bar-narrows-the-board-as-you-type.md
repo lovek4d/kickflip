@@ -22,8 +22,8 @@ keyboard shortcut "to stay on theme". The grill and the prototype (take C) settl
 - **A link to a card the search hides** asks "This task is not currently visible, reset filters?", as one the Todo
   filter hides does; yes clears the Todo filter and ends the search.
 - **Only the cards the board holds.** Done searches its loaded cards, and its Show more and "n older tasks" stay, so
-  the list is never cut silently; paging in the archive stops while the search has words. Searching Done tasks the
-  board hasn't loaded is its own task (T-348).
+  the list is never cut silently; paging in the archive stops while the search has words. Searching the Done tasks the
+  board hasn't loaded is docs/adr/2026-11-17-1230-search-also-finds-old-done-tasks-in-the-archive.md.
 
 Considered: a field in the header nav, and a field that takes the title's place (takes A and B). The owner picked the
 bar under the header. ⌘K was considered for the shortcut; the board's shortcuts are letters pressed twice, so ff, with

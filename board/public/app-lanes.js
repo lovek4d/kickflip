@@ -44,14 +44,22 @@ BoardView.part((B) => {
   // The board says how many the archive holds (doneArchived), so Done's count is the true total before any page is fetched.
   const { archived } = state;
   const olderThanBoard = (d) => Math.max(0, d.doneArchived - archived.cards.filter((c) => !d.items.some((i) => i.key === c.key)).length);
+  // docs/adr/2026-11-17-1230-search-also-finds-old-done-tasks-in-the-archive.md
+  // While the search has words, the archive's matches (state.found) follow the loaded Done cards, and "n older tasks" counts the
+  // matches not yet fetched, not the archive's other cards.
+  const { found } = state;
   function doneCards(d, open) {
     const onBoard = new Set(d.items.map((i) => i.key));
-    return [...open, ...archived.cards.filter((c) => !onBoard.has(c.key))].sort((a, b) => String(b.sortAt || '').localeCompare(String(a.sortAt || '')));
+    const loaded = [...open, ...archived.cards.filter((c) => !onBoard.has(c.key))].sort((a, b) => String(b.sortAt || '').localeCompare(String(a.sortAt || '')));
+    if (!B.searchWords().length) return loaded;
+    const held = new Set(loaded.map((c) => c.key));
+    return [...loaded, ...found.cards.filter((c) => !onBoard.has(c.key) && !held.has(c.key))];
   }
-  // Open Done's paging stops while the search narrows it: searching cards the board hasn't loaded is the archive's own search.
+  // Open Done's paging stops while the search narrows it: the matches page in by Show more's tap alone.
   function doneRows(d, cards) {
-    const older = olderThanBoard(d);
-    if (older > 0 && !B.searchWords().length && store.get('lanes', {}).done && shownCount('done', cards) + STEP >= cards.length) preloadOlder();
+    const searching = B.searchWords().length > 0;
+    const older = searching ? found.left : olderThanBoard(d);
+    if (older > 0 && !searching && store.get('lanes', {}).done && shownCount('done', cards) + STEP >= cards.length) preloadOlder();
     return cappedRows('done', cards, older);
   }
   function doneCount(d, items) {
@@ -61,17 +69,50 @@ BoardView.part((B) => {
   }
   // One page fetch runs at a time: a tap that lands while a preload is out waits on that fetch instead of starting another.
   let fetching = null;
+  // A page of /api/done: the archive's next, or while searching the next of the matches (q), past `last`.
+  async function donePage(words, last) {
+    const params = new URLSearchParams();
+    if (last) params.set('before', `${last.sortAt}|${last.key}`);
+    if (words.length) params.set('q', words.join(' '));
+    const r = await fetch(B.site.url(`api/done${params.size ? `?${params}` : ''}`), { cache: 'no-store' });
+    if (!r.ok) throw new Error(`done ${r.status}`);
+    return r.json();
+  }
   function fetchOlder() {
     fetching ||= (async () => {
-      const last = archived.cards.at(-1);
-      const r = await fetch(B.site.url(`api/done${last ? `?before=${encodeURIComponent(`${last.sortAt}|${last.key}`)}` : ''}`), { cache: 'no-store' });
-      if (!r.ok) throw new Error(`done ${r.status}`);
-      const page = await r.json();
+      const words = B.searchWords();
+      if (words.length) {
+        const key = words.join(' ');
+        const page = await donePage(words, found.cards.at(-1));
+        // The words changed while the page was out: findArchived's own fetch answers them.
+        if (found.key === key) { found.cards.push(...page.cards); found.left = page.left; }
+        return page.cards.length;
+      }
+      const page = await donePage([], archived.cards.at(-1));
       archived.cards.push(...page.cards);
       return page.cards.length;
     })().finally(() => { fetching = null; });
     return fetching;
   }
+  // Typing fetches the archive's first page of matches, 250 ms after the last keystroke; no words drops them. The old
+  // matches stay drawn until the new page comes, the words' own filter keeping out those that no longer match.
+  let finding = null;
+  function findArchived(words) {
+    clearTimeout(finding);
+    const key = words.join(' ');
+    found.key = key;
+    if (!key) { found.cards = []; found.left = 0; return; }
+    finding = setTimeout(async () => {
+      try {
+        const page = await donePage(words);
+        if (found.key !== key || !B.alive()) return;
+        found.cards = page.cards;
+        found.left = page.left;
+        B.render();
+      } catch { /* the next keystroke or a Show more tap fetches again */ }
+    }, 250);
+  }
+  B.findArchived = findArchived;
   // Open Done fetches its next page as its shown cards come within one STEP of the cards held. A failure shows nothing: the
   // tap that reaches the edge fetches again, with its toast.
   function preloadOlder() {

@@ -1,7 +1,7 @@
 // docs/adr/2026-11-17-0613-a-search-bar-narrows-the-board-as-you-type.md
 // The board search: the bar under the header that the header's magnifier, f pressed twice or / opens. As the owner types,
 // the New strip, Auto Review and every lane keep only the tasks holding every word (ui-cards.js searchWords and
-// cardMatches; app-lanes.js, app-asks.js). Enter opens the top match on a desktop; on a phone the keyboard's Search key,
+// cardMatches; app-lanes.js, app-asks.js), and Done also fetches the archive's matches (app-lanes.js findArchived). Enter opens the top match on a desktop; on a phone the keyboard's Search key,
 // or a drag on the page, hides the keyboard and keeps the filter. Esc or the × clears the search and closes the bar. The
 // words live in memory only, so a reload ends the search. Needs app-core.js, app.js's render and app-selection.js's select.
 BoardView.part((B) => {
@@ -26,6 +26,7 @@ BoardView.part((B) => {
     opener.setAttribute('aria-expanded', 'false');
     if (!words.length) return;
     words = [];
+    B.findArchived(words);
     draw();
   }
   B.on(B.root, 'input', (ev) => {
@@ -33,6 +34,7 @@ BoardView.part((B) => {
     const next = BoardUI.searchWords(field.value);
     if (next.join(' ') === words.join(' ')) return;
     words = next;
+    B.findArchived(words);
     draw();
   });
   B.on(B.root, 'click', (ev) => {

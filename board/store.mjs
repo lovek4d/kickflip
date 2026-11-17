@@ -4859,6 +4859,12 @@ export const archiveReader = (site) => {
 };
 // An entry's place, which GET /api/done's before= cursor names: newest first by its closing time, then by key.
 export const archiveRank = (a) => `${a.closed_at || ''}|${a.key}`;
+// The entries holding every word, any case, in their title, key, id or ticket: the board search's match (public/ui-cards.js
+// cardMatches) over what an entry holds. No words keeps every entry.
+export const archiveMatching = (entries, words) => entries.filter((a) => {
+  const hay = [a.item?.title, a.key, a.item?.id, a.item?.ticket, ...(a.item?.linear || [])].filter(Boolean).join('\n').toLowerCase();
+  return words.every((w) => hay.includes(w));
+});
 const byClosed = (a, b) => (archiveRank(a) < archiveRank(b) ? 1 : archiveRank(a) > archiveRank(b) ? -1 : 0);
 // How many cards the archive holds, kept in data/done-archive-count.json beside it so /api/board never reads the archive.
 // An archive from before the count was kept is counted once, when first asked.

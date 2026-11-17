@@ -71,7 +71,7 @@
 //                                (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md)
 //                                Done cards come slim (domain.mjs slimDone), the newest 100 and the ones the Done
 //                                archive keeps back; doneArchived: how many Done cards data/done-archive.json holds
-//   GET  /api/done?before=<sortAt>|<key>
+//   GET  /api/done?before=<sortAt>|<key>&q=<words>
 //                                {cards, left}: the next 100 archived Done cards, slim, newest first, older than the
 //                                cursor (none: from the newest), and how many older ones are left after them, each
 //                                built from its archive entry as it pages in
@@ -372,7 +372,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathS
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { HAD_IMPLEMENT, heldReview, applyReviewAnswer, noteLoggedOut, tellOnWrite, readScriptOffer, restageStaleReady, replyFilesOf, readReplyIndex, readAgents, readLog, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, passNews, requestPause, resumePaused, takeRerun, BoardError, publishUnscreened, readScreening, startHelper, startVisual, startReviewer, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, discussNewCards, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive,boardConfig, abandonLaunch, cutOffBuilds, lostLaunches, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateCreated, migrateFollowups, migrateGates, migratePhases, clearBuildPhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, readHidden, readMarks, readNotes, itemNotes, readWorking, readDelivered, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, resolveSentAnswers, settleAnswers, splitSharedNotes, unrecorded, handedOver, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -1189,7 +1189,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       }
       if (p === '/api/done') {
         const before = String(url.searchParams.get('before') || '');
-        const older = (await readArchive(here)).filter((a) => !before || archiveRank(a) < before);
+        const words = String(url.searchParams.get('q') || '').toLowerCase().split(/\s+/).filter(Boolean);
+        const older = archiveMatching(await readArchive(here), words).filter((a) => !before || archiveRank(a) < before);
         return json(res, 200, { cards: await archivedCards(older.slice(0, DONE_KEPT)), left: Math.max(0, older.length - DONE_KEPT) });
       }
       if (p === '/api/links') return json(res, 200, { links: (await board()).links });
