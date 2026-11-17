@@ -80,3 +80,37 @@ test('the questions sheet closes through the shared helper', () => {
 test('no sheet keeps its own copy of the closing class dance', () => {
   for (const f of ['app-header.js', 'app-cards.js', 'new-task.js']) assert.doesNotMatch(src(f), /classList\.add\('closing'\)/, f);
 });
+
+test('a swap opens the new sheet over the old, which stays open until the entry ends, then closes with no exit', () => {
+  timers.length = 0;
+  const from = dialog(), to = dialog();
+  to.open = false;
+  let done = 0;
+  context.BoardUI.swapSheet(from, later, () => { done++; }, () => { to.open = true; });
+  assert.ok(from.open && to.open, 'both open during the swap');
+  assert.ok(!from.classList.contains('closing'));
+  assert.equal(done, 0);
+  timers[0].fn();
+  assert.ok(!from.open && to.open, 'after it only the new one');
+  assert.equal(done, 1);
+});
+
+test('a swap under reduced motion closes the old at once; from a shut sheet it only opens the new', () => {
+  const from = dialog(), to = dialog();
+  to.open = false;
+  reduced.matches = true;
+  context.BoardUI.swapSheet(from, later, () => {}, () => { to.open = true; });
+  reduced.matches = false;
+  assert.ok(!from.open && to.open);
+  const shut = dialog(), next = dialog();
+  shut.open = false; next.open = false;
+  timers.length = 0;
+  context.BoardUI.swapSheet(shut, later, () => {}, () => { next.open = true; });
+  assert.ok(next.open);
+  assert.equal(timers.length, 0);
+});
+
+test('the pane swaps the reader for the questions sheet through swapSheet', () => {
+  assert.match(src('app-reader.js'), /BoardUI\.swapSheet\(sheet, B\.later, dropPage, opening\)/);
+  assert.match(src('app-pane.js'), /B\.closeReader\(\(\) => \{ opened = B\.openQuestionsSheet\(id\); \}\)/);
+});

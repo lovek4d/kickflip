@@ -259,9 +259,10 @@ BoardView.part((B) => {
       B.saveCopySoon?.();
     } catch {} finally { fills.delete(patched); }
   }
-  function close() {
-    if (!sheet.open) return;
-    BoardUI.closeSheet(sheet, B.later, dropPage);
+  // opening: a sheet that takes the reader's place; it slides in over the reader, which then goes without its own exit.
+  function close(opening) {
+    if (!sheet.open) { opening?.(); return; }
+    if (opening) BoardUI.swapSheet(sheet, B.later, dropPage, opening); else BoardUI.closeSheet(sheet, B.later, dropPage);
     opened++;
     stopReading?.();
     if (pushed) { pushed = false; history.back(); }

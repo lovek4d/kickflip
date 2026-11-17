@@ -548,6 +548,17 @@
     if (modal) sheet.showModal(); else sheet.show();
     for (const el of [sheet, ...sheet.querySelectorAll('*')]) if (el.scrollTop) el.scrollTop = 0;
   }
+  // Opens one sheet from another: open() shows the new sheet, which lands on top of the old (the top layer, its own
+  // entry animation) while the old stays drawn under it; once the entry ends the old closes with no exit animation, and
+  // done runs. Reduced motion closes the old at once. An old sheet that isn't open just opens the new one.
+  const ENTRY_MS = 220;
+  function swapSheet(from, later, done, open) {
+    if (!from.open) { open(); return; }
+    cutClose(from);
+    open();
+    const finish = () => { from.close(); done(); };
+    if (globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches) finish(); else later(ENTRY_MS, finish, ENTRY_MS);
+  }
   function cutClose(sheet) {
     if (!sheet.classList.contains('closing')) return;
     sheet.classList.remove('closing');
@@ -614,7 +625,7 @@
   // After ui-icon-text.js, whose iconText, ICON_SHAPES and ICON_COLOURS stay on BoardUI.
   globalThis.BoardUI = {
     ...globalThis.BoardUI,
-    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, cutClose, swipeToDismiss, swipeVerdict,
+    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, swapSheet, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
