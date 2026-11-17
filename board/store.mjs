@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, LOGGED_OUT_WORDS, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
+import { BUILD_REFUSED, LOGGED_OUT_WORDS, BUILDER_ASK, SUMMARY_HINT, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, REVIEWER, beside, besideAgent, boardAsksOf, OWES_IMPLEMENT, markedState } from './domain.mjs';
 import { githubStateFile, appendEvent, isBoardSite, isListening, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd, boardClaudeModel, claudeModelFor } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel, readLandTests, setLandTests, CLAUDE_MODEL_VALUES } from '../hub/push.mjs';
@@ -2621,13 +2621,19 @@ export async function settleAnswers(site, answers) {
     const key = cardOfTopic(q?.topic);
     if (key) byCard.set(key, [...(byCard.get(key) || []), answerLine(q, a)]);
   }
+  const takes = new Map();
+  for (const a of answers) {
+    const q = asked.get(String(a.id));
+    const key = cardOfTopic(q?.topic);
+    if (key && picksTake(q, a.choice)) takes.set(key, { question: String(a.id), choice: String(a.choice), ...(a.note ? { note: String(a.note) } : {}) });
+  }
   const prototype = [];
   const staged = [];
   for (const [key, said] of byCard) {
     if (!(await loadItem(site, key).catch(() => null))) continue;
     await followUp(site, key, 'writing them into its notes', async () => {
       await appendNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
-      const moved = await moveOnAnswered(site, key);
+      const moved = await moveOnAnswered(site, key, takes.get(key));
       if (moved === 'prototyping') prototype.push(key);
       if (moved === 'staging') staged.push(key);
     });
@@ -2641,9 +2647,10 @@ export async function settleAnswers(site, answers) {
 // card whose gates.next is discuss back to discussing, the discuss spent
 // (docs/adr/2026-11-12-1400-a-grill-ends-asking-to-implement-prototype-or-discuss.md); a
 // prototyping or discussing card back to the conversation, discussing (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md);
-// any other stageable card to staging. The move to prototyping owes the orchestrator's prototype brief.
+// any other stageable card to staging; a take pick leaves the card discussing and owing the final visual's brief
+// (docs/adr/2026-11-17-1800-a-take-pick-owes-a-final-visual-brief.md). The move to prototyping owes the orchestrator's prototype brief.
 // → 'prototyping', 'discussing', 'staging' or null when the card stays.
-async function moveOnAnswered(site, key) {
+async function moveOnAnswered(site, key, take) {
   const { item } = await loadItem(site, key);
   const { asked } = await cardQuestions(site, key);
   // A requested question is handed to a prototype or the grill, whose round decides the next phase.
@@ -2664,6 +2671,15 @@ async function moveOnAnswered(site, key) {
     return 'discussing';
   }
   if (!(await stageable(site, key))) return null;
+  // A card the owner's Implement already staged keeps its place: the pick is in its notes, and no visual is owed.
+  if (take && ['staging', 'ready'].includes(item.phase)) return null;
+  if (take) {
+    await discuss(site, key);
+    const { source, itemFile, item: picked } = await loadItem(site, key);
+    owe(picked, VISUAL, take);
+    await writeJSON(source.file, itemFile);
+    return 'discussing';
+  }
   if (['prototyping', 'discussing'].includes(item.phase)) {
     await discuss(site, key);
     return 'discussing';

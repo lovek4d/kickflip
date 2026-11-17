@@ -206,3 +206,35 @@ test('a follow-up that fails on one card posts its reason to that card and leave
   assert.match(w.notes('notes.md'), /q-second/);
   assert.deepEqual(result.staged, ['t/A2']);
 });
+
+// docs/adr/2026-11-17-1800-a-take-pick-owes-a-final-visual-brief.md
+test("a take pick on a prototyped card leaves it discussing and owes the orchestrator's final-visual brief, its note as the ask; a note with no pick owes none", async () => {
+  const take = { id: 'q-take', topic: 'item:t/A1', question: 'Which take?', url: 'prototype-look.html?q=q-take', options: [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }] };
+  const picked = world('prototyping');
+  picked.put(take);
+  await settleAnswers(picked.site, [picked.answer('q-take', 'B', 'Round the corners')]);
+  assert.equal(picked.card(), 'discussing');
+  assert.deepEqual(picked.read().briefs.map(({ kind, ask }) => ({ kind, ask })), [{ kind: 'visual', ask: { question: 'q-take', choice: 'B', note: 'Round the corners' } }]);
+
+  const none = world('prototyping');
+  none.put(take);
+  await settleAnswers(none.site, [none.answer('q-take', null, 'Neither')]);
+  assert.equal(none.read().briefs, undefined);
+
+  const plain = world('prototyping');
+  await addQuestions(plain.site, other);
+  await settleAnswers(plain.site, [plain.answer('q-other', 'a')]);
+  assert.equal(plain.read().briefs, undefined, 'a question that is no prototype take owes no visual');
+});
+
+test('a take pick on a card Implement already staged or readied keeps it there: its answer in the notes, no visual owed', async () => {
+  const take = { id: 'q-take', topic: 'item:t/A1', question: 'Which take?', url: 'prototype-look.html?q=q-take', options: [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }] };
+  for (const phase of ['staging', 'ready']) {
+    const held = world(phase);
+    held.put(take);
+    await settleAnswers(held.site, [held.answer('q-take', 'B', 'Round the corners')]);
+    assert.equal(held.card(), phase);
+    assert.equal(held.read().briefs, undefined);
+    assert.match(held.notes('notes.md'), /Round the corners/);
+  }
+});

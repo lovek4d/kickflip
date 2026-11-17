@@ -576,6 +576,8 @@ const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.acti
 // Whether an answer choosing choice on question q (an owner.json item) is a card's prototype answer that picks none of
 // its takes, the owner having cleared the pick to leave only a note.
 export const picksNoTake = (q, choice) => /^item:/.test(q.topic || '') && PROTOTYPE_URL.test(q.url || '') && !(q.options || []).some((o) => o.id === choice);
+// Whether an answer choosing choice on question q is a card's prototype answer that picks one of its takes.
+export const picksTake = (q, choice) => /^item:/.test(q.topic || '') && PROTOTYPE_URL.test(q.url || '') && (q.options || []).some((o) => o.id === choice);
 // The note a question an Implement tap skipped is resolved with.
 export const IMPLEMENT_SKIPPED = 'Skipped: you tapped Implement';
 // Card key's answers to its prototype questions and prototype requests on any of its questions (ownerQuestion views)
