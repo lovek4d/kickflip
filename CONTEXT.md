@@ -274,7 +274,7 @@ The open task's upper row of buttons, which change the task itself: Done, Block 
 _Avoid_: workflow row (the CSS class keeps that name)
 
 **Thread actions**:
-The row of buttons in a task's thread box, which ask for work in the thread: What's left?, Prototype, Grill, Visual, Review, with Reply and the lane's second button (Implement, Block or Unblock, Done, Reopen). The code builds it in `app-threads.js` `sends`.
+The row of buttons in a task's thread box, which ask for work in the thread: What's left?, Prototype, Grill, Visual, Review, with Reply and the lane's second button (Implement, or Cancel once Implement is tapped and the card is staged or ready; Block or Unblock, Done, Reopen). The code builds it in `app-threads.js` `sends`.
 
 **Badge tone**:
 The color of a badge (a status chip on a task or page), picked from one fixed set by what the badge says, through `BoardUI.badge` in `board/public/ui.js`: quiet (gray), normal (blue), notice (orange), danger (red) or ready (green). Each tone takes its color from a **status color**, so a badge is one consumer of the colors, not their source. No badge has a look of its own, so the same tone looks the same everywhere. Buttons and links styled like chips, such as quick replies, **Implement** and "Review on GitHub →", aren't badges; the orange of the button that clears Action needed is the same notice color.

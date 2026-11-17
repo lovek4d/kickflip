@@ -888,6 +888,15 @@ test("a bare Implement on a ready card answers 409, already ready, and leaves it
   assert.ok(!fs.existsSync(thread) || !/staged/.test(fs.readFileSync(thread, 'utf8')));
 });
 
+test("a bare Implement on a staged card answers 409, already staged, and writes no second staged line", async () => {
+  await putWave(JSON.stringify({ items: [{ id: 'VT3', title: 'Staged', phase: 'staging', staged_at: '2026-11-01T00:00:00.000Z' }] }));
+  const r = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/VT3', text: '', intent: 'build', sendId: 'v-3' }) });
+  assert.equal(r.status, 409);
+  assert.match((await r.json()).error, /already staged/);
+  const thread = path.join(site, 'data', 'threads', 't__VT3.jsonl');
+  assert.ok(!fs.existsSync(thread) || !/staged/.test(fs.readFileSync(thread, 'utf8')));
+});
+
 test("a Tap Implement push already sent is closed on the owner's devices once its card is staged", async (t) => {
   const { startFakeDevice } = await import('../hub/fake-device.mjs');
   const device = await startFakeDevice();
@@ -1094,6 +1103,32 @@ test("a Reopen moves a Done card back to Todo, discussing, with its line, record
   await board.settled();
   const before = logged().length;
   for (const key of ['t/RO1', 't/RO2']) assert.deepEqual(await post({ kind: 'card-reopen', key }), [400, { error: `${key} isn’t in Done, so there is nothing to reopen.` }]);
+  assert.equal(logged().length, before);
+});
+
+test("a Cancel on a staged or ready Todo card moves it back to discussing with its line, records card-cancel; one on any other card is refused and records nothing", async () => {
+  const wave = path.join(site, 'data', 'items.json');
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
+  const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean) : []);
+  await putWave(JSON.stringify({ items: [
+    { id: 'CA1', title: 'One', lane: 'todo', phase: 'staging', staged_at: '2026-11-01T00:00:00.000Z', lane_at: '2026-11-01T00:00:00.000Z' },
+    { id: 'CA2', title: 'Two', lane: 'todo', phase: 'ready', ready_at: '2026-11-01T00:00:00.000Z', ready_main: 'abc', lane_at: '2026-11-01T00:00:00.000Z' },
+    { id: 'CA3', title: 'Three', lane: 'todo', phase: 'discussing', lane_at: '2026-11-01T00:00:00.000Z' },
+  ] }));
+  for (const id of ['CA1', 'CA2']) {
+    const [status, out] = await post({ kind: 'card-cancel', key: `t/${id}` });
+    assert.equal(status, 200, out.error);
+    const card = out.board.items.find((i) => i.id === id);
+    assert.deepEqual([card.lane, card.phase], ['todo', 'discussing']);
+    const stored = JSON.parse(fs.readFileSync(wave, 'utf8')).items.find((i) => i.id === id);
+    assert.deepEqual([stored.phase, stored.staged_at, stored.ready_at, stored.ready_main], ['discussing', undefined, undefined, undefined]);
+    const thread = fs.readFileSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.ok(thread.some((m) => m.text === 'Cancelled Implement'));
+    assert.equal(JSON.parse(logged().at(-1)).kind, 'card-cancel');
+  }
+  await board.settled();
+  const before = logged().length;
+  assert.deepEqual(await post({ kind: 'card-cancel', key: 't/CA3' }), [400, { error: 't/CA3 isn’t staged or ready, so there is no Implement to cancel.' }]);
   assert.equal(logged().length, before);
 });
 

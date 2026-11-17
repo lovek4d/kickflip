@@ -192,7 +192,7 @@
 //                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); an Unblock relaunches
 //                                the run its Block stopped (resumeRun). card-reopen {key} is a Done card's Reopen: it
 //                                moves the card back to Todo, discussing, before its event (store.mjs recordOwnerTap),
-//                                and one on a card not in Done → 400 {error}. None of them wakes a session, nor do card-unbump,
+//                                and one on a card not in Done → 400 {error}. card-cancel {key} is a staged or ready Todo card's Cancel: it moves the card back to discussing before its event, its Implement owed again, and one on any other card → 400 {error}. None of them wakes a session, nor do card-unbump,
 //                                grill-more, prototype-request or visual-request
 //                                (docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md); one whose item
 //                                file couldn't be written, or whose card is merged or dropped, → 400 or 500 {error}
@@ -515,9 +515,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
   // the header's GitHub check stay the owner's, as does any kind not listed.
   const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request','grill-more', 'visual-request', 'review-request', 'item-message',
-    'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-bump', 'card-unbump']);
+    'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-cancel', 'card-bump', 'card-unbump']);
   // The taps that move a card, which carry the card's version (docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md).
-  const CARD_TAPS = new Set(['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-merge']);
+  const CARD_TAPS = new Set(['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-cancel', 'card-merge']);
   const VIEW_ONLY = 'This board is shared with you to look at only.';
   const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
   // → null for the owner's request, {refused} for one a shared person can't make, else {by: {login, name}}
@@ -1246,14 +1246,14 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         if (recorded) return json(res, 200, { id: recorded.id, board: await answerBoard(req, since) });
         // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: a tap that moves a
         // card carries the version of the card the page drew it from (domain.mjs version); one whose card has moved since
-        // answers 409 with where the card is, and nothing changes. A bare Implement on a ready card has had its Implement,
-        // and the pull starts it, so it answers the same.
+        // answers 409 with where the card is, and nothing changes. A bare Implement on a staged or ready card has had its
+        // Implement (a ready one the pull starts), so it answers the same.
         const drawn = body.version === undefined ? undefined : String(body.version);
         delete body.version;
         if (CARD_TAPS.has(kind) || (kind === 'item-message' && body.intent === 'build')) {
           const card = (await sharedBoard()).items.find((i) => i.key === String(body.key || ''));
           const bare = kind === 'item-message' && !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
-          if (card && ((drawn !== undefined && drawn !== card.version) || (bare && card.lane === 'todo' && card.storedPhase === 'ready'))) {
+          if (card && ((drawn !== undefined && drawn !== card.version) || (bare && card.lane === 'todo' && ['staging', 'ready'].includes(card.storedPhase)))) {
             const had = HAD_IMPLEMENT[card.lane === 'todo' ? card.storedPhase : card.lane];
             return json(res, 409, { error: `${card.ref || card.key} is ${had ? `already ${had}` : `${card.storedPhase || 'new'} now`}, so nothing changed.` });
           }
@@ -1379,6 +1379,15 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           try { moved = await recordOwnerTap(here, kind, body); }
           catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its item file: ${e.message}` }); }
           if (!moved) return json(res, 400, { error: `${key} isn’t in Done, so there is nothing to reopen.` });
+        }
+        // A Cancel takes a staged or ready Todo card back to discussing, written before its event as a Reopen is; one on any
+        // other card is refused and records nothing.
+        if (kind === 'card-cancel') {
+          const key = String(body.key || '');
+          let moved;
+          try { moved = await recordOwnerTap(here, kind, body); }
+          catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its item file: ${e.message}` }); }
+          if (!moved) return json(res, 400, { error: `${key} isn’t staged or ready, so there is no Implement to cancel.` });
         }
         // A Save's removes and adds are both written here, and recorded as reviewers-removed and reviewers-added, which the
         // session takes no action on (docs/adr/2026-11-05-2100-the-server-adds-reviewers-from-fetched-lists.md).

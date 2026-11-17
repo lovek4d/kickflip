@@ -3365,18 +3365,23 @@ test("the thread's Prototype and Grill send their request at once: nothing typed
 });
 
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("a Todo card's Implement is in its thread box: enabled while the card owes it, disabled and quiet once it is staged or ready, following each board load; its action row has none", async () => {
+test("a Todo card's Implement is in its thread box: enabled while the card owes it; once it is staged or ready it is a quiet Cancel that sends card-cancel at once with no confirm, following each board load; its action row has none", async () => {
   const asking = { actionButton: 'openQuestions', buildable: false, questions: { first: 'q7', open: 1, state: 'open' }, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' } };
   const cards = [workCard('Q1', asking), workCard('S1', { staging: true }), workCard('R1', { buildable: true, ready: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: { 'w/Q1': [], 'w/S1': [], 'w/R1': [] }, confirm: true });
   await b.settle();
-  const implement = (key) => b.root.querySelector(`form[data-reply="${key}"] button[data-intent="build"]`);
-  const shape = (key) => [implement(key).getAttribute('class'), implement(key).disabled];
-  assert.deepEqual([shape('w/Q1'), shape('w/S1'), shape('w/R1')], [['build', false], ['build', true], ['build', true]]);
+  const second = (key) => b.root.querySelector(`form[data-reply="${key}"] button[type="submit"]`);
+  const shape = (key) => [second(key).textContent.replace(/⌥↵$/, ''), second(key).getAttribute('class') || '', second(key).disabled];
+  assert.deepEqual([shape('w/Q1'), shape('w/S1'), shape('w/R1')], [['Implement', 'build', false], ['Cancel', '', false], ['Cancel', '', false]]);
   assert.ok(b.root.querySelector('form[data-reply="w/R1"] button[data-intent="reply"]'));
   assert.equal(b.root.querySelector('.actions [data-confirm="card-build"]'), null);
+  const form = b.root.querySelector('form[data-reply="w/S1"]');
+  b.page.fire(b.root, 'submit', { target: form, submitter: second('w/S1') });
+  await b.settle();
+  assert.deepEqual(b.confirms, [], 'no confirm');
+  assert.deepEqual(sentNoIds(b), [['card-cancel', { key: 'w/S1' }]]);
   await b.change({ board: boardOf([workCard('Q1', { buildable: true, ready: true }), cards[1], cards[2]]) });
-  assert.deepEqual(shape('w/Q1'), ['build', true]);
+  assert.deepEqual(shape('w/Q1'), ['Cancel', '', false]);
   b.view.unmount();
 });
 
@@ -3855,6 +3860,20 @@ test("a message the board never recorded survives a reload: the page shows it as
   b.view.unmount();
 });
 
+test("a tapped Implement draws as Cancel while its send is in the outbox, so a second tap can't send it again", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
+  await b.settle();
+  const form = () => b.root.querySelector('form[data-reply="w/T1"]');
+  const second = () => form().querySelector('button[type="submit"]').textContent.replace(/⌥↵$/, '');
+  assert.equal(second(), 'Implement');
+  b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-intent="build"]') });
+  await b.settle();
+  assert.equal(second(), 'Cancel');
+  assert.equal(sentNoIds(b).filter(([, d]) => d.intent === 'build').length, 1);
+  b.view.unmount();
+});
+
 // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md
 test("a reply-box tap carries the version of the card it was drawn on, and one the board refuses as moved (409) leaves the outbox with the board's reason as a toast, never not sent", async () => {
   const reason = '#9 is already ready, so nothing changed.';
@@ -3872,32 +3891,24 @@ test("a reply-box tap carries the version of the card it was drawn on, and one t
 });
 
 // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
-test("Implement shows its line at once and its button never waits: with text the message's footer reads Implement · sending…, an empty box's line reads Marked as staged · sending…, and the board's line, matched by sendId, takes each one's place", async () => {
+test("Implement shows its line at once and its button turns to Cancel at the tap: an empty box's line reads Marked as staged · sending…, and the board's line, matched by sendId, takes its place; with text the message's footer reads Implement · sending…", async () => {
   const sends = heldSends();
-  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
+  const b = boardOnDom({ open: ['w/T1', 'w/T2'], board: boardOf([workCard('T1'), workCard('T2')]), threads: { 'w/T1': [], 'w/T2': [] }, send: sends.send });
   await b.settle();
-  const form = () => b.root.querySelector('form[data-reply="w/T1"]');
-  const implement = () => form().querySelector('button[data-intent="build"]');
-  const tap = async (text) => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: implement() }); await b.settle(); };
-  await tap('Use the blue');
-  assert.deepEqual([form().querySelector('textarea').value, threadLines(b, 'w/T1'), waitState(implement())], ['', ['Use the blue (Implement · sending…)'], IDLE]);
+  const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
+  const implement = (key) => form(key).querySelector('button[data-intent="build"]');
+  const tap = async (key, text) => { form(key).querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form(key), submitter: implement(key) }); await b.settle(); };
+  await tap('w/T1', 'Use the blue');
+  assert.deepEqual([form('w/T1').querySelector('textarea').value, threadLines(b, 'w/T1'), implement('w/T1')], ['', ['Use the blue (Implement · sending…)'], null]);
   assert.equal(b.sent[0][1].intent, 'build');
-  await tap('');
-  assert.deepEqual([threadLines(b, 'w/T1'), waitState(implement())], [['Use the blue (Implement · sending…)', 'Marked as staged · sending…'], IDLE]);
-  const at = '2026-10-30T10:05:00.000Z';
-  b.server.threads['w/T1'] = [
-    { ts: at, who: 'love', via: 'site', kind: 'item-message', text: 'Use the blue', eventId: 'e1', reply: null, state: 'waiting', status: 'Implement' },
-    { ts: at, who: 'claude', kind: 'command', command: 'staged', request: true, text: 'Marked as staged' },
-  ];
-  sends.answer();
-  await b.settle();
-  assert.deepEqual(threadLines(b, 'w/T1'), ['Use the blue (Implement · waiting…)', 'Marked as staged', 'Marked as staged · sending…']);
+  await tap('w/T2', '');
+  assert.deepEqual([threadLines(b, 'w/T2'), implement('w/T2')], [['Marked as staged · sending…'], null]);
   const sendId = b.sent.at(-1)[1].sendId;
-  b.server.threads['w/T1'] = [...b.server.threads['w/T1'], { ts: '2026-10-30T10:06:00.000Z', who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staged', text: 'Marked as staged', sendId }];
+  b.server.threads['w/T2'] = [{ ts: '2026-10-30T10:06:00.000Z', who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staged', text: 'Marked as staged', sendId }];
   sends.answer();
   await b.settle();
-  assert.deepEqual(threadLines(b, 'w/T1'), ['Use the blue (Implement · waiting…)', 'Marked as staged', 'Marked as staged']);
-  assert.deepEqual(sentNoIds(b).at(-1), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
+  assert.deepEqual(threadLines(b, 'w/T2'), ['Marked as staged']);
+  assert.deepEqual(sentNoIds(b).at(-1), ['item-message', { key: 'w/T2', text: '', intent: 'build' }]);
   b.view.unmount();
 });
 

@@ -1047,14 +1047,14 @@ function ownerTopics(topics, questions, closed = new Set()) {
 export const COMMANDS = {
   prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested', [REVIEWER]: 'Review requested',
   'prototype-started': 'Prototype started', 'grill-started': 'Grill started', 'visual-started': 'Visual started', [`${REVIEWER}-started`]: 'Review started',
-  reask: 'Re-ask requested', hold: 'Blocked', resume: 'Unblocked', done: 'Marked done', reopened: 'Reopened',
+  reask: 'Re-ask requested', hold: 'Blocked', resume: 'Unblocked', done: 'Marked done', reopened: 'Reopened', cancelled: 'Cancelled Implement',
   discussing: 'Marked as discussing', staged: 'Marked as staged', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
   created: 'Created ticket', 'created-from': 'Created from', 'blocked-by': 'Blocked by', unblocks: 'Unblocks',
 };
 // Each tap command's tone (hub-lines.mjs TONES): a request for a planner is blue like a planner's own lines.
 export const COMMAND_TONES = {
-  prototype: 'blue', grill: 'blue', visual: 'blue', [REVIEWER]: 'blue', 'prototype-started': 'blue', 'grill-started': 'blue', 'visual-started': 'blue', [`${REVIEWER}-started`]: 'blue', reask: 'blue', hold: 'grey', resume: 'orange', done: 'green', reopened: 'grey',
+  prototype: 'blue', grill: 'blue', visual: 'blue', [REVIEWER]: 'blue', 'prototype-started': 'blue', 'grill-started': 'blue', 'visual-started': 'blue', [`${REVIEWER}-started`]: 'blue', reask: 'blue', hold: 'grey', resume: 'orange', done: 'green', reopened: 'grey', cancelled: 'grey',
   discussing: 'grey', staged: 'orange', readied: 'green', related: 'grey', unrelated: 'grey', followup: 'grey', 'followup-of': 'grey',
   created: 'blue', 'created-from': 'blue', 'blocked-by': 'grey', unblocks: 'grey',
 };

@@ -13,7 +13,7 @@ BoardView.part((B) => {
   // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
   // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
   // Every card's reply box sends with Reply (intent: 'reply'), the second button of its pair beside it on ⌥↵: a Todo
-  // card's Implement (intent: 'build'), its build action, enabled while the card owes it, disabled and quiet once it is staged or ready; an In
+  // card's Implement (intent: 'build'), its build action, while the card owes it, a quiet Cancel once it is staged or ready (it takes the card back to discussing); an In
   // Progress card's Block, quiet, which opens the Block sheet, or orange Unblock while the owner's block is on; an In Review
   // card's Done (ui-threads.js doneButton), in its tone; a Done card's Reopen, quiet. A card with no second button (one
   // not yet read from the board) has Reply alone. A pair wraps onto its own line under the row. Reply is orange while
@@ -29,7 +29,8 @@ BoardView.part((B) => {
   const sends = (kind, item) => {
     const reply = sendButton('Reply', 0, ' data-intent="reply"', replyTone(item));
     const card = (label, act, cls = '') => sendButton(label, 1, `${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${esc(item.key)}"`);
-    const second = kind.startsWith('todo') ? sendButton('Implement', 1, ` class="build${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"${kind.startsWith('todo-') ? ' disabled' : ''}`)
+    const second = kind.startsWith('todo-') ? card('Cancel', 'cancel')
+      : kind.startsWith('todo') ? sendButton('Implement', 1, ` class="build${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"`)
       : kind.startsWith('review') ? doneButton(item)
       : kind.startsWith('progress-blocked') ? card('Unblock', 'resume', 'unblock')
       : kind.startsWith('progress') ? card('Block', 'hold')
@@ -40,7 +41,7 @@ BoardView.part((B) => {
   function syncSends(el, key) {
     const at = el.querySelector('form [data-sends]');
     if (!at) return;
-    const item = state.board?.items.find((i) => i.key === key);
+    const item = BoardUI.tapped(state.board?.items.filter((i) => i.key === key) || [], outbox())[0];
     const kind = sendsOf(item);
     if (at.dataset.sends !== kind) { at.insertAdjacentHTML('afterend', sends(kind, item)); at.remove(); }
     // The row is built once and a card moves lanes without a rebuild, so its words follow the card's lane here: hidden
@@ -136,7 +137,7 @@ BoardView.part((B) => {
   // Unblock, Done, Reopen and bare Implement itself. A Merge has no line of the board's: its own words stand until a
   // thread load after the answer.
   const REQUESTED = { 'prototype-request': 'Prototype requested', 'grill-more': 'Grill requested', 'visual-request': 'Visual requested', 'review-request': 'Review requested' };
-  const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Blocked' : 'Unblocked'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened', 'card-merge': () => 'Merge requested' };
+  const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Blocked' : 'Unblocked'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened', 'card-cancel': () => 'Cancelled Implement', 'card-merge': () => 'Merge requested' };
   function tapOf(m) {
     if (m.text || m.files.length || m.uploads) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
     return { words: REQUESTED[m.kind] || CARD_TAPS[m.kind]?.(m) || 'Marked as staged', waits: Boolean(REQUESTED[m.kind]) };

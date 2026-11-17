@@ -149,7 +149,7 @@
     visual: shape('image'),
     'ask-link': shape('arrow'),
     move: shape('move'),
-    'Marked as discussing': shape('chat'),
+    'Marked as discussing': shape('chat'), 'Cancelled Implement': shape('chat'),
     // The board's hub lines (board/hub-lines.mjs BUILD) still draw as "Implementation requested", with staging's icon.
     'Marked as staged': shape('code'),
     'Implementation requested': shape('code'),

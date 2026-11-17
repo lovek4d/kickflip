@@ -549,12 +549,12 @@ BoardView.part((B) => {
     const follow = act === 'finish' && document.activeElement?.matches?.('textarea') && document.activeElement.closest('form[data-reply]')?.dataset.reply === key;
     const it = state.board.items.find((i) => i.key === key);
     if (it && act === 'hold') { openHold(it); return; }
-    if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
+    if (!it || (act !== 'cancel' && !(await B.confirm(CONFIRM[act](it, it.ref))))) return;
     // A Done not followed closes its card at the tap, before the outbox draws the card in Done
     // (docs/adr/2026-11-15-1500-done-moves-its-card-at-the-tap-and-rolls-back-if-refused.md).
     // Merge: docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md.
     if (act === 'finish' && !follow) closeCard(key);
-    B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done', ...(follow ? { follow } : {}) }, reopen: { kind: 'card-reopen' }, merge: { kind: 'card-merge' } }[act]);
+    B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done', ...(follow ? { follow } : {}) }, reopen: { kind: 'card-reopen' }, cancel: { kind: 'card-cancel' }, merge: { kind: 'card-merge' } }[act]);
   }
 
   function closeCard(key) {

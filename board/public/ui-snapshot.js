@@ -93,17 +93,19 @@
   // sits in Done and no longer offers Done, as the board will show it once it answers. A Done tapped with the thread
   // field focused (follow) stays where it is until then (app-core.js steady anchors on the field). A card whose Merge is
   // in it reads merging, its Merge busy, and one whose bump or unbump is in it carries its icon as bumped or not
-  // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md), so a second tap never doubles one.
+  // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md), so a second tap never doubles one. A Todo card whose Implement is in it, not failed, reads staged, so its Implement draws as Cancel at the tap.
   const tapped = (items, outbox) => {
     const done = new Set(outbox.filter((m) => m.kind === 'card-done' && !m.follow).map((m) => m.key));
     const merging = new Set(outbox.filter((m) => m.kind === 'card-merge').map((m) => m.key));
     const bumps = new Map(outbox.filter((m) => m.kind === 'card-bump' || m.kind === 'card-unbump').map((m) => [m.fields.key, m.kind === 'card-bump' ? m.ts : null]));
-    if (!done.size && !merging.size && !bumps.size) return items;
+    const implementing = new Set(outbox.filter((m) => m.intent === 'build' && !m.failed).map((m) => m.key));
+    if (!done.size && !merging.size && !bumps.size && !implementing.size) return items;
     return items.map((i) => {
       let it = i;
       if (done.has(i.key)) it = { ...it, lane: 'done', finishable: false, phase: globalThis.BoardUI.PHASES.progress.includes(i.phase) ? null : i.phase };
       if (merging.has(i.key)) it = { ...it, merging: true };
       if (bumps.has(i.key)) it = { ...it, bumpedAt: bumps.get(i.key) };
+      if (implementing.has(i.key) && i.lane === 'todo') it = { ...it, staging: !i.ready };
       return it;
     });
   };

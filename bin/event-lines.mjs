@@ -20,7 +20,7 @@ export const shownFile = (dir, session) => path.join(dir, 'data', `.shown-${sess
 // itself (Block, Unblock, Done, Reopen, Unbump, a bare or worded Grill, Prototype, Visual or Review) and an unblock wake nobody. A lifted
 // pause (usage-resumed) wakes nobody either: the watcher reads the gate itself, and the work it held wakes the session.
 export const RECORD_ONLY = ['main-pulled', 'settings', 'reviewers-removed', 'reviewers-added','repo-changed', 'ping', 'hello',
-  'card-hold', 'card-done', 'card-reopen', 'card-unbump', 'card-unblocked', 'review-answer', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'review-request', 'usage-resumed',
+  'card-hold', 'card-done', 'card-reopen', 'card-cancel', 'card-unbump', 'card-unblocked', 'review-answer', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'review-request', 'usage-resumed',
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: the orchestrator's own answer.
   'board-ask-answered',
   // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: a slack command's record.

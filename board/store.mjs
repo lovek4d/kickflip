@@ -4044,6 +4044,18 @@ export async function recordOwnerTap(site, kind, data) {
     await appendCommand(site, key, { who: 'love', by, command: 'reopened' });
     return moveCard(site, key, 'todo', 'you reopened it', 'discussing');
   }
+  // A staged or ready Todo card's Cancel takes it back to discussing, its Implement owed again, its ticket kept;
+  // a card in any other place or phase has nothing to cancel.
+  if (kind === 'card-cancel') {
+    if (item.lane !== 'todo' || !['staging', 'ready'].includes(item.phase)) return null;
+    await appendCommand(site, key, { who: 'love', by, command: 'cancelled' });
+    delete item.staged_at;
+    delete item.ready_at;
+    delete item.ready_main;
+    item.phase = 'discussing';
+    await writeJSON(source.file, itemFile);
+    return 'discussing';
+  }
   // A Done card waiting on its owner step closes on the owner's Done; any other card in Done has nothing to write.
   const stepOpen = kind === 'card-done' && Boolean(item.owner_step);
   if (!stepOpen && item.lane === 'done') return null;
