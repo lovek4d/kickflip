@@ -5,7 +5,7 @@
 // since it may have changed while its stream was down. `event: sidebar` carries what /_hub/sidebar.json would answer
 // whenever that differs from the last one sent: after a board's change, and on a timer for what no stream reports,
 // such as a site going down or a page's waiting count; and when a board's data/watcher.json is written or removed, since
-// a session's watcher starting or exiting is what the sidebar's listening word follows (boards.mjs listenState). A
+// a session's watcher starting or exiting is what the sidebar's listening word follows (boards.mjs listenState); a write that only moves its checks counter wakes nothing. A
 // shared person's page (hub/share.mjs) gets only their boards' changes and their own view of each sidebar.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -18,6 +18,7 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
   const clients = new Map(); // res → viewer
   const upstreams = new Map(); // route → {port, req}
   const watchers = new Map(); // dir → fs.FSWatcher on dir/data
+  const watcherSeen = new Map(); // dir → data/watcher.json without its checks counter, as last seen
   const opened = new Set(); // routes whose stream has opened since the first page started listening
   let lastSidebar = null;
   let lastData = null;
@@ -94,17 +95,33 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
     for (const [route, port] of want) if (!upstreams.has(route)) connect(route, port);
   }
 
+  // watcher.json without the checks counter the watcher bumps on every empty pass, which the sidebar doesn't show;
+  // null when the file is gone.
+  function watcherState(dir) {
+    try {
+      const { checks, ...rest } = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'watcher.json'), 'utf8'));
+      return JSON.stringify(rest);
+    } catch { return null; }
+  }
+  function watcherWritten(dir) {
+    const state = watcherState(dir);
+    if (watcherSeen.get(dir) === state) return;
+    watcherSeen.set(dir, state);
+    sidebarSoon();
+  }
+
   // fs.watch on the data folder, not the file, which is replaced when written; a folder that doesn't exist yet is tried again on the next reconcile.
   function watchWatchers() {
     let want;
     try { want = new Set(watched().map((w) => w.dir)); } catch (e) { log(`stream watched failed: ${e.message}`); return; }
-    for (const [dir, w] of watchers) if (!want.has(dir)) { w.close(); watchers.delete(dir); }
+    for (const [dir, w] of watchers) if (!want.has(dir)) { w.close(); watchers.delete(dir); watcherSeen.delete(dir); }
     for (const dir of want) {
       if (watchers.has(dir)) continue;
       try {
-        const w = watch(path.join(dir, 'data'), (_, name) => { if (name === 'watcher.json') sidebarSoon(); });
+        const w = watch(path.join(dir, 'data'), (_, name) => { if (name === 'watcher.json') watcherWritten(dir); });
         w.on('error', () => { w.close(); watchers.delete(dir); });
         watchers.set(dir, w);
+        watcherSeen.set(dir, watcherState(dir));
       } catch {}
     }
   }
@@ -128,6 +145,7 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
     upstreams.clear();
     for (const w of watchers.values()) w.close();
     watchers.clear();
+    watcherSeen.clear();
     opened.clear();
     lastSidebar = null;
     lastData = null;

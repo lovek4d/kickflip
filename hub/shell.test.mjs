@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import vm from 'node:vm';
 import { pageOf, versionAppAssets } from './shell.mjs';
 import { hubStream } from './stream.mjs';
@@ -176,28 +178,38 @@ test("a board's change reaches /_hub/stream as change {route} with the sidebar's
 
 test("a watcher file written or removed in a board's data folder sends the sidebar at once, without a board change", async (t) => {
   mockTimers(t);
-  const dir = '/boards/ios';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shell-watcher-'));
+  fs.mkdirSync(path.join(dir, 'data'));
+  const file = path.join(dir, 'data', 'watcher.json');
   const watching = [];
+  let asked = 0;
   const watch = (folder, onEvent) => { watching.push({ folder, onEvent }); return { on() {}, close() {} }; };
   let listening = false;
-  const relay = hubStream({ targets: () => [], watched: () => [{ route: 'ios', dir }], watch, sidebar: async () => ({ listening }), retryMs: 30, settleMs: 10, sidebarMs: 60_000 });
+  const relay = hubStream({ targets: () => [], watched: () => [{ route: 'ios', dir }], watch, sidebar: async () => { asked += 1; return { listening }; }, retryMs: 30, settleMs: 10, sidebarMs: 60_000 });
   const hub = http.createServer((req, res) => relay.handle(req, res));
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const page = listen(hub.address().port);
   try {
     await page.waitFor((events) => events.length === 1);
-    assert.deepEqual(watching.map((w) => w.folder), ['/boards/ios/data']);
+    assert.deepEqual(watching.map((w) => w.folder), [path.join(dir, 'data')]);
     const fire = () => { watching[0].onEvent('rename', 'watcher.json'); t.mock.timers.tick(10); };
     listening = true;
+    fs.writeFileSync(file, JSON.stringify({ pid: 1, since: 'a' }));
     fire();
     await page.waitFor((events) => events.some((e) => e.data.listening));
+    // A write that only moves the checks counter asks for no sidebar.
+    fs.writeFileSync(file, JSON.stringify({ pid: 1, since: 'a', checks: 1 }));
+    fire();
     listening = false;
+    fs.writeFileSync(file, JSON.stringify({ pid: 1, since: 'a', exited_at: 'b' }));
     fire();
     await page.waitFor((events) => events.at(-1).data.listening === false && events.length === 3);
+    assert.equal(asked, 3, 'the first send, the start and the exit, not the counter');
   } finally {
     page.close();
     relay.close();
     await new Promise((r) => hub.close(r));
+    fs.rmSync(dir, { recursive: true });
   }
 });
 
