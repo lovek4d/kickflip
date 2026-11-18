@@ -17,13 +17,12 @@ kickflip is a single-owner tool. It runs on the owner's Mac and serves the owner
 
 **Who is not trusted**
 
-- Any other machine or tailnet identity. The hub answers only on loopback and on this Mac's own tailnet name, and refuses any other Host or WebSocket Origin. Access is local, or over the tailnet from the matching identity; there is no sharing mechanism.
-- Web pages in the owner's browser, including a DNS-rebinding page aimed at a local port, and the previews a board shows (prototypes and visuals), which are isolated from the app's origin.
-- A file inside a served directory that points outside it (symlinks are refused).
+- Any other tailnet identity the owner hasn't shared a board with. Over the tailnet the hub serves the owner's own Tailscale login and refuses any other, except a login the owner shared a board with, which gets that board alone, view-only or full.
+- Web pages in the owner's browser. The previews a board shows (prototypes and visuals) run in a sandboxed frame with an opaque origin, isolated from the app's origin.
 
 **What stays outside the model**
 
-A process running as the same OS user can read anything the hub keeps on disk, so it can also read an owner secret. The owner proof stops a one-request self-approval by an agent. It does not stop a determined same-user process. If you run an agent you don't trust, run it as another user.
+A process running as the same OS user can read anything the hub keeps on disk, and a request from this Mac's loopback is served as the owner. An agent is trusted not to approve, but nothing stops it doing so. If you run an agent you don't trust, run it as another user.
 
 **The supply chain**
 
