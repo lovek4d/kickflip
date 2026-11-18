@@ -89,3 +89,31 @@ test('a frame of another origin is skipped without an error', () => {
   const frame = { tagName: 'IFRAME', get contentDocument() { throw new Error('cross-origin'); } };
   assert.doesNotThrow(() => sheet.fire('load', { target: frame }));
 });
+
+// A touch that starts on a scroller scrolled down, and pulls on past its top, takes over the sheet there.
+const scrollerRig = () => {
+  const { sheet } = rig(0);
+  const scroller = { scrollTop: 300, parentElement: null, closest: () => null };
+  const touch = (y) => ({ touches: [{ screenY: y }], target: scroller, timeStamp: 0, preventDefault() {} });
+  return { sheet, scroller, touch };
+};
+
+test('a touch that starts mid-scroll drags the sheet once the scroller reaches its top', () => {
+  const { sheet, scroller, touch } = scrollerRig();
+  sheet.fire('touchstart', touch(100));
+  sheet.fire('touchmove', touch(200));
+  assert.equal(sheet.style.transform, undefined);
+  scroller.scrollTop = 0;
+  sheet.fire('touchmove', touch(250));
+  sheet.fire('touchmove', touch(750));
+  sheet.fire('touchend', { ...touch(750), timeStamp: 50, type: 'touchend' });
+  assert.equal(sheet.closed, true);
+});
+
+test('a touch that starts mid-scroll and stays below the top leaves the sheet', () => {
+  const { sheet, touch } = scrollerRig();
+  sheet.fire('touchstart', touch(100));
+  sheet.fire('touchmove', touch(600));
+  sheet.fire('touchend', { ...touch(600), timeStamp: 50, type: 'touchend' });
+  assert.equal(sheet.closed, false);
+});

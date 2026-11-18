@@ -670,10 +670,11 @@
   // A release past a third of the sheet's height, or a flick, counts as Escape: the sheet's own cancel handler runs.
   const SWIPE = { share: 0.3, flick: 0.6, minFlick: 24, slop: 8 };
   const swipeVerdict = (dy, height, ms) => (dy > height * SWIPE.share || (dy > SWIPE.minFlick && dy / Math.max(ms, 1) > SWIPE.flick) ? 'dismiss' : 'back');
+  const SWIPE_TEXT_BOX = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
   // A drag may start on the sheet's header, or anywhere once every scroller between the finger and the sheet is at its top.
   const swipeMayStart = (target, sheet) => {
     if (target.closest('.sheet-head, .settings-head')) return true;
-    if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return false;
+    if (target.closest(SWIPE_TEXT_BOX)) return false;
     // A finger in a same-origin frame walks up the frame's page, then on from the frame element in the sheet.
     for (let el = target; el && el !== sheet.parentElement; el = el.parentElement || el.ownerDocument?.defaultView?.frameElement) if (el.scrollTop > 0) return false;
     if (target.ownerDocument?.scrollingElement?.scrollTop > 0) return false;
@@ -693,11 +694,18 @@
     };
     const clear = () => { sheet.style.transition = ''; sheet.style.transform = ''; sheet.style.removeProperty('--swipe'); };
     const start = (e) => {
-      from = e.touches.length === 1 && swipeMayStart(e.target, sheet) ? { y: e.touches[0].screenY, at: e.timeStamp } : null;
+      // A touch on a scroller scrolled down waits (held) and starts dragging where the scroller reaches its top.
+      const mayStart = e.touches.length === 1 && swipeMayStart(e.target, sheet);
+      const held = e.touches.length === 1 && !mayStart && !e.target.closest(SWIPE_TEXT_BOX);
+      from = mayStart || held ? { y: e.touches[0].screenY, at: e.timeStamp, held } : null;
       dragging = false;
     };
     const move = (e) => {
       if (!from) return;
+      if (from.held) {
+        if (!swipeMayStart(e.target, sheet)) return;
+        from = { y: e.touches[0].screenY, at: e.timeStamp, held: false };
+      }
       dy = e.touches[0].screenY - from.y; // screenY: a frame moves with the sheet, so its clientY would not hold still
       if (!dragging && dy < SWIPE.slop) { if (dy < -SWIPE.slop) from = null; return; }
       dragging = true;
