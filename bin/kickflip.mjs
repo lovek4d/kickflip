@@ -597,7 +597,14 @@ const commands = {
       // running server and all (../hub/new-board.mjs serveStart).
       const startingSite = routeRecord(m.starting, route);
       const served = !existing && args.template === 'board' && startingSite?.site && (!startingSite.session || startingSite.session === args.session) ? startingSite.site : null;
-      if (!existing) {
+      // A new page given --dir and no server is its folder's files, which the hub serves, with this session as its owner
+      // (a New course's page, ../hub/new-course.mjs).
+      const files = !existing && args.template !== 'board' && args.dir !== undefined && args.cmd === undefined && args.port === undefined;
+      if (files) {
+        site.dir = path.resolve(args.dir);
+        if (!isFolder(site.dir)) fail(`--dir ${site.dir} is not a folder`, 2);
+        site.created = now;
+      } else if (!existing) {
         site.dir = path.resolve(args.dir || served?.dir || path.join(HOME, 'sites', route));
         const empty = !fs.existsSync(site.dir) || fs.readdirSync(site.dir).length === 0;
         if (empty && !args.cmd && !args.template) {

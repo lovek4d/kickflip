@@ -14,6 +14,8 @@
     pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    // A starting course's (hub/icons.mjs book).
+    book: '<path d="M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z"/><path d="M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z"/>',
     // A starting board's step icons, one per START_STEPS key. No open icon set (Lucide, Tabler) has a skateboard, so landing's
     // deck with upturned ends over two wheels is drawn here.
     cloning: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/>',
@@ -165,7 +167,7 @@
   function failedStart(s, { home, now = Date.now() } = {}) {
     const fact = (name, value) => (value ? `<dt>${name}</dt><dd>${value}</dd>` : '');
     return `<div class="sheet-body"><div class="sheet-head"><h2 id="failedStartTitle">${esc(s.title)} failed to start</h2><button type="button" data-failed-close aria-label="Close sheet">✕</button></div>`
-      + `<p class="fs-error">${esc(s.error || "Its session didn't answer within 15 minutes.")}</p>`
+      + `<p class="fs-error">${esc(s.error || `Its session didn't answer within ${s.course ? 45 : 15} minutes.`)}</p>`
       + `<dl class="fs-facts">${fact('Repo', s.repo && esc(repoLabel(s.repo, home)))}${fact('Branch', s.branch && `<code>${esc(s.branch)}</code>`)}`
       + `${fact('Tickets', s.tickets && esc(ticketsLabel(s.tickets)))}${fact('Asked', s.askedAt && esc(askedWhen(s.askedAt, now)))}</dl>`
       + '<p class="fs-refused" role="alert" hidden></p>'
@@ -220,11 +222,11 @@
   // The lower row: the step, cloning with its percent, or the starting session's last activity in its place, and its
   // seconds; a stalled session's quiet minutes instead
   // (docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md). A host clock ahead of
-  // this device's counts from 0s.
+  // this device's counts from 0s. A course (s.course) has the one step, writing lesson 1.
   function startCaption(s, now = Date.now()) {
     if (s.stalled) return `stalled · ${Math.max(0, Math.floor((now - Date.parse(s.quietSince)) / 60_000))}m quiet`;
     const seconds = Math.max(0, Math.floor((now - Date.parse(s.stepAt)) / 1000));
-    return `${s.step === 'cloning' ? `cloning (${s.percent || 0}%)` : s.activity || START_STEPS[s.step]} · ${seconds}s`;
+    return `${s.step === 'cloning' ? `cloning (${s.percent || 0}%)` : s.activity || (s.course ? 'writing lesson 1' : START_STEPS[s.step])} · ${seconds}s`;
   }
   // What follows a starting row's caption: Retry on a stalled New board start, or the red block of the prompt its
   // session waits on (hub/prompts.mjs shown), answered in place (sidebar.js): Allow once, Always and Deny, as a joined
@@ -278,7 +280,7 @@
   // subscription as sidebar.js finds it, 'on' | 'off' | 'blocked' | 'install' (iOS outside the Home Screen app), or
   // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint on the Boards label.
   // update: null | 'ready' | 'reloading'.  // now: the time a starting board's seconds count to. A shared person's data (data.shared; hub/share.mjs sharedSidebar)
-  // draws their boards alone: no Hub row, update or notification rows, and no New board.
+  // draws their boards alone: no Hub row, update or notification rows, and no New.
   // Whether the Hub row reads busy: the hub's pause.machine.busy (hub/home.mjs sidebarPause).
   const hubBusy = (data) => Boolean(data?.pause?.machine?.busy);
   // The logo's one dot, the highest that applies (AGENTS.md colour order): 'down' (red) for a broken hub, Claude not listening on a
@@ -311,12 +313,18 @@
     const pages = sites.filter((s) => !s.board);
     const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;
     // A starting row's title opens its board once the hub serves it (s.served), an empty board while its orchestrator starts.
-    const pending = (data?.starting || []).map((s) => (s.failed
-      ? `<button type="button" class="sb-row sb-starting sb-failed" data-starting="${esc(s.route)}" data-failed-start="${esc(s.route)}" aria-haspopup="dialog">${plus}`
-        + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub">${s.ended ? 'session ended' : 'failed to start'}</span></span></button>`
+    // A course's starting row (s.course; hub/new-course.mjs) ends the Pages group: its book, orange while /teach writes
+    // lesson 1, with no step bars, and on a failure reads /teach failed.
+    const failedRow = (s) => `<button type="button" class="sb-row sb-starting sb-failed" data-starting="${esc(s.route)}" data-failed-start="${esc(s.route)}" aria-haspopup="dialog">${plus}`
+      + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub">${s.course ? '/teach failed' : s.ended ? 'session ended' : 'failed to start'}</span></span></button>`;
+    const courses = (data?.starting || []).filter((s) => s.course).map((s) => (s.failed ? failedRow(s)
+      : `<div class="sb-row sb-starting sb-course" data-starting="${esc(s.route)}"><span class="icon sb-plus sb-start-icon" aria-hidden="true">${svg(ICONS.book, 20)}</span>`
+        + `<span class="sb-text"><span class="sb-title">${esc(s.title)}</span><span class="sb-sub sb-step${s.stalled ? ' sb-stalled' : ''}">${iconText('dot', s.stalled ? 'grey' : 'orange', startCaption(s, now))}</span>${startExtra(s)}</span></div>`)).join('');
+    const pending = (data?.starting || []).filter((s) => !s.course).map((s) => (s.failed
+      ? failedRow(s)
       : `<div class="sb-row sb-starting${s.route === here ? ' on' : ''}" data-starting="${esc(s.route)}"${s.route === here ? ' aria-current="page"' : ''}><span class="icon sb-plus sb-start-icon" aria-hidden="true">${svg(ICONS[s.step], 20)}</span>`
         + `<span class="sb-text">${s.served ? `<a class="sb-title" href="/${esc(s.route)}/">${esc(s.title)}</a>` : `<span class="sb-title">${esc(s.title)}</span>`}${startSteps(s)}<span class="sb-sub sb-step${s.stalled ? ' sb-stalled' : ''}">${esc(startCaption(s, now))}</span>${startExtra(s)}</span></div>`)).join('');
-    const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New board</span></span></button>`;
+    const newBoard = `<button type="button" class="sb-row sb-new" data-new-board aria-haspopup="dialog">${plus}<span class="sb-text"><span class="sb-title">New</span></span></button>`;
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
@@ -346,7 +354,7 @@
       + `<div class="sb-scroll">${busyBanner}<section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update)}</div><div class="sb-group">`
       + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], mark: f.href === '/_hub/' ? moon : '', ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
-      + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')
+      + (pages.length || courses ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}${courses}</div></section>` : '')
       + `<section class="sb-boards" aria-label="Boards">${boardsLabel}`
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }

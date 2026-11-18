@@ -2507,6 +2507,67 @@ test('New board chooses a searchable repo before board details, defaults its bra
   }
 });
 
+// docs/adr/2026-11-18-0600-new-starts-a-board-or-a-teach-course.md
+test('New opens on Board, and its Course posts a name and what to learn to the hub, showing the course starting at the end of Pages; a taken name stays in the sheet', async () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  let data = { sites: [{ route: 'learn', title: 'Learn', board: false, icon: '' }], starting: [] };
+  let refusal = 'That name is taken: a board or page already has its route. Pick another name.';
+  const posted = [];
+  win.fetch = async (url, options = {}) => {
+    if (url === '/_hub/sidebar.json') return repoResponse(data);
+    if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList });
+    posted.push([url, options.method, JSON.parse(options.body), options.headers?.['content-type']]);
+    if (refusal) return { ok: false, text: async () => refusal };
+    data = { ...data, starting: [{ route: 'rust-ownership', title: 'Rust ownership', course: true, step: 'starting', stepAt: new Date().toISOString(), failed: false }] };
+    return repoResponse({ route: 'rust-ownership' });
+  };
+  const sidebar = win.Sidebar.mount({ data });
+  const aside = doc.getElementById('sidebar');
+  assert.equal(aside.querySelector('[data-new-board]').textContent.trim(), 'New');
+  page.fire(aside, 'click', { target: aside.querySelector('[data-new-board]') });
+  await tick();
+  const sheet = doc.getElementById('newBoardSheet');
+  const form = sheet.querySelector('form');
+  const click = (sel) => page.fire(form, 'click', { target: sheet.querySelector(sel) });
+  const pressed = () => sheet.querySelector('[data-nb-kind][aria-pressed="true"]').textContent;
+  assert.equal(sheet.querySelector('h2').textContent, 'New');
+  assert.equal(pressed(), 'Board');
+  assert.match(sheet.textContent, /Newest push first/);
+  click('[data-nb-kind="course"]');
+  assert.equal(pressed(), 'Course');
+  assert.equal(sheet.querySelector('[data-repo]'), null, 'Course drops the repo picker');
+  const start = sheet.querySelector('[type="submit"]');
+  assert.deepEqual([start.hidden, start.disabled], [false, true]);
+  assert.match(sheet.textContent, /Name \(becomes the route\).*What do you want to learn\?.*Start runs \/teach and writes lesson 1\./s);
+  const name = sheet.querySelector('[name="course-name"]');
+  name.value = 'Rust ownership';
+  page.fire(form, 'input', { target: name });
+  assert.equal(sheet.querySelector('[data-course-route]').textContent, 'Opens at /rust-ownership/');
+  assert.equal(start.disabled, true, 'Start waits for what to learn');
+  const learn = sheet.querySelector('[name="learn"]');
+  learn.value = ' Borrowing, from scratch ';
+  page.fire(form, 'input', { target: learn });
+  assert.equal(start.disabled, false);
+  click('[data-nb-kind="board"]');
+  await tick();
+  assert.match(sheet.textContent, /Newest push first/);
+  click('[data-nb-kind="course"]');
+  assert.deepEqual([sheet.querySelector('[name="course-name"]').value, sheet.querySelector('[name="learn"]').value], ['Rust ownership', ' Borrowing, from scratch '], 'the course draft survives a switch');
+  page.fire(form, 'submit');
+  await tick();
+  assert.equal(sheet.querySelector('[role="alert"]').textContent, refusal);
+  assert.equal(sheet.open, true);
+  refusal = null;
+  page.fire(form, 'submit');
+  await tick(); await tick();
+  assert.deepEqual(posted.at(-1), ['/_hub/new-course', 'POST', { name: 'Rust ownership', learn: 'Borrowing, from scratch' }, 'application/json']);
+  assert.equal(doc.getElementById('newBoardSheet'), null);
+  const pages = aside.querySelector('.sb-pages');
+  assert.match(pages.textContent, /Learn.*Rust ownership.*writing lesson 1 · \d+s/s);
+  sidebar.close();
+});
+
 test('the repo sheet names gh auth login when signed out, retries authentication and preserves edited details through Back', async () => {
   const page = repoPage();
   const { win, doc } = page;

@@ -53,6 +53,21 @@ test('kickflip page joins a plain page with --port or --dir, or a watched page w
   assert.match(cli('page', 'shop-front', '--session', 's-shop').stderr, /\/shop-front is a board/);
 });
 
+test("kickflip page with --session and --dir serves the folder's files with the session as owner, and lands a course's Starting record", () => {
+  const dir = path.join(web, 'pages', 'rust-ownership');
+  fs.mkdirSync(path.join(dir, 'lessons'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'lessons', '0001-moves.html'), '<h1>Moves</h1>');
+  const m = manifest();
+  m.starting = { 'rust-ownership': { kind: 'course', title: 'Rust ownership', session: 's-teach', asked_at: new Date().toISOString() } };
+  write(path.join(web, 'manifest.json'), m);
+  const r = ok(cli('page', 'Rust ownership', '--session', 's-teach', '--dir', dir, '--icon', 'book'));
+  const site = manifest().sites['rust-ownership'];
+  assert.deepEqual([r.createdFromStarter, site.dir, site.cmd, site.port, site.watch, site.owner.session, site.icon], [false, dir, undefined, undefined, undefined, 's-teach', 'book']);
+  assert.ok(manifest().starting['rust-ownership'].joined_at);
+  assert.deepEqual(fs.readdirSync(dir), ['lessons'], 'no starter is copied into the course');
+  assert.equal(cli('page', 'Gone', '--session', 's-x', '--dir', path.join(web, 'nowhere')).status, 2);
+});
+
 test('kickflip handoff files the objective as a New ask on the named board, with a routed line naming the session', () => {
   write(path.join(web, 'sites', 'desk', 'board.json'), { title: 'Desk', items: 'data/items.json' });
   const m = manifest();

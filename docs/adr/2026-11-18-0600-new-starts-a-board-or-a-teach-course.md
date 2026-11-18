@@ -1,0 +1,17 @@
+# New starts a board or a /teach course
+
+The owner asked for a page system that starts courses from the hub (T-385, T-424: "Need to separately discuss adding a learn skill page system to start them from here"). Settled on T-424: a course runs /teach; one template, Course; it sits beside `/kickflip page`; its workspace is `~/.claude/kickflip/pages/<route>`. The owner picked take C, a Course kind in the New board sheet, with the note, verbatim: "should become "New" instead of new board. and pages should stack right above boards instead of at the top near hub".
+
+- **New.** The sidebar's last row and its sheet's title read New. The sheet opens on a Board | Course switch; Board is New board, unchanged. Course takes a name, whose route shows under it as "Opens at /<route>/", and "What do you want to learn?". Change repo keeps the sheet with no switch.
+- **Start.** `POST /_hub/new-course {name, learn}` (`hub/new-course.mjs`) refuses a route a site, a start or a closed board holds (409, "That name is taken"), records a Starting record of `kind: 'course'`, then, without holding the answer, makes and trusts the folder and starts a background session there (`sessions.mjs startSession` with `first`, the whole first prompt): `/teach <what to learn>`, then a note asking for an `index.html` linking the lessons and the page join. An existing folder is reused, so /teach reads what is already there.
+- **The join.** The session runs `kickflip page '<name>' --session <id> --dir <folder> --icon book` once lesson 1 is written. A new page joined with `--session` and `--dir` and no `--cmd` or `--port` is now its folder's files, which the hub serves, with the session as owner, in place of a starter server the folder doesn't have. Owner and files mean no needs fetch, watcher or resume (the hub asks only sites with a port, and resumes only boards). The owner record is there for Continue (T-680).
+- **The Starting row.** A course's row ends the Pages group: a book, its title and "writing lesson 1" (or the session's last step) with its seconds beside an orange dot, and the prompt its session waits on, as a starting board's ([a starting board shows its session's liveness, activity and prompt](2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md)). It has no step bars: a course has one step. It reads failed after 45 minutes (`COURSE_WAIT`; a board's is 15), since /teach researches before lesson 1, or when claude fails or its session ends first, as "/teach failed", whose sheet has Dismiss and no Retry; Dismiss keeps the folder. Once its page joins, the row is gone at once (a page has nothing to listen with) and the hub's tick drops the record.
+- **The page row.** A files page whose folder is under `~/.claude/kickflip/pages` reads its lesson count, `lessons/*.html`, with a green dot ("2 lessons"); a fault still reads first.
+- **Order.** Hub alone at the top; Pages and Boards ride together at the sidebar's foot, the gap under the Hub. The auto margin moves from Boards to Pages when there are pages.
+
+Considered:
+- the hub joining the folder itself when it starts the session, which would show the page row, empty, before lesson 1;
+- the hub watching the folder for lesson 1 and joining it then, a poll the session's own join makes unneeded;
+- the visual's "about 3 min" for lesson 1, a guess not yet measured on a real /teach run, so the row counts seconds instead.
+
+Not in this change: Continue on a course's row (T-680), and Retry for a failed course.

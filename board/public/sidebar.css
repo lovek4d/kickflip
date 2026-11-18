@@ -24,7 +24,9 @@
 .sidebar .sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overflow-wrap: anywhere; overscroll-behavior: contain; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; }
 .sidebar .sb-scroll > section { flex: none; }
 .sidebar .sb-utility { padding-top: 6px; }
-.sidebar .sb-boards { margin-top: auto; }
+/* The pages ride with the boards at the bottom, the gap under the Hub. */
+.sidebar .sb-boards, .sidebar .sb-pages { margin-top: auto; }
+.sidebar .sb-pages + .sb-boards { margin-top: 0; }
 .sidebar .sb-empty { margin: 4px 8px; color: var(--muted); font-size: 12.5px; }
 .sidebar .sb-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 8px; border-radius: 10px; color: var(--text); text-decoration: none; }
 .sidebar .sb-row:active { background: var(--chip); }
@@ -153,7 +155,10 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 #newBoardSheet .sheet-head { margin-bottom: 8px; }
 #newBoardSheet .sheet-head h2 { font-size: 17px; }
 #newBoardSheet .nb-field { display: block; padding: 8px 0; margin: 0; }
-#newBoardSheet .nb-field > span:first-child { display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; }
+/* New's Board | Course switch, hub.css's segments. */
+#newBoardSheet .nb-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: 0 0 8px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--chip); }
+#newBoardSheet .nb-kind button { min-height: 44px; padding: 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+#newBoardSheet .nb-kind button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }#newBoardSheet .nb-field > span:first-child { display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; }
 #newBoardSheet :is(input, select) { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px;
   color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 16px; text-align: left; box-sizing: border-box; }
 #newBoardSheet select { text-overflow: ellipsis; }

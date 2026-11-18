@@ -373,14 +373,14 @@ test("a board's sidebar row shows its context at the top right beside its name, 
   assert.match(html, /<span class="sb-title">c<\/span><span class="sb-sub">/);
 });
 
-test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New board last", () => {
+test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New last", () => {
   const site = (route, board, count, sub = null) => ({ route, title: route.toUpperCase(), board, count, icon: `<i data-r="${route}"></i>`, sub });
   const data = {
     sites: [site('ios', true, 2, { status: null, stale: false, chips: [{ lane: 'needs', text: '2 need you' }] }), site('learn', false, 1), site('shop', true, 0), site('hub', true, 3)],
     hub: { tone: 'ok', word: 'healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
-  assert.equal(text(html), 'Kickflip Hub healthy 4 of 4 sites up Pages LEARN Boards IOS 2 need you SHOP HUB New board');
+  assert.equal(text(html), 'Kickflip Hub healthy 4 of 4 sites up Pages LEARN Boards IOS 2 need you SHOP HUB New');
   const utility = (html) => /<section class="sb-utility"[^>]*>(.*?)<\/section>/.exec(html)[1];
   assert.deepEqual([...utility(html).matchAll(/href="([^"]+)"/g)].map((m) => m[1]), ['/_hub/']);
   assert.match(html, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Hide boards" title="Hide boards" data-sidebar-close=""><img src="\/_hub\/kickflip\.png" alt=""><\/a><h2>Kickflip<\/h2><\/div><div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards"><svg [^>]*>.*?<\/svg><\/button><\/div><\/header>/);
@@ -414,7 +414,7 @@ test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New
   assert.match(ui.sidebar({ sites: [] }), /data-new-board aria-haspopup="dialog"/);
 });
 
-test("pending boards have muted non-link rows, a failed start keeps its name with failed to start and opens its sheet, and New board stays last in Boards", () => {
+test("pending boards have muted non-link rows, a failed start keeps its name with failed to start and opens its sheet, and New stays last in Boards", () => {
   const data = { sites: [{ route: 'page', title: 'Page', board: false, icon: '' }], starting: [
     { route: 'new', title: 'Backend <audit>', step: 'starting', stepAt: new Date(NOW).toISOString(), failed: false },
     { route: 'cloning', title: 'Cloning board', step: 'cloning', stepAt: new Date(NOW).toISOString(), failed: false },
@@ -434,6 +434,27 @@ test("pending boards have muted non-link rows, a failed start keeps its name wit
   assert.ok(html.indexOf('>Pages<') < html.indexOf('>Boards<'));
   assert.match(html, /data-new-board[\s\S]*?<\/button><\/div><\/section><\/div>/);
   assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/page/', '/_hub/']);
+});
+
+// docs/adr/2026-11-18-0600-new-starts-a-board-or-a-teach-course.md
+test("a starting course's row ends the Pages group, above the Boards label, orange while /teach writes lesson 1, and a failed one reads /teach failed", () => {
+  const at = new Date(NOW - 42_000).toISOString();
+  const data = { sites: [{ route: 'learn', title: 'Learn', board: false, icon: '' }, { route: 'shop', title: 'Shop', board: true, icon: '' }], starting: [
+    { route: 'rust', title: 'Rust ownership', course: true, step: 'starting', stepAt: at, failed: false },
+    { route: 'shop-2', title: 'Shop 2', step: 'starting', stepAt: at, failed: false },
+    { route: 'bread', title: 'Bread', course: true, failed: true, error: 'claude --bg failed (1)' },
+  ] };
+  const html = ui.sidebar(data, { now: NOW });
+  const pages = /<section class="sb-pages"[^>]*>(.*?)<\/section>/.exec(html)[1];
+  const boards = /<section class="sb-boards"[^>]*>(.*?)<\/section>/.exec(html)[1];
+  assert.equal(text(pages), 'Pages Learn Rust ownership writing lesson 1 · 42s Bread /teach failed');
+  assert.match(pages, /<div class="sb-row sb-starting sb-course" data-starting="rust"><span class="icon sb-plus sb-start-icon" aria-hidden="true"><svg [^>]*><path d="M2 5h6/);
+  assert.match(pages, /class="it it-orange"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">writing lesson 1 · 42s/);
+  assert.doesNotMatch(pages, /sb-steps/, 'a course has one step and no bars');
+  assert.match(pages, /data-failed-start="bread"/);
+  assert.match(text(boards), /^Boards Shop Shop 2 .*New$/);
+  assert.equal(text(ui.sidebar({ sites: [], starting: [data.starting[0]] }, { now: NOW })).includes('Pages Rust ownership'), true, 'a course alone shows the Pages label');
+  assert.equal(text(ui.sidebar({ sites: [], starting: [{ ...data.starting[0], activity: 'Searching the web' }] }, { now: NOW })).includes('Searching the web · 42s'), true);
 });
 
 // docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md
@@ -501,6 +522,8 @@ test("a failed start's sheet names it, shows its error or the 15-minute wait, wh
   const started = ui.failedStart({ route: 'cli', title: 'CLI', repo: clone, askedAt: ago(20), failed: true }, { now });
   assert.match(text(started), /Repo \S+ Asked 20 min ago Dismiss$/);
   assert.doesNotMatch(started, /Branch|Tickets|data-failed-retry/);
+  const course = ui.failedStart({ route: 'rust', title: 'Rust', repo: '/Users/you/.claude/kickflip/pages/rust', course: true, askedAt: ago(50), failed: true }, { home: '/Users/you', now });
+  assert.equal(text(course), "Rust failed to start ✕ Its session didn't answer within 45 minutes. Repo ~/.claude/kickflip/pages/rust Asked 50 min ago Dismiss");
 });
 
 test("switch mode numbers the first nine boards in sidebar order, and gives every row a letter from its name, boards claiming first in the order they joined, so a new board moves only a page's or a Hub row's letter", () => {

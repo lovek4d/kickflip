@@ -45,6 +45,8 @@
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out, and POST /_hub/new-board/<route>/retry (application/json) starts it again → {route}
 //                     (new-board.mjs)
+//   /_hub/new-course POST {name, learn} → {route}: a course's Starting row, then its /teach session starts without holding
+//                     the response (new-course.mjs); Dismiss is New board's DELETE
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
@@ -241,6 +243,7 @@ import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo } from './board-repo.mjs';
 import { boardModel, changeBoardModel, changeHubOrchestratorModel, restartOnModel } from './board-model.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
+import { requestCourse, courseLessons } from './new-course.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { restartBoard, restartable } from './restart-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
@@ -970,9 +973,12 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       const state = serves === 'files' ? (isFolder(s.dir) ? 'up' : 'down')
         : serves === 'port' ? answering.state(route)
           : p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
+      // A course page's lesson count (new-course.mjs), which its sidebar row reads.
+      const lessons = serves === 'files' ? courseLessons(s.dir) : null;
       return {
         route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port ?? null, serves, state,
         exitCode: p.exitCode ?? null, owner: s.owner || null, restart: restartable(s), changedAt: changedAt(route, s) || null, created: s.created || null,
+        ...(lessons === null ? {} : { lessons }),
         log: path.join(LOGS, route + '.log'),
       };
     });
@@ -1205,9 +1211,9 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       const hash = runningHubCode();
       return send(code, 'application/json', JSON.stringify(v), hash ? { 'x-hub-code': hash } : {});
     };
-    // Answers a New board start or retry at once with {route}, and refreshes the sidebar again when its outcome lands.
+    // Answers a New board or course start, or a retry, at once with {route}, and refreshes the sidebar again when its outcome lands.
     const starting = ({ route, started }) => {
-      track(started.then(({ error }) => { if (error) log(`new board /${route} didn't start: ${error}`); stream.refresh(); }));
+      track(started.then(({ error }) => { if (error) log(`/${route} didn't start: ${error}`); stream.refresh(); }));
       stream.refresh();
       return sendJSON(200, { route });
     };
@@ -1333,6 +1339,13 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       let input;
       try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name, github, branch and purpose as JSON.'); }
       try { return starting(await requestBoard(input, { repos, changed: () => stream.refresh() })); }
+      catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
+    }
+    if (p === '/_hub/new-course' && req.method === 'POST') {
+      if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name and learn as application/json.');
+      let input;
+      try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name and learn as JSON.'); }
+      try { return starting(await requestCourse(input, { changed: () => stream.refresh() })); }
       catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
     }
     const retry = /^\/_hub\/new-board\/([a-z0-9-]+)\/retry$/.exec(p);

@@ -45,10 +45,13 @@ export const RESTART_AFTER = 2 * 60_000;
 // Why a session restart happens, as auto-restarts.jsonl and the board's Hub row say it.
 const NOT_LISTENING = 'not listening';
 export const STARTING_WAIT = 15 * 60_000;
+// A course (new-course.mjs) runs /teach's research before lesson 1 and its join, so it waits longer.
+export const COURSE_WAIT = 45 * 60_000;
 const compactStateFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'compact-state.json');
 
-// Whether a Starting record didn't start: its start recorded an error, or it hasn't joined STARTING_WAIT after it was asked.
-export const startFailed = (rec, now = Date.now()) => Boolean(rec.error) || now - Date.parse(rec.asked_at || rec.since) >= STARTING_WAIT;
+// Whether a Starting record didn't start: its start recorded an error, or it hasn't joined STARTING_WAIT (a course
+// COURSE_WAIT) after it was asked.
+export const startFailed = (rec, now = Date.now()) => Boolean(rec.error) || now - Date.parse(rec.asked_at || rec.since) >= (rec.kind === 'course' ? COURSE_WAIT : STARTING_WAIT);
 
 // A Starting record's step (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md): cloning;
 // starting, the orchestrator's session, from the clone's end until it joins; or landing, from its join until the board
@@ -90,12 +93,14 @@ export function startHealth(rec, { running, activity, prompt } = {}, now = Date.
 // The sidebar's Starting rows. clonePercent(route) is a running clone's percent (new-board.mjs), which a cloning row
 // carries. listening(route) is whether a joined board hears its events: its row stays until then, and a late one reads
 // why it failed. signals(rec) is a record's startSignals. A record whose route has joined shows only while landing. A
-// served one's board opens at its route while it starts (new-board.mjs serveStart).
+// served one's board opens at its route while it starts (new-board.mjs serveStart). A course's row (course: true) goes
+// once its page joins, since a page has nothing to listen with.
 export function startingBoards(manifest, now = Date.now(), clonePercent = () => undefined, listening = () => true, signals = () => ({})) {
-  return Object.entries(manifest.starting || {}).filter(([route, rec]) => (routeRecord(manifest.sites, route) ? rec.joined_at && !listening(route) : true)).map(([route, rec]) => {
+  const shows = (route, rec) => !routeRecord(manifest.sites, route) || (rec.kind !== 'course' && rec.joined_at && !listening(route));
+  return Object.entries(manifest.starting || {}).filter(([route, rec]) => shows(route, rec)).map(([route, rec]) => {
     const { failed, error, ...health } = startHealth(rec, signals(rec), now);
     return {
-      route, title: rec.title || rec.label || route, repo: rec.repo, ...startStep(rec),
+      route, title: rec.title || rec.label || route, repo: rec.repo, ...startStep(rec), ...(rec.kind === 'course' ? { course: true } : {}),
       ...(rec.phase === 'cloning' && clonePercent(route) !== undefined ? { percent: clonePercent(route) } : {}),
       ...(rec.branch ? { branch: rec.branch, tickets: rec.tickets } : {}),
       askedAt: rec.asked_at || rec.since, failed, ...(rec.joined_at ? { joined: true } : {}), ...(rec.site ? { served: true } : {}),
@@ -308,7 +313,8 @@ const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 // (docs/adr/2026-11-15-0014-kickflip-is-handoff-page-and-board.md).
 const boardLine = (route, title) => `/kickflip board ${quote(joinName(route, title))}`;
 const notYours = (id) => `If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.`;
-export const startArgv = ({ route, name, model, prompt }) => ['--bg', ...common({ name, model }), `${boardLine(route, name)}${prompt ? ` ${prompt}` : ''}`];
+// first, when given, is the whole first prompt in place of the board line and prompt (a course's /teach, new-course.mjs).
+export const startArgv = ({ route, name, model, prompt, first }) => ['--bg', ...common({ name, model }), first || `${boardLine(route, name)}${prompt ? ` ${prompt}` : ''}`];
 export const resumePrompt = (route, id, title) => `${boardLine(route, title)}\nThe hub resumed this session because /${route} had nobody listening. Rejoin the board as session ${id} and relaunch its watcher as a background task, then go on with what its events ask. ${notYours(id)}`;
 // A background session resumed with any flag starts as a copy under a new id, so one goes without them and keeps the
 // options it started with; a session that never ran in the background gets them (Claude Code's `note:` line says which).
@@ -413,11 +419,11 @@ async function moveOwner(route, { from, to, mark }) {
 }
 
 // A new background session for the route, in repo (else the recorded session's folder, else the cwd), whose first
-// prompt is `/kickflip board '<board name>'` plus prompt. Refuses while the route's recorded session is live. Writes nothing to the
+// prompt is `/kickflip board '<board name>'` plus prompt, or first in full. Refuses while the route's recorded session is live. Writes nothing to the
 // manifest. A folder that is a clone under clones (repos.mjs isClone) is first marked trusted for Claude Code (trust.mjs).
 // → {route, session, confirmed, repo, model, name, argv, output}: model is the override asked for or recorded, null on
 // Hub settings' Orchestrators, so a caller that records it never pins the hub's choice.
-export async function startSession(route, { manifest = readManifest(), repo, model, prompt, run = runClaude, live = liveSessions, clones = reposDir() } = {}) {
+export async function startSession(route, { manifest = readManifest(), repo, model, prompt, first, run = runClaude, live = liveSessions, clones = reposDir() } = {}) {
   if (routeRecord(manifest.closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   refuseLive(rec, live);
@@ -427,7 +433,7 @@ export async function startSession(route, { manifest = readManifest(), repo, mod
     try { trustFolder(dir); } catch (e) { throw new SessionError(`Couldn't trust this folder for Claude Code: ${e.message}`, 'failed'); }
   }
   const name = routeRecord(manifest?.sites, route)?.title || routeRecord(manifest?.starting, route)?.title || route;
-  const argv = startArgv({ route, name, model: model || rec?.model, prompt });
+  const argv = startArgv({ route, name, model: model || rec?.model, prompt, first });
   const r = await run(argv, { cwd: dir });
   if (r.status !== 0) {
     const output = (r.stderr || '').trim() || (r.stdout || '').trim();

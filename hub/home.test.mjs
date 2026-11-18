@@ -54,6 +54,15 @@ test('the status word is the most urgent of down, not listening, starting, worki
   );
 });
 
+test("a course page's row reads its lesson count, green, once it has a lesson, and a fault still reads first", () => {
+  assert.deepEqual(siteStatus({ state: 'up', lessons: 1 }), { shape: 'dot', colour: 'green', word: '1 lesson' });
+  assert.deepEqual(siteStatus({ state: 'up', lessons: 3 }), { shape: 'dot', colour: 'green', word: '3 lessons' });
+  assert.equal(siteStatus({ state: 'up', lessons: 0 }), null);
+  assert.equal(siteStatus({ state: 'down', lessons: 3 }).word, 'down');
+  const [row] = sidebarSites([{ route: 'rust', title: 'Rust', state: 'up', lessons: 2 }], new Map(), new Set());
+  assert.deepEqual(row.sub, { status: { shape: 'dot', colour: 'green', word: '2 lessons' }, stale: false, chips: null });
+});
+
 test('lane chips list review, doing and todo, leaving out zero counts', () => {
   assert.deepEqual(laneChips({ review: 2, progress: 1, todo: 10 }), [
     { lane: 'review', text: '2 review' }, { lane: 'progress', text: '1 doing' }, { lane: 'todo', text: '10 todo' },

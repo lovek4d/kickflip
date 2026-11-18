@@ -771,6 +771,31 @@ test("joining a board polls at once, so the new board's GitHub link passes witho
   assert.deepEqual(sites.map((s) => [s.route, s.created]), [['fresh', created], ['orch', null], ['plain', null], ['shop', null]]);
 });
 
+// docs/adr/2026-11-18-0600-new-starts-a-board-or-a-teach-course.md
+test('New course refuses over HTTP before any session starts, and a course page under pages reads its lesson count in the sidebar', async () => {
+  const manifestFile = claude('kickflip', 'manifest.json');
+  const original = read(manifestFile);
+  const sameOrigin = { 'content-type': 'application/json', origin: base, 'sec-fetch-site': 'same-origin' };
+  const post = (input, headers = sameOrigin) => fetch(`${base}/_hub/new-course`, { method: 'POST', headers, body: JSON.stringify(input) });
+  try {
+    assert.equal((await post({ name: 'Rust', learn: 'Borrowing' }, { ...sameOrigin, 'content-type': 'text/plain' })).status, 403);
+    for (const input of [{ name: '', learn: 'x' }, { name: 'Rust' }, { name: 'Rust', learn: 'x', github: 'a/b' }, null]) {
+      const refused = await post(input);
+      assert.equal(refused.status, 400, JSON.stringify(input));
+      assert.match(refused.headers.get('content-type'), /^text\/plain/);
+    }
+    const taken = await post({ name: 'Orch', learn: 'Borrowing' });
+    assert.equal(taken.status, 409);
+    assert.match(await taken.text(), /That name is taken/);
+    assert.equal(read(manifestFile).starting?.orch, undefined);
+    const dir = claude('kickflip', 'pages', 'rust');
+    for (const f of ['0001-moves.html', '0002-borrows.html']) write(path.join(dir, 'lessons', f), '<h1>Lesson</h1>');
+    await writeManifestFile({ ...original, sites: { ...original.sites, rust: { dir, title: 'Rust', owner: { session: 's-teach' } } } });
+    const row = (await (await fetch(`${base}/_hub/sidebar.json?fresh=1`)).json()).sites.find((s) => s.route === 'rust');
+    assert.deepEqual([row.board, row.sub], [false, { status: { shape: 'dot', colour: 'green', word: '2 lessons' }, stale: false, chips: null }]);
+  } finally { await writeManifestFile(original); }
+});
+
 test("New board validates through HTTP, reports a failed clone and preserves repo and branch through pending join/timeout transitions", async () => {
   const manifestFile = claude('kickflip', 'manifest.json');
   const original = read(manifestFile);

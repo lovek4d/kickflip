@@ -24,9 +24,10 @@ export function readNeeds(body) {
 
 // The most urgent thing a site is doing (what waits on the owner is a red chip first in the lane chips, see statusLine), or null when it is calm. state is the hub's process state; listen is a board's
 // boards.mjs listenState, or 'full' for a deaf board whose context is full (usage.mjs contextFull), and undefined for a
-// site that isn't a board.
+// site that isn't a board. lessons is a course page's lesson count (new-course.mjs courseLessons), which reads green
+// once there is one.
 // → {shape, colour, word}, the shape and colour from board/public/ui-icon-text.js's enums, which draws them.
-export function siteStatus({ state, working, building, listen } = {}) {
+export function siteStatus({ state, working, building, listen, lessons } = {}) {
   const fault = (word) => ({ shape: 'dot', colour: 'red', word });
   if (state === 'down') return fault('down');
   if (listen === 'logged-out') return fault('logged out: run /login');
@@ -38,6 +39,7 @@ export function siteStatus({ state, working, building, listen } = {}) {
   if (listen === 'waking') return { shape: 'dot', colour: 'grey', word: 'waking…' };
   if (listen === 'asleep') return { shape: 'dot', colour: 'grey', word: 'asleep' };
   if (building) return { shape: 'dot', colour: 'orange', word: 'implementing' };
+  if (lessons) return { shape: 'dot', colour: 'green', word: `${lessons} lesson${lessons === 1 ? '' : 's'}` };
   return null;
 }
 
@@ -50,9 +52,9 @@ export function laneChips(lanes) {
 
 // The row's sub line as data, which board/public/ui-sidebar.js draws: {status: siteStatus' answer or null, stale, chips},
 // chips null when the site reports no lanes and [] when it has nothing open; null when there is nothing to say. needs is
-// readNeeds' result or null; listen as siteStatus takes it.
-export function statusLine(state, needs, listen) {
-  const status = siteStatus({ state, ...needs, listen });
+// readNeeds' result or null; listen and lessons as siteStatus takes them.
+export function statusLine(state, needs, listen, lessons) {
+  const status = siteStatus({ state, ...needs, listen, lessons });
   const lane = state === 'up' ? laneChips(needs?.lanes) : null;
   const chips = needs?.count ? [{ lane: 'needs', text: `${needs.count} need you` }, ...(lane || [])] : lane;
   if (!status && chips === null) return null;
@@ -81,7 +83,7 @@ export function sidebarSites(rows, waiting, boards, listens = new Map(), context
     const heard = contextFull(listen, ctx) ? 'full' : listen;
     return {
       route: r.route, title: r.title, board: boards.has(r.route), state: r.state, count: needs?.count || 0,
-      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, heard), listen: heard, ctx,    };
+      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, heard, r.lessons), listen: heard, ctx,    };
   });
 }
 

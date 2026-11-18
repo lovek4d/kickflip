@@ -190,7 +190,10 @@
       window.removeEventListener('scroll', pin);
     };
   }
-  function repoSheet({ current, save, onClose = () => {} }) {
+  // New (no current) opens on a Board | Course switch when course is given: Board picks a repo and posts through save,
+  // Course takes a name and what to learn and posts through course
+  // (docs/adr/2026-11-18-0600-new-starts-a-board-or-a-teach-course.md). With current it is Change repo.
+  function repoSheet({ current, save, course, onClose = () => {} }) {
     if (document.getElementById('newBoardSheet')) return () => {};
     const previous = document.activeElement;
     const el = document.createElement('dialog');
@@ -199,10 +202,12 @@
     el.setAttribute('aria-labelledby', 'newBoardTitle');
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const draft = { name: '', purpose: '', github: '', remote: '', branch: '', tickets: { source: 'none' } };
+    const courseDraft = { name: '', learn: '' };
+    let kind = 'board';
     let tickets;
     let repos = [], signedIn = false, pasted, selected, edited = false, sending = false, closed = false, generation = 0, lookupTimer, linear;
     const controller = new AbortController();
-    el.innerHTML = `<form class="nb-form"><div class="sheet-head"><h2 id="newBoardTitle" tabindex="-1" autofocus>${current ? 'Change repo' : 'New board'}</h2><button type="button" data-cancel-new aria-label="Close sheet">✕</button></div><div data-repo-content></div><p class="nb-error" role="alert" hidden></p><div class="nb-actions sheet-actions"><button type="button" data-cancel-new>Cancel</button><button type="submit" class="primary" hidden disabled>${current ? 'Use repo' : 'Start'}</button></div></form>`;
+    el.innerHTML = `<form class="nb-form"><div class="sheet-head"><h2 id="newBoardTitle" tabindex="-1" autofocus>${current ? 'Change repo' : 'New'}</h2><button type="button" data-cancel-new aria-label="Close sheet">✕</button></div>${course && !current ? '<div class="segments nb-kind" role="group" aria-label="What to make"><button type="button" data-nb-kind="board" aria-pressed="true">Board</button><button type="button" data-nb-kind="course" aria-pressed="false">Course</button></div>' : ''}<div data-repo-content></div><p class="nb-error" role="alert" hidden></p><div class="nb-actions sheet-actions"><button type="button" data-cancel-new>Cancel</button><button type="submit" class="primary" hidden disabled>${current ? 'Use repo' : 'Start'}</button></div></form>`;
     const content = el.querySelector('[data-repo-content]');
     const form = el.querySelector('form');
     const start = el.querySelector('[type="submit"]');
@@ -217,7 +222,13 @@
     const fail = (e) => { if (!closed) { error.textContent = e.message; error.hidden = false; } };
     // A repo already on the host joins from its folder instead (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md).
     const joinHint = current ? '' : '<p class="nb-help" data-join-hint>A repo already on the host running Kickflip? Run <code>kickflip join</code> in its folder.</p>';
-    function sync() { start.disabled = sending || !(draft.github || draft.remote) || !draft.branch || (!current && (!draft.name.trim() || !draft.purpose.trim() || !tickets?.valid())); }
+    // A course's route as the hub makes it from the name (hub/routes.mjs routeFromName).
+    const courseRoute = () => courseDraft.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 41).replace(/-+$/, '');
+    const routeHelp = () => (courseRoute() ? `Opens at /${esc(courseRoute())}/` : 'Letters and digits make its address.');
+    function sync() {
+      if (kind === 'course') { start.disabled = sending || !courseRoute() || !courseDraft.learn.trim(); return; }
+      start.disabled = sending || !(draft.github || draft.remote) || !draft.branch || (!current && (!draft.name.trim() || !draft.purpose.trim() || !tickets?.valid()));
+    }
     // A repo row's id is its GitHub owner/name, or the git link of a repo on another host, which the row names by
     // host/path and labels with its host where a GitHub row says Private or Public
     // (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
@@ -266,6 +277,24 @@
       if (bare) lookupTimer = setTimeout(check(`github=${encodeURIComponent(github)}`, github), 500);
       else check(`github=${encodeURIComponent(github)}`, github)();
     }
+    function coursePane() {
+      tickets?.destroy();
+      tickets = null;
+      ++generation;
+      clearTimeout(lookupTimer);
+      selected = null;
+      error.hidden = true;
+      content.innerHTML = `<label class="nb-field"><span>Name (becomes the route)</span><input name="course-name" type="text" value="${esc(courseDraft.name)}" required maxlength="60" autocomplete="off"><span class="nb-help" data-course-route>${routeHelp()}</span></label>`
+        + `<label class="nb-field"><span>What do you want to learn?</span><textarea name="learn" rows="3" required maxlength="1000">${esc(courseDraft.learn)}</textarea><span class="nb-help">Start runs /teach and writes lesson 1.</span></label>`;
+      start.hidden = false;
+      sync();
+    }
+    function switchKind(next) {
+      if (next === kind) return;
+      kind = next;
+      el.querySelectorAll('[data-nb-kind]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.nbKind === kind)));
+      if (kind === 'course') coursePane(); else picker();
+    }
     async function picker(fresh = false) {
       tickets?.destroy();
       const version = ++generation;
@@ -287,7 +316,7 @@
         repos = d.repos;
         content.innerHTML = `<p class="nb-next">1 · Choose a repo</p><p>Choose the repo this board will work on: one of your GitHub repos, or any git repo by its link.</p><label class="nb-field"><span>Search repos or paste a git link</span><input name="search" type="search" placeholder="Search or paste owner/name or a git link…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>${joinHint}<div data-repo-results></div>`;
         rows();
-      } catch (e) { fail(e); content.innerHTML = '<button type="button" data-check-auth>Try again</button>'; }
+      } catch (e) { if (generation === version) { fail(e); content.innerHTML = '<button type="button" data-check-auth>Try again</button>'; } }
     }
     async function pick(id) {
       selected = repos.find((r) => r.github === id) || (pasted && idOf(pasted) === id ? pasted : null);
@@ -324,6 +353,7 @@
     form.addEventListener('click', (e) => {
       if (sending) return;
       if (e.target.closest('[data-cancel-new]')) done();
+      else if (e.target.closest('[data-nb-kind]')) switchKind(e.target.closest('[data-nb-kind]').dataset.nbKind);
       else if (e.target.closest('[data-check-auth]')) picker(true);
       else if (e.target.closest('[data-back-repos]')) picker();
       else { const row = e.target.closest('[data-repo]'); if (row) pick(row.dataset.repo); }
@@ -332,6 +362,8 @@
       if (e.target.getAttribute('name') === 'search') { search(e.target.value); return; }
       if (e.target.getAttribute('name') === 'name') { draft.name = e.target.value; edited = true; tickets?.nameChanged(); }
       if (e.target.getAttribute('name') === 'purpose') draft.purpose = e.target.value;
+      if (e.target.getAttribute('name') === 'course-name') { courseDraft.name = e.target.value; el.querySelector('[data-course-route]').innerHTML = routeHelp(); }
+      if (e.target.getAttribute('name') === 'learn') courseDraft.learn = e.target.value;
       sync();
     });
     form.addEventListener('change', (e) => {
@@ -343,11 +375,17 @@
     });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (sending || start.disabled || !selected) return;
+      if (sending || start.disabled || (kind === 'board' && !selected)) return;
       sending = true;
       sync();
       error.hidden = true;
       try {
+        if (kind === 'course') {
+          await BoardUI.waitOn(start, course({ name: courseDraft.name.trim(), learn: courseDraft.learn.trim() }));
+          sending = false;
+          el.close();
+          return;
+        }
         const repo = draft.remote ? { remote: draft.remote } : { github: draft.github };
         // Start, or Use repo, waits (ui.js waitOn) until the hub answers; a new board's own start then shows in the sidebar.
         await BoardUI.waitOn(start, save(current ? { ...repo, branch: draft.branch } : { name: draft.name.trim(), purpose: draft.purpose.trim(), ...repo, branch: draft.branch, tickets: tickets.read() }, selected));
