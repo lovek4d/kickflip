@@ -13,20 +13,33 @@ export const chromePath = () => process.env.CHROME || '/Applications/Google Chro
 export class ChromeStartError extends Error {}
 const COULD_NOT_START = 'could not start Chrome';
 
+// How long a launch waits for the DevTools port file. A host running the whole suite at once starts Chromes slowly.
+const START_WAIT_MS = 45000;
+
+// No crash handler and no updater: those helpers detach from Chrome and outlive it. Chrome runs in its own process group
+// with its profile dir as cwd, so stop() takes down whatever it started and nothing is left in a worktree.
+const NO_HELPERS = ['--disable-crash-reporter', '--disable-breakpad', '--disable-component-update', '--disable-background-networking'];
+
+const groupAlive = (pgid) => { try { process.kill(-pgid, 0); return true; } catch { return false; } };
+
 async function launchOnce(dir, flags) {
-  const chrome = spawn(chromePath(), ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', ...flags, 'about:blank'],
+  const env = { ...process.env, HOME: os.userInfo().homedir };
+  delete env.CHROME_CRASHPAD_PIPE_NAME;
+  // Its own process group, so stop can end every helper at once; its cwd is the profile, not the caller's worktree.
+  const chrome = spawn(chromePath(), ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', ...NO_HELPERS, ...flags, 'about:blank'],
     // The account's own home, not a $HOME a caller pointed elsewhere: Chrome's network stack stalls on a home without its keychain.
-    { stdio: 'ignore', env: { ...process.env, HOME: os.userInfo().homedir } });
-  const portFile = path.join(dir, 'DevToolsActivePort');
-  for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await sleep(100);
-  if (!fs.existsSync(portFile)) { chrome.kill(); throw new ChromeStartError(COULD_NOT_START); }
-  const port = fs.readFileSync(portFile, 'utf8').split('\n')[0];
+    { stdio: 'ignore', env, cwd: dir, detached: true });
+  const exited = new Promise((resolve) => chrome.once('exit', resolve));
   const stop = async () => {
-    const exited = new Promise((resolve) => chrome.once('exit', resolve));
-    chrome.kill();
+    try { process.kill(-chrome.pid, 'SIGKILL'); } catch { /* the group is already gone */ }
     await exited;
+    // SIGKILL reaches every member at once, but the kernel reaps them a moment after the leader.
+    while (groupAlive(chrome.pid)) await sleep(20);
   };
-  return { port, stop };
+  const portFile = path.join(dir, 'DevToolsActivePort');
+  for (let i = 0; i < START_WAIT_MS / 100 && !fs.existsSync(portFile); i++) await sleep(100);
+  if (!fs.existsSync(portFile)) { await stop(); throw new ChromeStartError(COULD_NOT_START); }
+  return { port: fs.readFileSync(portFile, 'utf8').split('\n')[0], stop };
 }
 
 // → {port, stop} for a Chrome running with its profile in dir. A busy host can leave Chrome without a port, so a launch
