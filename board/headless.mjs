@@ -42,7 +42,9 @@ const linkLines = (links) => (links.length ? [
 // when its own repo doesn't explain why.
 // docs/adr/2026-11-17-1940-a-question-and-its-options-stand-alone.md: said in each brief of a planner that writes questions.
 const STANDALONE = "A question stands alone: its context and each option's label and detail are answerable as they stand, with no code or label defined elsewhere (L1, take B, finding 3) unless the option says what each one is. A question about something a visual or prototype shows carries that page as its url, which the sheet links; the page gives detail, never the meaning. question add refuses a code-only option label and a context that names the card's visual or prototype with no url.";
-const askBoardLine =(b, key) => `When this repo doesn't explain why something is the way it is and another board in the hub owns that part, ask that board's orchestrator with \`${b} ask <route> "<question>" --from ${key}\` and carry on; \`${b} asks\` prints its answer, and \`${b} asks --wait\` waits for it.`;
+// docs/adr/2026-11-18-2200-a-board-asks-a-board-on-another-of-your-hubs-while-its-online.md: or a board on another of
+// the owner's hubs, as <hub>/<route>.
+const askBoardLine =(b, key) => `When this repo doesn't explain why something is the way it is and another board in the hub owns that part, ask that board's orchestrator with \`${b} ask <route> "<question>" --from ${key}\` and carry on; a board on another of your hubs is <hub>/<route>, and \`${b} boards\` lists every one. \`${b} asks\` prints its answer, and \`${b} asks --wait\` waits for it.`;
 // docs/adr/2026-11-11-1100-every-agent-brief-names-the-cards-thread-file.md: the card's thread, by its exact file.
 const threadLine = (thread) => `The task's thread, which holds the owner's messages (who: love): ${thread}. Read it live.`;
 

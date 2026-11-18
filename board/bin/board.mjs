@@ -437,11 +437,18 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          answers with answer; while none listens it stays queued.
                                                          --from names the task asking: it gets a quiet "Asked
                                                          <route>: <question>" line, then the answer as that
-                                                         board's message. Prints "asked /<route>: <id>"; carry on
+                                                         board's message. Prints "asked /<route>: <id>"; carry on.
+                                                         <hub>/<route> asks a board on another of your hubs,
+                                                         <hub> its tailnet machine name, through this hub; it
+                                                         needs the tailnet on at both, and is refused while that
+                                                         hub is offline or runs a kickflip without asks
   asks [--wait] [--timeout <min>]                        prints each question this board asked, then its answer,
                                                          "waiting on /<route>'s orchestrator" or "queued" while
                                                          none listens there. --wait blocks until every one is
                                                          answered, giving up after --timeout minutes (9)
+  boards                                                 lists this hub's boards as "<route>: <title>", then each
+                                                         of your other hubs' online now as <hub>/<route>, or why
+                                                         a hub can't be listed: the routes ask takes
   brief                                                  what a fresh orchestrator session reads after its join:
                                                          the cards In Progress with their builder state, the
                                                          cards waiting on the owner, the owner's messages, asks
@@ -1181,6 +1188,8 @@ const COMMANDS = {
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
   ask: [['route', '...question'], ['from'], (site, [route, ...words], f) => store.askBoard(needSite(site, 'ask'), route, words.join(' '), { from: f.from })],
   asks: [[], ['wait', 'timeout'], (site, _, f) => store.listBoardAsks(needSite(site, 'asks'), f)],
+  // docs/adr/2026-11-18-2200-a-board-asks-a-board-on-another-of-your-hubs-while-its-online.md
+  boards: [[], [], () => store.listAllBoards()],
   // docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md
   'inbox read': [['...file/id?'], [], (site, keys) => {
     if (keys.length > 1) throw new UsageError('inbox read takes one <file>/<id>, or none for every task');
@@ -1442,8 +1451,8 @@ const SAID = {
   'item relate-ask': async (site, [id, key]) => `ask ${id} folded into ${await card(site, key)}`,
   'ask unfold': (site, [id]) => `ask ${id} back on a task of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
-  ask: (site, [route], f, { id }) => `asked /${route}: ${id}`,
-  answer: (site, [id], f, { route }) => `answered /${route}'s question ${id}`,
+  ask: (site, [route], f, { id }) => `asked ${route.includes('/') ? route : `/${route}`}: ${id}`,
+  answer: (site, [id], f, { route }) => `answered ${route.includes('/') ? route : `/${route}`}'s question ${id}`,
   'review record': (site, [pr], f) => `review of PR #${pr} recorded: ${f.state === 'needs' ? 'needs you' : 'posted'}`,
   'reviewers set': () => 'reviewers replaced',
   'reviewers add': () => 'reviewers added',

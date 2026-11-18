@@ -14,6 +14,7 @@ kickflip is a single-owner tool. It runs on the owner's Mac and serves the owner
 
 - The owner, signed in on a device, is trusted with everything: approving and running a board's scripts, merging, and settings.
 - The agents (Claude Code and Codex sessions the boards launch) run as the owner's OS user. They are trusted to build, not to approve. They write board files through the CLI and need no owner rights over HTTP.
+- The owner's other hubs: another machine signed in to the tailnet as the owner's own Tailscale login. It can file a one-line question on a board here, answer one a board here asked it, and list the boards' routes and titles, nothing more; it reads no cards, threads, notes or code. This hub sends to another hub only for an agent on this host, over loopback.
 
 **Who is not trusted**
 

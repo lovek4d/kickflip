@@ -2381,26 +2381,30 @@ export function eventWaits(events, { items = [], incoming = null, reviews = {} }
 }
 
 // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
-// The questions other boards in the hub asked this one (asks.mjs askBoard), each from its board-ask event {text, from
-// {route, title, key?, ref?}}, with the answer its board-ask-answered event {id, text} holds (asks.mjs answerBoardAsk).
+// The questions other boards asked this one (asks.mjs askBoard, takePeerAsk), each from its board-ask event {text, from
+// {route, title, key?, ref?, hub?, host?}}, hub and host naming another of the owner's hubs, with the answer its
+// board-ask-answered event {id, text} holds (asks.mjs answerBoardAsk).
 // → [{id, at, text, from, answer: {text, at} | null}], in asked order.
 export function boardAsksOf(events) {
   const answers = new Map(events.filter((e) => e.kind === 'board-ask-answered').map((e) => [e.data?.id, { text: String(e.data?.text || ''), at: String(e.ts) }]));
   return events.filter((e) => e.kind === 'board-ask').map((e) => ({ id: e.id, at: String(e.ts), text: String(e.data?.text || ''), from: e.data?.from || {}, answer: answers.get(e.id) || null }));
 }
-const askedFrom = (from) => `/${from.route}${from.ref ? ` · ${from.ref}` : ''}`;
+// docs/adr/2026-11-18-2200-a-board-asks-a-board-on-another-of-your-hubs-while-its-online.md: a question from another of
+// the owner's hubs names its board <hub>/<route>, and links it at that hub's tailnet address (from.host).
+const askingBoard = (from) => (from.hub ? `${from.hub}/${from.route}` : `/${from.route}`);
+const askedFrom = (from) => `${askingBoard(from)}${from.ref ? ` · ${from.ref}` : ''}`;
 // Each unanswered question as an orchestrator wait, as an overnight triage is one: not tied to a card, key the event id
 // answer names, picked when the watcher marked the event working (working, data/working.json's events).
 export const boardAskWaits = (events, working = {}) => boardAsksOf(events).filter((a) => !a.answer).map((a) => ({
   key: a.id, ref: askedFrom(a.from), title: a.text, kind: 'ask', since: a.at, picked: routeRecord(working, a.id) || null,
-  next: `Answer /${a.from.route}'s question: ${a.text}: answer ${a.id} --text "<the answer, with links>" from what this board knows`,
+  next: `Answer ${askingBoard(a.from)}'s question: ${a.text}: answer ${a.id} --text "<the answer, with links>" from what this board knows`,
 }));
 // The New strip's entries for the unanswered questions (ui-cards.js newEntries): who asked, linking the asking card
 // when there is one, and waiting, or working once the watcher picked the event up, as a New task's ask reads.
 function newBoardAsks(events, working) {
   return boardAsksOf(events).filter((a) => !a.answer).map((a) => {
     const since = routeRecord(working, a.id);
-    const link = `/${a.from.route}/${a.from.key ? `#selectedCard=${encodeURIComponent(a.from.key)}` : ''}`;
+    const link = `${a.from.hub ? `https://${a.from.host}` : ''}/${a.from.route}/${a.from.key ? `#selectedCard=${encodeURIComponent(a.from.key)}` : ''}`;
     return { id: a.id, sent: a.at, text: a.text, from: { words: askedFrom(a.from), link }, ...(since ? { state: 'working', since } : { state: 'waiting' }) };
   });
 }

@@ -139,6 +139,14 @@
 //                     → 409 {error, ask: 'busy'}
 //   /_hub/kill        POST {route, key}, loopback only: a card's Kill, stopping its serve → {status: 'stopped'}, or
 //                     409 when none runs (try.mjs kill)
+//   /_hub/peer/boards GET {boards: [{route, title}]}; /_hub/peer/ask POST {route, text, from {hub, host, route, title,
+//                     key?, ref?}} → {id, listening}; /_hub/peer/answer POST {id, route, text, from {hub, route, title}}
+//                     → {}: another of the owner's hubs, through the owner gate alone (peers.mjs; ../board/asks.mjs
+//                     takePeerAsk, takePeerAnswer), 400 {error} when refused
+//   /_hub/peers/boards GET, /_hub/peers/ask and /_hub/peers/answer POST {hub, ...}, loopback only: board.mjs boards, ask
+//                     <hub>/<route> and answer, relayed to /_hub/peer/<same> on the hub named (every one for boards),
+//                     from naming this hub → that hub's answer, or {error} saying why it can't be reached
+//                     (peers.mjs sendToPeer, peerBoards)
 //   /_hub/pull        POST {route}, loopback only: Main's refresh icon on a local board. Fast-forwards the board's
 //                     branch from origin now and rebuilds Main when that brought commits → {commits, error?} (try.mjs)
 //   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
@@ -159,7 +167,7 @@
 // (docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md).
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
-// /_hub/build, /_hub/kill and /_hub/pull also require loopback and refuse Origin and forwarded headers.
+// /_hub/build, /_hub/kill, /_hub/pull and /_hub/peers/* also require loopback and refuse Origin and forwarded headers.
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
 // when it exits, restarts it when its entry changes, and stops every one before it exits itself. A site with a port and
 // no `cmd` runs its own server: the hub only probes it, and it reads Down while nothing answers
@@ -256,6 +264,9 @@ import { serveFiles } from './files.mjs';
 import { upgrader } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
 import { saveUpload } from '../board/cards.mjs';
+import { takePeerAsk, takePeerAnswer } from '../board/asks.mjs';
+import { BoardError } from '../board/checks.mjs';
+import { tailnetPeers, sendToPeer, peerBoards } from './peers.mjs';
 import { draftOf, readDrafts, saveDraft } from '../board/drafts.mjs';
 import { fallBackFromLinear } from '../board/settings.mjs';
 import { runMigrations } from '../board/migrations.mjs';
@@ -322,6 +333,14 @@ function httpProbe(port) {
   });
 }
 
+// Whether req came straight from this host over loopback, to a loopback Host, with no Origin and no forwarded header:
+// a local process, never a page or a device through tailscale serve.
+function fromLoopback(req) {
+  const host = (req.headers.host || '').replace(/:\d+$/, '');
+  return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress) && ['127.0.0.1', 'localhost', '[::1]'].includes(host)
+    && !req.headers.origin && !Object.keys(req.headers).some((h) => h === 'forwarded' || h.startsWith('x-forwarded-'));
+}
+
 // Starts the hub on ~/.claude/kickflip of os.homedir(), listening on 127.0.0.1:port (0 picks a free one), and resolves
 // once it listens. Options stand in for what it reads of the host:
 //   now() → the time in ms the supervisor's restart waits, the poll schedule and the caches read;
@@ -331,6 +350,7 @@ function httpProbe(port) {
 //   answers(port) → whether a board server that is up answers HTTP (reconcile's hung check);
 //   readMachine() → the Mac's {load, cores, pressure} for the busy gate (shared/machine-gate.mjs);
 //   gate: the owner gate every request passes (board/on-host.mjs ownerGate);
+//   peers: the owner's other hubs and how to reach them (peers.mjs tailnetPeers);
 //   awake: the Keep awake controller (awake.mjs caffeinate);
 //   log(...parts): each line the hub logs, stamped on stdout by default;
 //   ticks: false runs neither of its clocks (shared/polls.mjs CLOCKS), so no reconcile, tick, hung check, new-code
@@ -340,7 +360,7 @@ function httpProbe(port) {
 // run one pass and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a
 // request, is done; close() stops every site and the server; shutdown() runs close(), at most STOP_WITHIN, then exit(0),
 // as the hub does on SIGTERM and to restart itself.
-export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, awake = caffeinate({ log }), ticks = true, exit = (code) => process.exit(code) } = {}) {
+export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, peers = tailnetPeers, awake = caffeinate({ log }), ticks = true, exit = (code) => process.exit(code) } = {}) {
   const HOME = path.join(os.homedir(), '.claude', 'kickflip');
   const MANIFEST = path.join(HOME, 'manifest.json');
   const LOGS = path.join(HOME, 'logs');
@@ -1387,10 +1407,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     }
     if ((p === '/_hub/build' || p === '/_hub/pull' || p === '/_hub/kill') && req.method === 'POST') {
       if (shuttingDown) return sendJSON(503, { error: 'The hub is stopping. Try again after it restarts.' });
-      const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
-      const host = (req.headers.host || '').replace(/:\d+$/, '');
-      if (!local.includes(req.socket.remoteAddress) || !['127.0.0.1', 'localhost', '[::1]'].includes(host)
-        || req.headers.origin || Object.keys(req.headers).some((h) => h === 'forwarded' || h.startsWith('x-forwarded-'))) {
+      if (!fromLoopback(req)) {
         return sendJSON(403, { error: `${p === '/_hub/pull' ? 'Pulls' : p === '/_hub/kill' ? 'Serves' : 'Builds'} can only be ${p === '/_hub/kill' ? 'killed' : 'started'} from the host over loopback.` });
       }
       let input;
@@ -1400,6 +1417,35 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         if (p === '/_hub/kill') return sendJSON(200, await killBuild(input, { manifest: loadManifest() }));
         return sendJSON(202, await startBuild(input, { manifest: loadManifest(), log }));
       } catch (e) { if (e instanceof BuildError) return sendJSON(e.status, { error: e.message, ...(e.ask ? { ask: e.ask } : {}) }); throw e; }
+    }
+    // docs/adr/2026-11-18-2200-a-board-asks-a-board-on-another-of-your-hubs-while-its-online.md
+    // Another of the owner's hubs, through the owner gate alone (its Tailscale-User-Login is the owner's): GET boards,
+    // and POST ask or answer for a board here.
+    const peerIn = /^\/_hub\/peer\/(ask|answer|boards)$/.exec(p);
+    if (peerIn) {
+      if (peerIn[1] === 'boards') return req.method === 'GET' ? sendJSON(200, { boards: listBoards(loadManifest()).map(({ route, title }) => ({ route, title })) }) : false;
+      if (req.method !== 'POST') return false;
+      let input;
+      try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the ask or answer as JSON.' }); }
+      try { return sendJSON(200, await (peerIn[1] === 'ask' ? takePeerAsk : takePeerAnswer)(input)); }
+      catch (e) { if (e instanceof BoardError) return sendJSON(400, { error: e.message }); throw e; }
+    }
+    // This host's agents (board.mjs ask, answer and boards), loopback only as /_hub/build: each relayed to the other
+    // hub named, or for boards every one, with from naming this hub.
+    const peerOut = /^\/_hub\/peers\/(ask|answer|boards)$/.exec(p);
+    if (peerOut) {
+      if (!fromLoopback(req)) return sendJSON(403, { error: 'Only an agent on this host sends to your other hubs, over loopback.' });
+      if (peerOut[1] === 'boards') {
+        if (req.method !== 'GET') return false;
+        const { status, body } = await peerBoards({ peers });
+        return sendJSON(status, body);
+      }
+      if (req.method !== 'POST') return false;
+      let input;
+      try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the ask or answer as JSON.' }); }
+      const { hub, ...rest } = input;
+      const { status, body } = await sendToPeer(hub, peerOut[1], (self) => ({ ...rest, from: { ...rest.from, hub: self.name, ...(peerOut[1] === 'ask' ? { host: self.host } : {}) } }), { peers });
+      return sendJSON(status, body);
     }
     if (p === '/sw.js') return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(HUB_DIR, 'sw.js')), { 'service-worker-allowed': '/' });
     if (p === '/manifest.webmanifest') return send(200, 'application/manifest+json', manifestJson());

@@ -139,7 +139,7 @@ test('the answering board draws each unanswered question as a New strip entry fr
 test("a builder's and a planner's brief say to ask another board when the repo doesn't explain why", () => {
   const card = { route: 'orch', key: 'w/A1', ref: 'A1', title: 'feat: one', thread: '/t.jsonl', worktree: '/wt', base: 'main', repo: '/repo', brief: { heading: 'Brief', text: 'Grill it.' } };
   for (const brief of [builderBrief(card), plannerBrief({ ...card, kind: 'grill' }), plannerBrief({ ...card, kind: 'prototype' })]) {
-    assert.match(brief, /When this repo doesn't explain why .* ask that board's orchestrator with `node \S+ --site orch ask <route> "<question>" --from w\/A1` and carry on/);
+    assert.match(brief, /When this repo doesn't explain why .* ask that board's orchestrator with `node \S+ --site orch ask <route> "<question>" --from w\/A1` and carry on; a board on another of your hubs is <hub>\/<route>, and `node \S+ --site orch boards` lists every one\./);
   }
 });
 

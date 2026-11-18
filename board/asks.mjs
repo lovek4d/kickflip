@@ -457,44 +457,114 @@ function targetBoard(site, route, command, named = `--to ${route}`) {
 }
 
 // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
-// A question this board put to another board in the hub, one line each in data/board-asks.jsonl {id, to, text, key?,
-// at}: id is the board-ask event's on the board at route `to`, key the card it was asked from. Its answer comes back as
-// a board-answer {id, from, key?, question, text} event in this board's log (answerBoardAsk).
+// docs/adr/2026-11-18-2200-a-board-asks-a-board-on-another-of-your-hubs-while-its-online.md
+// A question this board put to another board, one line each in data/board-asks.jsonl {id, to, text, key?, at}: id is
+// the board-ask event's on the board at `to`, a route in this hub or <hub>/<route> on another of the owner's hubs, and
+// key the card it was asked from. Its answer comes back as a board-answer {id, from, key?, question, text} event in this
+// board's log (answerBoardAsk in this hub, takePeerAnswer from another).
 const boardAsksFile = (site) => path.join(site, 'data', 'board-asks.jsonl');
+// How a line names the board at `to`: /<route> in this hub, <hub>/<route> on another.
+const named = (to) => (to.includes('/') ? to : `/${to}`);
+const PEER_ROUTE = /^([^/\s]+)\/([^/\s]+)$/;
+// One request to this hub's loopback /_hub/peers/<what> (hub.mjs), which relays it to another of the owner's hubs:
+// GET with no body, else a JSON POST. → its JSON answer; throws its refusal, or that this hub doesn't answer.
+async function viaHub(what, body) {
+  let r;
+  try {
+    r = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/peers/${what}`, {
+      method: body === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(30_000),
+      ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    });
+  } catch (e) { fail(`this hub doesn't answer (${e.cause?.code || e.cause?.message || e.name}), so nothing went to another hub`); }
+  const answer = await r.json().catch(() => ({}));
+  if (!r.ok) fail(answer.error || `this hub answered ${r.status}`);
+  return answer;
+}
 // Asks the board at route a one-line question: there, a board-ask {text, from {route, title, key?, ref?}} event, which
 // wakes its orchestrator, shows in its New strip and waits on it until answered (domain.mjs boardAskWaits); while no
-// orchestrator listens there, the event waits in its log. Here, the record, and on card from, if given, the quiet
-// "Asked <route>: <question>" line.
+// orchestrator listens there, the event waits in its log. A route <hub>/<route> is a board on another of the owner's
+// hubs: the question goes through this hub to that one (takePeerAsk there), and is refused while that hub can't take
+// it. Here, the record, and on card from, if given, the quiet "Asked <route>: <question>" line.
 export async function askBoard(site, route, question, { from } = {}) {
   needSite(site);
   const words = text(question, 'ask');
   if (/\n/.test(words)) fail('ask takes one line; ask each question on its own');
-  const target = targetBoard(site, route, 'ask', `ask ${route}`);
+  const peer = PEER_ROUTE.exec(String(route ?? ''));
+  const target = peer ? null : targetBoard(site, route, 'ask', `ask ${route}`);
   if (from !== undefined) await loadItem(site, from);
   const asker = { route: path.basename(site), title: (await boardConfig(site)).title, ...(from !== undefined ? { key: from, ref: await cardName(site, from) } : {}) };
-  const id = await appendEvent(target, 'board-ask', { text: words, from: asker });
+  const { id, listening } = peer
+    ? await viaHub('ask', { hub: peer[1], route: peer[2], text: words, from: asker })
+    : { id: await appendEvent(target, 'board-ask', { text: words, from: asker }), listening: isListening(target) };
   await appendLine(boardAsksFile(site), { id, to: route, text: words, ...(from !== undefined ? { key: from } : {}), at: new Date().toISOString() });
   if (from !== undefined) await appendStatus(site, from, 'board-asked', { route, question: words });
-  return { id, lines: isListening(target) ? [] : [`queued: /${route}'s orchestrator isn't listening, so it answers once it is`] };
+  return { id, lines: listening ? [] : [`queued: ${named(route)}'s orchestrator isn't listening, so it answers once it is`] };
+}
+
+// Another of the owner's hubs asking a board here (hub.mjs /_hub/peer/ask): body {route, text, from {hub, host, route,
+// title, key?, ref?}}, filed as askBoard files a question within this hub, from naming the asking hub as well.
+// → {id, listening}
+export async function takePeerAsk(body) {
+  const words = text(body?.text, 'ask');
+  if (/\n/.test(words)) fail('ask takes one line; ask each question on its own');
+  const { route, from } = body;
+  if (![from?.hub, from?.host, from?.route].every((v) => typeof v === 'string' && v)) fail('an ask from another hub names its hub, host and route');
+  const boards = listBoards();
+  const target = boards.find((b) => b.route === route) || fail(`no board at /${route}; the boards are ${boards.map((b) => b.route).join(', ') || 'none'}`);
+  const asker = { hub: from.hub, host: from.host, route: from.route, title: String(from.title || from.route), ...(from.key ? { key: String(from.key), ref: String(from.ref || from.key) } : {}) };
+  return { id: await appendEvent(target, 'board-ask', { text: words, from: asker }), listening: isListening(target) };
 }
 
 // The orchestrator's answer to question id another board asked this one: here, a board-ask-answered {id, text} event,
 // record-only, which ends its wait and its New strip entry; on the asking board, the answer as an ordinary message
 // on the card it was asked from, written as this board's route with via board, and a board-answer event, which wakes
-// that board's orchestrator. The record here goes last, so an answer that didn't reach the asking board still waits.
+// that board's orchestrator. A question from another hub's board goes back through this hub to that one
+// (takePeerAnswer there). The record here goes last, so an answer that didn't reach the asking board still waits.
 export async function answerBoardAsk(site, id, answer) {
   needSite(site);
   const words = messageText(answer);
   const ask = boardAsksOf(await readLog(path.join(site, 'data', 'events.jsonl'))).find((a) => a.id === id)
     || fail(`no question "${id}" from another board on this board; the waits lines name each one`);
   if (ask.answer) fail(`question ${id} is already answered`);
-  const asker = listBoards().find((b) => b.route === ask.from.route)
-    || fail(`/${ask.from.route}, which asked question ${id}, is no longer in the hub's manifest`);
   const here = { route: path.basename(site), title: (await boardConfig(site)).title };
-  if (ask.from.key) await appendMessage(asker.dir, ask.from.key, { text: words, who: here.route, via: 'board' });
-  await appendEvent(asker, 'board-answer', { id, from: here, ...(ask.from.key ? { key: ask.from.key } : {}), question: ask.text, text: words });
+  if (ask.from.hub) await viaHub('answer', { hub: ask.from.hub, id, route: ask.from.route, text: words, from: here });
+  else {
+    const asker = listBoards().find((b) => b.route === ask.from.route)
+      || fail(`/${ask.from.route}, which asked question ${id}, is no longer in the hub's manifest`);
+    await deliverAnswer(asker, { id, key: ask.from.key, question: ask.text, text: words, from: here });
+  }
   await appendEvent(boardTarget(site), 'board-ask-answered', { id, text: words });
-  return { route: ask.from.route, lines: [] };
+  return { route: ask.from.hub ? `${ask.from.hub}/${ask.from.route}` : ask.from.route, lines: [] };
+}
+// On the asking board: the answer on the card it was asked from, named for the answering board (<hub>/<route> from
+// another hub), and the board-answer event.
+async function deliverAnswer(asker, { id, key, question, text: words, from }) {
+  if (key) await appendMessage(asker.dir, key, { text: words, who: from.hub ? `${from.hub}/${from.route}` : from.route, via: 'board' });
+  await appendEvent(asker, 'board-answer', { id, from, ...(key ? { key } : {}), question, text: words });
+}
+// Another of the owner's hubs answering a question a board here asked it (hub.mjs /_hub/peer/answer): body {id, route,
+// text, from {hub, route, title}}, route the asking board. The card and the question come from the asking board's own
+// record of what it asked whom. → {}
+export async function takePeerAnswer(body) {
+  const words = messageText(body?.text);
+  const { id, route, from } = body;
+  if (![id, from?.hub, from?.route].every((v) => typeof v === 'string' && v)) fail('an answer from another hub names its question, hub and route');
+  const asker = listBoards().find((b) => b.route === route) || fail(`no board at /${route}, which asked question ${id}`);
+  const to = `${from.hub}/${from.route}`;
+  const asked = (await readLines(boardAsksFile(asker.dir))).find((a) => a.id === id && a.to === to)
+    || fail(`/${route} asked ${to} no question ${id}`);
+  await deliverAnswer(asker, { id, key: asked.key, question: asked.text, text: words, from: { hub: from.hub, route: from.route, title: String(from.title || from.route) } });
+  return {};
+}
+
+// This hub's boards and each of the owner's other hubs' (through this hub's /_hub/peers/boards). → {lines}: "<route>:
+// <title>" for each board here, then each other hub's as <hub>/<route>, or the line saying why a hub, or all of them,
+// can't be listed.
+export async function listAllBoards() {
+  const here = listBoards().map((b) => `${b.route}: ${b.title}`);
+  let hubs;
+  try { ({ hubs } = await viaHub('boards')); } catch (e) { if (e instanceof BoardError) return { lines: [...here, `other hubs: ${e.message}`] }; throw e; }
+  return { lines: [...here, ...hubs.flatMap((h) => (h.error ? [`${h.hub}: ${h.error}`] : h.boards.map((b) => `${h.hub}/${b.route}: ${b.title}`)))] };
 }
 
 // → {lines}: each question this board asked, then its answer, or whether the other board's orchestrator is listening
@@ -512,13 +582,15 @@ export async function listBoardAsks(site, { wait = false, timeout = 9, every = 2
     const boards = listBoards();
     const state = (a) => {
       if (answers.has(a.id)) return `answered: ${answers.get(a.id)}`;
+      // Another hub's board is read only when it's asked, so its orchestrator reads as awaited.
+      if (PEER_ROUTE.test(a.to)) return `waiting on ${a.to}'s orchestrator`;
       const board = boards.find((b) => b.route === a.to);
       return board && isListening(board) ? `waiting on /${a.to}'s orchestrator` : `queued: /${a.to}'s orchestrator isn't listening`;
     };
-    const lines = asks.flatMap((a) => [`${a.id} /${a.to}: ${a.text}`, `  ${state(a)}`]);
+    const lines = asks.flatMap((a) => [`${a.id} ${named(a.to)}: ${a.text}`, `  ${state(a)}`]);
     const waiting = asks.filter((a) => !answers.has(a.id));
     if (!wait || !waiting.length) return { lines };
-    if (now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on ${[...new Set(waiting.map((a) => `/${a.to}`))].join(', ')} after ${minutes} minutes; run asks --wait again`);
+    if (now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on ${[...new Set(waiting.map((a) => named(a.to)))].join(', ')} after ${minutes} minutes; run asks --wait again`);
     // poll: board-asks-wait
     await new Promise((resolve) => setTimeout(resolve, every));
   }

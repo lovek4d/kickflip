@@ -476,10 +476,11 @@
   // (docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md).
   function newEntry(e, words = []) {
     // Another board's question: who asked, linking the asking task, then waiting… or thinking… as an ask reads; no
-    // delete, as the orchestrator answers it.
+    // delete, as the orchestrator answers it. A task on another of the owner's hubs opens in a tab of its own.
     if (e.question) {
       const q = e.question;
-      const line = [`<a class="new-source" href="${esc(q.from.link)}">Asked from ${esc(q.from.words)}</a>`, q.state === 'working' ? thinking(q.since) : PICKUP_WAIT].join(' · ');
+      const away = /^https:/.test(q.from.link) ? ' target="_blank" rel="noopener"' : '';
+      const line = [`<a class="new-source" href="${esc(q.from.link)}"${away}>Asked from ${esc(q.from.words)}</a>`, q.state === 'working' ? thinking(q.since) : PICKUP_WAIT].join(' · ');
       return `<div class="new-entry new-question" data-new="${esc(e.id)}"><div class="new-msg">${marked(e.text, words, esc)}</div><div class="new-line sub">${newTime(e.sent)} · ${line}</div></div>`;
     }
     if (e.unsent) {
