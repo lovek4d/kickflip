@@ -219,8 +219,9 @@
       + `<div class="tb-main-commit"><span class="tb-main-text"><strong>${esc(main.branch)}</strong>@<code>${esc(shown.sha)}</code> <span class="muted">${esc(lasted(shown.at))}</span></span>${mainPull(main.pull, pulling)}</div></div><div class="meta">${status}${visit}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, waiting while the
-  // server records it (app-cards.js), and waits (ui.js BUSY) while the session merges it, or the board server lands a
-  // card with no PR, and from the tap until a board shows the card left In Review or its merge refused (ui.js pending) (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md,
+  // server records it (app-cards.js), and stays disabled with no spinner (ui.js SENDING) while the session merges it, or
+  // the board server lands a card with no PR, and from the tap until a board shows the card left In Review or its merge
+  // refused (ui.js pending) (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md,
   // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
   // A blocked card's Merge shows disabled, its tooltip naming what blocks it
   // (docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md).
@@ -228,7 +229,7 @@
     if (it?.mergeBlocked) return `<button class="primary" disabled title="${esc(it.mergeBlocked)}">Merge</button>`;
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
         // A merging card has no Action needed left, so resolvedBy is null by then: merging keeps the colour resolvedBy gave it.
-    return `<button class="${it.merging || it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${it.merging ? BoardUI.BUSY : ''}>Merge</button>`;
+    return `<button class="${it.merging || it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${it.merging ? BoardUI.SENDING : ''}>Merge</button>`;
   }
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on, and
   // ends with how long ago that line was set. One whose process is gone leads with stopped; one whose live process
@@ -385,7 +386,7 @@
   // A card waiting on its owner step has the owner's Done at its top right, before its "…": a check icon that confirms,
   // then sends card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
   const CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
-  const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep || `published ${it.release.version}`}`)}"${it.sending?.includes('finish') ? BoardUI.BUSY : ''}>${CHECK}</button>`;
+  const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep || `published ${it.release.version}`}`)}"${it.sending?.includes('finish') ? BoardUI.SENDING : ''}>${CHECK}</button>`;
 
   // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
   // A card's links, both ways (domain.mjs linkCards): its Parent and Children, which carry follow-ups, its Related to,

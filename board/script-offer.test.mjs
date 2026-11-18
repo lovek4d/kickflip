@@ -86,6 +86,8 @@ test('a waiting script is Action needed on its card and pushes at once; Run is t
   assert.match(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'logs', ran.script.log), 'utf8'), /oops/);
   assert.equal((await card(base)).action, null);
   assert.equal((await send(base, 'script-run', { key: 't/A1', id: s.id, sha: s.sha })).status, 400);
+  // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md: the Run leaves the owner's line.
+  assert.deepEqual(w.lines().filter((m) => m.command).map((m) => [m.text, m.who]), [['Ran the script', 'love']]);
 });
 
 test('a failing script reads failed with its exit code, and its output is capped at 64 KB with the whole of it in the log', async (t) => {
@@ -114,6 +116,7 @@ test('Decline marks the script declined, never runs it, and a new offer replaces
   assert.equal((await send(base, 'script-run', { key: 't/A1', id: second.id, sha: second.sha })).status, 400);
   assert.equal((await card(base)).action, null);
   assert.deepEqual(w.events().map((e) => e.kind).filter((kind) => kind.startsWith('script-')), ['script-decline']);
+  assert.deepEqual(w.lines().filter((m) => m.command).map((m) => [m.text, m.who]), [['Declined the script', 'love']]);
 });
 
 test('the run itself times out, and the orchestrator hears the Run, its result and a decline', async () => {

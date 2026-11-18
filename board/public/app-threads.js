@@ -28,8 +28,8 @@ BoardView.part((B) => {
   const pair = (kind, html) => `<span class="send-actions" data-sends="${kind}">${html}</span>`;
   const sends = (kind, item) => {
     const reply = sendButton('Reply', 0, ' data-intent="reply"', replyTone(item));
-    // A second button whose tap is sending waits (ui.js BUSY) until the board answers (ui-snapshot.js tapped).
-    const busy = (act) => (item?.sending?.includes(act) ? BoardUI.BUSY : '');
+    // A second button whose tap is sending is disabled (ui.js SENDING) until the board answers (ui-snapshot.js tapped).
+    const busy = (act) => (item?.sending?.includes(act) ? BoardUI.SENDING : '');
     const card = (label, act, cls = '') => sendButton(label, 1, `${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${esc(item.key)}"${busy(act)}`);
     const second = kind.startsWith('todo-') ? card('Cancel', 'cancel')
       : kind.startsWith('todo') ? sendButton('Implement', 1, ` class="build${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"${busy('build')}`)
@@ -47,14 +47,11 @@ BoardView.part((B) => {
     const kind = sendsOf(item);
     if (at.dataset.sends !== kind) { at.insertAdjacentHTML('afterend', sends(kind, item)); at.remove(); }
     // The row is built once and a card moves lanes without a rebuild, so its words follow the card's lane here: hidden
-    // outside New and Todo (style.css), disabled while Implement sends and once the card is staged or ready. A request
-    // whose own send is in the outbox waits (ui.js BUSY) until the board has it.
+    // outside New and Todo (style.css), disabled while Implement or its own request sends (ui.js SENDING) and once the
+    // card is staged or ready.
     el.dataset.requestWords = requestShown(item) ? 'shown' : 'hidden';
     for (const b of el.querySelectorAll('.request-row button')) {
-      const busy = Boolean(item?.sending?.includes(requestOf(b)));
-      b.disabled = busy || kind.startsWith('todo-') || Boolean(item?.sending?.includes('build'));
-      if (busy) b.setAttribute('aria-busy', 'true');
-      else b.removeAttribute('aria-busy');
+      b.disabled = kind.startsWith('todo-') || Boolean(item?.sending?.includes('build') || item?.sending?.includes(requestOf(b)));
     }
   }
 
@@ -99,9 +96,9 @@ BoardView.part((B) => {
   // The board records a sendId once (server.mjs), so a resend never doubles a tap.
   // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md: every tap the board records goes through it,
   // whatever the link. While the board is out of reach a tap reads waiting for the host and nothing sends; once it is
-  // back (linkChanged) the outbox sends on its own. A tap tied to a card draws in its thread; one tied to none, a bump,
-  // a New strip ask's Delete or edit, or a review's Post it or Skip, has no key and draws in the New strip in its said
-  // words, its event's data in fields.
+  // back (linkChanged) the outbox sends on its own. A tap tied to a card, its bump included, draws in its thread; one
+  // tied to none, a New strip ask's Delete or edit, or a review's Post it or Skip, has no key and draws in the New strip
+  // in its said words, its event's data in fields.
   // docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md: the New task box's sends go
   // through it too, kind ask with no key, and queue apart from every card's; the New strip draws them (unsentAsks).
   // docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md: a New task with files is
@@ -142,10 +139,11 @@ BoardView.part((B) => {
   // The line a tap draws until the board's own takes its place, in the board's words (domain.mjs COMMANDS, ACTION_LABELS,
   // INTENT_LABELS): with text or files the owner's message with the tap in its footer, else the tap's status line. waits:
   // whether a session picks the board's line up, so it reads waiting… once the board has it; the board applies a Block,
-  // Unblock, Done, Reopen and bare Implement itself. A Merge has no line of the board's: its own words stand until a
-  // thread load after the answer.
+  // Unblock, Done, Reopen, Bump, Unbump and bare Implement itself. A Merge's line is the board's on a held card; on a
+  // card with a PR its own words stand until a thread load after the answer.
   const REQUESTED = { 'prototype-request': 'Prototype requested', 'grill-more': 'Grill requested', 'visual-request': 'Visual requested', 'review-request': 'Review requested' };
-  const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Blocked' : 'Unblocked'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened', 'card-cancel': () => 'Cancelled Implement', 'card-merge': () => 'Merge requested' };
+  const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Blocked' : 'Unblocked'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened', 'card-cancel': () => 'Cancelled Implement', 'card-merge': () => 'Merge requested',
+    'card-bump': () => 'Moved to the top', 'card-unbump': () => 'Unbumped' };
   function tapOf(m) {
     if (m.text || m.files.length || m.uploads) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
     return { words: REQUESTED[m.kind] || CARD_TAPS[m.kind]?.(m) || 'Marked as staged', waits: Boolean(REQUESTED[m.kind]) };
@@ -163,6 +161,28 @@ BoardView.part((B) => {
   // An answer from the questions sheet lands here too, as {m, line, at}, line its answer line reading waiting….
   const landed = new Map();
   const landedFor = (key, have) => [...landed.values()].filter((l) => l.m.key === key && !have.has(l.m.sendId)).map((l) => l.line || unsent(l.m, true));
+  // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md
+  // A card tap that goes around the outbox, a script's Run or Decline or a Serve or Kill, which never send again on a
+  // reload: postTap(key, words, request) draws its line in its card's thread, in the board's words (domain.mjs
+  // COMMANDS), sending… while request is out. Answered, the line stands as landed until the thread loads the board's
+  // own; refused, it goes, and the tap's toast says why. → request
+  const posting = new Map();
+  const postingFor = (key) => [...posting.values()].filter((p) => p.key === key).map((p) => p.line);
+  function postTap(key, words, request) {
+    const sendId = `post-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const line = { ts: new Date().toISOString(), who: 'love', kind: 'command', request: true, mark: words, text: words, sendId, state: 'sending' };
+    posting.set(sendId, { key, line });
+    B.repaintThread(key);
+    const settle = (sent) => {
+      posting.delete(sendId);
+      if (!B.alive()) return;
+      if (sent) landed.set(sendId, { m: { key, sendId }, line: { ...line, state: null }, at: seq });
+      B.repaintThread(key);
+      if (sent) loadThread(key, { force: true });
+    };
+    request.then(() => settle(true), () => settle(false));
+    return request;
+  }
   // docs/adr/2026-11-16-2100-a-question-sets-answers-send-as-one.md
   // The questions sheet's answer outbox (app-questions-sheet.js): each answer set to a card's questions is that card's one
   // answer line, in the board's words, its answers' files as tiles from each answer's box, until the board's own line,
@@ -191,7 +211,7 @@ BoardView.part((B) => {
     const view = viewOf(key);
     // The landed taps and then the outbox's follow everything the board has, in the order they were sent.
     const have = new Set(msgs.map((m) => m.sendId).filter(Boolean));
-    const lines = [...msgs, ...landedFor(key, have), ...[...answersFor(key).map((m) => answerLine(m)), ...queuedFor(key).map((m) => unsent(m))].filter((m) => !have.has(m.sendId)).sort((a, b) => a.ts.localeCompare(b.ts))];
+    const lines = [...msgs, ...landedFor(key, have), ...[...answersFor(key).map((m) => answerLine(m)), ...queuedFor(key).map((m) => unsent(m)), ...postingFor(key)].filter((m) => !have.has(m.sendId)).sort((a, b) => a.ts.localeCompare(b.ts))];
     const sig = JSON.stringify([lines, view]);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
@@ -441,14 +461,15 @@ BoardView.part((B) => {
   // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
   // A script offer's Run sends only after a hold of HOLD_MS, its bar filling meanwhile; letting go sooner sends nothing.
   // From the keyboard, which can't hold, Run asks a confirm instead. Run names the script's id and the sha of the text the
-  // page drew; Decline confirms first. Neither goes through the outbox, so a reload never sends one again.
+  // page drew; Decline confirms first. Neither goes through the outbox, so a reload never sends one again; each shows its
+  // line in the thread while it sends (postTap), its button disabled meanwhile.
   const HOLD_MS = 900;
   let holding = null;
+  const SCRIPT_WORDS = { 'script-run': 'Ran the script', 'script-decline': 'Declined the script' };
   const scriptTap = async (button, kind, data) => {
     const key = button.closest('[data-thread]')?.dataset.thread;
     if (!key) return;
-    try { await BoardUI.waitOn(button, B.send(kind, { key, ...data })); } catch (e) { B.failed(e); }
-    loadThread(key, { force: true });
+    try { await BoardUI.waitOn(button, postTap(key, SCRIPT_WORDS[kind], B.send(kind, { key, ...data })), { quiet: true }); } catch (e) { B.failed(e); loadThread(key, { force: true }); }
   };
   const runOf = (b) => scriptTap(b, 'script-run', { id: b.dataset.scriptRun, sha: b.dataset.sha });
   const letGo = () => {
@@ -477,7 +498,7 @@ BoardView.part((B) => {
   });
 
   Object.assign(B, {
-    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, linkChanged, enqueue, unsentAsks, sendBox, answerChanged,
+    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, linkChanged, enqueue, postTap, unsentAsks, sendBox, answerChanged,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
     syncSends: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncSends(el, key); },
   });

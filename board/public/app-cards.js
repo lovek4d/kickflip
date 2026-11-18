@@ -274,8 +274,8 @@ BoardView.part((B) => {
 
   function actions(it) {
     const key = esc(it.key);
-    // A button whose tap is sending waits (ui.js BUSY) until the board answers (ui-snapshot.js tapped).
-    const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}"${it.sending?.includes(act) ? BoardUI.BUSY : ''}>${label}</button>`;
+    // A button whose tap is sending is disabled (ui.js SENDING) until the board answers (ui-snapshot.js tapped).
+    const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}"${it.sending?.includes(act) ? BoardUI.SENDING : ''}>${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : it.ownerBlock ? ask('resume', 'Unblock', 'unblock') : ask('hold', 'Block');
     // The ticket actions row: a work card's Done, right of Block, in every lane but Done. An In Review card's Done is
@@ -434,9 +434,10 @@ BoardView.part((B) => {
     let anyway = !kill && web && it.try?.hostBusy === true;
     const asked = kill ? `Kill ${it.ref}’s serve? Its server stops until you tap Serve.` : anyway ? busyAsk : `${tryWords(it.try?.kind).go} ${it.ref}? The hub runs its build script.`;
     if (!(await B.confirm(asked)) || !B.alive()) return;
-    // Serve / Build and Kill spin until a board shows the card's build changed: running, done or stopped
-    // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md). A busy host's question declined, or the
-    // serve cap's refusal, ends the tap with nothing for a board to show.
+    // Serve / Build and Kill stay disabled until a board shows the card's build changed: running, done or stopped
+    // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md), while the tap's line in the thread reads
+    // sending… until the hub answers (B.postTap). A busy host's question declined, or the serve cap's refusal, ends the
+    // tap with nothing for a board to show and no line.
     const tryFace = () => JSON.stringify(cardOf(key)?.try);
     const before = tryFace();
     const post = async () => {
@@ -455,7 +456,9 @@ BoardView.part((B) => {
       if (!ok) throw new Error(out.error || (kill ? 'The hub refused the Kill.' : 'The hub refused the build.'));
     };
     try {
-      await B.spinUntil(button, { send, shows: () => ended !== null || tryFace() !== before });
+      const sent = B.spinUntil(button, { send, shows: () => ended !== null || tryFace() !== before, quiet: true });
+      B.postTap(key, kill ? 'Serve killed' : 'Serve started', sent.then(() => { if (ended) throw new Error('nothing sent'); }));
+      await sent;
       if (ended?.declined) return;
       if (ended?.cap) { await B.notice(ended.cap); return; }
     } catch (error) {
@@ -514,17 +517,16 @@ BoardView.part((B) => {
   B.on(document, 'scroll', (ev) => { if (!$('#cardMenu').contains(ev.target)) closeCardMenu(); }, { capture: true, passive: true });
 
   // A card's Bump bumps it, or its Unbump unbumps it, with no confirm
-  // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md). It goes through the outbox with no card thread, so
-  // its row shows in the New strip until the board has it, and the card moves as its answer lands
-  // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
+  // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md). It goes through the card's outbox, so its line shows
+  // in the card's thread, sending…, until the board has it, and the card moves as its answer lands
+  // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md,
+  // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md).
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('button[data-card-bump]');
     if (!b) return;
     ev.preventDefault();
     const key = b.dataset.cardBump;
-    const unbump = b.hasAttribute('data-bumped');
-    const ref = cardOf(key)?.ref || key;
-    B.enqueue(undefined, { kind: unbump ? 'card-unbump' : 'card-bump', fields: { key }, said: unbump ? `Unbumped ${ref}` : `Moved ${ref} to the top` });
+    B.enqueue(key, { kind: b.hasAttribute('data-bumped') ? 'card-unbump' : 'card-bump' });
   });
 
   B.on(B.root, 'click', (ev) => {

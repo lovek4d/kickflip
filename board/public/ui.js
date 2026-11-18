@@ -163,6 +163,10 @@
     'Related to': shape('link'), 'Unrelated from': shape('link'), 'Follow-up': shape('link'), 'Follow-up of': shape('link'), 'Created ticket': shape('created'), 'Created from': shape('created'),
     'Marked done': shape('circle-check'),
     Reopened: shape('reopen'),
+    // The record of a tap that writes no line of its own otherwise (domain.mjs COMMANDS).
+    'Moved to the top': shape('move'), Unbumped: shape('move'), 'Merge requested': shape('move'),
+    'Serve started': shape('play'), 'Serve killed': shape('pause'),
+    'Ran the script': shape('play'), 'Declined the script': shape('x'),
     Reply: shape('reply'),
     Implement: shape('code'),
     'answers submitted': shape('check'),
@@ -180,7 +184,7 @@
   // (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md,
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md,
   // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md).
-  const cardBumpItem = (key, bumped, busy = false) => `<button type="button" role="menuitem" data-card-bump="${esc(key)}"${bumped ? ' data-bumped' : ''}${busy ? BUSY : ''}>${BUMP}<span>${bumped ? 'Unbump' : 'Bump'}</span></button>`;
+  const cardBumpItem = (key, bumped, sending = false) => `<button type="button" role="menuitem" data-card-bump="${esc(key)}"${bumped ? ' data-bumped' : ''}${sending ? SENDING : ''}>${BUMP}<span>${bumped ? 'Unbump' : 'Bump'}</span></button>`;
   // A working dot beats on every pulse's one clock; an agent's dot is still. Both take their line's colour.
   const WORKING_DOT = globalThis.BoardUI.iconText('pulse', 'current', '');
   const AGENT_DOT = globalThis.BoardUI.iconText('dot', 'current', '');
@@ -369,16 +373,22 @@
   }
 
   // A tap that saves something waits for the server (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md,
-  // docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md): waitOn(control, promise, {group}) disables
+  // docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md): waitOn(control, promise, {group, quiet}) disables
   // control until promise settles and marks it tap-waiting and aria-busy. style.css button[aria-busy="true"] keeps a
-  // button's colours and width and shows a spinner in its text colour in place of its content, or pulses a bump icon
-  // orange. A toggle, select or field keeps its face, with a spinner beside it: after its caption in a .tk-field, else
-  // just before it. group: the other choices of the same setting, disabled (tap-blocked) with no spinner meanwhile.
+  // button's colours and width and shows a spinner in its text colour in place of its content. A toggle, select or
+  // field keeps its face, with a spinner beside it: after its caption in a .tk-field, else just before it. group: the
+  // other choices of the same setting, disabled (tap-blocked) with no spinner meanwhile. quiet: a card tap, whose thread
+  // line carries the spinner, so control is only disabled (tap-blocked), as SENDING draws it.
   // A repaint meanwhile (setHTML) patches each back to its markup, so setHTML marks it again, found by its id and data
   // attributes when the repaint replaced it. Settling restores the disabled and aria-busy its latest markup had. → promise
   // Work that outlives its request (a restart, an update, a merge) draws its button with BUSY in its markup until the
   // state the page draws from says the work is done.
   const BUSY = ' disabled aria-busy="true"';
+  // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md: a card button whose tap is
+  // sending, or whose work runs on (a Merge, a Serve), is only disabled, dimmed as any disabled button (style.css), with
+  // no spinner: the tap's thread line carries its sending… and the one spinner. waitOn's quiet does the same for a tap
+  // that waits on its own request. Controls with no thread (the header, Settings, the hub) keep BUSY.
+  const SENDING = ' disabled';
   const waits = new Set();
   function markWaiting(b, w) {
     w.el = b;
@@ -406,8 +416,8 @@
     waits.add(w);
     return w;
   }
-  function waitOn(control, promise, { group = [] } = {}) {
-    const mine = [waitFor(control, 'tap-waiting'), ...[...group].filter((el) => el !== control).map((el) => waitFor(el, 'tap-blocked'))];
+  function waitOn(control, promise, { group = [], quiet = false } = {}) {
+    const mine = [waitFor(control, quiet ? 'tap-blocked' : 'tap-waiting'), ...[...group].filter((el) => el !== control).map((el) => waitFor(el, 'tap-blocked'))];
     const done = () => {
       for (const w of mine) {
         waits.delete(w);
@@ -754,7 +764,7 @@
   globalThis.BoardUI = {
     ...globalThis.BoardUI,
     LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, pushPage, popPage, isTopSheet, afterSheets, cutClose, swipeToDismiss, swipeVerdict,
-    esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
+    esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, SENDING, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, cardBumpItem, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

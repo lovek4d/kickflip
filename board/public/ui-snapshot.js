@@ -93,7 +93,8 @@
   // (docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md): a card with a tap in the
   // outbox, queued or in flight and not failed, carries its tapped buttons as sending, a list of acts ('finish', 'build',
   // 'merge', 'hold', 'resume', 'reopen', 'cancel', 'bump', and the requests 'prototype', 'grill', 'visual' and 'review'),
-  // which draws each of those buttons busy (ui.js BUSY), and drops the Action needed a tapped button resolves. Its lane,
+  // which draws each of those buttons disabled (ui.js SENDING; its thread line carries the spinner,
+  // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md), and drops the Action needed a tapped button resolves. Its lane,
   // phase and order stay as the board has them until the board answers. A Merge also reads merging (ui-cards.js mergeButton).
   const TAP_ACTS = { 'card-done': () => 'finish', 'card-merge': () => 'merge', 'card-hold': (m) => (m.fields.hold ? 'hold' : 'resume'), 'card-reopen': () => 'reopen',
     'card-cancel': () => 'cancel', 'card-bump': () => 'bump', 'card-unbump': () => 'bump',

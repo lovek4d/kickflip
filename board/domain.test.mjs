@@ -2244,7 +2244,8 @@ test("a thread-file line a button wrote is a request line carrying its command k
   const cards = new Map([['w/A2', { ref: '#12' }]]);
   const linked = threadOf('w/A1', { lines: [{ ts: '2026-11-06T10:00:00Z', who: 'claude', text: 'Related to', command: 'related', card: 'w/A2' }], cards });
   assert.deepEqual(linked.map((m) => [m.text, m.words, m.link, m.card, m.mark]), [['Related to #12', 'Related to', '#selectedCard=w%2FA2', 'w/A2', 'Related to']]);
-  assert.deepEqual(Object.keys(COMMANDS), ['prototype', 'grill', 'visual', 'reviewer', 'prototype-started', 'grill-started', 'visual-started', 'reviewer-started', 'reask', 'hold', 'resume', 'done', 'reopened', 'cancelled', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of', 'created', 'created-from', 'blocked-by', 'unblocks']);
+  assert.deepEqual(Object.keys(COMMANDS), ['prototype', 'grill', 'visual', 'reviewer', 'prototype-started', 'grill-started', 'visual-started', 'reviewer-started', 'reask', 'hold', 'resume', 'done', 'reopened', 'cancelled', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of', 'created', 'created-from', 'blocked-by', 'unblocks',
+    'bumped', 'unbumped', 'merge', 'served', 'killed', 'script-ran', 'script-declined']);
 });
 
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
@@ -3433,8 +3434,8 @@ test('tapPlan writes a Block, Unblock, Done, Reopen or Cancel before its event, 
   for (const [card, kind, body, effects] of rows) assert.deepEqual(tapPlan(card, kind, { key: 'w/A1', ...body }), effects, `${kind} ${JSON.stringify(card ?? null)}`);
 });
 
-test("tapPlan lands a held card's Merge, merges any other card's PR, and starts a Build, each with no event", () => {
-  assert.deepEqual(tapPlan(tapCard({ lane: 'review', mergeReady: { branch: 'T-1', at: 'x', base: 'main' } }), 'card-merge', { key: 'w/A1' }), [{ do: 'merge', held: true }]);
+test("tapPlan lands a held card's Merge with the owner's line, merges any other card's PR, and starts a Build, each with no event", () => {
+  assert.deepEqual(tapPlan(tapCard({ lane: 'review', mergeReady: { branch: 'T-1', at: 'x', base: 'main' } }), 'card-merge', { key: 'w/A1' }), [{ do: 'merge', held: true }, { do: 'line', command: 'merge' }]);
   assert.deepEqual(tapPlan(tapCard({ lane: 'review', mergeReady: null }), 'card-merge', { key: 'w/A1' }), [{ do: 'merge', held: false }]);
   assert.deepEqual(tapPlan(undefined, 'card-merge', { key: 'w/A9' }), [{ do: 'merge', held: false }]);
   assert.deepEqual(tapPlan(tapCard({ phase: 'ready' }), 'card-build', { key: 'w/A1' }), [{ do: 'build' }]);
@@ -3455,9 +3456,9 @@ test("tapPlan records a planner request, then clears the card's owner mark and o
   assert.deepEqual(tapPlan(undefined, 'grill-more', { text: 'no card' }), [EVENT], 'a request with no card is only recorded');
 });
 
-test("tapPlan moves a bumped card's queued lands after its event", () => {
-  assert.deepEqual(tapPlan(tapCard(), 'card-bump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: true }]);
-  assert.deepEqual(tapPlan(tapCard(), 'card-unbump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: false }]);
+test("tapPlan moves a bumped card's queued lands after its event, then writes the owner's line", () => {
+  assert.deepEqual(tapPlan(tapCard(), 'card-bump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: true }, { do: 'line', command: 'bumped' }]);
+  assert.deepEqual(tapPlan(tapCard(), 'card-unbump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: false }, { do: 'line', command: 'unbumped' }]);
   assert.deepEqual([...TAP_KINDS].sort(), ['card-build', 'card-bump', 'card-cancel', 'card-done', 'card-hold', 'card-merge', 'card-reopen', 'card-unbump', 'grill-more', 'item-message', 'prototype-request', 'review-request', 'visual-request']);
 });
 

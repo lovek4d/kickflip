@@ -1314,8 +1314,19 @@ test('a side page names the board it holds by its version, and an unchanged boar
   assert.deepEqual(plain(asked), [{ 'if-none-match': '"v1"' }, { 'if-none-match': '"v0"' }, {}]);
 });
 
-test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and waits, disabled with its label kept behind the spinner, while the session merges it", () => {
-  const merge = (it) => { const html = ui.mergeButton(it); return html && [text(html), / disabled aria-busy="true"/.test(html), /data-confirm="merge"/.test(html), /data-key="w\/A1"/.test(html)]; };
+// docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md: its thread line carries the
+// tap's sending…, so a sending card button is only disabled (ui.js SENDING), dimmed as any disabled button, with no spinner.
+test('a sending card button, Done, the owner check, Merge and the menu’s Bump, is disabled with no spinner', () => {
+  const it = { key: 'w/A1', sending: ['finish', 'merge', 'bump'], merging: true, action: null, release: null, ownerStep: 'Deploy it' };
+  assert.equal(ui.SENDING, ' disabled');
+  for (const html of [ui.doneButton(it), ui.mergeButton(it), ui.cardBumpItem('w/A1', false, true)]) {
+    assert.match(html, / disabled/);
+    assert.doesNotMatch(html, /aria-busy|try-spin/);
+  }
+});
+
+test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and stays disabled, with no spinner, while the session merges it", () => {
+  const merge = (it) => { const html = ui.mergeButton(it); return html && [text(html), / disabled/.test(html) && !/aria-busy/.test(html), /data-confirm="merge"/.test(html), /data-key="w\/A1"/.test(html)]; };
   const waiting = { key: 'w/A1', action: { kind: 'merge', url: '#selectedCard=w%2FA1', label: 'Merge' }, merging: false };
   assert.deepEqual(merge(waiting), ['Merge', false, true, true]);
   assert.deepEqual(merge({ key: 'w/A1', action: null, merging: true }), ['Merge', true, true, true]);

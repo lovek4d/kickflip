@@ -550,15 +550,16 @@ window.BoardView = (function () {
     // spinUntil(button, {send, shows}) runs send() and spins button (BoardUI.waitOn) until shows()
     // holds or send() fails, whichever comes first. shows() is asked after every board render and thread load, and once
     // send() resolves; it compares with what the tap saw, so a board from before the tap never ends the spinner. Sixty
-    // seconds without either runs stillWaiting. → send()'s promise, so the caller still hears its answer or refusal.
-    function spinUntil(button, { send, shows }) {
+    // seconds without either runs stillWaiting. quiet: a card tap, whose thread line spins, so button is only disabled
+    // (BoardUI.waitOn quiet). → send()'s promise, so the caller still hears its answer or refusal.
+    function spinUntil(button, { send, shows, quiet = false }) {
       let rest;
       const shown = new Promise((resolve) => { rest = resolve; });
       const check = () => { if (shows()) rest(); };
       showing.add(check);
       const sent = send();
       sent.then(check, rest);
-      BoardUI.waitOn(button, BoardUI.pending.within(shown, stillWaiting).finally(() => showing.delete(check)));
+      BoardUI.waitOn(button, BoardUI.pending.within(shown, stillWaiting).finally(() => showing.delete(check)), { quiet });
       return sent;
     }
     function checkShown() { for (const check of [...showing]) check(); }

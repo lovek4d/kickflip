@@ -166,12 +166,13 @@
 //                                settings' Reviewers picks from, fetched with the hub's Slack token and gh.
 //                                card-bump {key} and card-unbump {key} are a work card's Bump and Unbump, sent with no confirm;
 //                                a bump moves the card's queued lands first, an unbump back in ask order (worktree.mjs
-//                                moveQueuedLand).
+//                                moveQueuedLand), and each writes the owner's line, "Moved to the top" or "Unbumped".
 //                                card-hold {key, hold: true, for} is a Block sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
 //                                card-merge {key} on a card whose verified branch waits for the owner's Merge (no PR)
-//                                records the tap on the card (cards.mjs tapMerge) and runs `board.mjs merge <key>`
+//                                records the tap on the card (cards.mjs tapMerge), with the owner's line "Merge
+//                                requested", and runs `board.mjs merge <key>`
 //                                detached, so a land that restarts this server finishes, its output in
 //                                ~/.claude/kickflip/logs/merge-<id>-<time>.log, with no event and no session
 //                                (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). KICKFLIP_MERGE_CMD='["<cmd>", …]'
@@ -207,7 +208,8 @@
 //                                ask-withdrawn {id, key?} also hides that event (POST /api/hide), in the one request.
 //                                script-run {key, id, sha} and script-decline {key, id} are the owner's Run and Decline
 //                                on a card's waiting script offer; one of an offer that isn't
-//                                waiting → 400, a Run whose sha isn't the offer's → 409, and nothing recorded. A Run
+//                                waiting → 400, a Run whose sha isn't the offer's → 409, and nothing recorded. One
+//                                recorded writes the owner's line, "Ran the script" or "Declined the script". A Run
 //                                starts bin/script-run.mjs detached, which posts script-result
 //                                {key, id, exit, output, timedOut, ms, log} when the script ends
 //                                (docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md).
@@ -294,7 +296,8 @@
 //                                body or settings file, or a switch turned on while it is unavailable
 //   POST /api/try                {key, anyway?}: forwards a card build, main retry or the prototype site's start (key prototypes) to the hub's loopback /_hub/build;
 //                                anyway: true starts a card's serve on a busy host
-//   POST /api/try/kill           {key}: a card's Kill, forwarded to the hub's loopback /_hub/kill
+//   POST /api/try/kill           {key}: a card's Kill, forwarded to the hub's loopback /_hub/kill. A card's Serve or Kill
+//                                the hub took writes the owner's line, "Serve started" or "Serve killed".
 //   POST /api/try/main/pull      {}: Main's refresh icon, forwarded to the hub's loopback /_hub/pull → {commits, error?}
 //   GET  /api/log?file=<name>.log {text, truncated, size}: the last 256 KiB of that file in ~/.claude/kickflip/logs, by name
 //                                only; log.html and the reader sheet's raw toggle (app-reader.js) show it and re-read it while it grows
@@ -360,7 +363,7 @@ import { launchAgent } from './agents.mjs';
 import { BOARD_CLI, pidAlive, stopAgents, stopRuns } from './headless.mjs';
 import { BoardError } from './checks.mjs';
 import { draftOf, pruneDrafts, readDrafts, saveDraft } from './drafts.mjs';
-import { readScriptOffer, readAgents, tapMerge, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
+import { readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
 import { heldReview, applyReviewAnswer, dropAskCard, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
 import { finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf } from './settings.mjs';
@@ -987,6 +990,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       }
       else if (effect.do === 'plan') await planAgain(here, key, effect.kind, effect.ask);
       else if (effect.do === 'moveLand') moveQueuedLand(here, key, effect.first ? now().toISOString() : null);
+      else if (effect.do === 'line') await appendCommand(here, key, { who: 'love', command: effect.command, sendId });
       else throw new Error(`tapPlan gave an effect applyTap doesn't run: ${effect.do}`);
     }
     dataVersion++;
@@ -1113,6 +1117,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           scriptTaps.add(id);
           try {
             const eventId = await appendEvent(kind, { key, id, ...(kind === SCRIPT_EVENTS.run ? { sha: read.offer.sha } : {}), ...(sendId ? { sendId } : {}) });
+            await appendCommand(here, key, { who: 'love', command: kind === SCRIPT_EVENTS.run ? 'script-ran' : 'script-declined', sendId });
             if (kind === SCRIPT_EVENTS.run) runOfferedScript(key, id, cwd, read.offer.body);
             return json(res, 200, { id: eventId, board: await answerBoard(req, since) });
           } finally { scriptTaps.delete(id); }
@@ -1305,7 +1310,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ route: prefix.slice(1) || path.basename(here), key: body.key, ...(body.anyway ? { anyway: true } : {}) }), signal: AbortSignal.timeout(10_000),
           });
-          return json(res, response.status, await response.json());
+          const out = await response.json();
+          // A card's Serve or Kill the hub took leaves the owner's line on the card; main's and the prototypes' have no card.
+          if (response.ok && !['main', 'prototypes'].includes(body.key)) await appendCommand(here, body.key, { who: 'love', command: kill ? 'killed' : 'served' });
+          return json(res, response.status, out);
         } catch (e) { return json(res, 502, { error: `Could not ${kill ? 'kill the serve' : 'start the build'}: ${e.message}` }); }
       }
       if (p === '/api/settings' && req.method === 'POST') {

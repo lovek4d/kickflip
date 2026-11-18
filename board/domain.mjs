@@ -1080,12 +1080,17 @@ export const COMMANDS = {
   discussing: 'Marked as discussing', staged: 'Marked as staged', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
   created: 'Created ticket', 'created-from': 'Created from', 'blocked-by': 'Blocked by', unblocks: 'Unblocks',
+  // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md: the owner's taps that record no
+  // line of their own otherwise: a Bump or Unbump, a held card's Merge, a Serve or Kill the hub took, a script's Run or Decline.
+  bumped: 'Moved to the top', unbumped: 'Unbumped', merge: 'Merge requested', served: 'Serve started', killed: 'Serve killed',
+  'script-ran': 'Ran the script', 'script-declined': 'Declined the script',
 };
 // Each tap command's tone (hub-lines.mjs TONES): a request for a planner is blue like a planner's own lines.
 export const COMMAND_TONES = {
   prototype: 'blue', grill: 'blue', visual: 'blue', [REVIEWER]: 'blue', 'prototype-started': 'blue', 'grill-started': 'blue', 'visual-started': 'blue', [`${REVIEWER}-started`]: 'blue', reask: 'blue', hold: 'grey', resume: 'orange', done: 'green', reopened: 'grey', cancelled: 'grey',
   discussing: 'grey', staged: 'orange', readied: 'green', related: 'grey', unrelated: 'grey', followup: 'grey', 'followup-of': 'grey',
   created: 'blue', 'created-from': 'blue', 'blocked-by': 'grey', unblocks: 'grey',
+  bumped: 'grey', unbumped: 'grey', merge: 'orange', served: 'orange', killed: 'grey', 'script-ran': 'orange', 'script-declined': 'grey',
 };
 const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'review-request': REVIEWER, 'reask-request': 'reask' };
 export const ACTION_LABELS = { 'mark-ready': 'Mark ready', ...Object.fromEntries(Object.entries(REQUEST_COMMANDS).map(([kind, key]) => [kind, COMMANDS[key]])) };
@@ -2120,6 +2125,7 @@ export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'ca
 //   {do: 'build'}                    a Build starts the card's build, whose launch is the tap's answer
 //   {do: 'plan', kind, ask}          the card owes kind's brief, answering ask
 //   {do: 'moveLand', first}          the card's queued lands move to the front, or back
+//   {do: 'line', command}            the owner's line for a tap that writes none of its own (COMMANDS[command]), with its sendId
 export function tapPlan(card, kind, body) {
   const key = String(body.key || '');
   const bare = !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
@@ -2165,11 +2171,11 @@ export function tapPlan(card, kind, body) {
   if (kind === 'card-cancel') return [{ do: 'record', nothing: `${key} isn’t staged or ready, so there is no Implement to cancel.`, stops: false }, event];
   // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md, docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md:
   // a Merge records no event, so no session wakes.
-  if (kind === 'card-merge') return [{ do: 'merge', held: Boolean(card?.mergeReady) }];
+  if (kind === 'card-merge') return card?.mergeReady ? [{ do: 'merge', held: true }, { do: 'line', command: 'merge' }] : [{ do: 'merge', held: false }];
   // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md
   if (kind === 'card-build') return [{ do: 'build' }];
   // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bump moves the card's queued lands.
-  if (kind === 'card-bump' || kind === 'card-unbump') return [event, { do: 'moveLand', first: kind === 'card-bump' }];
+  if (kind === 'card-bump' || kind === 'card-unbump') return [event, { do: 'moveLand', first: kind === 'card-bump' }, { do: 'line', command: kind === 'card-bump' ? 'bumped' : 'unbumped' }];
   // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a request owes the orchestrator's
   // brief, and ends an Implement or Close mark (docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md).
   if (!body.key) return [event];

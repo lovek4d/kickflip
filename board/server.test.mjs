@@ -74,6 +74,9 @@ test("a held card's Merge records the tap on the card and runs board.mjs merge d
     assert.equal(answer.board.items.find((i) => i.key === 't/M1').merging, true);
     assert.equal(typeof JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'M1').merge_ready.tapped, 'string');
     assert.equal(events().includes('"card-merge"'), false);
+    // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md: the tap's line.
+    const thread = await (await fetch(`${base}/api/thread?key=t/M1`)).json();
+    assert.deepEqual(thread.filter((m) => m.command).map((m) => [m.text, m.who]), [['Merge requested', 'love']]);
     // The stand-in merge creates the file before it writes its line.
     await until(() => fs.existsSync(path.join(home, 'merges.jsonl')) && fs.readFileSync(path.join(home, 'merges.jsonl'), 'utf8').endsWith('\n'), 'the merge runs');
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'merges.jsonl'), 'utf8').trim()), ['--site', 'site', 'merge', 't/M1']);
@@ -1073,8 +1076,13 @@ test("the events POST answers with the board as the tap left it, so a bump, unbu
   assert.match(bumped.id, /\S/);
   assert.deepEqual(todo(bumped.board)[0], [bottom, true]);
   assert.ok(bumped.board.generatedAt >= first.generatedAt);
-  const unbumped = await post({ kind: 'card-unbump', key: `t/${bottom}` });
+  const unbumped = await post({ kind: 'card-unbump', key: `t/${bottom}`, sendId: 'unbump-1' });
   assert.deepEqual(todo(unbumped.board), todo(first));
+  // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md: each leaves the owner's line
+  // on the card, the unbump's carrying its sendId, so the page's sending line gives way to it.
+  const thread = await (await fetch(`${base}/api/thread?key=t/${bottom}`)).json();
+  assert.deepEqual(thread.filter((m) => m.command).slice(-2).map((m) => [m.text, m.who, m.command, m.sendId ?? null]),
+    [['Moved to the top', 'love', 'bumped', null], ['Unbumped', 'love', 'unbumped', 'unbump-1']]);
   const held = await post({ kind: 'card-hold', key: 't/C1', hold: true });
   assert.deepEqual(held.board.items.find((i) => i.id === 'C1').ownerBlock, { until: null });
   const done = await post({ kind: 'card-done', key: 't/C2' });
@@ -1690,7 +1698,14 @@ test('try forwards only the board route and key over loopback, returning hub sta
   const boardPort = (await startBoard(t, { site, prefix: '/own-route' })).server.address().port;
   try {
     const post = (body) => fetch(`http://127.0.0.1:${boardPort}/api/try`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-host': 'mac.example' }, body: JSON.stringify(body) });
+    // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md: a card's Serve or Kill the
+    // hub took leaves the owner's line on the card; a refusal, main's and the prototypes' leave none.
+    const threadFile = path.join(site, 'data', 'threads', 't__A1.jsonl');
+    const tapLines = () => (fs.existsSync(threadFile) ? fs.readFileSync(threadFile, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
+      .filter((m) => ['served', 'killed'].includes(m.command)).map((m) => [m.text, m.who]);
+    const linesBefore = tapLines().length;
     assert.equal((await post({ key: 't/A1' })).status, 202);
+    assert.deepEqual(tapLines().slice(linesBefore), [['Serve started', 'love']]);
     assert.deepEqual(seen[0].slice(0, 2), ['/_hub/build', { route: 'own-route', key: 't/A1' }]);
     assert.equal(seen[0][2]['x-forwarded-host'], undefined);
     assert.equal((await post({ key: 'main' })).status, 202);
@@ -1734,6 +1749,7 @@ test('try forwards only the board route and key over loopback, returning hub sta
     assert.equal((await kill({ key: 't/A1' })).status, 202);
     assert.deepEqual(seen.at(-1).slice(0, 2), ['/_hub/kill', { route: 'own-route', key: 't/A1' }]);
     for (const body of [{ key: 't/A1', anyway: true }, {}, { key: 'main' }]) assert.equal((await kill(body)).status, 400);
+    assert.deepEqual(tapLines().slice(linesBefore), [['Serve started', 'love'], ['Serve started', 'love'], ['Serve killed', 'love']]);
   } finally {
     await new Promise((resolve) => { hub.closeAllConnections(); hub.close(resolve); });
   }
