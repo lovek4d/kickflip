@@ -24,6 +24,7 @@ import { briefLines, memoryFile } from '../brief.mjs';
 import { prototypeBase } from '../prototype-base.mjs';
 import { detachedIn } from '../detached.mjs';
 import { readScript, scriptsOf, writeScript } from '../build-script.mjs';
+import { readInbox } from '../../bin/event-lines.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
@@ -41,6 +42,11 @@ can't move prints one "ticket <id>: …" line; the task's change still stands.
 Linear needs Hub's Linear key: settings set tickets refuses it without one, and once the key is removed the hub
 moves every Linear board to no ticket source. If the source can't make a ticket, the command fails and changes nothing.
 
+  inbox read [<file>/<id>]                               prints the owner's unread words, on that task or on every
+                                                         task, each with its sent time, age, plain line and event
+                                                         line, and stamps each picked up, so it reads thinking…:
+                                                         the watcher and the PostToolUse hook only signal them
+                                                         ("new reply on <task>: inbox read <key>")
   reply <eventId> (--text <md> | --file <path>)          data/replies/<eventId>.md, markdown the board draws. A
                                                          reply to an ask answers the task it became, as reply
                                                          <file>/<id> does, and resolves that task's answered
@@ -1175,6 +1181,11 @@ const COMMANDS = {
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
   ask: [['route', '...question'], ['from'], (site, [route, ...words], f) => store.askBoard(needSite(site, 'ask'), route, words.join(' '), { from: f.from })],
   asks: [[], ['wait', 'timeout'], (site, _, f) => store.listBoardAsks(needSite(site, 'asks'), f)],
+  // docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md
+  'inbox read': [['...file/id?'], [], (site, keys) => {
+    if (keys.length > 1) throw new UsageError('inbox read takes one <file>/<id>, or none for every task');
+    return readInbox(needSite(site, 'inbox read'), keys[0] ?? null);
+  }],
   // docs/adr/2026-11-17-2330-an-idle-orchestrator-restarts-fresh-once-its-prompt-cache-lapses.md
   brief: [[], [], async (site) => {
     const dir = needSite(site, 'brief');

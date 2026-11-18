@@ -6,13 +6,15 @@
 // counting lines that match `filter` (a regex; every line when unset).
 // Prints and exits on:
 //   event <file> <line>       new matching lines (several, batched for 2 s), each followed by one plain line saying
-//                             what came in, on which card and what to do (plainLine, from ./event-lines.mjs), prefixed `already shown: `
-//                             for one the PostToolUse hook showed mid-task (./event-lines.mjs shownFile,
-//                             docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md); on a board it marks each ask,
-//                             item-message and overnight-triage working in data/working.json, moves the mark of an ask
-//                             whose ask-edited it prints to now (the stamp sorting commands check), stamps each event it
-//                             woke for delivered in data/delivered.json (board/cards.mjs markDelivered), and answers a ping for the
-//                             session (board/settings.mjs ackPing), then prints:
+//                             what came in, on which card and what to do (plainLine, from ./event-lines.mjs); on a board
+//                             it marks each WORKING_KINDS one working in data/working.json, stamps each event it woke for
+//                             delivered in data/delivered.json (board/cards.mjs markDelivered), and answers a ping for the
+//                             session (board/settings.mjs ackPing). The owner's own words (./event-lines.mjs ownerWords)
+//                             print instead as one signal line each, never the words and with no stamp:
+//   new reply on <task>: inbox read <key>   (or new ask, ask edited, Implement asked), prefixed `already read: ` for
+//                             one board.mjs inbox read already handed over; that read prints the words and stamps them
+//                             (docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md).
+//                             It then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
 //                             each wait on the orchestrator, a line for each of a card's waits, bumped cards first, then the owner's replies and answers, New, Todo, In Progress and In Review, oldest first in each, from data/orchestrator-waits.json,
 //                             (in full when new or changed since the last wake, the rest on one
@@ -51,9 +53,9 @@ import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, stopPreviousWatcher } from '../hub/boards.mjs';
 import { parentOf, sessionGone as sessionGoneFor } from '../hub/live.mjs';
-import { ackPing, editedAsks, markDelivered, markWorking, restampWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
+import { ackPing, markDelivered, markWorking, readDelivered, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent, pausedLine } from '../shared/usage-gate.mjs';
-import { recordOnly, plainLine, shownFile } from './event-lines.mjs';
+import { ownerWords, plainLine, recordOnly, signalLine, wasRead } from './event-lines.mjs';
 
 function siteOf(route) {
   try { return routeRecord(JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'kickflip', 'manifest.json'), 'utf8')).sites, route) || null; } catch { return undefined; }
@@ -157,6 +159,9 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
     fs.mkdirSync(path.dirname(cursorFile), { recursive: true });
     writeAtomic(watcherFile, JSON.stringify({ pid, since: new Date().toISOString() }));
   } catch {}
+  // A board's first delivery stamp is written now if it has none, so the owner's words sent from here read waiting
+  // until inbox read hands them over, not handed when sent (board/domain.mjs handedAt).
+  if (boardOf(s0)) await markDelivered(s0.dir, []).catch((e) => log(`delivery stamps not written (${e.message})`));
   try {
     let base;
     try { base = JSON.parse(fs.readFileSync(cursorFile, 'utf8')); } catch {}
@@ -203,33 +208,34 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
       if (!wakes(waiting, gate)) continue;
       const held = Object.create(null);
       const started = [];
-      const handed = [];
       const delivered = [];
       const heard = new Set(Object.values(base.$quietHeld || {}).flat());
       const pings = [];
-      let shown = [];
-      try { shown = JSON.parse(fs.readFileSync(shownFile(s.dir, session), 'utf8')).ids || []; } catch {}
+      const board = boardOf(s);
+      const read = board ? await readDelivered(s.dir) : {};
       for (const [f, lines] of Object.entries(waiting)) {
         held[f] = lines.filter((line) => !eligible(line, gate));
         for (const line of lines.filter((line) => eligible(line, gate))) {
           if (!heard.has(line)) pings.push(line);
+          const e = parsed(line);
+          // docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md: the owner's
+          // words on a board are only signalled; inbox read prints and stamps them.
+          if (board && ownerWords(e) && typeof e.id === 'string') {
+            log(`${wasRead(read, e) ? 'already read: ' : ''}${await signalLine(s.dir, e)}`);
+            continue;
+          }
           log(`event ${f} ${line}`);
           const plain = await plainLine(s.dir, line);
-          const e = parsed(line);
-          if (plain) log(shown.includes(e?.id) ? `already shown: ${plain}` : plain);
+          if (plain) log(plain);
           if (e && WORKING_KINDS.includes(e.kind) && typeof e.id === 'string') started.push(e.id);
-          handed.push(e);
           if (!recordOnly(line) && typeof e?.id === 'string') delivered.push(e.id);
         }
       }
-      const board = boardOf(s);
-      // The session takes each one it is handed, so its page reads "Working on it" from now
+      // The session takes each one it is handed in full, so its page reads "Working on it" from now
       // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
-      // An ask edit it prints hands the ask's new text over, so the ask's mark moves to now
-      // (docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md).
-      if (board) await markWorking(s.dir, started).then(() => restampWorking(s.dir, editedAsks(handed))).catch((e) => log(`working marks not written (${e.message})`));
-      // Each event it wakes the session for is stamped delivered, so its card reads thinking from now until the session
-      // writes on it; a record-only line asks nothing of the session, so it isn't
+      if (board) await markWorking(s.dir, started).catch((e) => log(`working marks not written (${e.message})`));
+      // Each such event is stamped delivered, so its card reads thinking from now until the session writes on it; a
+      // record-only line asks nothing of the session, so it isn't
       // (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md).
       if (board) await markDelivered(s.dir, delivered).catch((e) => log(`delivery stamps not written (${e.message})`));
       if (board) await ackPings(s.dir, pings, log);

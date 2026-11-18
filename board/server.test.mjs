@@ -15,6 +15,7 @@ import { withFileLock } from '../hub/locks.mjs';
 import { writeBrief } from './store.mjs';
 
 import { watch as watchEvents } from '../bin/wait-events.mjs';
+import { readInbox } from '../bin/event-lines.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 // docs/adr/2026-11-14-0013-server-test-runs-its-board-and-watchers-in-process.md
@@ -1216,8 +1217,8 @@ test('a watcher that just exited on an event still counts as listening, until it
   const watcher = await watching('s1');
   await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/A1', text: 'Wake' }) });
   assert.equal(await watcher.run(), 0);
-  assert.match(watcher.lines[0], /^event data\/events\.jsonl /);
-  await heard(path.join(site, 'data', 'watcher.json'), path.join(site, 'data', 'working.json'));
+  assert.match(watcher.lines[0], /^new reply on \S+: inbox read t\/A1$/);
+  await heard(path.join(site, 'data', 'watcher.json'), path.join(site, 'data', 'delivered.json'));
   const w = JSON.parse(fs.readFileSync(path.join(site, 'data', 'watcher.json'), 'utf8'));
   assert.ok(Date.parse(w.exited_at) >= Date.parse(w.since));
   assert.equal((await (await fetch(`${base}/api/board`)).json()).checks.watcher, 'running');
@@ -1745,7 +1746,7 @@ test('the board snapshot reads try.json, main.json and the auto_build setting', 
   }
 });
 
-test('the watcher prints the hub rules, then the board rules, the board settings and the quiet line, after each event line and its plain line, and answers a hub ping', async () => {
+test('the watcher prints the hub rules, then the board rules, the board settings and the quiet line, after each event line and its plain line or signal, and answers a hub ping', async () => {
   const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
   const web = path.join(home, '.claude', 'kickflip');
   fs.mkdirSync(web, { recursive: true });
@@ -1763,11 +1764,14 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   };
   try {
     const lines = await watch('rules1');
-    assert.match(lines[0], /^event data\/events\.jsonl /);
-    assert.match(lines[1], /^message received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose$/);
-    const asked = JSON.parse(lines[0].replace(/^event data\/events\.jsonl /, '')).id;
+    // docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md: the owner's message
+    // is signalled, and inbox read hands it over and marks it working.
+    assert.equal(lines[0], 'new reply on A1: inbox read t/A1');
+    const asked = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).findLast((e) => e.kind === 'item-message').id;
+    const read = await readInbox(site, 't/A1');
+    assert.ok(read.lines.some((l) => l.startsWith(`event data/events.jsonl {"id":"${asked}"`)), read.lines.join('\n'));
     assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events[asked]));
-    // The watcher marks it working from outside the server, which sees the mark once it hears the write.
+    // The read marks it working from outside the server, which sees the mark once it hears the write.
     await heard(path.join(site, 'data', 'working.json'));
     const workingOn = async () => (await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w);
     assert.deepEqual(await workingOn(), [{ id: asked, kind: 'item-message', card: 'A1' }]);
@@ -1788,7 +1792,7 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     const pinged = await watch('ping', pingThenAsk);
     assert.match(pinged[0], /^event data\/events\.jsonl .*"id":"ping1"/);
     assert.equal(pinged[1], 'ping ping1 from the hub answered');
-    assert.match(pinged[2], /^event data\/events\.jsonl .*"kind":"item-message"/);
+    assert.equal(pinged[2], 'new reply on A1: inbox read t/A1');
     // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
     const triage = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'tt1', ts: new Date().toISOString(), kind: 'overnight-triage', data: { date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: ['w/A1', 'w/A2'] } }) + '\n');
     assert.equal((await watch('triage', triage))[1], 'Overnight triage 2026-11-03 asks Claude to reply: 2 tasks wait on open questions; run the triage, then board.mjs reply tt1');

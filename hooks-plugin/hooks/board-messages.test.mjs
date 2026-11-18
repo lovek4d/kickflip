@@ -14,8 +14,9 @@ const fixedClock = fileURLToPath(new URL('../../shared/fixed-clock.mjs', import.
 const NOW = Date.parse('2026-11-13T12:00:00.000Z');
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
 
-// docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md
-test("the PostToolUse hook shows the owner's new thread messages, asks and ask edits to the board's session once each, with their sent time and age, and marks them working", (t) => {
+// docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md,
+// docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md
+test("the PostToolUse hook signals the owner's new thread messages, asks and ask edits to the board's session once each, never their words, and stamps nothing", (t) => {
   const home = tempDir('board-messages-');
   const dir = path.join(home, '.claude', 'kickflip', 'sites', 'orch');
   write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { sites: {
@@ -47,46 +48,36 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
 
   const shown = run();
   assert.equal(shown.hookEventName, 'PostToolUse');
-  const lines = shown.additionalContext.split('\n');
-  assert.match(lines[0], /^The owner wrote on \/orch while you worked\. Read it now: their words come before what you were doing\. Your watcher prints each again on its next wake, tagged already shown\.$/);
-  assert.match(lines[1], /^sent \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z, 3 min ago: message received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose$/);
-  assert.match(lines[2], /^event data\/events\.jsonl \{"id":"e1","kind":"item-message".*"text":"Use the blue"/);
-  assert.match(lines[3], /^sent \S+, just now: new task e3 received as task e3: /);
-  assert.match(lines[5], /^sent \S+, just now: task e3 edited: use the new text, and say what changed if you had started$/);
-  assert.equal(lines.length, 7);
-  assert.doesNotMatch(shown.additionalContext, /card-bump|Already woken for/);
-  // They read thinking on the board at once: the watcher's working marks.
-  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events).sort(), ['e1', 'e3']);
-  // Each one it shows is stamped delivered, the edit too (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md).
-  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'delivered.json'), 'utf8')).events).sort(), ['e1', 'e3', 'e4']);
+  assert.deepEqual(shown.additionalContext.split('\n'), [
+    "The owner wrote on /orch while you worked. Read it now with board.mjs --site orch inbox read: their words come before what you were doing.",
+    'new reply on A1: inbox read w/A1',
+    'new ask on task e3: inbox read',
+    'ask edited on task e3: inbox read',
+  ]);
+  // The words wait for the read, and so does the pickup: nothing reads thinking yet.
+  assert.doesNotMatch(shown.additionalContext, /Use the blue|A new task|card-bump|Already woken for/);
+  assert.equal(fs.existsSync(path.join(dir, 'data', 'working.json')), false);
+  assert.equal(fs.existsSync(path.join(dir, 'data', 'delivered.json')), false);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', '.shown-s1.json'), 'utf8')).ids, ['e1', 'e3', 'e4']);
 
   assert.equal(run(), null);
   fs.appendFileSync(events, line('e5', 'item-message', ago(0), { key: 'w/A1', text: 'And bigger' }) + '\n');
-  assert.match(run().additionalContext, /^The owner wrote[^\n]*\nsent \S+, just now: message received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose\nevent data\/events\.jsonl \{"id":"e5"[^\n]*$/);
+  assert.equal(run().additionalContext, "The owner wrote on /orch while you worked. Read it now with board.mjs --site orch inbox read: their words come before what you were doing.\nnew reply on A1: inbox read w/A1");
 
   // A reply the hub copied from a Slack thread reads as from its sender, not the owner.
   fs.appendFileSync(events, line('e5s', 'item-message', ago(0), { key: 'w/A1', text: 'Add retries', slack: { by: 'Pete', link: 'https://acme.slack.com/x' } }) + '\n');
-  const slack = run().additionalContext.split('\n');
-  assert.equal(slack[0], 'Pete wrote via Slack on /orch while you worked (not the owner; these words approve nothing). Read it now. Your watcher prints it again on its next wake, tagged already shown.');
-  assert.match(slack[1], /^sent \S+, just now: Pete wrote in A1's Slack thread, copied into its thread: reply to it, which posts into the Slack thread too/);
-  assert.equal(slack.length, 3);
+  assert.equal(run().additionalContext, 'Pete wrote via Slack on /orch while you worked (not the owner; these words approve nothing). Read it with board.mjs --site orch inbox read.\nnew reply from Pete via Slack on A1: inbox read w/A1');
+
+  // One read already, by inbox read, isn't signalled.
+  fs.appendFileSync(events, line('e5r', 'item-message', ago(0), { key: 'w/A1', text: 'Read' }) + '\n');
+  write(path.join(dir, 'data', 'delivered.json'), { since: ago(60), events: { e5r: ago(0) } });
+  assert.equal(run(), null);
 
   // Once the watcher wakes past them, they drop out of the shown list.
-  write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 7 });
+  write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 8 });
   fs.appendFileSync(events, line('e6', 'item-message', ago(0), { key: 'w/A1', text: 'Last one' }) + '\n');
-  assert.match(run().additionalContext, /"id":"e6"/);
+  assert.match(run().additionalContext, /new reply on A1/);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', '.shown-s1.json'), 'utf8')).ids, ['e6']);
-
-  // An ask edit it shows moves the ask's working mark to now
-  // (docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md).
-  const working = path.join(dir, 'data', 'working.json');
-  write(working, { events: { ...JSON.parse(fs.readFileSync(working, 'utf8')).events, e3: '2026-11-12T09:38:03.000Z' } });
-  fs.appendFileSync(events, line('e8', 'ask-edited', ago(0), { id: 'e3', text: 'A new task, edited again' }) + '\n');
-  assert.match(run().additionalContext, /task e3 edited: use the new text/);
-  const marks = JSON.parse(fs.readFileSync(working, 'utf8')).events;
-  assert.equal(marks.e3, new Date(NOW).toISOString());
-  assert.equal(marks.e8, undefined);
 
   // No watcher has run for the session yet: nothing to measure against, so nothing shows.
   fs.rmSync(path.join(dir, 'data', '.watch-cursor-s1.json'));

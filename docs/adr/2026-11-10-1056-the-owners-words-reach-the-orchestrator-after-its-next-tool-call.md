@@ -11,3 +11,5 @@ A board's session hears the board through its watcher (`bin/wait-events.mjs`), w
 **Labels.** The pending label on an owner message reads "waiting…" and the picked-up one "thinking…", lowercase, in the thread, on a New card's ask line and on a working card's line (`board/public/ui.js` `workingLine`, `ui-threads.js` `PICK_UP`, `ui-cards.js` `PICKUP_WAIT`).
 
 **Not done.** Typing a notice into the hub board's tmux pane reaches only that board and queues as a prompt rather than landing mid-turn. Keeping an unread message pinned at the bottom of its thread was set aside by the owner.
+
+**Amended 2026-11-18: the hook signals, and inbox read shows the words.** The hook now prints one signal line per new request and marks nothing; `board.mjs inbox read` prints the words, with their sent time and age, and marks them thinking…. The watcher's `already shown:` tag became `already read:` ([requests arrive as a signal, and inbox read hands over the words](2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md)).

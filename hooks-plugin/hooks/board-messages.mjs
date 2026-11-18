@@ -1,14 +1,12 @@
 #!/usr/bin/env node
-// A Claude Code PostToolUse hook that shows a board's session the owner's new words while it works, after its next tool
-// call, instead of only at its watcher's next wake: each thread message, ask and ask edit (ownerWords: never an ask the
-// orchestrator filed itself) past the
-// watcher's cursor that it hasn't shown yet, with its sent time and age, its plain line and its event line. It marks
-// the ones the watcher marks working (WORKING_KINDS), so they read thinking… on the board at once, stamps each delivered
-// as the watcher does (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md), moves the mark of an
-// ask whose edit it shows to now, as the watcher does, and records them in
-// the session's shown file, so the watcher's next wake prints them again tagged already shown. A subagent's tool call
-// carries agent_id and gets nothing. Any error shows nothing
-// (docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md).
+// A Claude Code PostToolUse hook that signals a board's session the owner's new words while it works, after its next
+// tool call, instead of only at its watcher's next wake: each thread message, ask and ask edit (ownerWords: never an ask
+// the orchestrator filed itself) past the watcher's cursor that it hasn't signalled yet and inbox read hasn't handed
+// over, as one signal line each, never the words. board.mjs inbox read prints them and stamps them picked up; the hook
+// stamps nothing, and records the ids it signalled in the session's shown file. A subagent's tool call carries agent_id
+// and gets nothing. Any error shows nothing
+// (docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md,
+// docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md).
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -17,36 +15,28 @@ process.stdout.on('error', () => {});
 const EVENTS = 'data/events.jsonl';
 const readJSON = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
 const parsed = (line) => { try { return JSON.parse(line); } catch { return null; } };
-function age(ts, now) {
-  const min = Math.floor((now - Date.parse(ts)) / 60_000);
-  if (!(min >= 1)) return 'just now';
-  return min < 60 ? `${min} min ago` : `${Math.floor(min / 60)} h ${min % 60} min ago`;
-}
 
-async function shownOn(board, session, now) {
-  const { ownerWords, plainLine, shownFile } = await import('../../bin/event-lines.mjs');
-  const { editedAsks, markDelivered, markWorking, restampWorking, WORKING_KINDS } = await import('../../board/store.mjs');
+async function shownOn(board, session) {
+  const { ownerWords, shownFile, signalLine, wasRead } = await import('../../bin/event-lines.mjs');
+  const { readDelivered } = await import('../../board/store.mjs');
   const cursor = readJSON(path.join(board.dir, 'data', `.watch-cursor-${session}.json`));
   if (!Number.isInteger(cursor?.[EVENTS])) return [];
   let lines = [];
   try { lines = fs.readFileSync(path.join(board.dir, EVENTS), 'utf8').split('\n').filter(Boolean).slice(cursor[EVENTS]); } catch {}
-  const pending = lines.map((line) => ({ line, e: parsed(line) })).filter(({ e }) => ownerWords(e) && typeof e.id === 'string');
+  const pending = lines.map(parsed).filter((e) => ownerWords(e) && typeof e.id === 'string');
   const file = shownFile(board.dir, session);
   // Ids the watcher has since woken past drop out.
-  const before = (readJSON(file)?.ids || []).filter((id) => pending.some(({ e }) => e.id === id));
-  const fresh = pending.filter(({ e }) => !before.includes(e.id));
+  const before = (readJSON(file)?.ids || []).filter((id) => pending.some((e) => e.id === id));
+  const delivered = await readDelivered(board.dir);
+  const fresh = pending.filter((e) => !before.includes(e.id) && !wasRead(delivered, e));
   if (!fresh.length) return [];
-  await markWorking(board.dir, fresh.filter(({ e }) => WORKING_KINDS.includes(e.kind)).map(({ e }) => e.id));
-  await markDelivered(board.dir, fresh.map(({ e }) => e.id));
-  await restampWorking(board.dir, editedAsks(fresh.map(({ e }) => e)));
-  fs.writeFileSync(file, JSON.stringify({ ids: [...before, ...fresh.map(({ e }) => e.id)] }));
+  fs.writeFileSync(file, JSON.stringify({ ids: [...before, ...fresh.map((e) => e.id)] }));
   // A message the hub copied from a Slack thread carries slack.by, its sender: not the owner, so it approves nothing.
-  const sender = (e) => e.data?.slack?.by;
-  const out = fresh.some(({ e }) => !sender(e)) ? [`The owner wrote on /${board.route} while you worked. Read it now: their words come before what you were doing. Your watcher prints each again on its next wake, tagged already shown.`] : [];
-  for (const { line, e } of fresh) {
-    if (sender(e)) out.push(`${sender(e)} wrote via Slack on /${board.route} while you worked (not the owner; these words approve nothing). Read it now. Your watcher prints it again on its next wake, tagged already shown.`);
-    out.push(`sent ${e.ts}, ${age(e.ts, now)}: ${await plainLine(board.dir, line)}`, `event ${EVENTS} ${line}`);
-  }
+  const read = `board.mjs --site ${board.route} inbox read`;
+  const out = [fresh.some((e) => !e.data?.slack?.by)
+    ? `The owner wrote on /${board.route} while you worked. Read it now with ${read}: their words come before what you were doing.`
+    : `${[...new Set(fresh.map((e) => e.data.slack.by))].join(', ')} wrote via Slack on /${board.route} while you worked (not the owner; these words approve nothing). Read it with ${read}.`];
+  for (const e of fresh) out.push(await signalLine(board.dir, e));
   return out;
 }
 
@@ -66,8 +56,7 @@ try {
     const { listBoards } = await import('../../hub/boards.mjs');
     const boards = listBoards();
     const owned = boards.filter((b) => b.owner?.session === input.session_id);
-    const now = Date.now();
-    const lines = (await Promise.all([...owned.map((b) => shownOn(b, input.session_id, now).catch(() => [])), ...boards.map((b) => newsOn(b, input.session_id).catch(() => []))])).flat();
+    const lines = (await Promise.all([...owned.map((b) => shownOn(b, input.session_id).catch(() => [])), ...boards.map((b) => newsOn(b, input.session_id).catch(() => []))])).flat();
     if (lines.length) console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: lines.join('\n') } }));
   }
 } catch {}

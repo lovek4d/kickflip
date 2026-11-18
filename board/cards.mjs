@@ -104,14 +104,16 @@ export async function readAgents(dir, ids) {
   return out;
 }
 
-// An event the watcher handed the session, such as an ask or a thread message, reads "Working on it" until
-// Claude replies to it (or, in a thread, writes a later line); domain.mjs decides which.
+// An event handed to the session, such as an ask or a thread message, reads "Working on it" until Claude replies to it
+// (or, in a thread, writes a later line); domain.mjs decides which. The owner's words are handed over by board.mjs inbox
+// read, other kinds by the watcher's print
+// (docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md).
 const workingFile = (site) => path.join(site, 'data', 'working.json');
 export async function readWorking(site) {
   return (await readJSON(workingFile(site), {})).events || {};
 }
 
-// The kinds bin/wait-events.mjs marks working as it hands them to the session (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
+// The kinds marked working as they are handed to the session (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
 export const WORKING_KINDS = ['ask', 'item-message', 'overnight-triage', 'board-ask'];
 export async function markWorking(site, eventIds) {
   if (!eventIds.length) return;
@@ -121,18 +123,20 @@ export async function markWorking(site, eventIds) {
 }
 
 // docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md
-// data/delivered.json {since, events: {<event id>: ts}}: when bin/wait-events.mjs, or the PostToolUse hook, first handed
-// each event to the session, every kind it hands over; since is the board's first stamp, so an event sent before it
-// counts as handed when sent (domain.mjs handedAt).
+// data/delivered.json {since, events: {<event id>: ts}}: when each event was first handed to the session, the owner's
+// words by board.mjs inbox read and every other waking kind by bin/wait-events.mjs's print
+// (docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md); since is the board's
+// first stamp, written by a watcher's start with no events, so an event sent before it counts as handed when sent
+// (domain.mjs handedAt).
 const deliveredFile = (site) => path.join(site, 'data', 'delivered.json');
 export async function readDelivered(site) {
   return readJSON(deliveredFile(site), {});
 }
 export async function markDelivered(site, eventIds) {
-  if (!eventIds.length) return;
   const at = new Date().toISOString();
-  const { since = at, events = {} } = await readDelivered(site);
-  await writeJSON(deliveredFile(site), { since, events: { ...events, ...Object.fromEntries(eventIds.map((id) => [id, routeRecord(events, id) || at])) } });
+  const { since, events = {} } = await readDelivered(site);
+  if (!eventIds.length && since) return;
+  await writeJSON(deliveredFile(site), { since: since || at, events: { ...events, ...Object.fromEntries(eventIds.map((id) => [id, routeRecord(events, id) || at])) } });
 }
 
 // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
@@ -168,8 +172,8 @@ export async function questionCards(site, ids) {
   return (owner.items || []).filter((q) => ids.includes(q.id)).map((q) => cardOfTopic(q.topic)).filter(Boolean);
 }
 
-// The asks whose text the session was just handed again, an edit the watcher or the PostToolUse hook printed or a
-// sorting command's refusal, have their working mark moved to now: that is when the session read their latest text.
+// The asks whose text the session was just handed again, an edit inbox read printed or a sorting command's refusal,
+// have their working mark moved to now: that is when the session read their latest text.
 export async function restampWorking(site, askIds) {
   if (!askIds.length) return;
   const at = new Date().toISOString();

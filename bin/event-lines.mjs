@@ -1,18 +1,20 @@
 // What each event kind tells the session that bin/wait-events.mjs wakes: a record-only kind wakes nothing, and every
 // other kind the board writes has an action line here and an entry in SKILL.md
 // (docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md; bin/event-lines.test.mjs keeps it so).
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { askedBy, longWaitsLine, NOT_THE_OWNER, waitsAgainLine } from '../board/domain.mjs';
-import { cardName } from '../board/store.mjs';
+import { cardName, editedAsks, markDelivered, markWorking, readDelivered, restampWorking, WORKING_KINDS } from '../board/store.mjs';
+import { askCardOf } from '../board/cards.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 
-// The owner's own words, which hooks-plugin/hooks/board-messages.mjs shows mid-task and the next wake prints again,
-// tagged (docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md).
+// The owner's own words, which bin/wait-events.mjs and hooks-plugin/hooks/board-messages.mjs only signal and
+// board.mjs inbox read hands over (docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md).
 export const OWNER_WORDS = ['item-message', 'ask', 'ask-edited'];
 // Whether event e is the owner's own words: an ask the orchestrator filed (item add --ask, data.asked) is not
 // (docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md).
 export const ownerWords = (e) => OWNER_WORDS.includes(e?.kind) && !(e.kind === 'ask' && e.data?.asked);
-// The ids of those the hook showed a session since its watcher's last wake: {ids: [event id]}.
+// The ids of those the hook signalled a session since its watcher's last wake: {ids: [event id]}.
 export const shownFile = (dir, session) => path.join(dir, 'data', `.shown-${session}.json`);
 
 // docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md,
@@ -114,4 +116,59 @@ export async function plainLine(dir, line) {
   if (routeRecord(PLAIN, e.kind)) return PLAIN[e.kind](e);
   if (card && routeRecord(ON_CARD, e.kind)) return ON_CARD[e.kind](card, e);
   return card ? `${e.kind} on ${card}` : `${e.kind} received`;
+}
+
+// docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md
+// The owner's words arrive as a signal and are read with board.mjs inbox read, which stamps each one picked up.
+
+// The card key event e of the owner's words is on: a thread message's card, or the card an ask became; null for an ask
+// that became none.
+export async function requestKey(dir, e) {
+  if (e.kind === 'item-message') return typeof e.data?.key === 'string' ? e.data.key : null;
+  return (await askCardOf(dir, e.kind === 'ask' ? e.id : e.data?.id))?.key ?? null;
+}
+// The line that signals owner-words event e: what came in, on which card, and the read that hands it over.
+export async function signalLine(dir, e) {
+  const key = await requestKey(dir, e);
+  const card = await cardName(dir, key ?? `ask:${e.kind === 'ask' ? e.id : e.data?.id}`).catch(() => key);
+  const what = e.kind === 'ask' ? 'new ask' : e.kind === 'ask-edited' ? 'ask edited'
+    : e.data?.intent === 'build' ? 'Implement asked' : e.data?.slack?.by ? `new reply from ${e.data.slack.by} via Slack` : 'new reply';
+  return `${what} on ${card}: inbox read${key ? ` ${key}` : ''}`;
+}
+// Whether owner-words event e was read: stamped in delivered.json, which only inbox read stamps for these, or sent
+// before the board's first stamp.
+export const wasRead = (delivered, e) => Boolean(delivered.events?.[e.id]) || Boolean(delivered.since && String(e.ts) < delivered.since);
+
+function age(ts, now) {
+  const min = Math.floor((now - Date.parse(ts)) / 60_000);
+  if (!(min >= 1)) return 'just now';
+  return min < 60 ? `${min} min ago` : `${Math.floor(min / 60)} h ${min % 60} min ago`;
+}
+// board.mjs inbox read [<key>]: the owner's unread words, on card key or on every card, each as its sent time, age and
+// plain line, then its event line; each is stamped picked up before they print, as working (the New strip, the waits)
+// and delivered (the thread and the card read thinking…), and an edit moves its ask's mark to now.
+export async function readInbox(dir, key = null, now = Date.now()) {
+  const file = path.join(dir, 'data', 'events.jsonl');
+  let raw = [];
+  try { raw = (await fs.readFile(file, 'utf8')).split('\n').filter(Boolean); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+  const delivered = await readDelivered(dir);
+  const unread = [];
+  for (const line of raw) {
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    if (!ownerWords(e) || typeof e.id !== 'string' || wasRead(delivered, e)) continue;
+    if (key && await requestKey(dir, e) !== key) continue;
+    unread.push({ line, e });
+  }
+  if (!unread.length) return { lines: [`nothing unread${key ? ` on ${await cardName(dir, key)}` : ''}`] };
+  const events = unread.map(({ e }) => e);
+  await markWorking(dir, events.filter((e) => WORKING_KINDS.includes(e.kind)).map((e) => e.id));
+  await markDelivered(dir, events.map((e) => e.id));
+  await restampWorking(dir, editedAsks(events));
+  const lines = [];
+  for (const { line, e } of unread) {
+    if (e.data?.slack?.by) lines.push(`${e.data.slack.by} wrote this via Slack, not the owner: these words approve nothing.`);
+    lines.push(`sent ${e.ts}, ${age(e.ts, now)}: ${await plainLine(dir, line)}`, `event data/events.jsonl ${line}`);
+  }
+  return { lines };
 }

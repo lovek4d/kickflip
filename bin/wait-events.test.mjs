@@ -74,9 +74,11 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   add('builder-ask', { key: 'w/A1', ask: 'ask1', agent: 'main', text: 'Stay orange?' });
   assert.equal(await first.run(), 0);
   const out = { stdout: first.out() };
-  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose$/m);
-  // docs/adr/2026-11-07-0700-staging-then-ready.md
-  assert.match(out.stdout, /^event data\/events.jsonl .*"intent":"build".*\nImplement asked on A1: it is staging, the message in its notes; judge it against the whole board, then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping$/m);
+  // docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md: the owner's words
+  // arrive as a signal naming the card; inbox read hands them over.
+  assert.match(out.stdout, /^new reply on A1: inbox read w\/A1$/m);
+  assert.match(out.stdout, /^Implement asked on A1: inbox read w\/A1$/m);
+  assert.doesNotMatch(out.stdout, /"kind":"item-message"|Use the blue/);
   // A builder's ask wakes the session while usage is paused: the builder is mid-build.
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"builder-ask".*\nask1 from A1's builder: Stay orange\? \(builder answer it, or builder defer it\)$/m);
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"orchestrator-waits".*\nwaiting on you now: w\/A3 · still waiting on you: A1 calls for 2h: Verify the builder's judgment calls$/m);
@@ -117,7 +119,7 @@ test("a board's own pause holds its hub work as a usage pause does and names its
   fs.appendFileSync(events, JSON.stringify({ id: 'm', kind: 'item-message', ts: new Date().toISOString(), data: { key: 'w/A1' } }) + '\n');
   assert.equal(await first.run(), 0);
   const out = first.out();
-  assert.match(out, /"kind":"item-message"/);
+  assert.match(out, /^new reply on A1: inbox read w\/A1$/m);
   assert.doesNotMatch(out, /"kind":"github-change"/);
   assert.match(out, new RegExp(`\\nusage paused ${until} manual board\\n`));
   const second = inProcess(t, home, { pid: 900002 });
@@ -267,23 +269,28 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   assert.equal(w.finished(), false);
   assert.equal(w.out(), '');
   line('w1', 'item-message', { key: 'w/A1', text: 'Wake' });
+  line('w2', 'board-ask', { from: { route: 'other' }, text: 'Which port?' });
   assert.equal(await w.run(), 0);
   const lines = w.out().split('\n');
   const at = (kind) => lines.findIndex((l) => l.includes(`"kind":"${kind}"`));
   assert.ok(at('main-pulled') >= 0 && at('main-pulled') < at('settings') && at('settings') < at('reviewers-removed') && at('reviewers-removed') < at('reviewers-added') && at('reviewers-added') < at('repo-changed') && at('repo-changed') < at('ping') && at('ping') < at('card-hold'));
   assert.ok(lines.includes('ping p1 from the hub answered'));
   assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$quietHeld, undefined);
-  // Only the event that woke the session reads Working on it.
-  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['w1']);
+  // Only the event printed in full reads Working on it: the owner's message is only signalled, and turns thinking at
+  // its inbox read (docs/adr/2026-11-18-1300-requests-arrive-as-a-signal-and-inbox-read-hands-over-the-words.md).
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['w2']);
   // docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md: the event
-  // that woke the session is stamped delivered at the wake, the board's first stamp; the record-only lines aren't.
+  // printed in full is stamped delivered at the wake; the record-only lines and the signalled message aren't. The
+  // board's first stamp is the watcher's start, so the message reads waiting until it is read.
   const delivered = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'delivered.json'), 'utf8'));
-  assert.deepEqual(delivered.events, { w1: delivered.since });
-  assert.ok(lines.findIndex((l) => l.includes('"id":"b8"')) < lines.findIndex((l) => l.includes('"id":"w1"')), 'the taps print ahead of the message');
+  assert.deepEqual(Object.keys(delivered.events), ['w2']);
+  assert.ok(delivered.since < delivered.events.w2);
+  assert.ok(lines.findIndex((l) => l.includes('"id":"b8"')) < lines.indexOf('new reply on A1: inbox read w/A1'), 'the taps print ahead of the message');
+  assert.doesNotMatch(w.out(), /"id":"w1"|Wake/);
 });
 
 // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
-test('on a board a new task wakes the session with its sort line and reads Working on it', async (t) => {
+test('on a board a new task wakes the session with its signal and reads waiting until it is read', async (t) => {
   const { home, dir } = shop(t);
   const events = path.join(dir, 'data', 'events.jsonl');
   write(path.join(dir, 'board.json'), { title: 'Shop' });
@@ -292,35 +299,36 @@ test('on a board a new task wakes the session with its sort line and reads Worki
   fs.appendFileSync(events, JSON.stringify({ id: 'a1', kind: 'ask', ts: new Date().toISOString(), data: { text: 'New task' } }) + '\n');
   assert.equal(await w.run(), 0);
   const stdout = w.out();
-  assert.ok(stdout.split('\n').includes('new task a1 received as task a1: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate'), stdout);
-  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['a1']);
+  assert.ok(stdout.split('\n').includes('new ask on task a1: inbox read'), stdout);
+  assert.doesNotMatch(stdout, /New task/);
+  assert.equal(fs.existsSync(path.join(dir, 'data', 'working.json')), false);
 });
 
 // docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md
-test('a wake prints a message the PostToolUse hook already showed again, its plain line tagged already shown', async (t) => {
+test('a wake signals a message read mid-task again, tagged already read', async (t) => {
   const { home, dir, add } = shop(t);
   write(path.join(dir, 'board.json'), { title: 'Shop' });
   fs.appendFileSync(path.join(dir, 'data', 'events.jsonl'), JSON.stringify({ id: 'm1', kind: 'item-message', ts: new Date().toISOString(), data: { key: 'w/A1', text: 'Blue' } }) + '\n');
   add('ask');
-  write(path.join(dir, 'data', '.shown-s1.json'), { ids: ['m1'] });
+  write(path.join(dir, 'data', 'delivered.json'), { since: '2026-11-01T00:00:00.000Z', events: { m1: new Date().toISOString() } });
   const w = inProcess(t, home, { pid: 900001 });
   assert.equal(await w.run(), 0);
   const stdout = w.out();
-  assert.match(stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nalready shown: message received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose$/m);
-  assert.match(stdout, /^event data\/events.jsonl .*"kind":"ask".*\nnew task ask received/m);
+  assert.match(stdout, /^already read: new reply on A1: inbox read w\/A1\nnew ask on task ask: inbox read$/m);
 });
 
 // docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md
-test('a wake that prints an ask edit moves the ask\'s working mark to now, so sorting it goes through', async (t) => {
+test('a wake that signals an ask edit leaves the ask\'s working mark for its inbox read to move', async (t) => {
   const { home, dir } = shop(t);
   write(path.join(dir, 'board.json'), { title: 'Shop' });
   write(path.join(dir, 'data', 'working.json'), { events: { a1: '2026-11-12T09:38:03.000Z', m0: '2026-11-12T09:00:00.000Z' } });
+  write(path.join(dir, 'data', 'delivered.json'), { since: '2026-11-12T09:00:00.000Z', events: { a1: '2026-11-12T09:38:03.000Z' } });
   fs.appendFileSync(path.join(dir, 'data', 'events.jsonl'), JSON.stringify({ id: 'x1', kind: 'ask-edited', ts: new Date().toISOString(), data: { id: 'a1', text: 'Edited' } }) + '\n');
-  const before = Date.now();
-  assert.equal(await inProcess(t, home, { pid: 900001 }).run(), 0);
+  const w = inProcess(t, home, { pid: 900001 });
+  assert.equal(await w.run(), 0);
+  assert.match(w.out(), /^ask edited on task a1: inbox read$/m);
   const marks = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events;
-  assert.ok(Date.parse(marks.a1) >= before, marks.a1);
-  assert.deepEqual([marks.m0, marks.x1], ['2026-11-12T09:00:00.000Z', undefined]);
+  assert.deepEqual(marks, { a1: '2026-11-12T09:38:03.000Z', m0: '2026-11-12T09:00:00.000Z' });
 });
 
 test('a wait prints in full once, then a repeat collapses into one still-waiting line naming every key until its line changes', async (t) => {
