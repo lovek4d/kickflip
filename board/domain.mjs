@@ -2442,6 +2442,11 @@ export function ownerWordEnds(previous, current, built, now) {
 // How long a wait nobody picked up goes between wakes, and how long a picked-up one that stays open goes, from its pickup.
 export const REWAKE_AFTER = 15 * 60000;
 export const PICKED_REWAKE_AFTER = 60 * 60000;
+// docs/adr/2026-11-18-1400-an-unread-request-re-wakes-the-orchestrator-in-2-minutes-and-stop-names-it.md
+// The waits that hold an owner's request (a reply on a task, a New task's intake), and how long one nobody has read
+// (inbox read stamps it picked) goes between wakes.
+export const REQUEST_KINDS = ['reply', 'intake'];
+export const REQUEST_REWAKE_AFTER = 2 * 60000;
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 // How long a picked-up daily wait (a stale review) goes between wakes: a change on its PR wakes the session sooner, by github-change.
 export const DAILY_REWAKE_AFTER = 24 * 60 * 60000;
@@ -2463,7 +2468,9 @@ export function waitTone(wait, now) {
 // once PICKED_REWAKE_AFTER (DAILY_REWAKE_AFTER for a daily wait) passes since the later of its pickup and its last wake.
 // Each entry carries tone, restamped on every check, so the stored list changes when a wait crosses a threshold.
 // All the reminders share one clock: while the last one (lastAgain, an ISO time or null) is under REWAKE_AFTER old, due
-// waits stay due and wake nothing, and the next reminder carries every wait due by then.
+// waits stay due and wake nothing, and the next reminder carries every wait due by then. An unread request
+// (REQUEST_KINDS, not picked) keeps its own: it wakes REQUEST_REWAKE_AFTER after its last wake whatever the shared clock
+// says, and its wake leaves that clock where it was.
 // added names each card a joining wait not picked up wakes the session for; opened is each wait that joined, and
 // cleared each stored one gone, with when it was picked up and the check's time
 // (docs/adr/2026-11-16-1400-orchestrator-waits-keep-a-history-and-waits-history-audits-it.md).
@@ -2477,6 +2484,7 @@ export function waitsStep(previous, current, now, lastAgain = null) {
   const opened = [];
   const cleared = previous.filter((p) => !current.some((w) => same(p, w))).map((p) => ({ ...entry(p), cleared: at }));
   const again = [];
+  let sharedWoke = false;
   const clockOpen = !lastAgain || now - Date.parse(lastAgain) >= REWAKE_AFTER;
   const waits = current.map((w) => {
     const was = previous.find((p) => same(p, w));
@@ -2486,12 +2494,14 @@ export function waitsStep(previous, current, now, lastAgain = null) {
       return { ...w, tone: waitTone(w, now), bumped: at };
     }
     const last = w.picked ? [w.picked, was.bumped].filter(Boolean).sort().pop() : was.bumped || w.since;
-    const due = now - Date.parse(last) >= (!w.picked ? REWAKE_AFTER : w.daily ? DAILY_REWAKE_AFTER : PICKED_REWAKE_AFTER);
-    const wakes = due && clockOpen;
+    const unread = !w.picked && REQUEST_KINDS.includes(w.kind);
+    const due = now - Date.parse(last) >= (unread ? REQUEST_REWAKE_AFTER : !w.picked ? REWAKE_AFTER : w.daily ? DAILY_REWAKE_AFTER : PICKED_REWAKE_AFTER);
+    const wakes = due && (unread || clockOpen);
     if (wakes) again.push({ key: w.key, ref: w.ref, kind: w.kind, since: w.since, next: w.next });
+    if (wakes && !unread) sharedWoke = true;
     return { ...w, tone: waitTone(w, now), bumped: wakes ? at : was.bumped || w.since };
   });
-  return { waits, added, opened, cleared, again, againAt: again.length ? at : lastAgain };
+  return { waits, added, opened, cleared, again, againAt: sharedWoke ? at : lastAgain };
 }
 // A span of ms as whole minutes: "40m", "2h", "2h 5m".
 const spanWords = (ms) => {

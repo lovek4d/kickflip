@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // A Claude Code Stop hook for a session that owns a board in the manifest. It blocks the turn from ending while that
-// board has no live watcher, naming the command that relaunches it, or while a message there reads Working on it with
-// no answer, naming each (its board server's /api/working). Claude Code sets stop_hook_active while a Stop hook keeps
+// board has no live watcher, naming the command that relaunches it, while an owner request there is unread, naming each
+// and inbox read, or while a message there reads Working on it with no answer, naming each (its board server's
+// /api/working). Claude Code sets stop_hook_active while a Stop hook keeps
 // the turn going, so it blocks at most once a turn and a session whose Bash is broken can't loop. Any error lets the
 // turn end (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md,
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
@@ -9,11 +10,13 @@ import fs from 'node:fs';
 
 process.stdout.on('error', () => {});
 
-async function workingOn(board) {
+async function owedOn(board) {
   try {
     const r = await fetch(`http://127.0.0.1:${board.port}/api/working`, { signal: AbortSignal.timeout(3000) });
-    return r.ok ? (await r.json()).working || [] : [];
-  } catch { return []; }
+    if (!r.ok) return { working: [], unread: [] };
+    const body = await r.json();
+    return { working: body.working || [], unread: body.unread || [] };
+  } catch { return { working: [], unread: [] }; }
 }
 
 try {
@@ -33,7 +36,10 @@ try {
       const steps = silent.map((b) => `/${b.route}: ${watcherCommand(b.route, input.session_id)}`);
       reasons.push(`Your board has no watcher, so its events wait unheard. Relaunch it as a background Bash task, then end your turn: ${steps.join('; ')}`);
     }
-    const owed = (await Promise.all(owned.map(async (b) => (await workingOn(b)).map((w) => `/${b.route} ${w.kind} ${w.id}${w.card ? ` on ${w.card}` : ''}`)))).flat();
+    const boards = await Promise.all(owned.map(async (b) => ({ route: b.route, ...(await owedOn(b)) })));
+    const unread = boards.flatMap((b) => b.unread.map((w) => `/${b.route} ${w.ref} ${w.kind === 'intake' ? 'ask' : 'reply'}`));
+    if (unread.length) reasons.push(`These requests are unread: ${unread.join('; ')}. Run board.mjs inbox read to take them in, then end your turn.`);
+    const owed = boards.flatMap((b) => b.working.map((w) => `/${b.route} ${w.kind} ${w.id}${w.card ? ` on ${w.card}` : ''}`));
     if (owed.length) reasons.push(`These read Working on it with no answer: ${owed.join('; ')}. Answer each with board.mjs reply or a thread line on its task, even a short "Looking into it" while an agent works, then end your turn.`);
     if (reasons.length) console.log(JSON.stringify({ decision: 'block', reason: reasons.join(' ') }));
   }

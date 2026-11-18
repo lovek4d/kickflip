@@ -86,7 +86,9 @@
 //                                {questions}: that topic's resolved questions, as /api/board's owner would list them
 //   GET  /api/links              {links}: the same list alone
 //   GET  /api/working            {working: [{id, kind, card, since}]}: each event marked Working on it with no answer yet,
-//                                card its work card's ref or null (hooks-plugin/hooks/watcher-stop.mjs reads it)
+//                                card its work card's ref or null, and unread: [{key, ref, kind, since}], each owner request
+//                                (a reply, a New task's intake) no inbox read has picked up
+//                                (hooks-plugin/hooks/watcher-stop.mjs reads both)
 //   GET  /api/thread?key=w/id    the thread the board's sync carries for a card on it (domain.mjs buildBoard threadViews):
 //                                data/threads/<w>__<id>.jsonl ({ts, who, text, link, via}; who is
 //                                claude, love or a reviewer's name; via github or slack) plus the page's own
@@ -345,7 +347,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { REQUEST_KINDS, TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { alertsOf, localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -1045,7 +1047,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (p === '/api/working') {
         const built = await sharedBoard();
         const refs = new Map(built.items.filter((i) => i.kind === 'work').map((i) => [i.key, i.ref]));
-        return json(res, 200, { working: built.workingOn.map((w) => ({ id: w.id, kind: w.kind, card: refs.get(w.key) || null, since: w.since })) });
+        const unread = orchestratorWaits(built).filter((w) => REQUEST_KINDS.includes(w.kind) && !w.picked);
+        return json(res, 200, { working: built.workingOn.map((w) => ({ id: w.id, kind: w.kind, card: refs.get(w.key) || null, since: w.since })),
+          unread: unread.map((w) => ({ key: w.key, ref: w.ref, kind: w.kind, since: w.since })) });
       }
       if (p === '/api/thread') return json(res, 200, await thread(String(url.searchParams.get('key') || '')));
       if (p === '/api/notes' && url.searchParams.has('all')) {

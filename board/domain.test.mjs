@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
 import { queuedPlannerKey, queuedPlannerCard } from './domain.mjs';
-import { footerOf,buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, rowAlerts, ALERT_KINDS, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone, tapPlan, TAP_KINDS } from './domain.mjs';
+import { footerOf, REQUEST_KINDS, REQUEST_REWAKE_AFTER, buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, rowAlerts, ALERT_KINDS, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone, tapPlan, TAP_KINDS } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -2862,6 +2862,31 @@ test('a wait still open re-wakes the session every 15 minutes until picked up, t
   assert.deepEqual([two.added, keys(two.again)], [[], ['w/A1', 'w/A2']]);
   // A wait that closes leaves the list.
   assert.deepEqual(waitsStep(due.waits, [], at(60)), { waits: [], added: [], opened: [], cleared: [{ key: 'w/A1', ref: 'A1', title: 'One', kind: 'calls', since: iso(0), picked: null, cleared: iso(60) }], again: [], againAt: null });
+});
+
+// docs/adr/2026-11-18-1400-an-unread-request-re-wakes-the-orchestrator-in-2-minutes-and-stop-names-it.md
+test("an unread request (a reply, an intake) re-wakes every 2 minutes outside the shared clock, and a read one waits an hour", () => {
+  assert.equal(REQUEST_REWAKE_AFTER, 2 * 60000);
+  const base = Date.parse('2026-11-18T10:00:00Z');
+  const at = (min) => new Date(base + min * 60000);
+  const iso = (min) => at(min).toISOString();
+  const wait = (o = {}) => ({ key: 'w/A1', ref: 'A1', title: 'One', kind: 'reply', since: iso(0), picked: null, next: 'Act', ...o });
+  const keys = (list) => list.map((w) => w.key);
+  for (const kind of REQUEST_KINDS) {
+    const joined = waitsStep([], [wait({ kind })], at(0));
+    assert.deepEqual(joined.added, ['w/A1'], 'joining wakes');
+    assert.deepEqual(waitsStep(joined.waits, [wait({ kind })], at(1)).again, [], `${kind} not due at 1`);
+    const due = waitsStep(joined.waits, [wait({ kind })], at(2), iso(1));
+    assert.deepEqual(keys(due.again), ['w/A1'], `${kind} due at 2, though the shared clock woke at 1`);
+    assert.equal(due.againAt, iso(1), 'an unread request leaves the shared clock alone');
+    assert.deepEqual(waitsStep(due.waits, [wait({ kind })], at(3)).again, []);
+    assert.deepEqual(keys(waitsStep(due.waits, [wait({ kind })], at(4)).again), ['w/A1'], 'and again 2 minutes later');
+    const read = wait({ kind, picked: iso(1) });
+    assert.deepEqual(waitsStep(joined.waits, [read], at(30)).again, [], `a read ${kind} stays quiet`);
+    assert.deepEqual(keys(waitsStep(joined.waits, [read], at(61)).again), ['w/A1'], 'until an hour after the read');
+  }
+  const other = wait({ kind: 'calls' });
+  assert.deepEqual(waitsStep(waitsStep([], [other], at(0)).waits, [other], at(2)).again, [], 'another kind keeps its 15 minutes');
 });
 
 test('reminders share one board-wide clock: a wait that falls due within 15 minutes of the last reminder waits for the next one, which carries every due wait', () => {
