@@ -340,8 +340,9 @@
     const hold = esc(`Notifications ${lower(n.text)}`);
     const moon = n.state === 'held' ? `<span class="sb-moon" role="img" aria-label="${hold}" title="${hold}">${svg(ICONS.moon, 13)}</span>` : '';
     const subs = {
-      // The status words, whatever they say, open what's loading the host (loadSheet; sidebar.js), and the rest of the row the hub page.
-      '/_hub/': (hub ? `<span class="sb-status sb-load" data-load-sheet role="button" tabindex="0" aria-label="${esc([hub.word, hub.detail].filter(Boolean).join(' '))}, what's loading the host" aria-haspopup="dialog">${iconText('dot', HUB_COLOURS[hub.tone], hub.word)}${hub.detail ? `<span>${esc(hub.detail)}</span>` : ''}</span>` : '')
+      // The status word, whatever it says, is a button that opens what's loading the host (loadSheet; sidebar.js), as the footer's version is a
+      // button beside its link; the detail beside it is plain text, and a tap there or on the rest of the row opens the hub page.
+      '/_hub/': (hub ? `<span class="sb-status"><button type="button" class="sb-load" data-load-sheet aria-label="${esc([hub.word, hub.detail].filter(Boolean).join(' '))}, what's loading the host" aria-haspopup="dialog">${iconText('dot', HUB_COLOURS[hub.tone], hub.word)}</button>${hub.detail ? `<span>${esc(hub.detail)}</span>` : ''}</span>` : '')
         + (notify ? `<span class="sb-status">${notify}</span>` : ''),
     };
     const selected = here.startsWith('_hub') ? '/_hub' : `/${here.replace(/\/$/, '')}`;

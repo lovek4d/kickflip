@@ -103,8 +103,8 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 @media (min-width: 900px) {
   #failedStartSheet { inset: 0; margin: auto; height: fit-content; max-height: calc(100dvh - 48px); }
 }
-/* The Hub row's status words open what's loading the host (ui-sidebar.js loadSheet), a sheet like a failed start's. */
-.sidebar .sb-load { cursor: pointer; border-radius: 6px; }
+/* The Hub row's status word, a button with the detail beside it as plain text, opens what's loading the host (ui-sidebar.js loadSheet), a sheet like a failed start's. */
+.sidebar .sb-load { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 6px; }
 @media (hover: hover) { .sidebar .sb-load:hover .it-w { text-decoration: underline; } }
 .sidebar .sb-load:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Busy for more than 30 minutes, a banner at the sidebar's top that opens the same sheet, orange like the hub page's hold banner. */

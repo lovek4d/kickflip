@@ -2716,7 +2716,7 @@ test('a busy host reads busy on the Hub row and the logo dot, not on a board or 
   const fresh = { state: 'busy', busy: false, banner: false, reason: 'load high', since: new Date(NOW - 59_000).toISOString() };
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: fresh }, sites, hub: { tone: 'ok', word: 'healthy', detail: '' } }), />busy</, 'busy under a minute reads as not busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine: fresh }, hub: { tone: 'ok' } }), '');
-  assert.match(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /it-green"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">healthy<\/span><\/span><\/span>/, 'healthy reads alone');
+  assert.match(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /it-green"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">healthy<\/span><\/span><\/button><\/span>/, 'healthy reads alone');
   assert.match(text(busy), /working 3 todo/, 'a board keeps its own status');
   assert.match(busy, /<span class="it it-orange"><span class="it-i it-pulse" aria-hidden="true"><\/span><span class="it-w">working/, 'its working dot pulses');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'ok' } }), 'busy');
@@ -3276,11 +3276,14 @@ test('a host busy for more than 30 minutes adds a banner at the sidebar top that
 test("the Hub row's status opens what's loading the host at any load: the load now and over the hour, then every group collapsed and Stop on orphans alone", () => {
   const machine = { state: 'busy', busy: true, banner: true, reason: 'load high', since: new Date(NOW - 42 * 60_000).toISOString() };
   const busy = ui.sidebar({ pause: { state: 'normal', machine }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } });
-  assert.match(busy, /<span class="sb-status sb-load" data-load-sheet role="button" tabindex="0" aria-label="busy \(42m\), what's loading the host" aria-haspopup="dialog">/);
+  assert.match(busy, /<button type="button" class="sb-load" data-load-sheet aria-label="busy \(42m\), what's loading the host" aria-haspopup="dialog">/);
   const calm = ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } });
-  assert.match(calm, /<span class="sb-status sb-load" data-load-sheet role="button" tabindex="0" aria-label="healthy, what's loading the host" aria-haspopup="dialog">/, 'healthy opens it too');
+  assert.match(calm, /<button type="button" class="sb-load" data-load-sheet aria-label="healthy, what's loading the host" aria-haspopup="dialog">/, 'healthy opens it too');
   const paused = ui.sidebar({ pause: { paused: true, resets_at: new Date(NOW + 3600_000).toISOString(), machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } });
-  assert.match(paused, /<span class="sb-status sb-load" data-load-sheet [^>]*aria-label="paused [^"]*, what's loading the host"/, 'and paused');
+  assert.match(paused, /<button type="button" class="sb-load" data-load-sheet [^>]*aria-label="paused [^"]*, what's loading the host"/, 'and paused');
+  const detailed = ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '3 of 3 sites up' } });
+  assert.equal(detailed.match(/data-load-sheet/g).length, 1, 'the word is the only control on the row');
+  assert.match(detailed, /<button [^>]*data-load-sheet[^>]*>(?:(?!<\/button>).)*healthy<\/span><\/span><\/button><span>3 of 3 sites up<\/span>/, 'the detail sits outside the button, as plain text');
 
   assert.match(text(ui.loadSheet(null)), /What's loading the host ✕ Reading the host…/);
   const H = 3600;
