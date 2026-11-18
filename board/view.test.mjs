@@ -4771,7 +4771,7 @@ test("a bump or unbump goes through the outbox: its menu item waits and the card
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
 const newAsk = (id, at, state = 'waiting', text = `Task ${id}`) => ({ ...askCard(id, 'todo'), isNew: true, created: at, sortAt: at, ask: { eventId: id, state, text, canEdit: true } });
-test("a sent ask sits in the New strip above the lanes, never in Todo, reading waiting… then processing...; once ingested it links to its ticket or the card it was added to, with Dismiss in place of Edit and Delete, until it is dismissed or that card is read", async () => {
+test("a sent ask sits in the New strip above the lanes, never in Todo, reading waiting… then thinking…; once ingested it links to its ticket or the card it was added to, with Dismiss in place of Edit and Delete, until it is dismissed or that card is read", async () => {
   const waiting = newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header\nIt jumps on scroll');
   const working = newAsk('a2', '2026-10-30T09:10:00.000Z', 'working', 'Dark mode');
   const made = { ...askCard('a3', 'todo'), id: 'T-7', key: 'w/T-7', ref: 'T-7', title: 'feat: rate limits', phase: 'discussing', turn: 'owner', created: '2026-10-30T08:00:00.000Z', ingested: { at: '2026-10-30T09:20:00.000Z', text: 'Rate limits per API key' } };
@@ -4792,11 +4792,11 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
   assert.deepEqual([strip().querySelector('summary .lane-name').textContent, strip().querySelector('summary .count').textContent], ['New', '4']);
   assert.deepEqual(entries().map((el) => el.dataset.new), ['a3', 'a1', 'a2', 'a4']);
   assert.deepEqual(entries().map((el) => el.querySelector('.new-msg').textContent), ['Rate limits per API key', 'Fix the header\nIt jumps on scroll', 'Dark mode', 'Also the footer\nand the nav']);
-  assert.deepEqual(entries().map((el) => el.querySelector('.new-line').textContent.trim().replace(/^.*?\d{1,2}:\d{2}\s?[AP]M · /i, '')), ['Ticket created: T-7', 'waiting…', 'processing...', 'Added to T-2']);
+  assert.deepEqual(entries().map((el) => el.querySelector('.new-line').textContent.trim().replace(/^.*?\d{1,2}:\d{2}\s?[AP]M · /i, '')), ['Ticket created: T-7', 'waiting…', 'thinking…', 'Added to T-2']);
   assert.equal(entry('a1').querySelector('.new-line .pickup-wait').dataset.word, 'waiting…', 'grey, its dot still, counting up in place');
   assert.equal(b.root.querySelector('#lanes [data-key="w/a1"], #lanes [data-key="w/a2"]'), null);
   assert.deepEqual(b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/T-7', 'w/T-8', 'w/T-2']);
-  // Waiting and processing entries delete their ask and have no Edit; ingested ones link to the card and dismiss.
+  // Waiting and thinking entries delete their ask and have no Edit; ingested ones link to the card and dismiss.
   assert.deepEqual(['a1', 'a2'].map((id) => [entry(id).querySelector('button[data-edit]'), entry(id).querySelector('button[data-withdraw]')?.dataset.withdraw, entry(id).querySelector('[data-dismiss-new]')]), [[null, 'a1', null], [null, 'a2', null]]);
   assert.deepEqual(['a3', 'a4'].map((id) => [entry(id).querySelector('a.new-link').getAttribute('href'), entry(id).querySelector('button[data-edit], button[data-withdraw]'), entry(id).querySelector('button[data-dismiss-new]').getAttribute('aria-label') + '|' + entry(id).querySelector('button[data-dismiss-new]').textContent]),
     [['#selectedCard=w%2FT-7', null, 'Dismiss|'], ['#selectedCard=w%2FT-2', null, 'Dismiss|']]);

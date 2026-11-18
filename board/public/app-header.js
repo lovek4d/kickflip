@@ -64,7 +64,7 @@ BoardView.part((B) => {
     renderStatus();
   }
   B.tick(() => { if (!document.hidden) renderStatus(); });
-  // thinking… and processing... count up in place (ui.js recount).
+  // thinking… (the New strip too) counts up in place (ui.js recount).
   B.tick(() => { if (!document.hidden) BoardUI.recount(document); }, 2);
   const githubHeader = (d) => (d.remote ? `<span class="lane-github">${remoteLine(d.remote, { links: d.links })}</span>`
     : `<span class="lane-github">${githubLine(d.checks, { links: d.links })}${githubRefresh(d.checks)}</span>`);

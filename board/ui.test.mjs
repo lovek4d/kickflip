@@ -1382,12 +1382,12 @@ test('thinking… counts up from when the message was marked: bare under a minut
   assert.equal(ui.thinkingFor(marked(7), NOW), 'thinking… (7m)');
 });
 
-test('the New strip counts processing... up the same way', () => {
+test('the New strip counts thinking… up the same way', () => {
   const since = new Date(NOW - 4 * 60000).toISOString();
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: ago(1), ask: { eventId: 'a1', askedAt: ago(1), canEdit: true, text: 'Fix', files: [], state: 'working', ...extra } });
   const strip = (extra) => ui.newStrip(ui.newEntries({ items: [ask(extra)], merges: [] }, {}));
-  assert.match(strip({ since }), /<span class="processing" data-since="[^"]+" data-word="processing\.\.\."><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>processing\.\.\. \(4m\)<\/span>/);
-  assert.match(strip({}), /<span class="processing"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>processing\.\.\.<\/span>/);
+  assert.match(strip({ since }), /<span class="new-thinking" data-since="[^"]+" data-word="thinking…"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>thinking… \(4m\)<\/span>/);
+  assert.match(strip({}), /<span class="new-thinking"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>thinking…<\/span>/);
 });
 
 // docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md
@@ -1695,17 +1695,17 @@ test("a builder line shows the progress and its age, not who is building", () =>
 });
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
-test("an ask in the New strip reads the owner's whole message, then whether it was moved or edited and a grey waiting… or a blue processing..., with delete; an ingested one links to its card, in blue, with Dismiss", () => {
+test("an ask in the New strip reads the owner's whole message, then whether it was moved or edited and a grey waiting… or a blue thinking…, with delete; an ingested one links to its card, in blue, with Dismiss", () => {
   const sent = ago(1);
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix <it>\nand more', files: [], ...extra } });
   const strip = (items, merges = []) => ui.newStrip(ui.newEntries({ items, merges }, {}));
   const entryText = (html) => text(html.split('<div class="list">')[1]);
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: grey "waiting…", its
-  // dot still, counting up from the ask, until the orchestrator picks the task up, then the blue "processing...".
+  // dot still, counting up from the ask, until the orchestrator picks the task up, then the blue "thinking…".
   const triaging = '<span class="pickup-wait" data-since="[^"]+" data-word="waiting…"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"></span></span>waiting…(?: \\([^)]+\\))?</span>';
   assert.match(strip([ask({ state: 'waiting' })]), /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div>/);
   assert.match(strip([ask({ state: 'waiting' })]), new RegExp(triaging));
-  assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub"><span class="new-time">[^<]+<\/span> · Edited · <span class="processing"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>processing...<\/span><\/div>/);
+  assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub"><span class="new-time">[^<]+<\/span> · Edited · <span class="new-thinking"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>thinking…<\/span><\/div>/);
   // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md: a handed ask's source
   // line links the card it came from, and the sender's note is quoted under the message.
   const handed = strip([ask({ state: 'waiting', from: { words: '/orch · A1', link: '/orch/#selectedCard=w%2FA1' }, note: 'Yours <now>' })]);
@@ -1713,10 +1713,10 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   assert.match(handed, /<a class="new-source" href="\/orch\/#selectedCard=w%2FA1">From \/orch · A1<\/a>/);
   assert.match(handed, /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div><blockquote class="quote new-note">Yours &lt;now&gt;<\/blockquote>/);
   assert.doesNotMatch(strip([ask({ state: 'waiting' })]), /new-note|new-source/);
-  // The processing line is info, blue (AGENTS.md colour priority), dot and word.
+  // The thinking line is info, blue (AGENTS.md colour priority), dot and word.
   const style = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(style, /\.new-entry \.processing \{ color: var\(--color-info\);/);
-  assert.doesNotMatch(style, /\.new-entry \.processing \{[^}]*--color-notice/);
+  assert.match(style, /\.new-entry \.new-thinking \{ color: var\(--color-info\);/);
+  assert.doesNotMatch(style, /\.new-entry \.new-thinking \{[^}]*--color-notice/);
   // docs/adr/2026-11-13-0000-a-new-strip-entry-shows-its-time-first.md: the footer starts with the ask's time, as a thread reply's does.
   assert.match(entryText(strip([ask({ state: 'waiting' })])), new RegExp(`${ui.time(sent)} · waiting…(?: \\([^)]+\\))?$`));
   assert.deepEqual([...strip([ask({ state: 'waiting' })]).matchAll(/data-(card-bump|edit|withdraw|dismiss-new)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['withdraw', 'a1']]);

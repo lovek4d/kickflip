@@ -425,7 +425,7 @@ button.attach:disabled { opacity: .35; }
 .brand .hub { grid-row: 1 / span 2; align-self: center; }
 /* The session's working line, "thinking", is the owner's blue with one font, size, weight and pulse on the card and in the thread. */
 .thinking { color: var(--accent); font-size: 12px; font-weight: 600; }
-.thinking .it-pulse, .planner .it-pulse, .new-entry .processing .it-pulse { color: inherit; }
+.thinking .it-pulse, .planner .it-pulse, .new-entry .new-thinking .it-pulse { color: inherit; }
 /* A New card's "waiting", until the orchestrator picks it up: grey, its dot still. */
 .pickup-wait { color: var(--muted); font-size: 12px; font-weight: 600; }
 .pickup-wait .it-pulse { color: inherit; animation: none; }
@@ -535,7 +535,7 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .new-entry:first-child { border-top: 0; }
 .new-msg { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .new-entry .new-line { margin-top: 4px; }
-.new-entry .processing { color: var(--color-info); font-size: 12px; font-weight: 600; }
+.new-entry .new-thinking { color: var(--color-info); font-size: 12px; font-weight: 600; }
 .new-done, .new-link { color: var(--color-info); font-size: 12px; font-weight: 600; text-decoration: none; }
 .new-entry .new-time { color: var(--muted); font-weight: 400; }
 .new-entry .new-source { color: inherit; }

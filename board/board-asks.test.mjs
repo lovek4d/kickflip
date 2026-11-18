@@ -113,7 +113,7 @@ test('asks --wait returns once the other board answers', async (t) => {
     /still waiting on \/audit after 9 minutes; run asks --wait again/);
 });
 
-test('the answering board draws each unanswered question as a New strip entry from the asking board, processing once picked up', async () => {
+test('the answering board draws each unanswered question as a New strip entry from the asking board, thinking once picked up', async () => {
   const e = { id: 'q1', ts: '2026-11-15T00:30:00.000Z', kind: 'board-ask', data: { text: QUESTION, from: { route: 'orch', title: 'Orch', key: 'w/A1', ref: 'A1' } } };
   const answered = { id: 'q2', ts: '2026-11-15T00:31:00.000Z', kind: 'board-ask', data: { text: 'Old?', from: { route: 'orch', title: 'Orch' } } };
   const all = [e, answered, { id: 'x', ts: '2026-11-15T00:32:00.000Z', kind: 'board-ask-answered', data: { id: 'q2', text: 'Yes' } }];

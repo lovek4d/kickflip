@@ -443,11 +443,11 @@
   }
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: an ask reads a grey "waiting…" (below), its
   // dot still, until the orchestrator picks it up (the watcher's or the PostToolUse hook's working mark), then
-  // "processing...", the owner's word, while the orchestrator triages it. Another board's question reads a grey
+  // "thinking…", the owner's word, while the orchestrator triages it. Another board's question reads a grey
   // "waiting…" until then.
   const PICKUP_WAIT = `<span class="pickup-wait">${DOT}waiting…</span>`;
-  const PROCESSING = `<span class="processing">${DOT}processing...</span>`;
-  const processing = (since) => (since ? globalThis.BoardUI.counted('processing', 'processing...', since) : PROCESSING);
+  const THINKING = `<span class="new-thinking">${DOT}thinking…</span>`;
+  const thinking = (since) => (since ? globalThis.BoardUI.counted('new-thinking', 'thinking…', since) : THINKING);
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: a New task waiting for
   // pick-up reads a grey "waiting…", its dot still, counting up from when it was asked through the shared duration.
   const pickupWait = (askedAt, word = 'waiting…') => globalThis.BoardUI.counted('pickup-wait', word, askedAt);
@@ -456,8 +456,8 @@
   // orchestrator hasn't joined yet, a waiting ask reads waiting for the orchestrator (state starting, domain.mjs withHub;
   // docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md).
   const askWait = (ask) => (ask.state === 'starting' ? pickupWait(ask.askedAt, 'waiting for the orchestrator') : ask.state === 'waiting' && pickupWait(ask.askedAt));
-  const askLine = (ask) => [ask.from && `<a class="new-source" href="${esc(ask.from.link)}">From ${esc(ask.from.words)}</a>`, ask.edited && 'Edited', ask.state === 'working' ? processing(ask.since) : askWait(ask)].filter(Boolean).join(' · ');
-  // An entry waiting or processing deletes its ask; an ingested one links to its card, in blue, and dismisses with no
+  const askLine = (ask) => [ask.from && `<a class="new-source" href="${esc(ask.from.link)}">From ${esc(ask.from.words)}</a>`, ask.edited && 'Edited', ask.state === 'working' ? thinking(ask.since) : askWait(ask)].filter(Boolean).join(' · ');
+  // An entry waiting or thinking deletes its ask; an ingested one links to its card, in blue, and dismisses with no
   // confirm. The link and Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the
   // entry too.
   const cardHref = (key) => `#selectedCard=${encodeURIComponent(key)}`;
@@ -470,11 +470,11 @@
   // draw as upload tiles in a [data-uploads] box, whose X attach.js reads
   // (docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md).
   function newEntry(e, words = []) {
-    // Another board's question: who asked, linking the asking task, then waiting… or processing... as an ask reads; no
+    // Another board's question: who asked, linking the asking task, then waiting… or thinking… as an ask reads; no
     // delete, as the orchestrator answers it.
     if (e.question) {
       const q = e.question;
-      const line = [`<a class="new-source" href="${esc(q.from.link)}">Asked from ${esc(q.from.words)}</a>`, q.state === 'working' ? processing(q.since) : PICKUP_WAIT].join(' · ');
+      const line = [`<a class="new-source" href="${esc(q.from.link)}">Asked from ${esc(q.from.words)}</a>`, q.state === 'working' ? thinking(q.since) : PICKUP_WAIT].join(' · ');
       return `<div class="new-entry new-question" data-new="${esc(e.id)}"><div class="new-msg">${marked(e.text, words, esc)}</div><div class="new-line sub">${newTime(e.sent)} · ${line}</div></div>`;
     }
     if (e.unsent) {
