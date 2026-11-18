@@ -2905,6 +2905,14 @@ test("a card's menu holds Bump or Unbump when it can be bumped, then Linked · 1
   assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: false, related }), /class="sep"/);
 });
 
+test("a menu drawn while the board is narrowed to the card's chain marks the matching Linked item on, whose tap ends it", () => {
+  const related = [{ key: 'w/B6', ref: 'ENG-2' }];
+  const html = ui.cardMenu({ ...workCard, bumpable: false, related }, { key: 'w/B5', depth: 'hop' });
+  assert.match(html, /<button type="button" role="menuitemcheckbox" aria-checked="true" data-linked="w\/B5" data-depth="hop" data-on>/);
+  assert.match(html, /<button type="button" role="menuitem" data-linked="w\/B5" data-depth="all">/);
+  assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: false, related }, { key: 'w/B6', depth: 'hop' }), /aria-checked/);
+});
+
 test("a card waiting on its owner step reads its code check under the Next, or that the check can't run", () => {
   const step = 'Publish kickflip to npm';
   const waiting = { ...workCard, lane: 'review', waitsOn: 'owner', next: step, ownerStep: step, awaitsDone: true, bumpable: false };

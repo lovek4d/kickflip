@@ -476,7 +476,7 @@ BoardView.part((B) => {
   function drawCardMenu(button) {
     const menu = $('#cardMenu');
     menu.dataset.key = menuKey;
-    BoardUI.setHTML(menu, BoardUI.cardMenu(menuCard(menuKey)));
+    BoardUI.setHTML(menu, BoardUI.cardMenu(menuCard(menuKey), B.linkedTo()));
     menu.hidden = false;
     button.setAttribute('aria-expanded', 'true');
     Popup.open(menu, button, { align: 'end', onClose: closeCardMenu });
@@ -507,8 +507,9 @@ BoardView.part((B) => {
       return;
     }
     const linked = ev.target.closest('#cardMenu button[data-linked]');
-    if (linked) B.showLinked(linked.dataset.linked, linked.dataset.depth);
-    if (ev.target.closest('#cardMenu button[role="menuitem"]')) closeCardMenu();
+    if (linked?.hasAttribute('data-on')) B.endLinked();
+    else if (linked) B.showLinked(linked.dataset.linked, linked.dataset.depth);
+    if (ev.target.closest('#cardMenu button[role^="menuitem"]')) closeCardMenu();
   });
   B.on(document, 'scroll', (ev) => { if (!$('#cardMenu').contains(ev.target)) closeCardMenu(); }, { capture: true, passive: true });
 

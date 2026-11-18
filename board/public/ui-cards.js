@@ -414,10 +414,15 @@
   // A card's menu (app-cards.js opens it): Bump or Unbump when it can be bumped, then Linked · 1 hop and Linked · all
   // when it has links, which narrow the board to its chain (app-search.js showLinked).
   const LINK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
-  const linkedItem = (key, depth, label) => `<button type="button" role="menuitem" data-linked="${esc(key)}" data-depth="${depth}">${LINK}<span>${label}</span></button>`;
-  function cardMenu(it) {
+  // While the board is narrowed to this card's chain at that depth (narrowed is app-search.js linkedTo), the item reads on
+  // and its tap ends the narrowing, as Unbump undoes Bump.
+  const linkedItem = (key, depth, label, narrowed) => {
+    const on = narrowed?.key === key && narrowed.depth === depth;
+    return `<button type="button" role="${on ? 'menuitemcheckbox' : 'menuitem'}"${on ? ' aria-checked="true"' : ''} data-linked="${esc(key)}" data-depth="${depth}"${on ? ' data-on' : ''}>${LINK}<span>${label}</span></button>`;
+  };
+  function cardMenu(it, narrowed = null) {
     const bump = it.bumpable ? cardBumpItem(it.key, Boolean(it.bumpedAt), it.sending?.includes('bump')) : '';
-    const linked = hasLinks(it) ? linkedItem(it.key, 'hop', 'Linked · 1 hop') + linkedItem(it.key, 'all', 'Linked · all') : '';
+    const linked = hasLinks(it) ? linkedItem(it.key, 'hop', 'Linked · 1 hop', narrowed) + linkedItem(it.key, 'all', 'Linked · all', narrowed) : '';
     return [bump, linked].filter(Boolean).join('<div class="sep" role="separator"></div>');
   }
   function cardActions(it) {
