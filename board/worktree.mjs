@@ -481,8 +481,6 @@ export async function holdingTestSlot(card, fn, { slots, onWait, onTurn, asked =
   }
   try { return await fn(); } finally { fs.rmSync(path.join(running, ticket), { force: true }); }
 }
-// runTests, whatever it runs, in a test slot for card (opts are holdingTestSlot's).
-export const boundedTests = (runTests, card, opts) => (...args) => holdingTestSlot(card, () => runTests(...args), opts);
 
 // A bump of the card key on the board at site moves its queued lands and their test runs: first, the bump's time,
 // puts them ahead of every ask not bumped since; null puts them back in ask order. → how many asks it moved
@@ -736,20 +734,26 @@ function onBase(repo, base) {
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). sync runs under the lock before the fast-forward. queue
 // {site, key, first} names the board card the land is for and its standing bump, for its place in the land queue.
 // → landPrepared's {release, commit} once it landed.
-// The tests run in a test slot (holdingTestSlot): the hub's land test runs at once (push.mjs readLandTests), and
-// onTestWait(card) names the run a land waits for; onTurn and onTestTurn run once its wait for the land lock or a test
-// slot ends, when it had one, whether it got its turn or its land stopped.
+// The whole turn runs in a test slot (holdingTestSlot): the rebase onto base as it is when the turn starts, the tests
+// and the fast-forward, so with one slot nothing else moves base in between and each land tests once, in queue order
+// (docs/adr/2026-11-18-2300-a-land-rebases-when-its-test-turn-starts-and-keeps-it-through-the-fast-forward.md). A land
+// that finds base moved anyway tests again at once, in its own slot. A hold gives the slot up once the tests pass.
+// The hub's land test runs at once (push.mjs readLandTests), and onTestWait(card) names the run a land waits for;
+// onTurn and onTestTurn run once its wait for the land lock or a test slot ends, when it had one, whether it got its
+// turn or its land stopped.
 export async function landInTurn(tree, { hold = false, onWait, onTurn, onTestWait, onTestTurn, slots = readLandTests(), sync = () => {}, queue = {}, ...opts } = {}) {
-  const { say = console.log, runTests = affectedRun(tree.base, say) } = opts;
+  const { say = console.log } = opts;
   const asked = Date.now();
-  const bounded = boundedTests(runTests, tree.ref ?? tree.branch, { slots, onWait: onTestWait, onTurn: onTestTurn, asked, ...queue });
-  for (;;) {
-    const tested = await prepareLand(tree, { ...opts, runTests: bounded });
-    if (hold) return;
-    const landed = await holdingLandLock(tree.ref ?? tree.branch, () => { sync(); return landPrepared(tree, tested, opts); }, { onWait, asked, ...queue });
-    if (landed) return landed;
-    say(`${tree.base} moved while ${tree.branch} was tested; testing it on ${tree.base} again`);
-  }
+  const card = tree.ref ?? tree.branch;
+  return holdingTestSlot(card, async () => {
+    for (;;) {
+      const tested = await prepareLand(tree, opts);
+      if (hold) return;
+      const landed = await holdingLandLock(card, () => { sync(); return landPrepared(tree, tested, opts); }, { onWait, asked, ...queue });
+      if (landed) return landed;
+      say(`${tree.base} moved while ${tree.branch} was tested; testing it on ${tree.base} again`);
+    }
+  }, { slots, onWait: onTestWait, onTurn: onTestTurn, asked, ...queue });
 }
 
 // The land as one synchronous step, for a caller that holds the land lock already.

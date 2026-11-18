@@ -95,6 +95,33 @@ test('a land whose main moved while its tests ran rebases and tests again, then 
   assert.deepEqual([git(tree.repo, 'show', 'main:b.txt'), git(tree.repo, 'show', 'main:c.txt')], ['b', 'c']);
 });
 
+test('a queued land rebases when its test turn starts and tests once, after the land ahead has landed', async (t) => {
+  const dir = home(t);
+  const tree = scratch(dir);
+  git(tree.repo, 'worktree', 'add', '--quiet', '-b', 'A2', path.join(dir, 'wt2'), 'main');
+  const second = { ...tree, path: path.join(dir, 'wt2'), branch: 'A2', ref: 'A2' };
+  commit(second.path, 'd.txt', 'd\n', 'feat: work\n\nRefs: A2');
+  let release;
+  const firstTesting = new Promise((resolve) => { release = resolve; });
+  let firstStarted;
+  const started = new Promise((resolve) => { firstStarted = resolve; });
+  const first = landInTurn(tree, { ...quiet, slots: 1, runTests: async () => { firstStarted(); await firstTesting; return { ok: true, pass: 1 }; } });
+  await started;
+  const seenOnSecond = [];
+  const secondRuns = [];
+  let waiting;
+  const waited = new Promise((resolve) => { waiting = resolve; });
+  const secondLand = landInTurn(second, { ...quiet, slots: 1, onTestWait: waiting, runTests: (cwd) => { secondRuns.push(cwd); seenOnSecond.push(fs.existsSync(path.join(cwd, 'b.txt'))); return { ok: true, pass: 1 }; } });
+  assert.equal(await waited, 'A1');
+  assert.deepEqual(secondRuns, []);
+  release();
+  await first;
+  await secondLand;
+  assert.deepEqual(secondRuns, [second.path]);
+  assert.deepEqual(seenOnSecond, [true], 'the second land tested on a main that already had the first land');
+  assert.deepEqual([git(tree.repo, 'show', 'main:b.txt'), git(tree.repo, 'show', 'main:d.txt')], ['b', 'd']);
+});
+
 test('a held land whose tested commit is still on top of main lands without testing again; one main moved past is retested', async (t) => {
   const dir = home(t);
   let runs = 0;

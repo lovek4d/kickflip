@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { boundedTests, holdingTestSlot, moveQueuedLand } from './worktree.mjs';
+import { holdingTestSlot, moveQueuedLand } from './worktree.mjs';
 import { MAX_LAND_TESTS, readLandTests, setLandTests } from '../shared/hub-settings.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
@@ -78,18 +78,6 @@ test('a slot held by a process that is gone is taken over', async (t) => {
   await holdingTestSlot('#5', async () => { ran = true; }, { slots: 1 });
   assert.equal(ran, true);
   assert.deepEqual(fs.readdirSync(running), []);
-});
-
-test('boundedTests takes a slot around whatever runTests is and returns its result', async (t) => {
-  home(t);
-  const first = held('#1', { slots: 1 });
-  await first.started;
-  const waits = gate();
-  const result = boundedTests(async (files) => ({ ok: true, files }), '#2', { slots: 1, onWait: (who) => waits.open(who) })(['a.test.mjs']);
-  assert.equal(await waits.opened, '#1');
-  first.release();
-  assert.deepEqual(await result, { ok: true, files: ['a.test.mjs'] });
-  await first.done;
 });
 
 test("the setting is the hub's one number: 1 unless it is saved as 1 to 99, whichever board saves or reads it", async (t) => {
