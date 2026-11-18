@@ -8930,6 +8930,19 @@ test('a folded lane opens while it holds matches and folds again after, its stor
   b.view.unmount();
 });
 
+test('a pointerdown on the × ends the search before the field blurs, so a phone with the keyboard up needs one tap', async () => {
+  const b = searchOnDom();
+  await b.settle();
+  await b.press('/');
+  await b.type('header');
+  assert.equal(b.doc.activeElement, b.field());
+  const down = b.page.fire(b.root, 'pointerdown', { target: b.root.querySelector('[data-search-clear]') });
+  await b.settle();
+  assert.equal(down.defaultPrevented, true, 'the field is not blurred by the touch');
+  assert.deepEqual([b.bar().hidden, b.field().value, b.shown().length], [true, '', 7]);
+  b.view.unmount();
+});
+
 test('f twice or / opens the search from outside a text box; not from a field, with a modifier, with f pressed slowly or apart, or once a key went to switch mode', async () => {
   const b = searchOnDom();
   await b.settle();

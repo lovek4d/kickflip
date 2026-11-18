@@ -38,6 +38,14 @@ BoardView.part((B) => {
     B.findArchived(words);
     draw();
   });
+  // The × ends the search on pointerdown, held from blurring the field: on a phone the touch would otherwise drop the
+  // keyboard first, and the viewport resizing under the finger would swallow the click. A click still ends it from the
+  // keyboard.
+  B.on(B.root, 'pointerdown', (ev) => {
+    if (!ev.target.closest?.('[data-search-clear]')) return;
+    ev.preventDefault();
+    endSearch();
+  });
   B.on(B.root, 'click', (ev) => {
     if (ev.target.closest?.('#searchOpen')) { ev.preventDefault(); openSearch(); }
     else if (ev.target.closest?.('[data-search-clear]')) endSearch();
