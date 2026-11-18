@@ -1881,6 +1881,8 @@ test("briefsDue names each open card's agent due from a written brief: a grill o
     card('w/V1', [briefed('visual')], { lane: 'progress', agents: [running('claude')] }),
     card('w/V2', [briefed('visual')], { agents: [running('visual')] }),
     card('w/D1', [briefed('visual')], { lane: 'done' }),
+    card('w/S1', [briefed('visual')], { storedPhase: 'staging' }),
+    card('w/S2', [briefed('grill')], { storedPhase: 'ready' }),
   ];
   assert.deepEqual(briefsDue(items), [{ key: 'w/G1', kind: 'grill' }, { key: 'w/P1', kind: 'prototype' }, { key: 'w/V1', kind: 'visual' }]);
 });

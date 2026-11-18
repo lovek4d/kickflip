@@ -5,7 +5,7 @@
 import fs from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { HAD_IMPLEMENT, COMMANDS, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, refOf, roundOf, roundSettledBy, VISUAL, REVIEWER, beside, OWES_IMPLEMENT, markedState, ownerWaitOf } from './domain.mjs';
+import { HAD_IMPLEMENT, COMMANDS, noTakePicked, picksTake, IMPLEMENT_SKIPPED, ANSWERED, ownerQuestion, plans, refOf, roundOf, roundSettledBy, VISUAL, REVIEWER, STAGED_PHASES, beside, OWES_IMPLEMENT, markedState, ownerWaitOf } from './domain.mjs';
 import { appendEvent } from '../hub/boards.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { boardConfig, itemSources, readJSON, readLog, replace, writeJSON } from './files.mjs';
@@ -943,6 +943,7 @@ export async function writeBrief(site, key, { kind, file, final }) {
   const { item } = await loadItem(site, key);
   const card = await shownCard(site, key);
   if (card.finished) fail(`${name} is done; there is nothing to brief`);
+  if (card.lane === 'todo' && STAGED_PHASES.includes(card.storedPhase)) fail(`${name} is ${card.storedPhase}, so it gets no ${kind} brief until it is back to discussing`);
   if (!beside({ kind }) && card.lane !== 'todo') fail(`${name} is past Todo, so it gets no ${kind}`);
   const body = (await refuseCardNotes(site, file, '--file', () => `${DRAFT_HINT}, holding only the brief`)).trim();
   if (!body) fail(`${file} is empty`);

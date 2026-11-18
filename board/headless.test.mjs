@@ -881,6 +881,15 @@ function oneLaunchBoard(t, items) {
 }
 
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+test("item brief refuses a staged or ready card, naming its phase, and writes nothing to it", async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'S1', title: 'Staged', phase: 'staging' }, { id: 'R1', title: 'Ready', phase: 'ready' }]);
+  const { brief } = await b.start();
+  await assert.rejects(brief('S1', 'visual', 'Draw it.'), /is staging, so it gets no visual brief/);
+  await assert.rejects(brief('R1', 'grill', 'Ask.'), /is ready, so it gets no grill brief/);
+  assert.deepEqual([b.runs.length, b.item('S1').briefs, b.item('R1').briefs], [0, undefined, undefined]);
+});
+
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
 test("the owner's Grill and Prototype taps and a card arriving in Todo launch no planner but owe the orchestrator's brief, which launches it from the card, in the board's repo", async (t) => {
   const b = oneLaunchBoard(t, [
     { id: 'G1', title: 'Grill me', phase: 'discussing' },

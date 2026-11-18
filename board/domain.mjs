@@ -1889,10 +1889,12 @@ export const MAX_SERVES = 10;
 // of its kind (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md,
 // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md), so a card's visuals, and its reviews, run one
 // after another. Such an agent is named <kind>-<its brief's time in ms>. → [{key, kind}]
+// The Todo phases where the card is staged or ready to build: no planner or visual starts there, as its planner buttons disable.
+export const STAGED_PHASES = ['staging', 'ready'];
 export const besideAgent = (kind, brief) => `${kind}-${Date.parse(brief.at)}`;
 export function briefsDue(items) {
   const out = [];
-  for (const it of items.filter((i) => i.kind === 'work' && !closedLane(i))) {
+  for (const it of items.filter((i) => i.kind === 'work' && !closedLane(i) && !(i.lane === 'todo' && STAGED_PHASES.includes(i.storedPhase)))) {
     const running = (it.agents || []).filter((a) => a.started && !a.done);
     for (const kind of BRIEF_KINDS) {
       if (!(it.briefs || []).some((b) => b.kind === kind && b.brief)) continue;
