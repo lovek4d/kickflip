@@ -21,6 +21,8 @@ import { tempDir } from '../shared/temp-dir.mjs';
 // One board server for the file, in this process: a test that writes a file the server would hear
 // of has it hear the write (heard), and awaits settled() for the passes it started.
 let site, board, base, slackWorldOf, slackServer, ghDir;
+// How far from the real clock the server's clock reads; a test sets it back so what the server records is already old.
+let clockSkewMs = 0;
 const uploads = () => path.join(site, 'data', 'uploads');
 
 before(async () => {
@@ -48,7 +50,7 @@ before(async () => {
   // Builders and planners the server launches run `true`, which exits at once.
   Object.assign(process.env, { KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', ...pushEnv, ...mergeEnv, ...slackEnv });
   const { startServer } = await import('./server.mjs');
-  board = await startServer({ site });
+  board = await startServer({ site, now: () => new Date(Date.now() + clockSkewMs) });
   base = `http://127.0.0.1:${board.server.address().port}`;
   await board.settled();
 });
@@ -840,6 +842,7 @@ test("an exact repeat of a message within 30 seconds is skipped, and one later, 
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const eventsFile = path.join(site, 'data', 'events.jsonl');
   const log = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === 'item-message' && /^t\/RP/.test(e.data.key));
+  clockSkewMs = -31_000;
   const first = await post({ kind: 'item-message', key: 't/RP1', text: 'Bump' });
   const again = await post({ kind: 'item-message', key: 't/RP1', text: 'Bump' });
   assert.equal(again.id, first.id);
@@ -847,9 +850,7 @@ test("an exact repeat of a message within 30 seconds is skipped, and one later, 
   assert.equal(log().length, 1);
   await post({ kind: 'item-message', key: 't/RP2', text: 'Bump' });
   assert.equal(log().length, 2);
-  const lines = fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  for (const e of lines) if (e.id === first.id) e.ts = new Date(Date.now() - 31_000).toISOString();
-  fs.writeFileSync(eventsFile, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  clockSkewMs = 0;
   const later = await post({ kind: 'item-message', key: 't/RP1', text: 'Bump' });
   assert.notEqual(later.id, first.id);
   const ask = await post({ kind: 'ask', text: 'Release it' });

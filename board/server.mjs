@@ -1126,7 +1126,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         // distinct send of the page's, which its sendId already guards, so it is not compared.
         if (kind === 'item-message' || kind === 'ask') {
           const text = String(body.text || '');
-          const repeat = text.trim() && !body.sendId && (await readLog(events)).reverse().find((e) => e.kind === kind && Date.now() - Date.parse(e.ts) <= REPEAT_WINDOW_MS
+          const repeat = text.trim() && !body.sendId && (await readLog(events)).reverse().find((e) => e.kind === kind && now().getTime() - Date.parse(e.ts) <= REPEAT_WINDOW_MS
             && String(e.data?.text || '') === text && String(e.data?.key || '') === String(body.key || '') && JSON.stringify(e.data?.shared_by ?? null) === JSON.stringify(body.shared_by ?? null));
           if (repeat) return json(res, 200, { id: repeat.id, board: await answerBoard(req, since) });
         }
