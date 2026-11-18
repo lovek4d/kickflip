@@ -383,7 +383,7 @@ import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
 import { kickflipScripts, listBuildTargets, listKickflipTargets, listRepoScripts, scriptsOf, writeScript } from './build-script.mjs';
-import { diedRuns, logTail, logsDir, readRunnerPid, scriptLogName } from './scripts.mjs';
+import { diedRuns, logTail, logsDir, readRunnerPid, scriptLogName, scriptSha } from './scripts.mjs';
 import { reviewerPeople } from './reviewer-people.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, savedSlack, slackStatus } from '../hub/slack.mjs';
@@ -392,9 +392,12 @@ import { collaborators, githubUser } from '../hub/pr-report.mjs';
 const template = path.dirname(fileURLToPath(import.meta.url));
 // Starts the runner of card key's offered script id on the board at site, detached in cwd, the board's repo folder
 // (bin/script-run.mjs), so a restart of the server doesn't stop it; the runner posts its script-result event when it
-// ends. → the child process
-export function startScriptRunner(site, key, id, cwd) {
-  const child = spawn(nodeBin(), [path.join(template, 'bin', 'script-run.mjs'), site, key, id, cwd], { detached: true, stdio: 'ignore' });
+// ends. The script's body, the bytes the server checked against the approved hash, goes to the runner over stdin, so
+// the runner reads no file or thread line a later write could change. → the child process
+export function startScriptRunner(site, key, id, cwd, body) {
+  const child = spawn(nodeBin(), [path.join(template, 'bin', 'script-run.mjs'), site, key, id, cwd], { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
+  child.stdin.on('error', () => {});
+  child.stdin.end(body);
   child.unref();
   return child;
 }
@@ -1119,10 +1122,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
           if (read.state !== 'waiting' || scriptTaps.has(id)) return json(res, 400, { error: `That script is ${scriptTaps.has(id) ? 'running' : read.state}, so it takes no ${kind === SCRIPT_EVENTS.run ? 'Run' : 'Decline'}.` });
           if (kind === SCRIPT_EVENTS.run && body.sha !== read.offer.sha) return json(res, 409, { error: 'This script changed since the page drew it. Read it again before you run it.' });
+          if (kind === SCRIPT_EVENTS.run && scriptSha(read.offer.body) !== read.offer.sha) return json(res, 409, { error: 'This script\'s stored text no longer matches the text that was offered. It is not run.' });
           scriptTaps.add(id);
           try {
             const eventId = await appendEvent(kind, { key, id, ...(kind === SCRIPT_EVENTS.run ? { sha: read.offer.sha } : {}), ...(sendId ? { sendId } : {}) });
-            if (kind === SCRIPT_EVENTS.run) runOfferedScript(key, id, cwd);
+            if (kind === SCRIPT_EVENTS.run) runOfferedScript(key, id, cwd, read.offer.body);
             return json(res, 200, { id: eventId, board: await answerBoard(req, since) });
           } finally { scriptTaps.delete(id); }
         }
@@ -1538,9 +1542,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
   // The script offers whose Run or Decline is being recorded, so two taps at once record one.
   const scriptTaps = new Set();
-  // Starts card key's offered script id in cwd (startScript), a runner that couldn't start going in the audit log.
-  function runOfferedScript(key, id, cwd) {
-    startScript(here, key, id, cwd).on('error', (e) => logCall({ call: 'script-run', key, result: 'failed', reason: e.message, inputs: { id } }));
+  // Starts card key's offered script id, whose checked text is body, in cwd (startScript), a runner that couldn't start going in the audit log.
+  function runOfferedScript(key, id, cwd, body) {
+    startScript(here, key, id, cwd, body).on('error', (e) => logCall({ call: 'script-run', key, result: 'failed', reason: e.message, inputs: { id } }));
   }
 
   // The land a held card's Merge tap starts: `board.mjs merge <key>`, detached so a land that restarts this server

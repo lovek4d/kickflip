@@ -133,3 +133,27 @@ test('the run itself times out, and the orchestrator hears the Run, its result a
   assert.match(await plainLine(dir, line('script-result', { id: 's1', exit: 2, output: 'a\nb\nboom' })), /script .*exit 2.*boom/);
   assert.match(await plainLine(dir, line('script-decline', { id: 's1' })), /declined/);
 });
+
+test('a Run whose stored text no longer hashes to the approved sha is refused and runs nothing', async (t) => {
+  const w = world('tampered');
+  const s = await w.offer('echo approved\n');
+  const file = path.join(w.data, 'threads', 't__A1.jsonl');
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('echo approved', 'echo swapped'));
+  const started = [];
+  const { base } = await startBoard(t, { site: w.site, startScript: (...args) => { started.push(args); return startScriptRunner(...args); } });
+  const refused = await send(base, 'script-run', { key: 't/A1', id: s.id, sha: s.sha });
+  assert.equal(refused.status, 409);
+  assert.match((await refused.json()).error, /no longer matches/);
+  assert.deepEqual(started, []);
+  assert.deepEqual(w.events().filter((e) => e.kind.startsWith('script-')), []);
+});
+
+test('the runner is given the approved bytes over stdin, whatever the thread holds afterward', async (t) => {
+  const w = world('stdin');
+  const s = await w.offer('echo "é approved"\n');
+  const started = [];
+  const { base } = await startBoard(t, { site: w.site, startScript: (...args) => { started.push(args); return startScriptRunner(...args); } });
+  assert.equal((await send(base, 'script-run', { key: 't/A1', id: s.id, sha: s.sha })).status, 200);
+  assert.equal(started[0][4], s.body);
+  assert.equal(scriptSha(started[0][4]), s.sha);
+});
