@@ -14,7 +14,7 @@
 //                             woke for delivered in data/delivered.json (board/cards.mjs markDelivered), and answers a ping for the
 //                             session (board/settings.mjs ackPing), then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
-//                             each wait on the orchestrator, a line for each of a card's waits, bumped cards first, then lanes top-down, from data/orchestrator-waits.json,
+//                             each wait on the orchestrator, a line for each of a card's waits, bumped cards first, then the owner's replies and answers, New, Todo, In Progress and In Review, oldest first in each, from data/orchestrator-waits.json,
 //                             (in full when new or changed since the last wake, the rest on one
 //                             `waits still waiting: <kind> <ref>, … · <kind> …` line naming each),
 //                             which the board server keeps (board/server.mjs checkWaits): handle each one on every wake

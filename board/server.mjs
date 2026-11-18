@@ -1709,7 +1709,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
   // data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, tone, picked, next, bumped, link?}], againAt, day}: the cards idle on
-  // the orchestrator (domain.mjs orchestratorWaits), lanes top-down, then an unanswered triage, the events no task
+  // the orchestrator (domain.mjs orchestratorWaits), in the order to work them, then an unanswered triage, the events no task
   // holds (domain.mjs eventWaits) and other boards' questions, which bin/wait-events.mjs prints on every wake. Each
   // check appends at most one orchestrator-waits {opened: [{key, ref, title, kind, since, picked}], again: [{key, ref,
   // kind, since, next}]} event once the file is written: opened holds each wait that joins it not picked up, or waits

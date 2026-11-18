@@ -46,8 +46,8 @@ test("a card whose newest thread message is the owner's waits on the orchestrato
     assert.deepEqual(waits({ items: [marked], events: [said(5)], threads: { 'w/A1': [answer] } }), [], JSON.stringify(answer));
   }
   assert.deepEqual(waits({ items: [marked], events: [said(5)], threads: { 'w/A1': [line(8, { kind: 'status', text: 'Reading: x' })] } }).map((w) => w[1]), ['reply'], 'a progress line');
-  // A builder's ask is a wait of its own, beside the owner's.
-  assert.deepEqual(waits({ items: [marked], events: [said(5)], threads: { 'w/A1': [line(8, { who: 'Claude Opus builder', kind: 'builder-ask', ask: 'x1', text: 'Which?' })] } }).map((w) => w[1]), ['ask', 'reply'], 'a builder ask');
+  // A builder's ask is a wait of its own, beside the owner's, which lists first.
+  assert.deepEqual(waits({ items: [marked], events: [said(5)], threads: { 'w/A1': [line(8, { who: 'Claude Opus builder', kind: 'builder-ask', ask: 'x1', text: 'Which?' })] } }).map((w) => w[1]), ['reply', 'ask'], 'a builder ask');
   // A reply to the message's event answers it too.
   assert.deepEqual(waits({ items: [marked], events: [{ ...said(5), reply: { at: at(6), text: 'Done.' } }] }), []);
   // The owner writing after the orchestrator's line waits from that newer message.

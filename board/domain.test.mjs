@@ -1948,7 +1948,23 @@ test("the orchestrator's waits list bumped cards first across lanes, the earlies
   const wait = (key, lane, bumpedAt = null) => ({ key, ref: key, title: key, lane, bumpedAt, orchestrator: { kind: 'calls', since: '2026-11-06T10:00:00Z', picked: null, next: 'Verify' } });
   const items = [wait('w/R1', 'review'), wait('w/P1', 'progress'), wait('w/P2', 'progress', '2026-11-06T09:30:00Z'), wait('w/T1', 'todo', '2026-11-06T09:00:00Z'), { key: 'w/X', orchestrator: null }];
   const waits = orchestratorWaits({ items });
-  assert.deepEqual(waits.map((w) => [w.key, w.bumpedAt]), [['w/T1', '2026-11-06T09:00:00Z'], ['w/P2', '2026-11-06T09:30:00Z'], ['w/R1', null], ['w/P1', null]]);
+  assert.deepEqual(waits.map((w) => [w.key, w.bumpedAt]), [['w/T1', '2026-11-06T09:00:00Z'], ['w/P2', '2026-11-06T09:30:00Z'], ['w/P1', null], ['w/R1', null]]);
+});
+
+// docs/adr/2026-11-18-0200-the-orchestrators-waits-run-the-owners-words-then-new-todo-in-progress-in-review.md
+test("the orchestrator's waits run the owner's words, New, Todo, In Progress, In Review, oldest first, limbo last", () => {
+  const wait = (key, lane, kind, since) => ({ key, ref: key, title: key, lane, bumpedAt: null, orchestrator: { kind, since, picked: null, next: 'Do' } });
+  const items = [
+    wait('w/R1', 'review', 'stale', '2026-11-06T08:00:00Z'),
+    wait('w/L1', 'todo', 'limbo', '2026-11-06T07:00:00Z'),
+    wait('w/P1', 'progress', 'calls', '2026-11-06T09:00:00Z'),
+    wait('w/P0', 'progress', 'ask', '2026-11-06T08:30:00Z'),
+    wait('w/T1', 'todo', 'staging', '2026-11-06T10:00:00Z'),
+    wait('w/N1', 'todo', 'intake', '2026-11-06T11:00:00Z'),
+    wait('w/T2', 'todo', 'reply', '2026-11-06T12:00:00Z'),
+    wait('w/P2', 'progress', 'answer', '2026-11-06T13:00:00Z'),
+  ];
+  assert.deepEqual(orchestratorWaits({ items }).map((w) => w.key), ['w/T2', 'w/P2', 'w/N1', 'w/T1', 'w/P0', 'w/P1', 'w/R1', 'w/L1']);
 });
 
 // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
@@ -2578,7 +2594,7 @@ test("a visual-unplaced line is an orchestrator wait held until a page lands or 
 });
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-test('the board lists each card idle on the orchestrator, In Progress then Todo, with since and when it was picked up', () => {
+test('the board lists each card idle on the orchestrator, Todo then In Progress, with since and when it was picked up', () => {
   const at = '2026-11-04T10:00:00Z';
   const later = '2026-11-04T10:20:00Z';
   const built = ({ items, agents = {}, events = [], threads = {}, owner = {}, working = {} }) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), owner, events, threads, working,
@@ -2664,11 +2680,11 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   assert.deepEqual(one({ phase: 'ready' }), [], 'a ready task nobody refused');
   assert.deepEqual(one({ lane: 'done', closed_at: at }), [], 'a Done task');
 
-  // In Progress first, then Todo, each in the board's order; a card's item carries its wait.
+  // Todo first, then In Progress (the order of waits is tested in its own test); a card's item carries its wait.
   const both = built({ items: [{ id: 'T1', title: 'Todo', phase: 'ready' }, { id: 'P1', title: 'Building', lane: 'progress' }], threads: { 'w/T1': refused['w/A1'] },
     agents: { P1: handed.A1 } });
-  assert.deepEqual(orchestratorWaits(both).map((w) => w.key), ['w/P1', 'w/T1']);
-  assert.deepEqual(both.items.find((i) => i.key === 'w/P1').orchestrator, { kind: 'calls', since: at, picked: null, next: orchestratorWaits(both)[0].next });
+  assert.deepEqual(orchestratorWaits(both).map((w) => w.key), ['w/T1', 'w/P1']);
+  assert.deepEqual(both.items.find((i) => i.key === 'w/P1').orchestrator, { kind: 'calls', since: at, picked: null, next: orchestratorWaits(both)[1].next });
   assert.equal(both.items.find((i) => i.key === 'w/P1').waitFacts, undefined, 'the facts stay off the task');
 });
 

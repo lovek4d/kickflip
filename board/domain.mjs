@@ -2398,17 +2398,24 @@ function newBoardAsks(events, working) {
   });
 }
 
-// The cards idle on the orchestrator in a built board: the bumped ones first across lanes, the earliest bump first
-// (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), then the rest lanes top-down, each in
-// the board's order, one entry per wait, a card's in its own order, and last the limbo waits, oldest first, so the
-// cards owing nobody anything surface as one batch behind the rest. bumpedAt is the card's bump, null on an unbumped one.
+// The cards idle on the orchestrator in a built board, one entry per wait, in the order to work them: the bumped ones
+// first, the earliest bump first (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), then the
+// rest by waitGroup, oldest first within each group, and last the limbo waits, oldest first, so the cards owing nobody
+// anything surface as one batch behind the rest. bumpedAt is the card's bump, null on an unbumped one.
 // → [{key, ref, title, kind, since, picked, next, bumpedAt}]
+// docs/adr/2026-11-18-0200-the-orchestrators-waits-run-the-owners-words-then-new-todo-in-progress-in-review.md
+// The groups, in the order the orchestrator works them: the owner's words waiting on a reply or an answer, a New
+// task's intake, then each lane's waits down Todo, In Progress and In Review.
+const OWNER_WORDS = new Set(['reply', 'answer']);
+const waitGroup = (w) => OWNER_WORDS.has(w.kind) ? 0 : w.kind === 'intake' ? 1 : { todo: 2, progress: 3, review: 4 }[w.lane] ?? 2;
+const bySince = (a, b) => a.since.localeCompare(b.since);
 export function orchestratorWaits(built) {
   const all = built.items.flatMap((i) => [i.orchestrator, ...(i.moreWaits || [])].filter(Boolean)
-    .map((w) => ({ key: i.key, ref: i.ref, title: i.title, ...w, bumpedAt: i.bumpedAt || null })));
+    .map((w) => ({ key: i.key, ref: i.ref, title: i.title, ...w, lane: i.lane, bumpedAt: i.bumpedAt || null })));
   const waits = all.filter((w) => w.kind !== 'limbo');
-  return [...waits.filter((w) => w.bumpedAt).sort((a, b) => a.bumpedAt.localeCompare(b.bumpedAt)), ...waits.filter((w) => !w.bumpedAt),
-    ...all.filter((w) => w.kind === 'limbo').sort((a, b) => a.since.localeCompare(b.since))];
+  return [...waits.filter((w) => w.bumpedAt).sort((a, b) => a.bumpedAt.localeCompare(b.bumpedAt)),
+    ...waits.filter((w) => !w.bumpedAt).sort((a, b) => waitGroup(a) - waitGroup(b) || bySince(a, b)),
+    ...all.filter((w) => w.kind === 'limbo').sort(bySince)].map(({ lane, ...w }) => w);
 }
 // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md
 // Each owner's-last-word wait (kind reply) in previous, the stored list, that current, this check's waits, no longer
