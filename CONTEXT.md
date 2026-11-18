@@ -1,6 +1,6 @@
 # Kickflip hub and boards
 
-Pages on the owner's host, and on their tailnet once it's on, that Claude sessions serve, so the owner can follow and steer their work, from a phone too. The hub lists the sites and sends pushes. A board is a site that shows a session's work as tasks.
+An orchestrator console: pages on the owner's host that Claude sessions serve, so the owner can follow and steer their work. Each board is a project where Claude orchestrates and builders build; the tailnet, once it's on, puts the hub on the owner's phone too. The hub lists the sites and sends pushes. A board is a site that shows a session's work as tasks.
 
 ## Language
 
@@ -119,7 +119,7 @@ A site joined with `kickflip page <name>` (`/kickflip page`) and `--port` (a ser
 _Avoid_: minimal site, unwatched site
 
 **Owner**:
-Love, the person the sites serve. The word for the session that serves a site is **owning session**.
+The person the sites serve. The word for the session that serves a site is **owning session**.
 _Avoid_: user, admin
 
 **Board session**:
