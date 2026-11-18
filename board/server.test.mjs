@@ -1887,6 +1887,47 @@ test('/api/build-targets lists the executable .kickflip/build-* scripts at the b
   }
 });
 
+// docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
+test('/api/scripts answers the scripts source, the repo’s scripts at main and kickflip’s scripts, and a save replaces a kickflip script', async () => {
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  const folder = path.join(home, 'scripts-repo');
+  const git = (...args) => execFileSync('git', ['-C', folder, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@x' } });
+  fs.mkdirSync(path.join(folder, '.kickflip'), { recursive: true });
+  git('init', '--quiet', '--initial-branch=main');
+  fs.writeFileSync(path.join(folder, 'README'), 'x');
+  git('add', '.');
+  git('commit', '--quiet', '-m', 'empty');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], local: true, owner: { repo: folder } } } }));
+  const cfg = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
+  const save = (body) => fetch(`${base}/api/scripts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const read = async () => (await fetch(`${base}/api/scripts`)).json();
+  try {
+    assert.deepEqual(await read(), { source: 'repo', repo: [], scripts: [{ name: 'build', text: '' }, { name: 'release', text: '' }] });
+    fs.writeFileSync(path.join(folder, '.kickflip', 'build'), '#!/bin/sh\n', { mode: 0o755 });
+    git('add', '.');
+    git('commit', '--quiet', '-m', 'build');
+    assert.deepEqual((await read()).repo, ['build']);
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, scripts: 'kickflip' }));
+    const saved = await (await save({ name: 'build-web', text: '#!/bin/sh\necho web\n' })).json();
+    assert.deepEqual(saved, { source: 'kickflip', repo: ['build'], scripts: [{ name: 'build', text: '' }, { name: 'build-web', text: '#!/bin/sh\necho web\n' }, { name: 'release', text: '' }] });
+    assert.equal(fs.statSync(path.join(site, 'scripts', 'build-web')).mode & 0o777, 0o700);
+    assert.deepEqual(await (await fetch(`${base}/api/build-targets`)).json(), { targets: ['web'] });
+    for (const bad of [{ name: '../x', text: '#!/bin/sh\n' }, { name: 'setup', text: '#!/bin/sh\n' }, { name: 'build', text: '  ' }, { name: 'build' }]) {
+      const r = await save(bad);
+      assert.equal(r.status, 400, JSON.stringify(bad));
+      assert.ok((await r.json()).error);
+    }
+    fs.rmSync(manifest);
+    assert.equal((await fetch(`${base}/api/scripts`)).status, 404);
+  } finally {
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+    fs.rmSync(path.join(site, 'scripts'), { recursive: true, force: true });
+    fs.rmSync(manifest, { force: true });
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});
+
 // docs/adr/2026-11-05-2100-the-server-adds-reviewers-from-fetched-lists.md
 test("Save on the settings page's reviewers adds and removes in the server, opening the DM and checking the login, and records reviewers-added and reviewers-removed for the session", async () => {
   const cfg = { title: 'T', items: 'data/items.json', slug: 't' };

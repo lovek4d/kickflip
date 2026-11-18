@@ -69,14 +69,30 @@ export function writeScript(site, name, text) {
   return file;
 }
 
-// The targets Board Settings offers from the repo: each executable `.kickflip/build-<target>` in its tree at ref,
-// sorted. run runs git as execFile does; git reads a local tree with no time limit
-// (docs/adr/2026-11-13-2231-build-targets-wait-on-git.md). → [target], [] when the repo or ref can't be read
-export async function listBuildTargets(repo, ref, { run = execFileAsync } = {}) {
+// Board Settings' Scripts code boxes: build, each build-<target> in the site's scripts folder, sorted, then release.
+// → [{name, text}], text '' for a build or release not written yet
+export function kickflipScripts(site) {
+  let names = [];
+  try { names = fs.readdirSync(scriptsDirOf(site)).filter((name) => validScriptName(name) && name.startsWith('build-')).sort(collator.compare); } catch {}
+  return ['build', ...names, 'release'].map((name) => {
+    try { return { name, text: fs.readFileSync(path.join(scriptsDirOf(site), name), 'utf8') }; } catch (e) { if (e.code === 'ENOENT') return { name, text: '' }; throw e; }
+  });
+}
+
+// The board's scripts in the repo: each executable build, build-<target> and release in `.kickflip/` of its tree at
+// ref, sorted. run runs git as execFile does; git reads a local tree with no time limit
+// (docs/adr/2026-11-13-2231-build-targets-wait-on-git.md). → [name], [] when the repo or ref can't be read
+export async function listRepoScripts(repo, ref, { run = execFileAsync } = {}) {
   if (!repo) return [];
   let out;
   try { out = (await run('git', ['-C', repo, 'ls-tree', `${ref}:.kickflip`], { encoding: 'utf8' })).stdout; } catch { return []; }
-  return out.split('\n').map((line) => /^100755 blob \S+\tbuild-(.+)$/.exec(line)?.[1]).filter(validBuildTarget).sort(collator.compare);
+  return out.split('\n').map((line) => /^100755 blob \S+\t(.+)$/.exec(line)?.[1]).filter(validScriptName).sort(collator.compare);
+}
+
+// The targets Board Settings offers from the repo: each executable `.kickflip/build-<target>` in its tree at ref,
+// sorted. → [target], [] when the repo or ref can't be read
+export async function listBuildTargets(repo, ref, options) {
+  return (await listRepoScripts(repo, ref, options)).filter((name) => name.startsWith('build-')).map((name) => name.slice(6));
 }
 
 // The targets Board Settings offers from kickflip: each executable `build-<target>` in the site's scripts folder, sorted.

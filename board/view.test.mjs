@@ -683,6 +683,106 @@ test("Board Settings' Build target lists the repo's build scripts with a default
   s.view.unmount();
 });
 
+// docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
+// A Board Settings page whose server keeps the scripts view: GET and POST api/scripts, and api/settings {scripts}.
+function scriptsPage({ source = 'repo', repo = [], kickflip = {} } = {}) {
+  const s = settingsPage({ dom: true, settings: source === 'kickflip' ? { scripts: 'kickflip' } : {} });
+  s.scripts = { ...kickflip };
+  s.scriptPosts = [];
+  s.reads = { targets: 0, permissions: 0 };
+  const view = () => ({ source: s.saved.scripts || 'repo', repo, scripts: [...new Set(['build', ...Object.keys(s.scripts).sort(), 'release'])].map((name) => ({ name, text: s.scripts[name] ?? '' })) });
+  const answer = (body, ok = true) => ({ ok, status: ok ? 200 : 400, text: async () => JSON.stringify(body), json: async () => body });
+  const base = s.page.win.fetch;
+  s.page.win.fetch = async (url, opts = {}) => {
+    if (url.endsWith('/api/build-targets')) { s.reads.targets++; return answer({ targets: Object.keys(s.scripts).filter((n) => n.startsWith('build-')).map((n) => n.slice(6)) }); }
+    if (url.endsWith('/api/permissions')) { s.reads.permissions++; return answer({ permissions: [] }); }
+    if (url.endsWith('/api/settings') && opts.method === 'POST' && JSON.parse(opts.body).scripts === 'repo') {
+      s.posts.push(JSON.parse(opts.body));
+      s.saved = { ...s.saved };
+      delete s.saved.scripts;
+      return answer({ settings: s.saved });
+    }
+    if (!url.endsWith('/api/scripts')) return base(url, opts);
+    if (opts.method !== 'POST') return answer(view());
+    const body = JSON.parse(opts.body);
+    s.scriptPosts.push(body);
+    if (s.refuse) return answer({ error: s.refuse }, false);
+    s.scripts[body.name] = body.text;
+    return answer(view());
+  };
+  s.$ = (sel) => s.root.querySelector(sel);
+  s.boxes = () => s.root.querySelectorAll('#scriptsList textarea').map((t) => [t.id, t.value]);
+  s.source = (value) => s.$(`[data-scripts-source="${value}"]`);
+  s.click = async (el) => { s.page.fire(el, 'click'); await tick(); await tick(); };
+  s.save = async (name) => { s.page.fire(s.$('#scriptsList'), 'click', { target: s.$(`[data-script-save="${name}"]`) }); await tick(); await tick(); };
+  s.type = (name, text) => { const box = s.$(`#script-${name}`); box.value = text; s.page.fire(s.$('#scriptsList'), 'input', { target: box }); };
+  return s;
+}
+
+test("Board Settings' Scripts switch shows Repo only while main has the board's scripts or it is the source, saves a tap at once and names the chosen home under Build target", async () => {
+  const none = await scriptsPage({ source: 'kickflip', repo: [] }).mount();
+  await tick();
+  assert.deepEqual([none.source('repo').hidden, none.source('kickflip').getAttribute('aria-pressed')], [true, 'true'], 'a repo with none of the scripts hides Repo');
+  assert.match(none.$('#buildTargetSub').innerHTML, /kickflip’s <code>build<\/code>/);
+  none.view.unmount();
+
+  const s = await scriptsPage({ source: 'repo', repo: ['build', 'release'] }).mount();
+  await tick();
+  assert.deepEqual([s.source('repo').hidden, s.source('repo').getAttribute('aria-pressed'), s.source('kickflip').getAttribute('aria-pressed')], [false, 'true', 'false']);
+  assert.equal(s.$('#scriptsBoxes').hidden, true, 'kickflip’s scripts are edited while they are the source');
+  assert.match(s.$('#buildTargetSub').innerHTML, /<code>\.kickflip\/build<\/code> from each task’s branch/);
+  const reads = { ...s.reads };
+  await s.click(s.source('kickflip'));
+  assert.deepEqual(s.posts.at(-1), { scripts: 'kickflip' });
+  assert.deepEqual([s.source('kickflip').getAttribute('aria-pressed'), s.$('#scriptsBoxes').hidden], ['true', false]);
+  assert.deepEqual(s.boxes(), [['script-build', ''], ['script-release', '']]);
+  assert.match(s.$('#scriptsSourceStatus').textContent, /^Saved\. The hub runs kickflip’s scripts/);
+  assert.match(s.$('#buildTargetSub').innerHTML, /kickflip’s <code>build<\/code>/);
+  assert.deepEqual([s.reads.targets > reads.targets, s.reads.permissions > reads.permissions], [true, true], 'the targets and Run release script follow the source');
+  await s.click(s.source('repo'));
+  assert.deepEqual([s.posts.at(-1), s.source('repo').getAttribute('aria-pressed'), s.$('#scriptsBoxes').hidden], [{ scripts: 'repo' }, 'true', true]);
+  s.view.unmount();
+});
+
+test("Board Settings' Scripts code box shows each kickflip script, Save sends an edit and marks it saved, a refusal keeps the edit, and Add build target opens a new box", async () => {
+  const s = await scriptsPage({ source: 'kickflip', kickflip: { 'build-web': '#!/bin/sh\necho web\n' } }).mount();
+  await tick();
+  assert.deepEqual(s.boxes(), [['script-build', ''], ['script-build-web', '#!/bin/sh\necho web\n'], ['script-release', '']]);
+  const save = (name) => s.$(`[data-script-save="${name}"]`);
+  assert.equal(save('build').disabled, true, 'nothing to save yet');
+  s.type('build', '#!/bin/sh\necho build\n');
+  assert.deepEqual([save('build').disabled, s.$('#scriptsList').hasAttribute('data-dirty')], [false, true]);
+  const reads = { ...s.reads };
+  await s.save('build');
+  assert.deepEqual(s.scriptPosts.at(-1), { name: 'build', text: '#!/bin/sh\necho build\n' });
+  assert.deepEqual([save('build').disabled, s.$('#scriptsList').hasAttribute('data-dirty'), s.$('#script-buildStatus').textContent],
+    [true, false, 'Saved. Main rebuilds with it; each task takes it from its next build.']);
+  assert.deepEqual([s.reads.targets > reads.targets, s.reads.permissions > reads.permissions], [true, true]);
+
+  s.refuse = 'script set release needs the script’s text';
+  s.type('release', '  ');
+  await s.save('release');
+  assert.deepEqual([s.$('#script-release').value, s.$('#script-releaseStatus').textContent, s.$('#scriptsList').hasAttribute('data-dirty')], ['  ', 'script set release needs the script’s text', true]);
+  s.refuse = '';
+  s.type('release', '');
+
+  s.$('#scriptTarget').value = 'a b';
+  s.page.fire(s.$('#scriptAdd'), 'submit');
+  await tick();
+  assert.deepEqual([s.boxes().length, s.$('#scriptAddStatus').textContent], [3, 'A target is letters, digits, “.”, “_” or “-”.']);
+  s.$('#scriptTarget').value = 'ios';
+  s.page.fire(s.$('#scriptAdd'), 'submit');
+  await tick();
+  assert.deepEqual(s.boxes().map(([id]) => id), ['script-build', 'script-build-ios', 'script-build-web', 'script-release']);
+  assert.deepEqual([s.$('#scriptTarget').value, s.$('#scriptAddStatus').textContent], ['', '']);
+  s.type('build-ios', '#!/bin/sh\necho ios\n');
+  await s.save('build-ios');
+  assert.deepEqual(s.scriptPosts.at(-1), { name: 'build-ios', text: '#!/bin/sh\necho ios\n' });
+  assert.equal(s.$('#script-build-iosStatus').textContent, 'Saved. Pick it under Build target to run it.');
+  assert.equal(s.$('#scriptsList').hasAttribute('data-dirty'), false);
+  s.view.unmount();
+});
+
 // docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md
 test("Board Settings' reviewers Add searches one list of Slack members, guesses the GitHub login from the name, stays off until a login is there, and Save sends the person and draws the server's list", async () => {
   const page = fakePage(memoryStorage().localStorage);

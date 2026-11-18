@@ -28,6 +28,18 @@
     <span class="muted small sub" id="buildTargetSub">The hub runs <code>.kickflip/build</code> from each task’s branch and from main. Claude wrote it when it set up this board; if builds break, file a task.</span></span>
     <select id="buildTarget" disabled><option value="">Default</option></select></label>
   <p class="muted small" id="buildTargetStatus" role="status"></p>
+  <h2>Scripts</h2>
+  <p class="muted small">Where the build and release scripts live.</p>
+  <div class="tk-seg" id="scriptsSource" role="group" aria-label="Scripts source">
+    <button type="button" data-scripts-source="repo" aria-pressed="false" disabled><span>Repo</span><span class="small sub">The repo’s <code>.kickflip/</code>, from each task’s branch.</span></button>
+    <button type="button" data-scripts-source="kickflip" aria-pressed="false" disabled><span>Kickflip</span><span class="small sub">One copy, kept here, for every task and main.</span></button>
+  </div>
+  <p class="muted small" id="scriptsSourceStatus" role="status"></p>
+  <div id="scriptsBoxes" hidden>
+    <div id="scriptsList"></div>
+    <form id="scriptAdd" class="row script-add"><label class="muted small" for="scriptTarget">build-</label><input id="scriptTarget" placeholder="target" autocomplete="off" spellcheck="false"><button type="submit">Add build target</button></form>
+    <p class="muted small" id="scriptAddStatus" role="status"></p>
+  </div>
   <h2>Tickets</h2>
   <p class="muted small">Every task on this board has a ticket from here. A new task gets a new ticket unless you name one.</p>
   <form id="ticketsForm" class="tk-section"><div id="boardTickets">Loading…</div></form>
@@ -475,7 +487,7 @@
     const autoMerge = $('#autoMerge');
     const autoMergeStatus = $('#autoMergeStatus');
     const savedCaps = {};
-    let buildTarget = null, buildTargets = null;
+    let buildTarget = null, buildTargets = null, scriptsSource = null;
     // Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): the hub's duration
     // picker (hub-kit.js) with the Block sheet's chips, Forever included, posting {pause} to api/pause at once. A Forever
     // pause lasts until Resume.
@@ -533,6 +545,7 @@
       $('#autoBuild').checked = d.settings?.auto_build === true;
       $('#autoBuild').disabled = false;
       buildTarget = d.settings?.build_target || '';
+      scriptsSource = d.settings?.scripts || 'repo';
       showBuildTargets();
       for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxServes', 'max_serves'], ['maxLandTests', 'max_land_tests']]) {
         $(`#${id}`).value = savedCaps[key] = String(d.settings?.[key]);
@@ -581,13 +594,19 @@
     // Build target lists the repo's .kickflip/build-* scripts at main's tip and saves a pick at once, null for the
     // default .kickflip/build (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
     // A saved target the tip no longer has stays listed, marked, so the picker shows what the hub runs.
-    const buildScriptOf = (target) => (target ? `.kickflip/build-${target}` : '.kickflip/build');
-    const buildTargetSub = (target) => `The hub runs <code>${esc(buildScriptOf(target))}</code> from each task’s branch and from main. Claude wrote it when it set up this board; if builds break, file a task.`;
+    // A board whose scripts are in kickflip lists and runs its site's scripts/build-* instead
+    // (docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md).
+    const buildNameOf = (target) => (target ? `build-${target}` : 'build');
+    const buildScriptOf = (target) => (scriptsSource === 'kickflip' ? `kickflip’s ${buildNameOf(target)}` : `.kickflip/${buildNameOf(target)}`);
+    const buildTargetSub = (target) => (scriptsSource === 'kickflip'
+      ? `The hub runs kickflip’s <code>${esc(buildNameOf(target))}</code> for each task and for main. Edit it under Scripts.`
+      : `The hub runs <code>${esc(buildScriptOf(target))}</code> from each task’s branch and from main. Claude wrote it when it set up this board; if builds break, file a task.`);
     const showBuildTargets = () => {
       if (buildTarget === null || buildTargets === null) return;
       const select = $('#buildTarget');
       const names = buildTargets.includes(buildTarget) || !buildTarget ? buildTargets : [...buildTargets, buildTarget];
-      select.innerHTML = [['', 'Default'], ...names.map((t) => [t, buildTargets.includes(t) ? t : `${t} (not on main)`])]
+      const missing = scriptsSource === 'kickflip' ? 'not in kickflip' : 'not on main';
+      select.innerHTML = [['', 'Default'], ...names.map((t) => [t, buildTargets.includes(t) ? t : `${t} (${missing})`])]
         .map(([value, label]) => `<option value="${esc(value)}"${value && value === buildTarget ? ' selected' : ''}>${esc(label)}</option>`).join('');
       select.value = buildTarget;
       select.disabled = false;
@@ -613,6 +632,117 @@
         select.value = buildTarget;
         $('#buildTargetStatus').textContent = e.message || 'Could not save. Is the host awake?';
       }
+    });
+
+    // Scripts (docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md): a tap on Repo or Kickflip
+    // saves the source at once through POST api/settings {scripts}. Repo shows while main has any of the board's
+    // scripts or the board runs them from the repo. While the source is kickflip, each of its scripts is a code box whose
+    // Save replaces the file through POST api/scripts; Add build target opens an empty box for build-<target>, which the
+    // server keeps once saved. An unsaved box marks #scriptsList [data-dirty]. A source move or a save lists the build
+    // targets and Run release script's switch again, since both follow the source's scripts.
+    let scriptsView = null;
+    const scriptDrafts = new Map();
+    // As the server's kickflipScripts sorts (shared/a-to-z.mjs).
+    const scriptOrder = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+    const scriptSources = () => ['repo', 'kickflip'].map((value) => $(`[data-scripts-source="${value}"]`));
+    const savedText = (name) => scriptsView.scripts.find((s) => s.name === name)?.text ?? '';
+    const scriptNames = () => {
+      const added = [...scriptDrafts.keys()].filter((name) => !scriptsView.scripts.some((s) => s.name === name));
+      const builds = [...scriptsView.scripts.map((s) => s.name), ...added].filter((name) => name.startsWith('build-')).sort(scriptOrder.compare);
+      return ['build', ...new Set(builds), 'release'];
+    };
+    const markScriptsDirty = () => {
+      const dirty = [...scriptDrafts].some(([name, text]) => text !== savedText(name));
+      if (dirty) $('#scriptsList').setAttribute('data-dirty', ''); else $('#scriptsList').removeAttribute('data-dirty');
+    };
+    const showScripts = () => {
+      if (!scriptsView || scriptsSource === null) return;
+      for (const button of scriptSources()) {
+        button.disabled = false;
+        button.setAttribute('aria-pressed', String(button.dataset.scriptsSource === scriptsSource));
+      }
+      $('[data-scripts-source="repo"]').hidden = !scriptsView.repo.length && scriptsSource !== 'repo';
+      $('#scriptsBoxes').hidden = scriptsSource !== 'kickflip';
+      const list = $('#scriptsList');
+      list.innerHTML = scriptNames().map((name) => `<div class="script-box"><label class="small" for="script-${esc(name)}"><code>${esc(name)}</code></label>
+        <textarea id="script-${esc(name)}" rows="8" spellcheck="false" autocomplete="off" data-script="${esc(name)}"></textarea>
+        <div class="row"><button type="button" data-script-save="${esc(name)}" disabled>Save</button></div>
+        <p class="muted small" id="script-${esc(name)}Status" role="status"></p></div>`).join('');
+      for (const name of scriptNames()) {
+        const text = scriptDrafts.get(name) ?? savedText(name);
+        $(`[data-script="${name}"]`).value = text;
+        $(`[data-script-save="${name}"]`).disabled = text === savedText(name);
+      }
+      markScriptsDirty();
+    };
+    const savedWords = (name) => (name === 'release' ? 'Saved. The next release task’s land runs it.'
+      : name === buildNameOf(buildTarget) ? 'Saved. Main rebuilds with it; each task takes it from its next build.' : 'Saved. Pick it under Build target to run it.');
+    const reloadPermissions = () => get(site.url('api/permissions')).then(({ ok, body }) => { if (ok && B.alive()) drawPermissions(body); }, () => {});
+    const scriptsChanged = () => { loadBuildTargets(); reloadPermissions(); };
+    get(site.url('api/scripts')).then(({ ok, body }) => {
+      if (!B.alive()) return;
+      if (!ok) { $('#scriptsSourceStatus').textContent = body.error || 'Could not read the scripts.'; return; }
+      scriptsView = body;
+      scriptsSource ??= body.source;
+      showScripts();
+    }).catch(() => { if (B.alive()) $('#scriptsSourceStatus').textContent = 'Could not read the scripts. Is the host awake?'; });
+    for (const button of scriptSources()) B.on(button, 'click', async () => {
+      const want = button.dataset.scriptsSource;
+      if (want === scriptsSource) return;
+      try {
+        const settings = await saveToggle(button, { scripts: want }, { group: scriptSources() });
+        if (!B.alive()) return;
+        scriptsSource = settings.scripts || 'repo';
+        showScripts();
+        showBuildTargets();
+        scriptsChanged();
+        $('#scriptsSourceStatus').textContent = scriptsSource === 'kickflip' ? 'Saved. The hub runs kickflip’s scripts for each task and main.'
+          : 'Saved. The hub runs the repo’s .kickflip/ scripts for each task and main.';
+      } catch (e) {
+        if (B.alive()) $('#scriptsSourceStatus').textContent = e.message || 'Could not save. Is the host awake?';
+      }
+    });
+    B.on($('#scriptsList'), 'input', (e) => {
+      const box = e.target.closest?.('textarea[data-script]');
+      if (!box) return;
+      const name = box.dataset.script;
+      scriptDrafts.set(name, box.value);
+      $(`[data-script-save="${name}"]`).disabled = box.value === savedText(name);
+      markScriptsDirty();
+    });
+    B.on($('#scriptsList'), 'click', async (e) => {
+      const button = e.target.closest?.('[data-script-save]');
+      if (!button) return;
+      const name = button.dataset.scriptSave;
+      const text = $(`[data-script="${name}"]`).value;
+      try {
+        const out = await BoardUI.waitOn(button, (async () => {
+          const r = await fetch(site.url('api/scripts'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, text }) });
+          const body = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(body.error);
+          return body;
+        })());
+        if (!B.alive()) return;
+        scriptsView = out;
+        if (scriptDrafts.get(name) === text) scriptDrafts.delete(name);
+        showScripts();
+        scriptsChanged();
+        $(`[id="script-${name}Status"]`).textContent = savedWords(name);
+      } catch (err) {
+        if (B.alive()) $(`[id="script-${name}Status"]`).textContent = err.message || 'Could not save. Is the host awake?';
+      }
+    });
+    B.on($('#scriptAdd'), 'submit', (e) => {
+      e.preventDefault?.();
+      const input = $('#scriptTarget');
+      const target = input.value.trim();
+      if (!/^[A-Za-z0-9][\w.-]{0,63}$/.test(target)) { $('#scriptAddStatus').textContent = 'A target is letters, digits, “.”, “_” or “-”.'; return; }
+      $('#scriptAddStatus').textContent = '';
+      input.value = '';
+      const name = `build-${target}`;
+      if (!scriptNames().includes(name)) scriptDrafts.set(name, '');
+      showScripts();
+      $(`[data-script="${name}"]`).focus?.();
     });
 
     B.on($('#autoBuild'), 'change', async () => {

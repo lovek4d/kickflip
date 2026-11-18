@@ -268,6 +268,11 @@
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices,
 //                                builders: Board Settings' Builders control, shared/model-views.mjs buildersView}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets), or in its site's scripts/ while its scripts are in kickflip
+//   GET  /api/scripts            {source: repo | kickflip, repo: [name], scripts: [{name, text}]}: where the board's scripts live, the
+//                                executable .kickflip/ scripts at its main tip (build-script.mjs listRepoScripts) and its
+//                                site's scripts/ build, each build-<target> and release (kickflipScripts, '' for one not written); 404 off the manifest
+//   POST /api/scripts            {name, text} → replaces the site's scripts/<name> (writeScript), waking no session. → the same
+//                                answer; a bad name or empty text → 400 {error}
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (settings.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
@@ -377,7 +382,7 @@ import { readUsageGate, heldFor, tasksInProgressCap, pauseReasonFor, pausedWords
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
-import { listBuildTargets, listKickflipTargets } from './build-script.mjs';
+import { kickflipScripts, listBuildTargets, listKickflipTargets, listRepoScripts, scriptsOf, writeScript } from './build-script.mjs';
 import { diedRuns, logTail, logsDir, readRunnerPid, scriptLogName } from './scripts.mjs';
 import { reviewerPeople } from './reviewer-people.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
@@ -1220,6 +1225,19 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const source = boardRepo(self.route);
         // A board whose scripts are in kickflip offers its site's scripts/build-<target> (build-script.mjs listKickflipTargets).
         return json(res, 200, { targets: self.scripts === 'kickflip' ? listKickflipTargets(here) : await listBuildTargets(source.repo, mainRefOf(source)) });
+      }
+      // Board Settings' Scripts (docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md): the
+      // source, the repo's scripts at main, which show the Repo choice, and kickflip's scripts, each a code box whose
+      // Save replaces the file (build-script.mjs writeScript).
+      if (p === '/api/scripts' && (req.method === 'GET' || req.method === 'POST')) {
+        const self = boardAt(here);
+        if (!self) return json(res, 404, { error: 'This board isn’t in the hub’s manifest.' });
+        if (req.method === 'POST') {
+          const body = await readBody(req);
+          try { writeScript(here, body?.name, body?.text); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        }
+        const source = boardRepo(self.route);
+        return json(res, 200, { source: scriptsOf(here).scripts, repo: await listRepoScripts(source.repo, mainRefOf(source)), scripts: kickflipScripts(here) });
       }
       if (p === '/api/pause' && req.method === 'POST') {
         const body = await readBody(req);

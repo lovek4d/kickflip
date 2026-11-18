@@ -781,6 +781,11 @@ main > * { transition: opacity .25s ease; }
 .view-settings .add input { flex: 1; min-width: 0; }
 .view-settings .add.pick { flex-direction: column; }
 .view-settings .share-now { color: var(--ok); font-weight: 600; }
+/* Scripts: a code box per kickflip-held script, its Save below it. */
+.view-settings .script-box { display: grid; gap: 6px; margin-bottom: 12px; }
+.view-settings .script-box textarea { width: 100%; resize: vertical; tab-size: 2; white-space: pre; overflow-x: auto; font-family: ui-monospace, Menlo, monospace; line-height: 1.45; }
+.view-settings .script-add { display: flex; align-items: center; gap: 6px; }
+.view-settings .script-add input { flex: 1; min-width: 0; }
 .view-settings .share-level { display: flex; gap: 4px; margin-top: 6px; }
 .view-settings .share-level button { min-height: 32px; padding: 4px 12px; font-size: 13px; }
 .view-settings .share-level button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
