@@ -78,6 +78,7 @@ BoardView.part((B) => {
   // The chain banner while a card's Linked narrows the board (app-search.js linkedTo): the hub's hold banner
   // (hub.css .hold-banner), in blue as information, reading Linked to the card and the depth, its × ending it.
   const X = svg('<path d="M18 6 6 18M6 6l12 12"/>', 16);
+  const FILTER = svg('<path d="M22 3H2l8 9.46V19l4 2v-8.54z"/>', 16);
   function renderLinked() {
     const el = $('#linkedBanner');
     const linked = B.linkedTo();
@@ -89,5 +90,20 @@ BoardView.part((B) => {
       + `<button type="button" class="btn quiet" data-linked-end aria-label="Show every card" title="Show every card (Esc)">${X}</button></div>`);
   }
 
-  Object.assign(B, { renderBanner, renderStart, renderLinked });
+  // docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md
+  // The filter banner while any filter box is unchecked: the chain banner's style, under it when a chain is on too,
+  // reading the checked boxes' names and how many of the board's cards the filter hides, its × resetting the filter.
+  function renderFilterBanner() {
+    const el = $('#filterBanner');
+    const off = state.boardFilter;
+    el.hidden = !off.length;
+    if (!off.length) { BoardUI.setHTML(el, ''); return; }
+    const showing = BoardUI.FILTER_BOXES.filter((box) => !off.includes(box.id)).map((box) => box.name);
+    const hidden = state.board.items.filter((it) => !it.isNew && BoardUI.filterHides(it, off)).length;
+    BoardUI.setHTML(el, `<div class="hold-banner linked" role="status">${FILTER}<span>Showing <b>${esc(showing.join(', ') || 'nothing')}</b> · ${hidden} hidden</span>`
+      + `<button type="button" class="btn quiet" data-filter-end aria-label="Reset the filter" title="Reset the filter">${X}</button></div>`);
+  }
+  B.on(B.root, 'click', (ev) => { if (ev.target.closest?.('[data-filter-end]')) B.clearFilter(); });
+
+  Object.assign(B, { renderBanner, renderStart, renderLinked, renderFilterBanner });
 });

@@ -5552,7 +5552,9 @@ function flowOut(b, sizes = new Map()) {
 
 // docs/adr/2026-11-16-0916-the-topmost-card-on-screen-stays-put-through-any-reorder-or-resize.md
 test("the topmost card on screen keeps its place through a filter change, a card below it changing lane, a size change above it and a card above it collapsing, and the page follows the only card on screen when it moves", async () => {
-  const cards = [askCard('r1', 'review'), askCard('p1', 'progress'), askCard('p2', 'progress'), workCard('D1', { phase: 'discussing', blocked: true }), workCard('R1', { phase: 'ready', ready: true }), workCard('R2', { phase: 'ready', ready: true })];
+  // Each card has an action, so the filter's Action needed box keeps it on the board.
+  const actedCard = (id, lane) => ({ ...askCard(id, lane), action: { kind: 'merge', label: 'Merge', url: '#' } });
+  const cards = [actedCard('r1', 'review'), actedCard('p1', 'progress'), actedCard('p2', 'progress'), workCard('D1', { phase: 'discussing', blocked: true }), workCard('R1', { phase: 'ready', ready: true }), workCard('R2', { phase: 'ready', ready: true })];
   const b = boardOnDom({ open: ['w/r1'], board: boardOf(cards), threads: {} });
   await b.settle();
   const sizes = new Map();
@@ -5574,7 +5576,7 @@ test("the topmost card on screen keeps its place through a filter change, a card
   // A card below the top one changes lane, and one above it does: the top card holds.
   scrollTo('p1');
   at = top('p1');
-  await b.change({ board: boardOf([askCard('r1', 'review'), askCard('p2', 'review'), askCard('p1', 'progress'), cards[3], cards[4], cards[5]]) });
+  await b.change({ board: boardOf([actedCard('r1', 'review'), actedCard('p2', 'review'), actedCard('p1', 'progress'), cards[3], cards[4], cards[5]]) });
   assert.equal(top('p1'), at, 'a card below it changing lane');
 
   // A size change above the top card outside a render, such as an image loading in the open card above it.
@@ -5600,7 +5602,7 @@ test("the topmost card on screen keeps its place through a filter change, a card
   b.page.win.innerHeight = 3;
   scrollTo('p1');
   at = top('p1');
-  await b.change({ board: boardOf([askCard('r1', 'review'), askCard('p2', 'review'), askCard('p1', 'todo'), cards[3], cards[4], cards[5]]) });
+  await b.change({ board: boardOf([actedCard('r1', 'review'), actedCard('p2', 'review'), actedCard('p1', 'todo'), cards[3], cards[4], cards[5]]) });
   assert.equal(card('p1').closest('details.lane').dataset.lane, 'todo');
   assert.equal(top('p1'), at, 'the only card on screen moving');
 });
@@ -5859,7 +5861,7 @@ test("a link to a question this copy of the board predates reloads the board onc
   assert.equal(v.view.B.focusQuestion('gone'), false);
   await v.settle();
   assert.equal(v.view.B.focusQuestion('gone'), true, 'the new copy lacks it too');
-  assert.equal(JSON.stringify(v.view.B.state.boardFilter), JSON.stringify(['ready', 'action', 'blocked']));
+  assert.equal(JSON.stringify(v.view.B.state.boardFilter), JSON.stringify(['action', 'ready', 'blocked']));
   v.unmount();
 });
 
@@ -7383,10 +7385,10 @@ test("from 900px the pane sits beside the lanes with a drag seam and, under any 
   const chips = () => pane.querySelectorAll('.pane-chip').map((c) => [c.dataset.paneShow, c.textContent, c.classList.contains('notice') ? 'orange' : c.classList.contains('info') ? 'blue' : c.classList.contains('success') ? 'green' : '']);
   assert.equal(pane.getAttribute('aria-label'), 'Pane');
   assert.deepEqual([pane.querySelector('.pane-landing h2').textContent, pane.querySelector('.pane-landing p').textContent], ['Shop <board>', 'Open a card to see it here']);
-  assert.deepEqual(chips(), [['action', '2 need you', 'orange'], ['questions', '1 questions', 'blue'], ['ready', '3 ready', 'green']], 'a New entry counts in no chip');
+  assert.deepEqual(chips(), [['action', '2 Action needed', 'orange'], ['questions', '1 Open questions', 'blue'], ['ready', '3 Ready', 'green'], ['blocked', '0 Blocked', 'orange']], 'a New entry counts in no chip; Blocked is a chip too');
   assert.ok(wide.root.querySelector('.split > .col-handle[data-col="pane"]'), 'the seam between the lanes and the pane drags');
   await wide.change({ board: { ...board, items: items.filter((it) => it.key !== 'w/R3'), version: 'v2' } });
-  assert.deepEqual(chips()[2], ['ready', '2 ready', 'green'], "the lanes' next load repaints the chips");
+  assert.deepEqual(chips()[2], ['ready', '2 Ready', 'green'], "the lanes' next load repaints the chips");
   const narrow = boardOnDom({ board, threads: {} });
   await narrow.settle();
   assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /^\.board-pane \{ display: none; \}$/m, 'a phone shows no pane: it shows only from 900px');
@@ -7407,6 +7409,7 @@ test("a landing chip shows only its box's cards, unchecking every other box of t
   wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('[data-pane-show="ready"]') });
   await wide.settle();
   assert.deepEqual([shown(), JSON.stringify(wide.view.B.state.boardFilter)], [['w/R1'], JSON.stringify(['action', 'questions', 'blocked'])]);
+  assert.equal(wide.root.querySelector('#filterBanner').textContent.trim(), 'Showing Ready · 2 hidden');
   wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('[data-pane-show="questions"]') });
   await wide.settle();
   assert.deepEqual(shown(), ['w/Q1']);
@@ -7479,10 +7482,13 @@ test("a glance lane line opens its lane if shut and scrolls the board to it, its
   const wide = boardOnDom({ board, threads: {}, width: 1280, filter: ['ready'] });
   await wide.settle();
   const g = glanceOf(wide.root);
-  assert.equal(g.lanes.find((l) => l[0] === 'todo')[3], '2 of 4', "the filter hides two ready cards, as Todo's header says");
-  assert.equal(wide.root.querySelector('details.lane[data-lane="todo"] .count').textContent, '2 of 4');
+  assert.equal(g.lanes.find((l) => l[0] === 'todo')[3], '1 of 4', "only the blocked card matches a checked box, as Todo's header says");
+  assert.equal(wide.root.querySelector('details.lane[data-lane="todo"] .count').textContent, '1 of 4');
   assert.equal(g.building.length, 7);
   assert.deepEqual(g.building[6], ['progress', '', '+2 more in In Progress', '']);
+  // The rows below select cards the filter hides, so it is cleared first.
+  wide.view.B.clearFilter();
+  await wide.settle();
   const scrolled = [];
   wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.lane || this.dataset.key); };
   const done = () => wide.root.querySelector('details.lane[data-lane="done"]');
@@ -7559,7 +7565,7 @@ test("focusQuestion waits for the board, then opens a card's question or topic o
   assert.equal(wide.root.querySelector('details.item[data-key="w/B"]').open, true, 'a replay of the URL stays on B');
   assert.equal(JSON.stringify(wide.view.B.state.boardFilter), '[]', 'a card question leaves the filter alone');
   assert.equal(wide.view.B.focusQuestion(null), true);
-  assert.equal(JSON.stringify(wide.view.B.state.boardFilter), JSON.stringify(['ready', 'action', 'blocked']));
+  assert.equal(JSON.stringify(wide.view.B.state.boardFilter), JSON.stringify(['action', 'ready', 'blocked']));
   wide.view.unmount();
 });
 
@@ -8414,21 +8420,27 @@ test("the header's board filter lists four boxes, all checked; an unchecked box 
   assert.equal(b.root.querySelector('.lane-filter'), null, 'the Todo lane has no filter of its own');
   await tap(btn());
   assert.deepEqual(b.root.querySelectorAll('[data-board-filter]').map((el) => [el.textContent, el.getAttribute('aria-checked')]),
-    [['Ready', 'true'], ['Action needed', 'true'], ['Questions', 'true'], ['Blocked', 'true']]);
+    [['Action needed', 'true'], ['Open questions', 'true'], ['Ready', 'true'], ['Blocked', 'true']]);
+  const banner = () => { const el = b.root.querySelector('#filterBanner'); return el.hidden ? null : el.textContent.trim(); };
+  assert.equal(banner(), null);
   await pick('blocked');
-  assert.deepEqual(keys(), all.filter((k) => !['B1', 'H1'].includes(k)), 'Blocked hides the owner blocked too');
-  assert.deepEqual([btn().classList.contains('on'), todoCount()], [true, '7 of 9']);
+  assert.deepEqual(keys(), ['M1', 'Q1', 'R1', 'R2'], 'with Blocked unchecked only cards a checked box matches show, in every lane');
+  assert.deepEqual([btn().classList.contains('on'), todoCount(), banner()], [true, '3 of 9', 'Showing Action needed, Open questions, Ready · 7 hidden']);
   await pick('blocked');
   await pick('ready');
-  assert.deepEqual(keys(), all.filter((k) => !['R1', 'R2'].includes(k)), 'a blocked ready card is hidden only by Blocked');
+  assert.deepEqual(keys(), ['B1', 'H1', 'M1', 'Q1'], 'a blocked ready card is Blocked, not Ready');
   await pick('ready');
   await pick('questions');
-  assert.deepEqual(keys(), all.filter((k) => k !== 'Q1'));
+  assert.deepEqual(keys(), ['B1', 'H1', 'M1', 'R1', 'R2']);
   await pick('questions');
   await pick('action');
-  assert.deepEqual(keys(), all.filter((k) => k !== 'M1'), 'Action needed reaches past Todo');
+  assert.deepEqual(keys(), ['B1', 'H1', 'Q1', 'R1', 'R2'], 'Action needed reaches past Todo');
   await pick('action');
-  assert.deepEqual([keys(), btn().classList.contains('on'), todoCount()], [all, false, '9']);
+  assert.deepEqual([keys(), btn().classList.contains('on'), todoCount(), banner()], [all, false, '9', null]);
+  await pick('blocked');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#filterBanner [data-filter-end]') });
+  await b.settle();
+  assert.deepEqual([keys(), banner(), JSON.stringify(b.view.B.state.boardFilter)], [all, null, '[]'], "the banner's × resets the filter");
   b.view.unmount();
 });
 
@@ -9188,6 +9200,20 @@ test('a card\'s "…" opens its menu: Bump or Unbump when it can be bumped, Link
   await b.open('T-598');
   const esc = await b.press('Escape');
   assert.deepEqual([b.items(), esc.defaultPrevented, b.banner()], [null, true, null]);
+  b.view.unmount();
+});
+
+test("a filter and a chain together show two stacked banners, the filter's under the chain's, each with its own ×", async () => {
+  const b = linkedOnDom();
+  await b.settle();
+  await b.choose('T-594', 'Linked · 1 hop');
+  b.view.B.showOnly(['ready']);
+  await b.settle();
+  const els = b.root.querySelectorAll('#linkedBanner, #filterBanner');
+  assert.deepEqual(els.map((el) => [el.id, el.hidden]), [['linkedBanner', false], ['filterBanner', false]]);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#filterBanner [data-filter-end]') });
+  await b.settle();
+  assert.deepEqual([b.banner(), b.root.querySelector('#filterBanner').hidden], ['Linked to T-594 · 1 hop', true], 'ending the filter leaves the chain');
   b.view.unmount();
 });
 

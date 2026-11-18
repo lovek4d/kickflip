@@ -9,14 +9,13 @@ BoardView.part((B) => {
   const { $, state } = B;
   const { esc } = BoardUI;
 
-  // The chips in order: the filter box each shows and its words, coloured by AGENTS.md's priority.
+  // The chips are the filter's boxes, in its order and with its names (ui-cards.js FILTER_BOXES), coloured by AGENTS.md's priority.
   // A chip glows in its tone while the board's filter shows only its box; a tap on it then clears the filter.
-  const CHIPS = [['action', 'need you', 'notice'], ['questions', 'questions', 'info'], ['ready', 'ready', 'success']];
   // d: the board; items: its cards as the lanes draw them.
   function renderPane(d, items) {
     const cards = items.filter((it) => !it.isNew);
     const counts = BoardUI.filterCounts(cards);
-    const chips = CHIPS.map(([id, words, tone]) => `<button type="button" class="pane-chip ${tone}${B.showsOnly(id) ? ' on' : ''}" aria-pressed="${B.showsOnly(id)}" data-pane-show="${id}"><b>${counts[id]}</b> ${words}</button>`).join('');
+    const chips = BoardUI.FILTER_BOXES.map(({ id, name, tone }) => `<button type="button" class="pane-chip ${tone}${B.showsOnly(id) ? ' on' : ''}" aria-pressed="${B.showsOnly(id)}" data-pane-show="${id}"><b>${counts[id]}</b> ${name}</button>`).join('');
     BoardUI.setHTML($('#boardPane'), `<div class="pane-landing"><h2>${esc(d.title || '')}</h2><p>Open a card to see it here</p><div class="pane-chips">${chips}</div>${glanceHtml(d, cards)}</div>`);
   }
 

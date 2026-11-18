@@ -26,8 +26,8 @@ const CARDS = [
 ];
 const shown = (off) => CARDS.filter((it) => !filterHides(it, off)).map((it) => it.key).join('');
 
-test('the filter has four boxes in order: Ready, Action needed, Questions, Blocked', () => {
-  assert.deepEqual([...FILTER_BOXES.map((b) => b.name)], ['Ready', 'Action needed', 'Questions', 'Blocked']);
+test('the filter has four boxes in order: Action needed, Open questions, Ready, Blocked', () => {
+  assert.deepEqual([...FILTER_BOXES.map((b) => b.name)], ['Action needed', 'Open questions', 'Ready', 'Blocked']);
 });
 
 test('each box matches its cards, a card matching several or none: Ready only in Todo', () => {
@@ -38,17 +38,17 @@ test('each box matches its cards, a card matching several or none: Ready only in
   assert.equal(of('blocked'), 'B');
 });
 
-test('all boxes checked hides nothing; each unchecked box hides every card it matches, whatever else it matches', () => {
+test('all boxes checked hides nothing; with any unchecked a card shows only if a checked box matches it, in every lane', () => {
   assert.equal(shown([]), 'RSDGPBAMWX');
-  assert.equal(shown(['blocked']), 'RSDGPAMWX');
-  assert.equal(shown(['questions']), 'RSDBMWX', 'a question card hides');
-  assert.equal(shown(['action', 'ready']), 'DGPBAWX');
+  assert.equal(shown(['blocked']), 'RSGPAM', 'cards no checked box matches hide, in every lane');
+  assert.equal(shown(['questions']), 'RSBM');
+  assert.equal(shown(['action', 'ready']), 'GPBA');
 });
 
-test('showing only some boxes unchecks every other; the cards no box matches stay', () => {
-  assert.deepEqual([...filterOnly(['questions'])], ['ready', 'action', 'blocked']);
+test('showing only some boxes unchecks every other; only cards matching a shown box stay', () => {
+  assert.deepEqual([...filterOnly(['questions'])], ['action', 'ready', 'blocked']);
   assert.deepEqual([...filterOnly(['action', 'questions'])], ['ready', 'blocked']);
-  assert.equal(shown(filterOnly(['action'])), 'DMWX', 'the staging card is also Ready, so it hides; a discussing card no box matches stays');
+  assert.equal(shown(filterOnly(['ready'])), 'RS', 'In Progress, In Review and Done cards hide');
 });
 
 test('the counts are each box matches across the cards', () => {

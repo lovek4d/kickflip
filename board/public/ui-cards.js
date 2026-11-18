@@ -46,18 +46,20 @@
   // A task matches on its title, key and ticket.
   const cardMatches = (it, words) => matchesWords(words, [it.title, it.ref, it.id, it.ticket?.id, ...(it.linear || []).map((l) => l.id)]);
   // The board filter's boxes, in the menu's order (docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md).
-  // Each names the cards it matches, and a card may match several or none: Ready a Todo card by its phase, Action needed a card with an owner action other than its
-  // questions, Questions a card with open questions, Blocked any blocked card.
+  // The pane's chips use the same list and names. Each names the cards it matches, and a card may match several or none:
+  // Action needed a card with an owner action other than its questions, Open questions a card with open questions, Ready
+  // a Todo card by its phase, Blocked any blocked card. tone colours its chip.
   const ASKS = new Set([ACTION_KIND.questions, ACTION_KIND.pick]);
   const hasOpenQuestions = (it) => ASKS.has(it.action?.kind) || (it.questions?.state !== 'resolved' && it.questions?.open > 0);
   const FILTER_BOXES = Object.freeze([
-    { id: 'ready', name: 'Ready', matches: (it) => it.lane === 'todo' && ['ready', 'staging'].includes(it.phase) && !it.blocked },
-    { id: 'action', name: 'Action needed', matches: (it) => Boolean(it.action) && !ASKS.has(it.action.kind) },
-    { id: 'questions', name: 'Questions', matches: hasOpenQuestions },
-    { id: 'blocked', name: 'Blocked', matches: (it) => Boolean(it.blocked) },
+    { id: 'action', name: 'Action needed', tone: 'notice', matches: (it) => Boolean(it.action) && !ASKS.has(it.action.kind) },
+    { id: 'questions', name: 'Open questions', tone: 'info', matches: hasOpenQuestions },
+    { id: 'ready', name: 'Ready', tone: 'success', matches: (it) => it.lane === 'todo' && ['ready', 'staging'].includes(it.phase) && !it.blocked },
+    { id: 'blocked', name: 'Blocked', tone: 'notice', matches: (it) => Boolean(it.blocked) },
   ]);
-  // off: the unchecked boxes' ids. A card hides when any unchecked box matches it (the owner's "hide x").
-  const filterHides = (it, off) => FILTER_BOXES.some((box) => off.includes(box.id) && box.matches(it));
+  // off: the unchecked boxes' ids. With none unchecked every card shows; otherwise a card shows only when a checked box
+  // matches it, in every lane, so a card no box matches hides.
+  const filterHides = (it, off) => off.length > 0 && !FILTER_BOXES.some((box) => !off.includes(box.id) && box.matches(it));
   // The ids to uncheck so the filter shows what the boxes ids name: every other box.
   const filterOnly = (ids) => FILTER_BOXES.map((box) => box.id).filter((id) => !ids.includes(id));
   // How many of items each box matches, by id.

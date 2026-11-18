@@ -145,8 +145,8 @@ BoardView.part((B) => {
 
   // docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md
   // The board filter: the header's funnel, beside search, opens its menu of boxes (ui-cards.js FILTER_BOXES), all
-  // checked until the owner unchecks one. An unchecked box hides every card it matches, in every lane, boxes
-  // overlapping. The funnel has no count: it turns orange and fills in while any box is unchecked. The unchecked boxes
+  // checked until the owner unchecks one. With any box unchecked only the cards matching a checked box show, in every
+  // lane (a card no box matches hides), and a banner (app-banner.js renderFilterBanner) says so. The funnel has no count: it turns orange and fills in while any box is unchecked. The unchecked boxes
   // are kept until reload (state.boardFilter, which the board's place carries to another board and back); the menu's
   // open state is in memory.
   const FUNNEL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>';
@@ -208,7 +208,7 @@ BoardView.part((B) => {
     const done = laneId === 'done';
     const cards = (done ? doneCards(d, all) : all).filter((it) => !hiddenByFilter(it) && (!chain || chain.has(it.key)) && (!words.length || BoardUI.cardMatches(it, words)));
     const total = done ? doneCount(d, all) : all.length;
-    const narrowed = words.length > 0 || chain !== null;
+    const narrowed = words.length > 0 || chain !== null || unchecked().length > 0;
     return { cards, count: narrowed || (!done && cards.length < all.length) ? `${cards.length} of ${total}` : `${total}` };
   }
   function lanesHtml(d, shown) {
