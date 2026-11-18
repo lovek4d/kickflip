@@ -20,10 +20,10 @@
 // to call when a send got no answer at all
 // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md); toast(text); siteRoot, where its attachments upload; store,
 // the board's own keys, which hold the answer outbox; changed(entry, sent) after an answer outbox entry changes, sent
-// once the board has it; on, atUnmount and alive, the view's own.
+// once the board has it; fetchResolved(topic) the topic's resolved questions, as GET api/questions answers; on, atUnmount and alive, the view's own.
 // The answer outbox entries in flight, by sendId, so none is sent twice at once.
 const answersInFlight = new Set();
-globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, online, unreachable, toast, on, atUnmount, alive, store, changed = () => {}, siteRoot }) => {
+globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, online, unreachable, toast, on, atUnmount, alive, store, changed = () => {}, siteRoot, fetchResolved }) => {
   const { esc, time, questionCard, getDraft, setDraft, noteOf, choiceOf, linkContext, ANSWER_OUTBOX, idsOf, answerBox } = BoardUI;
   const body = sheet.querySelector('.reader-body');
   let topic = null;
@@ -38,8 +38,12 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   const keyOf = (id) => (id?.startsWith('item:') ? id.slice(5) : null);
   // The topic a question or topic id names on the board shown, else null.
   const topicOf = (id) => board()?.owner.find((q) => q.id === id)?.topic ?? (board()?.ownerTopics.some((t) => t.id === id) ? id : null);
-  const openOf = () => board().owner.filter((q) => q.topic === topic && q.state === 'open');
-  const shownOf = () => board().owner.filter((q) => q.topic === topic && (q.state === 'open' || kept.has(q.id)));
+  // The board download leaves resolved questions out (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md),
+  // so a topic with every question resolved is fetched when the sheet opens on it and held until the sheet closes.
+  let fetched = null;
+  const questionsOf = (t) => [...board().owner.filter((q) => q.topic === t), ...(fetched?.topic === t ? fetched.questions : [])];
+  const openOf = () => questionsOf(topic).filter((q) => q.state === 'open');
+  const shownOf = () => questionsOf(topic).filter((q) => q.state === 'open' || kept.has(q.id));
   // The topic's batches, newest first: each its questions-added line's questions; one no line names comes last, as
   // those do of a line a thread kept from before the lines named their questions.
   function batches() {
@@ -97,7 +101,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   // One question's card drawn again in place, so a box being typed in elsewhere in the sheet keeps its focus.
   function drawOne(id) {
     const sec = body.querySelector(`section.q[data-q="${CSS.escape(id)}"]`);
-    const q = board().owner.find((x) => x.id === id);
+    const q = questionsOf(topic).find((x) => x.id === id);
     if (!sec || !q) return;
     sec.outerHTML = card(q, linkContext(board().items, keyOf(topic), { base: './' }));
     BoardAttach.paintAll();
@@ -125,7 +129,8 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   // id: a question's or a topic's. auto: the sheet follows the opened card (followCard); otherwise the owner opened it,
   // and followCard leaves it. A sheet already open for that topic stays as it is, except that a tap that isn't auto makes
   // it the owner's. → false for one the board doesn't have; for a topic with no open question, false when auto or when
-  // none was ever answered, else the sheet opens on its latest batch, answered.
+  // none was ever answered, else the sheet opens on its latest batch, answered. A topic whose every question is resolved
+  // is fetched first, and the sheet opens on it read-only once it is here.
   function open(id, { auto = false } = {}) {
     const t = topicOf(id);
     if (!t) return false;
@@ -135,10 +140,11 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
       return true;
     }
     const was = topic;
+    const live = questionsOf(t).some((q) => q.state === 'open');
+    const answered = questionsOf(t).filter((q) => q.state !== 'open').map((q) => q.id);
+    if (!live && !auto && !answered.length && board().ownerTopics.find((x) => x.id === t)?.resolved) { loadResolved(t, id); return true; }
+    if (!live && (auto || !answered.length)) return false;
     topic = t;
-    const live = openOf().length > 0;
-    const answered = board().owner.filter((q) => q.topic === t && q.state !== 'open').map((q) => q.id);
-    if (!live && (auto || !answered.length)) { topic = was; return false; }
     autoOpen = auto;
     BoardUI.cutClose(sheet);
     if (t !== was || !sheet.open) {
@@ -150,6 +156,14 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     if (!sheet.open || !auto) BoardUI.openSheet(sheet, { modal });
     draw();
     return true;
+  }
+  async function loadResolved(t, id) {
+    try {
+      const questions = await fetchResolved(t);
+      if (!alive()) return;
+      fetched = { topic: t, questions };
+    } catch { toast('Could not load the answers.'); return; }
+    open(id);
   }
   // From 900px, a card the owner opens opens its questions sheet while none is open or the open one is autoOpen; a card
   // with no open questions closes an autoOpen sheet. → whether a sheet is now showing, so the card's notes stay shut.
@@ -167,7 +181,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     if (sheet.open && autoOpen && topic === `item:${key}`) close();
   }
   function close() {
-    BoardUI.closeSheet(sheet, later, () => { topic = null; });
+    BoardUI.closeSheet(sheet, later, () => { topic = null; fetched = null; });
   }
 
   // Sends the answer outbox in order, one entry at a time, while the board is in reach. Each leaves it once the board has
@@ -317,7 +331,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     if (again) { if (again.hasAttribute('data-resend')) retry(again.dataset.resend); else drop(again.dataset.unsend); return; }
     const request = ev.target.closest?.('section.q [data-proto], section.q [data-grill], section.q [data-visual]');
     if (!request || request.disabled) return;
-    const q = board().owner.find((x) => x.id === request.closest('section.q').dataset.q);
+    const q = questionsOf(topic).find((x) => x.id === request.closest('section.q').dataset.q);
     if (q) ask(q, BoardUI.requestOf(request));
   });
   // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it, when on top.
@@ -351,6 +365,7 @@ BoardView.part((B) => {
   const qs = BoardQuestionsSheet($('#questionsSheet'), {
     board: () => state.board, threads: (key) => state.threadCache.get(key), send: (kind, data, signal) => B.send(kind, data, null, { signal }),
     online: () => state.link === 'online', unreachable: () => B.linkDown(), toast: (text) => B.toast(text),
+    fetchResolved: async (topic) => (await (await fetch(B.site.url('api/questions?topic=' + encodeURIComponent(topic)), { cache: 'no-store' })).json()).questions,
     on: B.on, atUnmount: B.atUnmount, alive: B.alive, store: B.store, changed: (m, sent) => B.answerChanged(m, sent), siteRoot: B.site.root,
   });
   // A card's Questions button or a thread's questions line opens it from its first question. They are buttons, not

@@ -7786,6 +7786,27 @@ test("a card's Questions button opens the sheet on the latest answered batch onc
   }
 });
 
+// docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
+test("a card's Questions button opens the sheet on its resolved questions, fetched by topic and read-only, once the board download holds none", async () => {
+  const resolved = (id) => openQuestion(id, 'item:w/A1', { state: 'resolved', answers: [{ ts: '2026-11-14T11:00:00.000Z', choice: 'A', note: `note ${id}`, files: [] }] });
+  const base = questionsBoard([], []);
+  base.ownerTopics = [{ id: 'item:w/A1', title: 'Topic', state: 'resolved', questions: ['qa', 'qb'], open: 0, answered: 0, resolved: 2 }];
+  const board = { ...base, items: [workCard('A1', { lane: 'progress', actionButton: 'openQuestions', resolvedBy: 'openQuestions', questions: { topic: 'item:w/A1', first: 'qa', open: 0, answered: 0, resolved: 2, state: 'resolved' } })] };
+  for (const width of [390, 1280]) {
+    const s = sheetOnDom({ width, board });
+    await s.settle();
+    const asked = [];
+    s.page.win.fetch = async (url) => { asked.push(url); return { ok: true, status: 200, json: async () => ({ questions: [resolved('qa'), resolved('qb')] }) }; };
+    s.page.fire(s.root, 'click', { target: s.root.querySelector('button.button[data-questions="item:w/A1"]'), button: 0 });
+    await s.settle();
+    assert.deepEqual([s.sheet().open, s.ids()], [true, ['qb']], `${width}px: the latest batch, resolved`);
+    assert.ok(asked.every((u) => u.endsWith('api/questions?topic=item%3Aw%2FA1')) && asked.length === 1, 'fetched by topic');
+    assert.equal(s.sheet().querySelectorAll('section.q input[type="radio"]:not([disabled])').length, 0, 'read-only');
+    assert.match(s.sheet().textContent, /note qb/);
+    s.view.unmount();
+  }
+});
+
 // The cards scroll in the sheet's body and Send sits in a footer under it, its status counting the questions answered.
 test("the questions sheet's Send and status sit in a footer outside its scrolling body, the status counting what is answered", async () => {
   const s = sheetOnDom();
@@ -8249,7 +8270,7 @@ test("a card with prototypes has no Prototypes button: its Questions button open
   const cards = [
     workCard('P1', { actionButton: 'openQuestions', questions: { first: 'q2', open: 1, state: 'open' }, action: { kind: 'pick', url: 'questions.html#q2', label: 'Prototypes ready: pick a take' }, resolvedBy: 'openQuestions',
       prototypes: { open: true, rounds: [round(1, 'q1', 'resolved'), round(2, 'q2', 'open')] } }),
-    workCard('P3', { actionButton: 'openQuestions', lane: 'done', questions: { first: 'q1', open: 0, state: 'resolved' }, prototypes: { open: false, rounds: [round(1, 'q1', 'resolved')] } }),
+    workCard('P3', { actionButton: 'openQuestions', lane: 'done', questions: { topic: 'item:w/P3', first: 'q1', open: 0, state: 'resolved' }, prototypes: { open: false, rounds: [round(1, 'q1', 'resolved')] } }),
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {} });
   await b.settle();
@@ -8257,7 +8278,7 @@ test("a card with prototypes has no Prototypes button: its Questions button open
   assert.deepEqual(buttons('w/P1').map((a) => a.textContent.trim()), ['Questions']);
   assert.equal(buttons('w/P1')[0].dataset.questions, 'q2');
   assert.equal(buttons('w/P1')[0].getAttribute('class'), 'button resolves');
-  assert.deepEqual(buttons('w/P3').map((a) => [a.textContent.trim(), a.dataset.questions]), [['Questions', 'q1']]);
+  assert.deepEqual(buttons('w/P3').map((a) => [a.textContent.trim(), a.dataset.questions]), [['Questions', 'item:w/P3']]);
   b.view.unmount();
 });
 

@@ -111,7 +111,7 @@ test('cutClose ends a close in progress, so the sheet can open again; the timer 
 // card's notes the board's sync carried open in the sheet").
 
 test('the questions sheet closes through the shared helper', () => {
-  assert.match(src('app-questions-sheet.js'), /closeSheet\(sheet, later, \(\) => \{ topic = null; \}\)/);
+  assert.match(src('app-questions-sheet.js'), /closeSheet\(sheet, later, \(\) => \{ topic = null; fetched = null; \}\)/);
 });
 
 test('no sheet keeps its own copy of the closing class dance', () => {

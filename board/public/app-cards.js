@@ -288,8 +288,10 @@ BoardView.part((B) => {
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md).
   // Every prototype round is a question on its card, so this button reaches the prototypes too, Done cards included
   // (docs/adr/2026-11-09-1100-needs-you-button-reaches-the-prototypes.md).
+  // The board download leaves resolved questions out, so a card with only those names its topic.
+  const onlyResolved = (it) => !it.questions.open && !it.questions.answered && !it.questions.replied;
   const ACTION_BUTTONS = {
-    [BUTTON.openQuestions]: (it) => `<button type="button"${classes(it, BUTTON.openQuestions, 'button')} data-questions="${esc(it.questions.first)}">Questions</button>`,
+    [BUTTON.openQuestions]: (it) => `<button type="button"${classes(it, BUTTON.openQuestions, 'button')} data-questions="${esc(onlyResolved(it) ? it.questions.topic : it.questions.first)}">Questions</button>`,
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
