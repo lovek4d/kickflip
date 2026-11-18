@@ -223,12 +223,12 @@ test('an approval reacts on a link sent to an already approved PR, and its react
   await sendReviews({ boards, fetch: slack.fetch, now: sunday });
   assert.deepEqual(reacted(world), on([ts], 'git_approved'));
   assert.equal(barText(world, ts), '+84/-12 · 5 files\n- :robot_face:');
-  // Ann dismisses her approval and the decision goes back to waiting: the reaction comes off, and nothing is edited.
+  // Ann dismisses her approval and the decision goes back to waiting: the reaction comes off, and the PR waits again, so the digest's header goes from All reviewed to a count.
   setPRs({ 'o/r#1': pr({ reviews: { ann: 'COMMENTED' } }) });
-  assert.deepEqual((await sendReviews({ boards, fetch: slack.fetch, now: sunday })).sent, ['orch: removing git_approved for Ann on o/r#1']);
+  assert.deepEqual((await sendReviews({ boards, fetch: slack.fetch, now: sunday })).sent, ['orch: digest count for Ann', 'orch: removing git_approved for Ann on o/r#1']);
   assert.deepEqual(world.reactions, []);
   assert.deepEqual(prSlack()['o/r#1'].links.Ann.reactions, []);
-  assert.equal(slack.calls.filter((c) => c.method === 'chat.update').length, 0);
+  assert.equal(slack.calls.filter((c) => c.method === 'chat.update').length, 1);
 });
 
 test("an approved flag under GitHub's REVIEW_REQUIRED stays in the digest and reacts nothing; reviewDecision APPROVED drops it", async () => {
@@ -480,6 +480,12 @@ test("a digest header's count is edited as its reviewer's PRs leave review, to A
   setPRs({ 'o/r#1': pr({ state: 'MERGED' }), 'o/r#2': pr({ state: 'CLOSED' }) });
   await poll(new Date('2026-11-02T22:05:00Z'));
   assert.equal(header(), `Orch Digest\nAll reviewed${SIGN_OFF} · _updated 14:05_`);
+
+  // A PR that starts waiting on the reviewer after the digest went counts: All reviewed goes back to a number.
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }, { number: 3 }] }] });
+  setPRs({ 'o/r#1': pr({ state: 'MERGED' }), 'o/r#2': pr({ state: 'CLOSED' }), 'o/r#3': pr() });
+  await poll(new Date('2026-11-02T23:05:00Z'));
+  assert.equal(header(), `Orch Digest\n1 PR pending review${SIGN_OFF} · _updated 15:05_`);
 });
 
 test("a digest lists a reviewer's PRs oldest in review first, whatever order the cards sit in the file", async () => {

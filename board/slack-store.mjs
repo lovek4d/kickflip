@@ -191,16 +191,16 @@ export async function reviewDue(site, options) {
   const adds = reactions.filter((r) => !r.remove);
   const emojis = adds.length && options?.emojis ? await options.emojis() : {};
   for (const r of adds) r.emoji = emojis[r.kind];
-  // headers: each posted digest header whose count of PRs still pending that reviewer differs from the count it shows,
+  // headers: each posted digest header whose count of PRs now waiting on that reviewer (review digest's items) differs from the count it shows,
   // with the header's text at the new count. A header an earlier build put in a reply carries that reply's lead and tail.
+  const digest = await reviewDigest(site, options);
   const headers = [];
   for (const d of (await readJSON(digestFile(site), {})).digests || []) {
     const ts = d.live && (d.live.reply === undefined ? d.ts : d.replies?.[d.live.reply]?.ts);
     if (!ts) continue;
-    const n = d.live.prs.filter((pr) => { const gh = routeRecord(cache.prs, pr); return gh?.state === 'OPEN' && waitsOn(gh, githubOf.get(d.reviewer)); }).length;
+    const n = digest.reviewers.find((r) => r.name === d.reviewer)?.items.length ?? 0;
     if (n !== d.live.shown) headers.push({ date: d.date, reviewer: d.reviewer, channel: d.channel, ts, n, text: `${d.live.lead ?? ''}${digestHeader(cfg.title, n)}${d.live.tail ?? ''}` });
   }
-  const digest = await reviewDigest(site, options);
   return { date: slackDay(options?.now).date, links, reactions, edits, headers, digest: digest.due ? digest : null };
 }
 // due: one of review due's headers, once Slack has its edit.
@@ -517,13 +517,12 @@ export async function postDigest(site, date, reviewer, { channel, post }) {
     addDayEntry(all, date, reviewer.name, { channel });
     const opened = entry(all);
     if (opened.replies) return;
-    const prs = reviewer.items.map((i) => i.pr);
     opened.replies = reviewer.items.map((i) => ({ pr: i.pr, ...i.message }));
     // A thread an earlier build opened has a header line that isn't the digest's, so it has no count to edit.
-    if (!opened.ts) opened.live = { prs, shown: prs.length };
+    if (!opened.ts) opened.live = { shown: reviewer.items.length };
   });
   const sent = entry(await readJSON(file, {}));
-  const top = sent.ts || await postOnce(file, entry, () => post({ channel: sent.channel, text: header(sent.live.prs.length) }));
+  const top = sent.ts || await postOnce(file, entry, () => post({ channel: sent.channel, text: header(sent.live.shown) }));
   for (const [i, reply] of sent.replies.entries()) {
     if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text, attachments: reply.attachments }));
   }
