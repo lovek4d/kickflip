@@ -46,6 +46,8 @@
 //                     (new-board.mjs)
 //   /_hub/new-course POST {name, learn} → {route}: a course's Starting row, then its /teach session starts without holding
 //                     the response (new-course.mjs); Dismiss is New board's DELETE
+//   /_hub/resume-course POST {route} from the confirm on a course's row whose session is down: resumes that session in the
+//                     course's folder for the next lesson, or starts a fresh /teach there; its row reads starting till it runs
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
@@ -237,7 +239,7 @@ import { repoService, repoLookupRoute } from './repos.mjs';
 import { folderInfo, folderSuggestions } from './folders.mjs';
 import { boardRepo, changeBoardRepo } from './board-repo.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
-import { requestCourse, courseLessons } from './new-course.mjs';
+import { requestCourse, resumeCourse, courseLessons } from './new-course.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
 import { restartBoard, restartable } from './restart-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
@@ -1019,6 +1021,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.count || 0), 0) + pendingFor(null).length;
 
   // ---------- sidebar ----------
+  // Routes of courses whose session the owner asked to resume (/_hub/resume-course) and that isn't running yet.
+  const courseResumes = new Set();
   // Each board's listenState (boards.mjs), read on every call since a session's watcher starts and exits underneath, and
   // its linksOf, cached as long as the sites' needs, since every open page asks for the sidebar. A board's links are built
   // again when its listen state differs from the one they were built with, since the events link follows it.
@@ -1062,7 +1066,14 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     // A board under Pause board carries its own gate as pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
     const pausedBoards = new Map(boards.filter((b) => boardPausedUntil(b.dir)).map((b) => [b.route, readUsageGate({ dir: b.dir })]));
     const gate = readUsageGate();
-    const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts).filter((s) => !landing.has(s.route))
+    // A course page's session is down or coming back (courseResumes) until it runs.
+    const courses = new Map();
+    for (const r of rows) {
+      if (r.lessons === undefined) continue;
+      if (r.owner?.session && running?.has(r.owner.session)) courseResumes.delete(r.route);
+      else courses.set(r.route, courseResumes.has(r.route) ? 'starting' : 'asleep');
+    }
+    const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts, courses).filter((s) => !landing.has(s.route))
       .map((s) => heldSite(s, gate.state === 'paused', pausedBoards.get(s.route) ?? null));
     const settings = readSettings();
     const held = hold(now, settings);
@@ -1342,6 +1353,23 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name and learn as JSON.'); }
       try { return starting(await requestCourse(input, { changed: () => stream.refresh() })); }
       catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
+    }
+    if (p === '/_hub/resume-course' && req.method === 'POST') {
+      if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send route as application/json.');
+      let route;
+      try { ({ route } = await readJSONBody(req)); } catch { return send(400, 'text/plain; charset=utf-8', 'Send route as JSON.'); }
+      courseResumes.add(route);
+      stream.refresh();
+      try {
+        const r = await resumeCourse(route, { manifest: loadManifest() });
+        if (!r.started) courseResumes.delete(route);
+        stream.refresh();
+        return sendJSON(200, r);
+      } catch (e) {
+        courseResumes.delete(route);
+        stream.refresh();
+        return sendJSON(e.status || 502, { error: e.message });
+      }
     }
     const retry = /^\/_hub\/new-board\/([a-z0-9-]+)\/retry$/.exec(p);
     if (retry && req.method === 'POST') {

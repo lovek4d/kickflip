@@ -186,3 +186,13 @@ test('a stale row lays out like a fresh one: no wrapper, so the chips stay first
   assert.match(css, /\.sidebar \.sb-status \{[^}]*display: flex/);
   assert.match(css, /\.sidebar \.lcs \{[^}]*order: -1/);
 });
+
+test("a course whose session is down reads asleep, grey, and starting, orange, while it comes back", () => {
+  assert.deepEqual(siteStatus({ state: 'up', lessons: 2, listen: 'asleep' }), { shape: 'dot', colour: 'grey', word: 'asleep' });
+  assert.deepEqual(siteStatus({ state: 'up', lessons: 2, listen: 'starting' }), { shape: 'dot', colour: 'orange', word: 'starting' });
+  assert.equal(siteStatus({ state: 'down', lessons: 2, listen: 'asleep' }).word, 'down');
+  const rows = [{ route: 'rust', title: 'Rust', state: 'up', lessons: 2 }];
+  const [row] = sidebarSites(rows, new Map(), new Set(), new Map(), new Map(), new Map([['rust', 'asleep']]));
+  assert.equal(row.listen, 'asleep');
+  assert.equal(row.sub.status.word, 'asleep');
+});

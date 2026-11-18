@@ -12,7 +12,7 @@ const claudeConfig = path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
 fs.mkdirSync(process.env.CLAUDE_CONFIG_DIR);
 fs.writeFileSync(claudeConfig, '{}');
 const trusted = (dir) => JSON.parse(fs.readFileSync(claudeConfig, 'utf8')).projects?.[dir]?.hasTrustDialogAccepted === true;
-const { requestCourse, courseLessons, pagesHome } = await import('./new-course.mjs');
+const { requestCourse, resumeCourse, courseLessons, pagesHome } = await import('./new-course.mjs');
 const { settleStarts, dismissBoard } = await import('./new-board.mjs');
 const { startingBoards, STARTING_WAIT, COURSE_WAIT } = await import('./sessions.mjs');
 const { saveJSON, readManifest } = await import('./boards.mjs');
@@ -121,4 +121,48 @@ test("a course's lesson count is its lessons/*.html, only for a folder under pag
   fs.writeFileSync(path.join(elsewhere, 'lessons', '0001-a.html'), '');
   assert.equal(courseLessons(elsewhere), null);
   assert.equal(courseLessons(undefined), null);
+});
+
+test("resuming a course whose session is down resumes the same session in its folder, prompted to carry on to the next lesson", async () => {
+  const dir = path.join(pagesHome(), 'resume-me');
+  fs.mkdirSync(dir, { recursive: true });
+  const id = crypto.randomUUID();
+  saveJSON(manifestFile, { sites: { 'resume-me': { dir, title: 'Resume me', owner: { session: id, label: 'resume-me' } } } });
+  const calls = [];
+  const run = async (argv, { cwd }) => { calls.push({ argv, cwd }); return { status: 0, stdout: `backgrounded · ${id.slice(0, 8)} · resume-me\n`, stderr: '' }; };
+  const r = await resumeCourse('resume-me', { run, live: () => new Map() });
+  assert.equal(r.started, true);
+  const resume = calls.find((c) => c.argv[0] === '--resume');
+  assert.deepEqual([resume.argv[1], resume.cwd], [id, dir]);
+  assert.match(resume.argv.at(-1), /next lesson/);
+  assert.match(resume.argv.at(-1), /Resume me/);
+});
+
+test('a course whose session is already live just opens: nothing is started', async () => {
+  const dir = path.join(pagesHome(), 'up-already');
+  fs.mkdirSync(dir, { recursive: true });
+  saveJSON(manifestFile, { sites: { 'up-already': { dir, title: 'Up', owner: { session: 's9' } } } });
+  const { calls, run } = claude();
+  const r = await resumeCourse('up-already', { run, live: () => new Map([['s9', { pid: 1 }]]) });
+  assert.equal(r.started, false);
+  assert.equal(calls.length, 0);
+});
+
+test('a course with no recorded session starts a fresh /teach in its folder and records it as the page\'s owner', async () => {
+  const dir = path.join(pagesHome(), 'no-session');
+  fs.mkdirSync(dir, { recursive: true });
+  saveJSON(manifestFile, { sites: { 'no-session': { dir, title: 'No session' } } });
+  const { calls, run } = claude();
+  const r = await resumeCourse('no-session', { run, live });
+  assert.equal(r.started, true);
+  assert.equal(calls[0].cwd, dir);
+  assert.match(calls[0].argv.at(-1), /^\/teach /);
+  assert.match(calls[0].argv.at(-1), /next lesson/);
+  assert.equal(readManifest().sites['no-session'].owner.session, r.session);
+});
+
+test('only a course page under pages can be resumed', async () => {
+  saveJSON(manifestFile, { sites: { plain: { dir: path.join(home, 'elsewhere'), title: 'Plain' } } });
+  await assert.rejects(resumeCourse('plain', { run: claude().run, live }), { status: 404 });
+  await assert.rejects(resumeCourse('nope', { run: claude().run, live }), { status: 404 });
 });

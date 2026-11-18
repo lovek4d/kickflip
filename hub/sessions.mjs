@@ -318,7 +318,8 @@ export const startArgv = ({ route, name, prompt, first }) => ['--bg', ...common(
 export const resumePrompt = (route, id, title) => `${boardLine(route, title)}\nThe hub resumed this session because /${route} had nobody listening. Rejoin the board as session ${id} and relaunch its watcher as a background task, then go on with what its events ask. ${notYours(id)}`;
 // A background session resumed with any flag starts as a copy under a new id, so one goes without them and keeps the
 // options it started with; a session that never ran in the background gets them (Claude Code's `note:` line says which).
-export const resumeArgv = ({ id, route, name, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name })), resumePrompt(route, id, name)];
+// prompt, when given, is the whole resume prompt in place of the board's (a course's next lesson, new-course.mjs).
+export const resumeArgv = ({ id, route, name, background, prompt }) => ['--resume', id, '--bg', ...(background ? [] : common({ name })), prompt || resumePrompt(route, id, name)];
 
 const HUB_PROMPT = `You are the hub session: read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`.`;
 // The hub board's session in the foreground: the recorded one resumed; with fresh, a new one under id, which the
@@ -570,7 +571,7 @@ export async function freshIdleSessions({
 
 // `claude --resume <id> --bg` for the route's recorded session, in its folder (resumeArgv), then records the id it
 // comes back under as the route's owner (moveOwner), so the prompt and the manifest name the same id. mark winds the
-// session's watcher cursor back to it. Refuses with no session or folder recorded, and while the session is live.
+// session's watcher cursor back to it, and prompt replaces the resume prompt. Refuses with no session or folder recorded, and while the session is live.
 // → {route, session, previous, confirmed, repo, argv, output}
 export function resumeSession(route, options = {}) {
   return withSessionLock(route, ({ resume }) => resume(options));
@@ -586,7 +587,7 @@ export function restartSession(route, { manifest = readManifest(), live = liveSe
   });
 }
 
-async function resumeRecordedSession(route, { manifest = readManifest(), run = runClaude, tmux = runTmux, live = liveSessions, mark = null } = {}) {
+async function resumeRecordedSession(route, { manifest = readManifest(), run = runClaude, tmux = runTmux, live = liveSessions, mark = null, prompt } = {}) {
   if (routeRecord(readManifest().closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   if (!rec) throw new SessionError(`/${route} has no recorded session`, 'none');
@@ -600,7 +601,7 @@ async function resumeRecordedSession(route, { manifest = readManifest(), run = r
     return { route, session: rec.session, previous: rec.session, confirmed: false, repo: rec.repo, argv, output: `in tmux session ${tmuxName(route)}` };
   }
   const background = await isBackground(rec.session, { run, cwd: rec.repo });
-  const argv = resumeArgv({ id: rec.session, route, name: rec.title, background });
+  const argv = resumeArgv({ id: rec.session, route, name: rec.title, background, prompt });
   const r = await run(argv, { cwd: rec.repo });
   if (r.status !== 0) throw new SessionError(`claude --resume failed (${r.status}): ${(r.stderr || r.stdout).trim().slice(0, 300)}`, 'failed');
   const { session, confirmed } = await startedId(r.stdout, rec.session);

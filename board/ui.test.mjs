@@ -436,6 +436,14 @@ test("pending boards have muted non-link rows, a failed start keeps its name wit
   assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/page/', '/_hub/']);
 });
 
+// docs/adr/2026-11-18-0800-tapping-a-down-course-resumes-it-for-the-next-lesson.md
+test("a course page whose session is down carries the tap that asks to resume it; a running one and a board's row do not", () => {
+  const down = { route: 'rust', title: 'Rust "ownership"', board: false, icon: '', listen: 'asleep' };
+  const html = ui.sidebar({ sites: [down, { ...down, route: 'go', listen: 'starting' }, { ...down, route: 'plain', listen: undefined }, { route: 'shop', title: 'Shop', board: true, icon: '', listen: 'asleep' }] }, { now: NOW });
+  assert.equal([...html.matchAll(/data-resume-course="([^"]+)"/g)].map((m) => m[1]).join(), 'rust');
+  assert.match(html, /data-title="Rust &quot;ownership&quot;"/);
+});
+
 // docs/adr/2026-11-18-0600-new-starts-a-board-or-a-teach-course.md
 test("a starting course's row ends the Pages group, above the Boards label, orange while /teach writes lesson 1, and a failed one reads /teach failed", () => {
   const at = new Date(NOW - 42_000).toISOString();

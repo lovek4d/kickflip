@@ -105,12 +105,12 @@
   // key: the row's switchKeys entry while switch mode shows, else undefined. The tile carries a board's number, or any
   // other row's letter, and the title marks its letter; sidebar.css shows them in place of the glyph under .ks-on.
   // mark: HTML after the title, such as Hub's moon.
-  function row({ href, icon, title, sub = '', extra = '', mark = '', ctx = '', on = false, cls = '', key }) {
+  function row({ href, icon, title, sub = '', extra = '', mark = '', ctx = '', on = false, cls = '', key, attrs = '' }) {
     const shown = key && (key.board ? key.num : key.letter);
     const tileHtml = shown ? icon.replace(/<\/span>$/, `<span class="ks-key">${esc(shown)}</span></span>`) : icon;
     const chars = [...title];
     const titleHtml = key?.letter ? `${esc(chars.slice(0, key.at).join(''))}<span class="ks-u">${esc(chars[key.at])}</span>${esc(chars.slice(key.at + 1).join(''))}` : esc(title);
-    return `<a class="sb-row${on ? ' on' : ''}${cls ? ` ${cls}` : ''}" href="${esc(href)}"${on ? ' aria-current="page"' : ''}>${tileHtml}`
+    return `<a class="sb-row${on ? ' on' : ''}${cls ? ` ${cls}` : ''}" href="${esc(href)}"${attrs}${on ? ' aria-current="page"' : ''}>${tileHtml}`
       + `<span class="sb-text">${ctx ? `<span class="sb-head"><span class="sb-title">${titleHtml}${mark}</span>${ctx}</span>` : `<span class="sb-title">${titleHtml}${mark}</span>`}${sub ? `<span class="sb-sub">${sub}</span>` : ''}${extra}</span></a>`;
   }
 
@@ -307,7 +307,9 @@
       : '';
     // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
     // The hub sends a held board's row already grey paused, a red fault keeping its word (hub/home.mjs heldSite).
-    const siteRow = (s) => row({ href: siteHref(s), icon: s.icon, title: s.title, sub: s.sub ? siteLine(s.sub) : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)) });
+    const siteRow = (s) => row({ href: siteHref(s), icon: s.icon, title: s.title, sub: s.sub ? siteLine(s.sub) : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)),
+      // A course whose session is down asks before it opens (sidebar.js resumeCourse).
+      attrs: !s.board && s.listen === 'asleep' ? ` data-resume-course="${esc(s.route)}" data-title="${esc(s.title)}"` : '' });
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
     const plus = `<span class="icon sb-plus" aria-hidden="true">${svg(ICONS.plus, 20)}</span>`;

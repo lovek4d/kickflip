@@ -215,7 +215,21 @@
         onClose: () => aside.querySelector('[data-new-board]')?.focus({ preventScroll: true }),
       });
     }
+    // Tapping a course whose session is down asks first; Resume starts it for the next lesson and the row reads starting
+    // (hub/new-course.mjs resumeCourse), Cancel leaves the row as it is.
+    async function resumeCourse(link) {
+      const route = link.dataset.resumeCourse;
+      const href = link.getAttribute('href');
+      if (!(await BoardDialogs.confirm(`${link.dataset.title}: its session is down. Resume it for the next lesson?`))) return;
+      setData({ ...data, sites: data.sites.map((s) => (s.route === route ? { ...s, listen: 'starting', sub: { stale: false, chips: null, status: { shape: 'dot', colour: 'orange', word: 'starting' } } } : s)) });
+      const response = await fetch('/_hub/resume-course', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route }) });
+      if (!response.ok) await BoardDialogs.notice((await response.json().catch(() => ({}))).error || 'The course could not be resumed.');
+      else aside.querySelector(`a.sb-row[href="${CSS.escape(href)}"]`)?.click();
+      refresh().catch(() => {});
+    }
     aside.addEventListener('click', async (e) => {
+      const down = e.target.closest?.('[data-resume-course]');
+      if (down) { e.preventDefault(); resumeCourse(down); return; }
       const refreshApp = e.target.closest?.('[data-app-reload]');
       if (refreshApp) {
         if (!refreshApp.disabled && update !== 'reloading') { setUpdate('reloading'); reload(); }

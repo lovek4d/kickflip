@@ -8,7 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readManifest, withManifestLock, writeManifest } from './boards.mjs';
 import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
-import { startSession } from './sessions.mjs';
+import { liveSessions } from './live.mjs';
+import { resumeSession, startSession } from './sessions.mjs';
 import { trustFolder } from './trust.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
 
@@ -81,4 +82,36 @@ async function start(route, { title, learn, dir }, { run, live, changed }) {
   } catch (e) { return { error: `could not record the start: ${e.message}` }; }
   changed();
   return outcome.error ? { error: outcome.error } : { session: outcome.session };
+}
+
+// What a resumed or fresh course session is asked once the owner taps its row while it is down.
+const nextLesson = (title) => `The kickflip hub resumed this session because the owner opened the course "${title}" while its session was down. `
+  + 'Read the course\'s files here to see where it left off, then carry on to the next lesson: write it, link it from index.html and say where it is.';
+
+// The owner opened a course while its session is down: resumes that session in the course's folder with a prompt for
+// the next lesson, or starts a fresh /teach there when no session is recorded (it reads the folder to find where the
+// course left off). A session already live starts nothing. run and live go to sessions.mjs. → {route, started, session?}
+export async function resumeCourse(route, { manifest = readManifest(), run, live = liveSessions } = {}) {
+  const site = routeRecord(manifest.sites, route);
+  if (courseLessons(site?.dir) === null) refuse('That course is not open.', 404);
+  const title = site.title || route;
+  const session = site.owner?.session;
+  const running = live();
+  if (!running) refuse('ps gave no answer, so whether its session runs is unknown. Try again in a moment.', 503);
+  if (session && running.has(session)) return { route, started: false, session };
+  if (session) {
+    const owner = { ...site.owner, repo: site.owner.repo || site.dir };
+    const r = await resumeSession(route, { manifest: { ...manifest, sites: { ...manifest.sites, [route]: { ...site, owner } } }, live, run, prompt: nextLesson(title) });
+    return { route, started: true, session: r.session };
+  }
+  const first = `/teach continue the course "${title}"\n\n${nextLesson(title)}`;
+  const r = await startSession(route, { manifest, repo: site.dir, first, run, live });
+  await withManifestLock(async () => {
+    const m = readManifest();
+    const now = new Date().toISOString();
+    m.sites[route].owner = { session: r.session, label: r.name, since: now, repo: r.repo, ...(r.model ? { model: r.model } : {}) };
+    m.sites[route].updated = now;
+    await writeManifest(m);
+  });
+  return { route, started: true, session: r.session };
 }

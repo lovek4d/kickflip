@@ -36,6 +36,7 @@ export function siteStatus({ state, working, building, listen, lessons } = {}) {
   if (state === 'starting') return { shape: 'dot', colour: 'orange', word: 'starting' };
   if (state === 'stopped') return { shape: 'dot', colour: 'grey', word: 'stopped' };
   if (working) return { shape: 'pulse', colour: 'orange', word: 'working' };
+  if (listen === 'starting') return { shape: 'dot', colour: 'orange', word: 'starting' };
   if (listen === 'waking') return { shape: 'dot', colour: 'grey', word: 'waking…' };
   if (listen === 'asleep') return { shape: 'dot', colour: 'grey', word: 'asleep' };
   if (building) return { shape: 'dot', colour: 'orange', word: 'implementing' };
@@ -71,13 +72,14 @@ export function holdNeeds(good, read, readAt, now) {
 }
 
 // The sidebar's site rows, from hub.mjs status() rows, each site's readNeeds answer (a Map by route), the set of
-// routes that are boards and each board's boards.mjs listenState (a Map by route). icon is HTML that board/public/ui-sidebar.js
+// routes that are boards and each board's boards.mjs listenState (a Map by route); courses is a course page's 'asleep' or
+// 'starting' by route, while its session is down or coming back (hub.mjs). icon is HTML that board/public/ui-sidebar.js
 // places as given, and sub is statusLine's data, which it draws. created is when the site joined the hub, null when the manifest has no time, which ui-sidebar.js
 // switchKeys orders by. ctx is the board's owner session's context reading {percent, at} (usage.mjs), else null.
-export function sidebarSites(rows, waiting, boards, listens = new Map(), contexts = new Map()) {
+export function sidebarSites(rows, waiting, boards, listens = new Map(), contexts = new Map(), courses = new Map()) {
   return rows.map((r) => {
     const needs = waiting.get(r.route) ?? null;
-    const listen = boards.has(r.route) ? listens.get(r.route) ?? 'listening' : undefined;
+    const listen = boards.has(r.route) ? listens.get(r.route) ?? 'listening' : courses.get(r.route);
     const reading = contexts.get(r.route) ?? null;
     const ctx = reading && { ...reading, full: reading.percent >= CTX_FULL_PERCENT };
     const heard = contextFull(listen, ctx) ? 'full' : listen;

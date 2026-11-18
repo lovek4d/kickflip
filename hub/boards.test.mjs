@@ -792,7 +792,8 @@ test('New course refuses over HTTP before any session starts, and a course page 
     for (const f of ['0001-moves.html', '0002-borrows.html']) write(path.join(dir, 'lessons', f), '<h1>Lesson</h1>');
     await writeManifestFile({ ...original, sites: { ...original.sites, rust: { dir, title: 'Rust', owner: { session: 's-teach' } } } });
     const row = (await (await fetch(`${base}/_hub/sidebar.json?fresh=1`)).json()).sites.find((s) => s.route === 'rust');
-    assert.deepEqual([row.board, row.sub], [false, { status: { shape: 'dot', colour: 'green', word: '2 lessons' }, stale: false, chips: null }]);
+    // Its session isn't running, so the row reads asleep, which a tap asks to resume (new-course.mjs resumeCourse).
+    assert.deepEqual([row.board, row.listen, row.sub], [false, 'asleep', { status: { shape: 'dot', colour: 'grey', word: 'asleep' }, stale: false, chips: null }]);
   } finally { await writeManifestFile(original); }
 });
 
