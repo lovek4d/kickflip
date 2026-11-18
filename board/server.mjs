@@ -264,8 +264,8 @@
 //   POST /api/read               {marks: {card key: time}} → data/read.json (cards.mjs markRead), each mark only moving
 //                                forward, without waking Claude; every board answer carries each card's mark as its
 //                                readAt, and a card new to the board gets one as the server first sees it. A bad body → 400 {error}
-//   POST /api/drafts             {id, text, files} → data/drafts.json (drafts.mjs saveDraft): a composer's draft, ask or
-//                                item:<card key>, at the server's time, without waking Claude → {at}; every board answer
+//   POST /api/drafts             {id, text, files, choice?} → data/drafts.json (drafts.mjs saveDraft): a composer's draft, ask or
+//                                item:<card key>, or a question's unsent pick and note, q:<question id>, at the server's time, without waking Claude → {at}; every board answer
 //                                carries them all as drafts, and a reply's goes when its card leaves the board. A bad body → 400 {error}
 //   GET  /api/rules              {board, hub}: board.json's rules and the hub's from settings.json (hub/rules.mjs)
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (settings.mjs saveBoardRules), and
@@ -1846,11 +1846,14 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   async function markNewCards() {
     try { await markRead(here, (await sharedBoard()).items.map((i) => i.key)); } catch (err) { console.error('Read marks failed:', err.message); }
   }
-  // docs/adr/2026-11-18-1200-composer-drafts-live-on-the-server.md: a reply's draft goes with its card, after each board change.
+  // docs/adr/2026-11-18-1200-composer-drafts-live-on-the-server.md: a reply's draft goes with its card and a question's with
+  // its question once resolved, after each board change.
   async function dropGoneDrafts() {
     try {
-      const keys = new Set((await sharedBoard()).items.map((i) => i.key));
-      await pruneDrafts(here, (id) => !id.startsWith('item:') || keys.has(id.slice('item:'.length)));
+      const board = await sharedBoard();
+      const cards = new Set(board.items.map((i) => i.key));
+      const open = new Set(board.owner.filter((q) => q.state !== 'resolved').map((q) => q.id));
+      await pruneDrafts(here, (id) => (id.startsWith('item:') ? cards.has(id.slice('item:'.length)) : !id.startsWith('q:') || open.has(id.slice('q:'.length))));
     } catch (err) { console.error('Drafts failed:', err.message); }
   }
   async function archiveDone() {

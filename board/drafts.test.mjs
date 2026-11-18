@@ -13,7 +13,10 @@ test('draftOf takes a composer id, its text and its uploaded files, rebuilding e
   assert.deepEqual(draftOf(site, { id: 'item:w/T-1', text: 'Hi', files: [{ ...shot, path: '/etc/passwd', extra: 1 }] }),
     { id: 'item:w/T-1', text: 'Hi', files: [{ ...shot, path: path.join(site, 'data', shot.url) }] });
   assert.deepEqual(draftOf(site, { id: 'ask', text: '' }), { id: 'ask', text: '', files: [] });
-  for (const bad of [{}, { id: 'edit:e1', text: '' }, { id: 'item:', text: '' }, { id: 'ask', text: 5 }, { id: 'ask', text: 'x'.repeat(100_001) },
+  assert.deepEqual(draftOf(site, { id: 'q:t1-audit', text: 'Note', choice: 'B' }), { id: 'q:t1-audit', text: 'Note', choice: 'B', files: [] });
+  assert.deepEqual(draftOf(site, { id: 'q:q1', text: '', choice: null }), { id: 'q:q1', text: '', choice: null, files: [] });
+  assert.deepEqual(draftOf(site, { id: 'q:q1', text: '' }), { id: 'q:q1', text: '', files: [] }, 'no choice until one is made');
+  for (const bad of [{ id: 'q:', text: '' }, { id: 'q:q1', text: '', choice: 5 }, { id: 'q:q1', text: '', files: [shot] }, { id: 'ask', text: '', choice: 'A' }, {},{ id: 'edit:e1', text: '' }, { id: 'item:', text: '' }, { id: 'ask', text: 5 }, { id: 'ask', text: 'x'.repeat(100_001) },
     { id: 'ask', text: '', files: {} }, { id: 'ask', text: '', files: [{ ...shot, url: '../board.json' }] }]) {
     assert.throws(() => draftOf(site, bad), (e) => e.status === 400, JSON.stringify(bad).slice(0, 80));
   }
@@ -29,9 +32,14 @@ test('saveDraft stamps each save later than the one it replaces, an emptied draf
   const cleared = await saveDraft(site, { id: 'ask', text: '', files: [] });
   assert.deepEqual(await readDrafts(site), { 'item:w/T-1': { text: 'Hi there', files: [shot], at: two.at }, ask: { text: '', files: [], at: cleared.at } });
 
+  const pick = await saveDraft(site, { id: 'q:q1', text: 'Why', files: [], choice: 'A' });
+  assert.deepEqual((await readDrafts(site))['q:q1'], { text: 'Why', files: [], choice: 'A', at: pick.at });
+
   const written = fs.statSync(draftsFile(site)).mtimeMs;
   await pruneDrafts(site, () => true);
   assert.equal(fs.statSync(draftsFile(site)).mtimeMs, written, 'nothing to drop writes nothing');
+  await pruneDrafts(site, (id) => id === 'ask' || id === 'q:q1');
+  assert.deepEqual(Object.keys(await readDrafts(site)).sort(), ['ask', 'q:q1']);
   await pruneDrafts(site, (id) => id === 'ask');
   assert.deepEqual(Object.keys(await readDrafts(site)), ['ask']);
 });

@@ -291,6 +291,11 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   }
 
   BoardUI.wireAnswerForm(on, sheet, updateBar);
+  // A pick or note saved on another device draws its card here, except the one whose note box is being typed in.
+  atUnmount(BoardUI.questionDrafts.onTake((ids) => {
+    if (!sheet.open) return;
+    for (const id of ids) if (!sheet.querySelector(`section.q[data-q="${CSS.escape(id)}"] textarea:focus`)) drawOne(id);
+  }));
   on(sheet, 'attach-change', updateBar);
   // An answer's box changing, an upload's progress, its end or an X on a failed file, draws its card again and keeps the
   // box for a reload.

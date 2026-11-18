@@ -86,8 +86,8 @@ test("the bar shows the take's name between ‹ and ›, and below it, on its ow
   assert.match(page.styles, /\.ps-pill button\s*\{[^}]*flex-shrink:0;[^}]*min-width:44px;[^}]*min-height:44px;/);
 });
 
-// resolved: the questions of its topic /api/board leaves out, which /api/questions answers. drafts: this device's
-// unsent {choice, note} by question id, as questions.html keeps them. inSheet: framed in the board's reader sheet
+// resolved: the questions of its topic /api/board leaves out, which /api/questions answers. drafts: the board's
+// unsent {choice, note} by question id, which /api/board carries as q:<id> drafts; draft(id) is the last the page saved. inSheet: framed in the board's reader sheet
 // (app-reader.js openPage), which takes each reader-leave it is sent as a move.
 function prototypePage(url, { framed = false, inSheet = false, owner, resolved = [], drafts = {}, rounds = null }) {
   const listeners = [];
@@ -111,6 +111,7 @@ function prototypePage(url, { framed = false, inSheet = false, owner, resolved =
   };
   const topics = [{ id: 'item:w/A1', title: 'INT-1: Snooze', state: 'open', open: owner.length, questions: [...owner, ...resolved].map((q) => q.id) }];
   const asked = [];
+  const saved = [];
   let backs = 0;
   const backLink = { click: () => { backs++; } };
   const u = new URL(url);
@@ -120,11 +121,14 @@ function prototypePage(url, { framed = false, inSheet = false, owner, resolved =
     setTimeout: () => 0,
     location: { href: u.href, search: u.search, replace: (to) => moves.push(['load', String(to)]) },
     history: { replaceState: (...args) => replacements.push(args) },
-    localStorage: storage(Object.fromEntries(Object.entries(drafts).map(([id, d]) => ['qdraft:' + id, JSON.stringify(d)]))),
+    localStorage: storage(),
+    clearTimeout() {},
     sessionStorage: storage(),
     document: { getElementById: () => null, head: { insertAdjacentHTML: (_, html) => { styles += html; } }, body: { append: (el) => controls.push(el) }, documentElement: { style: { setProperty() {} }, classList: { add: (name) => classes.push(name) } },
       createElement: el, querySelector: (sel) => (sel === 'header.top a.back' ? backLink : null), addEventListener: (type, fn) => listeners.push({ target: 'document', type, fn }) },
-    fetch: async (to) => { fetches++; asked.push(String(to)); return { json: async () => (/api\/questions/.test(to) ? { questions: resolved } : { owner, ownerTopics: topics, items: [{ key: 'w/A1', ref: 'INT-1', questions: { topic: 'item:w/A1' }, prototypes: rounds && { open: false, rounds } }] }) }; },
+    fetch: async (to, opts = {}) => {
+      if (opts.method === 'POST') { saved.push(JSON.parse(opts.body)); return { ok: true, json: async () => ({ at: '2026-11-18T10:00:00.000Z' }) }; }
+      fetches++; asked.push(String(to)); return { json: async () => (/api\/questions/.test(to) ? { questions: resolved } : { owner, drafts: Object.fromEntries(Object.entries(drafts).map(([id, d]) => ['q:' + id, { text: d.note, choice: d.choice, files: [], at: '2026-11-18T09:00:00.000Z' }])), ownerTopics: topics, items: [{ key: 'w/A1', ref: 'INT-1', questions: { topic: 'item:w/A1' }, prototypes: rounds && { open: false, rounds } }] }) }; },
     ClaudeSite: { url: (p) => new URL(p, 'https://mac.ts.net/orch/').href, send: async (kind, data) => { sent.push([kind, data]); return {}; } },
   };
   win.window = win;
@@ -149,7 +153,7 @@ function prototypePage(url, { framed = false, inSheet = false, owner, resolved =
     await settle();
   };
   return { pick, settle, pillName: () => /<span class="ps-name"[^>]*>([^<]*)</.exec(part('.ps-pill')?.innerHTML || '')?.[1], pill: () => part('.ps-pill')?.innerHTML || '',
-    typeNote: (v) => { part('.ps-text').value = v; }, noteBox: () => part('.ps-text')?.value, noteHidden: () => part('.ps-text')?.hidden, draft: (id) => JSON.parse(win.localStorage.getItem('qdraft:' + id) ?? 'null'),
+    typeNote: (v) => { part('.ps-text').value = v; }, noteBox: () => part('.ps-text')?.value, noteHidden: () => part('.ps-text')?.hidden, draft: (id) => { const d = saved.findLast((s) => s.id === 'q:' + id); return d ? { choice: d.choice, note: d.text } : null; },
     sent, moves, loaded, styles, rendered, classes, controls, replacements, take: mounted.take, fetches: () => fetches, asked, backs: () => backs, listeners };
 }
 

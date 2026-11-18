@@ -19,10 +19,85 @@
   // Whether the owner has resolved a question: an answer is sent, whatever Claude has done with it since, or Claude
   // resolved it. A sent question draws as resolvedCard, locked.
   const isSent = (q) => q.state === 'answered' || q.state === 'replied' || q.state === 'resolved';
-  // A question's unsent {choice, note} on this device, in localStorage under qdraft:<id>. The questions sheet and the
-  // prototype viewer's Choose this (prototype-switcher.js) write it.
-  const getDraft = (id) => { try { return JSON.parse(localStorage.getItem('qdraft:' + id) || '{}'); } catch { return {}; } };
-  const setDraft = (id, v) => { try { localStorage.setItem('qdraft:' + id, JSON.stringify(v)); } catch {} };
+  // A question's unsent {choice, note}, kept on its board's server as the draft q:<id> (board/drafts.mjs: text is the note,
+  // choice the pick, absent until one is made; docs/adr/2026-11-18-1200-composer-drafts-live-on-the-server.md). The
+  // questions sheet and the prototype viewer's Choose this (prototype-switcher.js) read and write it here: getDraft and
+  // setDraft work on this page's copy, and setDraft saves it after a pause of PAUSE_MS, or at once on flush().
+  //   questionDrafts.use(site)         starts a copy for that board's ClaudeSite.site, which a page does as it mounts
+  //   questionDrafts.take(drafts)      a board answer's drafts: each newer than the page's replaces its copy, except one the
+  //                                    page has unsaved changes to, which saves over it (the last save wins) → the ids changed
+  //   questionDrafts.flush(keepalive)  saves every unsaved one now; keepalive lets the request outlive the page
+  //   questionDrafts.onTake(fn)        fn(ids) after a take changed those ids' copies → off
+  const questionDrafts = (function () {
+    const PAUSE_MS = 1000;
+    const copies = new Map();
+    const heard = new Map();
+    const unsaved = new Set();
+    const listeners = new Set();
+    let site = null;
+    let timer = null;
+    let moved = false;
+    const copyOf = (d) => ({ ...(d.choice === undefined ? {} : { choice: d.choice }), ...(d.text ? { note: d.text } : {}) });
+    function save(id, keepalive) {
+      const d = copies.get(id) ?? {};
+      unsaved.delete(id);
+      return fetch(site.url('api/drafts'), { method: 'POST', keepalive, headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: 'q:' + id, text: d.note ?? '', files: [], ...('choice' in d ? { choice: d.choice } : {}) }) })
+        .then(async (r) => { if (!r.ok) throw new Error(`drafts ${r.status}`); const { at } = await r.json(); if (at > (heard.get(id) || '')) heard.set(id, at); })
+        .catch(() => { unsaved.add(id); });
+    }
+    function flush(keepalive = false) {
+      clearTimeout(timer);
+      timer = null;
+      return Promise.all([...unsaved].map((id) => save(id, keepalive)));
+    }
+    // This browser's own copies from before they lived on the server move once, each where the server has none.
+    function moveLocal(drafts) {
+      if (moved) return;
+      moved = true;
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
+      for (const key of keys.filter((k) => k.startsWith('qdraft:'))) {
+        const id = key.slice('qdraft:'.length);
+        let d = {};
+        try { d = JSON.parse(localStorage.getItem(key)) || {}; } catch { /* a broken copy is dropped */ }
+        localStorage.removeItem(key);
+        if (!Object.keys(d).length || drafts['q:' + id]) continue;
+        copies.set(id, d);
+        unsaved.add(id);
+      }
+      flush();
+    }
+    return {
+      use(next) { flush(); site = next; copies.clear(); heard.clear(); unsaved.clear(); moved = false; },
+      get: (id) => copies.get(id) ?? {},
+      set(id, d) {
+        copies.set(id, d);
+        unsaved.add(id);
+        clearTimeout(timer);
+        timer = setTimeout(flush, PAUSE_MS);
+      },
+      take(drafts) {
+        if (!drafts) return [];
+        moveLocal(drafts);
+        const changed = [];
+        for (const [key, d] of Object.entries(drafts)) {
+          if (!key.startsWith('q:') || d.at <= (heard.get(key.slice(2)) || '')) continue;
+          const id = key.slice(2);
+          heard.set(id, d.at);
+          if (unsaved.has(id)) continue;
+          copies.set(id, copyOf(d));
+          changed.push(id);
+        }
+        if (changed.length) for (const fn of listeners) fn(changed);
+        return changed;
+      },
+      flush,
+      onTake(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    };
+  })();
+  const getDraft = (id) => questionDrafts.get(id);
+  const setDraft = (id, v) => questionDrafts.set(id, v);
   // docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md
   // The open questions among qs the owner has changed since their last answer, with files attached,
   // or with a suggested option pre-checked and never answered: the ones a Send sends. A sent one is read-only.
@@ -220,5 +295,5 @@
   const idsOf = (m) => (m.answers ? m.answers.map((a) => a.id) : [m.id]);
   const answerBox = (sendId, id) => `send:${sendId}:${id}`;
 
-  Object.assign(globalThis.BoardUI, { onOutbox, outboxChanged, ANSWER_OUTBOX, idsOf, answerBox, isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet });
+  Object.assign(globalThis.BoardUI, { onOutbox, outboxChanged, ANSWER_OUTBOX, idsOf, answerBox, isPrototype, questionDrafts, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundPill, roundSheet });
 })();

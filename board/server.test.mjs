@@ -2371,6 +2371,33 @@ test("composer drafts live on the board: POST /api/drafts saves a box's text and
   } finally { if (before) await putWave(before); else fs.rmSync(waveFile); }
 });
 
+// docs/adr/2026-11-18-1200-composer-drafts-live-on-the-server.md
+test("a question's unsent pick and note live on the board as q:<id>, with no files: they stay while the question is open and go with it once it is gone from the board", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const post = (body) => fetch(`${base}/api/drafts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const drafts = async () => (await (await fetch(`${base}/api/board`)).json()).drafts;
+  const waveFile = path.join(site, 'data', 'items.json');
+  const before = fs.existsSync(waveFile) ? fs.readFileSync(waveFile, 'utf8') : null;
+  const wave = before ? JSON.parse(before) : { items: [] };
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'pq1', topic: 'item:t/PQ1', question: 'Keep?', options: [{ id: 'A', label: 'Keep' }] }] }));
+  try {
+    await putWave(JSON.stringify({ ...wave, items: [...wave.items, { id: 'PQ1', title: 'Asked', lane: 'progress' }] }));
+    const kept = await (await ok200(post({ id: 'q:pq1', text: 'Because', choice: 'A' }))).json();
+    await ok200(post({ id: 'q:gone', text: 'Nothing asks this', choice: null }));
+    assert.equal((await post({ id: 'q:pq1', text: '', files: [{ url: 'uploads/1-a.png' }] })).status, 400);
+    await putWave(JSON.stringify({ ...wave, items: [...wave.items, { id: 'PQ1', title: 'Asked', lane: 'progress' }, { id: 'PQ2', title: 'Another' }] }));
+    assert.deepEqual((await drafts())['q:pq1'], { text: 'Because', files: [], choice: 'A', at: kept.at });
+    assert.equal((await drafts())['q:gone'], undefined, 'no open question has it');
+
+    fs.writeFileSync(ownerFile, '{"items":[]}');
+    await putWave(JSON.stringify(wave));
+    assert.equal((await drafts())['q:pq1'], undefined, 'the question left the board');
+  } finally {
+    fs.writeFileSync(ownerFile, '{"items":[]}');
+    if (before) await putWave(before); else fs.rmSync(waveFile);
+  }
+});
+
 // docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md
 test('a board has no sharing: api/share is no route, and an old board.json share writes nothing', async () => {
   const cfg = { title: 'T', items: 'data/items.json', slug: 't' };

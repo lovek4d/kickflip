@@ -5727,7 +5727,7 @@ function questionsOnDom({ topics, questions, at = null, gate = null, items = [],
     return { ...t, state: qs.every((q) => q.state === 'resolved') ? 'resolved' : 'open', questions: qs.map((q) => q.id), open: count('open'), answered: count('answered'), resolved: count('resolved') };
   }).filter((t) => t.questions.length);
   // As board/server.mjs answers: /api/board leaves resolved questions out.
-  const boardBody = () => ({ ...boardOf(items), owner: server.questions.filter((q) => q.state !== 'resolved'), ownerTopics: ownerTopics() });
+  const boardBody = () => ({ ...boardOf(items), owner: server.questions.filter((q) => q.state !== 'resolved'), ownerTopics: ownerTopics(), drafts: server.drafts ?? {} });
   const send = async (kind, data) => {
     const q = server.questions.find((x) => x.id === (data.id ?? data.question));
     await gate?.promise;
@@ -5780,6 +5780,66 @@ function questionsOnDom({ topics, questions, at = null, gate = null, items = [],
   return { ...b, server, settle, open, answer, send: send_, questionsShown, toast, sheet, moves, answersSent, footer, unmount: () => b.view.unmount() };
 }
 
+// docs/adr/2026-11-18-1200-composer-drafts-live-on-the-server.md
+test("a question's unsent pick and note draw from the board's q: drafts and save there after a 1 s pause, at once as the note loses focus, never overwriting a note being typed; another device's newer draft redraws the card, an older one nothing; Send empties it", async () => {
+  const topic = { id: 'item:w/T1', title: 'INT-1: Topic' };
+  const question = { id: 'q1', topic: topic.id, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' };
+  const v = questionsOnDom({ topics: [topic], questions: [question], at: 'q1' });
+  const drafted = (text, at, choice = 'B') => ({ 'q:q1': { text, files: [], choice, at } });
+  v.server.drafts = drafted('From the phone', draftAt(1));
+  await v.change({});
+  await v.settle();
+  const note = () => v.sheet().querySelector('section.q[data-q="q1"] textarea.note');
+  const checked = (id) => v.sheet().querySelector(`section.q[data-q="q1"] input[value="${id}"]`)?.hasAttribute('checked');
+  assert.deepEqual([note().value ?? note().textContent, checked('B')], ['From the phone', true]);
+
+  const radio = v.sheet().querySelector('section.q[data-q="q1"] input[value="A"]');
+  radio.type = 'radio';
+  v.page.fire(v.sheet(), 'change', { target: radio });
+  await v.settle();
+  assert.deepEqual(draftPosts(v), [], 'nothing before the pause');
+  v.page.runTimers(1000);
+  await v.settle();
+  assert.deepEqual(draftPosts(v), [{ id: 'q:q1', text: 'From the phone', files: [], choice: 'A' }]);
+
+  note().value = 'Mac note';
+  v.page.fire(v.sheet(), 'input', { target: note() });
+  v.page.fire(v.root, 'focusout', { target: note() });
+  await v.settle();
+  assert.deepEqual(draftPosts(v).at(-1), { id: 'q:q1', text: 'Mac note', files: [], choice: 'A' });
+
+  v.server.drafts = drafted('Phone again', draftAt(3), 'B');
+  await v.change({});
+  const copy = (id) => JSON.parse(JSON.stringify(v.page.win.BoardUI.getDraft(id)));
+  assert.deepEqual([copy('q1'), checked('B')], [{ choice: 'B', note: 'Phone again' }, true], 'a newer draft from elsewhere redraws the card');
+  v.server.drafts = drafted('Stale', draftAt(2), 'A');
+  await v.change({});
+  assert.equal(v.page.win.BoardUI.getDraft('q1').note, 'Phone again');
+
+  v.page.win.BoardUI.setDraft('q1', {});
+  v.page.runTimers(1000);
+  await v.settle();
+  assert.deepEqual(draftPosts(v).at(-1), { id: 'q:q1', text: '', files: [] });
+  v.unmount();
+});
+
+test("a browser's old qdraft keys move to the board once, each where the board has no draft for its question, and their keys go", async () => {
+  const topic = { id: 'item:w/T1', title: 'INT-1: Topic' };
+  const mk = (id) => ({ id, topic: topic.id, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  const stored = [['qdraft:q1', JSON.stringify({ choice: 'B', note: 'Old' })], ['qdraft:q2', JSON.stringify({ choice: 'A' })], ['qdraft:q3', '{}']];
+  const v = questionsOnDom({ topics: [topic], questions: [mk('q1'), mk('q2'), mk('q3')], stored });
+  v.server.drafts = { 'q:q2': { text: '', files: [], choice: 'B', at: draftAt(1) } };
+  await v.change({});
+  await v.settle();
+  v.page.runTimers(1000);
+  await v.settle();
+  assert.deepEqual(draftPosts(v), [{ id: 'q:q1', text: 'Old', files: [], choice: 'B' }]);
+  assert.deepEqual([...v.storage.keys()].filter((k) => k.startsWith('qdraft:')), []);
+  const copy = (id) => JSON.parse(JSON.stringify(v.page.win.BoardUI.getDraft(id)));
+  assert.deepEqual([copy('q1'), copy('q2')], [{ choice: 'B', note: 'Old' }, { choice: 'B' }]);
+  v.unmount();
+});
+
 // docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md: a push tap on a stale page
 test("a link to a question this copy of the board predates reloads the board once, then opens that question's sheet; one the new copy lacks too shows only Questions", async () => {
   const a = { id: 'item:w/A', title: 'INT-1: A' };
@@ -5811,7 +5871,7 @@ test('tapping the marked option again clears the pick: the suggestion stays clea
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
   const radio = (id) => { const i = $(`section.q[data-q="q1"] input[value="${id}"]`); i.type = 'radio'; return i; };
-  const draft = () => JSON.parse(v.page.win.localStorage.getItem('qdraft:q1') ?? '{}');
+  const draft = () => JSON.parse(JSON.stringify(v.page.win.BoardUI.getDraft('q1')));
   const tap = (input, was) => {
     input.checked = was; // the radio is already checked when the tap lands
     v.page.fire(v.sheet(), 'pointerdown', { target: input });
@@ -5837,7 +5897,7 @@ test('a tap on an option that was not marked marks it, and Space on the marked o
   const v = questionsOnDom({ topics: [topic], questions: [question], at: 'q1' });
   await v.settle();
   const radio = (id) => { const i = v.root.querySelector(`section.q[data-q="q1"] input[value="${id}"]`); i.type = 'radio'; return i; };
-  const draft = () => JSON.parse(v.page.win.localStorage.getItem('qdraft:q1') ?? '{}');
+  const draft = () => JSON.parse(JSON.stringify(v.page.win.BoardUI.getDraft('q1')));
   const a = radio('A');
   v.page.fire(v.sheet(), 'pointerdown', { target: a });
   a.checked = true;
@@ -5897,7 +5957,7 @@ test("the sheet's Prototype, Grill and Visual put their request for that questio
   v.answer('q2');
   v.page.fire(v.sheet(), 'click', { target: $('section.q[data-q="q2"] [data-grill]') });
   await v.settle();
-  assert.deepEqual([v.footer('q2'), v.toast(), v.questionsShown(), JSON.parse(v.page.win.localStorage.getItem('qdraft:q2'))], [null, 'Nothing was sent: board busy', ['q2'], { choice: 'A' }]);
+  assert.deepEqual([v.footer('q2'), v.toast(), v.questionsShown(), JSON.parse(JSON.stringify(v.page.win.BoardUI.getDraft('q2')))], [null, 'Nothing was sent: board busy', ['q2'], { choice: 'A' }]);
   v.unmount();
 });
 
@@ -5944,7 +6004,7 @@ test("Send sends the answered questions as one set and closes the sheet; opened 
   const v = questionsOnDom({ topics: TRIAGE, questions: [question('q1'), question('q2'), question('q3')], at: 'q1', gate });
   await v.settle();
   const $ = (sel) => v.sheet().querySelector(sel);
-  const draft = (id) => JSON.parse(v.page.win.localStorage.getItem(`qdraft:${id}`) || '{}');
+  const draft = (id) => JSON.parse(JSON.stringify(v.page.win.BoardUI.getDraft(id)));
   v.answer('q1');
   v.answer('q2');
   await v.send();
@@ -6062,7 +6122,7 @@ test('the questions sheet frames no take: a prototype question shows its options
   assert.deepEqual(view.map((a) => [a.getAttribute('href'), a.textContent]), [['prototype-unread.html?q=q1', 'View prototypes']]);
   const section = v.sheet().querySelector('section.q');
   v.answer('q1');
-  assert.equal(JSON.parse(v.page.win.localStorage.getItem('qdraft:q1')).choice, 'A');
+  assert.equal(v.page.win.BoardUI.getDraft('q1').choice, 'A');
   assert.equal(v.sheet().querySelector('section.q'), section);
   v.unmount();
 });
@@ -8007,7 +8067,7 @@ test("a prototype or a visual opened from the questions sheet stacks on it, with
     assert.deepEqual(JSON.parse(JSON.stringify(moves)), [['push', { idx: 4, sheets: 1 }, 'https://mac.ts.net/']], 'one entry for the layer');
 
     // Choose this: prototype-switcher.js drafts the pick, then hands the question's URL to the sheet.
-    b.page.win.localStorage.setItem('qdraft:q2', JSON.stringify({ choice: 'B', note: '' }));
+    b.page.win.BoardUI.setDraft('q2', { choice: 'B', note: '' });
     b.page.fire(reader, 'reader-leave', { detail: 'https://mac.ts.net/board-a/questions.html#q2' });
     assert.deepEqual([top(questions), picked(), moves.at(-1)], [true, true, ['back']], 'the questions sheet is on top again, the take picked, and the entry spent');
     land();

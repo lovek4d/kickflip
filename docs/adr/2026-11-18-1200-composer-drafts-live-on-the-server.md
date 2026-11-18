@@ -23,5 +23,13 @@ wasn't on the Mac, and clearing site data lost it (owner, T-532, T-535).
   change, as read marks do ([read marks live on the board](2026-11-05-0910-read-marks-live-on-the-board.md)).
 - A browser's old local drafts move to the server once, on the first board answer that carries drafts, each only where
   the server has none for its box, and their local keys are deleted.
-- Question picks and notes and the prototype viewer's note keep their browser drafts (`qdraft:<id>`); they move to this
-  store separately (T-690). The ask Edit form keeps none; it is being removed (T-693).
+- A question's unsent pick and note, which the questions sheet and the prototype viewer's Choose this share, are the draft
+  `q:<question id>` in the same store (T-690, owner t535-boxes): `text` is the note, `choice` the pick, absent until
+  one is made and null once cleared, and no files. They save as the other drafts do (`BoardUI.questionDrafts` in
+  `board/public/ui-questions.js`), after a 1 s pause, as a box loses focus and as the page hides, and the viewer's
+  Choose this saves at once as the page leaves. A newer draft from another device replaces the page's copy and redraws its
+  question's card, except a note being typed in or changes not yet saved, which save over it. They come back inside
+  their question only, with no mark elsewhere (owner, t535-pick-mark). Sending answers or a request empties the draft; the
+  server's pass after each board change drops one whose question has left the board's open questions (owner,
+  t535-lifetime). A browser's old `qdraft:<id>` keys move once, each where the server has no draft for its question,
+  and are deleted. The ask Edit form keeps none; it is being removed (T-693).

@@ -20,10 +20,10 @@ window.BoardView = (function () {
   const places = new Map();
 
   // Every board shares the hub's one origin, so each keeps its keys under site:<route>:; app.html's preload reads
-  // openItems by the same key. Question drafts, and thread drafts from before drafts lived on the server (drafts.js),
-  // are per card and keep their own keys.
+  // openItems by the same key. Thread drafts from before drafts lived on the server (drafts.js) are per card and keep
+  // their own keys.
   function storeFor(route) {
-    const keyOf = (k) => (/^(draft:(?!ask$)|qdraft:)/.test(k) ? k : `site:${route}:${k}`);
+    const keyOf = (k) => (/^draft:(?!ask$)/.test(k) ? k : `site:${route}:${k}`);
     // The keys boards kept unprefixed move once, to the first board opened; a key whose new name is taken stays.
     try {
       const old = [];
@@ -153,6 +153,13 @@ window.BoardView = (function () {
       if (B.alive()) return;
       begin();
       B.drafts = BoardDrafts.create(B);
+      // The questions' unsent picks and notes (ui-questions.js questionDrafts) save as a box loses focus and as the page hides.
+      const { questionDrafts } = BoardUI;
+      questionDrafts.use(B.site);
+      B.on(B.root, 'focusout', () => questionDrafts.flush());
+      B.on(document, 'visibilitychange', () => { if (document.hidden) questionDrafts.flush(true); });
+      B.on(window, 'pagehide', () => questionDrafts.flush(true));
+      B.atUnmount(() => questionDrafts.flush(true));
       for (const p of parts) p(B);
       start(B);
     }
@@ -220,6 +227,7 @@ window.BoardView = (function () {
         for (const el of $$('details.item[open]')) if (!moved.has(el.dataset.key)) state.openItems.add(el.dataset.key);
         B.takeMarks(d.items);
         B.drafts.take(d.drafts, d.items.map((i) => i.key));
+        BoardUI.questionDrafts.take(d.drafts);
         for (const it of d.items) if (state.openItems.has(it.key)) markSeen(it);
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
         const strips = B.captureStrips();

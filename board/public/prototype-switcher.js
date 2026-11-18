@@ -44,10 +44,9 @@
     if (locked(question)) return { kind: question.state === 'resolved' ? 'closed' : 'none', picked };
     return picked ? { kind: 'change', option, picked } : { kind: 'pick', option };
   }
-  // questions.html keeps each question's unsent {choice, note} under this key (ui-questions.js getDraft).
-  const draftKey = (qid) => 'qdraft:' + qid;
-  const readDraft = (qid) => { try { return JSON.parse(localStorage.getItem(draftKey(qid)) || '{}'); } catch { return {}; } };
-  const writeDraft = (qid, draft) => { try { localStorage.setItem(draftKey(qid), JSON.stringify(draft)); } catch { /* nothing kept */ } };
+  // The question's unsent {choice, note} is the board's draft q:<id>, the questions sheet's too (ui-questions.js questionDrafts).
+  const readDraft = (qid) => globalThis.BoardUI.getDraft(qid);
+  const writeDraft = (qid, draft) => globalThis.BoardUI.setDraft(qid, draft);
   // In place of this page: framed in the board's reader sheet, the sheet closes, onto the questions sheet under it when
   // that shows the URL's question, else the shell shows the URL's view (app-reader.js reader-leave); framed in the app
   // shell, the shell shows it in place (board/public/shell.js AppShell.open); alone, the page loads it.
@@ -141,6 +140,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     let shownState = states ? startTake(Object.keys(states), params.get('state')) : null;
     const qid = params.get('q');
     const site = globalThis.ClaudeSite;
+    if (site) globalThis.BoardUI.questionDrafts.use(site);
     if (!document.getElementById('ps-style')) document.head.insertAdjacentHTML('beforeend', `<style id="ps-style">${CSS}</style>`);
     // Framed in the board's reader sheet (app-reader.js openPage), whose header holds the ✕ and the Round pill.
     if (window.frameElement?.closest('.reader-sheet')) document.documentElement.classList.add('ps-in-sheet');
@@ -214,6 +214,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
       if (!qid || !site) return;
       try {
         const board = await (await fetch(site.url('api/board'), { cache: 'no-store' })).json();
+        globalThis.BoardUI.questionDrafts.take(board.drafts);
         // A resolved question is left out of /api/board, and its topic's resolved questions hold it
         // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
         const topic = board.ownerTopics.find((t) => t.questions.includes(qid));
@@ -238,6 +239,8 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
       const now = state();
       if (!(now.kind === 'pick' || now.kind === 'change')) return;
       writeDraft(qid, { ...readDraft(qid), choice: now.option.id, note: text.value.trim() });
+      // The page leaves at once, so the request outlives it.
+      globalThis.BoardUI.questionDrafts.flush(true);
       replaceWith(site.url(`questions.html#${encodeURIComponent(qid)}`));
     }
     text.addEventListener('keydown', (e) => {
