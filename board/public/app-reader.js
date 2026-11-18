@@ -29,6 +29,8 @@ BoardView.part((B) => {
   let stopReading = null;
   // The card whose notes the sheet shows, else null.
   let notesKey = null;
+  // Whether the open sheet's notes follow the opened card (followCardNotes), as opposed to a view the owner opened.
+  let autoNotes = false;
   // The card page the sheet shows, {url, q, rounds, title}, rounds whether the Round sheet is out, else null.
   let page = null;
   // The pages under the one shown, bottom first, each {body, log, notesKey, page, title, ref, scroll}: its body kept,
@@ -153,6 +155,7 @@ BoardView.part((B) => {
     if (over) stackView(); else dropUnder();
     log = null;
     notesKey = null;
+    autoNotes = false;
     page = null;
     sheet.classList.remove('reader-page');
     sheet.querySelector('#readerTitle').textContent = title;
@@ -178,11 +181,22 @@ BoardView.part((B) => {
     body.innerHTML = `<article class="plan reader-md">${markdown(md, linkContext(state.board?.items || [], key))}</article>`;
   }
   const refOf = (key) => state.board?.items.find((i) => i.key === key)?.ref ?? key;
-  async function openNotes(search) {
+  // search: ?item=<key>. auto: the notes follow the opened card, and followCardNotes may swap them in place; otherwise the
+  // owner opened them, and they stay.
+  async function openNotes(search, { auto = false } = {}) {
     const key = new URLSearchParams(search).get('item');
-    if (sheet.open && !sheet.classList.contains('closing') && notesKey === key) return;
-    const n = show('notes', '');
-    notesKey = key;
+    const shown = sheet.open && !sheet.classList.contains('closing');
+    if (shown && notesKey === key) { if (!auto) autoNotes = false; return; }
+    let n;
+    if (auto && shown && autoNotes && !under.length) {
+      n = ++opened;
+      notesKey = key;
+      body.innerHTML = '<p class="muted">Loading…</p>';
+    } else {
+      n = show('notes', '');
+      notesKey = key;
+      autoNotes = auto;
+    }
     if (state.notesCache.has(key)) { paintNotes(key, state.notesCache.get(key), refOf(key)); return; }
     let answer;
     try {
@@ -194,6 +208,19 @@ BoardView.part((B) => {
       return;
     }
     if (n === opened) paintNotes(answer.key ?? key, answer.markdown, answer.ref);
+  }
+  // From 900px, a card the owner opens opens its notes while no view is open or the open one is notes that followed; a
+  // card with open questions (asked) or no notes closes followed notes.
+  function followCardNotes(key, asked) {
+    if (!matchMedia('(min-width: 900px)').matches) return;
+    const shown = sheet.open && !sheet.classList.contains('closing');
+    if (shown && !autoNotes) return;
+    if (asked || !state.board?.items.find((i) => i.key === key)?.hasNotes) { if (shown) closeAll(); return; }
+    openNotes(`?item=${encodeURIComponent(key)}`, { auto: true });
+  }
+  // A card the owner collapses closes its notes if they opened by themselves.
+  function leaveCardNotes(key) {
+    if (sheet.open && autoNotes && notesKey === key) closeAll();
   }
   // The open sheet's notes again, when the cache holds them changed.
   function repaintNotes(keys) {
@@ -335,12 +362,12 @@ BoardView.part((B) => {
   // The sheet closes with every page in it.
   function closeAll() {
     if (!sheet.open) return;
-    BoardUI.closeSheet(sheet, B.later, dropPage);
+    BoardUI.closeSheet(sheet, B.later, () => { autoNotes = false; dropPage(); });
     opened++;
     stopReading?.();
   }
 
-  Object.assign(B, { closeReader: closeAll, takeNotes, fillNotes, openPage });
+  Object.assign(B, { closeReader: closeAll, takeNotes, fillNotes, openPage, followCardNotes, leaveCardNotes });
 
   const plainTap = (ev) => !ev.defaultPrevented && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey;
   B.on(B.root, 'click', (ev) => {

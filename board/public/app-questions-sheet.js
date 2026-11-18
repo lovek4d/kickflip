@@ -152,13 +152,16 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     return true;
   }
   // From 900px, a card the owner opens opens its questions sheet while none is open or the open one is autoOpen; a card
-  // with no open questions closes an autoOpen sheet.
+  // with no open questions closes an autoOpen sheet. → whether a sheet is now showing, so the card's notes stay shut.
   function followCard(key) {
-    if (!matchMedia('(min-width: 900px)').matches || (sheet.open && !autoOpen)) return;
+    if (!matchMedia('(min-width: 900px)').matches) return false;
+    if (sheet.open && !autoOpen) return true;
     if (!open(`item:${key}`, { auto: true }) && sheet.open) close();
+    return isShowing();
   }
+  const isShowing = () => sheet.open && !sheet.classList.contains('closing');
   // Whether the sheet is open for that topic and not on its way out.
-  const shows = (t) => sheet.open && !sheet.classList.contains('closing') && topic === t;
+  const shows = (t) => isShowing() && topic === t;
   // A card the owner collapses closes its questions sheet if it opened by itself.
   function leaveCard(key) {
     if (sheet.open && autoOpen && topic === `item:${key}`) close();

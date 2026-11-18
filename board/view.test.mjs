@@ -7797,6 +7797,58 @@ test("from 900px opening a card opens its questions sheet while none is open or 
   phone.view.unmount();
 });
 
+// docs/adr/2026-11-18-1200-on-desktop-a-card-with-no-questions-opens-its-notes-by-itself.md
+test("from 900px opening a card with no open questions opens its notes in the reader by itself, swapped as cards open, closed on collapse, and never over a view opened by hand; a card with no notes and a phone open nothing", async () => {
+  const qs = [openQuestion('qa', 'item:w/A1')];
+  const board = { ...questionsBoard(qs, []), items: [
+    workCard('A1', { lane: 'progress', hasNotes: true, questions: { topic: 'item:w/A1', first: 'qa', open: 1, state: 'open' } }),
+    workCard('B1', { hasNotes: true }), workCard('C1', { hasNotes: true }), workCard('D1')] };
+  const notes = { 'w/A1': '# Notes A1', 'w/B1': '# Notes B1', 'w/C1': '# Notes C1' };
+  const wide = boardOnDom({ open: ['w/C1'], board, threads: {}, notes, width: 1280 });
+  await wide.settle();
+  const reader = () => wide.root.querySelector('#readerSheet');
+  const text = () => reader().querySelector('.reader-body')?.textContent ?? '';
+  const questions = () => wide.root.querySelector('#questionsSheet');
+  const tapCard = (key, open) => { wide.root.querySelector(`details.item[data-key="w/${key}"]`).open = open; wide.page.fire(wide.root, 'click', { target: wide.root.querySelector(`details.item[data-key="w/${key}"] > summary`), button: 0 }); };
+  tapCard('B1', false);
+  await wide.settle();
+  assert.deepEqual([reader().open, reader().modal, /Notes B1/.test(text())], [true, false, true], 'a card with no questions opens its notes');
+  tapCard('C1', false);
+  await wide.settle();
+  assert.deepEqual([reader().open, /Notes C1/.test(text())], [true, true], 'the next card swaps them in place');
+  tapCard('A1', false);
+  wide.page.runTimers();
+  assert.deepEqual([questions().open, reader().open], [true, false], 'a card with questions swaps the notes for its questions');
+  tapCard('A1', true);
+  wide.page.runTimers();
+  tapCard('D1', false);
+  await wide.settle();
+  assert.equal(reader().open, false, 'a card with no notes opens nothing');
+  tapCard('B1', false);
+  await wide.settle();
+  tapCard('B1', true);
+  wide.page.runTimers();
+  assert.equal(reader().open, false, 'collapsing the card closes its notes');
+  // Notes opened by hand stay.
+  tapCard('C1', false);
+  await wide.settle();
+  wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('a[href="notes.html?item=w%2FC1"]'), button: 0 });
+  await wide.settle();
+  tapCard('B1', false);
+  await wide.settle();
+  assert.deepEqual([reader().open, /Notes C1/.test(text())], [true, true], 'notes opened by hand stay when a card opens');
+  tapCard('C1', true);
+  wide.page.runTimers();
+  assert.equal(reader().open, true, 'and through a collapse');
+  wide.view.unmount();
+  const phone = boardOnDom({ board, threads: {}, notes, width: 390 });
+  await phone.settle();
+  phone.page.fire(phone.root, 'click', { target: phone.root.querySelector('details.item[data-key="w/B1"] > summary'), button: 0 });
+  await phone.settle();
+  assert.equal(phone.root.querySelector('#readerSheet').open, false, 'a phone opens none');
+  phone.view.unmount();
+});
+
 // docs/adr/2026-11-16-2330-a-cards-questions-sheet-opens-once-hides-on-collapse-and-a-tap-keeps-it.md
 test("opening a card whose questions sheet is already open leaves it alone, collapsing a card closes its auto-opened sheet and not one opened by hand, and Questions on an auto-opened sheet makes it the owner's", async () => {
   const qs = [openQuestion('qa', 'item:w/A1'), openQuestion('qb', 'item:w/A1'), openQuestion('qc', 'item:w/B1')];

@@ -374,9 +374,9 @@ BoardView.part((B) => {
   B.on(B.root, 'click', (ev) => {
     const card = ev.target.closest?.('details.item > summary')?.parentNode;
     if (!card || ev.target.closest('button[data-card-menu]')) return;
-    if (card.open) { B.leaveCardQuestions(card.dataset.key); return; }
+    if (card.open) { B.leaveCardQuestions(card.dataset.key); B.leaveCardNotes(card.dataset.key); return; }
     B.select(card.dataset.key, { board: false });
-    B.followCardQuestions(card.dataset.key);
+    B.followCardNotes(card.dataset.key, B.followCardQuestions(card.dataset.key));
   });
 
   B.on(B.root, 'toggle', (ev) => {
