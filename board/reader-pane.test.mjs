@@ -41,7 +41,8 @@ const standard = phone.match(/@media \(max-width: 899px\) \{\s*\.sheet\.reader-s
 test('on a phone every standard sheet is full height: one formula, above the app bar, below the status bar', () => {
   const formula = standard.match(/--standard-height: ([^;]*);/)?.[1] ?? '';
   assert.match(formula, /var\(--sheet-full, calc\(var\(--vh, 100dvh\) \+ var\(--kb, 0px\)\)\)/);
-  assert.match(formula, /var\(--app-bottom, 0px\)/);
+  assert.match(formula, /max\(0px, calc\(var\(--app-bottom, 0px\) - var\(--kb, 0px\)\)\)/);
+  assert.doesNotMatch(formula, /max\(var\(--app-bottom, 0px\), var\(--kb, 0px\)\)/);
   assert.match(formula, /max\(12px, env\(safe-area-inset-top\)\)/);
   assert.match(standard, /\n\s+height: var\(--standard-height\); max-height: var\(--standard-height\);/);
 });

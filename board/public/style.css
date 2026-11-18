@@ -930,7 +930,7 @@ main > * { transition: opacity .25s ease; }
   body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + var(--search-lift, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
-    max-height: calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - max(var(--app-bottom, 0px), var(--kb, 0px)) - env(safe-area-inset-top) - 12px); }
+    max-height: calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - env(safe-area-inset-top) - 12px); }
   .sheet.keyboard-sheet:not(.kb)::after { height: 0; }
   .sheet.keyboard-sheet { --sheet-limit: max(80px, calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - max(12px, env(safe-area-inset-top)))); }
 }
@@ -950,7 +950,7 @@ main > * { transition: opacity .25s ease; }
    from 900px it is the right pane (the desktop block below). Its body scrolls inside. */
 @media (max-width: 899px) {
   .sheet.reader-sheet, .sheet.arch-sheet, .settings-modal {
-    --standard-height: calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - max(var(--app-bottom, 0px), var(--kb, 0px)) - max(12px, env(safe-area-inset-top)));
+    --standard-height: calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - max(12px, env(safe-area-inset-top)));
     position: fixed; inset: auto 0 max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) 0; margin: 0 auto; width: 100%; max-width: none;
     height: var(--standard-height); max-height: var(--standard-height); padding-bottom: 0;
     border-width: 1px 0 0; border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,.18); }
