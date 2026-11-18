@@ -18,6 +18,7 @@ import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo, git } from './worktree.mjs';
 import { standardWords } from './commit-message.mjs';
 import { BoardError } from './checks.mjs';
+import { claimLaunch, release } from '../shared/launch-claim.mjs';
 import { appendBuilderResumed, appendStatus } from './cards.mjs';
 import { readBoardRules } from './settings.mjs';
 import { briefFacts, recordedSession, recordSession } from './runs.mjs';
@@ -371,6 +372,29 @@ export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } ca
 const logsDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'logs');
 const logFile = (id, role) => path.join(logsDir(), `${role}-${id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
 
+// docs/adr/2026-11-18-2030-a-launch-is-one-exclusive-claim.md
+// The folder of the launch claims of the board at site, one file per run: its card and agent.
+const claimsDir = (site) => path.join(site, 'data', 'launches');
+const claimName = (key, agent) => `${key}~${agent}`;
+// Frees the card's agent's launch claim, as its run ends or is stopped, so a later run of it launches.
+export const releaseLaunch = (site, key, agent = 'main') => release(claimsDir(site), claimName(key, agent));
+
+// Launches through launch, with args, only if this process wins the exclusive claim on the card's agent, so two servers
+// or passes deciding to launch the same run launch it once. The claim holds the launched process's pid from its spawn.
+// → launch's answer, or null when another process holds the claim; a launch that rejects frees the claim.
+async function launchClaimed(site, key, agent, launch, args) {
+  const claim = claimLaunch(claimsDir(site), claimName(key, agent));
+  if (!claim) return null;
+  try {
+    const launched = await launch({ ...args, onSpawn: claim.settle });
+    claim.settle(launched.pid);
+    return launched;
+  } catch (e) {
+    claim.release();
+    throw e;
+  }
+}
+
 // Launches the agent of a build startTappedBuild started ({key, kind, model}), the rebase run when the card has one
 // open (runs.mjs startRebase's rebase_run, so a relaunch after a restart briefs it the same), with lander the lander of
 // a verified card, or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, a grill's text? and
@@ -380,7 +404,8 @@ const logFile = (id, role) => path.join(logsDir(), `${role}-${id}-${new Date().t
 // on from a session past the cap (resumeBuilder), adds handoffLines to its brief, read with the branch's commits and diff
 // stat against the base. The session id it names goes on the agent's builder record
 // and, with the log, in a thread line saying so.
-// → {pid, sessionId, log}; rejects when the agent can't start.
+// → {pid, sessionId, log}, null when another process holds the launch claim on the card's agent (launchClaimed); rejects
+// when the agent can't start.
 export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, asks, task, writes, worktree, target }, { lander = false, handoff, launch = launchAgent } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
@@ -398,7 +423,8 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const prompt = handoff
     ? [roleBrief, ...handoffLines({ ...handoff, commits: git(cwd, 'log', '--oneline', `${base}..HEAD`).out, stat: git(cwd, 'diff', '--stat', `${base}...HEAD`).out })].join('\n')
     : roleBrief;
-  const launched = await launch({ kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
+  const launched = await launchClaimed(site, key, agent, launch, { kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
+  if (!launched) return null;
   await recordSession(site, key, launched.sessionId, launched.pid, agent, path.basename(launched.log));
   return launched;
 }
@@ -491,19 +517,21 @@ export function handoffLines({ why, commits, stat, last }) {
 // either way, as launchBuilder's does.
 // → {pid, sessionId, log, resumed}, resumed whether the session continued.
 export async function resumeBuilder(site, { key, kind = 'claude', model, session, brief, why, land = false, fresh = false, freshLaunch = {}, launch = launchAgent }) {
-  if (kind !== 'claude' || !session || fresh) return { ...await launchBuilder(site, { key, kind, model }, { ...freshLaunch, launch }), resumed: false };
+  if (kind !== 'claude' || !session || fresh) return withResumed(await launchBuilder(site, { key, kind, model }, { ...freshLaunch, launch }), false);
   const state = session.log ? sessionState(path.join(logsDir(), session.log)) : null;
   const choice = resumeChoice(state, { land, model });
   if (!choice.resume) {
     const launched = await launchBuilder(site, { key, kind, model: choice.model }, { ...freshLaunch, handoff: { why, last: state.last }, launch });
-    await appendStatus(site, key, 'fresh-builder', { cap: CONTEXT_CAP / 1000 });
-    return { ...launched, resumed: false };
+    if (launched) await appendStatus(site, key, 'fresh-builder', { cap: CONTEXT_CAP / 1000 });
+    return withResumed(launched, false);
   }
   const facts = await briefFacts(site, key);
-  const launched = await launch({ kind, model, cwd: session.worktree ?? facts.worktree, site, prompt: brief(facts), resume: session.id, log: logFile(key.split('/')[1], 'builder') });
+  const launched = await launchClaimed(site, key, 'main', launch, { kind, model, cwd: session.worktree ?? facts.worktree, site, prompt: brief(facts), resume: session.id, log: logFile(key.split('/')[1], 'builder') });
+  if (!launched) return null;
   await recordSession(site, key, launched.sessionId ?? session.id, launched.pid, 'main', path.basename(launched.log));
   return { ...launched, resumed: true };
 }
+const withResumed = (launched, resumed) => launched && { ...launched, resumed };
 
 // Lands a card through its own builder: its newest session, resumed with the lander's brief (landerBrief, why saying what
 // the land hit), or with the rebase run's when the card has one open. A session recorded in another worktree than the
@@ -525,6 +553,6 @@ export async function landByBuilder(site, { key, kind = 'claude', model }, { why
     if (!session) throw e;
     launched = await resumeBuilder(site, { key, kind, model, session: null, brief, freshLaunch, launch });
   }
-  if (launched.resumed) await appendBuilderResumed(site, key);
+  if (launched?.resumed) await appendBuilderResumed(site, key);
   return launched;
 }

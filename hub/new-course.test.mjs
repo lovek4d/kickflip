@@ -161,6 +161,18 @@ test('a course with no recorded session starts a fresh /teach in its folder and 
   assert.equal(readManifest().sites['no-session'].owner.session, r.session);
 });
 
+// docs/adr/2026-11-18-2030-a-launch-is-one-exclusive-claim.md
+test('two taps on a course with no session at once start one /teach', async () => {
+  const dir = path.join(pagesHome(), 'double-tap');
+  fs.mkdirSync(dir, { recursive: true });
+  saveJSON(manifestFile, { sites: { 'double-tap': { dir, title: 'Double tap' } } });
+  const { calls, run } = claude();
+  const taps = await Promise.all([resumeCourse('double-tap', { run, live }), resumeCourse('double-tap', { run, live })]);
+  assert.equal(calls.length, 1, 'one session started');
+  assert.deepEqual(taps.map((r) => r.started).sort(), [false, true]);
+  assert.equal(readManifest().sites['double-tap'].owner.session, taps.find((r) => r.started).session);
+});
+
 test('only a course page under pages can be resumed', async () => {
   saveJSON(manifestFile, { sites: { plain: { dir: path.join(home, 'elsewhere'), title: 'Plain' } } });
   await assert.rejects(resumeCourse('plain', { run: claude().run, live }), { status: 404 });

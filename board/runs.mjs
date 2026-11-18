@@ -27,6 +27,8 @@
 // - rebases.json {<key>: {conflict, pid, log?, relaunched?, handedBack?, limited?}}: the rebase run of each conflict
 //   (docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
 // - queued-planners.json {<key>#<kind>: {kind, kept?, until?}}: the planners a hold or the usage limit keeps waiting.
+// - launches/<key>~<agent>: the exclusive claim each launch takes before it spawns, holding the agent's pid, so two
+//   servers launch a run once (docs/adr/2026-11-18-2030-a-launch-is-one-exclusive-claim.md).
 // A run's record, agents/<id>.json on its card (a builder, planner, visual agent, reviewer, helper, lander or rebase
 // run), is in this module too, below the launch passes: opening it at a start, the builder's commands on it (progress,
 // calls, asks, summary, done) and closing it, with the card and question writes those make through cards.mjs and
@@ -36,7 +38,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
-import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, runFailure, stopRuns } from './headless.mjs';
+import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, stopRuns } from './headless.mjs';
 import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
 import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree } from './worktree.mjs';
 import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
@@ -134,8 +136,8 @@ async function handOff(site, started, io) {
       if (gate.machine.state === 'busy') await appendStatus(site, started.key, 'host-busy');
       await trackLaunch(site, started.key, { ...entry, pid: null });
     } else {
-      const { pid, log } = await launchBuilder(site, started, { launch: io.launch });
-      await trackLaunch(site, started.key, { ...entry, pid, log });
+      const launched = await launchBuilder(site, started, { launch: io.launch });
+      if (launched) await trackLaunch(site, started.key, { ...entry, pid: launched.pid, log: launched.log });
     }
   } catch (e) {
     await abandonLaunch(site, started.key, `the launch failed: ${e.message}`);
@@ -437,9 +439,10 @@ async function launchLanders(site, items, stopped, io, pass) {
     if (step.step !== 'launch') continue;
     const entry = { call: 'lander', key: c.key, reason: step.relaunched ? 'Its lander exited without landing, the first time.' : 'Its build was verified and waits to land.', inputs };
     try {
-      const { pid, log, resumed } = await landByBuilder(site, c, { fresh: step.fresh, launch: io.launch });
-      kept[c.key] = { verified: c.verified, pid, log, relaunched: step.relaunched };
-      io.log({ ...entry, result: resumed ? 'resumed its builder' : 'launched' });
+      const launched = await landByBuilder(site, c, { fresh: step.fresh, launch: io.launch });
+      if (!launched) { io.log({ ...entry, result: 'claimed elsewhere' }); continue; }
+      kept[c.key] = { verified: c.verified, pid: launched.pid, log: launched.log, relaunched: step.relaunched };
+      io.log({ ...entry, result: launched.resumed ? 'resumed its builder' : 'launched' });
       await trackLaunch(site, c.key, null);
     } catch (e) {
       io.log({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
@@ -483,8 +486,9 @@ async function launchRebases(site, items, stopped, io, pass) {
       if (limited) sent[key] = { ...run, limited };
     } else {
       try {
-        const { pid, log } = await landByBuilder(site, { key, kind: open.kind ?? 'claude', model: open.model }, { fresh: step.fresh, launch: io.launch });
-        sent[key] = { conflict: run.conflict, pid, log, relaunched: step.relaunched };
+        const launched = await landByBuilder(site, { key, kind: open.kind ?? 'claude', model: open.model }, { fresh: step.fresh, launch: io.launch });
+        if (!launched) { io.log({ call: 'rebase-run', key, result: 'claimed elsewhere', reason: 'Another process holds its launch claim.', inputs }); continue; }
+        sent[key] = { conflict: run.conflict, pid: launched.pid, log: launched.log, relaunched: step.relaunched };
         io.log({ call: 'rebase-run', key, result: 'relaunched', reason: 'Its rebase run exited with its record open, the first time.', inputs });
       } catch (e) {
         io.log({ call: 'rebase-run', key, result: 'failed', reason: `Its rebase run exited with its record open. The launch failed: ${e.message}`, inputs });
@@ -515,9 +519,9 @@ async function launchRebases(site, items, stopped, io, pass) {
         continue;
       } finally { io.stale(); }
       try {
-        const { pid, log } = await landByBuilder(site, started, { launch: io.launch });
-        sent[d.key] = { ...sent[d.key], pid, log };
-        io.log({ ...entry, result: 'launched' });
+        const launched = await landByBuilder(site, started, { launch: io.launch });
+        if (launched) sent[d.key] = { ...sent[d.key], pid: launched.pid, log: launched.log };
+        io.log({ ...entry, result: launched ? 'launched' : 'claimed elsewhere' });
       } catch (e) {
         io.log({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
         await appendStatus(site, d.key, 'rebase-launch-failed', { error: e.message });
@@ -549,9 +553,10 @@ async function resumeBuild(site, key, io) {
   const kind = providerOf(record.kind) ?? 'claude';
   try {
     const why = `The board paused this build, and the pause has cleared: ${cleared}.`;
-    const { pid, log, resumed: same } = await resumeBuilder(site, { key, kind, model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => resumeBrief({ ...facts, cleared }), why, launch: io.launch });
-    await trackLaunch(site, key, { kind, model: record.model, pid, log, relaunched: false });
-    io.log({ ...entry, result: same ? 'resumed' : 'fresh builder' });
+    const launched = await resumeBuilder(site, { key, kind, model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => resumeBrief({ ...facts, cleared }), why, launch: io.launch });
+    if (!launched) return io.log({ ...entry, result: 'claimed elsewhere' });
+    await trackLaunch(site, key, { kind, model: record.model, pid: launched.pid, log: launched.log, relaunched: false });
+    io.log({ ...entry, result: launched.resumed ? 'resumed' : 'fresh builder' });
   } catch (e) {
     io.log({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
     await appendStatus(site, key, 'resume-failed', { error: e.message });
@@ -569,9 +574,10 @@ async function rerunBuild(site, key, io) {
   io.stale();
   const entry = { call: 'rerun', key, reason: "The orchestrator's builder resume on its handed-back build.", inputs: { news } };
   try {
-    const { pid, log, resumed } = await resumeBuilder(site, { key, kind: 'claude', model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => rerunBrief({ ...facts, news }), why: news.join(' '), launch: io.launch });
-    await trackLaunch(site, key, { kind: 'claude', model: record.model, pid, log, relaunched: false });
-    io.log({ ...entry, result: resumed ? 'resumed' : 'fresh builder' });
+    const launched = await resumeBuilder(site, { key, kind: 'claude', model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => rerunBrief({ ...facts, news }), why: news.join(' '), launch: io.launch });
+    if (!launched) return io.log({ ...entry, result: 'claimed elsewhere' });
+    await trackLaunch(site, key, { kind: 'claude', model: record.model, pid: launched.pid, log: launched.log, relaunched: false });
+    io.log({ ...entry, result: launched.resumed ? 'resumed' : 'fresh builder' });
   } catch (e) {
     io.log({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
     await appendStatus(site, key, 'resume-failed', { error: e.message });
@@ -670,9 +676,9 @@ async function reviveHeadless(site, built, io) {
       const entry = { call: 'relaunch', key: card.key, inputs: was,
         reason: was.pid === null ? 'Its launch was held by a pause or a busy host, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
       try {
-        const { pid, log } = await launchBuilder(site, card, { launch: io.launch });
-        io.log({ ...entry, result: was.pid === null ? 'launched' : 'relaunched' });
-        return { pid, log };
+        const launched = await launchBuilder(site, card, { launch: io.launch });
+        io.log({ ...entry, result: launched ? (was.pid === null ? 'launched' : 'relaunched') : 'claimed elsewhere' });
+        return launched ? { pid: launched.pid, log: launched.log } : { pid: was.pid, log: was.log };
       } catch (e) {
         io.log({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
         await appendStatus(site, card.key, 'relaunch-failed', { error: e.message });
@@ -1233,6 +1239,7 @@ export async function abandonLaunch(site, key, why) {
   const record = await readJSON(file, null);
   const now = new Date().toISOString();
   if (record && !record.done) await writeJSON(file, { ...record, done: now });
+  releaseLaunch(site, key);
   const { source, itemFile, item } = await loadItem(site, key);
   if (item.lane === 'progress') placeIn(item, 'todo', now);
   await writeJSON(source.file, itemFile);
@@ -1245,6 +1252,7 @@ export async function abandonPlanner(site, key, [kind, inputs], agent = 'main') 
   const file = await builderFile(site, key, undefined, agent);
   const record = await readJSON(file, null);
   if (record && !record.done) await writeJSON(file, { ...record, done: new Date().toISOString() });
+  releaseLaunch(site, key, agent);
   await publishStaged(site, key);
   await appendStatus(site, key, kind, inputs);
 }
@@ -1276,6 +1284,7 @@ export async function openRuns(site, key) {
 // The orchestrator's stop of the card's run (build, land), on each open build record as stopped {run, at}: the card
 // reads the stop's words, and the server relaunches neither its builder nor its lander.
 export async function markStopped(site, key, run) {
+  releaseLaunch(site, key);
   const { source } = await loadItem(site, key);
   const at = new Date().toISOString();
   for (const file of await builderFiles(source.dir, parseKey(key).id)) {
@@ -1883,6 +1892,7 @@ export async function waitOnMainFix(site, key, { files, log, base }) {
 // land step for it (domain.mjs landStep) relaunches or faults it, counting from its data/landers.json entry
 // (runs.mjs).
 export async function relaunchLander(site, key) {
+  releaseLaunch(site, key);
   await setItem(site, key, { handBack: true });
 }
 
@@ -2067,6 +2077,7 @@ export async function closeRecord(site, key, { dir, agent, startedBetween, note,
     fail(`builder done closes ${key}'s last open builder, which leaves it In Progress with no Next; pass --next "<what happens next>", or record a judgment call with builder call ${key} or land`);
   }
   await writeJSON(file, stopped);
+  if (site) releaseLaunch(site, key, agent);
   await publishStaged(site, key, { screen: record.kind === 'grill' });
   if (next !== undefined) await writeJSON(source.file, itemFile);
   return file;

@@ -11,6 +11,7 @@ import { ROUTE_RE, routeFromName, routeRecord } from './routes.mjs';
 import { liveSessions } from './live.mjs';
 import { resumeSession, startSession } from './sessions.mjs';
 import { trustFolder } from './trust.mjs';
+import { claimLaunch } from '../shared/launch-claim.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -90,7 +91,9 @@ const nextLesson = (title) => `The kickflip hub resumed this session because the
 
 // The owner opened a course while its session is down: resumes that session in the course's folder with a prompt for
 // the next lesson, or starts a fresh /teach there when no session is recorded (it reads the folder to find where the
-// course left off). A session already live starts nothing. run and live go to sessions.mjs. → {route, started, session?}
+// course left off), under a launch claim (shared/launch-claim.mjs) so two taps start one session, since the session
+// has no recorded owner until the start ends. A session already live starts nothing. run and live go to sessions.mjs.
+// → {route, started, session?}
 export async function resumeCourse(route, { manifest = readManifest(), run, live = liveSessions } = {}) {
   const site = routeRecord(manifest.sites, route);
   if (courseLessons(site?.dir) === null) refuse('That course is not open.', 404);
@@ -105,13 +108,17 @@ export async function resumeCourse(route, { manifest = readManifest(), run, live
     return { route, started: true, session: r.session };
   }
   const first = `/teach continue the course "${title}"\n\n${nextLesson(title)}`;
-  const r = await startSession(route, { manifest, repo: site.dir, first, run, live });
-  await withManifestLock(async () => {
-    const m = readManifest();
-    const now = new Date().toISOString();
-    m.sites[route].owner = { session: r.session, label: r.name, since: now, repo: r.repo, ...(r.model ? { model: r.model } : {}) };
-    m.sites[route].updated = now;
-    await writeManifest(m);
-  });
-  return { route, started: true, session: r.session };
+  const claim = claimLaunch(path.join(os.homedir(), '.claude', 'kickflip', 'launches'), `course~${route}`);
+  if (!claim) return { route, started: false };
+  try {
+    const r = await startSession(route, { manifest, repo: site.dir, first, run, live });
+    await withManifestLock(async () => {
+      const m = readManifest();
+      const now = new Date().toISOString();
+      m.sites[route].owner = { session: r.session, label: r.name, since: now, repo: r.repo, ...(r.model ? { model: r.model } : {}) };
+      m.sites[route].updated = now;
+      await writeManifest(m);
+    });
+    return { route, started: true, session: r.session };
+  } finally { claim.release(); }
 }

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import * as runs from './runs.mjs';
+import { launchBuilder } from './headless.mjs';
 import { buildBoard } from './domain.mjs';
 import { outsideData, readSnapshot } from './snapshot.mjs';
 import { threadFile } from './store.mjs';
@@ -175,4 +176,43 @@ test("finish closes a helper's record with its result as the note, and refuses a
   const { file } = { file: await runs.finish(site, 't/F1', { agent: 'scan', text: 'Found two callers' }, { usage: Usage }) };
   assert.deepEqual([readJSON(file).note, typeof readJSON(file).done], ['Found two callers', 'string']);
   await assert.rejects(runs.finish(site, 't/F1', { text: 'Done' }, { usage: Usage }), Usage);
+});
+
+// docs/adr/2026-11-18-2030-a-launch-is-one-exclusive-claim.md
+test('two passes launching the same run at once spawn one agent, and a run whose process is gone launches once again, however many race', async (t) => {
+  const { site } = board([{ id: 'C1', title: 'fix(board): claimed', lane: 'progress' }]);
+  const { launched, launch, gone } = launcher(t);
+  const results = await Promise.all([launchBuilder(site, { key: 't/C1' }, { launch }), launchBuilder(site, { key: 't/C1' }, { launch })]);
+  assert.equal(launched.length, 1, 'two servers pulling one card spawn one builder');
+  assert.deepEqual(results.map((r) => r === null).sort(), [false, true], 'the loser is told it launched nothing');
+
+  assert.equal(await launchBuilder(site, { key: 't/C1' }, { launch }), null, 'a later pass finds the builder alive');
+  await gone(launched[0].pid);
+  const again = await Promise.all([launchBuilder(site, { key: 't/C1' }, { launch }), launchBuilder(site, { key: 't/C1' }, { launch })]);
+  assert.equal(launched.length, 2, 'its dead claim is taken over by one pass only');
+  assert.equal(again.filter(Boolean).length, 1);
+});
+
+test("each agent of a card is its own claim, and a stop or a closed record frees it so the card's next run launches", async (t) => {
+  const { site } = board([{ id: 'C2', title: 'fix(board): claims', lane: 'progress' }]);
+  const { launched, launch } = launcher(t);
+  await launchBuilder(site, { key: 't/C2' }, { launch });
+  await launchBuilder(site, { key: 't/C2', agent: 'helper-a', kind: 'helper' }, { launch });
+  assert.equal(launched.length, 2, 'a helper beside the builder claims on its own');
+
+  await runs.markStopped(site, 't/C2', 'build');
+  await launchBuilder(site, { key: 't/C2' }, { launch });
+  assert.equal(launched.length, 3, 'a stopped run frees its claim while its process still dies');
+
+  await runs.abandonLaunch(site, 't/C2', 'the launch failed');
+  await launchBuilder(site, { key: 't/C2' }, { launch });
+  assert.equal(launched.length, 4, 'a launch given up frees its claim');
+});
+
+test('a launch that rejects frees its claim, so the next pass tries again', async (t) => {
+  const { site } = board([{ id: 'C3', title: 'fix(board): rejects', lane: 'progress' }]);
+  const { launched, launch } = launcher(t);
+  await assert.rejects(launchBuilder(site, { key: 't/C3' }, { launch: async () => { throw new Error('spawn claude ENOENT'); } }), /ENOENT/);
+  assert.ok(await launchBuilder(site, { key: 't/C3' }, { launch }));
+  assert.equal(launched.length, 1);
 });

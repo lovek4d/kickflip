@@ -59,9 +59,9 @@ function sessionOf(child, log, offset, session, wait) {
 // Starts an agent of kind (claude | codex) on prompt at background priority (background.mjs), detached in cwd, without the launching session's CLAUDE_*
 // environment, its output going to log as it runs. model is Claude's (opus | sonnet); resume a Claude session id to carry
 // on; site is the board's site folder. bin overrides the kind's binary. sessionWait is how many ms to wait for the session
-// id. → {pid, sessionId, log} once it has named its session (sessionId null if it exited or took too long first); rejects
+// id. onSpawn(pid) is called as the process starts, before it names its session. → {pid, sessionId, log} once it has named its session (sessionId null if it exited or took too long first); rejects
 // when it can't start.
-export function launchAgent({ kind, model, cwd, site, prompt, log, bin, resume, sessionWait = SESSION_WAIT_MS }) {
+export function launchAgent({ kind, model, cwd, site, prompt, log, bin, resume, sessionWait = SESSION_WAIT_MS, onSpawn }) {
   const agent = AGENTS[kind];
   if (!agent) throw new Error(`no agent of kind ${kind}`);
   const command = bin ?? agent.bin();
@@ -77,6 +77,7 @@ export function launchAgent({ kind, model, cwd, site, prompt, log, bin, resume, 
     const child = spawn(wrapper, wrapped, { cwd, env, detached: true, stdio: ['ignore', out, out] });
     child.once('spawn', async () => {
       fs.closeSync(out);
+      onSpawn?.(child.pid);
       const sessionId = await sessionOf(child, log, offset, agent.session, sessionWait);
       child.unref();
       resolve({ pid: child.pid, sessionId, log });
