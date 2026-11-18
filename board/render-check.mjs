@@ -1,6 +1,6 @@
 // docs/adr/2026-11-07-0900-a-prototype-question-publishes-only-when-every-take-renders.md
-// Loads every take of a recorded prototype in headless Chrome, at phone and desktop width, from the page the board
-// serves, and refuses naming each take that throws, logs a console error or leaves its stage empty or hides a box at one of the two widths. A served round
+// Loads every take of a recorded prototype in headless Chrome, at phone and desktop width, from the stage the board
+// serves, sandboxed as the board serves it (docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md), and refuses naming each take that throws, logs a console error or leaves its stage empty or hides a box at one of the two widths. A served round
 // (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md) is loaded straight from the
 // board's base prototype worktree, whose build script the check runs itself on a loopback port: every take at the
 // first state, and every state on the first take.
@@ -16,7 +16,7 @@ import { createInterface } from 'node:readline';
 import { chromePath, ChromeStartError, openTab, startChrome } from '../shared/chrome.mjs';
 import { BoardError } from './checks.mjs';
 import { readPrototypes } from './questions.mjs';
-import { prototypePage } from './prototype-page.mjs';
+import { SANDBOX, SANDBOX_MODULE, prototypeStage, stagePath } from './prototype-page.mjs';
 import { BASE_KEY, baseWorktreeOf } from './prototype-base.mjs';
 import { buildNameOf, buildScriptError, scriptFileOf, scriptShownOf } from './build-script.mjs';
 import { boardAt } from '../hub/boards.mjs';
@@ -37,7 +37,7 @@ const STAGE = `(document.getElementById('stage')?.innerHTML || '').trim()`;
 const HIDDEN = `[...document.querySelectorAll('#stage *')].map((e) => getComputedStyle(e).display !== 'none' ? null : (e.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean).map((c) => '.' + c).join('') || e.localName)`;
 const BODY = `(document.body?.innerText || '').trim()`;
 
-// The board server's static roots, minus the hub's.
+// The board server's static roots, minus the hub's, with the stage and the site's own files sandboxed as it serves them.
 function serve(site, proto) {
   const roots = [path.join(site, 'public'), path.join(board, 'public'), path.join(board, '..', 'starter', 'public'), path.join(board, '..', 'shared')];
   return http.createServer(async (req, res) => {
@@ -49,11 +49,13 @@ function serve(site, proto) {
       return;
     }
     if (['/_hub/kickflip.png', '/_hub/hub.css', '/_hub/colors.css'].includes(p)) p = p.slice('/_hub'.length);
-    if (p === `/prototype-${proto.topic}.html`) { res.writeHead(200, { 'content-type': types['.html'] }).end(await prototypePage(site, proto)); return; }
+    if (p === `/${stagePath(proto.topic)}`) { res.writeHead(200, { 'content-type': types['.html'], ...SANDBOX }).end(await prototypeStage(site, proto)); return; }
     for (const root of roots) {
       const file = path.resolve(root, `.${p}`);
       if (file.startsWith(root + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile()) {
-        res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream' }).end(await fsp.readFile(file));
+        const ext = path.extname(file);
+        const own = root === roots[0] ? { ...SANDBOX, ...(ext === '.js' ? SANDBOX_MODULE : {}) } : {};
+        res.writeHead(200, { 'content-type': types[ext] || 'application/octet-stream', ...own }).end(await fsp.readFile(file));
         return;
       }
     }
@@ -188,7 +190,7 @@ export async function checkTakesRender(site, topic) {
   const server = serve(site, proto);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
-    const url = `http://127.0.0.1:${server.address().port}/prototype-${topic}.html`;
+    const url = `http://127.0.0.1:${server.address().port}/${stagePath(topic)}`;
     const failures = await withChrome(async (chrome) => {
       const found = [];
       for (const take of proto.takes) {

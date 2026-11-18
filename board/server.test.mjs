@@ -1403,11 +1403,11 @@ test('a recorded prototype is the one template with its record filled in, and no
     assert.equal(data.title, 'Moon </script><b>');
     assert.deepEqual(data.takes.map((t) => [t.key, t.label, /^prototypes\/moon\/A\.js\?v=[\w-]+$/.test(t.src ?? ''), t.file]), [['A', 'Tap <it>', true, 'prototypes/moon/A.js'], ['B', 'Hover', false, 'prototypes/moon/B.js']]);
     assert.match(page, /<main class="proto-main"><div id="stage"><\/div><\/main>/);
-    assert.match(page, /#stage \{[^}]*contain: layout paint; transform: translateZ\(0\); isolation: isolate; overflow-x: clip;/);
+    assert.match(await (await fetch(`${base}/prototype-moon.stage.html`)).text(), /#stage \{[^}]*contain: layout paint; transform: translateZ\(0\); isolation: isolate; overflow-x: clip;/);
     for (const script of ['claude.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-hub.js', 'ui-cards.js', 'prototype-switcher.js', 'prototype-kit.js']) assert.match(page, new RegExp(`<script src="${script.replace('.', '\\.')}\\?v=`), script);
     const plain = await (await fetch(`${base}/prototype-plain.html`)).text();
     assert.match(plain, /<a class="back" href="\.\/" aria-label="Back to the board">/);
-    assert.equal(await (await fetch(`${base}/prototype-written.html`)).text(), '<p>Hand-written</p>');
+    assert.match(await (await fetch(`${base}/prototype-written.html`)).text(), /^<p>Hand-written<\/p><script>/);
     for (const p of ['/prototype-missing.html', '/prototype.html']) assert.equal((await fetch(base + p)).status, 404, p);
   } finally {
     fs.rmSync(path.join(site, 'data', 'prototypes.json'));
@@ -1422,6 +1422,47 @@ const raw = (p, headers = {}) => new Promise((resolve, reject) => {
     r.on('data', (c) => chunks.push(c));
     r.on('end', () => resolve({ status: r.statusCode, headers: r.headers, body: Buffer.concat(chunks) }));
   }).on('error', reject);
+});
+
+// docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md
+test("a take-file round's stage and every file of the site's own public/ come sandboxed; the viewer and the board's own files don't", async () => {
+  const pub = path.join(site, 'public');
+  fs.mkdirSync(path.join(pub, 'prototypes', 'moon'), { recursive: true });
+  fs.writeFileSync(path.join(pub, 'prototypes', 'moon', 'A.js'), 'export function render(stage) {}');
+  fs.mkdirSync(path.join(pub, 'visuals', 'P1'), { recursive: true });
+  fs.writeFileSync(path.join(pub, 'visuals', 'P1', 'look.html'), '<title>Look</title><body><a href="#x">x</a></body>');
+  fs.writeFileSync(path.join(pub, 'shape.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>');
+  fs.writeFileSync(path.join(site, 'data', 'prototypes.json'), JSON.stringify({ prototypes: [
+    { topic: 'moon', title: 'Moon', takes: [{ key: 'A', label: 'Light' }] },
+    { topic: 'live', title: 'Live', served: '/proto/live', takes: [{ key: 'A', label: 'One' }] },
+  ] }));
+  const csp = (r) => r.headers['content-security-policy'];
+  try {
+    const stage = await raw('/prototype-moon.stage.html');
+    assert.equal(stage.status, 200);
+    assert.equal(csp(stage), 'sandbox allow-scripts');
+    const json = /<script id="prototypeData" type="application\/json">(.*?)<\/script>/.exec(stage.body.toString())[1];
+    assert.deepEqual(JSON.parse(json).takes.map((t) => [t.key, /^prototypes\/moon\/A\.js\?v=/.test(t.src)]), [['A', true]]);
+    assert.match(stage.body.toString(), /PrototypeKit\.stage\(/);
+    const viewer = await raw('/prototype-moon.html');
+    assert.equal(csp(viewer), undefined);
+    assert.match(viewer.body.toString(), /PrototypeKit\.start\(/);
+    const take = await raw('/prototypes/moon/A.js');
+    assert.equal(csp(take), 'sandbox allow-scripts');
+    assert.equal(take.headers['access-control-allow-origin'], 'null');
+    const visual = await raw('/visuals/P1/look.html');
+    assert.equal(csp(visual), 'sandbox allow-scripts');
+    assert.match(visual.body.toString(), /<a href="#x">x<\/a><script>[\s\S]*kickflip: 'page-link'[\s\S]*<\/script><\/body>/);
+    assert.equal(csp(await raw('/shape.svg')), 'sandbox allow-scripts');
+    for (const p of ['/app.js', '/style.css', '/prototype-switcher.js']) {
+      const own = await raw(p);
+      assert.deepEqual([own.status, csp(own), own.headers['access-control-allow-origin']], [200, undefined, undefined], p);
+    }
+    for (const p of ['/prototype-live.stage.html', '/prototype-stage.html', '/prototype-gone.stage.html']) assert.equal((await raw(p)).status, 404, p);
+  } finally {
+    fs.rmSync(path.join(site, 'data', 'prototypes.json'));
+    for (const p of ['prototypes', 'visuals', 'shape.svg']) fs.rmSync(path.join(pub, p), { recursive: true });
+  }
 });
 
 test('the board, a thread and the static files come gzipped when the browser accepts it, and the API stays uncached', async () => {

@@ -70,6 +70,17 @@ test('a prototype question is refused, naming each take that throws, logs an err
   assert.equal(fs.existsSync(site('orch', 'data', 'owner.json')) ? read(site('orch', 'data', 'owner.json')).items.length : 0, 0);
 });
 
+// docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md
+test("the check loads each take in the sandboxed stage, so a take that reads the board's storage is refused", { skip }, async () => {
+  await recordPrototype('site', ['A:Opaque', 'B:Storage'], false);
+  write(takePath('site', 'A'), 'export function render(stage) { if (self.origin !== "null") throw new Error("on the board origin"); stage.innerHTML = "<p>opaque</p>"; }');
+  write(takePath('site', 'B'), 'export function render(stage) { stage.innerHTML = `<p>${localStorage.getItem("qdraft:x")}</p>`; }');
+  const r = await add(['A', 'B']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /take B at 390px: .*localStorage/);
+  assert.ok(!/take A /.test(r.err), r.err);
+});
+
 // docs/adr/2026-11-12-0300-a-prototype-stage-shows-what-the-board-hides-by-width.md
 // T-90's round 3 drew inside a box style.css hid from 900px, so it was blank on a desktop.
 test('a take whose box is hidden at one width is refused naming its class; the stage shows the key hint and the board pane at both', { skip }, async () => {

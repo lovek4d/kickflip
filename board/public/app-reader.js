@@ -237,7 +237,8 @@ BoardView.part((B) => {
     paintPage();
     return true;
   }
-  // Each load of the page: its title in the header, and its links' taps here (a page of another origin is its own).
+  // Each load of the page: its title in the header, and its links' taps here. A page of another origin is its own, but
+  // for a preview of the site's own, in an opaque origin, which sends both (preview-frame.js, previewMessage below).
   function framedPage(frame, shown) {
     let win;
     try { win = frame.contentWindow; if (!win || win.location.href === 'about:blank') return; } catch { return; }
@@ -253,6 +254,22 @@ BoardView.part((B) => {
       takeLink(to.href);
     });
   }
+  // docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md: a message from the page shown, whatever its
+  // origin, since a preview's is opaque. Its title goes in the header; a link it was tapped on opens as framedPage's
+  // would, a board page here and any other web page in the frame. A page can send a link it wasn't tapped on, which
+  // opens no more than a view of the board.
+  function previewMessage(ev) {
+    const frame = body.querySelector('iframe.reader-frame');
+    if (!page || !frame || ev.source !== frame.contentWindow) return;
+    if (ev.data?.kickflip === 'page') { page.title = String(ev.data.title ?? ''); paintPage(); return; }
+    if (ev.data?.kickflip !== 'page-link') return;
+    let to;
+    try { to = new URL(String(ev.data.href)); } catch { return; }
+    if (!['http:', 'https:'].includes(to.protocol)) return;
+    if (AppRouter.viewOf(to.href, { boards: here })) takeLink(to.href);
+    else frame.src = to.href;
+  }
+  B.on(window, 'message', previewMessage);
   // Closes the sheet with every page in it, then opens href through the shell once its entries are spent. A question
   // the questions sheet under it shows (a prototype's Choose this) is already open there: the page closes, and that is all.
   function leave(href) {

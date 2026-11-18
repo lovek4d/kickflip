@@ -38,10 +38,10 @@ Object.assign(globalThis, {
   MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: (fn) => fn(), document, scrollY: 250, scrollTo: (...args) => scrolls.push(args),
   setTimeout: () => { timers.add(++timerIds); return timerIds; }, clearTimeout: (id) => timers.delete(id),
   setInterval: () => { timers.add(++timerIds); return timerIds; }, clearInterval: (id) => timers.delete(id),
-  PrototypeSwitcher: { mount: (opts) => { mounted = { ...opts, first: opts.render(opts.initial) }; return {}; } },
+  PrototypeSwitcher: { startTake: (keys, wanted, initial) => (keys.includes(wanted) ? wanted : initial) },
 });
 const dir = tempDir('kit-');
-globalThis.location = { href: pathToFileURL(path.join(dir, 'prototype-x.html')).href };
+globalThis.location = { href: pathToFileURL(path.join(dir, 'prototype-x.stage.html')).href, search: '' };
 const load = (file) => vm.runInThisContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), { importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER });
 for (const file of ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-hub.js', 'prototype-kit.js']) load(file);
 const kit = globalThis.PrototypeKit;
@@ -74,13 +74,11 @@ const takes = [{ key: 'A', label: 'Keys', src: 'prototypes/x/A.js?v=1', file: 'p
   { key: 'C', label: 'Missing', src: null, file: 'prototypes/x/C.js' }, { key: 'D', label: 'Broken', src: 'prototypes/x/D.js?v=1', file: 'prototypes/x/D.js' },
   { key: 'E', label: 'Boxes', src: 'prototypes/x/E.js?v=1', file: 'prototypes/x/E.js' }, { key: 'F', label: 'Deeper', src: 'prototypes/x/F.js?v=1', file: 'prototypes/x/F.js' }];
 
-test('each take renders into a fresh stage, and switching ends what the last take added and keeps the scroll position', async () => {
+test('each take renders into a fresh stage, the first the URL names, and switching ends what the last take added and keeps the scroll position', async () => {
   const before = listeners.length;
-  kit.start({ topic: 'x', title: 'X', takes });
+  mounted = kit.stage({ topic: 'x', title: 'X', takes });
   const kitListeners = listeners.slice(before);
-  assert.deepEqual(Object.entries(mounted.takes), [['A', 'Keys'], ['B', 'Plain'], ['C', 'Missing'], ['D', 'Broken'], ['E', 'Boxes'], ['F', 'Deeper']]);
-  assert.equal(mounted.initial, 'A');
-  await mounted.first;
+  await kit.drawn;
   assert.equal(current.innerHTML, 'A function');
   assert.equal(document.documentElement.dataset.take, 'A');
   const added = listeners.slice(before + kitListeners.length);
@@ -159,8 +157,9 @@ test("the kit draws the real sidebar, Hub page, cards and a sheet in the stage's
   assert.match(kit.sheet('<p>Body</p>', { title: 'New <task>' }), /<section class="kit-sheet" role="group" aria-label="New &lt;task&gt;"><div class="sheet-head"><h2>New &lt;task&gt;<\/h2>[\s\S]*<div class="kit-sheet-body"><p>Body<\/p><\/div>/);
 });
 
-test('the prototype template loads every script app.html does, in its order, then the switcher and the kit', () => {
+test('the prototype viewer and its stage load every script app.html does, in its order, then the switcher and the kit', () => {
   const srcs = (file) => [...fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8').matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
   const app = srcs('app.html').map((src) => src.replace('/_hub/app/', ''));
   assert.deepEqual(srcs('prototype.html'), [...app, 'prototype-switcher.js', 'prototype-kit.js']);
+  assert.deepEqual(srcs('prototype-stage.html'), [...app, 'prototype-switcher.js', 'prototype-kit.js']);
 });

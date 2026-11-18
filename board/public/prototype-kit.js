@@ -1,11 +1,14 @@
 // A served round (prototype add --served) has no take files: start frames its page instead (served below).
-// What a prototype's take files get, on the page board/server.mjs serves from prototype.html for each topic recorded
-// with board.mjs prototype add (docs/adr/2026-11-01-1448-the-board-serves-every-prototype-from-one-template.md). A take file,
+// What a prototype's take files get, on the stage board/server.mjs serves from prototype-stage.html for each topic recorded
+// with board.mjs prototype add (docs/adr/2026-11-01-1448-the-board-serves-every-prototype-from-one-template.md). The
+// viewer, prototype.html, frames the stage, which runs in an opaque origin of its own (a sandbox header, no
+// allow-same-origin: docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md), so a take reads and sends
+// nothing as the board: no cookies, no localStorage, no same-origin fetch, no reach into the page around it. A take file,
 // public/prototypes/<topic>/<KEY>.js, is a module:
 //   export function render(stage, kit) { stage.innerHTML = kit.hub(); return () => {…} }   // the cleanup is optional
-// A take draws any board class at any width: prototype.html undoes the board's width-gated hides in the stage (.board-pane, .key-hint).
+// A take draws any board class at any width: prototype-stage.html undoes the board's width-gated hides in the stage (.board-pane, .key-hint).
 // render runs on every switch to that take with a fresh, empty stage; it may be async. The stage contains its layout
-// and paint, so nothing in it, position: fixed included, can cover the viewer's bar, its ✕ or the app shell.
+// and paint, and the stage is a frame, so nothing in it, position: fixed included, can cover the viewer's bar or its ✕.
 //   kit.sidebar(data?, {here, switching, device, head, height})  ui-sidebar.js sidebar() as an open drawer card in the
 //                                       page's flow, rail width from 900px; head shows its Kickflip header
 //   kit.hub(data?)                      the Hub page (view-hub.js) in flow: {usage, usageCard (HTML in its place),
@@ -16,7 +19,7 @@
 //   kit.on(target, type, fn, opts)      a listener removed on the next switch
 //   kit.fake                            made-up data: at(ms), sites(), usage({claude, codex}), sidebar(), hub(), items()
 //   kit.esc                             HTML escaping
-// The page loads every script app.html does, in its order, so BoardUI and HubUI, every real renderer included, are globals too. A link in the stage never navigates and a form never
+// The stage loads every script app.html does, in its order, so BoardUI and HubUI, every real renderer included, are globals too. A link in the stage never navigates and a form never
 // submits: each toasts unless the take's own handler shows a toast. Listeners a take adds to document or window,
 // and its timers, end on the next switch. Interactions must work on a tap: a phone has no hover.
 // At phone width (under 600px) the page caps every box in the stage to the stage's width and stacks a take's side-by-side
@@ -149,8 +152,7 @@
     toast.t = wait(() => { el.hidden = true; }, 2600);
   }
 
-  // What a take leaves behind: listeners on document and window, and timers, recorded while it shows. Only functions
-  // made in this page count, since the app shell adds its own listeners to a framed page's document (view-frame.js).
+  // What a take leaves behind: listeners on document and window, and timers, recorded while it shows.
   const ends = [];
   let live = false;
   const nativeAdd = EventTarget.prototype.addEventListener;
@@ -159,7 +161,7 @@
     Object.defineProperty(target, 'addEventListener', { configurable: true, value(type, fn, opts) {
       const self = this ?? window;
       nativeAdd.call(self, type, fn, opts);
-      if (live && fn instanceof Function) ends.push(() => nativeRemove.call(self, type, fn, opts));
+      if (live) ends.push(() => nativeRemove.call(self, type, fn, opts));
     } });
   }
   for (const [set, clear] of [['setTimeout', 'clearTimeout'], ['setInterval', 'clearInterval']]) {
@@ -275,7 +277,7 @@
           framed = run.since ?? null;
           stopped = false;
           frame = document.createElement('iframe');
-          frame.className = 'kit-served';
+          frame.className = 'kit-frame';
           frame.title = data.title;
           frame.src = src;
           // A switch made while the page loaded reaches it once it has.
@@ -338,14 +340,50 @@
     return sw;
   }
 
-  function start(data) {
-    if (data.served) return served(data);
-    const keys = data.takes.map((t) => t.key);
+  // The viewer (prototype.html): the switcher's bar over the stage's frame, which loads at the URL's take and then is
+  // sent each switch, {kickflip: 'prototype', take}, as a served round's page is. The stage sends back the ←/→ keys and
+  // swipes made in it, {kickflip: 'prototype-step', step}, which switch as the viewer's own do. The page's dark-mode pick
+  // goes in the frame's URL, since the stage can't read the board's localStorage.
+  function framed(data) {
+    const stage = document.getElementById('stage');
+    const frame = document.createElement('iframe');
+    frame.className = 'kit-frame';
+    frame.title = data.title;
+    frame.setAttribute('sandbox', 'allow-scripts');
+    let at = null;
+    const post = () => frame.contentWindow?.postMessage({ kickflip: 'prototype', take: at }, '*');
+    nativeAdd.call(frame, 'load', post);
+    let sw = null;
+    nativeAdd.call(window, 'message', (e) => {
+      if (e.source !== frame.contentWindow || e.data?.kickflip !== 'prototype-step' || ![1, -1].includes(e.data.step)) return;
+      sw?.go(PrototypeSwitcher.takeAt(sw.takes, sw.take, e.data.step));
+    });
     const takes = Object.fromEntries(data.takes.map((t) => [t.key, t.label]));
+    sw = PrototypeSwitcher.mount({ takes, initial: data.takes[0].key, render(take) {
+      at = take;
+      document.documentElement.dataset.take = take;
+      if (frame.isConnected) { post(); return; }
+      const url = new URL(`prototype-${data.topic}.stage.html`, location.href);
+      url.searchParams.set('variant', take);
+      if ('oled' in document.documentElement.dataset) url.searchParams.set('oled', '');
+      frame.src = url.href;
+      stage.replaceChildren(frame);
+    } });
+    return sw;
+  }
+
+  function start(data) {
+    return data.served ? served(data) : framed(data);
+  }
+
+  // The stage (prototype-stage.html): draws the URL's take, then each take the viewer framing it sends.
+  function stage(data) {
+    const keys = data.takes.map((t) => t.key);
     let cleanup = null;
     let shown = 0;
+    let current = null;
 
-    // Capture runs before the app shell's own click handler on a framed page, which would open a board link.
+    // In capture, so no handler of the take's sees a link or form go anywhere.
     const inStage = (e, sel) => e.target.closest?.(`#stage ${sel}`);
     let pending = null;
     nativeAdd.call(document, 'click', (e) => {
@@ -366,6 +404,7 @@
 
     async function render(key) {
       const n = ++shown;
+      current = key;
       live = false;
       try { cleanup?.(); } catch (err) { console.error(err); }
       cleanup = null;
@@ -411,8 +450,28 @@
       firstDrawn();
     }
 
-    return PrototypeSwitcher.mount({ takes, initial: keys[0], render });
+    nativeAdd.call(window, 'message', (e) => {
+      if (e.source !== parent || e.data?.kickflip !== 'prototype' || !keys.includes(e.data.take) || e.data.take === current) return;
+      render(e.data.take);
+    });
+    // ←/→ and a sideways swipe in the stage switch the viewer's take, as they do outside it.
+    const step = (n) => { if (parent !== window) parent.postMessage({ kickflip: 'prototype-step', step: n }, '*'); };
+    nativeAdd.call(document, 'keydown', (e) => {
+      if (PrototypeSwitcher.typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'ArrowLeft') step(-1);
+      else if (e.key === 'ArrowRight') step(1);
+    });
+    let touch = null;
+    nativeAdd.call(document, 'touchstart', (e) => { touch = PrototypeSwitcher.swipeStart(e); }, { passive: true });
+    nativeAdd.call(document, 'touchend', (e) => {
+      const t = e.changedTouches[0];
+      const n = touch && t ? PrototypeSwitcher.swipeStep(touch, { x: t.clientX, y: t.clientY }) : 0;
+      touch = null;
+      if (n) step(n);
+    }, { passive: true });
+    render(PrototypeSwitcher.startTake(keys, new URLSearchParams(location.search).get('variant'), keys[0]));
+    return { render };
   }
 
-  globalThis.PrototypeKit = { ...kit, start, servedSrc, servedStatus, drawn };
+  globalThis.PrototypeKit = { ...kit, start, stage, servedSrc, servedStatus, drawn };
 })();

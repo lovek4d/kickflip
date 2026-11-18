@@ -127,6 +127,13 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 .ps-in-sheet .ps-states { flex-wrap:wrap; overflow-x:visible; justify-content:center; }`;
 
   const typing = (el) => Boolean(el?.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])'));
+  // A touchstart's {x, y}, where a swipe can start: one finger, not in a field or the rounds sheet, nor in a box that
+  // scrolls sideways, whose swipe is its own scroll; else null.
+  function swipeStart(e) {
+    const t = e.touches[0];
+    const scrolls = (el) => el && el !== document.body && (el.scrollWidth > el.clientWidth && /auto|scroll/.test(getComputedStyle(el).overflowX) ? true : scrolls(el.parentElement));
+    return e.touches.length === 1 && !typing(e.target) && !e.target.closest?.('.ps-sheet') && !scrolls(e.target) ? { x: t.clientX, y: t.clientY } : null;
+  }
 
   function mount({ takes, states = null, initial, render, above = null }) {
     const keys = Object.keys(takes);
@@ -261,13 +268,8 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
       else if (e.key === 'ArrowRight') go(takeAt(keys, take, 1));
       else if (e.key === 'Escape' && sheet) { sheet = false; paintTop(); }
     });
-    // A swipe that starts in a box scrolling sideways is that box's own scroll.
     let touch = null;
-    document.addEventListener('touchstart', (e) => {
-      const t = e.touches[0];
-      const scrolls = (el) => el && el !== document.body && (el.scrollWidth > el.clientWidth && /auto|scroll/.test(getComputedStyle(el).overflowX) ? true : scrolls(el.parentElement));
-      touch = e.touches.length === 1 && !typing(e.target) && !e.target.closest?.('.ps-sheet') && !scrolls(e.target) ? { x: t.clientX, y: t.clientY } : null;
-    }, { passive: true });
+    document.addEventListener('touchstart', (e) => { touch = swipeStart(e); }, { passive: true });
     document.addEventListener('touchend', (e) => {
       const t = e.changedTouches[0];
       const step = touch && t ? swipeStep(touch, { x: t.clientX, y: t.clientY }) : 0;
@@ -282,5 +284,5 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     return { takes: keys, get take() { return take; }, get state() { return shownState; }, go, show };
   }
 
-  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, pillHtml, swipeStep, mount };
+  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, pillHtml, swipeStep, swipeStart, typing, mount };
 })();

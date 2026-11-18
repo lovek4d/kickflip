@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{prototypeTitle}}</title>
+<script>if (new URLSearchParams(location.search).has('oled')) document.documentElement.dataset.oled = '';</script>
+<link rel="stylesheet" href="colors.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="hub.css">
+<link rel="stylesheet" href="sidebar.css">
+<style>
+  /* The stage a take-file round's takes draw in, framed by the viewer (prototype.html) and served with a sandbox
+     header, so a take runs in an opaque origin that reads nothing of the board's
+     (docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md; board/server.mjs fills the {{…}} slots,
+     prototype-kit.js documents what a take gets). */
+  main.proto-main { max-width: none; padding: 16px 0; }
+  /* kit.hub() is a whole page with its own gutter and header, so it goes edge to edge. */
+  main.proto-main:has(> #stage > .kit-hub) { padding-top: 0; }
+  /* contain and the transform make the stage the containing block of everything in it, position: fixed included, and
+     clip its paint. */
+  #stage { position: relative; max-width: 1180px; min-width: 0; margin: 0 auto; contain: layout paint; transform: translateZ(0); isolation: isolate; overflow-x: clip; padding: 0 16px; }
+  #stage:has(> .kit-hub) { padding: 0; }
+  #stage .top { position: static; }
+  #stage .hub-view main { padding-bottom: 16px; }
+  .kit-missing { margin: 0; padding: 16px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  #protoToast { position: fixed; z-index: 40; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100vw - 32px); }
+  #protoToast[hidden] { display: none; }
+
+  /* A take's own boxes are capped to the stage at phone width, so a fixed-width panel never cuts off. prototype-kit.js
+     (phoneFit) marks what the take lays side by side with data-stack, which stacks in one column whether the take used
+     grid, flex (wrapping or not) or inline-block, and a frame 600px or wider with data-wide: it keeps its own layout
+     and scrolls sideways inside its data-scroll box. */
+  @media (max-width: 599px) {
+    #stage :where(div, section, article, aside, nav, header, footer, main, form, ul, ol, table, figure):not([data-wide]) { max-width: 100%; min-width: 0; }
+    #stage [data-scroll] { overflow-x: auto; max-width: 100%; }
+    #stage [data-wide] { max-width: none; flex-shrink: 0; }
+    #stage [data-stack] { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; grid-template-columns: none !important; align-items: stretch !important; }
+    #stage [data-stack] > * { width: auto !important; flex: 0 0 auto !important; grid-column: auto !important; float: none !important; }
+  }
+  /* iOS Safari zooms the page when it focuses a field under 16px. */
+  #stage :where(input, select, textarea) { font-size: 16px; }
+  #stage .kit-sidebar.sidebar { position: relative; inset: auto; z-index: auto; transform: none; visibility: visible; transition: none;
+    width: min(320px, 100%); height: 640px; margin: 0 auto; padding: 0 8px; border: 1px solid var(--line); border-radius: 14px; }
+  #stage .kit-sidebar.sidebar:not(.kit-head) > header.top { display: none; }
+  @media (min-width: 900px) { #stage .kit-sidebar.sidebar { width: 272px; } }
+  /* Everything a take draws shows at every width: the board's width-gated hides are undone here (style.css hides
+     .board-pane below 900px, .key-hint below 600px). render-check.mjs refuses a take whose box is
+     still hidden at one of its two widths, so a gate missed here fails the round instead of drawing blank. */
+  #stage .board-pane { display: block; position: static; height: auto; overflow: visible; border-left: 0; padding: 0; }
+  #stage .key-hint { display: inline; }
+  #stage .kit-sheet-strip { padding: 32px 0 0; border-radius: 12px; background: rgba(0,0,0,.35); overflow: hidden; }
+  #stage .kit-sheet { max-width: 560px; margin: 0 auto; border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--panel); color: var(--text); box-shadow: 0 -8px 30px rgba(0,0,0,.18); }
+  #stage .kit-sheet .sheet-head { padding: 10px 16px 0; }
+  #stage .kit-sheet-body { padding: 6px 16px 16px; }
+</style>
+</head>
+<body>
+<main class="proto-main"><div id="stage"></div></main>
+<div class="toast" id="protoToast" role="status" hidden></div>
+<script id="prototypeData" type="application/json">{{prototypeData}}</script>
+<script src="ui-icon-text.js"></script>
+<script src="ui.js"></script>
+<script src="ui-links.js"></script>
+<script src="ui-enums.js"></script>
+<script src="ui-progress-bar.js"></script>
+<script src="ui-order.js"></script>
+<script src="ui-selection.js"></script>
+<script src="ui-patch.js"></script>
+<script src="ui-threads.js"></script>
+<script src="ui-cards.js"></script>
+<script src="ui-header.js"></script>
+<script src="ui-snapshot.js"></script>
+<script src="ui-page-header.js"></script>
+<script src="ui-waits.js"></script>
+<script src="ui-sidebar.js"></script>
+<script src="ui-questions.js"></script>
+<script src="ui-prompts.js"></script>
+<script src="ui-markdown.js"></script>
+<script src="ui-hub.js"></script>
+<script src="toasts.js"></script>
+<script src="popup.js"></script>
+<script src="dialogs.js"></script>
+<script src="prompts.js"></script>
+<script src="rules-editor.js"></script>
+<script src="claude.js"></script>
+<script src="attach.js"></script>
+<script src="hub-kit.js"></script>
+<script src="linear-key.js"></script>
+<script src="slack-emoji.js"></script>
+<script src="col-resize.js"></script>
+<script src="sidebar.js"></script>
+<script src="app.js"></script>
+<script src="new-task.js"></script>
+<script src="app-core.js"></script>
+<script src="app-threads.js"></script>
+<script src="app-cards.js"></script>
+<script src="app-lanes.js"></script>
+<script src="app-asks.js"></script>
+<script src="app-search.js"></script>
+<script src="app-pane.js"></script>
+<script src="app-selection.js"></script>
+<script src="app-header.js"></script>
+<script src="app-arch.js"></script>
+<script src="app-waits.js"></script>
+<script src="app-reader.js"></script>
+<script src="app-questions-sheet.js"></script>
+<script src="app-lightbox.js"></script>
+<script src="app-banner.js"></script>
+<script src="app-snapshot.js"></script>
+<script src="view-settings.js"></script>
+<script src="view-notes.js"></script>
+<script src="view-hub.js"></script>
+<script src="view-hub-settings.js"></script>
+<script src="view-frame.js"></script>
+<script src="router.js"></script>
+<script src="shell.js"></script>
+<script src="prototype-switcher.js"></script>
+<script src="prototype-kit.js"></script>
+<script>PrototypeKit.stage(JSON.parse(document.getElementById('prototypeData').textContent));</script>
+</body>
+</html>

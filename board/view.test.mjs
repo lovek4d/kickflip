@@ -6783,6 +6783,34 @@ test("a question link tapped in the reader, in a card's notes or a page it frame
   }
 });
 
+// docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md
+test("a visual in its opaque origin gives the reader its title and its link taps by message; another frame's, or a link that isn't the web's, does nothing", async () => {
+  const r = readerOnDom('', { topics: [openQuestion('q1', 'item:w/A1')] });
+  await r.settle();
+  const shown = [];
+  r.page.win.AppShell = { open: (href) => { shown.push(href); return true; } };
+  const questions = r.root.querySelector('#questionsSheet');
+  r.view.B.openPage('https://mac.ts.net/board-a/visuals/A1/flow.html');
+  const frame = r.inSheet('iframe.reader-frame');
+  frame.contentWindow = { get location() { throw new Error('a cross-origin frame'); } };
+  r.page.fire(frame, 'load');
+  // The page's scripts see the context's global, not win itself (node:vm).
+  const global = vm.runInContext('globalThis', r.page.win);
+  const send = (data, source = frame.contentWindow) => r.page.fire(global, 'message', { source, data });
+  send({ kickflip: 'page', title: 'Flow' }, {});
+  assert.equal(r.inSheet('.reader-ref').textContent, 'A1');
+  send({ kickflip: 'page', title: 'Flow' });
+  assert.equal(r.inSheet('.reader-ref').textContent, 'A1 · Flow');
+  send({ kickflip: 'page-link', href: 'javascript:alert(1)' });
+  send({ kickflip: 'page-link', href: 'https://mac.ts.net/board-a/questions.html#q1' }, {});
+  assert.deepEqual([questions.open, frame.getAttribute('src'), shown], [false, 'https://mac.ts.net/board-a/visuals/A1/flow.html', []]);
+  send({ kickflip: 'page-link', href: 'https://example.com/docs' });
+  assert.equal(frame.src, 'https://example.com/docs', 'a page off the board opens in the frame, as the tap would have');
+  send({ kickflip: 'page-link', href: 'https://mac.ts.net/board-a/questions.html#q1' });
+  assert.deepEqual([questions.open, shown], [true, []], 'a question of the board stacks its sheet on the reader');
+  r.view.unmount();
+});
+
 // docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md
 test("a visual or a transcript linked in the reader opens over the page it shows with an entry of its own; ✕, Escape or Back shows the page beneath as it was, the last closes the sheet; and a page opened from a questions sheet stacked on the reader goes back under it", async () => {
   for (const width of [390, 1280]) {

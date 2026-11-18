@@ -28,6 +28,10 @@
 //                                docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). /index.html redirects to /
 //   GET  /prototype-<topic>.html a topic recorded in data/prototypes.json is public/prototype.html with its record
 //                                filled in (prototypePage); /prototype.html itself is 404
+//   GET  /prototype-<topic>.stage.html  a take-file topic's stage, public/prototype-stage.html filled in (prototypeStage),
+//                                which its viewer frames. It and every file of the site's own public/ carry the sandbox
+//                                header, a script there CORS for that opaque origin, and an HTML page there the
+//                                preview-frame.js script (docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md)
 //   GET  /...                    the site's public/, then this template's public/, then the
 //                                starter's, then ../shared for colors.css (directories serve index.html; in .html, each <!--header {…}-->
 //                                becomes public/ui-page-header.js's header({…}), then {{title}} board.json's title).
@@ -357,7 +361,7 @@ import { withdraw } from '../hub/push.mjs';
 import { readClaudeModel } from '../shared/hub-settings.mjs';
 import { buildersView } from '../shared/model-views.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, realpathSync } from 'node:fs';
-import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
+import { PROTOTYPE_TEMPLATE, STAGE_TEMPLATE, SANDBOX, SANDBOX_MODULE, esc, prototypePage, prototypeStage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { BOARD_CLI, pidAlive, stopAgents, stopRuns } from './headless.mjs';
 import { BoardError } from './checks.mjs';
@@ -872,11 +876,20 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return null;
   }
 
-  // A recorded prototype's page is the template with its record filled in; a topic not recorded falls through to the
-  // site's own files, so questions on hand-written pages keep opening them.
+  // A recorded prototype's page is the template with its record filled in, and a take-file topic's stage the stage
+  // template with it: → {proto, stage}. A topic not recorded falls through to the site's own files, so questions on
+  // hand-written pages keep opening them.
   async function recordedPrototype(p) {
-    const topic = /^\/prototype-([a-z0-9-]+)\.html$/.exec(p)?.[1];
-    return topic ? (await readPrototypes(here)).find((r) => r.topic === topic) || null : null;
+    const [, topic, stage] = /^\/prototype-([a-z0-9-]+)(\.stage)?\.html$/.exec(p) || [];
+    const proto = topic ? (await readPrototypes(here)).find((r) => r.topic === topic) : null;
+    return proto && !(stage && proto.served) ? { proto, stage: Boolean(stage) } : null;
+  }
+  // docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md: an HTML page of the site's own tells the
+  // reader sheet framing it its title and its link taps by message, since the sheet can't reach into its opaque origin.
+  async function withPreviewFrame(html) {
+    const script = `<script>${await fs.readFile(path.join(template, 'public', 'preview-frame.js'), 'utf8')}</script>`;
+    const end = html.toLowerCase().lastIndexOf('</body>');
+    return end < 0 ? html + script : html.slice(0, end) + script + html.slice(end);
   }
   async function upload(req, res) {
     try {
@@ -1362,17 +1375,23 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (p === '/index.html') { res.writeHead(302, { location: `./${url.search}`, 'cache-control': 'no-store' }).end(); return; }
 
       const shell = VIEW_PAGES.has(p.slice(1));
-      const proto = shell ? null : await recordedPrototype(p);
-      const file = shell ? null : proto ? PROTOTYPE_TEMPLATE : p === '/prototype.html' ? null : await staticFile(decodeURIComponent(p));
+      const recorded = shell ? null : await recordedPrototype(p);
+      const file = shell ? null : recorded ? (recorded.stage ? STAGE_TEMPLATE : PROTOTYPE_TEMPLATE)
+        : ['/prototype.html', '/prototype-stage.html'].includes(p) ? null : await staticFile(decodeURIComponent(p));
       if (!shell && !file) { res.writeHead(404).end(); return; }
       const ext = shell ? '.html' : path.extname(file).toLowerCase();
       const st = shell ? null : await fs.stat(file);
-      let body = shell ? Buffer.from(shellHtml({ touchIcon: await touchIcon() })) : proto ? Buffer.from(await prototypePage(here, proto)) : await fs.readFile(file);
+      // A preview: a stage, or any file of the site's own public/, which agents write.
+      const preview = Boolean(recorded?.stage) || Boolean(file?.startsWith(roots[0] + path.sep));
+      let body = shell ? Buffer.from(shellHtml({ touchIcon: await touchIcon() }))
+        : recorded ? Buffer.from(await (recorded.stage ? prototypeStage : prototypePage)(here, recorded.proto)) : await fs.readFile(file);
       if (!shell && ext === '.html') body = (await pageHeaders(body.toString('utf8'))).replaceAll('{{title}}', esc((await config()).title)).replaceAll('{{touchIcon}}', await touchIcon());
+      if (preview && !recorded && ext === '.html') body = await withPreviewFrame(body);
       if (!shell && ext === '.html') body = Buffer.from(await versionAssets(body, p));
       const etag = ext === '.html' ? `W/"${crypto.createHash('sha1').update(body).digest('base64url').slice(0, 20)}"` : `W/"${versionOf(st)}"`;
       const pinned = ext !== '.html' && url.searchParams.get('v') === versionOf(st);
-      const headers = { 'content-type': routeRecord(types, ext) || 'application/octet-stream', 'cache-control': pinned ? 'public, max-age=31536000, immutable' : 'no-cache', etag };
+      const headers = { 'content-type': routeRecord(types, ext) || 'application/octet-stream', 'cache-control': pinned ? 'public, max-age=31536000, immutable' : 'no-cache', etag,
+        ...(preview ? SANDBOX : {}), ...(preview && ['.js', '.mjs'].includes(ext) ? SANDBOX_MODULE : {}) };
       if (sameTag(req.headers['if-none-match'], etag)) { res.writeHead(304, { etag, 'cache-control': headers['cache-control'], vary: 'accept-encoding' }).end(); return; }
       return await send(res, 200, headers, body);
     } catch (err) {

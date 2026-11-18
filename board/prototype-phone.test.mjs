@@ -10,7 +10,7 @@ const chrome = sharedChrome();
 const read = (file) => fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8');
 
 test('at phone width every box in the stage is capped to the stage, so a fixed-width panel stacks and is not cut off', () => {
-  assert.match(read('prototype.html'), /@media \(max-width: 599px\) \{\s*#stage :where\([^)]*div[^)]*\)[^{]*\{[^}]*max-width: 100%[^}]*min-width: 0/);
+  assert.match(read('prototype-stage.html'), /@media \(max-width: 599px\) \{\s*#stage :where\([^)]*div[^)]*\)[^{]*\{[^}]*max-width: 100%[^}]*min-width: 0/);
 });
 
 // docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md
@@ -20,15 +20,15 @@ test('the viewer bar is a full-width footer on the bottom edge at every width, a
   assert.match(js, /\n\.ps-pill \{[^}]*border-radius:0/);
   assert.match(js, /setProperty\('--ps-footer-h'/);
   const page = read('prototype.html');
-  assert.doesNotMatch(page, /@media \(max-width: 899px\) \{\s*(main\.proto-main|\.kit-served)/);
+  assert.doesNotMatch(page, /@media \(max-width: 899px\) \{\s*(main\.proto-main|\.kit-frame)/);
   assert.match(page, /main\.proto-main \{[^}]*padding-bottom: calc\(var\(--ps-footer-h, 150px\) \+ var\(--app-bottom, 0px\)\)/);
-  const served = page.match(/\n  \.kit-served \{[^}]*\}/)?.[0] ?? '';
+  const served = page.match(/\n  \.kit-frame \{[^}]*\}/)?.[0] ?? '';
   assert.match(served, /height: calc\(100dvh - 60px - var\(--ps-footer-h, 150px\) - var\(--app-bottom, 0px\) - env\(safe-area-inset-top\)\)/);
   // The footer's measured height already includes its bottom inset, so neither subtracts the inset again.
   assert.doesNotMatch(served, /safe-area-inset-bottom/);
   assert.doesNotMatch(page.match(/main\.proto-main \{[^}]*\}/)?.[0] ?? '', /safe-area-inset-bottom/);
   // In the board's reader sheet there is no ✕ row above the page, so the frame runs from the top to the footer.
-  assert.match(page, /\.ps-in-sheet \.kit-served \{ height: calc\(100dvh - var\(--ps-footer-h, 150px\)\); \}/);
+  assert.match(page, /\.ps-in-sheet \.kit-frame \{ height: calc\(100dvh - var\(--ps-footer-h, 150px\)\); \}/);
 });
 
 test('the viewer footer and Round pill stay hidden until the first load settles, then show once', () => {
@@ -46,10 +46,10 @@ test('the viewer note field is at least 16px, so iOS Safari does not zoom on foc
 });
 
 test('every input, select and textarea in the stage is 16px', () => {
-  assert.match(read('prototype.html'), /#stage :where\(input, select, textarea\) \{[^}]*font-size: 16px/);
+  assert.match(read('prototype-stage.html'), /#stage :where\(input, select, textarea\) \{[^}]*font-size: 16px/);
 });
 
-// Loads the real prototype page at 390px in headless Chrome (an iframe, since a headless window is never narrower than 500px)
+// Loads the real prototype viewer or stage at 390px in headless Chrome (an iframe, since a headless window is never narrower than 500px)
 // with one made-up take, and reports where its panels landed.
 const TAKE = `
 export const render = (stage) => {
@@ -68,12 +68,12 @@ const PROBE = `<script>addEventListener('load', () => setTimeout(() => {
     mockScrolls: mock.parentElement.scrollWidth > mock.parentElement.clientWidth }), '*');
 }, 800))</script>`;
 
-// Serves the real prototype page, with header in its header slot and probe before </body>, and loads it at 390px in
-// headless Chrome; → what the probe posted, parsed.
-async function phoneProbe({ header = '', probe }) {
+// Serves the real prototype viewer (prototype.html) or stage (prototype-stage.html), with header in the viewer's header
+// slot and probe before </body>, and loads it at 390px in headless Chrome; → what the probe posted, parsed.
+async function phoneProbe({ template, header = '', probe }) {
   const pub = fileURLToPath(new URL('./public/', import.meta.url));
   const data = { topic: 't', title: 't', takes: [{ key: 'A', label: 'A', src: 'prototypes/t/A.js', file: 'prototypes/t/A.js' }] };
-  const page = fs.readFileSync(`${pub}prototype.html`, 'utf8').replace('{{prototypeTitle}}', 't').replace('{{prototypeHeader}}', header)
+  const page = fs.readFileSync(`${pub}${template}`, 'utf8').replace('{{prototypeTitle}}', 't').replace('{{prototypeHeader}}', header)
     .replace('{{prototypeData}}', JSON.stringify(data)).replace('</body>', `${probe}</body>`);
   const server = http.createServer((req, res) => {
     const p = new URL(req.url, 'http://x').pathname;
@@ -92,7 +92,7 @@ async function phoneProbe({ header = '', probe }) {
 }
 
 test('at phone width a take that pairs panels with grid or a non-wrapping flex row stacks them, and a 720px mock scrolls in its box without cutting the page off', { skip: !chromeInstalled }, async () => {
-  const got = await phoneProbe({ probe: PROBE });
+  const got = await phoneProbe({ template: 'prototype-stage.html', probe: PROBE });
   assert.equal(got.gridStacked, true, 'the grid pair stacks');
   assert.equal(got.flexStacked, true, 'the non-wrapping flex pair stacks');
   assert.equal(got.mockWidth, 720, 'the 720px mock keeps its width');
@@ -106,6 +106,6 @@ test('at phone width the viewer footer sits on the bottom edge with no gap below
   parent.postMessage(JSON.stringify({ footerBottom: document.querySelector('.ps-switch').getBoundingClientRect().bottom, innerHeight,
     appBottom: getComputedStyle(document.documentElement).getPropertyValue('--app-bottom').trim() }), '*');
 }, 800))</script>`;
-  const got = await phoneProbe({ header: '<header class="top"><a class="back" href="./">Back</a></header>', probe });
+  const got = await phoneProbe({ template: 'prototype.html', header: '<header class="top"><a class="back" href="./">Back</a></header>', probe });
   assert.equal(got.footerBottom, got.innerHeight, `the footer ends ${got.innerHeight - got.footerBottom}px above the bottom (--app-bottom: ${got.appBottom})`);
 });
