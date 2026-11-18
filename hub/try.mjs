@@ -1166,7 +1166,11 @@ async function settlePushed(board, repo, branch, log, run) {
     } catch (e) { log(`pushed ${card.key}: ${e.message}`); }
   }
 }
-const manager = createTryManager({ waiting: () => readiness.waiting('tailscale') });
+// The port the hub's relays listen on for a try port: the try port itself, which an in-process test hub replaces so no
+// test listens on the host's real 8500–8599 range.
+let relayPortOf = (port) => port;
+export const setRelayPort = (replacement = (port) => port) => { relayPortOf = replacement; };
+const manager = createTryManager({ waiting: () => readiness.waiting('tailscale'), relayPort: (port) => relayPortOf(port) });
 export const startBuild = (...args) => manager.start(...args);
 export const killBuild = (...args) => manager.kill(...args);
 export const tryTick = (...args) => manager.tick(...args);

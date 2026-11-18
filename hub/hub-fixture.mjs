@@ -33,6 +33,9 @@ export const idleMachine = () => ({ load: 0, cores: 8, pressure: 'normal' });
 // which resolves with the nth line, logged so far or next, that matches.
 export async function inProcessHub(t, options = {}) {
   const { startHub } = await import('./hub.mjs');
+  const { setRelayPort } = await import('./try.mjs');
+  // The hub's try relays listen on a free port, never the host's own 8500–8599, which the live hub holds.
+  setRelayPort(() => 0);
   const lines = [];
   const waiters = new Set();
   const log = (...parts) => {
@@ -45,7 +48,7 @@ export async function inProcessHub(t, options = {}) {
     return seen.length >= n ? Promise.resolve(seen[n - 1]) : new Promise((resolve) => waiters.add({ pattern, left: n - seen.length, resolve }));
   };
   const hub = await startHub({ ticks: false, readMachine: idleMachine, log, exit: () => {}, ...options });
-  t.after(() => hub.close());
+  t.after(async () => { await hub.close(); setRelayPort(); });
   return { ...hub, base: `http://127.0.0.1:${hub.port}`, lines, logged };
 }
 
