@@ -2,7 +2,7 @@
   "name": "@lovek4d/kickflip",
   "version": "0.21.0",
   "description": "Follow and steer Claude Code sessions from your phone.",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/lovek4d/kickflip.git"

@@ -69,10 +69,6 @@ For sessions, prerequisites in detail and development from a clone, see [SKILL.m
 
 ## License
 
-Kickflip is licensed under the [Prosperity Public License 3.0.0](LICENSE).
-
-- **Free for noncommercial use:** personal use, hobby projects, study and research, and use by charities, schools and government.
-- **Companies** get a 30-day trial. After that, using kickflip for work needs a commercial license from love@kickflip.sh.
-- **Ever** (https://www.evercars.com) holds a free commercial license with no end date.
+Kickflip is licensed under the [MIT License](LICENSE).
 
 Contributing? See [CONTRIBUTING.md](CONTRIBUTING.md).
