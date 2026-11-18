@@ -147,8 +147,8 @@ function payloadFor(sub, message, badge, id) {
 }
 
 async function sendTo(allSubs, message, needs, { home, fetch }) {
-  // A close push to Apple would show a notification of its own (every push there shows one), so Apple gets none.
-  const subs = message.close ? allSubs.filter((sub) => !isApple(sub)) : allSubs;
+  // A close or silent push to Apple would show a notification of its own (every push there shows one), so Apple gets none.
+  const subs = message.close || message.silent ? allSubs.filter((sub) => !isApple(sub)) : allSubs;
   if (!subs.length) return [];
   const badge = (needs || await hubNeeds(fetch)).total;
   const id = crypto.randomBytes(4).toString('hex');

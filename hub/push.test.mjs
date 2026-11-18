@@ -266,12 +266,11 @@ test("an Apple subscription gets a declarative push that iOS shows by itself, wi
   device.needs = orchWaits(2, '');
   await deliver({ title: 'Orch (2)', body: '2 builds wait on you', url: '/orch/questions.html', tag: 'board-orch' }, { kind: 'action', immediate: true, at: NOON });
   await deliver({ title: 'Orch (3)', body: '3 builds wait on you', url: '/orch/questions.html', tag: 'board-orch' }, { kind: 'action', silent: true, at: NOON });
-  const [first, update] = iphone.received;
+  const [first, ...later] = iphone.received;
+  assert.deepEqual(later, [], 'a silent push shows a notification of its own on Apple, so Apple gets none');
   assert.equal(first.web_push, 8030);
   assert.deepEqual(first.notification, { title: 'Orch (2)', body: '2 builds wait on you', navigate: 'https://mac.tail.ts.net/orch/questions.html', tag: 'board-orch', silent: false, app_badge: 3 });
-  assert.deepEqual([update.notification.title, update.notification.tag, update.notification.silent], ['Orch (3)', 'board-orch', true]);
   assert.match(first.id, /^[0-9a-f]{8}$/, 'an id the worker echoes in its report');
-  assert.notEqual(first.id, update.id);
   assert.deepEqual(device.received.map(({ web_push, title, tag, silent }) => [web_push, title, tag, silent]), [[undefined, 'Orch (2)', 'board-orch', undefined], [undefined, 'Orch (3)', 'board-orch', true]]);
   assert.equal(device.received[0].id, first.id, 'one push, one id across devices');
 });
@@ -296,19 +295,18 @@ test("the push log records each push sent to each device, and the worker's repor
   assert.deepEqual(sent.map(({ tag, title, silent, close, host, declarative, status }) => [tag, title, silent, close, host, declarative, status]), [
     ['board-orch', 'Orch (1)', false, undefined, 'web.push.apple.com', true, 201],
     ['board-orch', 'Orch (1)', false, undefined, 'phone.push.test', undefined, 201],
-    ['board-orch', 'Orch (2)', true, undefined, 'web.push.apple.com', true, 201],
     ['board-orch', 'Orch (2)', true, undefined, 'phone.push.test', undefined, 201],
     ['board-orch', undefined, undefined, true, 'phone.push.test', undefined, 201],
   ]);
   assert.ok(sent.every((e) => !Number.isNaN(Date.parse(e.ts)) && /^[0-9a-f]{16}$/.test(e.device)));
 
-  push.reportPush({ id: sent[2].id, sw: '2026-11-17', tag: 'board-orch', older: 0, closed: 0, declarative: true, endpoint: iphone.subscription.endpoint }, home);
+  push.reportPush({ id: sent[0].id, sw: '2026-11-17', tag: 'board-orch', older: 0, closed: 0, declarative: true, endpoint: iphone.subscription.endpoint }, home);
   const report = push.pushLog(home).at(-1);
-  assert.deepEqual({ ...report, ts: undefined }, { ts: undefined, report: true, id: sent[2].id, sw: '2026-11-17', tag: 'board-orch', older: 0, closed: 0, declarative: true, device: sent[2].device });
+  assert.deepEqual({ ...report, ts: undefined }, { ts: undefined, report: true, id: sent[0].id, sw: '2026-11-17', tag: 'board-orch', older: 0, closed: 0, declarative: true, device: sent[0].device });
   const lines = push.pushLogLines(push.pushLog(home));
-  assert.equal(lines.length, 5, 'a report prints on the line of its push');
-  assert.match(lines[2], /web\.push\.apple\.com .*board-orch .*silent .*Orch \(2\).*phone: sw 2026-11-17, declarative payload, found 0 older, closed 0/);
-  assert.match(lines[4], /close board-orch/);
+  assert.equal(lines.length, 4, 'a report prints on the line of its push');
+  assert.match(lines[0], /web\.push\.apple\.com .*board-orch .*alert .*Orch \(1\).*phone: sw 2026-11-17, declarative payload, found 0 older, closed 0/);
+  assert.match(lines[3], /close board-orch/);
 });
 
 test('a report without an id, or with counts that are not counts, is refused; the log keeps its last 1000 entries', () => {

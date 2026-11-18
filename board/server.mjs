@@ -1690,11 +1690,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (legacy.length) await withdraw(legacy, route);
     const joined = wasOpen && row
       ? rowAlerts(actions, previous.items ?? current.items, alertsOf(await readJSON(path.join(home, '.claude', 'kickflip', 'settings.json'), {}))) : [];
-    if (previous && row && (joined.length || JSON.stringify(current.row) !== JSON.stringify(previous.row))) {
+    // A count that falls, or words that change, send nothing: only something new joining the row pushes.
+    const arrived = wasOpen && row ? actions.filter((a) => !(a.tag in (previous.items ?? current.items))) : [];
+    if (previous && row && (!wasOpen || joined.length || arrived.length)) {
       const alert = !wasOpen || joined.length > 0;
       const reason = !wasOpen ? 'Something waits on the owner, and the board had no notification open.'
         : joined.length ? `${joined.map((a) => a.title).join(', ')} joined the board's open notification, and the owner's alert for it is on.`
-          : 'What waits on the owner changed, and the board\'s notification is open.';
+          : `${arrived.map((a) => a.title).join(', ')} joined the board's open notification, and the owner's alert for it is off.`;
       await sendOwnPush({ kind: 'action', title: row.title, body: row.body, url: `/${route}/${row.url}`, tag, now: alert, silent: !alert },
         { key, reason, inputs: { was: previous.row ?? null, count: actions.length, silent: !alert, ...(joined.length ? { alerts: joined.map((a) => a.tag) } : {}) } });
     }

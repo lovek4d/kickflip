@@ -130,7 +130,7 @@ const pushes = () => (fs.existsSync(path.join(home, 'push-calls.jsonl')) ? fs.re
 const flag = (call, name) => (call.includes(`--${name}`) ? call[call.indexOf(`--${name}`) + 1] : undefined);
 
 // docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md
-test("what waits on the owner is one live notification for the board: its first push alerts, each change updates it silently, and once nothing waits it drops its queued push", async () => {
+test("what waits on the owner is one live notification for the board: its first push alerts, something new joining updates it silently, a falling count or new words push nothing, and once nothing waits it drops its queued push", async () => {
   const queue = path.join(home, '.claude', 'kickflip', 'push', 'queue.json');
   const ownerFile = path.join(site, 'data', 'owner.json');
   const ask = (id, topic, question) => ({ id, topic, question, options: [{ id: 'A', label: 'Keep' }] });
@@ -151,7 +151,7 @@ test("what waits on the owner is one live notification for the board: its first 
     await heard(ownerFile);
     await ok200(answer('p2'));
     await heard(ownerFile);
-    assert.deepEqual(row().slice(2), [['T (2)', '2 questions', '/site/#show=action,questions', true], ['Plan · 1 question', 'Ship it?', '/site/questions.html?from=push#p3', true]]);
+    assert.equal(row().length, 2, 'a count going down pushes nothing');
     fs.mkdirSync(path.dirname(queue), { recursive: true });
     const keep = [{ tag: 'board-site', url: '/site-other/' }, { tag: 'unrelated', url: '/site/' }];
     fs.writeFileSync(queue, JSON.stringify({ items: [{ tag: 'board-site', url: '/site/#show=action,questions' }, ...keep] }));
@@ -159,9 +159,9 @@ test("what waits on the owner is one live notification for the board: its first 
     await ok200(answer('p3'));
     await heard(ownerFile);
     assert.deepEqual(JSON.parse(fs.readFileSync(queue, 'utf8')), { items: keep });
-    assert.equal(row().length, 4);
-    assert.equal(pushes().length - before, 4, 'no push but the live row');
-    assert.deepEqual(pushes().slice(before).map((c) => [c.includes('--now'), c.includes('--silent')]), [[true, false], [false, true], [false, true], [false, true]], 'kickflip push takes --now or --silent, not both');
+    assert.equal(row().length, 2);
+    assert.equal(pushes().length - before, 2, 'no push but the live row');
+    assert.deepEqual(pushes().slice(before).map((c) => [c.includes('--now'), c.includes('--silent')]), [[true, false], [false, true]], 'kickflip push takes --now or --silent, not both');
   } finally {
     fs.writeFileSync(ownerFile, '{"items":[]}');
     fs.rmSync(queue, { force: true });
@@ -195,7 +195,7 @@ test("with an alert switched on, a card of that kind joining the board's open li
     await putWave(JSON.stringify({ items: [asked, merge('AM1'), implement('AI1'), merge('AM2'), implement('AI2'), merge('AM3')] }));
     assert.deepEqual(row().slice(4), [['T (6)', true, false]], 'switches are read at each check: a new Implement sounds, the one already in the row does not');
     await putWave(JSON.stringify({ items: [asked, merge('AM1'), implement('AI1'), merge('AM2'), implement('AI2')] }));
-    assert.deepEqual(row().slice(5), [['T (5)', false, true]], 'one leaving stays silent');
+    assert.equal(row().length, 5, 'one leaving pushes nothing');
   } finally {
     fs.rmSync(settings, { force: true });
     fs.writeFileSync(ownerFile, '{"items":[]}');
