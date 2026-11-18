@@ -146,13 +146,16 @@ BoardView.part((B) => {
   // docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md
   // The board filter: the header's funnel, beside search, opens its menu of boxes (ui-cards.js FILTER_BOXES), all
   // checked until the owner unchecks one. An unchecked box hides every card it matches, in every lane, boxes
-  // overlapping. The funnel has no count: it turns orange while any box is unchecked. The unchecked boxes are kept on
-  // this device (store 'boardFilter'); the menu's open state is in memory.
+  // overlapping. The funnel has no count: it turns orange and fills in while any box is unchecked. The unchecked boxes
+  // are kept until reload (state.boardFilter, which the board's place carries to another board and back); the menu's
+  // open state is in memory.
   const FUNNEL = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>';
   let filterOpen = false;
-  const unchecked = () => store.get('boardFilter', []);
+  state.boardFilter = B.place?.boardFilter || [];
+  B.keep(() => ({ boardFilter: state.boardFilter }));
+  const unchecked = () => state.boardFilter;
   function setFilter(off) {
-    store.set('boardFilter', off);
+    state.boardFilter = off;
     if (state.board) B.render();
   }
   // Shows only what the boxes ids name: a needs-you push (#show=), a questions link of no card and the pane's chips
@@ -174,7 +177,7 @@ BoardView.part((B) => {
   // chain, so the card shows.
   async function resetFilterToShow() {
     if (!(await B.confirm('This task is not currently visible, reset filters?')) || !B.alive()) return false;
-    store.set('boardFilter', []);
+    state.boardFilter = [];
     B.endSearch();
     B.endLinked();
     return true;

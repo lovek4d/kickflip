@@ -1214,6 +1214,7 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .top .nav .board-filter { display: inline-flex; align-items: center; justify-content: center; margin: 0; padding: 4px; border: 0; background: none; line-height: 1; color: var(--muted); cursor: pointer; }
 .top .nav .board-filter:hover, .top .nav .board-filter[aria-expanded="true"] { color: var(--text); }
 .top .nav .board-filter.on { color: var(--color-notice); }
+.top .nav .board-filter.on svg path { fill: var(--color-notice); }
 .board-filter-menu { display: flex; flex-direction: column; min-width: 160px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 18px rgba(0, 0, 0, .25); }
 .board-filter-box { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 0; background: none; color: var(--text); font: inherit; white-space: nowrap; text-align: left; cursor: pointer; }
 .board-filter-box .box { width: 14px; height: 14px; border: 1.5px solid var(--muted); border-radius: 4px; }

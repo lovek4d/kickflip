@@ -31,6 +31,8 @@ window.BoardView = (function () {
       // Read marks moved to the board (docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md), so this browser's old copies go.
       for (const k of old.filter((k) => /^(site:[\w-]+:)?(seenThreads|dismissedAnswers)$/.test(k))) localStorage.removeItem(k);
       // The saved copy moved to IndexedDB (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
+      // The board filter is kept until reload, not on the device (docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md).
+      for (const k of old.filter((k) => /^(site:[\w-]+:)?boardFilter$/.test(k))) localStorage.removeItem(k);
       for (const k of old.filter((k) => k === 'boardSnapshots' || k.startsWith('boardSnapshot:'))) localStorage.removeItem(k);
       for (const k of old.filter((k) => /^(openItems|wave|lanes|draft:ask|foldOpen:.+)$/.test(k))) {
         if (localStorage.getItem(keyOf(k)) != null) continue;

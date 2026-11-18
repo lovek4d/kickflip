@@ -6,8 +6,8 @@ Card #974. Every open owner question now sits on a card topic, and a card's ques
 
 - **One filter in the header**, between search and the waits mark (which stays rightmost). The funnel opens a checklist: Ready, Action needed, Questions, Discussing, Blocked. All are checked by default.
 - **Hide any.** Unchecking a box hides every card it matches, in every lane, and nothing else; a card hides when any of its boxes is unchecked. There is no precedence between boxes.
-- **The funnel has no count** and turns orange (attention) while any box is unchecked.
-- **Kept per device** in the board's store as `boardFilter`, the unchecked boxes. The Todo-only `todoFilter` is not migrated: a device starts with everything shown.
+- **The funnel has no count** and turns orange (attention) and fills in while any box is unchecked.
+- **Kept until reload**, in memory per board as `state.boardFilter`, the unchecked boxes: moving to another board and back keeps it, a reload shows every box checked, and the old stored `boardFilter` key is removed on load. The Todo-only `todoFilter` is not migrated.
 - **On a phone the menu opens upward** from the bottom bar.
 - **`#show=a,b` shows only those boxes.** Needs-you pushes link to `#show=action,questions`. A questions.html URL redirects to the board: with a question id it opens that card and its questions sheet (a topic with no card opens its sheet over the board), and without one, or with an id the board still doesn't know after one reload, it shows only Questions.
 - **The desktop pane keeps the last sheet.** With none open it shows a landing: the board name, "Open a card to see it here", and chips that set the filter: need you (orange), questions (blue), ready (green). A chip shows only its box. The pane stays hidden on a phone.

@@ -3279,7 +3279,7 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
 // seen: card key → its readAt on the board, the read mark board/server.mjs keeps for every device.
 // streaming: {open}, the shell's change stream as the view reads it (BoardView.create's streaming), or null for a board
 // outside the shell.
-function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, confirm = false, realDialogs = false, send = null, width = 390, streaming = null, pause = null }) {
+function boardOnDom({ open = [], seen = {}, stored = [], filter = null, board, threads, notes, confirm = false, realDialogs = false, send = null, width = 390, streaming = null, pause = null }) {
   const { storage, localStorage } = memoryStorage([['site:board-a:openItems', JSON.stringify(open)], ...stored]);
   const page = fakePage(localStorage);
   page.win.innerWidth = width;
@@ -3328,6 +3328,8 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, 
   let signalled = null;
   const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: (fn) => { signalled = fn; return () => {}; }, ...(streaming ? { streaming: () => streaming.open } : {}), ...(pause ? { pause: () => pause.now } : {}) });
   view.mount();
+  // The board filter starts with every box checked; filter names the unchecked ones the owner already set.
+  if (filter) view.B.state.boardFilter = filter;
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
   return { page, root, view, settle, change, sent, confirms, confirmLabels, notices, posts, gets, downloads, patched, server, storage, doc: page.win.document };
@@ -5758,7 +5760,7 @@ test("a link to a question this copy of the board predates reloads the board onc
   assert.equal(v.view.B.focusQuestion('gone'), false);
   await v.settle();
   assert.equal(v.view.B.focusQuestion('gone'), true, 'the new copy lacks it too');
-  assert.equal(v.page.win.localStorage.getItem('site:board-a:boardFilter'), JSON.stringify(['ready', 'action', 'blocked']));
+  assert.equal(JSON.stringify(v.view.B.state.boardFilter), JSON.stringify(['ready', 'action', 'blocked']));
   v.unmount();
 });
 
@@ -6116,7 +6118,7 @@ test("on a phone a cold load or a push of a card's question shows the board at i
 test("on a phone a questions link of no question shows the board with only the Questions box checked, and one of a topic of no card opens its sheet over the board, by a link or a cold load", async () => {
   const s = await phoneQuestions('/shop/');
   await s.tapLink('questions.html');
-  assert.deepEqual([s.shown().url, s.shown().sheet, s.win.localStorage.getItem('site:shop:boardFilter')], ['/shop/', false, JSON.stringify(['ready', 'action', 'blocked'])]);
+  assert.deepEqual([s.shown().url, s.shown().sheet, s.doc.querySelector('.view-board button.board-filter').classList.contains('on')], ['/shop/', false, true]);
   await s.tapLink('questions.html#qz');
   assert.deepEqual(s.shown(), { url: '/shop/', card: false, sheet: true, asked: ['qz'] }, "a board's own question");
   const cold = await phoneQuestions('/shop/questions.html#qz');
@@ -7305,7 +7307,7 @@ test("a landing chip shows only its box's cards, unchecking every other box of t
   assert.deepEqual(shown().sort(), ['w/M1', 'w/Q1', 'w/R1']);
   wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('[data-pane-show="ready"]') });
   await wide.settle();
-  assert.deepEqual([shown(), wide.page.win.localStorage.getItem('site:board-a:boardFilter')], [['w/R1'], JSON.stringify(['action', 'questions', 'blocked'])]);
+  assert.deepEqual([shown(), JSON.stringify(wide.view.B.state.boardFilter)], [['w/R1'], JSON.stringify(['action', 'questions', 'blocked'])]);
   wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('[data-pane-show="questions"]') });
   await wide.settle();
   assert.deepEqual(shown(), ['w/Q1']);
@@ -7313,7 +7315,7 @@ test("a landing chip shows only its box's cards, unchecking every other box of t
   assert.deepEqual([chip('questions').classList.contains('on'), chip('ready').classList.contains('on')], [true, false], 'the chosen chip glows');
   wide.page.fire(wide.root, 'click', { target: chip('questions') });
   await wide.settle();
-  assert.deepEqual([wide.page.win.localStorage.getItem('site:board-a:boardFilter'), chip('questions').classList.contains('on')], ['[]', false], 'a second tap clears the filter and the glow');
+  assert.deepEqual([JSON.stringify(wide.view.B.state.boardFilter), chip('questions').classList.contains('on')], ['[]', false], 'a second tap clears the filter and the glow');
   wide.view.unmount();
 });
 
@@ -7375,7 +7377,7 @@ test("under the pane landing's chips the glance lists each lane with its count a
 test("a glance lane line opens its lane if shut and scrolls the board to it, its count reading x of y as the lane header's does; a building or landed row selects its card; over six building rows cap with +N more, which scrolls to In Progress", async () => {
   const board = glanceBoard();
   for (let i = 5; i <= 8; i++) board.items.push(workCard(`P${i}`, { lane: 'progress', builder: { phase: 'building', at: minsAgo(i) } }));
-  const wide = boardOnDom({ board, threads: {}, width: 1280, stored: [['site:board-a:boardFilter', JSON.stringify(['ready'])]] });
+  const wide = boardOnDom({ board, threads: {}, width: 1280, filter: ['ready'] });
   await wide.settle();
   const g = glanceOf(wide.root);
   assert.equal(g.lanes.find((l) => l[0] === 'todo')[3], '2 of 4', "the filter hides two ready cards, as Todo's header says");
@@ -7456,9 +7458,9 @@ test("focusQuestion waits for the board, then opens a card's question or topic o
   wide.page.fire(win, 'hashchange');
   await wide.settle();
   assert.equal(wide.root.querySelector('details.item[data-key="w/B"]').open, true, 'a replay of the URL stays on B');
-  assert.equal(wide.page.win.localStorage.getItem('site:board-a:boardFilter'), null, 'a card question leaves the filter alone');
+  assert.equal(JSON.stringify(wide.view.B.state.boardFilter), '[]', 'a card question leaves the filter alone');
   assert.equal(wide.view.B.focusQuestion(null), true);
-  assert.equal(wide.page.win.localStorage.getItem('site:board-a:boardFilter'), JSON.stringify(['ready', 'action', 'blocked']));
+  assert.equal(JSON.stringify(wide.view.B.state.boardFilter), JSON.stringify(['ready', 'action', 'blocked']));
   wide.view.unmount();
 });
 
@@ -8333,16 +8335,38 @@ test('the open board filter menu closes on a click outside it and on Escape, clo
   assert.equal(menu(), null, 'Escape closes it');
 });
 
-test('the board filter is remembered on this device', async () => {
+// docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md: the filter is kept until reload.
+test('the board filter is kept while the page lives, across a move to another board and back, and a reload shows every box', async () => {
   const cards = [workCard('R1', { phase: 'ready', ready: true }), workCard('H1', { phase: 'grilling', ownerBlock: { until: null }, blocked: true })];
   const first = boardOnDom({ board: boardOf(cards), threads: {} });
   await first.settle();
   first.page.fire(first.root, 'click', { target: first.root.querySelector('button.board-filter') }); await first.settle();
   first.page.fire(first.root, 'click', { target: first.root.querySelector('[data-board-filter="blocked"]') }); await first.settle();
-  const again = boardOnDom({ board: boardOf(cards), threads: {}, stored: [...first.storage] });
+  const todo = (b) => b.root.querySelectorAll('details.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
+  assert.deepEqual(todo(first), ['w/R1']);
+  assert.ok(first.root.querySelector('button.board-filter').classList.contains('on'));
+
+  // The board unmounts and mounts again in the same page.
+  first.view.unmount();
+  const back = first.page.win.BoardView.create(first.root, 'https://mac.ts.net/board-a', { signal: () => () => {} });
+  back.mount();
+  assert.equal(JSON.stringify(back.B.state.boardFilter), '["blocked"]', 'the board left and returned to keeps its filter');
+  back.unmount();
+
+  // A reload is a new page: nothing stored brings the filter back, and the old stored key goes.
+  const again = boardOnDom({ board: boardOf(cards), threads: {}, stored: [...first.storage, ['site:board-a:boardFilter', JSON.stringify(['blocked'])]] });
   await again.settle();
-  assert.deepEqual(again.root.querySelectorAll('details.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/R1']);
-  assert.ok(again.root.querySelector('button.board-filter').classList.contains('on'));
+  assert.deepEqual([...todo(again)].sort(), ['w/H1', 'w/R1'], 'every box is checked');
+  assert.equal(again.root.querySelector('button.board-filter').classList.contains('on'), false);
+  assert.equal(again.page.win.localStorage.getItem('site:board-a:boardFilter'), null, 'the old stored key is removed');
+});
+
+// The funnel fills in as well as turning orange while any box is unchecked: one rule sets both, from one colour.
+test('the funnel reads filled and orange together on its on state', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const on = css.match(/\.board-filter\.on \{ color: (var\(--[\w-]+\)); \}/)?.[1];
+  assert.ok(on, 'the on state sets the colour');
+  assert.ok(css.includes(`.board-filter.on svg path { fill: ${on}; }`), 'and the funnel path takes the same colour as its fill');
 });
 
 test('a #show= link, as a needs-you push opens, shows only the boxes it names and leaves the address', async () => {
@@ -8352,7 +8376,7 @@ test('a #show= link, as a needs-you push opens, shows only the boxes it names an
   b.page.win.location.hash = '#show=action,questions';
   b.page.fire(vm.runInContext('window', b.page.win), 'hashchange');
   await b.settle();
-  assert.deepEqual([b.page.win.localStorage.getItem('site:board-a:boardFilter'), b.page.win.location.hash], [JSON.stringify(['ready', 'blocked']), '']);
+  assert.deepEqual([JSON.stringify(b.view.B.state.boardFilter), b.page.win.location.hash], [JSON.stringify(['ready', 'blocked']), '']);
   assert.deepEqual(b.root.querySelectorAll('#lanes details.item').map((el) => el.dataset.key), ['w/M1', 'w/Q1']);
   b.view.unmount();
 });
@@ -8361,13 +8385,12 @@ test('a #show= link, as a needs-you push opens, shows only the boxes it names an
 test('opening a card the board filter hides asks to reset the filter: yes clears it and opens the card, no leaves the filter and the New strip row', async () => {
   const ASK = 'This task is not currently visible, reset filters?';
   const mk = (n, ask, at) => ({ ...askCard(ask, 'todo'), id: `T-${n}`, key: `w/T-${n}`, ref: `T-${n}`, title: `feat: ticket ${n}`, phase: 'discussing', blocked: true, turn: 'owner', created: '2026-10-30T08:00:00.000Z', ingested: { at, text: `Ask ${n}` } });
-  const stored = [['site:board-a:boardFilter', JSON.stringify(['blocked'])]];
   const setup = (answer) => {
-    const b = boardOnDom({ board: boardOf([mk(7, 'a3', '2026-10-30T09:20:00.000Z')]), seen: {}, threads: {}, width: 1280, stored, confirm: answer });
+    const b = boardOnDom({ board: boardOf([mk(7, 'a3', '2026-10-30T09:20:00.000Z')]), seen: {}, threads: {}, width: 1280, filter: ['blocked'], confirm: answer });
     return b;
   };
   const item = (b) => b.root.querySelector('details.item[data-key="w/T-7"]');
-  const filter = (b) => b.page.win.localStorage.getItem('site:board-a:boardFilter');
+  const filter = (b) => JSON.stringify(b.view.B.state.boardFilter);
 
   // No, from the New strip's link.
   const no = setup(false);
