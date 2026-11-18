@@ -104,7 +104,7 @@ test('the join names the session the hub started fresh, for its brief', () => {
 });
 
 test("the hub board's fresh session starts under the id the owner moves to, and joins without --hub", () => {
-  const argv = hubArgv({ route: 'orch', title: 'Orch', id: 'u-1', model: 'opus', fresh: true });
+  const argv = hubArgv({ route: 'orch', title: 'Orch', id: 'u-1', fresh: true });
   assert.deepEqual(argv.slice(0, 2), ['--session-id', 'u-1']);
   assert.ok(!argv.includes('--resume'));
   assert.match(argv.at(-1), /^\/kickflip board 'Orch'\n/);

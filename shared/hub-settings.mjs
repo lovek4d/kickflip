@@ -70,8 +70,8 @@ export async function setLandTests(value, home = os.homedir()) {
 }
 
 // Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md),
-// Hub settings' Builders: opus or sonnet forces it, auto leaves it to the card (usage-gate.mjs builderPick). A
-// board's own Builders choice overrides it (usage-gate.mjs claudeModelFor). A missing or unknown stored value is auto.
+// Hub settings' Builders: opus or sonnet forces it, auto leaves it to the card (usage-gate.mjs builderPick), on every
+// board. A missing or unknown stored value is auto.
 export const CLAUDE_MODEL_VALUES = ['opus', 'auto', 'sonnet'];
 export const readClaudeModel = (home = os.homedir()) => {
   const stored = read(home).claudeModel;
@@ -85,8 +85,7 @@ export async function setClaudeModel(value, home = os.homedir()) {
   return value;
 }
 
-// Hub settings' Orchestrators: the model each board's own session runs on unless its owner record names one
-// (hub/sessions.mjs startArgv). Auto has no say here. A missing or unknown stored value is opus.
+// Hub settings' Orchestrators: the model every board's own session runs on (hub/sessions.mjs startArgv). Auto has no say here. A missing or unknown stored value is opus.
 export const ORCHESTRATOR_MODEL_VALUES = ['opus', 'sonnet'];
 export const readOrchestratorModel = (home = os.homedir()) => {
   const stored = read(home).orchestratorModel;

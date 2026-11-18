@@ -5,7 +5,7 @@ import path from 'node:path';
 import { MAX_IMPLEMENTERS, MAX_SERVES } from './domain.mjs';
 import { appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { pauseEnd } from '../shared/usage-gate.mjs';
-import { readLandTests, setLandTests, CLAUDE_MODEL_VALUES, settingsFile as hubSettingsFile } from '../shared/hub-settings.mjs';
+import { settingsFile as hubSettingsFile } from '../shared/hub-settings.mjs';
 import { ticketSource } from './tickets.mjs';
 import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { itemSources, readJSON, readLog, writeJSON } from './files.mjs';
@@ -143,9 +143,7 @@ export const settingsOf = (cfg, board) => {
     tool_use: cfg?.tool_use === 'high' ? 'high' : 'normal',
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}),
     ...(validBuildTarget(cfg?.build_target) ? { build_target: cfg.build_target } : {}),
-    ...(kickflipHeld(cfg) ? { scripts: 'kickflip' } : {}),
-    // Builders, overriding Hub settings' (usage-gate.mjs claudeModelFor); none on Hub default.
-    ...(CLAUDE_MODEL_VALUES.includes(cfg?.claude_model) ? { claude_model: cfg.claude_model } : {}) };
+    ...(kickflipHeld(cfg) ? { scripts: 'kickflip' } : {}) };
 };
 // Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): a shared/usage-gate.mjs
 // pauseEnd choice, or off, saved as board.json's paused_until, which readUsageGate reads with the board's dir. It is no
@@ -156,11 +154,9 @@ export async function setBoardPause(site, choice, now = new Date()) {
   await writeBoardJSON(site, () => ({ set: { paused_until: end ?? undefined } }));
   return end;
 }
-// max_land_tests is the hub's, not the board's: land test runs at once on the host (push.mjs readLandTests), shown in
-// Board Settings beside Maximum tasks in progress and saved to the hub's settings.json for every board.
 export async function readBoardSettings(site) {
   const dir = needSite(site);
-  return { ...settingsOf(await readJSON(path.join(dir, 'board.json'), {}), listBoards().find((b) => samePath(b.dir, dir))), max_land_tests: readLandTests() };
+  return settingsOf(await readJSON(path.join(dir, 'board.json'), {}), listBoards().find((b) => samePath(b.dir, dir)));
 }
 // A board's description is the hub's, in its manifest entry, where the router reads it on each request
 // (hub/router.mjs routingBoards): description, with description_source, new-board, triage or settings, and
@@ -237,16 +233,14 @@ export async function refuseSecondProposal(site, title) {
 // listBoards entry or hub/board-repo.mjs boardRepo's answer, settings settingsOf's.
 export const opensPRs = (board, settings) => Boolean(board?.github) && (!board.local || board.hub === true) && settings.prs;
 
-// changes {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tool_use?: 'normal' | 'high', tickets?: source, github_login?: login | null, build_target?: target | null, scripts?: 'repo' | 'kickflip', claude_model?: 'opus' | 'auto' | 'sonnet' | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tool_use?: 'normal' | 'high', tickets?: source, github_login?: login | null, build_target?: target | null, scripts?: 'repo' | 'kickflip'} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
-// then pushes main (permissions.mjs pushMain).
+// then pushes main (permissions.mjs pushMain). Each save drops claude_model, a board's old Builders choice, which
+// nothing reads since models are the hub's alone (docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md).
 export async function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'tickets', 'github_login', 'build_target', 'scripts', 'claude_model'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'tickets', 'github_login', 'build_target', 'scripts'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
-  // The hub's number is written to the hub's settings, after the board's own changes are checked.
-  const { max_land_tests: landTests, ...own } = changes;
-  changes = own;
   for (const [k, v] of Object.entries(changes)) {
     if (k === 'tickets') {
       // None is stored as no tickets key (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md).
@@ -267,9 +261,6 @@ export async function saveBoardSettings(site, changes) {
       if (v === 'repo') changes.scripts = undefined;
     } else if (k === 'tool_use') {
       if (!TOOL_USE.includes(v)) fail('tool_use must be normal or high');
-    } else if (k === 'claude_model') {
-      if (v === null) changes.claude_model = undefined;
-      else if (!CLAUDE_MODEL_VALUES.includes(v)) fail('claude_model must be opus, auto, sonnet or null for Hub default');
     } else if (CAPS.includes(k)) {
       if (!validCap(v)) fail(`${k} must be a whole number from 1 to 99`);
     } else bool(v, k);
@@ -278,16 +269,13 @@ export async function saveBoardSettings(site, changes) {
     const board = site ? listBoards().find((b) => samePath(b.dir, site)) : null;
     if (board?.github && !board.local && !(await readPermissions(board.owner?.repo)).pushMain) fail('Merge lands each task on main and pushes it, so turn on Push main after a land first');
   }
-  if (landTests !== undefined) {
-    try { await setLandTests(landTests); } catch { fail('max_land_tests must be a whole number from 1 to 99'); }
-  }
   let from;
   const saved = await writeBoardJSON(site, (cfg) => {
     const board = site ? listBoards().find((b) => samePath(b.dir, site)) : null;
     const before = settingsOf(cfg, board);
     from = before.scripts || 'repo';
-    const settings = { ...settingsOf({ ...cfg, ...changes }, board), max_land_tests: readLandTests() };
-    return { set: changes, settings, changed: [...Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])), ...(landTests === undefined ? [] : ['max_land_tests'])] };
+    const settings = settingsOf({ ...cfg, ...changes }, board);
+    return { set: { ...changes, claude_model: undefined }, settings, changed: Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])) };
   });
   // A move of the scripts' home keeps an on Run release script switch on, for the new home's release script.
   const folder = saved.changed.includes('scripts') ? listBoards().find((b) => samePath(b.dir, site))?.owner?.repo : null;
@@ -312,7 +300,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'max_land_tests', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'github_login', 'tickets', 'build_target', 'scripts', 'claude_model'];
+  const names = ['auto_merge', 'auto_build','max_implementers', 'max_serves', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'github_login', 'tickets', 'build_target', 'scripts'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -336,11 +324,7 @@ export async function setBoardSetting(site, name, value) {
     const { file, settings } = await saveBoardSettings(site, { tool_use: value });
     return { file, lines: [`tool-use ${settings.tool_use}`] };
   }
-  if (key === 'claude_model') {
-    const { file, settings } = await saveBoardSettings(site, { claude_model: value === 'hub' ? null : value });
-    return { file, lines: settingsLines({ claude_model: settings.claude_model }) };
-  }
-  if (CAPS.includes(key) || key === 'max_land_tests') {
+  if (CAPS.includes(key)) {
     const { file, settings } = await saveBoardSettings(site, { [key]: /^\d+$/.test(value) ? Number(value) : value });
     return { file, lines: [`${name} ${settings[key]}`] };
   }
@@ -348,7 +332,7 @@ export async function setBoardSetting(site, name, value) {
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
 }
-export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || k === 'tool_use' || CAPS.includes(k) ? v : k === 'scripts' ? v || 'repo' : k === 'build_target' ? v || 'default' : k === 'claude_model' ? v || 'hub' : v ? 'on' : 'off'}`);
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || k === 'tool_use' || CAPS.includes(k) ? v : k === 'scripts' ? v || 'repo' : k === 'build_target' ? v || 'default' : v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {

@@ -1,5 +1,5 @@
 // Board sessions the hub can start and wake. The manifest records each site's session in its `owner`
-// {session, label, since, repo, model?}: repo is the folder the session runs in, where `claude --resume` finds it. A
+// {session, label, since, repo}: repo is the folder the session runs in, where `claude --resume` finds it. A
 // session `kickflip start` launched for a route with no site yet waits in the manifest's `starting` {<route>: owner}
 // until its join moves it into the site. A New board request (new-board.mjs) records {title, repo, asked_at} there
 // first, then its board `site` once the clone is ready, which the hub serves until the join takes it over
@@ -27,7 +27,7 @@ import { resumeStateFile, carryCursor, hubBoard, isListening, listBoards, listen
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './live.mjs';
 import { deliver } from './push.mjs';
-import { readOrchestratorModel } from '../shared/hub-settings.mjs';
+import { readOrchestratorModel, setOrchestratorModel } from '../shared/hub-settings.mjs';
 import { WAIT_MS, actionOf, pending, readPrompts, shown } from './prompts.mjs';
 import { lastTurn as transcriptWrite, sessionActivity } from './session-activity.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
@@ -304,9 +304,9 @@ function runForeground(bin, argv) {
   });
 }
 
-// A board's orchestrator runs on its owner record's model, its Board settings override, else Hub settings' Orchestrators
-// (push.mjs readOrchestratorModel), read at each start (board-model.mjs).
-const common = ({ name, model }) => ['--name', name, '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', model || readOrchestratorModel()];
+// Every board's orchestrator runs on Hub settings' Orchestrators (push.mjs readOrchestratorModel), read at each start
+// (docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md).
+const common = ({ name }) => ['--name', name, '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', readOrchestratorModel()];
 // The session passes the board name to kickflip board through its shell, so the name stays one quoted word.
 const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 // The skill's board entry point, which starts and resumes every board's session alike
@@ -314,19 +314,19 @@ const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 const boardLine = (route, title) => `/kickflip board ${quote(joinName(route, title))}`;
 const notYours = (id) => `If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.`;
 // first, when given, is the whole first prompt in place of the board line and prompt (a course's /teach, new-course.mjs).
-export const startArgv = ({ route, name, model, prompt, first }) => ['--bg', ...common({ name, model }), first || `${boardLine(route, name)}${prompt ? ` ${prompt}` : ''}`];
+export const startArgv = ({ route, name, prompt, first }) => ['--bg', ...common({ name }), first || `${boardLine(route, name)}${prompt ? ` ${prompt}` : ''}`];
 export const resumePrompt = (route, id, title) => `${boardLine(route, title)}\nThe hub resumed this session because /${route} had nobody listening. Rejoin the board as session ${id} and relaunch its watcher as a background task, then go on with what its events ask. ${notYours(id)}`;
 // A background session resumed with any flag starts as a copy under a new id, so one goes without them and keeps the
 // options it started with; a session that never ran in the background gets them (Claude Code's `note:` line says which).
-export const resumeArgv = ({ id, route, name, model, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name, model })), resumePrompt(route, id, name)];
+export const resumeArgv = ({ id, route, name, background }) => ['--resume', id, '--bg', ...(background ? [] : common({ name })), resumePrompt(route, id, name)];
 
 const HUB_PROMPT = `You are the hub session: read \`${path.join(SKILL_DIR, 'docs', 'hub-session.md')}\`.`;
 // The hub board's session in the foreground: the recorded one resumed; with fresh, a new one under id, which the
 // manifest already names as the owner (freshHubSession); else a new one that joins with --hub.
-export const hubArgv = ({ route, title, id, model, fresh = false }) => {
-  if (fresh) return ['--session-id', id, ...common({ name: title, model }), `${boardLine(route, title)}\n${HUB_PROMPT}`];
+export const hubArgv = ({ route, title, id, fresh = false }) => {
+  if (fresh) return ['--session-id', id, ...common({ name: title }), `${boardLine(route, title)}\n${HUB_PROMPT}`];
   return [
-    ...(id ? ['--resume', id] : []), ...common({ name: title, model }),
+    ...(id ? ['--resume', id] : []), ...common({ name: title }),
     id ? `${boardLine(route, title)}\n${HUB_PROMPT} ${notYours(id)}` : `${boardLine(route, title)} --hub\n${HUB_PROMPT}`,
   ];
 };
@@ -343,7 +343,7 @@ function startTmux(route, argv, { cwd, tmux }) {
 }
 
 // `kickflip hub`: attaches this terminal to the hub board's tmux session, first starting it when none runs: the
-// recorded session resumed in its folder and model, else a fresh one in repo (default the cwd) that joins with --hub.
+// recorded session resumed in its folder, else a fresh one in repo (default the cwd) that joins with --hub.
 // While the tmux session runs, nothing else starts. Refuses a recorded session live outside tmux, and a missing folder.
 // `repo` is the folder for a fresh session, or for a recorded session whose folder the manifest lacks. → attach's {status}
 export async function hubSession({ manifest = readManifest(), repo, tmux = runTmux, attach = attachTmux, live = liveSessions } = {}) {
@@ -357,7 +357,7 @@ export async function hubSession({ manifest = readManifest(), repo, tmux = runTm
     if (!fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
       throw new SessionError(owner?.repo ? `/${board.route}'s recorded folder ${cwd} is gone; rejoin from its new folder with --repo` : `no folder at ${cwd}`, 'none');
     }
-    startTmux(board.route, hubArgv({ route: board.route, title: board.title, id: owner?.session, model: owner?.model }), { cwd, tmux });
+    startTmux(board.route, hubArgv({ route: board.route, title: board.title, id: owner?.session }), { cwd, tmux });
   }
   return attach(board.route);
 }
@@ -401,7 +401,7 @@ function refuseLive(rec, live) {
   if (l) throw new SessionError(`session ${rec.session} is live (${l.kind === 'bg' ? 'in the background' : 'in a terminal'}, pid ${l.pid}); it gets no second process`, 'live');
 }
 
-// Records `to` as the route's session in place of `from`, keeping the rest of its owner record (label, model, repo),
+// Records `to` as the route's session in place of `from`, keeping the rest of its owner record (label, repo),
 // and gives `to` from's watcher cursor wound back to mark (boards.mjs carryCursor). A route another session has
 // taken meanwhile is left alone.
 async function moveOwner(route, { from, to, mark }) {
@@ -421,9 +421,8 @@ async function moveOwner(route, { from, to, mark }) {
 // A new background session for the route, in repo (else the recorded session's folder, else the cwd), whose first
 // prompt is `/kickflip board '<board name>'` plus prompt, or first in full. Refuses while the route's recorded session is live. Writes nothing to the
 // manifest. A folder that is a clone under clones (repos.mjs isClone), or any folder with trust (a folder the owner picked in New), is first marked trusted for Claude Code (trust.mjs).
-// → {route, session, confirmed, repo, model, name, argv, output}: model is the override asked for or recorded, null on
-// Hub settings' Orchestrators, so a caller that records it never pins the hub's choice.
-export async function startSession(route, { manifest = readManifest(), repo, model, prompt, first, run = runClaude, live = liveSessions, clones = reposDir(), trust = false } = {}) {
+// → {route, session, confirmed, repo, name, argv, output}
+export async function startSession(route, { manifest = readManifest(), repo, prompt, first, run = runClaude, live = liveSessions, clones = reposDir(), trust = false } = {}) {
   if (routeRecord(manifest.closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   refuseLive(rec, live);
@@ -433,7 +432,7 @@ export async function startSession(route, { manifest = readManifest(), repo, mod
     try { trustFolder(dir); } catch (e) { throw new SessionError(`Couldn't trust this folder for Claude Code: ${e.message}`, 'failed'); }
   }
   const name = routeRecord(manifest?.sites, route)?.title || routeRecord(manifest?.starting, route)?.title || route;
-  const argv = startArgv({ route, name, model: model || rec?.model, prompt, first });
+  const argv = startArgv({ route, name, prompt, first });
   const r = await run(argv, { cwd: dir });
   if (r.status !== 0) {
     const output = (r.stderr || '').trim() || (r.stdout || '').trim();
@@ -441,14 +440,12 @@ export async function startSession(route, { manifest = readManifest(), repo, mod
   }
   const { session, confirmed } = await startedId(r.stdout);
   if (!session) throw new SessionError(`claude --bg started a session but no session record names it yet; find it with claude agents (${r.stdout.trim().slice(0, 300)})`, 'failed');
-  return { route, session, confirmed, repo: storedPath(dir), model: model || rec?.model || null, name, argv: [claudeBin(), ...argv], output: r.stdout.trim() };
+  return { route, session, confirmed, repo: storedPath(dir), name, argv: [claudeBin(), ...argv], output: r.stdout.trim() };
 }
 
-// Under the route's session lock: stops its recorded session and starts a fresh one in its folder and on its model
-// (startSession), which rejoins the board, then records it as the route's owner in place of the old one with the old
-// one's watcher cursor (moveOwner). A background session resumes with the options it started with, so a fresh one is
-// how a change of model reaches it (docs/adr/2026-11-16-0945-a-board-setting-picks-opus-or-sonnet-for-its-orchestrator.md).
-// → {route, session, previous, model}
+// Under the route's session lock: stops its recorded session and starts a fresh one in its folder (startSession), which
+// rejoins the board, then records it as the route's owner in place of the old one with the old one's watcher cursor
+// (moveOwner). → {route, session, previous}
 export function freshSession(route, { live = liveSessions, stop = runSessionStop, run = runClaude } = {}) {
   return withSessionLock(route, async () => {
     const manifest = readManifest();
@@ -457,14 +454,14 @@ export function freshSession(route, { live = liveSessions, stop = runSessionStop
     await stopSession(rec, { live, stop });
     const r = await startSession(route, { manifest, run, live });
     await moveOwner(route, { from: rec.session, to: r.session });
-    return { route, session: r.session, previous: rec.session, model: r.model };
+    return { route, session: r.session, previous: rec.session };
   });
 }
 
 // The hub board's freshSession, under the route's session lock: stops its recorded session, waits for its tmux session
 // to close (closeTmux), records id as the owner with the old session's watcher cursor (moveOwner), then starts a new
 // session under id in tmux (hubArgv fresh), which joins as the owner it already is. A tmux start that fails moves the
-// owner back. → {route, session, previous, model}
+// owner back. → {route, session, previous}
 export function freshHubSession(route, { live = liveSessions, stop = runSessionStop, tmux = runTmux, sleep, limit, id = randomUUID() } = {}) {
   return withSessionLock(route, async () => {
     const manifest = readManifest();
@@ -474,13 +471,27 @@ export function freshHubSession(route, { live = liveSessions, stop = runSessionS
     await closeTmux(route, { manifest, tmux, sleep, limit });
     await moveOwner(route, { from: rec.session, to: id });
     try {
-      startTmux(route, hubArgv({ route, title: rec.title, id, model: rec.model, fresh: true }), { cwd: rec.repo, tmux });
+      startTmux(route, hubArgv({ route, title: rec.title, id, fresh: true }), { cwd: rec.repo, tmux });
     } catch (e) {
       await moveOwner(route, { from: id, to: rec.session });
       throw e;
     }
-    return { route, session: id, previous: rec.session, model: rec.model || null };
+    return { route, session: id, previous: rec.session };
   });
+}
+
+// Hub settings' Orchestrators: saves the hub's choice, which every board's session takes at its next start. The hub
+// board's session, idle in its tmux pane, takes it at once: it gets `/model <model>` typed into it, as the hub types
+// /compact (compactFullContexts). → {model, applies: 'now', 'next start' while that session is busy or not running, or
+// null with no hub board}
+export async function changeOrchestratorModel(value, { manifest = readManifest(), live = liveSessions, tmux = runTmux } = {}) {
+  const model = await setOrchestratorModel(value);
+  const board = hubBoard(manifest);
+  if (!board) return { model, applies: null };
+  if (live()?.get(board.owner?.session)?.status !== 'idle') return { model, applies: 'next start' };
+  const target = `=${tmuxName(board.route)}:`;
+  const typed = tmux(['send-keys', '-t', target, '-l', `/model ${model}`]);
+  return { model, applies: typed.status === 0 && tmux(['send-keys', '-t', target, 'Enter']).status === 0 ? 'now' : 'next start' };
 }
 
 // docs/adr/2026-11-17-2330-an-idle-orchestrator-restarts-fresh-once-its-prompt-cache-lapses.md
@@ -584,12 +595,12 @@ async function resumeRecordedSession(route, { manifest = readManifest(), run = r
   // The hub board comes back in the foreground, in its tmux session; a foreground resume keeps the session's id.
   if (routeRecord(manifest.sites, route)?.hub === true) {
     if (hasTmux(tmux, route)) throw new SessionError(`/${route}'s tmux session ${tmuxName(route)} is still open; attach with kickflip hub`, 'live');
-    const argv = startTmux(route, hubArgv({ route, title: rec.title, id: rec.session, model: rec.model }), { cwd: rec.repo, tmux });
+    const argv = startTmux(route, hubArgv({ route, title: rec.title, id: rec.session }), { cwd: rec.repo, tmux });
     await moveOwner(route, { from: rec.session, to: rec.session, mark });
     return { route, session: rec.session, previous: rec.session, confirmed: false, repo: rec.repo, argv, output: `in tmux session ${tmuxName(route)}` };
   }
   const background = await isBackground(rec.session, { run, cwd: rec.repo });
-  const argv = resumeArgv({ id: rec.session, route, name: rec.title, model: rec.model, background });
+  const argv = resumeArgv({ id: rec.session, route, name: rec.title, background });
   const r = await run(argv, { cwd: rec.repo });
   if (r.status !== 0) throw new SessionError(`claude --resume failed (${r.status}): ${(r.stderr || r.stdout).trim().slice(0, 300)}`, 'failed');
   const { session, confirmed } = await startedId(r.stdout, rec.session);

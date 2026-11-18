@@ -273,17 +273,15 @@ test("a card's --size and --model feed builder pick's Claude model, and builder 
   const refused = await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'claude', '--model', 'opus');
   assert.deepEqual([refused.code, refused.err], [1, "--model opus: the hub's Claude model is Sonnet. Pass --model sonnet, or no --model.\n"]);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
-  // docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md: the board's
-  // own Builders choice overrides the hub's, and hub puts it back on Hub default.
-  assert.deepEqual(await board('settings', 'set', 'claude-model', 'opus', '--site', 'orch'), { code: 0, out: 'setting claude-model opus\n', err: '' });
-  assert.equal(read(site('orch', 'board.json')).claude_model, 'opus');
-  assert.equal(await pick(), "claude opus: Codex isn't installed on the host. This board's Claude model is Opus.\n");
-  const overridden = await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'claude', '--model', 'sonnet');
-  assert.deepEqual([overridden.code, overridden.err], [1, "--model sonnet: this board's Claude model is Opus. Pass --model opus, or no --model.\n"]);
-  assert.match((await board('settings', 'set', 'claude-model', 'haiku', '--site', 'orch')).err, /claude_model must be opus, auto, sonnet or null for Hub default/);
-  assert.deepEqual(await board('settings', 'set', 'claude-model', 'hub', '--site', 'orch'), { code: 0, out: 'setting claude-model hub\n', err: '' });
-  assert.equal('claude_model' in read(site('orch', 'board.json')), false);
+  // docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md: a board's old Builders choice is
+  // ignored, no setting sets one, and the board's next settings save drops it.
+  write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), claude_model: 'opus' });
   assert.equal(await pick(), "claude sonnet: Codex isn't installed on the host. Claude model is Sonnet.\n");
+  const stale = await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'claude', '--model', 'opus');
+  assert.deepEqual([stale.code, stale.err], [1, "--model opus: the hub's Claude model is Sonnet. Pass --model sonnet, or no --model.\n"]);
+  for (const name of ['claude-model', 'max-land-tests']) assert.match((await board('settings', 'set', name, '2', '--site', 'orch')).err, new RegExp(`no board setting "${name}"`));
+  assert.equal((await board('settings', 'set', 'auto-review', 'on', '--site', 'orch')).code, 0);
+  assert.equal('claude_model' in read(site('orch', 'board.json')), false);
   assert.equal((await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'opus')).code, 1);
   const started = await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'build');
   assert.equal(started.code, 0, started.err);

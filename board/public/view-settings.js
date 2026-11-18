@@ -61,10 +61,6 @@
     <span class="muted small sub">Each open task worktree keeps one serve up. Installs aren’t counted. A busy host asks before it starts another.</span></span>
     <input type="number" class="count" id="maxServes" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxServesStatus" role="status"></p>
-  <label class="who" for="maxLandTests"><span><span>Maximum parallel land tests</span>
-    <span class="muted small sub">Lands run the tests their change affects. Over this many at once, a land waits its turn, bumped first, then first asked.</span></span>
-    <input type="number" class="count" id="maxLandTests" min="1" max="99" step="1" inputmode="numeric" disabled></label>
-  <p class="muted small" id="maxLandTestsStatus" role="status"></p>
   <label class="who" for="autoBuild"><span><span>Auto serve</span>
     <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
     <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
@@ -79,10 +75,6 @@
       <button type="button" data-tool-use="normal" aria-pressed="true" disabled>Normal</button>
       <button type="button" data-tool-use="high" aria-pressed="false" disabled>High</button></span></div>
   <p class="muted small" id="toolUseStatus" role="status"></p>
-  <div id="boardModels"><div id="buildersModel"><p class="muted small">Loading…</p></div><div id="orchestratorsModel"><p class="muted small">Loading…</p></div></div>
-  <p class="muted small" id="orchestratorModelSub"></p>
-  <p class="muted small" id="modelStatus" role="status"></p>
-  <button type="button" id="orchestratorRestart" hidden>Restart the session now</button>
   <label class="who" for="autoMerge"><span><span>Auto-merge</span>
     <span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch.</span></span>
     <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
@@ -538,7 +530,7 @@
       buildTarget = d.settings?.build_target || '';
       scriptsSource = d.settings?.scripts || 'repo';
       showBuildTargets();
-      for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxServes', 'max_serves'], ['maxLandTests', 'max_land_tests']]) {
+      for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxServes', 'max_serves']]) {
         $(`#${id}`).value = savedCaps[key] = String(d.settings?.[key]);
         $(`#${id}`).disabled = false;
       }
@@ -552,8 +544,6 @@
       landing = landingOf(d.settings);
       for (const button of landingButtons()) button.disabled = false;
       syncPRs();
-      // A page copy saved before Builders came has none.
-      if (d.builders) { models.builders = d.builders; drawModel('builders'); }
     }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
     // An Auto toggle keeps its face, disabled with a spinner beside it (ui.js waitOn), while POST api/settings saves it.
     // → the saved settings
@@ -791,7 +781,6 @@
     });
     capInput('maxImplementers', 'max_implementers', (n) => `Saved. Up to ${n === 1 ? '1 card' : `${n} cards`} In Progress at once.`);
     capInput('maxServes', 'max_serves', (n) => `Saved. Up to ${n === 1 ? '1 serve stays' : `${n} serves stay`} up at once.`);
-    capInput('maxLandTests', 'max_land_tests', (n) => `Saved. ${n === 1 ? 'One land tests' : `Up to ${n} lands test`} at a time.`);
     // Description saves on blur, with no Save or Cancel; an empty one is refused and the saved text comes back. The
     // source line says how it was last set (store.mjs readBoardDescription).
     const descriptionBox = $('#boardDescription');
@@ -836,78 +825,6 @@
       } catch (err) {
         if (!B.alive()) return;
         $('#toolUseStatus').textContent = err.message || 'Could not save. Is the host awake?';
-      }
-    });
-    // Builders and Orchestrators (docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md):
-    // the controls Hub settings draws (ui-hub.js modelControl), each with Hub default first. A tap saves at once:
-    // Builders to board.json through POST api/settings, Orchestrators to the board's owner record through the hub. The
-    // hub board's idle session switches at once; any other board's background session can't, so it offers Restart
-    // the session now, a fresh session on the model it now reads.
-    const MODEL_NAMES = { opus: 'Opus', sonnet: 'Sonnet' };
-    const modelURL = `/_hub/board-model/${encodeURIComponent(B.route)}`;
-    const APPLIES = {
-      now: (name) => `Saved. The session switched to ${name}.`,
-      'next start': (name) => `Saved. ${name} applies when the session next starts.`,
-      'new session': (name) => `Saved. ${name} applies to the next new session.`,
-    };
-    const models = { builders: null, orchestrators: null, hub: false };
-    const drawModel = (name) => { $(`#${name}Model`).innerHTML = HubUI.modelControl(models[name]); };
-    const unloaded = () => { if (B.alive()) $('#orchestratorsModel').innerHTML = '<p class="muted small">Could not load. Is the host awake?</p>'; };
-    get(modelURL).then(({ ok, body }) => {
-      if (!B.alive()) return;
-      // A hub still running code from before Orchestrators answers without it, until it restarts.
-      if (!ok || !body.orchestrators) { unloaded(); return; }
-      Object.assign(models, body);
-      drawModel('orchestrators');
-      $('#orchestratorModelSub').textContent = `Orchestrators: ${body.hub ? 'applies at once while the session is idle, else when the session next starts.' : 'applies to the next new session.'}`;
-      $('#orchestratorRestart').hidden = body.hub;
-    }, unloaded);
-    const postModel = async (url, body) => {
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-      const out = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(out.error || 'Could not save. Is the host awake?');
-      return out;
-    };
-    // The model the board's session starts on: its override, else the hub's.
-    const orchestratorName = () => MODEL_NAMES[models.orchestrators.model];
-    B.on($('#boardModels'), 'click', async (e) => {
-      const button = e.target.closest('button[name="value"]');
-      if (!button) return;
-      e.preventDefault();
-      const form = button.closest('[data-model]');
-      const name = form.dataset.model;
-      if (button.getAttribute('aria-pressed') === 'true') return;
-      const value = button.value === 'hub' ? null : button.value;
-      try {
-        const group = [...form.querySelectorAll('button')];
-        if (name === 'builders') {
-          const out = await BoardUI.waitOn(button, postModel(site.url('api/settings'), { claude_model: value }), { group });
-          if (!B.alive()) return;
-          models.builders = out.builders;
-          drawModel('builders');
-          $('#modelStatus').textContent = 'Saved. Builds that start from now take it.';
-        } else {
-          const out = await BoardUI.waitOn(button, postModel(modelURL, { model: value }), { group });
-          if (!B.alive()) return;
-          models.orchestrators = out.orchestrators;
-          drawModel('orchestrators');
-          $('#modelStatus').textContent = APPLIES[out.applies](orchestratorName());
-        }
-      } catch (err) {
-        if (!B.alive()) return;
-        $('#modelStatus').textContent = err.message;
-      }
-    });
-    B.on($('#orchestratorRestart'), 'click', async () => {
-      const name = orchestratorName();
-      if (!(await BoardDialogs.confirm(`Restart the session now? Its conversation ends, and a fresh session on ${name} rejoins the board.`)) || !B.alive()) return;
-      try {
-        await BoardUI.waitOn($('#orchestratorRestart'), postModel(`${modelURL}/restart`, {}));
-        if (!B.alive()) return;
-        $('#modelStatus').textContent = `Restarted. A fresh session on ${name} is rejoining the board.`;
-      } catch (err) {
-        if (!B.alive()) return;
-        $('#modelStatus').textContent = err.message;
       }
     });
     // A Landing tap saves at once with no confirmation, its choice's settings in one POST. Merge needs Push main after a

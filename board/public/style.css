@@ -973,7 +973,7 @@ main > * { transition: opacity .25s ease; }
 .tk-seg button { min-width: 0; min-height: 44px; padding: 6px 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
 .tk-seg button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .tk-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
-/* ui-hub.js modelControl, in Hub settings' Usage card and in Board settings: as many columns as choices. */
+/* ui-hub.js modelControl, in Hub settings' Usage card: as many columns as choices. */
 .model-control { margin-top: 8px; }
 .model-control .model-label { display: block; margin: 0 2px 6px; font-size: 13px; font-weight: 600; }
 .model-control .u-share-desc { margin: 8px 2px 0; color: var(--muted); font-size: 13px; }

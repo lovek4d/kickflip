@@ -39,7 +39,8 @@ import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON
 import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, rerunBrief, resumeBrief, resumeBuilder, runFailure, stopRuns } from './headless.mjs';
 import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
 import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree } from './worktree.mjs';
-import { boardClaudeModel, builderPick, claudeModelFor, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
+import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
+import { readClaudeModel } from '../shared/hub-settings.mjs';
 import { runLimit } from '../hub/usage.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { processStarts } from '../hub/live.mjs';
@@ -884,7 +885,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
   // dispatched one included (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
   const resumed = before && unverifiedCalls(before).length ? before : null;
-  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: { tap: "The owner's Build tap picked it.", hub: "The board's pull picked it." }[takeUp.dispatched] ?? "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {}, dir: site }) : null;
+  const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: { tap: "The owner's Build tap picked it.", hub: "The board's pull picked it." }[takeUp.dispatched] ?? "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: each kind is held by its own usage.
@@ -894,7 +895,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const line = asLine && forAgent(asLine, plans({ kind: k }), '--progress');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
-  if (k === 'claude') refuseUnforced(site, askedModel);
+  if (k === 'claude') refuseUnforced(askedModel);
   const claude = k === 'claude' ? askedModel ?? pick?.model ?? (takeUp && providerOf(takeUp.kind) === 'claude' ? takeUp.model : undefined) ?? 'opus'
     : plans({ kind: k }) ? askedModel ?? (takeUp?.kind === k ? takeUp.model : undefined) ?? PLANNER_MODEL[k]
     : k === HELPER ? askedModel ?? before?.model : undefined;
@@ -1384,12 +1385,11 @@ async function cardWorktree(site, key) {
   return [main?.worktree, item.worktree].find((w) => w?.path && existsSync(w.path)) ?? null;
 }
 
-// A --model the Claude model that builds on the board rules out, its own Builders choice or else the hub's
-// (usage-gate.mjs claudeModelFor), is refused while that choice is Opus or Sonnet.
-function refuseUnforced(site, model) {
-  const forced = claudeModelFor({ dir: site });
+// A --model Hub settings' Builders (push.mjs readClaudeModel) rules out is refused while that choice is Opus or Sonnet.
+function refuseUnforced(model) {
+  const forced = readClaudeModel();
   if (model === undefined || forced === 'auto' || model === forced) return;
-  fail(`--model ${model}: ${boardClaudeModel(site) ? "this board's" : "the hub's"} Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
+  fail(`--model ${model}: the hub's Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
 }
 
 // `agent launch <file/id> --name <n> --task <t> [--writes] [--model opus|sonnet]`: any session asks for a helper on an
@@ -1404,7 +1404,7 @@ export async function requestHelper(site, key, { name, task, writes, model }) {
   const agent = helperName(name);
   const job = text(task, '--task');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
-  refuseUnforced(site, model);
+  refuseUnforced(model);
   if ((await shownCard(site, key)).finished) fail(`${await cardName(site, key)} is Done; a helper needs an open task`);
   const file = await builderFile(site, key, undefined, agent);
   if (existsSync(file)) fail(`${key} already has an agent named ${agent}; pick another --name`);
@@ -1424,8 +1424,8 @@ export async function startHelper(site, key, name, make) {
   const asked = await readJSON(file, null);
   if (asked?.kind !== HELPER || asked.started || asked.done) return null;
   const { item } = await loadItem(site, key);
-  const pick = builderPick({ card: item, dir: site });
-  const forced = claudeModelFor({ dir: site });
+  const pick = builderPick({ card: item });
+  const forced = readClaudeModel();
   const model = asked.model ?? (forced !== 'auto' ? forced : pick.kind === 'claude' ? pick.model : 'opus');
   const tree = asked.writes ? await cardWorktree(site, key) : null;
   if (asked.writes && !tree) fail(`${key} has no worktree for helper ${name} to branch from`);
@@ -1620,7 +1620,7 @@ const PICKED = ['codex', 'claude'];
 export async function pickBuilder(site, key) {
   const { item } = await loadItem(site, key);
   if (site && item.lane === 'todo') await clearRefusal(site, key);
-  const { kind, model, reason } = builderPick({ card: item, dir: site });
+  const { kind, model, reason } = builderPick({ card: item });
   return { lines: [`${[kind, model].filter(Boolean).join(' ')}: ${reason}`] };
 }
 

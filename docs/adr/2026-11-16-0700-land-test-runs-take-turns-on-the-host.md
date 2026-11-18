@@ -15,9 +15,8 @@ fast-forward held the land lock, so every verified card's land ran its affected 
   another test command gets the same bound unchanged.
 - **The setting is the hub's one number**, `landTests` in the hub's settings.json (push.mjs `readLandTests`), 1 by
   default, 1 to 99, not derived from cores. The slots are host-wide, so the number is too: a per-board number would let
-  two boards disagree about one limit. It is shown and saved beside Maximum tasks in progress in Board Settings
-  (store.mjs `max_land_tests`) and by `settings set max-land-tests`, whichever board does it; every land reads it from
-  the hub's file.
+  two boards disagree about one limit. Every land reads it from the hub's file. It is set in Hub settings' Usage card
+  ([models and land tests are hub settings only](2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md)).
 - **A land waiting for a slot says so.** A `test-waiting` status line, "Waiting to test: <card> is testing first",
   is the card's newest line until its test report starts; a held Merge reads it as merging.
 - The fast-forward still takes the land lock alone.

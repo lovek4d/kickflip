@@ -13,7 +13,7 @@ import { freePorts, until, boardListening, fakeSlack, slackWorld, startBoard, un
 import { fakeGh, writeGithubUser } from '../shared/fake-gh.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { writeBrief } from './store.mjs';
-import { buildersView } from '../shared/model-views.mjs';
+
 import { watch as watchEvents } from '../bin/wait-events.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
@@ -1598,14 +1598,13 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false,max_implementers: 5, max_serves: 10, auto_review: false, idle_notification: false, skip_draft: false, prs: true, tool_use: 'normal', max_land_tests: 1 },
-      paused_until: null, pause_choices: [['1h', '1h', 3600_000], ['3h', '3h', 3 * 3600_000], ['6h', '6h', 6 * 3600_000], ['1d', '1d', 86400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms })),
-      builders: buildersView('auto', null) });
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false,max_implementers: 5, max_serves: 10, auto_review: false, idle_notification: false, skip_draft: false, prs: true, tool_use: 'normal' },
+      paused_until: null, pause_choices: [['1h', '1h', 3600_000], ['3h', '3h', 3 * 3600_000], ['6h', '6h', 6 * 3600_000], ['1d', '1d', 86400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms })) });
     assert.deepEqual((await (await fetch(`${base}/api/settings`)).json()).pause_choices, (await (await fetch(`${base}/api/board`)).json()).holdChoices, "Pause board's chips are the Hold sheet's");
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false,max_implementers: 5, max_serves: 10, auto_review: false, idle_notification: false, skip_draft: false, prs: true, tool_use: 'normal', max_land_tests: 1 });
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false,max_implementers: 5, max_serves: 10, auto_review: false, idle_notification: false, skip_draft: false, prs: true, tool_use: 'normal' });
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);

@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-18-0800-models-and-land-tests-are-hub-settings-only
+---
+
 # Builders and Orchestrators each take a hub default a board can override
+
+Superseded in part by [models and land tests are hub settings only](2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md): the hub's two controls stay, and no board overrides them.
 
 The owner (T-529), on T-525's per-board orchestrator model, wondered whether it "should also be a hub level setting and maybe even just fall into the existing three-way selection we have of Opus, Auto, and Sonnet", then picked two separate toggles, and noted: "Each board can override both settings. Dry copy the same toggles into each board." Asked whether Auto should switch orchestrators near the usage pause line: no, orchestrators stay put. And for New board: "Skip on new board".
 

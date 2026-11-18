@@ -613,51 +613,16 @@ test("Board Settings' Description textarea shows the saved text and how it was s
   s.view.unmount();
 });
 
-// docs/adr/2026-11-16-0945-a-board-setting-picks-opus-or-sonnet-for-its-orchestrator.md,
-// docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md
-test("Board Settings draws Hub settings' Builders and Orchestrators controls with Hub default first, saves a tap at once to the board or the hub, and on a headless board offers Restart the session now, asking first", async () => {
-  const { buildersView, orchestratorsView } = await import('../shared/model-views.mjs');
+// docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md
+test("Board Settings has no Builders, Orchestrators or Maximum parallel land tests: those are Hub settings' alone, and the page asks the hub for no board model", async () => {
   const s = settingsPage({ dom: true });
-  const hubPosts = [];
-  let override = null;
-  const answer = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body });
+  const asked = [];
   const base = s.page.win.fetch;
-  s.page.win.fetch = async (url, opts = {}) => {
-    if (url.endsWith('/api/settings')) {
-      const out = await (await base(url, opts)).json();
-      return answer({ ...out, builders: buildersView('auto', s.saved.claude_model ?? null) });
-    }
-    if (!url.includes('/_hub/board-model/')) return base(url, opts);
-    if (opts.method !== 'POST') return answer({ orchestrators: orchestratorsView('opus', override), hub: false });
-    hubPosts.push([url, JSON.parse(opts.body)]);
-    if (url.endsWith('/restart')) return answer({ route: 'orch', session: 's2', previous: 's1', model: override });
-    override = JSON.parse(opts.body).model;
-    return answer({ orchestrators: orchestratorsView('opus', override), applies: 'new session' });
-  };
+  s.page.win.fetch = async (url, opts = {}) => { asked.push(url); return base(url, opts); };
   await s.mount();
-  const control = (name) => s.root.querySelector(`#${name}Model`);
-  const labels = (name) => control(name).querySelectorAll('button').map((b) => b.textContent);
-  const pressed = (name) => control(name).querySelector('button[aria-pressed="true"]').value;
-  const tap = async (name, value) => { s.page.fire(s.root.querySelector('#boardModels'), 'click', { target: control(name).querySelector(`button[value="${value}"]`) }); await tick(); };
-  const status = () => s.root.querySelector('#modelStatus').textContent;
-  const restart = s.root.querySelector('#orchestratorRestart');
-  assert.deepEqual([control('builders').querySelector('.model-label').textContent, labels('builders'), pressed('builders')], ['Builders', ['Hub default (Auto)', 'Opus', 'Auto', 'Sonnet'], 'hub']);
-  assert.deepEqual([control('orchestrators').querySelector('.model-label').textContent, labels('orchestrators'), pressed('orchestrators')], ['Orchestrators', ['Hub default (Opus)', 'Opus', 'Sonnet'], 'hub']);
-  assert.equal(control('builders').querySelector('.u-share-desc').textContent, 'Follows Hub settings. Auto: small tasks get Sonnet, the rest get Opus.');
-  assert.deepEqual([s.root.querySelector('#orchestratorModelSub').textContent, restart.hidden], ['Orchestrators: applies to the next new session.', false]);
-  await tap('builders', 'sonnet');
-  assert.deepEqual([s.posts.at(-1), pressed('builders'), status()], [{ claude_model: 'sonnet' }, 'sonnet', 'Saved. Builds that start from now take it.']);
-  await tap('builders', 'hub');
-  assert.deepEqual([s.posts.at(-1), pressed('builders')], [{ claude_model: null }, 'hub']);
-  await tap('orchestrators', 'sonnet');
-  assert.deepEqual([hubPosts, pressed('orchestrators'), status()], [[['/_hub/board-model/orch', { model: 'sonnet' }]], 'sonnet', 'Saved. Sonnet applies to the next new session.']);
-  await tap('orchestrators', 'sonnet');
-  assert.equal(hubPosts.length, 1, 'the choice already on saves nothing');
-  s.page.fire(restart, 'click');
-  await tick();
-  assert.deepEqual([hubPosts.at(-1), s.confirms, status()], [['/_hub/board-model/orch/restart', {}], ['Restart the session now? Its conversation ends, and a fresh session on Sonnet rejoins the board.'], 'Restarted. A fresh session on Sonnet is rejoining the board.']);
-  await tap('orchestrators', 'hub');
-  assert.deepEqual([hubPosts.at(-1), pressed('orchestrators'), status()], [['/_hub/board-model/orch', { model: null }], 'hub', 'Saved. Opus applies to the next new session.']);
+  for (const id of ['boardModels', 'buildersModel', 'orchestratorsModel', 'orchestratorRestart', 'maxLandTests']) assert.equal(s.root.querySelector(`#${id}`), null, id);
+  assert.doesNotMatch(s.root.innerHTML, /Builders|Orchestrators|land tests|Restart the session now/);
+  assert.deepEqual(asked.filter((url) => url.includes('board-model')), []);
   s.view.unmount();
 });
 
@@ -6624,7 +6589,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['maxImplementers', 'Maximum tasks in progress'], ['maxServes', 'Maximum parallel serves'], ['maxLandTests', 'Maximum parallel land tests'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
+    ['maxImplementers', 'Maximum tasks in progress'], ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
     ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);

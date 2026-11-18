@@ -67,7 +67,7 @@ async function recordStart(route, outcome) {
     if (!pending || routeRecord(m.sites, route)) return;
     if (outcome.phase && outcome.phase === pending.phase) return;
     m.starting[route] = outcome.phase ? { ...pending, phase: outcome.phase, phase_at: new Date().toISOString() } : outcome.error ? { ...pending, error: outcome.error }
-      : { ...pending, session: outcome.session, label: outcome.name, since: new Date().toISOString(), repo: outcome.repo, ...(outcome.model ? { model: outcome.model } : {}) };
+      : { ...pending, session: outcome.session, label: outcome.name, since: new Date().toISOString(), repo: outcome.repo };
     await writeManifest(m);
   });
 }
@@ -121,7 +121,7 @@ async function start(route, { purpose, repo, github, remote, folder, branch }, {
     changed();
     // The owner picked the folder in New, so the hub trusts it for Claude Code as it does the clones it makes.
     const r = await startSession(route, { repo, prompt: joinFlags({ purpose }), run, live, clones: repos.base, trust: Boolean(folder) });
-    outcome = { session: r.session, name: r.name, repo: r.repo, model: r.model };
+    outcome = { session: r.session, name: r.name, repo: r.repo };
   } catch (e) { outcome = { error: errorLine(e.message) }; }
   try { await recordStart(route, outcome); } catch (e) { return { error: errorLine(`could not record the start: ${e.message}`) }; }
   return outcome.error ? { error: outcome.error } : { session: outcome.session };

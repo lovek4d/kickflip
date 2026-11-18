@@ -67,7 +67,7 @@ async function start(route, { title, learn, dir }, { run, live, changed }) {
     fs.mkdirSync(dir, { recursive: true });
     trustFolder(dir);
     const r = await startSession(route, { repo: dir, first: coursePrompt({ title, learn, dir }), run, live });
-    outcome = { session: r.session, label: r.name, model: r.model };
+    outcome = { session: r.session, label: r.name };
   } catch (e) { outcome = { error: String(e.message).split('\n')[0].slice(0, 200) }; }
   try {
     await withManifestLock(async () => {
@@ -75,7 +75,7 @@ async function start(route, { title, learn, dir }, { run, live, changed }) {
       const pending = routeRecord(m.starting, route);
       if (!pending || routeRecord(m.sites, route)) return;
       m.starting[route] = outcome.error ? { ...pending, error: outcome.error }
-        : { ...pending, session: outcome.session, label: outcome.label, since: new Date().toISOString(), ...(outcome.model ? { model: outcome.model } : {}) };
+        : { ...pending, session: outcome.session, label: outcome.label, since: new Date().toISOString() };
       await writeManifest(m);
     });
   } catch (e) { return { error: `could not record the start: ${e.message}` }; }

@@ -29,7 +29,7 @@
 //   kickflip join --name <name> --session <id> [--watch [<file,file>]] [--label <name>] [--description <d>]
 //               [--dir <path>] [--cmd '<json array>'] [--port <n>]
 //               [--filter <regex>] [--template board [--items <waves|file>]] [--force]
-//               [--icon <key>] [--color <css hex>] [--repo <dir>] [--model <m>] [--hub | --no-hub]
+//               [--icon <key>] [--color <css hex>] [--repo <dir>] [--hub | --no-hub]
 //               a site with an owning session: events, the watcher, Needs you. --watch is optional with --session;
 //               with files it watches those (relative to the dir) in place of data/events.jsonl
 //               --hub makes this board the hub board, as `set --hub` does; a join without either keeps the flag.
@@ -44,9 +44,9 @@
 //               sidebar; without an icon the hub picks one from the route and title, else the
 //               title's first letter, on a color picked from the route
 //               --repo is the folder the session runs in, which `resume` needs: by default the session's own
-//               cwd while it runs (../hub/live.mjs), else the recorded folder, else the cwd of this join. --model is
-//               the session's model, kept for start and resume. The owner entry records both (../hub/sessions.mjs).
-//               A join that leaves out --label, --model or --repo keeps the owner record's, a --force takeover too.
+//               cwd while it runs (../hub/live.mjs), else the recorded folder, else the cwd of this join. The
+//               owner entry records it (../hub/sessions.mjs).
+//               A join that leaves out --label or --repo keeps the owner record's, a --force takeover too.
 //               A new route's entry records when it joined, `created`, which a later join keeps; the sidebar's
 //               switch-mode letters go to sites in that order (../board/public/ui-sidebar.js switchKeys)
 //   The skill's entry points, /kickflip board, page and handoff, are these commands
@@ -65,7 +65,7 @@
 //               thread's line, and prints "handed to <link>". With no route it queues the objective for the hub's router
 //               (../hub/router.mjs queueRequest), which files it on the board it fits on its next 15-second tick.
 //               Exit 2 for a route with no board
-//   kickflip start <route> [--repo <dir>] [--model <m>] [--prompt <text>]
+//   kickflip start <route> [--repo <dir>] [--prompt <text>]
 //               starts a background session (`claude --bg`, auto mode, worktree isolation off) in --repo, else
 //               the route's recorded folder, else the cwd, named after the board, whose first prompt is
 //               `/kickflip board '<board name>'` plus --prompt. Records it as the route's owner, or in `starting` until a
@@ -82,7 +82,7 @@
 //   kickflip export <route> [--out <file>]
 //               writes one .tgz (default ./kickflip-<route>.tgz, never over an existing file) holding the board's
 //               folder, without its watcher cursors and watcher record; its manifest entry with only EXPORT_KEYS below,
-//               dropping its folder, port, command, owner session and restart times; the owner's label and model;
+//               dropping its folder, port, command, owner session and restart times; the owner's label;
 //               settings.json's EXPORT_SETTINGS; and a README.md of the import steps. No other hub file and no key
 //               goes in. Refuses a site that isn't a board, a board whose cards live outside its folder, and a board
 //               with an open builder record. Prints {route, file, entry, dropped, settings}
@@ -95,7 +95,7 @@
 //   kickflip hub [--repo <dir>]
 //               attaches this terminal to the hub board's tmux session (tmux attach; switch-client inside tmux).
 //               With none running, the hub board's session starts in it first, in the foreground: its recorded
-//               session resumed in its recorded folder and model, or in --repo when no folder is recorded; with no
+//               session resumed in its recorded folder, or in --repo when no folder is recorded; with no
 //               owner, a fresh session in --repo (default cwd) that joins the board with --hub. Points it to
 //               docs/hub-session.md. While the tmux session runs, nothing else starts
 //               (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
@@ -346,7 +346,7 @@ async function startRecorded(route, options) {
     const r = await sessionCall(() => startSession(route, { manifest: readManifest(), ...options }));
     await withLock(async () => {
       const m = readManifest();
-      const owner = { session: r.session, label: r.name, since: new Date().toISOString(), repo: r.repo, ...(r.model ? { model: r.model } : {}) };
+      const owner = { session: r.session, label: r.name, since: new Date().toISOString(), repo: r.repo };
       if (routeRecord(m.sites, route)) { m.sites[route].owner = owner; m.sites[route].updated = owner.since; }
       else m.starting = { ...m.starting, [route]: { ...routeRecord(m.starting, route), ...owner } };
       await writeManifest(m);
@@ -573,7 +573,7 @@ const commands = {
     if (args.title !== undefined) fail('join takes no --title: --name "<name>" gives the title and the route', 2);
     if (!args.session) {
       const page = ['port', 'dir', 'cmd'].some((k) => args[k] !== undefined);
-      const watched = ['watch', 'template', 'filter', 'label', 'model', 'repo', 'force', 'items', ...(page ? ['hub'] : [])].find((k) => args[k] !== undefined);
+      const watched = ['watch', 'template', 'filter', 'label', 'repo', 'force', 'items', ...(page ? ['hub'] : [])].find((k) => args[k] !== undefined);
       if (watched) fail(`--${watched} needs --session <id> (this session's id)`, 2);
       return page ? joinPage() : joinFolder();
     }
@@ -645,13 +645,14 @@ const commands = {
       }
       const same = existing?.owner?.session === args.session ? existing.owner : null;
       const kept = same || started || previous;
+      // An owner record's model, a board's old orchestrator model, is dropped: every board's session runs on Hub
+      // settings' Orchestrators (docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md).
+      const { model: _, ...owner } = same || { session: args.session, since: now };
       site.owner = {
-        ...(same || { session: args.session, since: now }),
+        ...owner,
         label: args.label || kept?.label || '',
         repo: args.repo ? path.resolve(args.repo) : ((site.github || site.remote) && kept?.repo) || liveSessions()?.get(args.session)?.cwd || kept?.repo || process.cwd(),
       };
-      const model = args.model || kept?.model;
-      if (model) site.owner.model = model;
       const landing = routeRecord(m.starting, route);
       if (landing) m.starting[route] = { ...landing, joined_at: landing.joined_at || now };
       site.updated = now;
@@ -757,7 +758,7 @@ const commands = {
   async start() {
     const route = args._[0];
     if (!validRoute(route)) fail('start needs a route: lowercase letters, digits and dashes', 2);
-    const r = await startRecorded(route, { repo: args.repo, model: args.model, prompt: args.prompt });
+    const r = await startRecorded(route, { repo: args.repo, prompt: args.prompt });
     out({ route: r.route, session: r.session, confirmed: r.confirmed, repo: r.repo, argv: r.argv, output: r.output });
   },
 
@@ -797,7 +798,7 @@ const commands = {
     const entry = pick(site, EXPORT_KEYS);
     const bundle = {
       kickflip_export: 1, route, exported_at: new Date().toISOString(), from: os.hostname(),
-      entry, owner: pick(site.owner || {}, ['label', 'model']), settings: pick(readSettingsFile(), EXPORT_SETTINGS),
+      entry, owner: pick(site.owner || {}, ['label']), settings: pick(readSettingsFile(), EXPORT_SETTINGS),
       dropped: Object.keys(site).filter((k) => !EXPORT_KEYS.includes(k)),
     };
     const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-export-'));
@@ -842,10 +843,10 @@ const commands = {
         const { update } = await import('../shared/hub-settings.mjs');
         await update((file) => ({ ...file, ...settings }));
       }
-      const { label, model } = bundle.owner || {};
+      const { label } = bundle.owner || {};
       out({
         route, dir, port: site.port, settings: Object.keys(settings), hub: site.hub === true,
-        join: `kickflip board ${shellQuote(joinName(route, site.title))} --session <this session's id>${label ? ` --label ${shellQuote(label)}` : ''}${model ? ` --model ${shellQuote(model)}` : ''} --force`,
+        join: `kickflip board ${shellQuote(joinName(route, site.title))} --session <this session's id>${label ? ` --label ${shellQuote(label)}` : ''} --force`,
       });
     } finally { fs.rmSync(stage, { recursive: true, force: true }); }
   },

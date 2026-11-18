@@ -2587,6 +2587,19 @@ test('the sidebar shows Claude’s week as a second bar once it is within the ne
   assert.equal(bars(hub(95, 90, 'reset')), 1);
 });
 
+// docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md
+test("Claude's block draws Maximum parallel land tests after Builders and Orchestrators, a stepper posting one fewer or one more, from 1 to 99", () => {
+  const reading = { at: new Date(NOW).toISOString(), five_hour: null, seven_day: null };
+  const card = (landTests) => context.HubUI.usageCard({ claude: reading }, null, null, { model: 'auto', builder: 'Claude', builders: buildersView('auto'), orchestrators: orchestratorsView('opus'), landTests });
+  const three = card(3);
+  assert.match(text(three), /Builders .*Orchestrators .*Maximum parallel land tests − 3 \+ Lands run the tests their change affects\./);
+  assert.match(three, /form class="segments ub-step" method="post" action="\/_hub\/settings\/land-tests"/);
+  assert.match(three, /value="2" aria-label="One fewer">/);
+  assert.match(three, /value="4" aria-label="One more">/);
+  assert.match(card(1), /value="0" aria-label="One fewer" disabled/);
+  assert.match(card(99), /value="100" aria-label="One more" disabled/);
+});
+
 test('the pause line stepper, both tools’ ticks, banners and status slots follow the gate', () => {
   const resets_at = new Date(NOW + 3600_000).toISOString();
   const until = ui.usageClock(resets_at);
@@ -2598,7 +2611,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const card = hub.usageCard({ claude: reading, codex: reading }, null, pause);
   assert.match(text(card), /Codex .*Pause work at 10% buffer − 90% \+/);
   assert.match(text(card), /Claude’s new work waits.*Codex hands its work to Claude implementers/);
-  for (const builder of ['Opus', 'Sonnet']) assert.match(text(hub.usageCard({ claude: reading }, null, pause, { model: builder.toLowerCase(), builder, builders: buildersView(builder.toLowerCase()), orchestrators: orchestratorsView('opus') })), new RegExp(`Codex hands its work to ${builder} implementers`));
+  for (const builder of ['Opus', 'Sonnet']) assert.match(text(hub.usageCard({ claude: reading }, null, pause, { model: builder.toLowerCase(), builder, builders: buildersView(builder.toLowerCase()), orchestrators: orchestratorsView('opus'), landTests: 1 })), new RegExp(`Codex hands its work to ${builder} implementers`));
   assert.equal([...card.matchAll(/class="ub-mark" style="left:90%"/g)].length, 4);
   assert.match(card, /form class="segments ub-step" method="post" action="\/_hub\/settings\/pause-at"/);
   assert.match(card, /value="85" aria-label="Pause 5% sooner"/);

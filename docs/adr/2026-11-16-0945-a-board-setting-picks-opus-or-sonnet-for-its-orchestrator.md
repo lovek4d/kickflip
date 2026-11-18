@@ -1,6 +1,8 @@
 ---
-status: superseded in part by 2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override
+status: superseded by 2026-11-18-0800-models-and-land-tests-are-hub-settings-only
 ---
+
+Superseded by [models and land tests are hub settings only](2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md): Board settings has no Orchestrators row, and every board's session runs on Hub settings' Orchestrators.
 
 # A board setting picks Opus or Sonnet for its orchestrator
 

@@ -40,11 +40,7 @@
 //                     branches}, or {error} when it can't be a board's repo (folders.mjs folderInfo)
 //   /_hub/board-repo/<route> GET repo and branch; POST {github | remote, branch} prepares the clone and sends
 //                     repo-changed (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
-//   /_hub/board-model/<route> GET {orchestrators, hub}; POST {model: opus | sonnet | null for Hub default}
-//                     → {orchestrators, applies} (board-model.mjs)
-//   /_hub/board-model/<route>/restart POST stops a background board's session and starts a fresh one on its model
-//                     → {route, session, previous, model}
-//   /_hub/new-board  POST {name, github | remote, branch, purpose, tickets, model?} → {route}: a starting reservation, then the board's session starts
+//   /_hub/new-board  POST {name, github | remote, branch, purpose, tickets} → {route}: a starting reservation, then the board's session starts
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out, and POST /_hub/new-board/<route>/retry (application/json) starts it again → {route}
 //                     (new-board.mjs)
@@ -99,8 +95,10 @@
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
 //                     fix while Codex isn't installed or logged in, checked afresh
 //   /_hub/settings/claude-model POST value=opus|auto|sonnet, Builders → /_hub/api/hub's JSON, or 400 {error}
-//   /_hub/settings/orchestrator-model POST value=opus|sonnet, Orchestrators (board-model.mjs changeHubOrchestratorModel)
+//   /_hub/settings/orchestrator-model POST value=opus|sonnet, Orchestrators (sessions.mjs changeOrchestratorModel)
 //                     → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/land-tests POST value=1..99, Maximum parallel land tests (push.mjs setLandTests) → /_hub/api/hub's
+//                     JSON, or 400 {error}
 //   /_hub/settings/pause-at POST value=50..100 in steps of 5 → /_hub/api/hub's JSON, or 400 {error}; 100 is Off
 //   /_hub/settings/keep-going POST value=on|off → /_hub/api/hub's JSON, or 400 {error}; on without a pause → 409 {error}
 //   /_hub/settings/linear POST key=<Linear personal API key>, checked with Linear and saved, as refused if Linear
@@ -212,7 +210,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
 import { publicKey, reportPush, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, setAlert, readAlerts, deliver } from './push.mjs';
-import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
+import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readLandTests, setLandTests, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
@@ -230,13 +228,12 @@ import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds, heldSite, sidebarPause } from './home.mjs';
-import { checkSessions, compactFullContexts, freshIdleSessions, logStartPrompt, sessionOf, startSignals, startingBoards } from './sessions.mjs';
+import { changeOrchestratorModel, checkSessions, compactFullContexts, freshIdleSessions, logStartPrompt, sessionOf, startSignals, startingBoards } from './sessions.mjs';
 import { codeRestartHeld, logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { folderInfo, folderSuggestions } from './folders.mjs';
 import { boardRepo, changeBoardRepo } from './board-repo.mjs';
-import { boardModel, changeBoardModel, changeHubOrchestratorModel, restartOnModel } from './board-model.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
 import { requestCourse, courseLessons } from './new-course.mjs';
 import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
@@ -274,6 +271,13 @@ const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 // The version of the code this process started with; new files on disk run only after a restart.
 const VERSION = JSON.parse(fs.readFileSync(path.join(HUB_DIR, '..', 'package.json'), 'utf8')).version;
+// The Usage card's Claude block: Builders, Orchestrators and Maximum parallel land tests, each saving one value posted
+// as a form.
+const USAGE_SETTINGS = {
+  '/_hub/settings/claude-model': setClaudeModel,
+  '/_hub/settings/orchestrator-model': changeOrchestratorModel,
+  '/_hub/settings/land-tests': setLandTests,
+};
 
 const stampedLog = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -1179,7 +1183,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return {
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
+        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), landTests: readLandTests(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
         remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pendingFor(null).map(shown),
@@ -1318,16 +1322,6 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       try {
         const result = req.method === 'GET' ? boardRepo(repoRoute[1]) : await changeBoardRepo(repoRoute[1], await readJSONBody(req), { repos });
         if (req.method === 'POST') stream.refresh();
-        return sendJSON(200, result);
-      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
-    }
-    const modelRoute = /^\/_hub\/board-model\/([a-z0-9-]+)(\/restart)?$/.exec(p);
-    if (modelRoute && (modelRoute[2] ? req.method === 'POST' : ['GET', 'POST'].includes(req.method))) {
-      try {
-        const route = modelRoute[1];
-        if (req.method === 'GET') return sendJSON(200, boardModel(route));
-        const result = modelRoute[2] ? await restartOnModel(route) : await changeBoardModel(route, await readJSONBody(req));
-        stream.refresh();
         return sendJSON(200, result);
       } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
     }
@@ -1485,9 +1479,9 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       }
       return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
     }
-    if (['/_hub/settings/claude-model', '/_hub/settings/orchestrator-model'].includes(p) && req.method === 'POST') {
+    if (Object.hasOwn(USAGE_SETTINGS, p) && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
-      try { if (p.endsWith('/claude-model')) await setClaudeModel(f.get('value')); else await changeHubOrchestratorModel(f.get('value')); } catch (e) {
+      try { await USAGE_SETTINGS[p](f.get('value')); } catch (e) {
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }

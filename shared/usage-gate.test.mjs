@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, tasksInProgressCap, pauseReasonFor, pauseReason, pausedLine, boardClaudeModel, claudeModelFor } from './usage-gate.mjs';
+import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, tasksInProgressCap, pauseReasonFor, pauseReason, pausedLine } from './usage-gate.mjs';
 import { readClaudeModel, setClaudeModel, readOrchestratorModel, setOrchestratorModel } from './hub-settings.mjs';
 import { tempDir } from './temp-dir.mjs';
 
@@ -315,30 +315,6 @@ test('setClaudeModel saves opus, auto or sonnet beside the other hub settings an
     await assert.rejects(() => setClaudeModel(value, f.home), { message: 'claude-model takes opus, auto or sonnet', status: 400 });
   }
   assert.deepEqual(f.settings(), { codexShare: 'off', claudeModel: 'auto' });
-});
-
-// docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md
-test("a board's own Builders choice in board.json overrides the hub's for its picks, and says so; Hub default, none or an unknown one, follows the hub", (t) => {
-  const f = fixture(t);
-  const oldPath = process.env.PATH;
-  process.env.PATH = path.join(f.home, 'bin');
-  t.after(() => { process.env.PATH = oldPath; });
-  const dir = path.join(f.home, 'board');
-  fs.mkdirSync(dir);
-  const board = (claude_model) => fs.writeFileSync(path.join(dir, 'board.json'), JSON.stringify({ title: 'B', ...(claude_model ? { claude_model } : {}) }));
-  const pick = (card) => { const { model, reason, inputs } = builderPick({ home: f.home, now, card, dir }); return [model, reason.replace("Codex isn't installed on the host. ", ''), inputs.boardClaudeModel]; };
-  f.write('settings.json', { claudeModel: 'opus' });
-  board('sonnet');
-  assert.deepEqual(pick({ size: 'large' }), ['sonnet', "This board's Claude model is Sonnet.", 'sonnet']);
-  assert.deepEqual([claudeModelFor({ home: f.home, dir }), boardClaudeModel(dir)], ['sonnet', 'sonnet']);
-  board('auto');
-  assert.deepEqual(pick({ size: 'small' }), ['sonnet', "This board's Claude model is Auto and the task is small.", 'auto']);
-  for (const value of [undefined, 'haiku']) {
-    board(value);
-    assert.deepEqual(pick({ size: 'small' }), ['opus', 'Claude model is Opus.', undefined]);
-    assert.deepEqual([claudeModelFor({ home: f.home, dir }), boardClaudeModel(dir)], ['opus', null]);
-  }
-  assert.equal(claudeModelFor({ home: f.home }), 'opus');
 });
 
 test('setOrchestratorModel saves opus or sonnet beside the other hub settings, reads opus by default, and refuses anything else', async (t) => {

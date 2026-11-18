@@ -130,7 +130,7 @@ test('concurrent boards share one clone without switching its branch and need no
   assert.equal(cloneCalls.length - before, 1);
 });
 
-test("New board asks no model: its orchestrator starts on Hub settings' Orchestrators and records none, so it stays on Hub default", async () => {
+test("New board asks no model: its orchestrator starts on Hub settings' Orchestrators and records none", async () => {
   saveJSON(manifestFile, { sites: {} });
   const { calls, run } = claude();
   await setOrchestratorModel('sonnet', home);

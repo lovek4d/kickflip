@@ -919,7 +919,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   let refused = false;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const saved = { claudeModel: 'auto', orchestratorModel: 'opus' };
+  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1 };
   const hub = (claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare: 'off', codex: USABLE, ...saved,
     sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
   const context = vm.createContext({
@@ -931,7 +931,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
-      if (!refused) saved[url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel'] = opts.body.get('value');
+      if (!refused) Object.assign(saved, url.endsWith('/land-tests') ? { landTests: Number(opts.body.get('value')) } : { [url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel']: opts.body.get('value') });
       return { ok: !refused, json: async () => refused ? { error: 'claude-model takes opus, auto or sonnet' } : hub() };
     },
   });
@@ -954,7 +954,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
     auto: 'Auto: small tasks get Sonnet, the rest get Opus.',
     sonnet: 'Always Sonnet. Auto would give large tasks to Opus.',
   };
-  const SWITCH = 'A running session takes a change when it next starts, or now from its Board settings.';
+  const SWITCH = 'A running session takes a change when it next starts, the hub board’s at once while idle.';
 
   live.paint(hub());
   assert.equal(claude().querySelector('.u-head .title').textContent, 'Claude');
@@ -963,7 +963,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   assert.deepEqual([control('orchestrators').getAttribute('aria-label'), control('orchestrators').getAttribute('action')], ['Orchestrators', '/_hub/settings/orchestrator-model']);
   assert.deepEqual(control('builders').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Auto', 'Sonnet']);
   assert.deepEqual(control('orchestrators').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Sonnet']);
-  assert.match(claude().textContent, /^Claude.*BuildersOpusAutoSonnetAuto: small tasks get Sonnet, the rest get Opus\.OrchestratorsOpusSonnetEach board’s own session runs on Opus unless its Board settings pick another\..*5-hour42%/);
+  assert.match(claude().textContent, /^Claude.*BuildersOpusAutoSonnetAuto: small tasks get Sonnet, the rest get Opus\.OrchestratorsOpusSonnetEach board’s own session runs on Opus\..*Maximum parallel land tests−1\+Lands run the tests.*5-hour42%/);
   assert.deepEqual([selected(), selected('orchestrators')], ['auto', 'opus']);
   for (const value of ['opus', 'sonnet', 'auto']) {
     await submit(value);
@@ -974,7 +974,12 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   }
   await submit('sonnet', 'orchestrators');
   assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/orchestrator-model', 'value=sonnet']);
-  assert.deepEqual([selected(), selected('orchestrators'), desc('orchestrators')], ['auto', 'sonnet', `Each board’s own session runs on Sonnet unless its Board settings pick another. ${SWITCH}`]);
+  assert.deepEqual([selected(), selected('orchestrators'), desc('orchestrators')], ['auto', 'sonnet', `Each board’s own session runs on Sonnet. ${SWITCH}`]);
+  // Maximum parallel land tests, the hub's one number, steps from Claude's block.
+  const landTests = () => claude().querySelector('form[action="/_hub/settings/land-tests"]');
+  assert.equal(landTests().querySelector('output').textContent, '1');
+  await listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: landTests(), submitter: { name: 'value', value: '2' }, preventDefault() {} });
+  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString(), landTests().querySelector('output').textContent], ['/_hub/settings/land-tests', 'value=2', '2']);
   refused = true;
   await submit('opus');
   assert.equal(selected(), 'auto');

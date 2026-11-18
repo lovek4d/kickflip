@@ -235,24 +235,29 @@ test('init --dry-run CLI writes no setup and invokes no service', async () => {
   assert.deepEqual(fs.readdirSync(fixture.scratch), []);
 });
 
-test('join records the session and its folder: --repo, else the live session\'s cwd, else the recorded one, else where join ran; a rejoin, or a --force takeover, keeps the label, model and folder it leaves out', async () => {
+test('join records the session and its folder: --repo, else the live session\'s cwd, else the recorded one, else where join ran; a rejoin, or a --force takeover, keeps the label and folder it leaves out, and drops an old model', async () => {
   json(await cli(['join', '--name', 'notes', '--session', 's-notes', '--label', 'Notes']));
   assert.deepEqual(manifest().sites.notes.owner, { ...manifest().sites.notes.owner, session: 's-notes', label: 'Notes', repo });
-  json(await cli(['join', '--name', 'notes', '--session', 's-notes', '--repo', otherRepo, '--model', 'opus']));
-  assert.deepEqual([manifest().sites.notes.owner.repo, manifest().sites.notes.owner.model, manifest().sites.notes.owner.label], [otherRepo, 'opus', 'Notes']);
+  json(await cli(['join', '--name', 'notes', '--session', 's-notes', '--repo', otherRepo]));
+  assert.deepEqual([manifest().sites.notes.owner.repo, manifest().sites.notes.owner.label], [otherRepo, 'Notes']);
+  // docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md: a board's old orchestrator model goes at
+  // its next join.
+  const m = manifest();
+  m.sites.notes.owner.model = 'sonnet';
+  write(web('manifest.json'), m);
   liveRecord('s-notes', path.join(repo, 'apps'));
   json(await cli(['join', '--name', 'notes', '--session', 's-notes']));
-  assert.deepEqual([manifest().sites.notes.owner.repo, manifest().sites.notes.owner.model], [path.join(repo, 'apps'), 'opus']);
-  const owner = () => { const o = manifest().sites.notes.owner; return [o.session, o.label, o.model, o.repo]; };
+  assert.deepEqual([manifest().sites.notes.owner.repo, 'model' in manifest().sites.notes.owner], [path.join(repo, 'apps'), false]);
+  const owner = () => { const o = manifest().sites.notes.owner; return [o.session, o.label, o.repo]; };
   json(await cli(['join', '--name', 'notes', '--session', 's-notes-2', '--force'], { cwd: otherRepo }));
-  assert.deepEqual(owner(), ['s-notes-2', 'Notes', 'opus', path.join(repo, 'apps')]);
+  assert.deepEqual(owner(), ['s-notes-2', 'Notes', path.join(repo, 'apps')]);
   json(await cli(['join', '--name', 'notes', '--session', 's-notes-2'], { cwd: otherRepo }));
-  assert.deepEqual(owner(), ['s-notes-2', 'Notes', 'opus', path.join(repo, 'apps')]);
+  assert.deepEqual(owner(), ['s-notes-2', 'Notes', path.join(repo, 'apps')]);
 });
 
 test('start runs claude --bg in the folder, in auto mode with isolation off, and records the new session as the owner', async () => {
   json(await cli(['join', '--name', 'Shop', '--session', 's-old', '--repo', repo]));
-  const r = json(await cli(['start', 'shop', '--model', 'opus', '--prompt', 'Pick up INT-9']));
+  const r = json(await cli(['start', 'shop', '--prompt', 'Pick up INT-9']));
   const [call] = calls();
   const { id } = call;
   assert.deepEqual(call.argv, ['--bg', '--name', 'Shop', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus', "/kickflip board 'Shop' Pick up INT-9"]);
@@ -268,7 +273,7 @@ test('start runs claude --bg in the folder, in auto mode with isolation off, and
   assert.ok(hook.timeout * 1000 > WAIT_MS, `the hook's timeout ${hook.timeout}s must outlast its wait`);
   assert.deepEqual([call.cwd, call.isolation, call.claudecode], [repo, 'none', null]);
   assert.deepEqual([r.session, r.confirmed, r.repo, r.argv], [id, true, repo, [fakeClaude, ...call.argv]]);
-  assert.deepEqual(manifest().sites.shop.owner, { ...manifest().sites.shop.owner, session: id, repo, model: 'opus' });
+  assert.deepEqual(manifest().sites.shop.owner, { session: id, label: 'Shop', since: manifest().sites.shop.owner.since, repo });
 });
 
 test('start on a route with no site waits in starting until that session joins', async () => {
@@ -341,12 +346,12 @@ test('sessions prints one line per board: route, session, live or not, folder', 
   assert.deepEqual(json(await cli(['sessions', '--json']))[1], { route: 'b2', session: null, live: null, repo: null, starting: false });
 });
 
-test('resume wakes a background session in place with no flags, and records the id a copy comes back under, keeping its label, model and folder and carrying its watcher cursor', async () => {
+test('resume wakes a background session in place with no flags, and records the id a copy comes back under, keeping its label and folder and carrying its watcher cursor', async () => {
   const dir = path.join(home, 'boards', 'audit');
   write(path.join(dir, 'board.json'), { title: 'Audit' });
   const id = crypto.randomUUID();
   const m = manifest();
-  m.sites.audit = { dir, port: 3, cmd: boardCmd(dir), title: 'Audit', owner: { session: id, label: 'Audit', model: 'opus', repo, since: '2026-10-30T00:00:00Z' } };
+  m.sites.audit = { dir, port: 3, cmd: boardCmd(dir), title: 'Audit', owner: { session: id, label: 'Audit', repo, since: '2026-10-30T00:00:00Z' } };
   write(web('manifest.json'), m);
   write(agentsFile, [{ id: id.slice(0, 8), sessionId: id, kind: 'background' }]);
   write(path.join(dir, 'data', `.watch-cursor-${id}.json`), { 'data/events.jsonl': 4 });
@@ -361,7 +366,7 @@ test('resume wakes a background session in place with no flags, and records the 
   assert.notEqual(copy.session, id);
   assert.deepEqual([copy.previous, copy.confirmed], [id, true]);
   const { owner } = manifest().sites.audit;
-  assert.deepEqual([owner.session, owner.label, owner.model, owner.repo], [copy.session, 'Audit', 'opus', repo]);
+  assert.deepEqual([owner.session, owner.label, owner.repo], [copy.session, 'Audit', repo]);
   assert.deepEqual(read(path.join(dir, 'data', `.watch-cursor-${copy.session}.json`)), { 'data/events.jsonl': 4 });
 });
 
@@ -434,7 +439,7 @@ test('the wake resumes the session in place with a prompt naming its id, and win
   const cursor = path.join(dir, 'data', `.watch-cursor-${id}.json`);
   write(cursor, { 'data/events.jsonl': 1 });
   const m = manifest();
-  m.sites.wake = { dir, port: 4, cmd: boardCmd(dir), title: 'Wake', owner: { session: id, label: 'Wake', model: 'opus', repo, since: '2026-10-30T00:00:00Z' } };
+  m.sites.wake = { dir, port: 4, cmd: boardCmd(dir), title: 'Wake', owner: { session: id, label: 'Wake', repo, since: '2026-10-30T00:00:00Z' } };
   write(web('manifest.json'), m);
   write(agentsFile, [{ id: id.slice(0, 8), sessionId: id, kind: 'background' }]);
   const check = () => checkSessions({ manifest: manifest(), live: () => new Map() });
@@ -464,7 +469,7 @@ test('the wake gives a session with no watcher cursor the mark as its cursor, fo
   const id = crypto.randomUUID();
   const cursor = path.join(dir, 'data', `.watch-cursor-${id}.json`);
   const m = fs.existsSync(web('manifest.json')) ? manifest() : { sites: {} };
-  m.sites['proto-watch'] = { dir, port: 5, cmd: boardCmd(dir), title: 'Proto watch', watch: ['__proto__'], owner: { session: id, label: 'Proto', model: 'opus', repo, since: '2026-10-30T00:00:00Z' } };
+  m.sites['proto-watch'] = { dir, port: 5, cmd: boardCmd(dir), title: 'Proto watch', watch: ['__proto__'], owner: { session: id, label: 'Proto', repo, since: '2026-10-30T00:00:00Z' } };
   write(web('manifest.json'), m);
   write(agentsFile, [{ id: id.slice(0, 8), sessionId: id, kind: 'background' }]);
   const check = () => checkSessions({ manifest: manifest(), live: () => new Map() });
@@ -594,8 +599,8 @@ test('set --hub moves the hub flag to one board, --no-hub clears it, join --hub 
 // The new-session call's claude argv, after `/usr/bin/env -u … [PATH=…] <claude>`.
 const tmuxClaude = (argv) => argv.slice(argv.indexOf(fakeClaude) + 1);
 
-test('hub starts the hub board owner in a tmux session in the foreground, in its folder and model with the phone hook, then attaches this terminal', async () => {
-  const m = hubManifest({ session: 's-hub', repo, model: 'opus' });
+test('hub starts the hub board owner in a tmux session in the foreground, in its folder on the hub Orchestrators choice with the phone hook, then attaches this terminal', async () => {
+  const m = hubManifest({ session: 's-hub', repo });
   write(web('manifest.json'), m);
   noTmux();
   const before = [calls().length, tmuxCalls().length];
@@ -892,7 +897,7 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
 
 test("the hub board's wake resumes its session in its tmux session, keeping its id, and refuses while that tmux session is open", async () => {
   const { resumeSession } = await import('./sessions.mjs');
-  const m = hubManifest({ session: 's-hub', repo, model: 'opus' });
+  const m = hubManifest({ session: 's-hub', repo });
   write(web('manifest.json'), m);
   const ran = [];
   let open = false;
@@ -1004,7 +1009,7 @@ test('export bundles a board with its portable entry fields and the three hub se
   const imported = json(await cli(['import', file], { env: { HOME: other } }));
   const moved = otherWeb('sites', 'moving');
   const site = read(otherWeb('manifest.json')).sites.moving;
-  assert.deepEqual(imported, { route: 'moving', dir: moved, port: site.port, settings: ['notifications', 'quiet', 'codexShare'], hub: false, join: "kickflip board Moving --session <this session's id> --label 'Love'\\''s board' --model opus --force" });
+  assert.deepEqual(imported, { route: 'moving', dir: moved, port: site.port, settings: ['notifications', 'quiet', 'codexShare'], hub: false, join: "kickflip board Moving --session <this session's id> --label 'Love'\\''s board' --force" });
   const { hub, ...portable } = entry;
   assert.deepEqual(site, { ...portable, dir: moved, port: site.port, cmd: [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), moved], updated: site.updated });
   assert.notEqual(site.port, 4600);
