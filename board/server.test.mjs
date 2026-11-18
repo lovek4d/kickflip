@@ -1466,6 +1466,20 @@ test("a take-file round's stage and every file of the site's own public/ come sa
   }
 });
 
+test("a site's public/ file named like a board script never replaces it, and a site-only file is still served", async () => {
+  const pub = path.join(site, 'public');
+  fs.mkdirSync(pub, { recursive: true });
+  fs.writeFileSync(path.join(pub, 'app.js'), 'SHADOW-MARKER');
+  fs.writeFileSync(path.join(pub, 'claude.js'), 'SHADOW-MARKER');
+  fs.writeFileSync(path.join(pub, 'only-here.html'), '<title>Only</title>');
+  try {
+    for (const p of ['/app.js', '/claude.js']) assert.ok(!(await raw(p)).body.toString().includes('SHADOW-MARKER'), p);
+    assert.match((await raw('/only-here.html')).body.toString(), /Only/);
+  } finally {
+    for (const f of ['app.js', 'claude.js', 'only-here.html']) fs.rmSync(path.join(pub, f));
+  }
+});
+
 test('the board, a thread and the static files come gzipped when the browser accepts it, and the API stays uncached', async () => {
   await putWave(JSON.stringify({ items: Array.from({ length: 30 }, (_, n) => ({ id: `G${n}`, title: `Gzip task `, lane: 'todo' })) }));
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });

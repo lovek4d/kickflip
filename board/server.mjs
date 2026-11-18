@@ -428,7 +428,10 @@ async function pageHeaders(html) {
 // and a test opts in, so a test's board, whose manifest entry has no description, sends no triage for it at night.
 export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), launch = launchAgent, startScript = startScriptRunner, describeNightly = false } = {}) {
   const here = path.resolve(site);
-  const roots = [path.join(here, 'public'), path.join(template, 'public'), path.join(template, '..', 'starter', 'public'), path.join(template, '..', 'shared')];
+  // The board's own files come first, so a file an agent wrote in the site's public/ never replaces one of them; the
+  // site's files serve every path the board doesn't use.
+  const siteRoot = path.join(here, 'public');
+  const roots = [path.join(template, 'public'), path.join(template, '..', 'starter', 'public'), path.join(template, '..', 'shared'), siteRoot];
   const data = path.join(here, 'data');
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: each call this
   // server makes on its own goes in the board's audit log, {call, key?, result, reason, inputs}.
@@ -1355,7 +1358,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const ext = shell ? '.html' : path.extname(file).toLowerCase();
       const st = shell ? null : await fs.stat(file);
       // A preview: a stage, or any file of the site's own public/, which agents write.
-      const preview = Boolean(recorded?.stage) || Boolean(file?.startsWith(roots[0] + path.sep));
+      const preview = Boolean(recorded?.stage) || Boolean(file?.startsWith(siteRoot + path.sep));
       let body = shell ? Buffer.from(shellHtml({ touchIcon: await touchIcon() }))
         : recorded ? Buffer.from(await (recorded.stage ? prototypeStage : prototypePage)(here, recorded.proto)) : await fs.readFile(file);
       if (!shell && ext === '.html') body = (await pageHeaders(body.toString('utf8'))).replaceAll('{{title}}', esc((await config()).title)).replaceAll('{{touchIcon}}', await touchIcon());
