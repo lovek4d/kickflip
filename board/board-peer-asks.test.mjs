@@ -46,11 +46,68 @@ test('ask <hub>/<route> sends the question through this hub and writes the asker
   const hub = await localHub(t, () => [200, { id: 'p1', listening: false }]);
   const r = await boardWith(['ask', 'macb/audit', QUESTION, '--from', 'w/A1', '--site', 'orch'], { KICKFLIP_HUB_PORT: hub.port });
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual(hub.got, [{ method: 'POST', path: '/_hub/peers/ask', type: 'application/json', body: { hub: 'macb', route: 'audit', text: QUESTION, from: { route: 'orch', title: 'Orch', key: 'w/A1', ref: 'A1' } } }]);
-  assert.equal(r.out, "asked macb/audit: p1\nqueued: macb/audit's orchestrator isn't listening, so it answers once it is\n");
+  // The asking board names the question: the other hub keeps that id, and its answer comes back under it.
+  const id = /^asked macb\/audit: (e\w+)\n/.exec(r.out)?.[1];
+  assert.ok(id, r.out);
+  assert.deepEqual(hub.got, [{ method: 'POST', path: '/_hub/peers/ask', type: 'application/json', body: { hub: 'macb', route: 'audit', text: QUESTION, from: { route: 'orch', title: 'Orch', key: 'w/A1', ref: 'A1', id } } }]);
+  assert.equal(r.out, `asked macb/audit: ${id}\nqueued: macb/audit's orchestrator isn't listening, so it answers once it is\n`);
   assert.deepEqual(thread(), [{ who: 'claude', kind: 'hub', line: 'board-asked', text: `Asked macb/audit: ${QUESTION}` }]);
-  assert.deepEqual(lines(site('orch', 'data', 'board-asks.jsonl')).map(({ at: _, ...a }) => a), [{ id: 'p1', to: 'macb/audit', text: QUESTION, key: 'w/A1' }]);
-  assert.equal((await boardWith(['asks', '--site', 'orch'])).out, `p1 macb/audit: ${QUESTION}\n  waiting on macb/audit's orchestrator\n`);
+  assert.deepEqual(lines(site('orch', 'data', 'board-asks.jsonl')).map(({ at: _, ...a }) => a), [{ id, to: 'macb/audit', text: QUESTION, key: 'w/A1' }]);
+  assert.equal((await boardWith(['asks', '--site', 'orch'])).out, `${id} macb/audit: ${QUESTION}\n  waiting on macb/audit's orchestrator\n`);
+});
+
+test('an ask the hub queues for an offline hub is recorded, reads queued on the card and in asks, and asks reads it as sent once it went', async (t) => {
+  setUp();
+  asHome(t);
+  const hub = await localHub(t, () => [202, { queued: 'macb is offline' }]);
+  const r = await boardWith(['ask', 'macb/audit', QUESTION, '--from', 'w/A1', '--site', 'orch'], { KICKFLIP_HUB_PORT: hub.port });
+  assert.equal(r.code, 0, r.err);
+  const { from } = hub.got[0].body;
+  assert.equal(r.out, `asked macb/audit: ${from.id}\nqueued: macb is offline, so the question goes once it's back\n`);
+  assert.deepEqual(thread(), [{ who: 'claude', kind: 'hub', line: 'board-asked', text: `Asked macb/audit, queued: macb is offline: ${QUESTION}` }]);
+  // The hub's outbox holds it, as /_hub/peers/ask queued it.
+  const outbox = at('kickflip', 'peer-outbox.json');
+  const queued = { id: 'o1', hub: 'macb', what: 'ask', body: { route: 'audit', text: QUESTION, from }, at: '2026-11-18T23:00:00.000Z', queued: 'macb is offline' };
+  write(outbox, [queued]);
+  const asks = () => boardWith(['asks', '--site', 'orch']).then((a) => a.out);
+  assert.equal(await asks(), `${from.id} macb/audit: ${QUESTION}\n  queued: macb is offline\n`);
+  write(outbox, [{ ...queued, queued: undefined, refused: 'no board at /audit; the boards are learn' }]);
+  assert.equal(await asks(), `${from.id} macb/audit: ${QUESTION}\n  not sent: no board at /audit; the boards are learn\n`);
+  const done = await boardWith(['asks', '--wait', '--site', 'orch']);
+  assert.equal(done.code, 0, 'a refused ask waits on nothing');
+  write(outbox, []);
+  assert.equal(await asks(), `${from.id} macb/audit: ${QUESTION}\n  waiting on macb/audit's orchestrator\n`);
+});
+
+test('an answer the hub queues for an offline asking hub ends the wait here and says it goes once that hub is back', async (t) => {
+  setUp();
+  asHome(t);
+  const { id } = await takePeerAsk({ route: 'audit', text: QUESTION, from: { hub: 'maca', host: 'maca.tail1234.ts.net', route: 'orch', title: 'Orch', key: 'w/A1', ref: 'A1', id: 'q1' } });
+  const hub = await localHub(t, () => [202, { queued: 'maca is offline' }]);
+  const r = await boardWith(['answer', id, '--text', 'So the tests run on what lands', '--site', 'audit'], { KICKFLIP_HUB_PORT: hub.port });
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, `answered maca/orch's question ${id}\nqueued: maca is offline, so the answer goes once it's back\n`);
+  // The answer goes back under the asking board's own id for the question.
+  assert.deepEqual(hub.got[0].body, { hub: 'maca', id: 'q1', route: 'orch', text: 'So the tests run on what lands', from: { route: 'audit', title: 'Audit' } });
+  assert.deepEqual(boardAskWaits(events('audit')), []);
+});
+
+test('the same ask or answer arriving twice from another hub, as a retry after a lost reply, lands once', async (t) => {
+  setUp();
+  asHome(t);
+  const hub = await localHub(t, () => [200, { id: 'p1', listening: true }]);
+  const r = await boardWith(['ask', 'macb/audit', QUESTION, '--from', 'w/A1', '--site', 'orch'], { KICKFLIP_HUB_PORT: hub.port });
+  const asked = hub.got[0].body.from.id;
+  assert.equal(r.code, 0, r.err);
+  const ask = { route: 'audit', text: QUESTION, from: { hub: 'macb', host: 'macb.tail1234.ts.net', route: 'orch', title: 'Orch', id: asked } };
+  const first = await takePeerAsk(ask);
+  assert.deepEqual(await takePeerAsk(ask), first);
+  assert.equal(events('audit').filter((e) => e.kind === 'board-ask').length, 1);
+  const answer = { id: asked, route: 'orch', text: 'Because CI', from: { hub: 'macb', route: 'audit', title: 'Audit' } };
+  await takePeerAnswer(answer);
+  await takePeerAnswer(answer);
+  assert.equal(thread().filter((m) => m.via === 'board').length, 1);
+  assert.equal(events('orch').filter((e) => e.kind === 'board-answer').length, 1);
 });
 
 test("ask <hub>/<route> records nothing when this hub refuses it or doesn't answer", async (t) => {
@@ -117,17 +174,18 @@ test('an answer from another hub lands on the asking card as that board\'s messa
   asHome(t);
   const hub = await localHub(t, () => [200, { id: 'p1', listening: true }]);
   assert.equal((await boardWith(['ask', 'macb/audit', QUESTION, '--from', 'w/A1', '--site', 'orch'], { KICKFLIP_HUB_PORT: hub.port })).code, 0);
+  const { id } = hub.got[0].body.from;
   const from = { hub: 'macb', route: 'audit', title: 'Audit' };
   for (const [body, err] of [
-    [{ id: 'p1', route: 'orch', text: 'Yes', from: { hub: 'macc', route: 'audit' } }, /\/orch asked macc\/audit no question p1/],
-    [{ id: 'p9', route: 'orch', text: 'Yes', from }, /\/orch asked macb\/audit no question p9/],
-    [{ id: 'p1', route: 'nope', text: 'Yes', from }, /no board at \/nope/],
+    [{ id, route: 'orch', text: 'Yes', from: { hub: 'macc', route: 'audit' } }, new RegExp(`/orch asked macc/audit no question ${id}`)],
+    [{ id: 'p1', route: 'orch', text: 'Yes', from }, /\/orch asked macb\/audit no question p1/],
+    [{ id, route: 'nope', text: 'Yes', from }, /no board at \/nope/],
   ]) await assert.rejects(takePeerAnswer(body), err);
-  await takePeerAnswer({ id: 'p1', route: 'orch', text: 'Because CI', from });
+  await takePeerAnswer({ id, route: 'orch', text: 'Because CI', from });
   assert.deepEqual(thread().at(-1), { who: 'macb/audit', text: 'Because CI', via: 'board' });
   const woke = events('orch').at(-1);
-  assert.deepEqual([woke.kind, woke.data], ['board-answer', { id: 'p1', from, key: 'w/A1', question: QUESTION, text: 'Because CI' }]);
-  assert.equal((await boardWith(['asks', '--site', 'orch'])).out, `p1 macb/audit: ${QUESTION}\n  answered: Because CI\n`);
+  assert.deepEqual([woke.kind, woke.data], ['board-answer', { id, from, key: 'w/A1', question: QUESTION, text: 'Because CI' }]);
+  assert.equal((await boardWith(['asks', '--site', 'orch'])).out, `${id} macb/audit: ${QUESTION}\n  answered: Because CI\n`);
 });
 
 test("boards lists this hub's boards, then each other hub's as <hub>/<route> or why it can't be listed", async (t) => {

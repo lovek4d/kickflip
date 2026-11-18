@@ -50,8 +50,8 @@ test('the hub runs on one 15 s clock, each job every so many of its ticks', () =
   assert.deepEqual(CLOCKS, { quarter: 15_000 });
   const jobs = (clock, n) => dueOn(clock, n).map((p) => p.id).sort();
   assert.deepEqual(jobs('quarter', 1), ['hung-check', 'reconcile', 'self-restart', 'sidebar-refresh', 'tick']);
-  assert.deepEqual(jobs('quarter', 4), ['hung-check', 'reconcile', 'self-restart', 'sidebar-refresh', 'tick']);
-  assert.deepEqual(jobs('quarter', 60), ['hung-check', 'nightly-suite', 'reconcile', 'self-restart', 'sidebar-refresh', 'tick']);
+  assert.deepEqual(jobs('quarter', 4), ['hung-check', 'peer-outbox', 'reconcile', 'self-restart', 'sidebar-refresh', 'tick']);
+  assert.deepEqual(jobs('quarter', 60), ['hung-check', 'nightly-suite', 'peer-outbox', 'reconcile', 'self-restart', 'sidebar-refresh', 'tick']);
   assert.equal(POLLS.some((p) => p.id === 'stream-reconnect'), false, 'the stream reconnects on the reconcile job');
 });
 

@@ -440,11 +440,14 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          board's message. Prints "asked /<route>: <id>"; carry on.
                                                          <hub>/<route> asks a board on another of your hubs,
                                                          <hub> its tailnet machine name, through this hub; it
-                                                         needs the tailnet on at both, and is refused while that
-                                                         hub is offline or runs a kickflip without asks
+                                                         needs the tailnet on at both. While that hub is offline
+                                                         or runs an older kickflip, this hub queues the question
+                                                         and sends it once it can: "queued: <hub> is offline"
   asks [--wait] [--timeout <min>]                        prints each question this board asked, then its answer,
                                                          "waiting on /<route>'s orchestrator" or "queued" while
-                                                         none listens there. --wait blocks until every one is
+                                                         none listens there, or, for another hub, while this hub
+                                                         holds it ("queued: <hub> is offline"), or "not sent"
+                                                         once that hub refused it. --wait blocks until every one is
                                                          answered, giving up after --timeout minutes (9)
   boards                                                 lists this hub's boards as "<route>: <title>", then each
                                                          of your other hubs' online now as <hub>/<route>, or why
@@ -471,7 +474,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   answer <askId> --text <t>                              answers a question another board asked this one (its
                                                          waits line names it), from what this board knows, links
                                                          welcome: it ends the wait and its New strip entry, posts
-                                                         the answer on the asking task, and wakes that board
+                                                         the answer on the asking task, and wakes that board; to
+                                                         another hub that is offline or older, this hub queues it
   reviewers set --file <json>                           the board's reviewers in board.json, replacing them:
                                                          [{name, slack_user, dm, github}], as in an item file.
                                                          The settings page lists them; new item files copy them

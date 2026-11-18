@@ -95,8 +95,9 @@ export const HUB_LINES = {
   'asked-from': { tone: 'blue', mark: 'ask-link', text: ({ phrase }) => fit('', phrase) },
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md: on the asking card, grey and
   // quiet, the question the card's agent put to another board (asks.mjs askBoard); the answer follows as that board's
-  // message.
-  'board-asked': { tone: 'grey', mark: 'ask-link', text: ({ route, question }) => fit(`Asked ${route}: `, question), longest: { route: 'a-long-board-route-name' } },
+  // message. One to another hub that waits in this hub's outbox reads why
+  // (docs/adr/2026-11-18-2250-asks-between-hubs-wait-in-an-outbox-while-the-other-hub-is-offline-or-older.md).
+  'board-asked': { tone: 'grey', mark: 'ask-link', text: ({ route, question, queued }) => fit(`Asked ${route}${queued ? `, queued: ${queued}` : ''}: `, question), longest: { route: 'macbook-pro2/a-long-board-route-name', queued: 'macbook-pro2 runs an older kickflip' } },
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: drawn from a routed ask's own
   // event (domain.mjs threadOf), never written, above the ask; blue, as the owner reads it and may move the ask.
   'ask-routed': { tone: 'blue', mark: 'ask-link', text: ({ via, reason }) => fit(`Routed here from ${via}: `, reason), longest: { via: 'a handoff' } },

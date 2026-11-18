@@ -145,8 +145,9 @@
 //                     takePeerAsk, takePeerAnswer), 400 {error} when refused
 //   /_hub/peers/boards GET, /_hub/peers/ask and /_hub/peers/answer POST {hub, ...}, loopback only: board.mjs boards, ask
 //                     <hub>/<route> and answer, relayed to /_hub/peer/<same> on the hub named (every one for boards),
-//                     from naming this hub → that hub's answer, or {error} saying why it can't be reached
-//                     (peers.mjs sendToPeer, peerBoards)
+//                     from naming this hub → that hub's answer; 202 {queued} for an ask or answer that waits in the
+//                     peer outbox while that hub is offline or older, sent on the minute job (peer-outbox); or {error}
+//                     saying why it can't be sent (peers.mjs sendToPeer, retryOutbox, peerBoards)
 //   /_hub/pull        POST {route}, loopback only: Main's refresh icon on a local board. Fast-forwards the board's
 //                     branch from origin now and rebuilds Main when that brought commits → {commits, error?} (try.mjs)
 //   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
@@ -266,7 +267,7 @@ import { restarter } from './self-restart.mjs';
 import { saveUpload } from '../board/cards.mjs';
 import { takePeerAsk, takePeerAnswer } from '../board/asks.mjs';
 import { BoardError } from '../board/checks.mjs';
-import { tailnetPeers, sendToPeer, peerBoards } from './peers.mjs';
+import { tailnetPeers, sendToPeer, retryOutbox, peerBoards } from './peers.mjs';
 import { draftOf, readDrafts, saveDraft } from '../board/drafts.mjs';
 import { fallBackFromLinear } from '../board/settings.mjs';
 import { runMigrations } from '../board/migrations.mjs';
@@ -356,8 +357,8 @@ function fromLoopback(req) {
 //   ticks: false runs neither of its clocks (shared/polls.mjs CLOCKS), so no reconcile, tick, hung check, new-code
 //   check or nightly suite of its own, and no poll it wasn't asked for: the caller runs each pass;
 //   exit(code) ends the process once the hub has stopped (shutdown()).
-// → {port, reconcile(), hung(), tick(), poll(options), settled(), close(), shutdown()}: reconcile, hung, tick and poll
-// run one pass and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a
+// → {port, reconcile(), hung(), tick(), poll(options), outbox(), settled(), close(), shutdown()}: reconcile, hung, tick,
+// poll and outbox (the peer outbox's retry) run one pass and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a
 // request, is done; close() stops every site and the server; shutdown() runs close(), at most STOP_WITHIN, then exit(0),
 // as the hub does on SIGTERM and to restart itself.
 export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, peers = tailnetPeers, awake = caffeinate({ log }), ticks = true, exit = (code) => process.exit(code) } = {}) {
@@ -797,6 +798,14 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       if (r.due.length) log(`wake ${r.due.join(', ')}: check-github → ${r.events.map((e) => e.route).join(', ') || 'no board'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
     }).catch((e) => log('wake failed:', e.message)).finally(() => { waking = null; });
     return track(waking);
+  }
+
+  // docs/adr/2026-11-18-2250-asks-between-hubs-wait-in-an-outbox-while-the-other-hub-is-offline-or-older.md: the asks
+  // and answers to the owner's other hubs that couldn't go yet, sent again once a minute, one pass at a time.
+  let outboxing = null;
+  function runOutbox() {
+    outboxing ||= retryOutbox({ peers, log }).catch((e) => log('peer outbox failed:', e.message)).finally(() => { outboxing = null; });
+    return track(outboxing);
   }
 
   // The nightly full suite (nightly-suite.mjs), every 15 minutes on the 15 s clock, apart from the tick: a run takes
@@ -1444,7 +1453,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       let input;
       try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the ask or answer as JSON.' }); }
       const { hub, ...rest } = input;
-      const { status, body } = await sendToPeer(hub, peerOut[1], (self) => ({ ...rest, from: { ...rest.from, hub: self.name, ...(peerOut[1] === 'ask' ? { host: self.host } : {}) } }), { peers });
+      const { status, body } = await sendToPeer(hub, peerOut[1], rest, { peers });
       return sendJSON(status, body);
     }
     if (p === '/sw.js') return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(HUB_DIR, 'sw.js')), { 'service-worker-allowed': '/' });
@@ -1940,6 +1949,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     'hung-check': () => checkHung().catch((e) => log('hung check failed:', e.message)), // poll: hung-check
     'self-restart': () => (codeRestarts ? track(selfRestart.check()).catch((e) => log('self-restart check failed:', e.message)) : null), // poll: self-restart
     'nightly-suite': runSuite, // poll: nightly-suite
+    'peer-outbox': runOutbox, // poll: peer-outbox
   };
   for (const p of POLLS) if (p.clock && !jobs[p.id]) throw new Error(`shared/polls.mjs names ${p.id} on the hub's ${p.clock} clock, which runs no such job`);
   if (ticks) {
@@ -1948,7 +1958,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       timers.push(setInterval(() => { n++; for (const p of dueOn(clock, n)) jobs[p.id](); }, ms)); // poll: none, each job names its own
     }
   }
-  return { port: PORT, reconcile, hung: checkHung, tick, poll: runPoll, settled, close, shutdown };
+  return { port: PORT, reconcile, hung: checkHung, tick, poll: runPoll, outbox: runOutbox, settled, close, shutdown };
 }
 
 // node hub/hub.mjs: the hub on KICKFLIP_HUB_PORT, else 4500, until SIGTERM or SIGINT.
