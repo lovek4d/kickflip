@@ -118,8 +118,7 @@ window.BoardView = (function () {
     const { B, start: begin, stop } = base(root, siteRoot);
     const { store } = B;
     // board is the last /api/board; fresh the
-    // header's time, ui-header.js nextFresh's {at, sig}; edits each New strip ask's open edit box by its ask's
-    // event id, {key, data, text}, key its card's and data what ask-edited sends besides the text.
+    // header's time, ui-header.js nextFresh's {at, sig}.
     const state = {
       board: null,
       fresh: null,
@@ -131,7 +130,6 @@ window.BoardView = (function () {
       threadCache: new Map(),
       // Each card's notes by key, which the board's sync keeps (app-reader.js takeNotes, fillNotes).
       notesCache: new Map(),
-      edits: new Map(),
       // Main's refresh icon (ui-cards.js mainPull): a tap waiting on the server, and the failed pull's reason open on touch.
       mainPull: { open: false },
       // The Done cards Show more paged in from the archive past the board's own (app-lanes.js), and how many older ones

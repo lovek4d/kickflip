@@ -540,7 +540,6 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .new-entry .new-time { color: var(--muted); font-weight: 400; }
 .new-entry .new-source { color: inherit; }
 .new-entry .new-note { margin: 4px 0 0; padding: 2px 0 2px 8px; border-left: 2px solid var(--line); color: var(--muted); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.new-entry .edit-form { margin-top: 2px; }
 /* The hub's Routed section on the same strip: a row's muted second line (who, when, the router's reason) and the empty state. */
 .new-why { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .new-entry .new-why { margin-top: 2px; }

@@ -172,11 +172,9 @@
   };
   const mark = (inner = '') => `<span class="mark" aria-hidden="true">${inner}</span>`;
   const statusMark = (words) => mark(MARK_ICONS[words] || '');
-  const PENCIL = icon('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>');
   const BUMP = icon('<path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/>');
-  // Deletes or edits an ask in the New strip; app-asks.js handles [data-withdraw] and [data-edit].
+  // Deletes an ask in the New strip; app-asks.js handles [data-withdraw].
   const withdrawButton = (id) => `<button class="ghost icon" data-withdraw="${esc(id)}" aria-label="Delete" title="Delete">${TRASH}</button>`;
-  const editButton = (id) => `<button class="ghost icon" data-edit="${esc(id)}" aria-label="Edit" title="Edit">${PENCIL}</button>`;
   // A card's Bump, an item of its "…" menu (ui-cards.js cardMenu): app-cards.js sends card-bump {key} with no confirm,
   // and on a bumped card, whose "…" is filled orange, Unbump sends card-unbump {key}
   // (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md,
@@ -256,7 +254,7 @@
     if (ev.target.tagName !== 'DETAILS') return;
     if (ev.target.open) openDetails.add(detailsKey(ev.target)); else openDetails.delete(detailsKey(ev.target));
   }, true);
-  const KEYS = ['id', 'data-thread', 'data-event', 'data-edit-form', 'data-lane', 'data-fold', 'data-new'];
+  const KEYS = ['id', 'data-thread', 'data-event','data-lane', 'data-fold', 'data-new'];
   function keyOf(n) {
     if (n.nodeType !== 1) return null;
     if (n.tagName === 'DETAILS' && n.hasAttribute('data-key')) return `DETAILS|${n.getAttribute('data-key')}`;
@@ -749,6 +747,6 @@
     ...globalThis.BoardUI,
     LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, pushPage, popPage, isTopSheet, afterSheets, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, editButton, cardBumpItem, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, cardBumpItem, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

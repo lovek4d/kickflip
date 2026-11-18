@@ -27,7 +27,7 @@
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: the requests the hub's router
   // filed on a board and the asks other boards put to one (hub/router.mjs routedRows), newest first, on the board's own New strip.
   // unsent: the page outbox's rows the hub doesn't list yet, first (ui-cards.js newEntry).
-  const routedHtml = (rows, unsent, open) => `<section class="new-strip routed" aria-label="New">${BoardUI.newStrip([...unsent, ...rows.map((routed) => ({ id: routed.id, routed }))], new Map(),
+  const routedHtml = (rows, unsent, open) => `<section class="new-strip routed" aria-label="New">${BoardUI.newStrip([...unsent, ...rows.map((routed) => ({ id: routed.id, routed }))],
     { open, label: 'New', empty: 'Nothing new yet. A Slack @kickflip request, a task from the + button or another board’s ask shows here.' })}</section>\n`;
 
   // restarting: the routes whose Restart is out; routed: the Routed section's rows, drawn after the Boards group, the

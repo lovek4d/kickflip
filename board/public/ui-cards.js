@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-progress-bar.js.
 (function () {
-  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, withCount, PAUSED, badge, cardBumpItem, editButton, withdrawButton, dropZone, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
+  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, withCount, PAUSED, badge, cardBumpItem, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state and CI show: its mark and tone, with the state and the CI in its title
   // (docs/adr/2026-11-14-1600-a-prs-one-badge-shows-draft-ready-by-ci-or-merged.md): draft grey ●, ready by CI orange ●,
@@ -457,25 +457,21 @@
   // docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md).
   const askWait = (ask) => (ask.state === 'starting' ? pickupWait(ask.askedAt, 'waiting for the orchestrator') : ask.state === 'waiting' && pickupWait(ask.askedAt));
   const askLine = (ask) => [ask.from && `<a class="new-source" href="${esc(ask.from.link)}">From ${esc(ask.from.words)}</a>`, ask.edited && 'Edited', ask.state === 'working' ? processing(ask.since) : askWait(ask)].filter(Boolean).join(' · ');
-  // An entry waiting or processing edits and deletes its ask, its edit box in place of its text (edit, from
-  // app-asks.js's state.edits); an ingested one links to its card, in blue, and dismisses with no confirm. The link and
-  // Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the entry too.
-  // An ask's edit box, in place of its text; it saves when focus leaves the form and Escape reverts it (app-asks.js, which
-  // handles the form), and attach.js handles the files it adds to the ask, under composer id edit:<ask id>.
-  const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}" data-composer="edit:${esc(id)}">${dropZone(`<textarea rows="3">${esc(text)}</textarea>`)}
-        <div class="pending-files" data-files></div></form>`;
+  // An entry waiting or processing deletes its ask; an ingested one links to its card, in blue, and dismisses with no
+  // confirm. The link and Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the
+  // entry too.
   const cardHref = (key) => `#selectedCard=${encodeURIComponent(key)}`;
   const readsAt = (e) => `data-dismiss-new="${esc(e.key)}" data-at="${esc(e.at)}"`;
   // A New entry's footer opens with its time, as a thread message's does (ui-threads.js msgFooter), then the state words.
   const newTime = (iso) => `<span class="new-time">${esc(globalThis.BoardUI.time(iso))}</span>`;
   // docs/adr/2026-11-14-2350-a-new-task-shows-at-once-in-the-new-strip-as-sending.md: a task the page hasn't sent yet
   // (app-threads.js unsentAsks) reads sending…, or not sent with Retry and X, as a thread message's footer does, with
-  // no edit or delete. Its files still uploading or failed (e.uploads, attach.js's list under the box send:<send id>)
+  // no delete. Its files still uploading or failed (e.uploads, attach.js's list under the box send:<send id>)
   // draw as upload tiles in a [data-uploads] box, whose X attach.js reads
   // (docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md).
-  function newEntry(e, edit, words = []) {
+  function newEntry(e, words = []) {
     // Another board's question: who asked, linking the asking task, then waiting… or processing... as an ask reads; no
-    // edit or delete, as the orchestrator answers it.
+    // delete, as the orchestrator answers it.
     if (e.question) {
       const q = e.question;
       const line = [`<a class="new-source" href="${esc(q.from.link)}">Asked from ${esc(q.from.words)}</a>`, q.state === 'working' ? processing(q.since) : PICKUP_WAIT].join(' · ');
@@ -487,11 +483,11 @@
     }
     const done = e.made || e.into;
     const actions = done ? `<button type="button" class="ghost icon new-dismiss" ${readsAt(e)} aria-label="Dismiss" title="Dismiss">${globalThis.BoardUI.DISMISS}</button>`
-      : `${editButton(e.id)}${withdrawButton(e.id)}`;
+      : withdrawButton(e.id);
     const line = e.made ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Ticket created: <b>${esc(e.made.ref)}</b>${globalThis.BoardUI.laneRing(e.lane)}</a>`
       : e.into ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Added to <b>${esc(e.into.ref)}</b>${globalThis.BoardUI.laneRing(e.lane)}</a>`
       : askLine(e.ask);
-    const body = edit ? editForm(e.id, edit.text) : `<div class="new-msg">${marked(e.text, words, esc)}</div>${e.note ? `<blockquote class="quote new-note">${esc(e.note)}</blockquote>` : ''}${globalThis.BoardUI.attachments(e.files)}`;
+    const body = `<div class="new-msg">${marked(e.text, words, esc)}</div>${e.note ? `<blockquote class="quote new-note">${esc(e.note)}</blockquote>` : ''}${globalThis.BoardUI.attachments(e.files)}`;
     return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${[newTime(e.sent), line].filter(Boolean).join(' · ')}</div></div>`;
   }
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
@@ -518,16 +514,15 @@
       + `<div class="new-line sub new-why">${esc(`/${from.route}${from.ref ? ` ${from.ref}` : ''} · board ask`)}</div></div>`;
   }
   // docs/adr/2026-11-16-1500-new-groups-the-orchestrators-asks-under-a-collapsed-orchestrator-section.md
-  // entries: newEntries, or {id, routed} for the hub's New rows (routed requests and board asks); edits: app-asks.js's
-  // state.edits, by ask id. label heads it, New on a board; empty is what an empty strip says, which a board's never draws.
+  // entries: newEntries, or {id, routed} for the hub's New rows (routed requests and board asks). label heads it, New on a board; empty is what an empty strip says, which a board's never draws.
   // New is a lane's <details> (data-lane new) and its entries the asked ones (an ask the orchestrator filed) leave sit
   // under an Orchestrator sub-head, a <details> too (data-lane new-orchestrator), at the bottom. open: the lanes' remembered
   // state (app-lanes.js), New's open by default and Orchestrator's closed. The count is the main list's. words: the board
   // search's (searchWords), which keep only the entries holding every word in their text or their card's key, title or
   // ticket, mark them, count each list as x of y and open a list that holds a match.
   const newMatches = (e, words) => matchesWords(words, [e.text, e.ref, e.made?.ref, e.made?.title, e.made?.ticket?.id, e.into?.ref]);
-  const newStrip = (entries, edits, { label = 'New', empty = '', open = {}, words = [] } = {}) => {
-    const draw = (e) => (e.routed ? routedEntry(e.routed) : newEntry(e, edits.get(e.id), words));
+  const newStrip = (entries, { label = 'New', empty = '', open = {}, words = [] } = {}) => {
+    const draw = (e) => (e.routed ? routedEntry(e.routed) : newEntry(e, words));
     const keep = (list) => (words.length ? list.filter((e) => newMatches(e, words)) : list);
     const count = (shown, all) => (words.length ? `${shown.length} of ${all.length}` : `${all.length}`);
     const opened = (shown, stored) => (words.length && shown.length ? true : stored);

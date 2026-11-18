@@ -128,7 +128,7 @@ test('the answering board draws each unanswered question as a New strip entry fr
   const ui = context.BoardUI;
   const entries = ui.newEntries({ items: [], merges: [], boardAsks: withHub(built, { listen: 'asleep' }).boardAsks }, {});
   assert.deepEqual([...entries.map((x) => x.id)], ['q1']);
-  const html = ui.newStrip(entries, new Map());
+  const html = ui.newStrip(entries);
   assert.match(html, /<div class="new-msg">Why does land rebase first\?<\/div>/);
   assert.match(html, /<a class="new-source" href="\/orch\/#selectedCard=w%2FA1">Asked from \/orch · A1<\/a>/);
   assert.match(html, /waiting…/);

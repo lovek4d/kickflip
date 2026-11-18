@@ -1377,7 +1377,7 @@ test('thinking… counts up from when the message was marked: bare under a minut
 test('the New strip counts processing... up the same way', () => {
   const since = new Date(NOW - 4 * 60000).toISOString();
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: ago(1), ask: { eventId: 'a1', askedAt: ago(1), canEdit: true, text: 'Fix', files: [], state: 'working', ...extra } });
-  const strip = (extra) => ui.newStrip(ui.newEntries({ items: [ask(extra)], merges: [] }, {}), new Map());
+  const strip = (extra) => ui.newStrip(ui.newEntries({ items: [ask(extra)], merges: [] }, {}));
   assert.match(strip({ since }), /<span class="processing" data-since="[^"]+" data-word="processing\.\.\."><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>processing\.\.\. \(4m\)<\/span>/);
   assert.match(strip({}), /<span class="processing"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>processing\.\.\.<\/span>/);
 });
@@ -1392,12 +1392,12 @@ test("a New task's files show as the thread's thumbnails and file chips on its s
   const merge = { key: 'w/T-2', ref: 'T-2', at: ago(0.2), id: 'a3', askedAt: ago(0.8), message: 'Also', files: [log] };
   const entries = ui.newEntries({ items: [waiting, made], merges: [merge] }, {});
   const filesOf = (id) => {
-    const html = ui.newStrip(entries.filter((e) => e.id === id), new Map());
+    const html = ui.newStrip(entries.filter((e) => e.id === id));
     return [...html.matchAll(/<(a|span) class="(file-thumb|file-link)"/g)].map((m) => m[2]);
   };
   assert.deepEqual([filesOf('a1'), filesOf('a2'), filesOf('a3')], [['file-thumb', 'file-link'], ['file-thumb'], ['file-link']]);
   // The thread's own renderer, so the row and the task's first thread message draw them alike.
-  assert.ok(ui.newStrip(entries.filter((e) => e.id === 'a2'), new Map()).includes(ui.attachments([shot])));
+  assert.ok(ui.newStrip(entries.filter((e) => e.id === 'a2')).includes(ui.attachments([shot])));
   assert.ok(ui.threadMessages([{ ts: sent, who: 'love', via: 'ask', kind: 'ask', text: 'Fix', files: [shot, log], eventId: 'a1', state: 'waiting' }]).includes(ui.attachments([shot, log])));
 });
 
@@ -1417,7 +1417,7 @@ test("an unsent New task's files still uploading show as dimmed thumbnails or ch
   assert.deepEqual([...html.matchAll(/<span class="perr">([^<]+)<\/span>/g)].map((m) => m[1]), ['Upload failed', 'Over 20 MB']);
   assert.doesNotMatch(html, /data-retry/);
   // The row draws them inside its uploads box, which attach.js's X reads, with the footer's sending… or not sent.
-  const row = ui.newStrip([{ id: 's1', sent: ago(1), text: 'Look', files: [], uploads: { box: 'send:s1', list }, unsent: { sendId: 's1', state: 'failed' } }], new Map());
+  const row = ui.newStrip([{ id: 's1', sent: ago(1), text: 'Look', files: [], uploads: { box: 'send:s1', list }, unsent: { sendId: 's1', state: 'failed' } }]);
   assert.ok(row.includes(`<div data-uploads="send:s1">${html}</div>`));
   assert.match(row, /not sent/);
 });
@@ -1687,10 +1687,10 @@ test("a builder line shows the progress and its age, not who is building", () =>
 });
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
-test("an ask in the New strip reads the owner's whole message, then whether it was moved or edited and a grey waiting… or a blue processing..., with edit and delete; an ingested one links to its card, in blue, with Dismiss", () => {
+test("an ask in the New strip reads the owner's whole message, then whether it was moved or edited and a grey waiting… or a blue processing..., with delete; an ingested one links to its card, in blue, with Dismiss", () => {
   const sent = ago(1);
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix <it>\nand more', files: [], ...extra } });
-  const strip = (items, merges = []) => ui.newStrip(ui.newEntries({ items, merges }, {}), new Map());
+  const strip = (items, merges = []) => ui.newStrip(ui.newEntries({ items, merges }, {}));
   const entryText = (html) => text(html.split('<div class="list">')[1]);
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: grey "waiting…", its
   // dot still, counting up from the ask, until the orchestrator picks the task up, then the blue "processing...".
@@ -1711,7 +1711,7 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   assert.doesNotMatch(style, /\.new-entry \.processing \{[^}]*--color-notice/);
   // docs/adr/2026-11-13-0000-a-new-strip-entry-shows-its-time-first.md: the footer starts with the ask's time, as a thread reply's does.
   assert.match(entryText(strip([ask({ state: 'waiting' })])), new RegExp(`${ui.time(sent)} · waiting…(?: \\([^)]+\\))?$`));
-  assert.deepEqual([...strip([ask({ state: 'waiting' })]).matchAll(/data-(card-bump|edit|withdraw|dismiss-new)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['edit', 'a1'], ['withdraw', 'a1']]);
+  assert.deepEqual([...strip([ask({ state: 'waiting' })]).matchAll(/data-(card-bump|edit|withdraw|dismiss-new)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['withdraw', 'a1']]);
   // Ingested: a line to the card it became or was added to, and Dismiss, which carries the card's key and the ingest's time.
   const made = { kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', title: 'fix: <header>', fromAsk: 'a1', created: sent, ingested: { at: ago(0.5), text: 'Fix it' } };
   const html = strip([made], [{ key: 'w/T-2', ref: 'T-2', at: ago(0.2), id: 'a2', askedAt: ago(0.8), message: 'Also this' }]);
@@ -1732,7 +1732,7 @@ test("the hub's Routed section is the New strip under its own head: each row lin
     { id: 'r2', at, text: 'rename it', via: 'slack', by: 'Sam', reason: 'nearest board', to: { route: 'shop', ref: null, title: null, href: '/shop/#selectedCard=ask%3Ae2' }, moved: { route: 'other', ref: 'T-9', title: 'Rename', href: '/other/#selectedCard=items%2FT-9' } },
     { id: 'r3', at, text: 'also this', via: 'slack', by: 'Sam', reason: 'same work', to: { route: 'shop', ref: 'T-5', title: 'Checkout 500s', href: '/shop/#selectedCard=items%2FT-5', into: true } },
   ];
-  const html = ui.newStrip(rows.map((routed) => ({ id: routed.id, routed })), new Map(), { label: 'Routed', empty: 'Nothing routed yet.' });
+  const html = ui.newStrip(rows.map((routed) => ({ id: routed.id, routed })), { label: 'Routed', empty: 'Nothing routed yet.' });
   assert.match(html, /<summary><span class="lane-name">Routed<\/span><span class="count">4<\/span><\/summary>/);
   assert.match(html, /<div class="new-msg">checkout &lt;500s&gt;<\/div>/);
   assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)">(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])]), [
@@ -1747,7 +1747,7 @@ test("the hub's Routed section is the New strip under its own head: each row lin
   assert.ok(firsts.every((f) => f.startsWith(`${ui.time(at)} · `)));
   assert.match(html, /pickup-wait/, 'a queued request reads waiting…');
   assert.doesNotMatch(html, /data-dismiss-new|data-edit|data-withdraw|new-dismiss/);
-  assert.match(ui.newStrip([], new Map(), { label: 'Routed', empty: 'Nothing routed yet.' }), /<span class="count">0<\/span>[^]*<div class="new-entry new-empty">Nothing routed yet\.<\/div>/);
+  assert.match(ui.newStrip([], { label: 'Routed', empty: 'Nothing routed yet.' }), /<span class="count">0<\/span>[^]*<div class="new-entry new-empty">Nothing routed yet\.<\/div>/);
 });
 
 test("the hub's New strip draws an incoming ask: who asked whom, queued or answered with a link to the asking card", () => {
@@ -1757,7 +1757,7 @@ test("the hub's New strip draws an incoming ask: who asked whom, queued or answe
     { id: 'a2', at, text: 'and Y?', asked: { from: { route: 'other', title: 'Other' }, to: { route: 'shop', href: '/shop/#selectedCard=ask%3Aa2' }, answered: { at, href: '/other/#selectedCard=items%2FT-9' } } },
     { id: 'a3', at, text: 'and Z?', asked: { from: { route: 'other', title: 'Other' }, to: { route: 'shop', href: '/shop/#selectedCard=ask%3Aa3' }, answered: { at, href: null } } },
   ];
-  const html = ui.newStrip(asks.map((routed) => ({ id: routed.id, routed })), new Map(), { label: 'New', empty: '' });
+  const html = ui.newStrip(asks.map((routed) => ({ id: routed.id, routed })), { label: 'New', empty: '' });
   assert.match(html, /<span class="lane-name">New<\/span><span class="count">3<\/span>/);
   assert.match(html, /<div class="new-msg">why &lt;X&gt;\?<\/div>/);
   const firsts = [...html.matchAll(/<div class="new-line sub[^"]*">(<span class="new-time">.*?)<\/div>/g)].map((m) => text(m[1]));
@@ -3357,7 +3357,7 @@ test("the footer draws the server's words as sent, comparing none of the card's 
 // docs/adr/2026-11-16-1500-new-groups-the-orchestrators-asks-under-a-collapsed-orchestrator-section.md
 test("New draws an ask the orchestrator filed under a collapsed Orchestrator sub-head, apart from the owner's, and counts only the main list", () => {
   const card = (id, ask) => ({ kind: 'work', id, key: `w/${id}`, ref: id, isNew: true, created: ago(2), ask: { eventId: id, askedAt: ago(2), canEdit: true, text: `Ask ${id}`, files: [], state: 'waiting', ...ask } });
-  const strip = (items, open) => ui.newStrip(ui.newEntries({ items, merges: [] }, {}), new Map(), { open });
+  const strip = (items, open) => ui.newStrip(ui.newEntries({ items, merges: [] }, {}), { open });
   const items = [card('T-1', {}), card('T-2', { asked: true }), card('T-3', { asked: true })];
   const [main, group] = strip(items).split('<details class="new-orchestrator"');
   assert.match(main, /<details class="lane new-lane" data-lane="new" open><summary><span class="lane-name">New<\/span><span class="count">1<\/span>/);
@@ -3378,9 +3378,10 @@ test("New draws an ask the orchestrator filed under a collapsed Orchestrator sub
 // docs/adr/2026-11-17-0254-a-new-board-opens-empty-while-its-orchestrator-starts.md
 test("a New board served while its orchestrator starts: its New asks read waiting for the orchestrator, its sidebar row opens it, and its banner carries the start's step, prompt, stall and failure until it joins", () => {
   const sent = ago(1);
-  const strip = ui.newStrip(ui.newEntries({ items: [{ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix it', files: [], state: 'starting' } }], merges: [] }, {}), new Map());
+  const strip = ui.newStrip(ui.newEntries({ items: [{ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix it', files: [], state: 'starting' } }], merges: [] }, {}));
   assert.match(strip, /<span class="pickup-wait" data-since="[^"]+" data-word="waiting for the orchestrator"><span class="it it-current">.*?<\/span>waiting for the orchestrator(?: \([^)]+\))?<\/span>/);
-  assert.match(strip, /data-edit="a1"[^]*data-withdraw="a1"/, 'it still edits and deletes');
+  assert.match(strip, /data-withdraw="a1"/, 'it deletes and has no Edit');
+  assert.doesNotMatch(strip, /data-edit/);
 
   const now = Date.parse('2026-11-16T22:00:00.000Z');
   const at = (seconds) => new Date(now - seconds * 1000).toISOString();

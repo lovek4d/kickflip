@@ -6,12 +6,10 @@ BoardView.part((B) => {
     const a = document.activeElement;
     return a && B.root.contains(a) && a.matches('textarea, input') ? a : null;
   };
-  // → the selector of field's box as drawn anew (an edit box from state.edits, a reply box from its draft), by its form;
-  // null for any other field.
+  // → the selector of field's box as drawn anew (a reply box from its draft), by its form; null for any other field.
   function boxOf(field) {
-    const form = field.closest('form[data-reply], form[data-edit-form]');
-    return !form ? null : form.dataset.reply != null ? `form[data-reply="${CSS.escape(form.dataset.reply)}"] textarea`
-      : `form[data-edit-form="${CSS.escape(form.dataset.editForm)}"] textarea`;
+    const form = field.closest('form[data-reply]');
+    return form && `form[data-reply="${CSS.escape(form.dataset.reply)}"] textarea`;
   }
   // → a function finding field after a repaint: the same node, else the box drawn anew in its place.
   function finder(field) {

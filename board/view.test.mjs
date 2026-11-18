@@ -4796,8 +4796,8 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
   assert.equal(entry('a1').querySelector('.new-line .pickup-wait').dataset.word, 'waiting…', 'grey, its dot still, counting up in place');
   assert.equal(b.root.querySelector('#lanes [data-key="w/a1"], #lanes [data-key="w/a2"]'), null);
   assert.deepEqual(b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/T-7', 'w/T-8', 'w/T-2']);
-  // Waiting and processing entries edit and delete their ask; ingested ones link to the card and dismiss.
-  assert.deepEqual(['a1', 'a2'].map((id) => [entry(id).querySelector('button[data-edit]')?.dataset.edit, entry(id).querySelector('button[data-withdraw]')?.dataset.withdraw, entry(id).querySelector('[data-dismiss-new]')]), [['a1', 'a1', null], ['a2', 'a2', null]]);
+  // Waiting and processing entries delete their ask and have no Edit; ingested ones link to the card and dismiss.
+  assert.deepEqual(['a1', 'a2'].map((id) => [entry(id).querySelector('button[data-edit]'), entry(id).querySelector('button[data-withdraw]')?.dataset.withdraw, entry(id).querySelector('[data-dismiss-new]')]), [[null, 'a1', null], [null, 'a2', null]]);
   assert.deepEqual(['a3', 'a4'].map((id) => [entry(id).querySelector('a.new-link').getAttribute('href'), entry(id).querySelector('button[data-edit], button[data-withdraw]'), entry(id).querySelector('button[data-dismiss-new]').getAttribute('aria-label') + '|' + entry(id).querySelector('button[data-dismiss-new]').textContent]),
     [['#selectedCard=w%2FT-7', null, 'Dismiss|'], ['#selectedCard=w%2FT-2', null, 'Dismiss|']]);
   // The merge is the strip's, not the answer banner's.
@@ -4864,53 +4864,6 @@ test("a New strip link still names its ticket when the browser follows it: the s
   assert.equal(second.getAttribute('href'), '#selectedCard=w%2FT-8', 'a lone entry keeps its link through its click');
   b.page.runTimers(0);
   await b.settle();
-  b.view.unmount();
-});
-
-test("an ask in the New strip edits in place: its edit box opens in its entry, leaving it saves: the box closes and the edit goes through the outbox, its row reading sending… until the board has it; Escape, an unchanged text and an emptied one close it with nothing sent", async () => {
-  const a1 = newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header');
-  const sends = heldSends();
-  const b = boardOnDom({ board: boardOf([a1]), threads: {}, send: sends.send });
-  await b.settle();
-  const entry = () => b.root.querySelector('#newStrip .new-entry[data-new="a1"]');
-  const form = () => entry().querySelector('form.edit-form[data-edit-form="a1"]');
-  const sending = () => b.root.querySelectorAll('#newStrip .new-entry[data-send] .new-msg').map((el) => el.textContent);
-  b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
-  await b.settle();
-  assert.equal(form().querySelector('textarea').value, 'Fix the header');
-  assert.equal(entry().querySelector('.new-msg'), null);
-  assert.deepEqual(form().querySelectorAll('button').map((b) => b.getAttribute('class')), ['paste-chip'], 'no Save or Cancel, only the Paste chip');
-  const box = () => form().querySelector('textarea');
-  box().value = 'Fix the footer';
-  b.page.fire(b.root, 'focusout', { target: box(), relatedTarget: form().querySelector('[data-files]') });
-  await b.settle();
-  assert.deepEqual([Boolean(form()), b.sent.length], [true, 0], 'focus moving inside the form saves nothing');
-  b.page.fire(b.root, 'focusout', { target: box(), relatedTarget: null });
-  await b.settle();
-  assert.deepEqual([form(), sending()], [null, ['Edited to: Fix the footer']]);
-  b.server.board = boardOf([{ ...a1, ask: { ...a1.ask, text: 'Fix the footer', edited: true } }]);
-  sends.answer();
-  await b.settle();
-  assert.deepEqual([form(), sending()], [null, []]);
-  assert.equal(entry().querySelector('.new-msg').textContent, 'Fix the footer');
-  assert.match(entry().querySelector('.new-line').textContent, /Edited/);
-  assert.deepEqual(sentNoIds(b), [['ask-edited', { text: 'Fix the footer', id: 'a1', key: 'w/a1' }]]);
-  b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
-  await b.settle();
-  box().value = 'Something else';
-  b.page.fire(b.root, 'keydown', { target: box(), key: 'Escape' });
-  await b.settle();
-  assert.deepEqual([form(), entry().querySelector('.new-msg').textContent], [null, 'Fix the footer']);
-  b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
-  await b.settle();
-  b.page.fire(b.root, 'focusout', { target: box(), relatedTarget: null });
-  await b.settle();
-  b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
-  await b.settle();
-  box().value = '  ';
-  b.page.fire(b.root, 'focusout', { target: box(), relatedTarget: null });
-  await b.settle();
-  assert.deepEqual([form(), entry().querySelector('.new-msg').textContent, sentNoIds(b).length], [null, 'Fix the footer', 1]);
   b.view.unmount();
 });
 
@@ -5122,36 +5075,6 @@ test("Done lands from the events POST's board in one round trip, with no reload 
   b.view.unmount();
 });
 
-test("an ask's edit Save closes the box at once; a refusal reads not sent with the reason toasted, and Retry sends the edit again under its send id until the new text shows in the New strip", async () => {
-  const a1 = newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header');
-  const sends = heldSends();
-  const b = boardOnDom({ board: boardOf([a1]), threads: {}, send: sends.send, confirm: true });
-  await b.settle();
-  const entry = () => b.root.querySelector('#newStrip .new-entry[data-new="a1"]');
-  const form = () => entry().querySelector('.edit-form');
-  const row = () => b.root.querySelector('#newStrip .new-entry[data-send]');
-  b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
-  await b.settle();
-  form().querySelector('textarea').value = 'Fix the footer';
-  b.page.fire(b.root, 'focusout', { target: form().querySelector('textarea'), relatedTarget: null });
-  await b.settle();
-  assert.deepEqual([form(), row().querySelector('.new-msg').textContent], [null, 'Edited to: Fix the footer']);
-  sends.answer(false, 'The board server is restarting. Try again in a moment.');
-  await b.settle();
-  assert.match(row().querySelector('.new-line').textContent, /not sent/);
-  assert.match(b.root.textContent, /The board server is restarting/);
-
-  b.page.fire(b.root, 'click', { target: row().querySelector('button[data-resend]') });
-  await b.settle();
-  assert.equal(b.confirms.at(-1), 'Send “Edited to: Fix the footer” again?');
-  b.server.board = boardOf([{ ...a1, ask: { ...a1.ask, text: 'Fix the footer', edited: true } }]);
-  sends.answer();
-  await b.settle();
-  assert.deepEqual([row(), entry().querySelector('.new-msg').textContent], [null, 'Fix the footer']);
-  assert.equal(b.sent[0][1].sendId, b.sent[1][1].sendId);
-  b.view.unmount();
-});
-
 // #137: every text box the owner sends from attaches through attach.js: its button inside the box (#256), a file list, and a drop zone round the box.
 const composerParts = (form) => form && {
   composer: Boolean(form.closest('[data-composer]')),
@@ -5161,36 +5084,11 @@ const composerParts = (form) => form && {
 };
 const EVERY_PART = { composer: true, button: true, files: true, drop: true };
 
-test("every text box on a board the owner sends from, the new task, a thread reply and an ask's edit box, takes attachments the same way", async () => {
+test("every text box on a board the owner sends from, the new task and a thread reply, takes attachments the same way", async () => {
   const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1'), newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header')]), threads: { 'w/T1': [] } });
   await b.settle();
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('#newStrip .new-entry[data-new="a1"] button[data-edit]') });
-  await b.settle();
-  const edit = b.root.querySelector('#newStrip .edit-form');
-  assert.equal(edit.dataset.composer, 'edit:a1');
-  assert.deepEqual([b.root.querySelector('#askForm'), b.root.querySelector('form[data-reply="w/T1"]'), edit].map(composerParts), [EVERY_PART, EVERY_PART, EVERY_PART]);
-  b.view.unmount();
-});
-
-test("an ask's edit box's attached files go with the edit, leaving the box saves nothing while they upload, and the sent edit clears them", async () => {
-  const b = boardOnDom({ board: boardOf([newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header')]), threads: {} });
-  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
-  let busy = true;
-  const cleared = [];
-  Object.assign(b.page.win.BoardAttach, { files: (id) => (id === 'edit:a1' ? [shot] : []), busy: (id) => id === 'edit:a1' && busy, clear: (id) => cleared.push(id) });
-  await b.settle();
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('#newStrip .new-entry[data-new="a1"] button[data-edit]') });
-  await b.settle();
-  const form = () => b.root.querySelector('#newStrip .edit-form[data-edit-form="a1"]');
-  form().querySelector('textarea').value = 'Fix the footer';
-  b.page.fire(b.root, 'focusout', { target: form().querySelector('textarea'), relatedTarget: null });
-  await b.settle();
-  assert.deepEqual(b.sent, [], 'an upload still running holds the save');
-  busy = false;
-  b.page.fire(b.root, 'focusout', { target: form().querySelector('textarea'), relatedTarget: null });
-  await b.settle();
-  assert.deepEqual(sentNoIds(b), [['ask-edited', { text: 'Fix the footer', files: [shot], id: 'a1', key: 'w/a1' }]]);
-  assert.deepEqual(cleared, ['edit:a1']);
+  assert.equal(b.root.querySelector('#newStrip button[data-edit], #newStrip .edit-form'), null, 'a New ask has no Edit');
+  assert.deepEqual([b.root.querySelector('#askForm'), b.root.querySelector('form[data-reply="w/T1"]')].map(composerParts), [EVERY_PART, EVERY_PART]);
   b.view.unmount();
 });
 
@@ -6363,29 +6261,19 @@ test("switching to another board through the sidebar and back returns to the pag
     await settle();
   };
   const lines = () => $('[data-thread="w/b1"] .msgs').querySelectorAll('.msg .body').map((el) => el.textContent);
-  const focused = (el) => (el?.closest('.edit-form') ? 'edit' : el?.closest('form[data-reply]') ? 'reply' : null);
+  const focused = (el) => (el?.closest('form[data-reply]') ? 'reply' : null);
   const shown = () => [win.location.pathname, win.scrollY, focused(doc.activeElement)];
 
   page.fire(doc.querySelector('.view-board'), 'click', { target: $('[data-thread="w/b1"] [data-thread-more]') });
   assert.deepEqual(lines(), ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5']);
-  page.fire(doc.querySelector('.view-board'), 'click', { target: $('#newStrip .new-entry[data-new="n1"] button[data-edit]') });
-  await settle();
-  const edit = $('.edit-form textarea');
-  edit.value = 'Fix the header and the footer';
-  edit.setSelectionRange(4, 10);
-  page.fire(doc.querySelector('.view-board'), 'input', { target: edit });
-  edit.focus();
+  const reply = () => $('form[data-reply="w/a1"] textarea');
   win.scrollY = 640;
   await switchTo('other');
   assert.deepEqual(shown(), ['/other/', 0, null]);
   await switchTo('shop');
-  const back = $('.edit-form textarea');
-  assert.notEqual(back, edit);
-  assert.deepEqual(shown(), ['/shop/', 640, 'edit']);
-  assert.deepEqual([back.value, back.selectionStart, back.selectionEnd], ['Fix the header and the footer', 4, 10]);
+  assert.deepEqual(shown(), ['/shop/', 640, null]);
   assert.deepEqual(lines(), ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5']);
 
-  const reply = () => $('form[data-reply="w/a1"] textarea');
   reply().focus();
   press($('main'));
   reply().blur();

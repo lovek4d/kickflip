@@ -1254,7 +1254,7 @@ test("the hub page's New strip sits under Boards, drawn by the board's own New s
     navigator: {}, localStorage: { getItem: () => null },
     BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (r, site, run) => run({ ...HUB_PAGE(), $: (s) => r.querySelector(s), alive: () => true, atUnmount() {}, on() {} }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
-    BoardUI: { ...BOARD_UI, newStrip: (entries, edits, opts) => { strips.push({ entries, opts }); return `<i class="strip">${entries.length}</i>`; } },
+    BoardUI: { ...BOARD_UI, newStrip: (entries, opts) => { strips.push({ entries, opts }); return `<i class="strip">${entries.length}</i>`; } },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     HubKit: { holdUntilLive() {}, forms: () => ({}), live: (B, opts) => { live = opts; } },
   });
