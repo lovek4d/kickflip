@@ -13,10 +13,6 @@ globalThis.BoardNewTask = (function () {
 </dialog>`;
 
   function wire(B) {
-    // A View person looks only (shell.js marks the page shared-view without shared-full, and style.css hides the +), so
-    // n twice opens nothing.
-    const html = document.documentElement.classList;
-    if (html.contains('shared-view') && !html.contains('shared-full')) return;
     const { $, store, quieted, sendDraft } = B;
     const { keyedSend } = BoardUI;
     // The ask box is a bottom sheet: a <dialog> opened from the + button. Closing keeps the draft.

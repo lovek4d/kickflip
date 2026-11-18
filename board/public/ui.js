@@ -448,7 +448,7 @@
     restarting: { line: 'Board restarting' },
     stopped: { line: 'Board stopped', hint: 'Nothing answers on its port. Its Claude session has to start it.' },
     removed: { line: 'This board is gone', hint: 'The hub no longer lists it.', retries: false },
-    access: { line: 'You no longer have access', hint: 'Ask its owner to share it again.', retries: false },
+    access: { line: 'You no longer have access', hint: 'Only its owner’s Tailscale account opens it.', retries: false },
     erroring: { line: 'Board restarting', hint: 'It answers with errors. Retrying for 30 seconds.' },
     unreachable: { line: 'Board offline', hint: 'The hub, your connection or the host is down. Retrying.' },
   };

@@ -546,15 +546,8 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .new-entry .new-why { margin-top: 2px; }
 .new-empty { font-size: 13px; color: var(--muted); }
 /* Each lane's sort icon and its menu, grey (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md) */
-/* A board shared with someone else (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md):
-   shell.js marks the page .shared-view, which hides Board settings and the architecture review, and, unless the person
-   has Full on this board (.shared-full; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md), the +, every
-   composer and a card's buttons, keeping its links (Visit, Notes, Open questions). Merge shows disabled under Full. */
-.shared-view:not(.shared-full) :is(#compose, [data-composer], .actions button, button[data-confirm]) { display: none !important; }
-.shared-full button[data-confirm="merge"] { opacity: .45; pointer-events: none; }
 /* A script offer (ui-threads.js scriptCard; docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md):
-   its Run and Decline are the owner's alone, so a shared person, View or Full, sees the card without them. Run fills
-   while held (app-threads.js), and only a full hold sends it. */
+   Run fills while held (app-threads.js), and only a full hold sends it. */
 .script-offer { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .script-offer.waiting { border-color: color-mix(in srgb, var(--color-notice) 60%, var(--line)); }
 .script-offer.failed { border-color: color-mix(in srgb, var(--color-danger) 60%, var(--line)); }
@@ -566,17 +559,13 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .script-run { position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .script-hold { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(255, 255, 255, .4); pointer-events: none; }
 .script-run.holding .script-hold { width: 100%; transition: width var(--hold-ms, 900ms) linear; }
-.script-note, .script-shared { margin-top: 6px; }
-.script-shared, .shared-view .script-actions, .shared-view .script-note { display: none; }
-.shared-view .script-shared { display: block; }
+.script-note { margin-top: 6px; }
 .script-status { margin-top: 6px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .script-status.ok { color: var(--color-success); }
 .script-status.bad { color: var(--color-danger); }
 .script-status.work { color: var(--color-notice); }
 .script-status.mute { color: var(--color-quiet); }
 .script-fold summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 6px; }
-.view-only-strip { margin: 8px 0; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 13px; }
-.view-only-strip b { color: var(--accent); }
 /* With no copy to show, the landing takes the board's place: the kickflip mark and two lines, as hub/front-door.mjs's page has them. */
 .down-landing { min-height: 60vh; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 32px 24px; text-align: center; }
 .down-landing-mark { display: block; margin-bottom: 8px; width: 70px; height: 60px; object-fit: contain; }
@@ -737,8 +726,6 @@ main > * { transition: opacity .25s ease; }
   border: 0; background: none; margin: 0; padding: 2px 20px 2px 4px; border-radius: 8px; font: inherit; color: inherit; text-align: left; }
 .title-menu::after { content: '▾'; position: absolute; right: 5px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--muted); }
 .title-menu:active, .title-menu[aria-expanded="true"] { background: var(--accent-soft); }
-.shared-view .title-menu { cursor: default; padding-right: 6px; }
-.shared-view .title-menu::after { content: none; }
 .board-menu { width: 290px; padding: 4px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 28px rgba(0, 0, 0, .18); }
 .board-menu-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 8px;
@@ -780,7 +767,6 @@ main > * { transition: opacity .25s ease; }
 .view-settings .add { display: flex; gap: 6px; margin-top: 8px; }
 .view-settings .add input { flex: 1; min-width: 0; }
 .view-settings .add.pick { flex-direction: column; }
-.view-settings .share-now { color: var(--ok); font-weight: 600; }
 /* Scripts: a code box per kickflip-held script, its Save below it. */
 .view-settings .script-box { display: grid; gap: 6px; margin-bottom: 12px; }
 .view-settings .script-box textarea { width: 100%; resize: vertical; tab-size: 2; white-space: pre; overflow-x: auto; font-family: ui-monospace, Menlo, monospace; line-height: 1.45; }
@@ -789,10 +775,6 @@ main > * { transition: opacity .25s ease; }
 .view-settings .share-level { display: flex; gap: 4px; margin-top: 6px; }
 .view-settings .share-level button { min-height: 32px; padding: 4px 12px; font-size: 13px; }
 .view-settings .share-level button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.view-settings .share-now::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
-.view-settings .share-reach { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; }
-.view-settings .share-reach p { flex: 1 1 220px; margin: 0; }
-.view-settings .share-reach button { flex: none; }
 .view-settings .login-row { display: flex; gap: 6px; }
 .view-settings .login-row input { flex: 1; min-width: 0; }
 .view-settings .chip { display: inline-flex; align-items: center; align-self: flex-start; gap: 6px; padding: 4px 6px 4px 12px; border-radius: 14px; border: 1px solid var(--accent); font-size: 14px; }

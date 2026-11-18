@@ -8045,139 +8045,12 @@ test("the board header's chip counts what waits on the orchestrator, its tap ope
   b.view.unmount();
 });
 
-// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
-test("Board settings' Sharing lists who can look and who was just refused, adds by a tap or a typed login, removes, and copies the board's link", async () => {
-  const page = fakePage(memoryStorage().localStorage);
-  const root = new page.El();
-  const ago = (ms) => new Date(NOW - ms).toISOString();
-  let sharing = { link: 'https://studio.tail1234.ts.net/orch/', people: [{ login: 'maya@github', name: 'Maya Ortiz', now: true, at: ago(1000) }, { login: 'sam@example.com', name: null, now: false, at: ago(2 * 86_400_000) }, { login: 'kim@github', name: 'Kim', now: false, at: null }],
-    refused: [{ login: 'jo@github', name: 'Jo Park', at: ago(4 * 60_000) }, { login: 'lee@example.com', name: null, at: ago(10_000) }] };
-  const posts = [];
-  const copied = [];
-  page.win.navigator.clipboard = { writeText: async (text) => { copied.push(text); } };
-  page.win.fetch = async (url, opts = {}) => {
-    let body = {};
-    if (url === '/_hub/share/orch') body = sharing;
-    if (url.endsWith('/api/share')) { posts.push(JSON.parse(opts.body)); body = { share: [] }; }
-    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
-  };
-  const view = page.win.AppViews.settings.create(root, '/orch', {});
-  view.mount();
-  await tick();
-  const list = root.querySelector('#shareList');
-  assert.match(list.innerHTML, /Maya Ortiz<span class="muted small sub">maya@github · <span class="share-now">viewing now<\/span><\/span>/);
-  assert.match(list.innerHTML, /sam@example\.com<span class="muted small sub">2 d ago<\/span>/);
-  assert.match(list.innerHTML, /Kim<span class="muted small sub">kim@github · not seen yet<\/span>/);
-  assert.match(list.innerHTML, /data-share-remove="maya@github"[^>]*aria-label="Remove Maya Ortiz"/);
-  const refused = root.querySelector('#shareRefused');
-  assert.match(refused.innerHTML, /Jo Park<span class="muted small sub">jo@github · 4 min ago<\/span>[^]*data-share-add="jo@github"/);
-  assert.match(refused.innerHTML, /lee@example\.com<span class="muted small sub">just now<\/span>/);
-
-  const tap = async (id, attr, login) => { page.fire(root.querySelector(id), 'click', { target: { closest: (sel) => (sel.includes(attr) ? { dataset: { [attr === 'data-share-add' ? 'shareAdd' : 'shareRemove']: login } } : null) } }); await tick(); await tick(); };
-  sharing = { ...sharing, people: [...sharing.people, { login: 'jo@github', name: 'Jo Park', now: false, at: null }], refused: sharing.refused.slice(1) };
-  await tap('#shareRefused', 'data-share-add', 'jo@github');
-  assert.deepEqual(posts.at(-1), { add: 'jo@github' });
-  assert.match(list.innerHTML, /Jo Park/);
-  assert.doesNotMatch(refused.innerHTML, /Jo Park/);
-  await tap('#shareList', 'data-share-remove', 'kim@github');
-  assert.deepEqual(posts.at(-1), { remove: 'kim@github' });
-  root.querySelector('#shareLogin').value = '  new@github ';
-  page.fire(root.querySelector('#shareAdd'), 'submit');
-  await tick(); await tick();
-  assert.deepEqual(posts.at(-1), { add: 'new@github' });
-  assert.equal(root.querySelector('#shareLogin').value, '');
-  page.fire(root.querySelector('#shareCopy'), 'click');
-  await tick();
-  assert.deepEqual([copied, root.querySelector('#shareStatus').textContent], [['https://studio.tail1234.ts.net/orch/'], 'Copied https://studio.tail1234.ts.net/orch/']);
-  view.unmount();
-});
-
-test("Board settings' Sharing sits under Reviewers with one line to reach the host and Tailscale's Machines page", () => {
+// docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md
+test('Board settings has no Sharing, and the board opens with no shared strip', () => {
   const html = fakePage(memoryStorage().localStorage).win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
-  assert.ok(html.indexOf('<h2>Reviewers</h2>') < html.indexOf('<h2>Sharing</h2>') && html.indexOf('<h2>Sharing</h2>') < html.indexOf('<h2>Rules</h2>'));
-  assert.match(html, /View, or Full: everything but Merge and Board settings\. Nothing else on the host opens for them\./);
-  assert.match(html, /They also need the host shared to them in Tailscale \(<a href="https:\/\/login\.tailscale\.com\/admin\/machines" target="_blank" rel="noopener">Tailscale’s Machines page <svg[^>]*class="link-arrow"[^>]*>.*?<\/svg><\/a>\)\. Then send them this link\./);
-  assert.doesNotMatch(html, /↗/);
-  assert.match(html, /<button type="button" id="shareCopy">Copy link<\/button>/);
-});
-
-// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md
-test("Board settings' Sharing sets each person View or Full with one tap, saying what each level can do", async () => {
-  const page = fakePage(memoryStorage().localStorage);
-  const root = new page.El();
-  let sharing = { link: null, people: [{ login: 'dana@github', name: 'Dana Reyes', level: 'full', now: true, at: null }, { login: 'sam@github', name: 'Sam', level: 'view', now: false, at: null }], refused: [] };
-  const posts = [];
-  page.win.fetch = async (url, opts = {}) => {
-    let body = {};
-    if (url === '/_hub/share/orch') body = sharing;
-    if (url.endsWith('/api/share')) { posts.push(JSON.parse(opts.body)); body = { share: [] }; }
-    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
-  };
-  const view = page.win.AppViews.settings.create(root, '/orch', {});
-  view.mount();
-  await tick();
-  const list = root.querySelector('#shareList');
-  assert.match(list.innerHTML, /<span role="group" class="share-level" aria-label="Dana Reyes’s access"><button type="button" data-share-level="view" data-login="dana@github" aria-pressed="false">View<\/button><button type="button" data-share-level="full" data-login="dana@github" aria-pressed="true">Full<\/button><\/span>/);
-  assert.match(list.innerHTML, /Answers, taps task buttons and adds New tasks\. Merge and Board settings stay yours\./);
-  assert.match(list.innerHTML, /data-share-level="view" data-login="sam@github" aria-pressed="true"/);
-  assert.match(list.innerHTML, /Looks only\. Visit links open\./);
-  sharing = { ...sharing, people: sharing.people.map((p) => (p.login === 'sam@github' ? { ...p, level: 'full' } : p)) };
-  page.fire(list, 'click', { target: { closest: (sel) => (sel.includes('data-share-level') ? { dataset: { shareLevel: 'full', login: 'sam@github' } } : null) } });
-  await tick(); await tick();
-  assert.deepEqual(posts.at(-1), { login: 'sam@github', level: 'full' });
-  assert.match(list.innerHTML, /data-share-level="full" data-login="sam@github" aria-pressed="true"/);
-  view.unmount();
-});
-
-test("a Full person's board opens with a Full strip saying Merge and Board settings are the owner's", () => {
-  const { BoardView } = fakePage(memoryStorage().localStorage).win;
-  assert.match(BoardView.markup({ title: 'Orch', shared: { by: 'Love', full: true } }), /<p class="view-only-strip"><b>Full\.<\/b> Shared with you by Love\. You can answer and act\. Merge and Board settings are Love’s\.<\/p>/);
-  assert.match(BoardView.markup({ title: 'Orch', shared: { by: null, full: true } }), /<b>Full\.<\/b> Shared with you\. You can answer and act\. Merge and Board settings are the owner’s\./);
-});
-
-test("the shell marks a board someone has Full on, follows a level change on the stream, and hides Board settings and disables Merge at every level", async () => {
-  const sources = [];
-  class EventSource {
-    static CLOSED = 2;
-    constructor() { this.readyState = 1; this.listeners = new Map(); sources.push(this); }
-    addEventListener(type, fn) { this.listeners.set(type, fn); }
-    close() { this.readyState = EventSource.CLOSED; }
-  }
-  const sites = [{ route: 'shop', title: 'The Shop', board: true, icon: '' }, { route: 'other', title: 'Other', board: true, icon: '' }];
-  const { win, doc } = await shellPage('/shop/', { sidebarData: { sites, shared: { by: 'Love', full: ['shop'] } }, EventSource, fetch: () => new Promise(() => {}) });
-  const html = doc.documentElement;
-  const strip = () => doc.querySelector('.view-only-strip').textContent;
-  assert.deepEqual([html.classList.contains('shared-view'), html.classList.contains('shared-full')], [true, true]);
-  assert.match(strip(), /^Full\./);
-  win.AppShell.open('/other/');
-  assert.deepEqual([html.classList.contains('shared-view'), html.classList.contains('shared-full')], [true, false]);
-  assert.match(strip(), /^View only\./);
-  win.AppShell.open('/shop/');
-  sources[0].listeners.get('sidebar')({ data: JSON.stringify({ sites, shared: { by: 'Love', full: [] } }) });
-  assert.equal(html.classList.contains('shared-full'), false);
-  assert.match(strip(), /^View only\./);
-
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /\.shared-view:not\(\.shared-full\) :is\(#compose, \[data-composer\], \.actions button, button\[data-confirm\]\) \{ display: none !important; \}/);
-  assert.doesNotMatch(css, /board-foot|arch-bulb/);
-  assert.match(css, /\.shared-full button\[data-confirm="merge"\] \{[^}]*pointer-events: none;/);
-});
-
-test("a shared person's board opens with a View only strip naming who shared it", () => {
-  const { BoardView } = fakePage(memoryStorage().localStorage).win;
-  assert.match(BoardView.markup({ title: 'Orch', shared: { by: 'Love <K>' } }), /<main>\s*<p class="view-only-strip"><b>View only\.<\/b> Shared with you by Love &lt;K&gt;\. You can look and open Visit links\.<\/p>/);
-  assert.match(BoardView.markup({ title: 'Orch', shared: { by: null } }), /<b>View only\.<\/b> Shared with you\. You can look and open Visit links\./);
-  assert.doesNotMatch(BoardView.markup({ title: 'Orch' }), /view-only-strip/);
-});
-
-test("a shared person's tap on an asleep board never asks the hub to wake the owner's session", async () => {
-  const checks = { at: '2026-10-30T10:00:00.000Z', every: 30, late: false, watcher: 'asleep', claudeAt: null };
-  const b = boardOnDom({ board: { ...boardOf([workCard('A1')]), checks }, threads: {} });
-  await b.settle();
-  b.page.win.document.documentElement.classList.add('shared-view');
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('.lane') });
-  assert.deepEqual(b.posts.filter(([p]) => p === '/_hub/wake'), []);
-  b.view.unmount();
+  assert.match(html, /<h2>Reviewers<\/h2>/);
+  assert.doesNotMatch(html, /Sharing|shareCopy|shareList|Tailscale’s Machines page/);
+  assert.doesNotMatch(fakePage(memoryStorage().localStorage).win.BoardView.markup({ title: 'Orch' }), /view-only-strip|Shared with you/);
 });
 
 // docs/adr/2026-11-17-1500-the-board-menu-shows-how-to-join-the-orchestrator-in-a-terminal.md
@@ -8239,16 +8112,6 @@ test("the board menu's Repo review opens the review sheet, Pause opens the durat
   b.page.fire($('#boardMenu'), 'click', { target: $('[data-pause-resume]') });
   await b.settle();
   assert.deepEqual(b.posts.filter(([p]) => p.endsWith('/api/pause')).at(-1), ['/board-a/api/pause', { pause: 'off' }]);
-  b.view.unmount();
-});
-
-test("a shared person's tap on the board's name opens no menu", async () => {
-  const b = boardOnDom({ board: { ...boardOf([workCard('A1')]), join: { command: 'claude attach 3f9a1c7e', tmux: false } }, threads: {} });
-  await b.settle();
-  b.page.win.document.documentElement.classList.add('shared-view');
-  const open = b.root.querySelector('#boardMenuOpen');
-  b.page.fire(open, 'click', { target: open });
-  assert.equal(b.root.querySelector('#boardMenu').hidden, true);
   b.view.unmount();
 });
 

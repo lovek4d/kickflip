@@ -19,7 +19,7 @@ test('a script offer shows where it runs and every line of the script, escaped, 
   assert.ok(text(html).includes(body.replace(/\n/g, ' ')));
   assert.doesNotMatch(html, /<pid>/);
   assert.match(html, /<button type="button" class="script-run resolves" data-script-run="s1" data-sha="abc">.*Hold to run<\/button><button type="button" data-script-decline="s1">Decline<\/button>/);
-  assert.match(text(html), /Nothing runs until you hold Run\. Only the board’s owner can run it\./);
+  assert.match(text(html), /Hold to run Decline Nothing runs until you hold Run\. \d/);
 });
 
 test('a script offer reads running with its live log, finished with its output folded, failed in red with its tail, declined or replaced, with no buttons', () => {

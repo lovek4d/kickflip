@@ -872,7 +872,7 @@ test("a reply-box tap sent again with the same send id records once, whatever it
 });
 
 // docs/adr/2026-11-13-2045-an-exact-repeat-within-30-seconds-is-skipped.md
-test("an exact repeat of a message within 30 seconds is skipped, and one later, on another card or by another author is kept", async () => {
+test("an exact repeat of a message within 30 seconds is skipped, and one later or on another card is kept", async () => {
   await putWave(JSON.stringify({ items: [{ id: 'RP1', title: 'One' }, { id: 'RP2', title: 'Two' }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const eventsFile = path.join(site, 'data', 'events.jsonl');
@@ -2349,100 +2349,17 @@ test("read marks live on the board: a card new to it is read up to then, POST /a
   } finally { if (before) await putWave(before); else fs.rmSync(waveFile); }
 });
 
-// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
-test("Board settings' Sharing adds and removes a login in board.json share, keeping its other keys and waking no session", async () => {
+// docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md
+test('a board has no sharing: api/share is no route, and an old board.json share writes nothing', async () => {
   const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] }));
-  const share = (body) => fetch(`${base}/api/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const events = async () => (await (await fetch(`${base}/_claude/events`)).json()).length;
-  await board.settled();
-  const before = await events();
+  const kept = JSON.stringify({ ...cfg, share: ['maya@github'] });
+  fs.writeFileSync(path.join(site, 'board.json'), kept);
   try {
-    assert.deepEqual(await (await share({ add: 'maya@github' })).json(), { share: ['maya@github'] });
-    assert.deepEqual(await (await share({ add: ' sam.lee@example.com ' })).json(), { share: ['maya@github', 'sam.lee@example.com'] });
-    assert.deepEqual(await (await share({ add: 'maya@github' })).json(), { share: ['maya@github', 'sam.lee@example.com'] });
-    assert.deepEqual(await (await share({ remove: 'maya@github' })).json(), { share: ['sam.lee@example.com'] });
-    const saved = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
-    assert.deepEqual([saved.share, saved.title, saved.rules.length], [['sam.lee@example.com'], 'T', 1]);
-    for (const bad of [{}, { add: 'maya' }, { add: 'a b@github' }, { remove: 7 }, { add: 'x@y', remove: 'x@y' }, { add: 'x@y', other: 1 }]) {
-      const r = await share(bad);
-      assert.equal(r.status, 400, JSON.stringify(bad));
-      assert.match((await r.json()).error, /login/);
-    }
-    assert.equal((await fetch(`${base}/api/share`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' })).status, 403);
-    assert.equal(await events(), before);
+    const r = await fetch(`${base}/api/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ add: 'sam@github' }) });
+    assert.equal(r.status, 405);
+    assert.equal(fs.readFileSync(path.join(site, 'board.json'), 'utf8'), kept);
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
-  }
-});
-
-// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md
-test("Board settings' Sharing sets a person View or Full: Full is stored as {login, level}, View as the bare login", async () => {
-  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, share: ['maya@github', 'sam@example.com'] }));
-  const share = (body) => fetch(`${base}/api/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  try {
-    assert.deepEqual(await (await share({ login: 'maya@github', level: 'full' })).json(), { share: [{ login: 'maya@github', level: 'full' }, 'sam@example.com'] });
-    assert.deepEqual(await (await share({ add: 'maya@github' })).json(), { share: [{ login: 'maya@github', level: 'full' }, 'sam@example.com'] }, 'adding someone listed keeps their level');
-    assert.deepEqual(await (await share({ login: 'maya@github', level: 'view' })).json(), { share: ['maya@github', 'sam@example.com'] });
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).share, ['maya@github', 'sam@example.com']);
-    await share({ login: 'sam@example.com', level: 'full' });
-    assert.deepEqual(await (await share({ remove: 'sam@example.com' })).json(), { share: ['maya@github'] });
-    for (const bad of [{ login: 'kim@github', level: 'full' }, { login: 'maya@github', level: 'admin' }, { login: 'maya@github' }, { login: 'maya@github', level: 'full', add: 'x@y' }]) {
-      assert.equal((await share(bad)).status, 400, JSON.stringify(bad));
-    }
-  } finally {
-    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
-  }
-});
-
-test("a Full person's answers, messages, uploads and card taps are recorded named as them; Merge, reviewers and a View person's writes are refused", async () => {
-  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
-  const waveFile = path.join(site, 'data', 'items.json');
-  const before = fs.existsSync(waveFile) ? fs.readFileSync(waveFile, 'utf8') : null;
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, share: [{ login: 'dana@github', level: 'full' }, 'sam@example.com'] }));
-  const dana = { 'x-kickflip-shared': 'dana@github', 'tailscale-user-login': 'dana@github', 'tailscale-user-name': 'Dana Reyes' };
-  const send = (body, headers = {}) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
-  const logged = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
-  try {
-    await putWave(JSON.stringify({ items: [{ id: 'F1', title: 'Shared' }] }));
-    const r = await send({ kind: 'item-message', key: 't/F1', text: 'Per key, please' }, dana);
-    await ok200(r);
-    assert.deepEqual(logged().at(-1).data, { key: 't/F1', text: 'Per key, please', shared_by: { login: 'dana@github', name: 'Dana Reyes' } });
-    const thread = await (await fetch(`${base}/api/thread?key=t%2FF1`)).json();
-    assert.equal(thread.find((m) => m.text === 'Per key, please').by, 'Dana Reyes');
-    // A tap the server writes to the card's thread itself names them too.
-    await ok200(send({ kind: 'card-hold', key: 't/F1', hold: true }, dana));
-    const said = fs.readFileSync(path.join(site, 'data', 'threads', 't__F1.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).at(-1);
-    assert.deepEqual([said.text, said.who, said.by, said.command], ['Blocked', 'love', 'Dana Reyes', 'hold']);
-    assert.equal((await (await fetch(`${base}/api/thread?key=t%2FF1`)).json()).find((m) => m.text === 'Blocked').by, 'Dana Reyes');
-    await send({ kind: 'card-hold', key: 't/F1', hold: false }, dana);
-    // Their upload is stored like the owner's.
-    const up = await fetch(`${base}/api/upload`, { method: 'POST', headers: { ...dana, 'x-filename': 'note.txt', 'content-type': 'text/plain' }, body: 'hi' });
-    assert.equal(up.status, 200);
-
-    // Merge and Board settings' reviewers stay the owner's, and so does any kind not on Full's list.
-    await board.settled();
-    const count = logged().length;
-    for (const body of [{ kind: 'card-merge', key: 't/F1' }, { kind: 'reviewers', remove: ['x'] }, { kind: 'review-answer', pr: 1, answer: 'post' }, { kind: 'whatever' }]) {
-      const refused = await send(body, dana);
-      assert.deepEqual([refused.status, await refused.json()], [403, { error: 'Merge and Board settings stay the owner’s.' }], body.kind);
-    }
-    // A View person, or a login the board no longer lists, writes nothing.
-    for (const headers of [{ 'x-kickflip-shared': 'sam@example.com' }, { 'x-kickflip-shared': 'gone@github' }]) {
-      const refused = await send({ kind: 'item-message', key: 't/F1', text: 'hi' }, headers);
-      assert.deepEqual([refused.status, await refused.json()], [403, { error: 'This board is shared with you to look at only.' }]);
-      assert.equal((await fetch(`${base}/api/upload`, { method: 'POST', headers: { ...headers, 'x-filename': 'n.txt', 'content-type': 'text/plain' }, body: 'hi' })).status, 403);
-    }
-    // Any other write of theirs is refused, though the hub never forwards one.
-    assert.equal((await fetch(`${base}/api/share`, { method: 'POST', headers: { ...dana, 'content-type': 'application/json' }, body: JSON.stringify({ add: 'x@github' }) })).status, 403);
-    assert.equal(logged().length, count);
-    // The owner's events carry no shared_by, whatever the page sends.
-    await send({ kind: 'item-message', key: 't/F1', text: 'mine', shared_by: { login: 'dana@github' } });
-    assert.deepEqual(logged().at(-1).data, { key: 't/F1', text: 'mine' });
-  } finally {
-    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
-    if (before) await putWave(before); else fs.rmSync(waveFile);
   }
 });
 

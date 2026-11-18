@@ -214,39 +214,3 @@ test("a watcher file written or removed in a board's data folder sends the sideb
   }
 });
 
-// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
-test("a shared person's stream carries only their boards' changes and their view of the sidebar", async (t) => {
-  mockTimers(t);
-  const ios = await fakeBoard();
-  const web = await fakeBoard();
-  let waiting = 0;
-  const relay = hubStream({ targets: () => [{ route: 'ios', port: ios.port }, { route: 'web', port: web.port }], sidebar: async () => ({ waiting, routes: ['ios', 'web'] }), settleMs: 10 });
-  const hub = http.createServer((req, res) => relay.handle(req, res, req.url.endsWith('?shared') ? { routes: new Set(['web']), view: (data) => ({ routes: data.routes.filter((r) => r === 'web') }) } : null));
-  await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
-  const owner = listen(hub.address().port);
-  const changeOf = (route) => (events) => events.some((e) => e.type === 'change' && e.data.route === route);
-  try {
-    await Promise.all([owner.waitFor((events) => events.length === 1), ios.streams(1), web.streams(1)]);
-    const shared = listenAt(hub.address().port, '/_hub/stream?shared');
-    await shared.waitFor((events) => events.length === 1);
-    assert.deepEqual(shared.events, [{ type: 'sidebar', data: { routes: ['web'] } }]);
-    waiting = 1;
-    // The owner hearing the ios change means the hub has handled it; a web change sent after it is the marker on the
-    // shared stream, which delivers in order, so an ios change meant for it would already be there.
-    ios.change();
-    await owner.waitFor(changeOf('ios'));
-    web.change();
-    await shared.waitFor(changeOf('web'));
-    t.mock.timers.tick(10);
-    await shared.waitFor((events) => events.filter((e) => e.type === 'sidebar').length === 2);
-    assert.deepEqual(shared.events.filter((e) => e.type === 'change').map((e) => e.data), [{ route: 'web' }]);
-    assert.ok(shared.events.filter((e) => e.type === 'sidebar').every((e) => JSON.stringify(e.data) === '{"routes":["web"]}'));
-    shared.close();
-  } finally {
-    owner.close();
-    relay.close();
-    await ios.stop();
-    await web.stop();
-    await new Promise((r) => hub.close(r));
-  }
-});

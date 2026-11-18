@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded
 ---
 
 # A shared person is View or Full
+
+Superseded by [the hub has no sharing](2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md): there is no sharing; any login but the owner's is refused.
 
 #242 shared a board view only (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md). The owner asked for fuller permissions as a later card (#295, share-permissions-notes.md), answered the grill, and picked take C of prototype round 1: per person, View or Full.
 

@@ -94,8 +94,6 @@ export const POLLS = Object.freeze([
     ] },
   { id: 'self-restart', group: 'hub', name: 'New hub code', what: 'Restarts the hub once its new code is whole on disk and no land is landing.',
     ...on('quarter', 1), runs: 'Hub', where: 'hub/hub.mjs' },
-  { id: 'share-save', group: 'hub', name: 'Shared last seen', what: 'Writes when each person you share a board with was last on it.',
-    ...on('quarter', 4), runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'nightly-suite', group: 'hub', name: 'Nightly suite check', what: 'Whether tonight’s full test run is due, between the middle and end of quiet hours; on the npm check’s 15 minutes.',
     ...on('quarter', 60), runs: 'Hub', where: 'hub/hub.mjs' },
 

@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded
 ---
 
 # A board is shared view only with a Tailscale login
+
+Superseded by [the hub has no sharing](2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md): there is no sharing; any login but the owner's is refused.
 
 Since #210 the hub answers only the owner (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). The owner asked for a board-level setting naming another Tailscale identity that can reach the board (#242, board-share-notes.md), and answered the grill and prototype round 1 (take A).
 

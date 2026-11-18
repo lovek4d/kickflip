@@ -398,14 +398,13 @@ export async function appendBuilderResumed(site, key) {
   const other = [...lines.filter((m) => !m.kind && !m.command), ...events].map((m) => String(m.ts));
   if (other.some((ts) => ts > section)) await appendStatus(site, key, 'builder-resumed');
 }
-// key is <file>/<id>, or ask:<event id> for an ask's thread. by: the shared person whose tap an owner line is, by name
-// (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
+// key is <file>/<id>, or ask:<event id> for an ask's thread.
 // A message holds at most MESSAGE_LIMIT characters; a longer one is refused for the orchestrator to rewrite shorter or
 // move into a page it links. A comment brought in from GitHub or Slack is kept whole.
 // script: a file whose text the message offers for the owner to run on a work card
 // (docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md), stored whole on the line with
 // its id, hash, and the host and user the board server runs it as.
-export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, by, close, implement, script: scriptFile }) {
+export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, close, implement, script: scriptFile }) {
   needSite(site);
   if (close && implement) fail('thread takes --implement or --close, not both');
   if ((close || implement) && (who !== 'claude' || via !== undefined)) fail(`thread --${close ? 'close' : 'implement'} is the orchestrator marking a task: it takes no --who or --via`);
@@ -416,7 +415,7 @@ export async function appendMessage(site, key, { text: body, link, log, who = 'c
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
   const words = via === undefined ? messageText(body) : text(body, '--text');
   const script = scriptFile === undefined ? undefined : scriptOf(scriptFile);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: optional(link, (v) => pageUrl(v, '--link')), log, via, by, script };
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: optional(link, (v) => pageUrl(v, '--link')), log, via, script };
   const file = threadFile(site, key);
   if (close || implement) await markWaiting(site, key, close ? 'close' : 'implement');
   await appendLine(file, line);
@@ -461,8 +460,8 @@ export function messageText(body) {
 }
 // command is a button's key (domain.mjs COMMANDS), which makes the line its status line; card, on a link's line, the other
 // card's key, whose ref and title the thread draws when it renders (domain.mjs threadOf).
-export async function appendCommand(site, key, { command, text: words = COMMANDS[command], who = 'claude', by, card, sendId, ts = new Date().toISOString() }) {
-  const line = { ts, who, command, text: words, ...(sendId ? { sendId } : {}),...(by ? { by } : {}), ...(card ? { card } : {}) };
+export async function appendCommand(site, key, { command, text: words = COMMANDS[command], who = 'claude', card, sendId, ts = new Date().toISOString() }) {
+  const line = { ts, who, command, text: words, ...(sendId ? { sendId } : {}), ...(card ? { card } : {}) };
   await appendLine(threadFile(site, key), line);
   return { lines: [] };
 }
@@ -806,7 +805,7 @@ const RISKS = ['low', 'medium', 'high'];
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
 // change, low, medium or high, which builder done records and the PR's Slack link shows (slack-store.mjs prLink). replyOn (--reply-on)
 // is the orchestrator's reply on a card this call links or unlinks while its owner waits on that reply (replyFirst).
-async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, landedFiles, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk, triaged, release }, options) {
+async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, landedFiles, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, command, ownerStep, ownerDone, check, finishAsk, triaged, release }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -1054,7 +1053,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (start) resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (ask) resolved.push(...(await appendMessage(site, key, { text: said })).lines);
   if (lastLine && site) {
-    const written = command ? await appendCommand(site, key, { command, text: lastLine.text, who, by })
+    const written = command ? await appendCommand(site, key, { command, text: lastLine.text, who })
       : lastLine.status ? await appendStatus(site, key, ...lastLine.status) : await appendMessage(site, key, { text: lastLine.text });
     resolved.push(...written.lines);
   }
@@ -1146,9 +1145,8 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   await writeJSON(source.file, itemFile);
 }
 
-// The owner's Block, Unblock, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}), or
-// a Full person's, whose data.shared_by {login, name} names their thread line, recorded in the item file as the board
-// server takes it, with a thread line; a Done closes the card and unblocks blocked cards as item set --done does
+// The owner's Block, Unblock, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}),
+// recorded in the item file as the board server takes it, with a thread line; a Done closes the card and unblocks blocked cards as item set --done does
 // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). → the item set result, or null
 // when there is nothing to write.
 export async function recordOwnerTap(site, kind, data) {
@@ -1156,22 +1154,21 @@ export async function recordOwnerTap(site, kind, data) {
   const { file: slug, id } = parseKey(key);
   const { source, itemFile } = await loadItemFile(site, slug);
   // The owner's line, so it answers none of their messages that wait on Claude.
-  const by = data.shared_by ? data.shared_by.name || data.shared_by.login : undefined;
   // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: each tap's line is its status line.
-  const said = { text: COMMANDS.done, who: 'love', by, command: 'done' };
+  const said = { text: COMMANDS.done, who: 'love', command: 'done' };
   const item = itemFile.items.find((it) => it.id === id) || fail(`item file "${slug}" has no item "${id}"`);
   // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md: a Done card's Reopen moves it
   // back to Todo, discussing, its conversation open again; a card not in Done has nothing to reopen.
   if (kind === 'card-reopen') {
     if (item.lane !== 'done') return null;
-    await appendCommand(site, key, { who: 'love', by, command: 'reopened' });
+    await appendCommand(site, key, { who: 'love', command: 'reopened' });
     return moveCard(site, key, 'todo', 'you reopened it', 'discussing');
   }
   // A staged or ready Todo card's Cancel takes it back to discussing, its Implement owed again, its ticket kept;
   // a card in any other place or phase has nothing to cancel.
   if (kind === 'card-cancel') {
     if (item.lane !== 'todo' || !['staging', 'ready'].includes(item.phase)) return null;
-    await appendCommand(site, key, { who: 'love', by, command: 'cancelled' });
+    await appendCommand(site, key, { who: 'love', command: 'cancelled' });
     delete item.staged_at;
     delete item.ready_at;
     delete item.ready_main;
@@ -1197,8 +1194,8 @@ export async function recordOwnerTap(site, kind, data) {
     await publishStaged(site, key);
   }
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  return appendCommand(site, key, data.hold ? { text: at ? `${COMMANDS.hold} until ${at}` : COMMANDS.hold, who: 'love', by, command: 'hold' }
-    : { who: 'love', by, command: 'resume' });
+  return appendCommand(site, key, data.hold ? { text: at ? `${COMMANDS.hold} until ${at}` : COMMANDS.hold, who: 'love', command: 'hold' }
+    : { who: 'love', command: 'resume' });
 }
 
 // --check's text → its stored form, or refuses it (shared/owner-check.mjs parseCheck).

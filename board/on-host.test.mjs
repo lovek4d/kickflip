@@ -83,15 +83,6 @@ test("until tailscale names the host's user, a signed-in request is unread, and 
   assert.equal(asked, 2);
 });
 
-test("the gate's node is the host node it read, read on asking when no request has needed it yet", async () => {
-  let asked = 0;
-  const found = { ...node, name: 'Love', dnsName: 'studio.tail1234.ts.net' };
-  const gate = ownerGate({ addresses: () => ['127.0.0.1'], node: async () => { asked++; return found; }, tailnet: on });
-  assert.deepEqual(await gate.node(), found);
-  assert.equal(await gate({ headers: served('100.70.1.2'), socket: { remoteAddress: '127.0.0.1' } }), 'owner');
-  assert.equal(asked, 1);
-});
-
 test("with the tailnet off, only a loopback client is the host and the owner, and tailscale's login is never read", async () => {
   let asked = 0;
   let tailnetOn = false;
@@ -109,7 +100,6 @@ test("with the tailnet off, only a loopback client is the host and the owner, an
   assert.deepEqual(await both(served('100.81.98.101')), [false, 'other']);
   assert.deepEqual(await both({ 'x-forwarded-for': '100.70.1.4' }), [false, 'other']);
   assert.deepEqual(await both({}, '192.168.1.40'), [false, 'other']);
-  assert.equal(await gate.node(), null);
   assert.equal(asked, 0);
   // Turned on, the same gate reads tailscale's login again.
   tailnetOn = true;

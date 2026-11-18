@@ -130,14 +130,11 @@
         bar.style.animationDelay = `${switching.started - performance.now()}ms`;
         bar.style.animationDuration = `${IDLE_MS}ms`;
       }
-      // A shared person's sidebar has no update row (ui-sidebar.js).
       const fresh = aside.querySelector('.sb-update');
-      if (fresh) {
-        if (held) fresh.replaceWith(held);
-        const row = updateRow(update, data.version && data.version !== bootVersion ? data.version : null);
-        if (!held || row !== updateHTML) (held || fresh).innerHTML = row;
-        updateHTML = row;
-      }
+      if (held) fresh.replaceWith(held);
+      const row = updateRow(update, data.version && data.version !== bootVersion ? data.version : null);
+      if (!held || row !== updateHTML) (held || fresh).innerHTML = row;
+      updateHTML = row;
       const list = aside.querySelector('.sb-scroll');
       if (list) list.scrollTop = top ?? list.scrollHeight;
       paintStarts();

@@ -1,4 +1,4 @@
-// A board's settings: board.json's settings, pause, description and reviewers, its rules and share, the setup handshake,
+// A board's settings: board.json's settings, pause, description and reviewers, its rules, the setup handshake,
 // and the board's own entry in the hub's manifest (boardTarget, boardRepoOf). Written through files.mjs
 // (docs/adr/2026-11-17-1137-cards-questions-asks-and-settings-leave-store-mjs.md).
 import path from 'node:path';
@@ -12,7 +12,6 @@ import { itemSources, readJSON, readLog, writeJSON } from './files.mjs';
 import { followScriptsHome, readPermissions } from './permissions.mjs';
 import { kickflipHeld, validBuildTarget } from './build-script.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
-import { shareEntries, validLogin } from '../hub/share.mjs';
 import { BoardError, fail, needSite, text, bool, domId, onlyKeys } from './checks.mjs';
 import { loadItem, openKeys } from './cards.mjs';
 
@@ -115,29 +114,6 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
   const result = ruleCall(() => change(rulesOf(cfg)));
   return { set: { rules: result.rules }, ...result };
 });
-
-// Board settings' Sharing (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md,
-// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md): change is {add: login}, {remove: login}, or
-// {login, level: 'view' | 'full'} for someone listed, a login as Tailscale-User-Login sends it, trimmed. A View entry is
-// stored as the bare login, a Full one as {login, level: 'full'}. → {share}, board.json's list
-export function saveBoardShare(site, change) {
-  const keys = Object.keys(change || {}).sort().join();
-  const leveled = keys === 'level,login';
-  const raw = leveled ? change.login : change?.[keys];
-  const login = typeof raw === 'string' ? raw.trim() : null;
-  if (!['add', 'remove', 'level,login'].includes(keys) || !validLogin(login)) fail('Send add or remove with one login, like name@github, or a listed login with its level.');
-  if (leveled && !['view', 'full'].includes(change.level)) fail('A level is view or full.');
-  const stored = ({ login: l, level }) => (level === 'full' ? { login: l, level } : l);
-  return writeBoardJSON(site, (cfg) => {
-    const listed = shareEntries(cfg);
-    if (leveled && !listed.some((e) => e.login === login)) fail(`${login} isn't shared with yet. Add them first.`);
-    const entries = keys === 'remove' ? listed.filter((e) => e.login !== login)
-      : leveled ? listed.map((e) => (e.login === login ? { login, level: change.level } : e))
-        : listed.some((e) => e.login === login) ? listed : [...listed, { login, level: 'view' }];
-    const share = entries.map(stored);
-    return { set: { share }, share };
-  }).then(({ share }) => ({ share }));
-}
 
 const validGithubLogin = (value) => typeof value === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value);
 export const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };

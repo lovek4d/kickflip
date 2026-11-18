@@ -22,7 +22,6 @@ import { BASE_KEY, baseWorktreeOf } from '../board/prototype-base.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
-import { shareOf } from './share.mjs';
 
 // ask: 'busy' or 'cap' when the refusal is a serve the board holds back, which the card's Serve tap words as a dialog.
 export class BuildError extends Error {
@@ -365,23 +364,6 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     try { await tailscale(['serve', `--https=${port}`, 'off']); }
     catch (e) { log(`try port ${port}: could not close port: ${(e.stderr || e.message).trim()}`); }
   }
-  // The relay's verdict: the gate's, except that a login the run's board shares with is 'shared' by GET or HEAD, and any
-  // other method of theirs, or an upgrade, is view only (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md).
-  const sharedWith = (board) => shareOf(readJSON(path.join(board.dir, 'board.json'), {}));
-  async function relayVerdict(req, board) {
-    const verdict = await gate(req);
-    const login = req.headers['tailscale-user-login'];
-    if (verdict !== 'other' || !login || !sharedWith(board).includes(login)) return verdict;
-    return req.method === 'GET' || req.method === 'HEAD' ? 'shared' : 'view-only';
-  }
-  // A shared login's responses still open, ended once the board no longer shares with it; run.shared: Set of {login, res}.
-  function endUnshared() {
-    for (const run of live()) {
-      if (!run.shared?.size) continue;
-      const logins = sharedWith(run.board);
-      for (const open of run.shared) if (!logins.includes(open.login)) { run.shared.delete(open); open.res.destroy(); }
-    }
-  }
   async function openPort(run) {
     run.https = publicPort(run);
     const sockets = run.sockets = new Set();
@@ -389,21 +371,15 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       sockets.add(socket);
       socket.on('close', () => sockets.delete(socket));
     };
-    // tailscale serve proxies the port as HTTP, so the relay reads each request's login and lets only the owner and the
-    // board's shared logins through. It has judged the visitor, so the app gets the request as a direct loopback caller's,
-    // without tailscale serve's identity headers: a demo hub behind it with its own owner gate passes it, where it would
+    // tailscale serve proxies the port as HTTP, so the relay reads each request's login and lets only the owner through
+    // (docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md). It has judged the
+    // visitor, so the app gets the request as a direct loopback caller's, without tailscale serve's identity headers: a demo hub behind it with its own owner gate passes it, where it would
     // ask its own, stubbed, tailscale who the login is and answer 503
     // (docs/adr/2026-11-06-1531-try-ports-stay-served-across-a-hub-restart-and-the-relay-hides-who-asked.md).
-    const shared = run.shared = new Set();
     run.relay = http.createServer(async (req, res) => {
-      const verdict = await relayVerdict(req, run.board);
-      if (verdict !== 'owner' && verdict !== 'shared') { refuse(req, res, verdict); return; }
+      const verdict = await gate(req);
+      if (verdict !== 'owner') { refuse(req, res, verdict); return; }
       run.visited = now();
-      if (verdict === 'shared') {
-        const open = { login: req.headers['tailscale-user-login'], res };
-        shared.add(open);
-        res.on('close', () => shared.delete(open));
-      }
       const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !IDENTITY_HEADERS.includes(name)));
       const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers }, (answer) => {
         // The prototype serve is framed by the board's own page, so its answers lose the headers that refuse a frame.
@@ -417,8 +393,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     });
     run.relay.on('connection', track);
     run.relay.on('upgrade', async (req, socket, head) => {
-      const verdict = await relayVerdict(req, run.board);
-      if (verdict !== 'owner') { refuseUpgrade(socket, verdict === 'shared' ? 'view-only' : verdict); return; }
+      const verdict = await gate(req);
+      if (verdict !== 'owner') { refuseUpgrade(socket, verdict); return; }
       track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url, replace: IDENTITY_HEADERS }));
     });
     // The relay listens on the try port on this host, where the host's browser opens it; while the tailnet is on,
@@ -1048,7 +1024,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   }
   const tracked = (work) => (...args) => track(work(...args));
   return { start: tracked(start), kill: tracked(kill), tick: tracked(tick), stop: tracked(stop), lookup, initialize, pull: tracked(pull),
-    pullMains: tracked(pullMains), endUnshared, settled, next };
+    pullMains: tracked(pullMains), settled, next };
 }
 
 // Git that reaches a board repo's origin, GitHub or a remote board's: git's own credential with its prompts off
@@ -1177,5 +1153,4 @@ export const tryTick = (...args) => manager.tick(...args);
 export const pullNow = (...args) => manager.pull(...args);
 export const pullMains = (...args) => manager.pullMains(...args);
 export const stopTries = () => manager.stop();
-export const endUnsharedTries = () => manager.endUnshared();
 export const initializeTries = (...args) => manager.initialize(...args);

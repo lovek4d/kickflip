@@ -1255,7 +1255,7 @@ test('a failed board request reads as one of six states, each with its landing l
   assert.deepEqual(read(answer(502, { 'x-kickflip-down': 'crashed' })), ['restarting', 'Board restarting', `It stopped, and the hub is starting it again. ${back}`]);
   assert.deepEqual(read(answer(502, { 'x-kickflip-down': 'stopped' })), ['stopped', 'Board stopped', 'Nothing answers on its port. Its Claude session has to start it.']);
   assert.deepEqual(read(answer(404, { 'x-kickflip-down': 'removed' })), ['removed', 'This board is gone', 'The hub no longer lists it.']);
-  assert.deepEqual(read(answer(403, { 'x-kickflip-down': 'access' })), ['access', 'You no longer have access', 'Ask its owner to share it again.']);
+  assert.deepEqual(read(answer(403, { 'x-kickflip-down': 'access' })), ['access', 'You no longer have access', 'Only its owner’s Tailscale account opens it.']);
   assert.equal(ui.downOf(answer(200, { 'x-app-shell': '1' })).state, 'access', 'a dropped share redirects the request to the shell at /');
   assert.deepEqual(read(answer(500, { 'x-kickflip-hub': '1' })), ['erroring', 'Board restarting', 'It answers with errors. Retrying for 30 seconds.']);
   assert.equal(ui.downOf(answer(200, { 'x-kickflip-hub': '1' })).state, 'erroring', 'a body that is not JSON');
@@ -2944,17 +2944,7 @@ test('pending.within settles with its work, and past 60 seconds runs onLate and 
   Object.assign(context, { setTimeout, clearTimeout });
 });
 
-// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
-test("a shared person's sidebar lists only their boards: no Hub row, no New board, no update or notification rows", () => {
-  const data = { shared: { by: 'Love' }, sites: [{ route: 'orch', title: 'Orch', board: true, icon: '<span class="icon"></span>', sub: { status: null, stale: false, chips: [] } }], starting: [] };
-  const html = ui.sidebar(data, { here: 'orch', device: 'off', update: 'ready' });
-  assert.match(html, /<a class="sb-row on" href="\/orch\/" aria-current="page">/);
-  assert.doesNotMatch(html, /sb-row[^"]*" href="\/_hub\/"|data-new-board|sb-utility|data-app-reload|Turn on notifications/);
-  assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/orch/']);
-});
-
-// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md
-test("a Full person's line in a thread is named as them, the owner's stays You", () => {
+test("an owner line with a by is named by it, the owner's own stays You", () => {
   const html = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'Per key', by: 'Dana <R>', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'Agreed', files: [] },

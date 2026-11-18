@@ -580,13 +580,6 @@ window.BoardView = (function () {
     B.whileDown(B.streaming, loadBoard);
   }
 
-  // shared: {by, full} for someone the board is shared with, whose board opens with a strip saying what they can do there
-  // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md). → the strip's inside
-  function sharedStrip({ by, full }) {
-    const from = `Shared with you${by ? ` by ${BoardUI.esc(by)}` : ''}.`;
-    return full ? `<b>Full.</b> ${from} You can answer and act. Merge and Board settings are ${by ? `${BoardUI.esc(by)}’s` : 'the owner’s'}.`
-      : `<b>View only.</b> ${from} You can look and open Visit links.`;
-  }
   // The board search's magnifier and its bar under the header (app-search.js).
   const MAGNIFIER = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`;
   const searchButton = `<button class="ghost icon" id="searchOpen" type="button" aria-label="Search tasks" title="Search tasks (press f twice or /)" aria-controls="searchBar" aria-expanded="false">${MAGNIFIER(18)}</button>`;
@@ -594,14 +587,13 @@ window.BoardView = (function () {
     + '<input id="searchField" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Search tasks" aria-label="Search tasks">'
     + '<span class="search-hint" aria-hidden="true">↵ open · esc close</span>'
     + '<button type="button" class="ghost icon search-clear" data-search-clear aria-label="Clear search" title="Clear search (Esc)">✕</button></div>';
-  function markup({ title = '', shared = null } = {}) {
-    const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
+  function markup({ title = '' } = {}) {
     return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', moon: true, navAfter: `${searchButton}<span id="boardFilter" class="board-filter-slot"></span><span id="waitsChip"></span>`, titleMenu: '<div id="boardMenu" class="board-menu" role="menu" aria-labelledby="boardMenuOpen" hidden></div>' })}
 <div class="split">
 <div id="boardLoading" class="board-loading" role="status"><svg class="board-loading-moon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${HubUI.TILE_PATHS.moon}</svg>
   <h2 class="board-loading-name">${BoardUI.esc(title)}</h2><p class="board-loading-line">Loading board...</p><p class="board-loading-slow" hidden>The host is slow to answer.</p></div>
 <main>
-${strip}  ${searchBar}
+  ${searchBar}
   <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="startBanner" class="start-banner-slot" aria-live="polite" hidden></section>
   <section id="pauseBanner" class="hub-view" hidden></section>
@@ -677,5 +669,5 @@ ${BoardQuestionsSheet.markup(' id="questionsSheet" aria-label="questions"')}
 </dialog>`;
   }
 
-  return { part, create, page, markup, sharedStrip };
+  return { part, create, page, markup };
 })();

@@ -50,8 +50,8 @@ test('the hub runs on one 15 s clock, each job every so many of its ticks', () =
   assert.deepEqual(CLOCKS, { quarter: 15_000 });
   const jobs = (clock, n) => dueOn(clock, n).map((p) => p.id).sort();
   assert.deepEqual(jobs('quarter', 1), ['hung-check', 'reconcile', 'self-restart', 'sidebar-refresh', 'tick']);
-  assert.deepEqual(jobs('quarter', 4), ['hung-check', 'reconcile', 'self-restart', 'share-save', 'sidebar-refresh', 'tick']);
-  assert.deepEqual(jobs('quarter', 60), ['hung-check', 'nightly-suite', 'reconcile', 'self-restart', 'share-save', 'sidebar-refresh', 'tick']);
+  assert.deepEqual(jobs('quarter', 4), ['hung-check', 'reconcile', 'self-restart', 'sidebar-refresh', 'tick']);
+  assert.deepEqual(jobs('quarter', 60), ['hung-check', 'nightly-suite', 'reconcile', 'self-restart', 'sidebar-refresh', 'tick']);
   assert.equal(POLLS.some((p) => p.id === 'stream-reconnect'), false, 'the stream reconnects on the reconcile job');
 });
 
@@ -61,7 +61,6 @@ test('a cadence reads as words, with a clock job’s ticks when it waits more th
   assert.equal(of('tick'), 'every 15 s');
   assert.equal(of('reconcile'), 'every 15 s');
   assert.equal(of('nightly-suite'), 'every 15 min (60 × 15 s)');
-  assert.equal(of('share-save'), 'every 1 min (4 × 15 s)');
   assert.equal(of('down-check'), 'every 15 s');
   assert.equal(of('review-digest'), 'quiet hours’ end');
 });

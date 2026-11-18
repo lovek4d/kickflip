@@ -5,33 +5,28 @@
 // since it may have changed while its stream was down. `event: sidebar` carries what /_hub/sidebar.json would answer
 // whenever that differs from the last one sent: after a board's change, and on the hub's 15 s clock for what no stream reports,
 // such as a site going down or a page's waiting count; and when a board's data/watcher.json is written or removed, since
-// a session's watcher starting or exiting is what the sidebar's listening word follows (boards.mjs listenState); a write that only moves its checks counter wakes nothing. A
-// shared person's page (hub/share.mjs) gets only their boards' changes and their own view of each sidebar.
+// a session's watcher starting or exiting is what the sidebar's listening word follows (boards.mjs listenState); a write that only moves its checks counter wakes nothing.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
 // targets() → [{route, port}], the boards to hold; sidebar({fresh}) → the sidebar data, fresh naming the routes whose
 // waiting counts to refetch; watched() → [{route, dir}], the boards whose data/watcher.json to watch; watch is fs.watch, which a test replaces.
-// → {handle(req, res, viewer), close(), changed(route), refresh(), reconcile()}; the hub's 15 s clock runs refresh() and reconcile()
-// (shared/polls.mjs), and the stream's own timer is the ping; viewer is null for the owner, or {routes: Set, view(sidebar data) → data}
+// → {handle(req, res), close(), changed(route), refresh(), reconcile()}; the hub's 15 s clock runs refresh() and reconcile()
+// (shared/polls.mjs), and the stream's own timer is the ping
 export function hubStream({ targets, watched = () => [], sidebar, pingMs = 25_000, settleMs = 300, watch = fs.watch, log = () => {} }) {
-  const clients = new Map(); // res → viewer
+  const clients = new Set(); // open responses
   const upstreams = new Map(); // route → {port, req}
   const watchers = new Map(); // dir → fs.FSWatcher on dir/data
   const watcherSeen = new Map(); // dir → data/watcher.json without its checks counter, as last seen
   const opened = new Set(); // routes whose stream has opened since the first page started listening
   let lastSidebar = null;
-  let lastData = null;
   let timers = [];
   let pendingFresh = new Set();
   let sidebarTimer = null;
 
-  const write = (text) => { for (const res of clients.keys()) res.write(text); };
-  const sidebarTo = (res, data, json) => {
-    const viewer = clients.get(res);
-    res.write(`event: sidebar\ndata: ${viewer ? JSON.stringify(viewer.view(data)) : json}\n\n`);
-  };
+  const write = (text) => { for (const res of clients) res.write(text); };
+  const sidebarTo = (res, json) => res.write(`event: sidebar\ndata: ${json}\n\n`);
   const event = (type, data) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 
   async function refreshSidebar(fresh = []) {
@@ -40,8 +35,7 @@ export function hubStream({ targets, watched = () => [], sidebar, pingMs = 25_00
     const json = JSON.stringify(data);
     if (json === lastSidebar) return;
     lastSidebar = json;
-    lastData = data;
-    for (const res of clients.keys()) sidebarTo(res, data, json);
+    for (const res of clients) sidebarTo(res, json);
   }
   function sidebarSoon(route) {
     if (route) pendingFresh.add(route);
@@ -55,8 +49,7 @@ export function hubStream({ targets, watched = () => [], sidebar, pingMs = 25_00
   }
 
   function changed(route) {
-    const text = event('change', { route });
-    for (const [res, viewer] of clients) if (!viewer || viewer.routes.has(route)) res.write(text);
+    write(event('change', { route }));
     sidebarSoon(route);
   }
 
@@ -145,16 +138,15 @@ export function hubStream({ targets, watched = () => [], sidebar, pingMs = 25_00
     watcherSeen.clear();
     opened.clear();
     lastSidebar = null;
-    lastData = null;
   }
 
   // Written straight to the socket, unbuffered and never gzipped, like each board's own stream.
-  function handle(req, res, viewer = null) {
+  function handle(req, res) {
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write('retry: 3000\n\n');
-    clients.set(res, viewer);
+    clients.add(res);
     if (clients.size === 1) startHolding();
-    if (lastSidebar) sidebarTo(res, lastData, lastSidebar);
+    if (lastSidebar) sidebarTo(res, lastSidebar);
     else refreshSidebar();
     req.on('close', () => {
       clients.delete(res);
@@ -163,7 +155,7 @@ export function hubStream({ targets, watched = () => [], sidebar, pingMs = 25_00
   }
 
   function close() {
-    for (const res of clients.keys()) res.end();
+    for (const res of clients) res.end();
     clients.clear();
     stopHolding();
   }

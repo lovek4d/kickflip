@@ -122,8 +122,8 @@ A site joined with `kickflip page <name>` (`/kickflip page`) and `--port` (a ser
 _Avoid_: minimal site, unwatched site
 
 **Owner**:
-The person the sites serve. The word for the session that serves a site is **owning session**.
-_Avoid_: user, admin
+The person the sites serve, and the only one the hub and its try ports answer: a browser on the **host**, a loopback caller, or, while the **tailnet** is on, a device signed in to Tailscale as the host's user. Any other Tailscale identity is refused on every path; nothing is shared with anyone else ([the hub has no sharing](docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md)). The word for the session that serves a site is **owning session**.
+_Avoid_: user, admin, shared person, guest, viewer
 
 **Board session**:
 A board's owning session as the manifest records it in the site's owner: its id, its folder (`repo`, where `claude --resume` finds it) and an optional model. `kickflip start` launches one in the background; `kickflip resume` brings it back and records the id it comes back under. A rejoin keeps the label, model and folder it leaves out.
@@ -186,12 +186,8 @@ _Avoid_: nightly jobs, cron
 The summary rows below the **hub page**’s health and status: **Pause hub** first, then Notifications, Quiet hours, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area. Snooze and Pause hub share one duration picker: 1h, 3h, 6h, 1d, Forever and Custom. Keep awake, Linear and Slack are not summary rows: Keep awake is a toggle row in Health, under the machine row, and Linear's key and Slack's token open modals from an Add key or Change key button at the end of their Integrations rows ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)). Keep awake is an on/off toggle that has the hub run `caffeinate -s`, holding the Mac awake only on AC power, and is disabled on hosts other than macOS ([Keep awake is a toggle that holds the Mac awake only on AC power](docs/adr/2026-11-09-1200-keep-awake-is-a-toggle-that-holds-the-mac-awake-only-on-ac-power.md)). Old Hub Settings links open the matching modal over Hub ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)).
 _Avoid_: Hub Settings page, preferences, hub config
 
-**Shared person**:
-Someone else signed in to Tailscale whose login a board's Sharing lists: they see that board in a shell whose sidebar lists only the boards shared with them, and open its Visit links; the rest of the hub refuses them ([a board is shared view only with a Tailscale login](docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md)). Each is **View**, looking only, or **Full**, also answering, writing in threads, attaching files, tapping task buttons and adding New tasks, named in the thread; Merge and Board settings stay the owner's at both ([a shared person is View or Full](docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md)).
-_Avoid_: guest, viewer, collaborator
-
 **Board Settings**:
-The centred modal opened from the board menu’s Settings row, at every width, which scrolls inside on a phone. It contains only that board’s settings: **Pause board** first, then repo and branch (Change uses the same list and GitHub link search as New board), ticket source, auto-merge, auto-build, Maximum tasks in progress and planners, reviewers, sharing, rules and Close board with typed-name confirmation. Closing returns to the same board and open task without another history entry ([hub settings expand in place and board settings open in a modal](docs/adr/2026-10-31-1721-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)).
+The centred modal opened from the board menu’s Settings row, at every width, which scrolls inside on a phone. It contains only that board’s settings: **Pause board** first, then repo and branch (Change uses the same list and GitHub link search as New board), ticket source, auto-merge, auto-build, Maximum tasks in progress and planners, reviewers, rules and Close board with typed-name confirmation. Closing returns to the same board and open task without another history entry ([hub settings expand in place and board settings open in a modal](docs/adr/2026-10-31-1721-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)).
 _Avoid_: Settings page
 
 **Codex setting**:

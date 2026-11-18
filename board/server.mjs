@@ -5,7 +5,7 @@
 // the other files below through bin/board.mjs (store.mjs). Every write goes through files.mjs, as every process's does:
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // build_target names the script, build-<target>, else build; scripts, kickflip, runs the scripts from the site's scripts/,
 // else from the repo's .kickflip/ (build-script.mjs scriptFileOf).
@@ -204,7 +204,7 @@
 //                                and no event (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
 //                                ask-withdrawn {id, key?} also hides that event (POST /api/hide), in the one request.
 //                                script-run {key, id, sha} and script-decline {key, id} are the owner's Run and Decline
-//                                on a card's waiting script offer, never a shared person's; one of an offer that isn't
+//                                on a card's waiting script offer; one of an offer that isn't
 //                                waiting → 400, a Run whose sha isn't the offer's → 409, and nothing recorded. A Run
 //                                starts bin/script-run.mjs detached, which posts script-result
 //                                {key, id, exit, output, timedOut, ms, log} when the script ends
@@ -283,12 +283,6 @@
 //   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null, claude_model?: opus | auto | sonnet | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id, builders}; a bad body → 400 {error}
-//   POST /api/share              {add: login} | {remove: login} | {login, level: view | full} → board.json's share, the
-//                                logins the board is shared with, a bare login View and {login, level: 'full'} Full
-//                                (settings.mjs saveBoardShare; docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md,
-//                                docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md),
-//                                waking no session. → {share}; a bad body → 400 {error}. The hub's GET /_hub/share/<route>
-//                                answers who they are, when each was last seen and who was just refused.
 //   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused, unavailable}]}: the board's session
 //                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); unavailable
 //                                says why a switch can't be turned on; 404 off the manifest
@@ -329,10 +323,7 @@ function lastLogLine(lines) {
 //   POST /_claude/changed        {file}: a store write in another process wrote file, under data/ or the item files'
 //                                folder; signals a change (files.mjs wrote). → 204
 //   GET  /_claude/health
-// Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text). One the hub forwards with
-// X-Kickflip-Shared is a shared person's: only an event or upload of someone the board's share lists as Full is taken,
-// and an event only of a kind Full allows, recorded with data.shared_by {login, name}, which the thread names them by; anything
-// else → 403 {error} (sharedWriter; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
+// Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text).
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's replies to event <id> are data/replies/<id>.md, .html (written before markdown replies) or .json, then <id>~2.md, <id>~3.md … (cards.mjs replyFilesOf).
 import { cardNotesOf, liveFiles, loggedOutCards, outsideData as readOutside, readSnapshot, shownEvents as readShownEvents, tryLogTail, withReply as eventWithReply } from './snapshot.mjs';
@@ -369,7 +360,7 @@ import { BoardError } from './checks.mjs';
 import { readScriptOffer, readAgents, tapMerge, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
 import { heldReview, applyReviewAnswer, dropAskCard, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
-import { finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, saveBoardShare, setBoardPause, settingsOf } from './settings.mjs';
+import { finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf } from './settings.mjs';
 import { noteLoggedOut, dropPause, markPaused, passNews, requestPause, openAgents, implementAsIs, clearStall } from './runs.mjs';
 import { runMigrations } from './migrations.mjs';
 import { appendEvents as appendBoardEvents, appendLine, boardConfig, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
@@ -382,7 +373,6 @@ import { routeRecord } from '../hub/routes.mjs';
 import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
-import { shareEntries } from '../hub/share.mjs';
 import { readUsageGate, heldFor, tasksInProgressCap, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
@@ -503,24 +493,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     let body = '';
     for await (const chunk of req) { body += chunk; if (body.length > limit) throw Object.assign(new Error('too large'), { status: 413 }); }
     return body ? JSON.parse(body) : {};
-  }
-
-  // A shared person's write (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md). The hub forwards one with
-  // X-Kickflip-Shared naming them only to a board they have Full on, and only to events or an upload; the owner's request
-  // never carries it. board.json is read again here, so a level changed since the hub's check holds. Full takes answers,
-  // thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
-  // the header's GitHub check stay the owner's, as does any kind not listed.
-  const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request','grill-more', 'visual-request', 'review-request', 'item-message',
-    'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-cancel', 'card-bump', 'card-unbump']);
-  const VIEW_ONLY = 'This board is shared with you to look at only.';
-  const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
-  // → null for the owner's request, {refused} for one a shared person can't make, else {by: {login, name}}
-  async function sharedWriter(req, p) {
-    const login = req.headers['x-kickflip-shared'];
-    if (!login) return null;
-    const level = shareEntries(await config()).find((e) => e.login === login)?.level;
-    if (level !== 'full' || !['/_claude/events', '/api/upload'].includes(p) || req.method !== 'POST') return { refused: VIEW_ONLY };
-    return { by: { login, name: req.headers['tailscale-user-name'] || null } };
   }
 
   // Every page event, and the server's own such as a rules save, is one line here, which wakes the watcher. → its id
@@ -1044,10 +1016,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const url = new URL(req.url, 'http://site');
       let p = url.pathname;
       if (prefix && (p === prefix || p.startsWith(prefix + '/'))) p = p.slice(prefix.length) || '/';
-      // A shared person's write: only a Full person's event or upload is taken.
-      const shared = req.method !== 'GET' && req.method !== 'HEAD' ? await sharedWriter(req, p) : null;
-      if (shared?.refused) return json(res, 403, { error: shared.refused });
-
       if (p === '/_claude/health') return json(res, 200, { ok: true });
       if (p === '/api/board') {
         const b = await answerBoard(req, String(url.searchParams.get('since') || ''));
@@ -1103,12 +1071,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         // The version of the board the page holds, so the answer's board is a patch from it.
         const since = String(body.since || '');
         delete body.since;
-        if (shared && !FULL_KINDS.has(kind)) return json(res, 403, { error: OWNERS_ONLY });
-        // shared_by names a Full person's event, and each answer of their Send, and is never the page's to say.
-        for (const d of [body, ...(Array.isArray(body.answers) ? body.answers.filter((a) => a && typeof a === 'object') : [])]) {
-          delete d.shared_by;
-          if (shared) d.shared_by = shared.by;
-        }
         // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md,
         // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md: the page resends a
         // reply-box tap whose answer it never saw, so one already recorded under its sendId answers as recorded.
@@ -1146,13 +1108,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
             return json(res, 200, { id: eventId, board: await answerBoard(req, since) });
           } finally { scriptTaps.delete(id); }
         }
-        // docs/adr/2026-11-13-2045-an-exact-repeat-within-30-seconds-is-skipped.md: a message whose text, author and card
-        // match one recorded in the last 30 seconds answers as recorded, and writes nothing. A message with a sendId is a
+        // docs/adr/2026-11-13-2045-an-exact-repeat-within-30-seconds-is-skipped.md: a message whose text and card match one
+        // recorded in the last 30 seconds answers as recorded, and writes nothing. A message with a sendId is a
         // distinct send of the page's, which its sendId already guards, so it is not compared.
         if (kind === 'item-message' || kind === 'ask') {
           const text = String(body.text || '');
           const repeat = text.trim() && !body.sendId && (await readLog(events)).reverse().find((e) => e.kind === kind && now().getTime() - Date.parse(e.ts) <= REPEAT_WINDOW_MS
-            && String(e.data?.text || '') === text && String(e.data?.key || '') === String(body.key || '') && JSON.stringify(e.data?.shared_by ?? null) === JSON.stringify(body.shared_by ?? null));
+            && String(e.data?.text || '') === text && String(e.data?.key || '') === String(body.key || ''));
           if (repeat) return json(res, 200, { id: repeat.id, board: await answerBoard(req, since) });
         }
         if (plan) return json(res, 200, { id: await applyTap(plan, kind, body, sendId), board: await answerBoard(req, since) });
@@ -1336,9 +1298,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           });
           return json(res, response.status, await response.json());
         } catch (e) { return json(res, 502, { error: `Could not ${kill ? 'kill the serve' : 'start the build'}: ${e.message}` }); }
-      }
-      if (p === '/api/share' && req.method === 'POST') {
-        try { return json(res, 200, await saveBoardShare(here, await readBody(req))); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
       }
       if (p === '/api/settings' && req.method === 'POST') {
         const body = await readBody(req);

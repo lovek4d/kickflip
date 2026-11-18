@@ -107,16 +107,13 @@ BoardView.part((B) => {
     } catch (e) { toast(`Couldn't wake this board's session: ${e.message}`); }
     finally { state.waking = false; renderJoin(); }
   }
-  // A shared person's tap never wakes the owner's session (shell.js .shared-view).
-  const shared = () => document.documentElement.classList.contains('shared-view');
-  const wakeOnTap = () => { if (state.board?.checks?.watcher === 'asleep' && !state.waking && state.link === 'online' && !shared()) wake(); };
+  const wakeOnTap = () => { if (state.board?.checks?.watcher === 'asleep' && !state.waking && state.link === 'online') wake(); };
   B.on(B.root, 'click', wakeOnTap, true);
   B.on(B.root, 'submit', wakeOnTap, true);
 
   // docs/adr/2026-11-17-1500-the-board-menu-shows-how-to-join-the-orchestrator-in-a-terminal.md
   // The board menu, which the board's name opens, and its Join in terminal sheet (ui-header.js boardMenu, joinSheet). Each
   // repaints with the header's status while open, so a wake, the session's watcher or the link going down shows at once.
-  // A shared person's name tap opens nothing: the command runs on the owner's machine.
   const menu = $('#boardMenu');
   const menuOpen = $('#boardMenuOpen');
   const joinSheet = $('#joinSheet');
@@ -148,7 +145,7 @@ BoardView.part((B) => {
     showMenu(false);
     if (escaped) menuOpen.focus();
   }
-  B.on(menuOpen, 'click', () => { if (state.board && !shared()) showMenu(menu.hidden); });
+  B.on(menuOpen, 'click', () => { if (state.board) showMenu(menu.hidden); });
   // Pause board from the menu: the duration chips (HubKit.durationPicker, as Board Settings draws them) in a sheet, and
   // Resume at one tap, each posting {pause} to api/pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
   const pauseSheet = $('#pauseSheet');

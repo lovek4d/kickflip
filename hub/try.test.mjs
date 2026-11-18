@@ -598,7 +598,7 @@ take();`);
   assert.match(thread()[0].detail, /^Build script must be executable/);
 });
 
-test("a web script serves root paths and upgrades through the relay to the owner and the board's shared logins alone, and keeps its port across a new commit and Retry", async () => {
+test("a web script serves root paths and upgrades through the relay to the owner alone, and keeps its port across a new commit and Retry", async () => {
   const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }), tailnet: () => true });
   setManager(tryManager({ now: () => clock, log() {}, gate }));
   const server = http.createServer();
@@ -644,38 +644,11 @@ test("a web script serves root paths and upgrades through the relay to the owner
     request.end();
   });
   assert.equal(refused, 403);
-  // A login the board shares with opens its Visit links, view only (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md).
-  config({ share: ['friend@github'] });
-  assert.equal(await (await fetch(relayOf(8500) + '/nested', { headers: friend })).text(), 'served /nested');
-  const write = await fetch(relayOf(8500) + '/api', { method: 'POST', headers: friend, body: 'x' });
-  assert.deepEqual([write.status, await write.json()], [403, { error: 'This board is shared with you to look at only.' }]);
-  // A shared view opens no upgrades, so nothing outlives its share but a response, which removing the share ends.
-  const sharedUpgrade = await new Promise((resolve, reject) => {
-    const request = http.request(relayOf(8500) + '/socket', { headers: { connection: 'Upgrade', upgrade: 'test', ...friend } });
-    request.on('error', reject);
-    request.on('upgrade', () => reject(new Error('upgraded')));
-    request.on('response', (res) => { let body = ''; res.on('data', (c) => { body += c; }); res.on('end', () => resolve([res.statusCode, JSON.parse(body)])); });
-    request.end();
-  });
-  assert.deepEqual(sharedUpgrade, [403, { error: 'This board is shared with you to look at only.' }]);
-  const hold = (headers) => new Promise((resolve, reject) => {
-    http.get(relayOf(8500) + '/hold', { headers }, (res) => {
-      const held = { ended: false, res };
-      res.on('data', () => {});
-      held.closed = new Promise((closed) => res.on('close', () => { held.ended = true; closed(); }));
-      resolve(held);
-    }).on('error', reject);
-  });
-  const theirs = await hold(friend);
-  const owners = await hold(phone);
-  manager.endUnshared();
-  assert.equal(theirs.ended, false, 'still shared, still open');
+  // A login the board's board.json still lists under its old share is refused the same
+  // (docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md).
+  config({ share: ['friend@github', { login: 'friend@github', level: 'full' }] });
+  assert.deepEqual([(await fetch(relayOf(8500) + '/nested', { headers: friend })).status, (await fetch(relayOf(8500) + '/api', { method: 'POST', headers: friend, body: 'x' })).status], [403, 403]);
   config();
-  manager.endUnshared();
-  await theirs.closed;
-  assert.equal(owners.ended, false, "the owner's response stays open");
-  owners.res.destroy();
-  assert.equal((await fetch(relayOf(8500) + '/nested', { headers: friend })).status, 403);
   commit(worktree, 'new head');
   for (let n = 0; n < 2; n++) {
     await start();

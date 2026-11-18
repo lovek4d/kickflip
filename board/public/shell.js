@@ -62,20 +62,6 @@ window.AppShell = (function () {
     // A stored sidebar's code says nothing about the shell that booted, so it adopts the next live hash.
     bootCode = data?.code || null;
     data ||= read(DATA_KEY);
-    // A board shared with someone else (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md):
-    // the hub sends them data.shared, and style.css hides what writes under .shared-view. On a board they have Full on
-    // (data.shared.full; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md) the page is .shared-full too,
-    // which shows the composers and card buttons again; levelHere follows the route shown and each sidebar event.
-    const shared = data?.shared || null;
-    document.documentElement.classList.toggle('shared-view', Boolean(shared));
-    const sharedHere = (route) => ({ by: data?.shared?.by ?? null, full: Boolean(data?.shared?.full?.includes(route)) });
-    function levelHere() {
-      if (!shared || !current) return;
-      const here = sharedHere(current.route);
-      document.documentElement.classList.toggle('shared-full', here.full);
-      const strip = current.root.querySelector('.view-only-strip');
-      if (strip) strip.innerHTML = BoardView.sharedStrip(here);
-    }
     sidebar = Sidebar.mount({ data, poll: false, reload, open: (href) => { if (!open(href)) location.assign(href); } });
     // A New board the hub serves while its orchestrator starts (a starting entry's served) is a board too.
     const boards = () => new Set([...(data?.sites || []).filter((s) => s.board), ...(data?.starting || []).filter((s) => s.served)].map((s) => s.route));
@@ -138,7 +124,6 @@ window.AppShell = (function () {
         try { data = JSON.parse(e.data); } catch { return; }
         codeSeen(data.code);
         sidebar.setData(data);
-        levelHere();
         current?.v?.B?.renderStatus?.();
       });
       cur.addEventListener('error', () => {
@@ -151,9 +136,7 @@ window.AppShell = (function () {
     // minute while present. While away the first one goes at once and the moon goes from this page at the same moment
     // (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md).
     let beatAt = 0;
-    // A shared person's taps are never the owner's.
     const beat = () => {
-      if (shared) return;
       const away = Boolean(data?.away);
       if (!away && Date.now() - beatAt < 60_000) return;
       beatAt = Date.now();
@@ -212,7 +195,6 @@ window.AppShell = (function () {
     function present(view) {
       const hub = view.route === undefined;
       const siteTitle = hub ? 'Hub' : titleOf(view.route);
-      levelHere();
       document.title = view.kind === 'board' ? siteTitle : AppViews[view.kind].title(view, { siteTitle });
       if (boards().has(view.route)) { try { localStorage.setItem(LAST_KEY, view.route); } catch { /* no storage: `/` opens the start board */ } }
       sidebar.setHere(hub ? new URL(AppRouter.urlOf(view), location.href).pathname.slice(1) : view.route);
@@ -232,7 +214,7 @@ window.AppShell = (function () {
       const page = board ? null : AppViews[view.kind];
       const root = document.createElement('div');
       root.className = board ? 'view-board' : page.className;
-      root.innerHTML = board ? BoardView.markup({ title: siteTitle, shared: shared && sharedHere(route) }) : page.markup(view, { siteTitle });
+      root.innerHTML = board ? BoardView.markup({ title: siteTitle }) : page.markup(view, { siteTitle });
       if (was) was.root.replaceWith(root); else scrim.after(root);
       const siteRoot = hub ? '/_hub' : '/' + encodeURIComponent(route);
       let v;

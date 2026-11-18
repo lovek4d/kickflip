@@ -26,8 +26,8 @@ const interfaceAddresses = () => Object.values(os.networkInterfaces()).flat().ma
 // The host as the gate reads it on each request: its interfaces' addresses, its tailnet node, and whether the tailnet is on.
 const thisHost = { addresses: interfaceAddresses, node: tailnetNode, tailnet: () => tailnetOn() };
 
-// → {login, name, dnsName, addresses} of the host's own tailnet node, name being its user's display name and dnsName its
-// MagicDNS name, or null when tailscale isn't installed, doesn't answer, or another daemon answers for the recorded one
+// → {login, addresses} of the host's own tailnet node, or null when tailscale isn't installed, doesn't answer, or another
+// daemon answers for the recorded one
 async function tailnetNode() {
   const tailscale = tailscaleDaemon();
   if (!tailscale) return null;
@@ -37,7 +37,7 @@ async function tailnetNode() {
     if (answeredBy(tailscale, status)) return null;
     const { Self, User } = status;
     const user = User?.[Self.UserID];
-    return { login: user?.LoginName, name: user?.DisplayName || null, dnsName: String(Self.DNSName || '').replace(/\.$/, '') || null, addresses: Self.TailscaleIPs || [] };
+    return { login: user?.LoginName, addresses: Self.TailscaleIPs || [] };
   } catch { return null; }
 }
 
@@ -62,9 +62,9 @@ export async function fromHost(req, host = thisHost) {
 // The front door to the whole hub and its try ports (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md).
 // host: as fromHost; now, retryMs: when tailscale is asked again after it didn't name the host's user
 // → async (req) => 'owner' for the host, a direct loopback caller or a device whose Tailscale-User-Login is the host
-// node's user; 'other' for any other login or none (a shared-in user, a tagged node, Funnel); 'unread' for a login
-// while tailscale hasn't named the host's user yet. The user is read once and kept for the gate's lifetime. gate.node()
-// → that host node, read now if no request has needed it, or null while tailscale doesn't answer.
+// node's user; 'other' for any other login or none (a shared-in user, a tagged node, Funnel), which nothing serves
+// (docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md); 'unread' for a login
+// while tailscale hasn't named the host's user yet. The user is read once and kept for the gate's lifetime.
 export function ownerGate(host = thisHost, { now = Date.now, retryMs = 5000 } = {}) {
   let owner = null;
   let asking = null;
@@ -78,7 +78,7 @@ export function ownerGate(host = thisHost, { now = Date.now, retryMs = 5000 } = 
     });
     return asking;
   };
-  const gate = async (req) => {
+  return async (req) => {
     if (!host.tailnet()) return isLoopback(clientOf(req)) ? 'owner' : 'other';
     if (host.addresses().includes(clientOf(req))) return 'owner';
     const login = req.headers['tailscale-user-login'];
@@ -86,8 +86,6 @@ export function ownerGate(host = thisHost, { now = Date.now, retryMs = 5000 } = 
     const found = await ownerNode();
     return !found ? 'unread' : found.login === login ? 'owner' : 'other';
   };
-  gate.node = async () => (host.tailnet() ? ownerNode() : null);
-  return gate;
 }
 
 // The hub process's one gate, shared by its own server and its try relays.

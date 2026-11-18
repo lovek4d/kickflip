@@ -1148,9 +1148,8 @@ function askedLine(e) {
   const m = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'asked-from', text: hubText('asked-from', { phrase }) };
   return [{ ...m, ...hubLineOf(m), html: null, link: from ? `#selectedCard=${encodeURIComponent(from)}` : null, via: null }];
 }
-// A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md);
-// an ask the orchestrator filed names who asked.
-const byOf = (e) => (e.data?.asked ? { by: askerOf(e.data.asked) } : e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
+// An ask the orchestrator filed names who asked.
+const byOf = (e) => (e.data?.asked ? { by: askerOf(e.data.asked) } : {});
 // docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md: a reply the hub copied
 // from a task's Slack thread as a message (hub/slack-intake.mjs followSlackAsks), its slack {by?, link}: under its
 // sender's name (the owner's own without one), via Slack, linking to the reply.

@@ -68,9 +68,6 @@ test('a waiting script is Action needed on its card and pushes at once; Run is t
   assert.equal(push.kind, ACTION_KIND.script);
   assert.deepEqual((await threadOf(base)).map((m) => m.script.state), ['waiting']);
 
-  // A shared person, even one with Full, sees it read-only.
-  fs.writeFileSync(path.join(w.site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't', share: [{ login: 'ann', level: 'full' }] }));
-  assert.equal((await send(base, 'script-run', { key: 't/A1', id: s.id, sha: s.sha }, { 'x-kickflip-shared': 'ann' })).status, 403);
   // A page drawn from another script text can't run this one.
   const stale = await send(base, 'script-run', { key: 't/A1', id: s.id, sha: scriptSha('echo other') });
   assert.equal(stale.status, 409);
