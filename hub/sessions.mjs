@@ -420,16 +420,16 @@ async function moveOwner(route, { from, to, mark }) {
 
 // A new background session for the route, in repo (else the recorded session's folder, else the cwd), whose first
 // prompt is `/kickflip board '<board name>'` plus prompt, or first in full. Refuses while the route's recorded session is live. Writes nothing to the
-// manifest. A folder that is a clone under clones (repos.mjs isClone) is first marked trusted for Claude Code (trust.mjs).
+// manifest. A folder that is a clone under clones (repos.mjs isClone), or any folder with trust (a folder the owner picked in New), is first marked trusted for Claude Code (trust.mjs).
 // → {route, session, confirmed, repo, model, name, argv, output}: model is the override asked for or recorded, null on
 // Hub settings' Orchestrators, so a caller that records it never pins the hub's choice.
-export async function startSession(route, { manifest = readManifest(), repo, model, prompt, first, run = runClaude, live = liveSessions, clones = reposDir() } = {}) {
+export async function startSession(route, { manifest = readManifest(), repo, model, prompt, first, run = runClaude, live = liveSessions, clones = reposDir(), trust = false } = {}) {
   if (routeRecord(manifest.closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   refuseLive(rec, live);
   const dir = path.resolve(repo || rec?.repo || process.cwd());
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new SessionError(`no folder at ${dir}`, 'none');
-  if (isClone(dir, clones)) {
+  if (trust || isClone(dir, clones)) {
     try { trustFolder(dir); } catch (e) { throw new SessionError(`Couldn't trust this folder for Claude Code: ${e.message}`, 'failed'); }
   }
   const name = routeRecord(manifest?.sites, route)?.title || routeRecord(manifest?.starting, route)?.title || route;

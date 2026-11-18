@@ -22,7 +22,7 @@ Kickflip needs Node 22 or newer. On Linux, install the same tools with your pack
 
 ## Your first board
 
-- **From the app:** open the hub, tap New board and pick a GitHub repo.
+- **From the app:** open the hub, tap New, and pick a GitHub repo, another host's git link, or a folder on this Mac, which the board works in place (it offers to make a folder a git repo first).
 - **From a folder:** in a git repo's folder, run `kickflip join`. It asks for a board name and starts the board's Claude Code session in the background.
 
 ## The loop

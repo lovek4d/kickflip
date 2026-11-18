@@ -139,7 +139,7 @@ test("New board asks no model: its orchestrator starts on Hub settings' Orchestr
     await board.started;
     assert.equal(calls[0].argv[calls[0].argv.indexOf('--model') + 1], 'sonnet');
     assert.equal('model' in readManifest().starting['on-hub-default'], false);
-    await assert.rejects(requestBoard({ ...input('Other model', 'owner/shared'), model: 'opus' }, { run, live, repos }), { status: 400, message: 'Send only name, github or remote, branch, purpose and tickets.' });
+    await assert.rejects(requestBoard({ ...input('Other model', 'owner/shared'), model: 'opus' }, { run, live, repos }), { status: 400, message: 'Send only name, github, remote or folder, branch, purpose and tickets.' });
     assert.equal(readManifest().starting['other-model'], undefined);
   } finally { await setOrchestratorModel('opus', home); }
 });

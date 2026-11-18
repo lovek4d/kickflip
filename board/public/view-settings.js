@@ -291,7 +291,7 @@
       for (const button of landingButtons()) button.setAttribute('aria-pressed', String(button === $(`[data-landing="${landing}"]`)));
     };
     const showRepo = () => {
-      $('#boardRepoValue').textContent = repo.github || repo.remote ? `${repo.github || repo.remote} · ${repo.branch || 'Branch not recorded'}` : 'No GitHub repo';
+      $('#boardRepoValue').textContent = repo.github || repo.remote ? `${repo.github || repo.remote} · ${repo.branch || 'Branch not recorded'}` : `Local only, lands don’t push · ${repo.branch || 'main'}`;
       syncPRs();
     };
     get(repoURL).then(({ body }) => {

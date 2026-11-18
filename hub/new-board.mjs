@@ -9,19 +9,23 @@ import { repoService, validateGithub, validateBranch, validateRemote } from './r
 import { startHealth, startSession, startSignals, stopSession } from './sessions.mjs';
 import { liveSessions } from './live.mjs';
 import { LINEAR_NEEDS_KEY, linearWorks, savedClient } from './linear.mjs';
+import { boardOnFolder, folderInfo, makeRepo } from './folders.mjs';
 
 const refuse = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 
 function details(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)
-    || Object.keys(input).some((k) => !['name', 'github', 'remote', 'branch', 'purpose', 'tickets'].includes(k))) refuse('Send only name, github or remote, branch, purpose and tickets.');
+    || Object.keys(input).some((k) => !['name', 'github', 'remote', 'folder', 'git_init', 'branch', 'purpose', 'tickets'].includes(k))) refuse('Send only name, github, remote or folder, branch, purpose and tickets.');
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 60) refuse('Name must be 1–60 characters.');
   if (typeof input.purpose !== 'string' || !input.purpose.trim() || input.purpose.length > 240) refuse('Description must be 1–240 characters.');
   const title = input.name.trim().replace(/\s+/g, ' ');
   const route = routeFromName(title);
   if (!ROUTE_RE.test(route)) refuse('Name must contain a letter or digit for its route.');
-  const { github, remote } = repoInput(input);
-  const branch = validateBranch(input.branch);
+  const { folder } = input;
+  if (folder !== undefined && (input.github !== undefined || input.remote !== undefined)) refuse('Send the repo as github, remote or folder.');
+  if (input.git_init !== undefined && (folder === undefined || input.git_init !== true)) refuse('Send git_init as true, with a folder.');
+  const { github, remote } = folder === undefined ? repoInput(input) : {};
+  const branch = folder === undefined || input.branch !== undefined ? validateBranch(input.branch) : undefined;
   let tickets = input.tickets === undefined ? { source: 'none' } : input.tickets;
   if (remote && tickets?.source === 'github') refuse('GitHub issues need a repo on GitHub; pick None or Linear.');
   let newProject;
@@ -31,7 +35,7 @@ function details(input) {
     if (!newProject || newProject.length > 80) refuse('Name the new Linear project.');
     tickets = { ...rest, project: newProject };
   }
-  return { route, title, github, remote, branch, tickets: ticketSource(tickets), newProject, purpose: input.purpose.trim().replace(/\s+/g, ' ') };
+  return { route, title, github, remote, folder, gitInit: input.git_init === true, branch, tickets: ticketSource(tickets), newProject, purpose: input.purpose.trim().replace(/\s+/g, ' ') };
 }
 
 // A board's repo from a request: {github} on GitHub, or {remote} on any other git host
@@ -85,10 +89,11 @@ async function serveStart(route) {
   });
 }
 
-// The Starting row's record before its start has an outcome. A served start's site stays.
-const startingRecord = ({ title, purpose, repo, github, remote, branch, tickets, site }, repos) => ({
-  title, purpose, repo, ...(github ? { github } : { remote }), branch, tickets, ...(site ? { site } : {}),
-  phase: repos.cloned(github || remote) ? 'starting' : 'cloning', asked_at: new Date().toISOString(),
+// The Starting row's record before its start has an outcome. A served start's site stays. A start on a folder
+// marks its record `folder`, its repo that folder, with github or remote only when its origin has one.
+const startingRecord = ({ title, purpose, repo, github, remote, folder, branch, tickets, site }, repos) => ({
+  title, purpose, repo, ...(github ? { github } : remote ? { remote } : {}), ...(folder ? { folder: true } : {}), branch, tickets, ...(site ? { site } : {}),
+  phase: folder || repos.cloned(github || remote) ? 'starting' : 'cloning', asked_at: new Date().toISOString(),
 });
 
 // A fresh clone's percent by route, in hub memory only while it runs: the sidebar shows it, and the manifest keeps only
@@ -97,10 +102,10 @@ const clonePercents = new Map();
 export const clonePercent = (route) => clonePercents.get(route);
 const PROGRESS_EVERY_MS = 1000;
 
-// Prepares the clone and starts the route's session, recording the outcome on its Starting row. The clone's percent
-// calls changed at most once a second. → a promise that settles once the outcome is recorded, as {session} or {error},
-// and never rejects.
-async function start(route, { purpose, repo, github, remote, branch }, { run, live, repos, changed }) {
+// Prepares the clone, which a start on a folder has none of, and starts the route's session, recording the outcome on its
+// Starting row. The clone's percent calls changed at most once a second. → a promise that settles once the outcome is
+// recorded, as {session} or {error}, and never rejects.
+async function start(route, { purpose, repo, github, remote, folder, branch }, { run, live, repos, changed }) {
   let outcome;
   let sent = -Infinity;
   const progress = (percent) => {
@@ -110,15 +115,30 @@ async function start(route, { purpose, repo, github, remote, branch }, { run, li
     changed();
   };
   try {
-    try { await repos.ensure(github || remote, branch, { progress }); } finally { clonePercents.delete(route); }
+    if (!folder) try { await repos.ensure(github || remote, branch, { progress }); } finally { clonePercents.delete(route); }
     await serveStart(route);
     await recordStart(route, { phase: 'starting' });
     changed();
-    const r = await startSession(route, { repo, prompt: joinFlags({ purpose }), run, live, clones: repos.base });
+    // The owner picked the folder in New, so the hub trusts it for Claude Code as it does the clones it makes.
+    const r = await startSession(route, { repo, prompt: joinFlags({ purpose }), run, live, clones: repos.base, trust: Boolean(folder) });
     outcome = { session: r.session, name: r.name, repo: r.repo, model: r.model };
   } catch (e) { outcome = { error: errorLine(e.message) }; }
   try { await recordStart(route, outcome); } catch (e) { return { error: errorLine(`could not record the start: ${e.message}`) }; }
   return outcome.error ? { error: outcome.error } : { session: outcome.session };
+}
+
+// A New board's repo from its typed folder (folders.mjs folderInfo), worked in place: the folder, its branch, and its
+// origin as github or remote. A folder that isn't a git repo needs git_init, and is made one on main once the route
+// is known to be free. → {folder: true, repo, github, remote, branch}
+async function onFolder({ route, folder, gitInit, branch, tickets }) {
+  const found = await folderInfo(folder, { manifest: readManifest() });
+  if (!found.git && !gitInit) refuse('Not a git repo. Turn on Make it a git repo to use it.');
+  const chosen = found.git ? branch ?? found.branch : 'main';
+  if (!found.branches.includes(chosen)) refuse(`That folder has no branch ${chosen}.`);
+  if (tickets?.source === 'github' && !found.github) refuse('GitHub issues need a repo on GitHub; pick None or Linear.');
+  if (taken(readManifest(), route)) refuse(TAKEN);
+  if (!found.git) await makeRepo(found.path);
+  return { folder: true, repo: found.path, github: found.github, remote: found.remote, branch: chosen };
 }
 
 // Reserves the route on a Starting row, then starts the board's session in the background
@@ -128,10 +148,11 @@ async function start(route, { purpose, repo, github, remote, branch }, { run, li
 // → {route, started}: started settles once the outcome is on the Starting row, as {session} or {error}, and never rejects.
 export async function requestBoard(input, { run, live, repos = repoService(), changed = () => {}, linear } = {}) {
   const board = details(input);
-  const { route, github, remote, newProject } = board;
+  const { route, newProject } = board;
   let { tickets } = board;
   if (tickets?.source === 'linear' && !linear && !linearWorks()) refuse(LINEAR_NEEDS_KEY);
-  const repo = repos.path(github || remote);
+  if (board.folder !== undefined) Object.assign(board, await onFolder(board));
+  const repo = board.folder ? board.repo : repos.path(board.github || board.remote);
   const client = newProject === undefined ? null : linear || savedClient();
   if (client) {
     if (taken(readManifest(), route)) refuse(TAKEN);
@@ -141,6 +162,8 @@ export async function requestBoard(input, { run, live, repos = repoService(), ch
   await withManifestLock(async () => {
     const manifest = readManifest();
     if (taken(manifest, route)) refuse(TAKEN);
+    const other = board.folder && boardOnFolder(repo, manifest);
+    if (other) refuse(`Already /${other}’s repo.`, 409);
     manifest.starting = { ...manifest.starting, [route]: startingRecord({ ...board, repo, tickets }, repos) };
     await writeManifest(manifest);
   });
@@ -160,7 +183,8 @@ function failedStart(manifest, route, action, running) {
 // purpose (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). A start that timed out or stalled first has its recorded
 // session stopped (sessions.mjs stopSession, with live and stop), so the route never has two. The record loses its
 // error and session, and takes a new phase and asked_at, and its repo path again from the repo and the current clone
-// home, so the session starts in the folder the clone goes to. → {route, started} as requestBoard's.
+// home, so the session starts in the folder the clone goes to; a start on a folder keeps its folder. → {route, started} as
+// requestBoard's.
 export async function retryBoard(route, { run, live = liveSessions, stop, repos = repoService(), changed = () => {} } = {}) {
   const running = live();
   const before = failedStart(readManifest(), route, 'retried', running);
@@ -170,7 +194,7 @@ export async function retryBoard(route, { run, live = liveSessions, stop, repos 
   const board = await withManifestLock(async () => {
     const manifest = readManifest();
     const pending = failedStart(manifest, route, 'retried', running);
-    manifest.starting[route] = startingRecord({ ...pending, repo: repos.path(pending.github || pending.remote), purpose: pending.purpose || '' }, repos);
+    manifest.starting[route] = startingRecord({ ...pending, repo: pending.folder ? pending.repo : repos.path(pending.github || pending.remote), purpose: pending.purpose || '' }, repos);
     await writeManifest(manifest);
     return manifest.starting[route];
   });

@@ -2583,7 +2583,7 @@ test('the repo sheet names gh auth login when signed out, retries authentication
   const form = sheet.querySelector('form');
   const click = (sel) => page.fire(form, 'click', { target: sheet.querySelector(sel) });
   assert.match(sheet.textContent, /GitHub isn’t connected.*gh auth login/);
-  assert.ok(sheet.querySelector('[data-join-hint]'), 'the signed-out sheet points at kickflip join too');
+  assert.ok(sheet.querySelector('[data-nb-source="folder"]'), 'the signed-out sheet offers a folder on this Mac too');
   assert.equal(sheet.querySelector('[data-repo]'), null);
   signedIn = true;
   click('[data-check-auth]');
@@ -2621,7 +2621,7 @@ test('pasted unlisted repos use the normal branch and save steps in New board an
     await tick();
     const sheet = doc.getElementById('newBoardSheet');
     const form = sheet.querySelector('form');
-    assert.equal(sheet.querySelector('[data-join-hint]')?.textContent ?? null, current ? null : 'A repo already on the host running Kickflip? Run kickflip join in its folder.');
+    assert.equal(sheet.querySelector('[data-nb-source][aria-pressed="true"]')?.textContent ?? null, current ? null : 'GitHub', 'only New picks a source');
     const input = sheet.querySelector('[name="search"]');
     input.value = 'https://github.com/outside/project/tree/canary';
     page.fire(form, 'input', { target: input });
@@ -2674,7 +2674,7 @@ test('repo links highlight listed rows, check other hosts on the hub, refuse loc
   }
   for (const link of ['/srv/git/r.git', 'file:///srv/git/r.git', '../r']) {
     search(link);
-    assert.equal(sheet.querySelector('[data-repo-results] [role="alert"] .nb-why').textContent, 'Paste the repo’s remote link. Local folders don’t work here.');
+    assert.equal(sheet.querySelector('[data-repo-results] [role="alert"] .nb-why').textContent, 'That’s a folder. Pick Folder on this Mac above.');
   }
   assert.deepEqual(urls, ['/_hub/repos']);
   for (const [link, name] of [['https://gitlab.com/o/r.git', 'gitlab.com/o/r'], ['git@bitbucket.org:o/r.git', 'bitbucket.org/o/r'], ['ssh://git@git.example.com:2222/o/r', 'git.example.com/o/r']]) {
@@ -2733,6 +2733,105 @@ test('a pasted git link on another host picks its host-labelled row, lists branc
   await tick();
   assert.deepEqual(saved, [{ name: 'firmware', purpose: 'Firmware work', remote: link, branch: 'main', tickets: { source: 'none' } }]);
   assert.deepEqual(urls, ['/_hub/repos', `/_hub/repo?remote=${encodeURIComponent(link)}`, `/_hub/branches?remote=${encodeURIComponent(link)}`]);
+});
+
+// docs/adr/2026-11-18-0724-a-new-board-can-anchor-on-a-folder-on-this-mac.md
+test('Folder on this Mac suggests folders as you type, shows what the hub found, holds Next for a non-repo until Make it a git repo, and starts with the folder', async () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  const urls = [], saved = [];
+  const found = {
+    '~/dev/shop': { folder: '~/dev/shop', path: '/home/o/dev/shop', git: true, github: 'acme/shop', branch: 'trunk', branches: ['trunk', 'alpha'] },
+    '~/dev/diary': { folder: '~/dev/diary', path: '/home/o/dev/diary', git: true, branch: 'main', branches: ['main'] },
+    '~/dev/poems': { folder: '~/dev/poems', path: '/home/o/dev/poems', git: false, branch: 'main', branches: ['main'] },
+  };
+  win.setTimeout = (fn) => { fn(); return 1; };
+  win.fetch = async (url) => {
+    urls.push(url);
+    const q = new URL(url, 'https://test').searchParams;
+    if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList });
+    if (url.startsWith('/_hub/folders?')) return repoResponse({ folders: Object.keys(found).filter((f) => f.startsWith(q.get('q'))) });
+    const at = found[q.get('path')];
+    if (at) return repoResponse(at);
+    return q.get('path') === '~' ? { ok: false, status: 400, json: async () => ({ error: 'That’s your whole home folder. Pick a folder inside it.' }) }
+      : { ok: false, status: 404, json: async () => ({ error: 'No folder there.' }) };
+  };
+  win.BoardDialogs.repoSheet({ save: async (input, selected) => saved.push(JSON.parse(JSON.stringify([input, selected]))) });
+  await tick();
+  const sheet = doc.getElementById('newBoardSheet');
+  const form = sheet.querySelector('form');
+  const click = (sel) => page.fire(form, 'click', { target: sheet.querySelector(sel) });
+  const type = async (value) => {
+    const input = sheet.querySelector('[name="folder-path"]');
+    input.value = value;
+    page.fire(form, 'input', { target: input });
+    await tick(); await tick();
+  };
+  const results = () => sheet.querySelector('[data-folder-results]').textContent;
+  const next = sheet.querySelector('[data-folder-next]');
+  assert.deepEqual([...sheet.querySelectorAll('[data-nb-source]')].map((b) => b.textContent), ['GitHub', 'Other git host', 'Folder on this Mac']);
+  click('[data-nb-source="git"]');
+  assert.equal(sheet.querySelector('[name="search"]').getAttribute('placeholder'), 'https://host/path or user@host:path');
+  assert.equal(sheet.querySelector('[data-repo]'), null, 'Other git host lists no GitHub repos');
+  click('[data-nb-source="folder"]');
+  assert.equal(next.hidden, false);
+  assert.match(results(), /Start typing a path under ~/);
+  await type('~/dev/');
+  assert.deepEqual([...sheet.querySelectorAll('[data-folder]')].map((b) => b.dataset.folder), ['~/dev/shop', '~/dev/diary', '~/dev/poems']);
+  assert.equal(urls.some((u) => u.startsWith('/_hub/folder?')), false, 'a path ending in a slash is still being typed');
+  await type('~');
+  assert.match(results(), /That’s your whole home folder/);
+  assert.equal(next.disabled, true);
+  await type('~/dev/nothing');
+  assert.match(results(), /No folder there\. Keep typing, or tap a suggestion\./);
+  await type('~/dev/d');
+  click('[data-folder="~/dev/diary"]');
+  await tick(); await tick();
+  assert.equal(sheet.querySelector('[name="folder-path"]').value, '~/dev/diary');
+  assert.equal(results(), 'Git repo · no remote · lands won’t push');
+  assert.equal(next.disabled, false);
+  await type('~/dev/poems');
+  assert.match(results(), /^Not a git repoMake it a git repogit init, and commit what’s there as the first commit\. Applies when you tap Start\./);
+  assert.equal(next.disabled, true, 'Next waits for Make it a git repo');
+  const toggle = sheet.querySelector('[name="git-init"]');
+  toggle.checked = true;
+  page.fire(form, 'change', { target: toggle });
+  assert.equal(sheet.querySelector('[data-folder-line]').textContent, 'Will be a git repo · no remote · lands won’t push');
+  assert.equal(next.disabled, false);
+  click('[data-folder-next]');
+  assert.match(sheet.querySelector('.nb-selected').textContent, /^~\/dev\/poemsWill be a git repo/);
+  assert.equal(sheet.querySelector('[name="branch"]').disabled, true);
+  assert.match(sheet.textContent, /A new repo starts on main\..*On this board, lands fast-forward main and never push\./s);
+  assert.equal(sheet.querySelector('[name="name"]').value, 'poems');
+  assert.equal(sheet.querySelector('[data-tk-source="github"]').getAttribute('aria-disabled'), 'true');
+  sheet.querySelector('[name="purpose"]').value = 'Poems';
+  page.fire(form, 'input', { target: sheet.querySelector('[name="purpose"]') });
+  page.fire(form, 'submit');
+  await tick();
+  assert.deepEqual(saved, [[{ name: 'poems', purpose: 'Poems', folder: '/home/o/dev/poems', git_init: true, branch: 'main', tickets: { source: 'none' } }, { clone: '/home/o/dev/poems', cloned: true }]]);
+
+  win.BoardDialogs.repoSheet({ save: async (input) => saved.push(JSON.parse(JSON.stringify(input))) });
+  await tick();
+  const again = doc.getElementById('newBoardSheet');
+  page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-nb-source="folder"]') });
+  const input = again.querySelector('[name="folder-path"]');
+  input.value = '~/dev/shop';
+  page.fire(again.querySelector('form'), 'input', { target: input });
+  await tick(); await tick();
+  assert.equal(again.querySelector('[data-folder-results]').textContent, 'Git repo · github.com/acme/shop · trunk');
+  page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-folder-next]') });
+  assert.deepEqual([...again.querySelectorAll('[name="branch"] option')].map((o) => o.value), ['trunk', 'alpha']);
+  assert.match(again.textContent, /Read from the folder\. New implementers branch from trunk\..*On this board, lands fast-forward trunk in this folder\./s);
+  assert.notEqual(again.querySelector('[data-tk-source="github"]').getAttribute('aria-disabled'), 'true', 'a GitHub clone can file GitHub issues');
+  page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-back-repos]') });
+  await tick(); await tick();
+  assert.equal(again.querySelector('[name="folder-path"]').value, '~/dev/shop', 'Back keeps the folder');
+  page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-folder-next]') });
+  again.querySelector('[name="purpose"]').value = 'Shop';
+  page.fire(again.querySelector('form'), 'input', { target: again.querySelector('[name="purpose"]') });
+  page.fire(again.querySelector('form'), 'submit');
+  await tick();
+  assert.deepEqual(saved.at(-1), { name: 'shop', purpose: 'Shop', folder: '/home/o/dev/shop', branch: 'trunk', tickets: { source: 'none' } });
 });
 
 test('bare repo lookups debounce, cancel when edited or closed, and ignore stale success and failure responses', async () => {
@@ -3004,6 +3103,17 @@ test('Board Settings shows repo and branch, changes them as JSON and closes the 
   assert.match(root.querySelector('#boardRepoStatus').textContent, /session has been told/);
   view.unmount();
   assert.equal(closed, 1);
+});
+
+test("Board Settings' repo row reads Local only, lands don't push, for a board with no remote", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  page.win.fetch = async (url) => repoResponse(url === '/_hub/board-repo/diary' ? { github: '', branch: 'trunk', repo: '/home/o/dev/diary', local: true } : {});
+  const view = page.win.AppViews.settings.create(root, 'https://mac.ts.net/diary', { reload() {} });
+  view.mount();
+  await tick();
+  assert.equal(root.querySelector('#boardRepoValue').textContent, 'Local only, lands don’t push · trunk');
+  view.unmount();
 });
 
 // docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md

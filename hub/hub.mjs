@@ -35,6 +35,9 @@
 //                     ?remote=<git link> another host's repo; returns one repo row with listed: false, or 404 when
 //                     unreachable (repos.mjs)
 //   /_hub/branches   GET ?github=owner/repo or ?remote=<git link> lists branches and the repo default
+//   /_hub/folders    GET ?q=<path as typed> → {folders: [~/ paths]} under home for New's folder source (folders.mjs)
+//   /_hub/folder     GET ?path=<folder> what New board finds there: {folder, path, git, github?, remote?, branch,
+//                     branches}, or {error} when it can't be a board's repo (folders.mjs folderInfo)
 //   /_hub/board-repo/<route> GET repo and branch; POST {github | remote, branch} prepares the clone and sends
 //                     repo-changed (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
 //   /_hub/board-model/<route> GET {orchestrators, hub}; POST {model: opus | sonnet | null for Hub default}
@@ -240,6 +243,7 @@ import { checkSessions, compactFullContexts, freshIdleSessions, logStartPrompt, 
 import { codeRestartHeld, logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
+import { folderInfo, folderSuggestions } from './folders.mjs';
 import { boardRepo, changeBoardRepo } from './board-repo.mjs';
 import { boardModel, changeBoardModel, changeHubOrchestratorModel, restartOnModel } from './board-model.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
@@ -1316,6 +1320,11 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
     }
     if (p === '/_hub/repo' && req.method === 'GET') return repoLookupRoute(url, { repos, manifest: loadManifest(), sendJSON });
+    if (p === '/_hub/folders' && req.method === 'GET') return sendJSON(200, { folders: folderSuggestions(url.searchParams.get('q')) });
+    if (p === '/_hub/folder' && req.method === 'GET') {
+      try { return sendJSON(200, await folderInfo(url.searchParams.get('path'), { manifest: loadManifest() })); }
+      catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
     const repoRoute = /^\/_hub\/board-repo\/([a-z0-9-]+)$/.exec(p);
     if (repoRoute && ['GET', 'POST'].includes(req.method)) {
       try {

@@ -635,9 +635,12 @@ const commands = {
       const previous = existing?.owner && existing.owner.session !== args.session ? existing.owner : null;
       const started = routeRecord(m.starting, route)?.session === args.session ? routeRecord(m.starting, route) : null;
       const pendingRepo = routeRecord(m.starting, route);
-      if (!existing && (pendingRepo?.github || pendingRepo?.remote) && (!pendingRepo.session || pendingRepo.session === args.session)) {
+      // A New board on a folder (../hub/new-board.mjs onFolder) is a local board of that folder: it builds and lands
+      // there and is never reset to its origin.
+      if (!existing && (pendingRepo?.github || pendingRepo?.remote || pendingRepo?.folder) && (!pendingRepo.session || pendingRepo.session === args.session)) {
         if (pendingRepo.github) site.github = pendingRepo.github;
-        else site.remote = pendingRepo.remote;
+        else if (pendingRepo.remote) site.remote = pendingRepo.remote;
+        if (pendingRepo.folder) site.local = true;
         site.branch = pendingRepo.branch;
       }
       const same = existing?.owner?.session === args.session ? existing.owner : null;
