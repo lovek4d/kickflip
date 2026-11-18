@@ -189,7 +189,7 @@ test('the literal paths of a module are its quoted strings, single or joined in 
 const OTHER = new Set([
   'board/headless.test.mjs SKILL.md', 'board/phases.test.mjs colors.css',
   'board/progress-review.test.mjs claude.js', 'board/ui.test.mjs sw.js', 'board/ui.test.mjs boards.mjs',
-  'shared/service.test.mjs hub.mjs', 'hooks-plugin/hooks/waits-filter-gate.test.mjs wait-events.mjs',
+  'shared/service.test.mjs hub.mjs', 'hub/files.test.mjs index.html', 'hooks-plugin/hooks/waits-filter-gate.test.mjs wait-events.mjs',
   ...['sw.js', 'app.js', 'colors.css', 'kickflip.png', 'icon-180.png', 'style.css', 'prototype-kit.js', 'log.html'].map((name) => `hub/share.test.mjs ${name}`),
 ]);
 test('every repo file a test names in a quote is in its computed set', () => {

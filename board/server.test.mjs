@@ -2463,3 +2463,14 @@ test("Board Settings' description reads and saves the manifest's, with how it wa
     assert.equal((await post('x'.repeat(240))).status, 200);
   } finally { fs.rmSync(manifest); }
 });
+
+test('a symlink in the board\'s public folder that leads outside its roots is not served', async () => {
+  const pub = path.join(site, 'public');
+  fs.mkdirSync(pub, { recursive: true });
+  const secret = path.join(home, 'board-secret.js');
+  fs.writeFileSync(secret, 'secret');
+  fs.writeFileSync(path.join(pub, 'inside.js'), 'inside');
+  fs.symlinkSync(secret, path.join(pub, 'leak.js'));
+  assert.equal((await fetch(`${base}/inside.js`)).status, 200);
+  assert.equal((await fetch(`${base}/leak.js`)).status, 404);
+});

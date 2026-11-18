@@ -16,6 +16,15 @@ const plain = (res, code, text, extra = {}) => {
   res.end(text);
 };
 
+// The file's real path when it, once every symlink in it is followed, is still inside the root's real path; null
+// when it is missing or leads out. A link inside a served folder never reads a file outside it.
+export async function realFileUnder(root, file) {
+  try {
+    const [realRoot, real] = await Promise.all([fs.realpath(root), fs.realpath(file)]);
+    return real === realRoot || real.startsWith(realRoot + path.sep) ? real : null;
+  } catch { return null; }
+}
+
 // rest is the request's path and query under the route; prefix is /<route>. A folder serves its index.html, and one
 // asked for without its trailing slash redirects to it, so the page's relative links resolve. A path with a part
 // starting with "." is refused, so a project folder's .git or .env never leaves the host. headers are added to a file's
@@ -37,8 +46,10 @@ export async function serveFiles(req, res, { dir, rest, prefix, headers = {} }) 
     }
     file = path.join(file, 'index.html');
   }
+  const real = await realFileUnder(root, file);
+  if (!real) return plain(res, 404, 'Not found.');
   let body;
-  try { body = await fs.readFile(file); } catch { return plain(res, 404, 'Not found.'); }
+  try { body = await fs.readFile(real); } catch { return plain(res, 404, 'Not found.'); }
   res.writeHead(200, { 'content-type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store', 'content-length': body.length, ...headers });
   res.end(req.method === 'HEAD' ? undefined : body);
 }

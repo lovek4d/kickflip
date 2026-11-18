@@ -356,6 +356,7 @@ import { TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, pauseWor
 import { alertsOf, localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
+import { realFileUnder } from '../hub/files.mjs';
 import { hubText } from './hub-lines.mjs';
 import { withdraw } from '../hub/push.mjs';
 import { readClaudeModel } from '../shared/hub-settings.mjs';
@@ -871,7 +872,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (file !== root && !file.startsWith(root + path.sep)) return null;
       const st = await fs.stat(file).catch(() => null);
       if (st?.isDirectory()) file = path.join(file, 'index.html');
-      if (await fs.stat(file).then((x) => x.isFile(), () => false)) return file;
+      if (!(await fs.stat(file).then((x) => x.isFile(), () => false))) continue;
+      const real = await realFileUnder(root, file);
+      if (real) return real;
     }
     return null;
   }
