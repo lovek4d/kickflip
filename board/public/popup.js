@@ -82,10 +82,14 @@
   // Shows el beside anchor, or places it again when it is the one open (a repaint of the same element).
   function show(el, anchor, { align = 'start', onClose = null } = {}) {
     if (open && open.el !== el) stop();
+    // An owner's in-place redraw (ui.js setHTML) patches the open element back to its markup, dropping the class and
+    // the popover attribute, so each call sets them again and shows the element if it no longer is.
+    // Without its popover attribute an element is no popover and not open.
+    const kept = open?.el === el && el.getAttribute('popover') === 'manual';
+    el.classList.add('popup');
+    el.setAttribute('popover', 'manual');
+    if (!kept) el.showPopover();
     if (!open) {
-      el.classList.add('popup');
-      el.setAttribute('popover', 'manual');
-      el.showPopover();
       const observer = new MutationObserver(changed);
       observer.observe(document.body, { childList: true, subtree: true, characterData: true });
       open = { el, observer };

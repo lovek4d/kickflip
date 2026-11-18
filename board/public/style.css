@@ -356,7 +356,7 @@ a.hub { display: inline-flex; flex: none; }
    from each screen edge, which popup.js reads back. */
 .popup[popover] { position: fixed; inset: auto; margin: 0; box-sizing: border-box; overflow: auto; color: var(--text);
   scroll-margin: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
-.popup[popover]:not(:popover-open) { display: none; }
+.popup[popover]:not(:popover-open), .board-filter-menu:not(:popover-open) { display: none; }
 /* A card's menu (app-cards.js), a popup under or above its "…"
    (docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md). */
 .card-menu { min-width: 196px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }

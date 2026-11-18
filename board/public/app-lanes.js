@@ -259,6 +259,7 @@ BoardView.part((B) => {
     const box = ev.target.closest('[data-board-filter]');
     if (box) {
       const id = box.dataset.boardFilter;
+      filterOpen = false;
       setFilter(unchecked().includes(id) ? unchecked().filter((x) => x !== id) : [...unchecked(), id]);
       return;
     }

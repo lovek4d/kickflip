@@ -8232,6 +8232,8 @@ test("the header's board filter lists four boxes, all checked; an unchecked box 
   const btn = () => b.root.querySelector('.top #boardFilter button.board-filter');
   const box = (name) => b.root.querySelector(`#boardFilter [data-board-filter="${name}"]`);
   const tap = async (el) => { b.page.fire(b.root, 'click', { target: el }); await b.settle(); };
+  // A tap on a box closes the menu, so each box is tapped through a freshly opened one.
+  const pick = async (name) => { if (!box(name)) await tap(btn()); await tap(box(name)); };
   const todoCount = () => b.root.querySelector('details.lane[data-lane="todo"] summary .count').textContent;
   const all = cards.map((c) => c.key.slice(2)).sort();
   assert.deepEqual([keys(), todoCount(), btn().classList.contains('on'), btn().textContent, b.root.querySelector('.board-filter-menu')], [all, '9', false, '', null]);
@@ -8239,24 +8241,24 @@ test("the header's board filter lists four boxes, all checked; an unchecked box 
   await tap(btn());
   assert.deepEqual(b.root.querySelectorAll('[data-board-filter]').map((el) => [el.textContent, el.getAttribute('aria-checked')]),
     [['Ready', 'true'], ['Action needed', 'true'], ['Questions', 'true'], ['Blocked', 'true']]);
-  await tap(box('blocked'));
+  await pick('blocked');
   assert.deepEqual(keys(), all.filter((k) => !['B1', 'H1'].includes(k)), 'Blocked hides the owner blocked too');
   assert.deepEqual([btn().classList.contains('on'), todoCount()], [true, '7 of 9']);
-  await tap(box('blocked'));
-  await tap(box('ready'));
+  await pick('blocked');
+  await pick('ready');
   assert.deepEqual(keys(), all.filter((k) => !['R1', 'R2'].includes(k)), 'a blocked ready card is hidden only by Blocked');
-  await tap(box('ready'));
-  await tap(box('questions'));
+  await pick('ready');
+  await pick('questions');
   assert.deepEqual(keys(), all.filter((k) => k !== 'Q1'));
-  await tap(box('questions'));
-  await tap(box('action'));
+  await pick('questions');
+  await pick('action');
   assert.deepEqual(keys(), all.filter((k) => k !== 'M1'), 'Action needed reaches past Todo');
-  await tap(box('action'));
+  await pick('action');
   assert.deepEqual([keys(), btn().classList.contains('on'), todoCount()], [all, false, '9']);
   b.view.unmount();
 });
 
-test('the open board filter menu closes on a click outside it and on Escape, stays open while boxes are ticked, and the outside click still lands', async () => {
+test('the open board filter menu closes on a click outside it and on Escape, closes when a box is ticked, and the outside click still lands', async () => {
   const b = boardOnDom({ board: boardOf([workCard('R1', { phase: 'ready', ready: true })]), threads: {} });
   await b.settle();
   const doc = b.page.win.document;
@@ -8266,7 +8268,9 @@ test('the open board filter menu closes on a click outside it and on Escape, sta
   await open();
   assert.equal(b.root.querySelector('button.board-filter').getAttribute('aria-expanded'), 'true');
   await tap(b.root.querySelector('[data-board-filter="blocked"]'));
-  assert.ok(menu(), 'ticking a box keeps it open');
+  assert.equal(menu(), null, 'ticking a box closes it');
+  await open();
+  assert.ok(menu());
   await open();
   assert.equal(menu(), null, 'the funnel still closes it');
   await open();

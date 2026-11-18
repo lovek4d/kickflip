@@ -105,3 +105,14 @@ test('a tap outside the popup closes it and goes on; a tap inside keeps it; its 
     assert.deepEqual([(await p.report()).open, (await p.report()).closed], [false, 2], 'the popup closed once its anchor left');
   } finally { await p.close(); }
 });
+
+test('an owner patching the open element in place, its attributes stripped, leaves it a popup and never drawn in flow', { skip: !chromeInstalled }, async () => {
+  const p = await load(`<button id="anchor" style="position:fixed;left:20px;top:20px">Menu</button><div id="pop" class="board-filter-menu">${ROWS(3)}</div>`, OPEN());
+  try {
+    await p.run(`const pop = document.getElementById('pop'); pop.removeAttribute('popover'); pop.className = 'board-filter-menu'; ${OPEN()}`);
+    assert.equal((await p.report()).open, true, 'the redraw of the open element shows it as a popover again');
+    assert.equal(await p.run(`getComputedStyle(document.getElementById('pop')).position`), 'fixed', 'it is placed, not in flow');
+    await p.run(`Popup.close(document.getElementById('pop')); document.getElementById('pop').removeAttribute('popover')`);
+    assert.equal(await p.run(`getComputedStyle(document.getElementById('pop')).display`), 'none', 'a menu that is not a popover is hidden, not drawn in flow');
+  } finally { await p.close(); }
+});
