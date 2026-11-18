@@ -43,6 +43,8 @@
     failed: (m) => `<span class="not-sent">not sent</span><span class="send-again"><button type="button" class="ghost icon" data-resend="${esc(m.sendId)}" aria-label="Retry" title="Retry">${RETRY}</button><button type="button" class="ghost icon" data-unsend="${esc(m.sendId)}" aria-label="Dismiss" title="Dismiss, its text back in the box">${DISMISS}</button></span>`,
   };
   // Where an owner's message or a New strip row the page hasn't sent yet (ui-cards.js newEntry) is, by its state.
+  // A tap's status line that is sending spins in its mark's place, in the sending button's spinner (style.css .try-spin).
+  const SENDING_MARK = mark('<span class="try-spin" role="status" aria-label="sending"></span>');
   const pickUp = (m) => PICK_UP[stateOf(m)]?.(m);
   // Every message's footer: its time, its own tags (via, Moved, Edited), the tap, and for the owner's own message where it is.
   const msgFooter = (m, tags) => {
@@ -121,7 +123,7 @@
     : m.request && m.card ? statusLine(`request${tone(m)}`, statusMark(m.mark) + named(m, links), m.ts)
     // A bare tap's line, the outbox's or its event's, carries where it is after its time, as a message's footer does; the
     // board's own lines (a Block's, a bare Implement's) have no state, as no session picks them up.
-    : m.request ? statusLine(`request${tone(m)}`, statusMark(m.mark || m.text) + escText(m.text), m.ts, { by: m.by, after: m.state && PICK_UP[m.state]?.(m), sendId: m.sendId })
+    : m.request ? statusLine(`request${tone(m)}`, (m.state === 'sending' ? SENDING_MARK : statusMark(m.mark || m.text)) + escText(m.text), m.ts, { by: m.by, after: m.state && PICK_UP[m.state]?.(m), sendId: m.sendId })
     // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md: the board's
     // own line, its kind's mark and words, red for a fault.
     : m.kind === 'hub' && m.detail ? statusLine(`request hub fault-detail${tone(m)}`, statusMark(m.mark) + escText(m.text), m.ts, { rest: `<pre class="fault-error">${esc(m.detail)}</pre>` })

@@ -1433,11 +1433,20 @@ test("a bare tap's line reads its words and time, then sending…, waiting… or
   const board = (extra) => ({ ts: sent, who: 'love', via: 'site', kind: 'prototype-request', text: 'Prototype requested', request: true, command: 'prototype', eventId: 'e1', reply: null, state: 'waiting', ...extra });
   assert.equal(words(ui.threadMessages([queued()])), `Prototype requested · ${at} · sending…`);
   assert.match(ui.threadMessages([queued()]), /<div class="msg status-line request" data-send="s1">/);
+  // The line spins while its tap sends, a lane change's included, once, in its mark's place; waiting for the host, not sent and sent draw no spinner.
+  assert.equal(ui.threadMessages([queued()]).match(/try-spin/g).length, 1);
+  assert.match(ui.threadMessages([queued({ mark: 'Marked done', text: 'Marked done' })]), /try-spin/);
+  for (const state of ['held', 'failed', 'waiting', 'answered']) assert.doesNotMatch(ui.threadMessages([queued({ state })]), /try-spin/);
   assert.equal(words(ui.threadMessages([board()])), `Prototype requested · ${at} · waiting…`);
   assert.ok(ui.threadMessages([board({ state: 'working' })]).includes(`· ${ui.esc(at)} · ${ui.workingLine}`));
   assert.equal(words(ui.threadMessages([board({ state: 'answered' })])), `Prototype requested · ${at}`);
   // A Block, Unblock, Done, Reopen or bare Implement's line is the board's own, which no session picks up.
   assert.equal(words(ui.threadMessages([{ ts: sent, who: 'love', kind: 'command', command: 'hold', request: true, mark: 'Blocked', text: 'Blocked until 3:00 PM' }])), `Blocked until 3:00 PM · ${at}`);
+  // docs/adr/2026-11-18-0500-a-sending-tap-spins-in-its-status-line.md: a tap's line spins in its mark's place only while it reads sending….
+  assert.match(ui.threadMessages([queued()]), /<span class="mark" aria-hidden="true"><span class="try-spin" role="status" aria-label="sending"><\/span><\/span>/);
+  assert.doesNotMatch(ui.threadMessages([queued({ state: 'held' })]), /try-spin/);
+  assert.doesNotMatch(ui.threadMessages([queued({ state: 'failed' })]), /try-spin/);
+  assert.doesNotMatch(ui.threadMessages([board()]), /try-spin/);
   const failed = ui.threadMessages([queued({ state: 'failed' })]);
   assert.equal(words(failed), `Prototype requested · ${at} · not sent`);
   assert.match(failed, /<span class="not-sent">not sent<\/span><span class="send-again">/);

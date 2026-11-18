@@ -5350,9 +5350,11 @@ test("Done closes the card as the board moves it to Done and holds the cards sti
   board.items[1] = { ...board.items[1], lane: 'done', finishable: false };
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
-  // The tap's thread line grows the open card first, and the move then holds the cards that kept their lane still.
+  // The tap's thread line grows the open card first, and the move then holds the cards that kept their lane still. layOut
+  // counts 2px per element: the sending line's spinner is one element where its mark's icon was several (an svg and its
+  // shapes), so the line is shorter here; the real .mark is a fixed 18x12 box, so the line's pixel height is the same.
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-100]]);
+    ['done', false, '[]', [-92]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
