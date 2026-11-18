@@ -205,7 +205,9 @@
 //                                (docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md); one whose item
 //                                file couldn't be written, or whose card is merged or dropped, → 400 or 500 {error}
 //                                and no event (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-//                                ask-withdrawn {id, key?} also hides that event (POST /api/hide), in the one request.
+//                                ask-withdrawn {id, key?} also hides that event (POST /api/hide) and drops the card it
+//                                became, in the one request; one whose card's build has started → 400 {error} and no
+//                                event. An ask with a send id is stored under it.
 //                                script-run {key, id, sha} and script-decline {key, id} are the owner's Run and Decline
 //                                on a card's waiting script offer; one of an offer that isn't
 //                                waiting → 400, a Run whose sha isn't the offer's → 409, and nothing recorded. One
@@ -365,7 +367,7 @@ import { BoardError } from './checks.mjs';
 import { draftOf, pruneDrafts, readDrafts, saveDraft } from './drafts.mjs';
 import { readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
-import { heldReview, applyReviewAnswer, dropAskCard, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
+import { heldReview, applyReviewAnswer, dropAskCard, withdrawRefused, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
 import { finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf } from './settings.mjs';
 import { noteLoggedOut, dropPause, markPaused, passNews, requestPause, openAgents, implementAsIs, clearStall } from './runs.mjs';
 import { runMigrations } from './migrations.mjs';
@@ -1173,9 +1175,16 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
             throw e;
           }
         }
+        // docs/adr/2026-11-18-2330-deleting-a-new-ask-reads-deleting-on-its-own-row.md: a Delete once its task's build has
+        // started records nothing, and the page reads not deleted.
+        if (kind === 'ask-withdrawn') {
+          const refused = await withdrawRefused(here, String(body.id || ''));
+          if (refused) return json(res, 400, { error: refused });
+        }
         // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a new task's card is filed
-        // before its event is written, so the watcher's line names the card.
-        const preset = kind === 'ask' ? eventId(now()) : undefined;
+        // before its event is written, so the watcher's line names the card. An ask from the page is stored under its
+        // send id, so one id runs from the tap to the card's from_ask, and a Delete names it before the board answers.
+        const preset = kind === 'ask' ? (sendId && /^[\w.-]{1,64}$/.test(sendId) ? sendId : eventId(now())) : undefined;
         const filed = preset ? await fileAsk(here, preset, { id: preset, ts: now().toISOString(), kind, data: body }) : null;
         // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: a new task sent with a request (its
         // Prototype, Grill or Visual) owes that kind's brief on its card, with the task's text and files, as the tap on a card does.

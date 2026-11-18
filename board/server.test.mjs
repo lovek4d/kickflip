@@ -94,7 +94,10 @@ afterEach(async () => {
   const items = fs.existsSync(itemsFile) ? JSON.parse(fs.readFileSync(itemsFile, 'utf8')).items || [] : [];
   const sorted = new Set(items.filter((i) => i.from_ask && !/^T-\d+$/.test(i.id)).map((i) => i.from_ask));
   for (const { id } of events.filter((e) => e.kind === 'ask' && !withdrawn.has(e.id) && !sorted.has(e.id))) {
-    await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask-withdrawn', id }) });
+    const r = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask-withdrawn', id }) });
+    // The board refuses deleting an ask whose card a test moved past Todo; its ask is withdrawn in the log all the same,
+    // so a later test that rewrites the item file never files it again.
+    if (r.status === 400) fs.appendFileSync(file, JSON.stringify({ id: `ecleanup${id}`, ts: new Date().toISOString(), kind: 'ask-withdrawn', data: { id } }) + '\n');
   }
 });
 after(async () => { await board?.close(); await slackServer?.close(); });
@@ -1186,6 +1189,32 @@ test("deleting a New card is one events POST that records ask-withdrawn and hide
   const log = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.deepEqual(log.find((e) => e.id === out.id).data, { id });
   assert.ok(JSON.parse(fs.readFileSync(path.join(site, 'data', 'hidden.json'), 'utf8')).events.includes(id));
+});
+
+// docs/adr/2026-11-18-2330-deleting-a-new-ask-reads-deleting-on-its-own-row.md
+test("an ask from the page is stored under its send id, which its card's from_ask names, so a withdrawal naming the send id drops the card; one whose build has started is refused and records nothing", async () => {
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
+  const items = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items;
+  const sendId = 'mwmk3677-cju750';
+  const [, sent] = await post({ kind: 'ask', text: 'Never mind', sendId });
+  assert.equal(sent.id, sendId);
+  assert.equal(items().filter((i) => i.from_ask === sendId).length, 1);
+  const [status, out] = await post({ kind: 'ask-withdrawn', id: sendId, sendId: 'mwmk3699-aaaaaa' });
+  assert.equal(status, 200);
+  assert.equal(items().some((i) => i.from_ask === sendId), false);
+  assert.equal(out.board.items.some((i) => i.ask?.eventId === sendId), false);
+
+  const [, built] = await post({ kind: 'ask', text: 'Build me', sendId: 'mwmk3700-bbbbbb' });
+  const card = items().find((i) => i.from_ask === built.id);
+  fs.mkdirSync(path.join(site, 'data', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(site, 'data', 'agents', `${card.id}.json`), JSON.stringify({ kind: 'claude', started: new Date().toISOString() }));
+  const before = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8');
+  assert.deepEqual(await post({ kind: 'ask-withdrawn', id: built.id }), [400, { error: `A build has already started on ${card.id}. Block it to stop the build.` }]);
+  assert.equal(fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8'), before);
+  assert.ok(items().some((i) => i.id === card.id));
+  fs.rmSync(path.join(site, 'data', 'agents', `${card.id}.json`));
+  assert.equal((await post({ kind: 'ask-withdrawn', id: built.id }))[0], 200);
+  assert.equal(items().some((i) => i.id === card.id), false);
 });
 
 // bin/wait-events.mjs's watcher for session on this file's board, in this process, once it has written its cursor. Its

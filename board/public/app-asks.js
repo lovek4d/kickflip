@@ -7,9 +7,12 @@ BoardView.part((B) => {
   const { $, state, toast, seen, markRead } = B;
   const { keyedSend } = BoardUI;
 
-  // The tasks the page hasn't sent yet follow the board's, in the order they were sent (app-threads.js unsentAsks).
+  // The tasks the page hasn't sent yet follow the board's, in the order they were sent (app-threads.js unsentAsks). An
+  // ask the owner deleted reads deleting… on its own row (app-threads.js deletingIn), unless its own send failed.
   function renderNew(d) {
-    const entries = [...BoardUI.newEntries(d, seen), ...B.unsentAsks(d)];
+    const deleting = B.deletingIn(d);
+    const entries = [...BoardUI.newEntries(d, seen), ...B.unsentAsks(d)]
+      .map((e) => ((e.ask || e.withdraw) && deleting(e.id) ? { ...e, deleting: deleting(e.id) } : e));
     const el = $('#newStrip');
     el.hidden = !entries.length;
     BoardUI.setHTML(el, entries.length ? BoardUI.newStrip(entries, { open: B.store.get('lanes', {}), words: B.searchWords() }) : '');
@@ -38,22 +41,19 @@ BoardView.part((B) => {
   });
   BoardNewTask.wire(B);
 
-  // An ask in the New strip carries its card's key.
-  function pendingAsk(b, id) {
-    const key = b.closest('.new-entry')?.dataset.key || undefined;
-    return { key, data: { id, ...(key ? { key } : {}) } };
-  }
-  const askText = (key) => state.board.items.find((i) => i.key === key)?.ask?.text || '';
+  // An ask in the New strip carries its card's key; one the board doesn't have yet has none, and its id is its send id,
+  // which the board stores the ask under.
   B.on(B.root, 'click', async (ev) => {
     const del = ev.target.closest('button[data-withdraw]');
     if (!del) return;
     ev.preventDefault();
     if (!(await B.confirm('Delete this message? Claude will skip it.'))) return;
-    const id = del.dataset.withdraw;
-    const { key, data } = pendingAsk(del, id);
-    // The withdrawal goes through the outbox, its row in the New strip until the board has it; then the ask hides and
-    // its card leaves (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md).
-    B.enqueue(undefined, { kind: 'ask-withdrawn', fields: data, said: `Deleted: ${askText(key)}` });
+    const key = del.closest('.new-entry')?.dataset.key || undefined;
+    // The withdrawal goes through the outbox, behind the ask's own send, and marks the ask's row deleting… until the
+    // board drops the ask; then the ask hides and its card leaves
+    // (docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md,
+    // docs/adr/2026-11-18-2330-deleting-a-new-ask-reads-deleting-on-its-own-row.md).
+    B.enqueue(undefined, { kind: 'ask-withdrawn', fields: { id: del.dataset.withdraw, ...(key ? { key } : {}) } });
   });
   Object.assign(B, { renderNew });
 });

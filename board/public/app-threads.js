@@ -120,12 +120,27 @@ BoardView.part((B) => {
   // Where an unsent tap is: not sent, waiting for the host while the board is out of reach, else sending….
   const pendingOf = (m) => (m.failed ? 'failed' : state.link === 'online' ? 'sending' : 'held');
   // The New strip's rows for the keyless taps of the outbox the board d doesn't hold yet (ui-cards.js newEntry); once
-  // it holds an ask, matched by its sendId, the board's own row takes its place.
+  // it holds an ask, matched by its sendId, the board's own row takes its place. A New task whose send hasn't failed
+  // has its Delete (withdraw). A Delete has no row: it marks its ask's (deletingIn).
   function unsentAsks(d) {
     const have = new Set(d.items.map((it) => it.ask?.sendId).filter(Boolean));
-    return queuedFor(undefined).filter((m) => !have.has(m.sendId))
+    return queuedFor(undefined).filter((m) => !have.has(m.sendId) && m.kind !== 'ask-withdrawn')
       .map((m) => ({ id: m.sendId, sent: m.ts, text: m.said ?? m.text, files: m.files, unsent: { sendId: m.sendId, state: pendingOf(m) },
-        ...(m.uploads ? { uploads: uploadsOf(m) } : {}) }));
+        ...(m.kind === 'ask' && !m.failed ? { withdraw: true } : {}), ...(m.uploads ? { uploads: uploadsOf(m) } : {}) }));
+  }
+  // docs/adr/2026-11-18-2330-deleting-a-new-ask-reads-deleting-on-its-own-row.md
+  // The asks whose Delete the board has, by ask id: each reads deleting… until the board d no longer lists it as new,
+  // so its trash never comes back in between. → the New strip's ask id → {sendId?, state} of its Delete, where it is
+  // while the outbox holds it, or null.
+  const withdrawn = new Set();
+  const withdrawalOf = (id) => outbox().find((o) => o.kind === 'ask-withdrawn' && o.fields.id === id);
+  function deletingIn(d) {
+    const listed = new Set(d.items.filter((it) => it.isNew).map((it) => it.ask.eventId));
+    for (const id of withdrawn) if (!listed.has(id)) withdrawn.delete(id);
+    return (id) => {
+      const m = withdrawalOf(id);
+      return m ? { sendId: m.sendId, state: pendingOf(m) } : withdrawn.has(id) ? { state: 'sending' } : null;
+    };
   }
   // A New task's box changing, an upload's progress, its end or an X on a failed file, repaints its row and keeps the
   // box for a reload.
@@ -352,6 +367,7 @@ BoardView.part((B) => {
           B.failed(e);
           continue;
         }
+        if (m.kind === 'ask-withdrawn') withdrawn.add(m.fields.id);
         setOutbox(outbox().filter((o) => o.sendId !== m.sendId));
         if (!key) { repaint(key); continue; }
         // The send's answer, a board built after the board recorded the tap, patched in its thread with the board's own
@@ -409,7 +425,9 @@ BoardView.part((B) => {
     if (B.holdsAnswer(sendId)) { if (retry) B.retryAnswer(sendId); else B.dropAnswer(sendId); return; }
     const tapped = outbox().find((o) => o.sendId === sendId);
     const words = tapped && (tapped.said || tapOf(tapped).words);
-    const ask = tapped?.kind === 'ask' && !tapped.said ? (retry ? 'Send this task again?' : 'Dismiss this task? Its text and files go back in the New task box.')
+    // A Delete's X gives its ask's row its Delete back.
+    const ask = tapped?.kind === 'ask-withdrawn' ? (retry ? 'Delete this task again?' : 'Dismiss the Delete? The task stays.')
+      : tapped?.kind === 'ask' && !tapped.said ? (retry ? 'Send this task again?' : 'Dismiss this task? Its text and files go back in the New task box.')
       : words ? (retry ? `Send “${words}” again?` : `Dismiss “${words}”?`) : retry ? 'Send this message again?' : 'Dismiss this message? Its text goes back in the box.';
     if (!(await B.confirm(ask)) || !B.alive()) return;
     const m = outbox().find((o) => o.sendId === sendId);
@@ -419,8 +437,9 @@ BoardView.part((B) => {
       setOutbox(outbox().map((o) => (o.sendId === sendId ? { ...o, failed: false } : o)));
       if (m.uploads) BoardAttach.retryFailed(sendBox(m), B.site.root);
     } else {
-      setOutbox(outbox().filter((o) => o.sendId !== sendId));
-      if (!m.key) { if (!m.said) B.reopenAsk(m); } else {
+      // A New task's X takes its Delete with it, which would name an ask the board never gets.
+      setOutbox(outbox().filter((o) => o.sendId !== sendId && !(m.kind === 'ask' && o.kind === 'ask-withdrawn' && o.fields.id === sendId)));
+      if (!m.key) { if (m.kind === 'ask') B.reopenAsk(m); } else {
         const ta = $(`form[data-reply="${CSS.escape(m.key)}"] textarea`);
         B.drafts.put('item:' + m.key, [m.text, ta?.value ?? B.drafts.text('item:' + m.key)].filter(Boolean).join('\n\n'));
         if (m.uploads) BoardAttach.move(sendBox(m), 'item:' + m.key, B.site.root);
@@ -498,7 +517,7 @@ BoardView.part((B) => {
   });
 
   Object.assign(B, {
-    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, linkChanged, enqueue, postTap, unsentAsks, sendBox, answerChanged,
+    thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, linkChanged, enqueue, postTap, unsentAsks, deletingIn, sendBox, answerChanged,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
     syncSends: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncSends(el, key); },
   });

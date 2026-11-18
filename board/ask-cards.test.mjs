@@ -128,9 +128,36 @@ test('the board files a New ask as a T-<n> card once, titled by its first line w
   assert.equal(read(audit('data', 'items.json')).items.some((i) => i.id === 'T-1'), false);
   assert.equal(await s.fileAsk(audit(), 'a2'), 'audit/T-2');
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-2').title, 'shot.png');
-  // A sorted card is not dropped by a withdrawal.
-  assert.equal((await triage('audit/T-2', 'grilling')).code, 0);
-  assert.equal(await s.dropAskCard(audit(), 'a2'), null);
+});
+
+// docs/adr/2026-11-18-2330-deleting-a-new-ask-reads-deleting-on-its-own-row.md
+test("a withdrawal drops the ask's card at any stage before its build starts, and once a builder record opened or the card left Todo it is refused and the card stays", async () => {
+  auditEvents(
+    ask,
+    { id: 'a2', ts: '2026-11-09T10:01:00Z', kind: 'ask', data: { text: 'Second' } },
+    { id: 'a3', ts: '2026-11-09T10:02:00Z', kind: 'ask', data: { text: 'Third' } },
+    { id: 'a4', ts: '2026-11-09T10:03:00Z', kind: 'ask', data: { text: 'Fourth' } },
+  );
+  const s = await store();
+  for (const id of ['a1', 'a2', 'a3', 'a4']) await s.fileAsk(audit(), id);
+  const ids = () => read(audit('data', 'items.json')).items.map((i) => i.id).filter((id) => id.startsWith('T-'));
+  assert.equal((await triage('audit/T-1', 'grilling')).code, 0);
+  assert.equal(await s.withdrawRefused(audit(), 'a1'), null);
+  assert.equal(await s.dropAskCard(audit(), 'a1'), 'audit/T-1');
+  // A planner's record is no build.
+  write(audit('data', 'agents', 'T-2@grill.json'), { kind: 'grill', started: '2026-11-09T10:05:00Z' });
+  assert.equal(await s.dropAskCard(audit(), 'a2'), 'audit/T-2');
+  write(audit('data', 'agents', 'T-3.json'), { kind: 'claude', started: '2026-11-09T10:05:00Z' });
+  assert.equal(await s.withdrawRefused(audit(), 'a3'), 'A build has already started on T-3. Block it to stop the build.');
+  assert.equal(await s.dropAskCard(audit(), 'a3'), null);
+  const items = read(audit('data', 'items.json'));
+  items.items.find((i) => i.id === 'T-4').lane = 'review';
+  write(audit('data', 'items.json'), items);
+  assert.match(await s.withdrawRefused(audit(), 'a4'), /^A build has already started on T-4/);
+  assert.equal(await s.dropAskCard(audit(), 'a4'), null);
+  assert.deepEqual(ids(), ['T-3', 'T-4']);
+  // An ask with no card is no refusal.
+  assert.equal(await s.withdrawRefused(audit(), 'gone'), null);
 });
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md

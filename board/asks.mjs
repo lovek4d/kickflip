@@ -4,7 +4,7 @@
 import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
-import { LANES, boardAsksOf, implementAsk, slackSourced } from './domain.mjs';
+import { LANES, boardAsksOf, builds, implementAsk, slackSourced } from './domain.mjs';
 import { appendEvent, isListening, listBoards, samePath } from '../hub/boards.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { appendLine, boardConfig, itemSources, readJSON, readLog, remove, replace, writeJSON } from './files.mjs';
@@ -14,7 +14,7 @@ import { hasPR } from '../shared/card-prs.mjs';
 import { BoardError, fail, needSite, text, cardTitle, domId } from './checks.mjs';
 import { settingsOf, boardRepoOf, boardTarget } from './settings.mjs';
 import { freeNotesName, writeNotesFile, ownerMark, dropOwed, resolveAnsweredOn } from './questions.mjs';
-import { threadFile, ownerFile, parseKey, loadItemFile, loadItem, replyFilesOf, freshenPush, uploadsDir, uploadMeta, STORED, appendStatus, appendMessage, messageText, askLinksFile, readAskLinks, cardName, askCardOf, checkAsk, placeIn, leftTodo, depKey, depList, parentKey, relatedKeys, UNSOURCED, SPLIT_NEEDS_PARENT, refuseUnborn, replyFirst, refuseUnlinked, askWordsOf, refuseUnplaced, linkedWith, linksOf, postLinkLines, nextTaskId, ticketWrite, setItem, blockLines } from './cards.mjs';
+import { threadFile, ownerFile, parseKey, loadItemFile, loadItem, readAgents, replyFilesOf, freshenPush, uploadsDir, uploadMeta, STORED, appendStatus, appendMessage, messageText, askLinksFile, readAskLinks, cardName, askCardOf, checkAsk, placeIn, leftTodo, depKey, depList, parentKey, relatedKeys, UNSOURCED, SPLIT_NEEDS_PARENT, refuseUnborn, replyFirst, refuseUnlinked, askWordsOf, refuseUnplaced, linkedWith, linksOf, postLinkLines, nextTaskId, ticketWrite, setItem, blockLines } from './cards.mjs';
 
 const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
@@ -242,10 +242,25 @@ async function dropCard(site, { source, itemFile, item, key }) {
   return lines;
 }
 
-// The owner deleted ask eventId's message: its card goes, with no Done row, while it is still New. → its key, or null.
+// docs/adr/2026-11-18-2330-deleting-a-new-ask-reads-deleting-on-its-own-row.md
+// Whether card's build has started: it left Todo, has a PR, or an implementer's builder record ever opened on it (a
+// planner's is no build).
+async function buildStarted({ source, item }) {
+  if (leftTodo(item) || hasPR(item)) return true;
+  const records = Object.values(routeRecord(await readAgents(path.join(source.dir, 'agents'), new Set([item.id])), item.id) || {});
+  return records.some(builds);
+}
+// The owner's Delete of ask eventId, refused once its card's build has started, as the board server answers it. → the
+// refusal's words, or null.
+export async function withdrawRefused(site, eventId) {
+  const card = await askCardOf(needSite(site), eventId);
+  return card && (await buildStarted(card)) ? `A build has already started on ${card.item.id}. Block it to stop the build.` : null;
+}
+// The owner deleted ask eventId's message: its card goes, with no Done row, at any stage until its build starts. → its
+// key, or null.
 export const dropAskCard = (site, eventId) => ticketWrite(site, async () => {
   const card = await askCardOf(needSite(site), eventId);
-  if (!card || !stillNew(card.item)) return null;
+  if (!card || (await buildStarted(card))) return null;
   await dropCard(site, card);
   return card.key;
 });

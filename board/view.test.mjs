@@ -3661,7 +3661,7 @@ test("Implement or Discuss in the New task box closes it at once, its button nev
   assert.equal(row.querySelector('.new-time').textContent, b.page.win.BoardUI.time(stored.ts), 'the time leads the footer');
   assert.deepEqual(b.root.querySelectorAll('#newStrip .new-entry').map((el) => el.dataset.new), ['a0', stored.sendId], 'at the end of the strip');
   assert.equal(b.root.querySelector('#newStrip summary .count').textContent, '2');
-  assert.equal(row.querySelectorAll('button[data-edit], button[data-withdraw]').length, 0);
+  assert.equal(row.querySelectorAll('button[data-edit]').length, 0);
 
   await askTap(b, 'Dark mode', 'discuss');
   assert.deepEqual([askOut(b), b.sent.length], [[['Fix the header', 'sending…'], ['Dark mode', 'sending…']], 1], 'the second waits for the first');
@@ -4871,31 +4871,81 @@ test("a New strip link still names its ticket when the browser follows it: the s
   b.view.unmount();
 });
 
-test("deleting an ask from the New strip is one events POST through the outbox: its trash icon never waits, a row reads sending… until the POST's board drops the entry; a refusal keeps the entry, reads not sent and toasts the reason", async () => {
+// docs/adr/2026-11-18-2330-deleting-a-new-ask-reads-deleting-on-its-own-row.md
+test("deleting an ask from the New strip is one events POST through the outbox that marks the ask's own row: its trash goes and it reads <time> · deleting…, with no row of its own, until the board stops listing the ask; a refusal reads not deleted with Retry and X and toasts why, and X gives the row its Delete back", async () => {
   const a1 = newAsk('a1', '2026-10-30T09:00:00.000Z');
   const a2 = newAsk('a2', '2026-10-30T09:10:00.000Z');
   const sends = heldSends();
   const b = boardOnDom({ board: boardOf([a1, a2]), threads: {}, send: sends.send, confirm: true });
   await b.settle();
-  const keys = () => b.root.querySelectorAll('#newStrip .new-entry[data-key]').map((el) => el.dataset.key);
-  const trash = (id) => b.root.querySelector(`#newStrip .new-entry[data-new="${id}"] button[data-withdraw]`);
-  const sending = () => b.root.querySelectorAll('#newStrip .new-entry[data-send]').map((el) => `${el.querySelector('.new-msg').textContent} · ${el.querySelector('.new-line').textContent.split(' · ').slice(1).join(' · ').trim()}`);
+  const rows = () => b.root.querySelectorAll('#newStrip .new-entry').map((el) => el.dataset.new);
+  const row = (id) => b.root.querySelector(`#newStrip .new-entry[data-new="${id}"]`);
+  const trash = (id) => row(id).querySelector('button[data-withdraw]');
+  const foot = (id) => askFoot(row(id)).slice(1).join(' · ');
   b.page.fire(b.root, 'click', { target: trash('a1') });
   await b.settle();
-  assert.deepEqual([keys(), waitState(trash('a1')), sending()], [['w/a1', 'w/a2'], IDLE, ['Deleted: Task a1 · sending…']]);
-  b.server.board = boardOf([a2]);
+  assert.deepEqual([rows(), trash('a1'), foot('a1'), waitState(trash('a2'))], [['a1', 'a2'], null, 'deleting…', IDLE]);
+  // The board's answer still lists the ask: the row stays deleting…, its trash never back in between.
   sends.answer();
   await b.settle();
-  assert.deepEqual([keys(), sending()], [['w/a2'], []]);
+  assert.deepEqual([rows(), trash('a1'), foot('a1')], [['a1', 'a2'], null, 'deleting…']);
+  await b.change({ board: boardOf([a2]) });
+  assert.deepEqual(rows(), ['a2']);
 
   b.page.fire(b.root, 'click', { target: trash('a2') });
   await b.settle();
-  sends.answer(false, 'Couldn’t write the event: the board folder is read-only.');
+  sends.answer(false, 'A build has already started on T-a2. Block it to stop the build.');
   await b.settle();
-  assert.deepEqual([keys(), sending()], [['w/a2'], ['Deleted: Task a2 · not sent']]);
-  assert.match(b.root.textContent, /the board folder is read-only/);
-  assert.deepEqual(sentNoIds(b), [['ask-withdrawn', { id: 'a1', key: 'w/a1' }], ['ask-withdrawn', { id: 'a2', key: 'w/a2' }]]);
-  assert.deepEqual(b.posts, [], 'nothing posts besides the one events POST');
+  assert.deepEqual([rows(), trash('a2'), foot('a2')], [['a2'], null, 'not deleted']);
+  assert.match(b.root.textContent, /A build has already started on T-a2/);
+  const [withdrawal] = JSON.parse(b.storage.get(OUTBOX));
+  b.page.fire(b.root, 'click', { target: row('a2').querySelector(`button[data-resend="${withdrawal.sendId}"]`) });
+  await b.settle();
+  assert.deepEqual([b.confirms.at(-1), foot('a2')], ['Delete this task again?', 'deleting…']);
+  sends.answer(false, 'still refused');
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: row('a2').querySelector(`button[data-unsend="${withdrawal.sendId}"]`) });
+  await b.settle();
+  assert.deepEqual([b.confirms.at(-1), rows(), Boolean(trash('a2')), JSON.parse(b.storage.get(OUTBOX))], ['Dismiss the Delete? The task stays.', ['a2'], true, []]);
+  assert.match(foot('a2'), /^waiting…/);
+  assert.deepEqual(sentNoIds(b), [['ask-withdrawn', { id: 'a1', key: 'w/a1' }], ['ask-withdrawn', { id: 'a2', key: 'w/a2' }], ['ask-withdrawn', { id: 'a2', key: 'w/a2' }]]);
+  assert.deepEqual(b.posts, [], 'nothing posts besides the events POSTs');
+  b.view.unmount();
+});
+
+test("a New task deleted before the board has it sends its withdrawal under its send id behind it, the one row reading deleting… until the board stops listing the ask; one whose own send failed keeps its not sent, and its X drops the withdrawal too", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([]), threads: {}, send: sends.send, confirm: true });
+  await b.settle();
+  await askTap(b, 'Fix the header', 'quick');
+  const [{ sendId }] = JSON.parse(b.storage.get(OUTBOX));
+  const rows = () => b.root.querySelectorAll('#newStrip .new-entry').map((el) => el.dataset.new);
+  const row = () => b.root.querySelector(`#newStrip .new-entry[data-new="${sendId}"]`);
+  b.page.fire(b.root, 'click', { target: row().querySelector('button[data-withdraw]') });
+  await b.settle();
+  assert.deepEqual([rows(), row().querySelector('button[data-withdraw]'), askFoot(row()).slice(1).join(' · ')], [[sendId], null, 'deleting…']);
+  // The board stores the ask under its send id, so the withdrawal names it before the board has answered.
+  b.server.board = boardOf([recorded(sendId, '2026-11-13T09:00:00.000Z', 'Fix the header', sendId)]);
+  sends.answer();
+  await b.settle();
+  assert.deepEqual([rows(), askFoot(row()).slice(1).join(' · ')], [[sendId], 'deleting…']);
+  b.server.board = boardOf([]);
+  sends.answer();
+  await b.settle();
+  assert.deepEqual(rows(), []);
+  assert.deepEqual(sentNoIds(b), [['ask', { text: 'Fix the header', quick: true }], ['ask-withdrawn', { id: sendId }]]);
+
+  await askTap(b, 'Dark mode', 'quick');
+  const [second] = JSON.parse(b.storage.get(OUTBOX));
+  const again = () => b.root.querySelector(`#newStrip .new-entry[data-new="${second.sendId}"]`);
+  b.page.fire(b.root, 'click', { target: again().querySelector('button[data-withdraw]') });
+  await b.settle();
+  sends.answer(false, 'The board server is restarting.');
+  await b.settle();
+  assert.equal(askFoot(again()).slice(1).join(' · '), 'not sent');
+  b.page.fire(b.root, 'click', { target: again().querySelector(`button[data-unsend="${second.sendId}"]`) });
+  await b.settle();
+  assert.deepEqual([rows(), JSON.parse(b.storage.get(OUTBOX))], [[], []]);
   b.view.unmount();
 });
 

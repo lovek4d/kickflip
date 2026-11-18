@@ -1441,6 +1441,30 @@ test("an unsent New task's files still uploading show as dimmed thumbnails or ch
   assert.match(row, /not sent/);
 });
 
+// docs/adr/2026-11-18-2330-deleting-a-new-ask-reads-deleting-on-its-own-row.md
+test("a New ask being deleted drops its trash and reads <time> · deleting…, waiting for the host while the host is away, or not deleted with the deletion's Retry and X; an unsent task that hasn't failed has a trash of its own", () => {
+  const sent = ago(1);
+  const card = { kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix', files: [], state: 'waiting' } };
+  const [entry] = ui.newEntries({ items: [card], merges: [] }, {});
+  const row = (e) => ui.newStrip([e]);
+  const foot = (html) => /<div class="new-line sub">(.*?)<\/div>/s.exec(html)[1].replace(/<[^>]+>/g, '');
+  const at = ui.time(sent);
+  assert.match(row(entry), /data-withdraw="a1"/);
+  for (const [state, words] of [['sending', 'deleting…'], ['held', 'waiting for the host'], ['failed', 'not deleted']]) {
+    const html = row({ ...entry, deleting: { sendId: 'd1', state } });
+    assert.doesNotMatch(html, /data-withdraw/, state);
+    assert.equal(foot(html), `${at} · ${words}`, state);
+    assert.equal(/data-resend="d1"/.test(html) && /data-unsend="d1"/.test(html), state === 'failed', state);
+  }
+  // The New task box's send, before the board has it: its trash while it sends or waits for the host (app-threads.js unsentAsks gives it none once it failed, as its X drops it).
+  const unsent = (state, extra) => row({ id: 's1', sent, text: 'Look', files: [], unsent: { sendId: 's1', state }, withdraw: true, ...extra });
+  assert.match(unsent('sending'), /data-withdraw="s1"/);
+  assert.match(unsent('held'), /data-withdraw="s1"/);
+  assert.doesNotMatch(row({ id: 's1', sent, text: 'Look', files: [], unsent: { sendId: 's1', state: 'sending' } }), /data-withdraw/, 'a hub row has none');
+  const deleting = unsent('sending', { deleting: { sendId: 'd2', state: 'sending' } });
+  assert.deepEqual([/data-withdraw/.test(deleting), foot(deleting)], [false, `${at} · deleting…`]);
+});
+
 // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
 test("an owner's message reads its time first in the footer, then sending… or waiting… in grey or thinking… with the working dot; a failed send reads not sent, bold red, with Retry then X; no message has Edit or Delete", () => {
   const sent = ago(3);

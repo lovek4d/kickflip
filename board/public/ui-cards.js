@@ -484,16 +484,19 @@
       const line = [`<a class="new-source" href="${esc(q.from.link)}"${away}>Asked from ${esc(q.from.words)}</a>`, q.state === 'working' ? thinking(q.since) : PICKUP_WAIT].join(' · ');
       return `<div class="new-entry new-question" data-new="${esc(e.id)}"><div class="new-msg">${marked(e.text, words, esc)}</div><div class="new-line sub">${newTime(e.sent)} · ${line}</div></div>`;
     }
+    // An ask being deleted (e.deleting, app-threads.js deletingIn) has no trash, its Delete's state after its time.
+    const deleting = e.deleting && globalThis.BoardUI.deletingLine(e.deleting);
     if (e.unsent) {
       const files = globalThis.BoardUI.sentFiles(e.files, e.uploads);
-      return `<div class="new-entry" data-new="${esc(e.id)}" data-send="${esc(e.id)}"><div class="new-msg">${marked(e.text, words, esc)}</div>${files}<div class="new-line sub">${newTime(e.sent)} · ${globalThis.BoardUI.pickUp(e.unsent)}</div></div>`;
+      const trash = e.withdraw && !deleting ? `<div class="ask-actions">${withdrawButton(e.id)}</div>` : '';
+      return `<div class="new-entry" data-new="${esc(e.id)}" data-send="${esc(e.id)}">${trash}<div class="new-msg">${marked(e.text, words, esc)}</div>${files}<div class="new-line sub">${newTime(e.sent)} · ${deleting || globalThis.BoardUI.pickUp(e.unsent)}</div></div>`;
     }
     const done = e.made || e.into;
     const actions = done ? `<button type="button" class="ghost icon new-dismiss" ${readsAt(e)} aria-label="Dismiss" title="Dismiss">${globalThis.BoardUI.DISMISS}</button>`
-      : withdrawButton(e.id);
+      : deleting ? '' : withdrawButton(e.id);
     const line = e.made ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Ticket created: <b>${esc(e.made.ref)}</b>${globalThis.BoardUI.laneRing(e.lane)}</a>`
       : e.into ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Added to <b>${esc(e.into.ref)}</b>${globalThis.BoardUI.laneRing(e.lane)}</a>`
-      : askLine(e.ask);
+      : deleting || askLine(e.ask);
     const body = `<div class="new-msg">${marked(e.text, words, esc)}</div>${e.note ? `<blockquote class="quote new-note">${esc(e.note)}</blockquote>` : ''}${globalThis.BoardUI.attachments(e.files)}`;
     return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${[newTime(e.sent), line].filter(Boolean).join(' · ')}</div></div>`;
   }

@@ -40,8 +40,18 @@
     held: () => '<span class="held">waiting for the host</span>',
     waiting: () => '<span>waiting…</span>',
     working: (m) => thinkingLine(m.since),
-    failed: (m) => `<span class="not-sent">not sent</span><span class="send-again"><button type="button" class="ghost icon" data-resend="${esc(m.sendId)}" aria-label="Retry" title="Retry">${RETRY}</button><button type="button" class="ghost icon" data-unsend="${esc(m.sendId)}" aria-label="Dismiss" title="Dismiss, its text back in the box">${DISMISS}</button></span>`,
+    failed: (m) => `<span class="not-sent">not sent</span>${sendAgain(m.sendId, 'Dismiss, its text back in the box')}`,
   };
+  const sendAgain = (sendId, dismiss) => `<span class="send-again"><button type="button" class="ghost icon" data-resend="${esc(sendId)}" aria-label="Retry" title="Retry">${RETRY}</button><button type="button" class="ghost icon" data-unsend="${esc(sendId)}" aria-label="Dismiss" title="${esc(dismiss)}">${DISMISS}</button></span>`;
+  // docs/adr/2026-11-18-2330-deleting-a-new-ask-reads-deleting-on-its-own-row.md
+  // Where a New strip ask's Delete is (ui-cards.js newEntry): deleting…, waiting for the host, or not deleted with the
+  // Delete's own Retry and X.
+  const DELETING = {
+    sending: () => '<span>deleting…</span>',
+    held: PICK_UP.held,
+    failed: (d) => `<span class="not-sent">not deleted</span>${sendAgain(d.sendId, 'Dismiss, the task stays')}`,
+  };
+  const deletingLine = (d) => DELETING[d.state](d);
   // Where an owner's message or a New strip row the page hasn't sent yet (ui-cards.js newEntry) is, by its state.
   // A tap's status line that is sending spins in its mark's place, in the sending button's spinner (style.css .try-spin).
   const SENDING_MARK = mark('<span class="try-spin" role="status" aria-label="sending"></span>');
@@ -223,5 +233,5 @@
     return sendButton('Done', 1, `${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}"${it.sending?.includes('finish') ? globalThis.BoardUI.SENDING : ''}`);
   }
 
-  Object.assign(globalThis.BoardUI, { DISMISS, pickUp, threadMessages, threadFrom, withReplies, doneButton, doneTone, SYSTEM_KINDS });
+  Object.assign(globalThis.BoardUI, { DISMISS, pickUp, deletingLine, threadMessages, threadFrom, withReplies, doneButton, doneTone, SYSTEM_KINDS });
 })();
