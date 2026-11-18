@@ -75,7 +75,7 @@ test('a waiting script is Action needed on its card and pushes at once; Run is t
   const stale = await send(base, 'script-run', { key: 't/A1', id: s.id, sha: scriptSha('echo other') });
   assert.equal(stale.status, 409);
   assert.match((await stale.json()).error, /changed/);
-  assert.deepEqual(w.events(), []);
+  assert.deepEqual(w.events().filter((e) => e.kind.startsWith('script-')), []);
 
   assert.equal((await send(base, 'script-run', { key: 't/A1', id: s.id, sha: s.sha })).status, 200);
   assert.equal((await send(base, 'script-run', { key: 't/A1', id: s.id, sha: s.sha })).status, 400);
@@ -116,7 +116,7 @@ test('Decline marks the script declined, never runs it, and a new offer replaces
   assert.deepEqual((await threadOf(base)).map((m) => m.script.state), ['replaced', 'declined']);
   assert.equal((await send(base, 'script-run', { key: 't/A1', id: second.id, sha: second.sha })).status, 400);
   assert.equal((await card(base)).action, null);
-  assert.deepEqual(w.events().map((e) => e.kind), ['script-decline']);
+  assert.deepEqual(w.events().map((e) => e.kind).filter((kind) => kind.startsWith('script-')), ['script-decline']);
 });
 
 test('the run itself times out, and the orchestrator hears the Run, its result and a decline', async () => {

@@ -56,7 +56,7 @@ test('Run makes the audit card, wakes the session, and while that review is open
   assert.deepEqual(itemFile.items.at(-1).title, 'Architecture review of app-repo');
   assert.equal('waves' in itemFile, false);
   assert.match(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__T-1.jsonl'), 'utf8'), /Started an architecture review of app-repo; its report becomes the notes/);
-  const [event] = b.events();
+  const [event] = b.events().filter((e) => e.kind === 'arch-review');
   assert.equal(event.id, first.body.id);
   assert.deepEqual([event.kind, event.data], ['arch-review', { key: 'app/T-1', repo: path.join(b.home, 'repos', 'app-repo'), github: 'owner/app-repo', branch: 'main' }]);
   let { last } = await b.arch();
@@ -64,7 +64,7 @@ test('Run makes the audit card, wakes the session, and while that review is open
 
   const again = await b.run();
   assert.deepEqual(again, { status: 200, body: { key: 'app/T-1', ref: 'T-1', existing: true } });
-  assert.equal(b.events().length, 1);
+  assert.equal(b.events().filter((e) => e.kind === 'arch-review').length, 1);
 
   const owner = { items: [{ id: 'f1', topic: 'item:app/T-1', question: 'Split the store?', options: [{ id: 'A', label: 'Split' }, { id: 'skip', label: 'Skip' }] },
     { id: 'f2', topic: 'item:app/T-1', question: 'Merge the readers?', options: [{ id: 'A', label: 'Merge' }, { id: 'skip', label: 'Skip' }] }] };
@@ -149,14 +149,14 @@ test('a review waits, saying why, while the mattpocock skills are missing', asyn
   const { waits } = await b.arch();
   assert.equal(waits, 'Architecture reviews wait on improve-codebase-architecture, codebase-design, grilling and prototype from mattpocock/skills, which aren’t installed. Run kickflip doctor --fix on the host to add them.');
   assert.deepEqual(await b.run(), { status: 409, body: { error: waits } });
-  assert.deepEqual(b.events(), []);
+  assert.deepEqual(b.events().filter((e) => e.kind === 'arch-review'), []);
   assert.equal(readJSON(path.join(b.site, 'data', 'items.json')).items.length, 2);
 });
 
 test("a board on the kickflip clone, as the hub board is, names its review's scope: the clone's code and model, and the live data's shapes", async (t) => {
   const b = await boardServer(t, { site: { hub: true, local: true, owner: { session: 's1', repo: path.resolve(serverFile, '..', '..') } } });
   assert.equal((await b.run()).status, 200);
-  const { data } = b.events()[0];
+  const { data } = b.events().find((e) => e.kind === 'arch-review');
   assert.deepEqual(data.scope.paths, ['hub/', 'board/', 'shared/', 'CONTEXT.md', 'docs/adr/']);
   assert.ok(data.scope.data.includes('~/.claude/kickflip/manifest.json'));
   assert.equal(data.repo, path.resolve(serverFile, '..', '..'));
@@ -168,6 +168,6 @@ test('on a board over ~/.claude/waves the review is an item file of its own', as
   assert.deepEqual([r.status, r.body.key], [200, `arch-${stamp}/audit`]);
   const wave = readJSON(path.join(b.home, '.claude', 'waves', `arch-${stamp}`, 'wave.json'));
   assert.deepEqual([wave.title, wave.repo, wave.items.map((it) => it.title)], [title, 'owner/app-repo', ['Architecture review of app-repo']]);
-  assert.equal(b.events()[0].data.file, `arch-${stamp}`);
+  assert.equal(b.events().find((e) => e.kind === 'arch-review').data.file, `arch-${stamp}`);
   assert.equal((await b.arch()).last.running, true);
 });

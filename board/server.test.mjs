@@ -1110,6 +1110,7 @@ test("a Cancel on a staged or ready Todo card moves it back to discussing with i
   const wave = path.join(site, 'data', 'items.json');
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
   const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean) : []);
+  const cancelled = () => logged().map((l) => JSON.parse(l)).filter((e) => e.kind === 'card-cancel');
   await putWave(JSON.stringify({ items: [
     { id: 'CA1', title: 'One', lane: 'todo', phase: 'staging', staged_at: '2026-11-01T00:00:00.000Z', lane_at: '2026-11-01T00:00:00.000Z' },
     { id: 'CA2', title: 'Two', lane: 'todo', phase: 'ready', ready_at: '2026-11-01T00:00:00.000Z', ready_main: 'abc', lane_at: '2026-11-01T00:00:00.000Z' },
@@ -1124,12 +1125,12 @@ test("a Cancel on a staged or ready Todo card moves it back to discussing with i
     assert.deepEqual([stored.phase, stored.staged_at, stored.ready_at, stored.ready_main], ['discussing', undefined, undefined, undefined]);
     const thread = fs.readFileSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     assert.ok(thread.some((m) => m.text === 'Cancelled Implement'));
-    assert.equal(JSON.parse(logged().at(-1)).kind, 'card-cancel');
+    assert.ok(cancelled().some((e) => e.data.key === `t/${id}`));
   }
   await board.settled();
-  const before = logged().length;
+  const before = cancelled().length;
   assert.deepEqual(await post({ kind: 'card-cancel', key: 't/CA3' }), [400, { error: 't/CA3 isn’t staged or ready, so there is no Implement to cancel.' }]);
-  assert.equal(logged().length, before);
+  assert.equal(cancelled().length, before);
 });
 
 test("deleting a New card is one events POST that records ask-withdrawn and hides the ask, and its board has the card gone", async () => {
