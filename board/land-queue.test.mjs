@@ -215,3 +215,16 @@ test('lands from separate processes go first in, first out', { timeout: 20000 },
   await Promise.all([hold, ...runs]);
   assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['#1', '#2', '#3']);
 });
+
+// docs/adr/2026-11-18-1400-a-wait-line-goes-quiet-when-its-wait-is-over.md
+test('a land says its wait is over once it has its turn, and says nothing when it never waited', async (t) => {
+  home(t);
+  const said = [];
+  let release;
+  const first = holdingLandLock('#210', () => new Promise((r) => { release = r; }));
+  const second = holdingLandLock('#250', async () => { said.push('ran'); }, { onWait: () => { said.push('wait'); release(); }, onTurn: () => said.push('turn') });
+  await Promise.all([first, second]);
+  assert.deepEqual(said, ['wait', 'turn', 'ran']);
+  await holdingLandLock('#251', async () => { said.push('ran again'); }, { onTurn: () => said.push('turn again') });
+  assert.deepEqual(said, ['wait', 'turn', 'ran', 'ran again']);
+});

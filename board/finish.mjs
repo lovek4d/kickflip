@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ghSync, limitWords } from '../shared/gh.mjs';
 import { BoardError } from './checks.mjs';
-import { messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, setItem, appendMessage, builderModel, cardTitleOf } from './cards.mjs';
+import { messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, appendWaitOver, setItem, appendMessage, builderModel, cardTitleOf } from './cards.mjs';
 import { checkClose } from './questions.mjs';
 import { readBoardSettings } from './settings.mjs';
 import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase } from './runs.mjs';
@@ -33,7 +33,7 @@ const said = (text) => (typeof text === 'string' && text.trim() ? text.trim() : 
 // text is the card's closing line ("<what was checked>"), the builder's message, unless closing ([kind, inputs]) names
 // the board's status line instead; ownerStep land's and builder done's --owner-step, check its --check, repo --repo,
 // merge whether the land is the one a held card's Merge tap started. → {said: what became of the card, lines}
-export async function finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge = false, title }) {
+export async function finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, onTurn, merge = false, title }) {
   messageText(text);
   const id = key.split('/')[1];
   const recorded = await recordedWorktree(site, key);
@@ -49,13 +49,29 @@ export async function finishCard(site, key, { text, closing, ownerStep, check, r
   // release): a card its owner step or release holds in In Review isn't landed again, and a reopened card's build,
   // whose landed commit is still its earlier land's, lands.
   const landedBefore = (await loadItem(site, key)).item.landed_sha;
-  const ran = await joiningLand(ref, () => landCard(site, key, { tree: { ...tree, title }, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }), { merge });
+  const ran = await joiningLand(ref, () => landCard(site, key, { tree: { ...tree, title }, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait, onTurn }), { merge });
   if (!ran.joined) return ran;
   if ((await loadItem(site, key)).item.landed_sha !== landedBefore) return { said: 'landed by the land it joined', lines: [] };
-  return finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge, title });
+  return finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, onTurn, merge, title });
 }
 
-async function landCard(site, key, { tree, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }) {
+// The wait lines a land writes, one for each card it waits on; the wait line before one, or the last, is ended by
+// over() (hub-lines.mjs WAIT_OVER): when its wait is over, whether the land got its turn or stopped.
+function waitLines(site, key, kind) {
+  let open = null;
+  const over = async () => {
+    const of = open;
+    open = null;
+    if (of) await appendWaitOver(site, key, of);
+  };
+  const onWait = async (card) => {
+    await over();
+    open = (await appendStatus(site, key, kind, { card }, { pid: process.pid })).line.ts;
+  };
+  return { onWait, over };
+}
+
+async function landCard(site, key, { tree, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait, onTurn }) {
   const go = settings.auto_merge || Boolean((await heldMerge(site, key))?.tapped);
   // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md
   const blocked = go && blockWordsOf(await shownCard(site, key));
@@ -73,16 +89,18 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bumped card's land goes ahead in the queue.
   const queue = { site, key, first: await landFirst(site, key) };
   const report = await testReport(site, key, { phase: 'landing' });
-  const onTestWait = (card) => appendStatus(site, key, 'test-waiting', { card });
+  const testWaits = waitLines(site, key, 'test-waiting');
   // The files its diff changes, which the cards it unblocks compare with the files their notes name.
   const landedFiles = git(tree.repo, 'diff', '--name-only', '--no-renames', `${base}...${tree.branch}`).out.split('\n').filter(Boolean);
   let landed;
   try {
-    landed = await landInTurn({ ...tree, ref, site }, { hold: !go, onWait, onTestWait, queue, report, found: (words) => recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
+    landed = await landInTurn({ ...tree, ref, site }, { hold: !go, onWait, onTurn, onTestWait: testWaits.onWait, onTestTurn: testWaits.over, queue, report, found: (words) => recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
   } catch (e) {
     // docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md
     if (!e.failsOnBase) throw e;
     return waitOnMainFix(site, key, { files: e.failsOnBase, log: e.log, base });
+  } finally {
+    await testWaits.over();
   }
   if (!go) {
     const set = await setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
@@ -111,8 +129,12 @@ export async function landHeld(site, key, { launch = landByBuilder } = {}) {
   if (!held?.tapped) fail(`${key} isn't waiting on a Merge tap`);
   try {
     const { base } = builderRepo(site, { repo: (await recordedWorktree(site, key))?.repo });
-    const onWait = (card) => appendStatus(site, key, 'land-waiting', { card });
-    return await finishCard(site, key, { text: `Landed on ${base} on your Merge.`, closing: ['landed-on-merge', { base }], onWait, merge: true });
+    const waits = waitLines(site, key, 'land-waiting');
+    try {
+      return await finishCard(site, key, { text: `Landed on ${base} on your Merge.`, closing: ['landed-on-merge', { base }], onWait: waits.onWait, onTurn: waits.over, merge: true });
+    } finally {
+      await waits.over();
+    }
   } catch (e) {
     if (!(e instanceof BoardError)) throw e;
     const why = e.message.split('\n')[0];

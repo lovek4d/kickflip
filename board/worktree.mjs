@@ -374,7 +374,7 @@ const writeTicket = (queue, ticket, content) => {
 let asks = 0;
 // The lock named name (<name>.lock, queue in <name>.queue) held while fn runs; onWait(card) names who it waits for.
 // site and key name the board card the ask is for, and first its standing bump, so a bump can move it.
-async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now(), site = null, key = null, first = null } = {}) {
+async function holdingQueuedLock(name, card, fn, { onWait, onTurn, asked = Date.now(), site = null, key = null, first = null } = {}) {
   const file = path.join(kickflipDir(), `${name}.lock`);
   const queue = queueDir(name);
   fs.mkdirSync(queue, { recursive: true });
@@ -401,6 +401,7 @@ async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now(), s
     }
   } finally {
     fs.rmSync(path.join(queue, ticket), { force: true });
+    if (waitingFor) await onTurn?.();
   }
   try { return await fn(); } finally {
     try { if (JSON.parse(fs.readFileSync(file, 'utf8')).pid === process.pid) fs.rmSync(file, { force: true }); } catch {}
@@ -413,7 +414,7 @@ export const holdingLandLock = (card, fn, opts) => holdingQueuedLock('land', car
 // ask in landtest.queue, which orders the asks as the land queue does (bumped, then first asked). The ask at the head
 // of the queue starts once fewer than slots runs are live; onWait(card) names the run it waits for. A run whose process
 // is gone is not counted.
-export async function holdingTestSlot(card, fn, { slots, onWait, asked = Date.now(), site = null, key = null, first = null } = {}) {
+export async function holdingTestSlot(card, fn, { slots, onWait, onTurn, asked = Date.now(), site = null, key = null, first = null } = {}) {
   const queue = queueDir('landtest');
   const running = path.join(kickflipDir(), 'landtest.running');
   fs.mkdirSync(queue, { recursive: true });
@@ -437,6 +438,7 @@ export async function holdingTestSlot(card, fn, { slots, onWait, asked = Date.no
     }
   } finally {
     fs.rmSync(path.join(queue, ticket), { force: true });
+    if (waitingFor) await onTurn?.();
   }
   try { return await fn(); } finally { fs.rmSync(path.join(running, ticket), { force: true }); }
 }
@@ -696,11 +698,12 @@ function onBase(repo, base) {
 // {site, key, first} names the board card the land is for and its standing bump, for its place in the land queue.
 // → landPrepared's {release, commit} once it landed.
 // The tests run in a test slot (holdingTestSlot): the hub's land test runs at once (push.mjs readLandTests), and
-// onTestWait(card) names the run a land waits for.
-export async function landInTurn(tree, { hold = false, onWait, onTestWait, slots = readLandTests(), sync = () => {}, queue = {}, ...opts } = {}) {
+// onTestWait(card) names the run a land waits for; onTurn and onTestTurn run once its wait for the land lock or a test
+// slot ends, when it had one, whether it got its turn or its land stopped.
+export async function landInTurn(tree, { hold = false, onWait, onTurn, onTestWait, onTestTurn, slots = readLandTests(), sync = () => {}, queue = {}, ...opts } = {}) {
   const { say = console.log, runTests = affectedRun(tree.base, say) } = opts;
   const asked = Date.now();
-  const bounded = boundedTests(runTests, tree.ref ?? tree.branch, { slots, onWait: onTestWait, asked, ...queue });
+  const bounded = boundedTests(runTests, tree.ref ?? tree.branch, { slots, onWait: onTestWait, onTurn: onTestTurn, asked, ...queue });
   for (;;) {
     const tested = await prepareLand(tree, { ...opts, runTests: bounded });
     if (hold) return;

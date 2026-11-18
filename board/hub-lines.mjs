@@ -176,3 +176,16 @@ export function detailOf(line, inputs = {}) {
 export const hubLineOf = (m) => ({ mark: HUB_LINES[m.line]?.mark || '', fault: Boolean(HUB_LINES[m.line]?.fault), tone: HUB_LINES[m.line]?.fault ? 'red' : HUB_LINES[m.line]?.tone });
 // The thread line kind of every line cards.mjs appendStatus writes.
 export const HUB = 'hub';
+// A wait line (a land waiting for a card to land or to test) is orange while its wait is on. Its land records the
+// wait's end as a WAIT_OVER line, {of: the wait line's ts}, which draws nothing; a wait line carries the pid of the
+// process that waits, so one whose land died without recording an end reads as over too.
+export const WAIT_LINES = ['land-waiting', 'test-waiting'];
+export const WAIT_OVER = 'wait-over';
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+// thread is a card's stored lines. → the lines without the WAIT_OVER records, and the ts of the wait lines among them
+// whose wait is over.
+export function waitsOf(thread) {
+  const ended = new Set(thread.filter((m) => m.kind === WAIT_OVER).map((m) => m.of));
+  const lines = thread.filter((m) => m.kind !== WAIT_OVER);
+  return { lines, over: new Set(lines.filter((m) => m.kind === HUB && WAIT_LINES.includes(m.line) && (ended.has(m.ts) || !pidAlive(m.pid))).map((m) => m.ts)) };
+}

@@ -104,3 +104,16 @@ test("the setting is the hub's one number: 1 unless it is saved as 1 to 99, whic
   assert.equal(readLandTests(dir), 3);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'kickflip', 'settings.json'), 'utf8')).landTests, 3);
 });
+
+// docs/adr/2026-11-18-1400-a-wait-line-goes-quiet-when-its-wait-is-over.md
+test('a test run says its wait is over once it holds a slot, and says nothing when it never waited', async (t) => {
+  home(t);
+  const said = [];
+  const first = held('#1', { slots: 1 });
+  await first.started;
+  const second = holdingTestSlot('#2', async () => { said.push('ran'); }, { slots: 1, onWait: () => { said.push('wait'); first.release(); }, onTurn: () => said.push('turn') });
+  await Promise.all([first.done, second]);
+  assert.deepEqual(said, ['wait', 'turn', 'ran']);
+  await holdingTestSlot('#3', async () => { said.push('ran again'); }, { slots: 1, onTurn: () => said.push('turn again') });
+  assert.deepEqual(said, ['wait', 'turn', 'ran', 'ran again']);
+});

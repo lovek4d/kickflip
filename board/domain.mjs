@@ -20,7 +20,7 @@ import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.m
 import vm from 'node:vm';
 import { checkWords, parseCheck } from '../shared/owner-check.mjs';
 import { buildNameOf, buildScriptOf } from './build-script.mjs';
-import { HUB, hubLineOf, hubText } from './hub-lines.mjs';
+import { HUB, WAIT_LINES, hubLineOf, hubText, waitsOf } from './hub-lines.mjs';
 import { startTitleFault } from './commit-message.mjs';
 import { scriptLogName } from './scripts.mjs';
 // The ask thread's line that says its card merged into another (hub-lines.mjs, asks.mjs relateAsk).
@@ -238,6 +238,9 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github' || m.via =
 // The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
 const STILL_MERGING = ['lander-handoff', 'land-waiting', 'test-waiting'];
 function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, landing, eta, thread, events, scriptEvents, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
+  // A wait line whose wait is over no longer shows in the merging Next (hub-lines.mjs waitsOf).
+  const waits = waitsOf(thread);
+  thread = waits.lines;
   // An archived PR the board no longer reads the hub's check for draws what it kept (cards.mjs keptPRs). A hub record
   // read without its url (a Done card's PR) keeps the one its repo and number give.
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, ...(p.gh || p.kept || {}), url: (p.gh || p.kept)?.url || prURL(p), status: prStateOf(p.gh, p.merged_at) }));
@@ -342,8 +345,8 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const tappedAt = [mergeAt, mergeReady && it.merge_ready.tapped].filter(Boolean).map(String).sort().pop();
   const merging = waitsOn === 'merge' && Boolean(tappedAt) && tappedAt > lastClaudeAt;
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a tap queued behind another land says so in a status line.
-  const lastStatus = thread.filter((m) => (m.kind === 'status' || m.kind === HUB) && String(m.ts) > String(tappedAt)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
-  const mergingNext = ['land-waiting', 'test-waiting'].includes(lastStatus?.line) ? `${OWNER_MERGE_NEXT.merging} · ${lastStatus.text[0].toLowerCase()}${lastStatus.text.slice(1)}` : OWNER_MERGE_NEXT.merging;
+  const lastStatus = thread.filter((m) => (m.kind === 'status' || m.kind === HUB) && String(m.ts) > String(tappedAt) && !waits.over.has(m.ts)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  const mergingNext = WAIT_LINES.includes(lastStatus?.line) ? `${OWNER_MERGE_NEXT.merging} · ${lastStatus.text[0].toLowerCase()}${lastStatus.text.slice(1)}` : OWNER_MERGE_NEXT.merging;
   // A Build tap the board refused: its reason stays on a Todo card while it is the card's newest line
   // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
   const newest = thread.filter((m) => !['status', MOVE].includes(m.kind)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
@@ -1251,6 +1254,9 @@ export function pendingState({ replied = false, cleared = false, handed = '', an
 }
 const voiceOf = (a) => (a.kind === REVIEWER ? { reviewer: a.target } : plans(a) ? { planner: true } : {});
 export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, delivered = {}, listening = true, actedAt = '', clearedAt = '', fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
+  // A wait line draws grey once its wait is over (hub-lines.mjs waitsOf).
+  const waits = waitsOf(lines);
+  lines = waits.lines;
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
   const asked = new Map((index.questions.get(`item:${key}`) || []).map((q) => [q.id, q]));
@@ -1284,7 +1290,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === REVIEWER ? { kind: m.kind, findings: m.findings || [] } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen), ...(m.questions.some(isOpen) ? { tone: 'orange' } : {}) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
+    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === REVIEWER ? { kind: m.kind, findings: m.findings || [] } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(waits.over.has(m.ts) ? { tone: 'grey' } : {}), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen), ...(m.questions.some(isOpen) ? { tone: 'orange' } : {}) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}), ...(m.script ? { script: scriptView(m.script) } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.

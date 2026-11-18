@@ -21,7 +21,7 @@ import { withFileLock } from '../hub/locks.mjs';
 import { appendLine, boardConfig, itemSources, readJSON, readLog, remove, replace, sitesDir, wavesDir, writeJSON } from './files.mjs';
 import { builtCards } from './snapshot.mjs';
 import { SCRIPT_LIMIT, runsAs, scriptLogName, scriptSha } from './scripts.mjs';
-import { HUB, MESSAGE_LIMIT, hubLineOf, hubText, detailOf } from './hub-lines.mjs';
+import { HUB, WAIT_OVER, MESSAGE_LIMIT, hubLineOf, hubText, detailOf } from './hub-lines.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, parsePRRef, prNames, storedPRs } from '../shared/card-prs.mjs';
 import { reviewersOf } from './review.mjs';
@@ -385,12 +385,18 @@ const checkThreadKey = async (site, key) => (String(key).startsWith('ask:') ? ch
 // A status line of a kind in hub-lines.mjs HUB_LINES, its words from inputs; a fault line freshens the queued push.
 // questions: the ids a questions-added line holds, which colour it (domain.mjs threadOf).
 // → {line, lines for the CLI to print}
-export async function appendStatus(site, key, kind, inputs = {}, { link, questions } = {}) {
+export async function appendStatus(site, key, kind, inputs = {}, { link, questions, pid } = {}) {
   needSite(site);
   await checkThreadKey(site, key);
-  const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(detailOf(kind, inputs) ? { detail: detailOf(kind, inputs) } : {}), ...(link ? { link } : {}), ...(questions ? { questions } : {}) };
+  const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(detailOf(kind, inputs) ? { detail: detailOf(kind, inputs) } : {}), ...(link ? { link } : {}), ...(questions ? { questions } : {}), ...(pid ? { pid } : {}) };
   await appendLine(threadFile(site, key), line);
   return { line, lines: hubLineOf(line).fault ? await freshenPush(site, key, line.text) : [] };
+}
+// The end of the wait whose wait line is stamped `of` (hub-lines.mjs WAIT_OVER).
+export async function appendWaitOver(site, key, of) {
+  needSite(site);
+  await checkThreadKey(site, key);
+  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: WAIT_OVER, of });
 }
 // The line a resumed builder posts, "Builder resumed", when something else came after the builder's section: a plain
 // message on the thread or an owner event on the card, newer than the newest status or hub line (the builder's, the

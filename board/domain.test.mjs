@@ -1051,7 +1051,7 @@ test("a verified branch held for the owner's Merge waits In Review on it with Me
   const tapped = { branch: 'A1', at: heldAt, tapped: '2026-11-04T11:00:00Z' };
   const merging = card({ item: { merge_ready: tapped } });
   assert.deepEqual([merging.merging, merging.action, merging.next], [true, null, 'Merging']);
-  const queued = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:00:30Z', who: 'claude', kind: 'hub', line: 'land-waiting', text: 'Waiting for #210 to land' }] } });
+  const queued = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:00:30Z', who: 'claude', kind: 'hub', line: 'land-waiting', text: 'Waiting for #210 to land', pid: process.pid }] } });
   assert.deepEqual([queued.merging, queued.action, queued.next], [true, null, 'Merging · waiting for #210 to land']);
   const refused = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:01:00Z', who: 'claude', kind: 'hub', line: 'land-failed', text: 'Not merged: main moved. Tap Merge again.' }] } });
   assert.deepEqual([refused.merging, refused.action?.kind], [false, 'merge']);
@@ -3468,4 +3468,33 @@ test("a built card is landing while its own newest status line is the finish ste
   assert.equal(landing([status('checking', '2026-10-23T10:00:00Z'), status('landing', '2026-10-23T10:05:00Z')]), true);
   assert.equal(landing([status('landing', '2026-10-23T10:05:00Z'), status('building', '2026-10-23T10:06:00Z')]), false);
   assert.equal(landing([status('landing', '2026-10-23T10:05:00Z'), { kind: 'message', who: 'love', text: 'hi', ts: '2026-10-23T10:07:00Z' }]), true);
+});
+
+// docs/adr/2026-11-18-1400-a-wait-line-goes-quiet-when-its-wait-is-over.md
+test('a wait line draws orange while its wait is on, whatever is written after it, and grey once its wait is over or its land is gone', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const gone = spawnSync(process.execPath, ['-e', '']).pid;
+  const wait = (n, line, pid) => ({ ts: `2026-11-18T10:0${n}:00.000Z`, who: 'claude', kind: 'hub', line, text: `Waiting ${n}`, pid });
+  const toneOf = (lines) => Object.fromEntries(threadOf('w/A1', { lines }).filter((m) => m.line).map((m) => [m.line === 'unblocked-done' ? 'later' : m.text, m.tone]));
+  const later = { ts: '2026-11-18T10:05:00.000Z', who: 'claude', kind: 'hub', line: 'unblocked-done', text: 'Added questions', card: '#5' };
+  // Still waiting, though other lines follow it.
+  assert.deepEqual(toneOf([wait(1, 'test-waiting', process.pid), later]), { 'Waiting 1': 'orange', later: 'orange' });
+  // Its land recorded the end, which draws no line of its own.
+  const ended = [wait(1, 'test-waiting', process.pid), { ts: '2026-11-18T10:02:00.000Z', who: 'claude', kind: 'wait-over', of: wait(1).ts }, wait(3, 'land-waiting', process.pid)];
+  assert.deepEqual(toneOf(ended), { 'Waiting 1': 'grey', 'Waiting 3': 'orange' });
+  assert.equal(threadOf('w/A1', { lines: ended }).some((m) => m.kind === 'wait-over'), false);
+  // Its land was killed mid-wait: no end recorded, no process.
+  assert.deepEqual(toneOf([wait(1, 'land-waiting', gone)]), { 'Waiting 1': 'grey' });
+});
+
+test("a merging card's Next names its newest wait only while that wait is on", async () => {
+  const { spawnSync } = await import('node:child_process');
+  const gone = spawnSync(process.execPath, ['-e', '']).pid;
+  const tapped = { branch: 'A1', at: '2026-11-04T10:00:00Z', tapped: '2026-11-04T11:00:00Z' };
+  const next = (thread) => buildBoard({ fromWaves: true, branch: 'trunk', threads: { 'w/A1': thread },
+    files: [{ slug: 'w', agents: {}, itemFile: { items: [{ id: 'A1', title: 'One', branch: 'A1', merge_ready: tapped }] } }] }).items[0].next;
+  const wait = { ts: '2026-11-04T11:00:30Z', who: 'claude', kind: 'hub', line: 'land-waiting', text: 'Waiting for #210 to land', pid: process.pid };
+  assert.equal(next([wait]), 'Merging · waiting for #210 to land');
+  assert.equal(next([wait, { ts: '2026-11-04T11:01:00Z', who: 'claude', kind: 'wait-over', of: wait.ts }]), 'Merging');
+  assert.equal(next([{ ...wait, pid: gone }]), 'Merging');
 });
