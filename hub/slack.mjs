@@ -39,17 +39,34 @@ export async function setSlack(changes) {
   return withFileLock(fileOf(), () => save({ ...read(fileOf()), ...readSlack(), ...changes }));
 }
 
-// slack.json's pr_emoji {<state kind>: emoji name}: Hub › Slack's pick of an emoji for a PR state's line, one set for
-// every board; a kind with none takes its default (prEmojiDefault).
+// slack.json's pr_emoji {<state kind>: emoji name}: Hub › Slack's pick of an emoji for a PR state's reaction, one set
+// for every board; a kind with none takes its default (prEmojiDefault).
 export const readPREmoji = () => Object.fromEntries(Object.entries(read(fileOf()).pr_emoji || {}).filter(([kind, name]) => PR_EMOJI[kind] && typeof name === 'string'));
-// Picks name, an emoji's name without colons, for kind's line; an empty name goes back to the default.
+const needEmojiName = (name) => { if (name && !/^[a-z0-9_+'-]{1,100}$/.test(name)) throw new Error('emoji must be an emoji name such as white_check_mark'); };
+// Picks name, an emoji's name without colons, for kind's reaction; an empty name goes back to the default.
 export async function setPREmoji(kind, name) {
   if (!PR_EMOJI[kind]) throw new Error(`Unknown PR state ${kind}`);
-  if (name && !/^[a-z0-9_+'-]{1,100}$/.test(name)) throw new Error('emoji must be an emoji name such as white_check_mark');
+  needEmojiName(name);
   return withFileLock(fileOf(), () => {
     const all = read(fileOf());
     const { [kind]: _, ...picks } = all.pr_emoji || {};
     save({ ...all, pr_emoji: name ? { ...picks, [kind]: name } : picks });
+  });
+}
+
+// docs/adr/2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md
+// slack.json's sign_off_emoji: Hub › Slack's pick of the sign-off line's emoji, SIGN_OFF_DEFAULT without one; and
+// sign_off_past, every emoji picked before it, by which the hub still knows the messages it signed off with them.
+export const readSignOff = () => { const name = read(fileOf()).sign_off_emoji; return typeof name === 'string' && name ? name : SIGN_OFF_DEFAULT; };
+const pastSignOffs = (all) => (Array.isArray(all.sign_off_past) ? all.sign_off_past.filter((name) => typeof name === 'string') : []);
+// Picks name for the sign-off; an empty name goes back to the default.
+export async function setSignOff(name) {
+  needEmojiName(name);
+  return withFileLock(fileOf(), () => {
+    const saved = read(fileOf());
+    const { sign_off_emoji: was, sign_off_past: _, ...all } = saved;
+    const past = [...new Set([...pastSignOffs(saved), was])].filter((e) => typeof e === 'string' && e && e !== name && !SIGNED_OFF_ALWAYS.includes(e));
+    save({ ...all, ...(name ? { sign_off_emoji: name } : {}), ...(past.length ? { sign_off_past: past } : {}) });
   });
 }
 
@@ -88,28 +105,33 @@ const api = () => process.env.KICKFLIP_SLACK_URL || 'https://slack.com/api';
 // Slack reads these methods' arguments from form encoding or the query string and ignores a JSON body; every other
 // method takes JSON.
 const READS = ['users.list', 'emoji.list', 'search.messages', 'conversations.history', 'conversations.replies'];
-// docs/adr/2026-11-18-0000-a-prs-state-is-a-line-in-its-message-not-reactions.md
-// Each PR state's emoji in its message's state line by default: its custom one while the workspace has it, else its
-// standard one. Hub › Slack's pick for a state (readPREmoji) wins over both.
+// docs/adr/2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md
+// Each PR state's reaction on its messages by default: its custom emoji while the workspace has it, else its standard
+// one. Hub › Slack's pick for a state (readPREmoji) wins over both.
 export const PR_EMOJI = {
   approved: { custom: 'git_approved', standard: 'white_check_mark' },
   merged: { custom: 'git_merged', standard: 'large_purple_circle' },
   closed: { standard: 'x' },
 };
 // A state's default emoji, given the workspace's custom emoji {name: url}.
-export const prEmojiDefault = (kind, customs) => (customs[PR_EMOJI[kind].custom] ? PR_EMOJI[kind].custom : PR_EMOJI[kind].standard);
+const prEmojiDefault =(kind, customs) => (customs[PR_EMOJI[kind].custom] ? PR_EMOJI[kind].custom : PR_EMOJI[kind].standard);
 const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired', 'account_inactive'];
 
-// The last line of every message the hub or the orchestrator posts: the kickflip emoji, or 🤖 while the workspace lacks
-// it, followed on a message the hub edited by “ · _updated HH:MM_”, the edit's time. A message with attachments, such as
-// a PR's link, ends its last attachment with it, under what the bar holds
+// The last line of every message the hub or the orchestrator posts: “- :<emoji>:”, the emoji picked in Hub › Slack
+// (readSignOff), followed on a message the hub edited by “ · _updated HH:MM_”, the edit's time. A message with
+// attachments, such as a PR's link, ends its last attachment with it, under what the bar holds
 // (docs/adr/2026-11-14-0451-a-prs-slack-link-is-a-bar-coloured-by-the-builders-risk.md).
-const SIGN_OFF = '- :claude_kickflip:';
-const SIGN_OFF_FALLBACK = '- :robot_face:';
-const SIGNED_OFF = /^- :(claude_kickflip|robot_face):( · _updated \d\d:\d\d_)?$/;
-// Whether a message is one of ours, by the last line of its text or, with attachments, of its last attachment's; our
-// posts go out as the owner, so the hub hears past them by this.
-export const isSignedOff = (text, attachments = []) => SIGNED_OFF.test(String((attachments.length ? attachments.at(-1).text : text) || '').split('\n').at(-1));
+export const SIGN_OFF_DEFAULT = 'robot_face';
+export const signOffLine = () => `- :${readSignOff()}:`;
+// The sign-offs the hub used before the pick: :claude_kickflip: while the workspace had it, else :robot_face:.
+const SIGNED_OFF_ALWAYS = ['claude_kickflip', 'robot_face'];
+// Whether a message is one of ours, by the last line of its text or, with attachments, of its last attachment's: a
+// sign-off with the picked emoji, one picked before it, or one the hub used before the pick. Our posts go out as the
+// owner, so the hub hears past them by this.
+export function isSignedOff(text, attachments = []) {
+  const emoji = String((attachments.length ? attachments.at(-1).text : text) || '').split('\n').at(-1).match(/^- :([a-z0-9_+'-]+):( · _updated \d\d:\d\d_)?$/)?.[1];
+  return Boolean(emoji) && [...SIGNED_OFF_ALWAYS, readSignOff(), ...pastSignOffs(read(fileOf()))].includes(emoji);
+}
 
 // checked(works) follows each answer: false when Slack refused the token, true when it answered ok.
 export function slackClient(token, { fetch = globalThis.fetch, checked = () => {} } = {}) {
@@ -134,8 +156,8 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
   const customEmoji = () => (emojis ??= call('emoji.list').then((out) => out.emoji || {}, () => ({})));
   // A message's {text, attachments?} with the sign-off line ended on, the last attachment's text taking it when there
   // are attachments; edited: an edit's time, which the line then names.
-  const signedOff = async ({ text, attachments }, edited) => {
-    const line = `${(await customEmoji()).claude_kickflip ? SIGN_OFF : SIGN_OFF_FALLBACK}${edited ? ` · _updated ${slackClock(edited)}_` : ''}`;
+  const signedOff = ({ text, attachments }, edited) => {
+    const line = `${signOffLine()}${edited ? ` · _updated ${slackClock(edited)}_` : ''}`;
     const end = (words) => (words ? `${words}\n${line}` : line);
     if (!attachments?.length) return { text: end(text) };
     const last = attachments.at(-1);
@@ -170,10 +192,10 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     openDM: async (user) => (await call('conversations.open', { users: user })).channel.id,
     // Every message ends with the sign-off line: its text's last line, or with attachments, Slack's colour-barred
     // blocks, the last attachment's. → the message ts
-    post: async ({ channel, text, thread_ts, attachments }) => (await call('chat.postMessage', { channel, ...await signedOff({ text, attachments }), unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
+    post: async ({ channel, text, thread_ts, attachments }) => (await call('chat.postMessage', { channel, ...signedOff({ text, attachments }), unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
     // Edits a message this token posted, signed off as a post is and named updated at at's time.
-    update: async ({ channel, ts, text, attachments, at = new Date() }) => { await call('chat.update', { channel, ts, ...await signedOff({ text, attachments }, at), unfurl_links: false }); },
-    // Each PR state's emoji for its state line: {approved, merged, closed} → emoji name.
+    update: async ({ channel, ts, text, attachments, at = new Date() }) => { await call('chat.update', { channel, ts, ...signedOff({ text, attachments }, at), unfurl_links: false }); },
+    // Each PR state's reaction: {approved, merged, closed} → emoji name.
     async prEmojis() {
       const customs = await customEmoji();
       const picks = readPREmoji();
@@ -186,6 +208,10 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     // A reaction already there counts as added.
     async react({ channel, ts, name }) {
       try { await call('reactions.add', { channel, timestamp: ts, name }); } catch (e) { if (e.message !== 'Slack: already_reacted') throw e; }
+    },
+    // A reaction already gone counts as removed.
+    async unreact({ channel, ts, name }) {
+      try { await call('reactions.remove', { channel, timestamp: ts, name }); } catch (e) { if (e.message !== 'Slack: no_reaction') throw e; }
     },
     // The DM's top-level messages from oldest on, each with latest_reply once it has replies. Needs im:history.
     history: ({ channel, oldest }) => pages('conversations.history', { channel, oldest, inclusive: true }),

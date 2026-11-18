@@ -61,7 +61,7 @@ test('a reply to the @kickflip ask posts into its Slack thread once, as 🤖 and
   const { world, slack, asked, post } = filed();
   await writeReply(site, 'ea', 'Looking: the export job times out at 30s.');
   assert.deepEqual(await post(), { posted: ['orch items/T-1: a reply'], failed: [] });
-  assert.deepEqual(inThread(world, asked), ['🤖 Looking: the export job times out at 30s.\n- :claude_kickflip:']);
+  assert.deepEqual(inThread(world, asked), ['🤖 Looking: the export job times out at 30s.\n- :robot_face:']);
   assert.deepEqual(await post(), { posted: [], failed: [] });
   assert.equal(inThread(world, asked).length, 1, 'never posted twice');
   // The posted reply is the board's own: following the thread copies it back nowhere.
@@ -78,7 +78,7 @@ test("a reply to a Slack reply copied onto the task posts; a reply to the owner'
   await appendMessage(site, 'items/T-1', { text: 'Raising the timeout.' });
   await writeReply(site, 'es', 'A fix for the timeout is on its way.');
   await post();
-  assert.deepEqual(inThread(world, asked), ['🤖 A fix for the timeout is on its way.\n- :claude_kickflip:']);
+  assert.deepEqual(inThread(world, asked), ['🤖 A fix for the timeout is on its way.\n- :robot_face:']);
 });
 
 test('a failed post is one fault line on the card, retried each poll until it posts, in order', async () => {
@@ -93,7 +93,7 @@ test('a failed post is one fault line on the card, retried each poll until it po
   assert.deepEqual(threadLines().filter((m) => m.line === 'slack-post-failed').map((m) => m.text), ["Couldn't post a reply to its Slack thread, retrying each poll: Slack: channel_not_found"]);
   delete world.postError;
   assert.equal((await post()).posted.length, 2);
-  assert.deepEqual(inThread(world, asked), ['🤖 First.\n- :claude_kickflip:', '🤖 Second.\n- :claude_kickflip:']);
+  assert.deepEqual(inThread(world, asked), ['🤖 First.\n- :robot_face:', '🤖 Second.\n- :robot_face:']);
 });
 
 test('once the task is Done one end line posts, closed or built and landed, and mirroring stops', async () => {
@@ -106,7 +106,7 @@ test('once the task is Done one end line posts, closed or built and landed, and 
     await post();
     await writeReply(site, 'ea', 'After Done.');
     await post();
-    assert.deepEqual(inThread(world, asked), ['🤖 Done here.\n- :claude_kickflip:', `🤖 ${end}: fix: export 500s\n- :claude_kickflip:`]);
+    assert.deepEqual(inThread(world, asked), ['🤖 Done here.\n- :robot_face:', `🤖 ${end}: fix: export 500s\n- :robot_face:`]);
   }
 });
 

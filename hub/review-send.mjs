@@ -6,16 +6,16 @@
 // docs/adr/2026-11-14-0449-one-digest-opens-each-day-thread.md). Each reviewer gets one thread per board for each
 // Slack day, in the DM the hub opens with them, and the day's digest opens it: from quiet hours' end on a weekday, or as the
 // day's first link to that reviewer goes. Each PR's link goes in as a reply, and nothing else about the PR does.
-// Each posted link and digest reply is edited in place as its PR's state line changes, with no reaction
-// (docs/adr/2026-11-18-0000-a-prs-state-is-a-line-in-its-message-not-reactions.md). A failed send stays owed and goes
-// again next poll. After the sends, the
-// hub hears the day threads (hearBoards).
+// Each posted link and reply is reacted to with its PR's state, the reaction removed once the state stops holding, and
+// one an earlier build gave a state line is edited once to drop it
+// (docs/adr/2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md). A failed send stays owed
+// and goes again next poll. After the sends, the hub hears the day threads (hearBoards).
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendEvent, listBoards } from './boards.mjs';
 import { savedSlack, slackStatus, refusalUnpushed, markRefusalPushed, missingScope, setHearing, hearingUnpushed, markHearingPushed, slackUserId, isSignedOff } from './slack.mjs';
 import { deliver } from './push.mjs';
-import { reviewDue, postLink, recordEdit, postDigest, recordHeader, dayThread, heardThreads, markHeard, boardPosts } from '../board/slack-store.mjs';
+import { reviewDue, postLink, recordReaction, recordEdit, postDigest, recordHeader, dayThread, heardThreads, markHeard, boardPosts } from '../board/slack-store.mjs';
 
 const refusedToken = (e) => e.status === 400 && e.message === 'Slack refused the token.';
 
@@ -55,8 +55,14 @@ async function sendBoard(board, slack, now) {
       await postLink(board.dir, link, thread, () => slack.post({ channel: thread.channel, thread_ts: thread.ts, text: link.text, attachments: link.attachments }));
     });
   }
+  for (const r of due.reactions) {
+    await attempt(`${r.remove ? 'removing ' : ''}${r.emoji} for ${r.reviewer} on ${r.pr}`, async () => {
+      await (r.remove ? slack.unreact : slack.react)({ channel: r.channel, ts: r.ts, name: r.emoji });
+      await recordReaction(board.dir, r);
+    });
+  }
   for (const e of due.edits) {
-    await attempt(`state line for ${e.reviewer} on ${e.pr}`, async () => {
+    await attempt(`dropping the state line for ${e.reviewer} on ${e.pr}`, async () => {
       await slack.update({ channel: e.channel, ts: e.ts, text: e.text, attachments: e.attachments, at: now });
       await recordEdit(board.dir, e);
     });
@@ -71,7 +77,7 @@ const hasReviewers = (board) => {
 // One fault push for each time Slack refuses the token while a board has reviewers, so no send waits unseen.
 async function pushRefusal(boards, now) {
   if (!refusalUnpushed() || !boards.some(hasReviewers)) return [];
-  await deliver({ title: 'Slack refused Hub’s token', body: 'Reviewer links and digests wait until a working token is saved in Hub › Integrations › Slack.', url: '/_hub/settings#slack', tag: 'slack-token' }, { kind: 'fault', immediate: true, at: now });
+  await deliver({ title: 'Slack refused Hub’s token', body: 'Reviewer links, reactions and digests wait until a working token is saved in Hub › Integrations › Slack.', url: '/_hub/settings#slack', tag: 'slack-token' }, { kind: 'fault', immediate: true, at: now });
   markRefusalPushed();
   return ['pushed that Slack refused the token'];
 }

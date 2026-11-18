@@ -1,7 +1,7 @@
 // HubSettings: summary rows open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
 // settingsView's words from GET /_hub/api/settings. Linear's key and Slack's token open the same modal from the button on their Integrations rows (view-hub.js),
 // with no summary row of their own ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)); Slack's
-// holds its PR state emoji (slack-emoji.js) under the token. Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, except
+// holds its PR state reactions and signature (slack-emoji.js) under the token. Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, except
 // the Alerts sheet's, which Notifications' Alerts row opens stacked on the modal: its toggles post to /_hub/settings/alerts. Quiet
 // hours' times and hold to /_hub/settings/quiet, its Overnight work toggles to /_hub/settings/overnight, and saves at once, as Linear's key and Slack's token do through linear-key.js; Done waits for
 // a key's save to land. The rules editor saves through POST /_hub/settings/rules
@@ -110,7 +110,7 @@
             tokenSlot.set(last[active]);
             emojiSlot?.set(LinearKey.works(last.slack));
           } else {
-            // Slack's PR state emoji sit under its token while it works (slack-emoji.js).
+            // Slack's PR state reactions and signature sit under its token while it works (slack-emoji.js).
             if (active === 'slack') content.innerHTML = '<div class="slack-token"></div><div class="slack-emoji"></div>';
             tokenSlot = LinearKey.mount(active === 'slack' ? B.$('.slack-token') : content, { kind: active, state: last[active],
               saved(out) { last = out; flash = null; paint(); ctx.sidebarChanged?.(); },

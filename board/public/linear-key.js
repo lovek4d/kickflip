@@ -11,8 +11,8 @@
       note: 'Stays on the host. Boards use it to list teams and projects, create issues and move the ones that are yours. A board can pick Linear for its tickets only while this key works.',
       confirm: 'Boards on Linear fall back to internal tickets, and their tasks keep the Linear tickets they have. Remove the Linear key?' },
     slack: { field: 'token', input: 'slackToken', checking: 'Checking the token with Slack…', first: 'Paste a Slack user token', replace: 'Paste a new token to replace it', label: 'Slack user token',
-      note: 'Stays on the host. The hub sends your reviewers their PR links, each with its state line, and weekday digests as you, in your DMs with them.',
-      confirm: 'Reviewer links and digests stop until a token is back. Remove the Slack token?' },
+      note: 'Stays on the host. The hub sends your reviewers their PR links, with each PR’s state as a reaction, and weekday digests as you, in your DMs with them.',
+      confirm: 'Reviewer links, reactions and digests stop until a token is back. Remove the Slack token?' },
   };
 
   function slot(kind, state, { checking, flash }) {

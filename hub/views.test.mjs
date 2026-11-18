@@ -182,7 +182,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
         linear = opts.body.has('remove') ? { set: false } : opts.body.get('key') === 'bad' ? { set: true, refused: true } : { set: true, workspace: 'Acme', url_key: 'acme' };
         return { ok: true, json: async () => data() };
       }
-      if (url === '/_hub/api/slack-emoji') return { ok: true, json: async () => prEmojiView({ picks: {}, customs: {} }) };
+      if (url === '/_hub/api/slack-emoji') return { ok: true, json: async () => prEmojiView({ picks: {}, signOff: 'robot_face', customs: {} }) };
       if (url === '/_hub/settings/slack') {
         slack = opts.body.has('remove') ? { set: false } : { set: true, team: 'Acme', user: 'love' };
         return { ok: true, json: async () => data() };
@@ -428,7 +428,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.equal(appLink.textContent, 'a new Slack app');
   assert.deepEqual(JSON.parse(new URL(appLink.getAttribute('href')).searchParams.get('manifest_json')).oauth_config.scopes.user, ['chat:write', 'emoji:read', 'im:history', 'im:write', 'reactions:write', 'search:read', 'users:read']);
   assert.match(slackSlot.textContent, /User OAuth Token \(xoxp-…\)/);
-  assert.match(slackSlot.textContent, /The hub sends your reviewers their PR links, each with its state line, and weekday digests as you, in your DMs with them\./);
+  assert.match(slackSlot.textContent, /The hub sends your reviewers their PR links, with each PR’s state as a reaction, and weekday digests as you, in your DMs with them\./);
   // The PR state emoji (slack-emoji.js) wait under the token slot until a token works.
   const tokenSlot = slackSlot.querySelector('.slack-token');
   assert.equal(slackSlot.querySelector('.slack-emoji').innerHTML, '');
@@ -440,8 +440,8 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.doesNotMatch(root.innerHTML, /xoxp-secret/);
   assert.equal(posts.at(-1).url, '/_hub/api/slack-emoji');
   await settle();
-  assert.deepEqual(slackSlot.querySelectorAll('.slack-emoji .se-row .title').map((t) => t.textContent), ['Approved standard', 'Merged standard', 'Closed standard']);
-  assert.match(slackSlot.querySelector('.slack-emoji h2').textContent, /^Emoji in the PR's state line$/);
+  assert.deepEqual(slackSlot.querySelectorAll('.slack-emoji .se-row .title').map((t) => t.textContent), ['Approved standard', 'Merged standard', 'Closed standard', 'Signature standard']);
+  assert.match(slackSlot.querySelector('.slack-emoji h2').textContent, /^Reactions and signature$/);
   await fire(tokenSlot, 'click', { target: slackSlot.querySelector('[data-slack-remove]') });
   await settle();
   assert.equal(slackPosts().at(-1).opts.body.toString(), 'remove=1');
@@ -1343,29 +1343,33 @@ test("the hub page's New task box sends through the page's outbox: its row leads
   assert.deepEqual([rows(), toasts], [[['y', 'failed']], ['no']], 'an answered error reads not sent and toasts why');
 });
 
-test("Hub › Slack's emoji rows: each PR state's pick, its default from the workspace's customs or the standard one marked, and a changed pick naming what it changed from", () => {
+test("Hub › Slack's emoji rows: each PR state's reaction and the signature, its default from the workspace's customs or the standard one marked, and a changed pick naming what it changed from", () => {
   const customs = { git_approved: 'https://emoji.example/git_approved.png', git_merged: 'https://emoji.example/git_merged.png', ship_it: 'https://emoji.example/ship_it.png' };
   const rows = (view) => view.rows.map((r) => [r.kind, r.title, r.emoji.name, r.tag, r.sub, r.changed]);
-  const has = prEmojiView({ picks: {}, customs });
-  assert.equal(has.label, "Emoji in the PR's state line");
-  assert.equal(has.note, "One set for every board. The PR's Slack message shows it in its state line. A standard emoji stands in while the workspace lacks a custom one.");
+  const has = prEmojiView({ picks: {}, signOff: 'robot_face', customs });
+  assert.equal(has.label, 'Reactions and signature');
+  assert.equal(has.note, "One set for every board. A PR's Slack messages get its state's reaction, and every message the hub posts ends with the signature. A standard emoji stands in while the workspace lacks a custom one.");
   assert.deepEqual(rows(has), [
     ['approved', 'Approved', 'git_approved', null, ':git_approved: · this workspace’s', false],
     ['merged', 'Merged', 'git_merged', null, ':git_merged: · this workspace’s', false],
     ['closed', 'Closed', 'x', 'standard', ':x: · standard', false],
+    ['signature', 'Signature', 'robot_face', 'standard', ':robot_face: · standard', false],
   ]);
+  assert.deepEqual(has.rows[3].emoji, { name: 'robot_face', char: '🤖' });
+  assert.deepEqual(rows(prEmojiView({ picks: {}, signOff: 'ship_it', customs })).at(-1), ['signature', 'Signature', 'ship_it', null, ':ship_it: · changed from :robot_face:', true]);
   assert.deepEqual(has.rows[0].emoji, { name: 'git_approved', url: customs.git_approved });
   assert.deepEqual(has.rows[2].emoji, { name: 'x', char: '❌' });
   assert.deepEqual(has.customs, [['git_approved', customs.git_approved], ['git_merged', customs.git_merged], ['ship_it', customs.ship_it]].map(([name, url]) => ({ name, url })));
   assert.ok(has.standard.some((e) => e.name === 'white_check_mark' && e.char === '✅'));
   assert.ok(has.standard.some((e) => e.name === 'large_purple_circle' && e.char === '🟣'));
 
-  assert.deepEqual(rows(prEmojiView({ picks: {}, customs: {} })), [
+  assert.deepEqual(rows(prEmojiView({ picks: {}, signOff: 'robot_face', customs: {} })), [
     ['approved', 'Approved', 'white_check_mark', 'standard', ':white_check_mark: · standard, :git_approved: isn’t in this workspace', false],
     ['merged', 'Merged', 'large_purple_circle', 'standard', ':large_purple_circle: · standard, :git_merged: isn’t in this workspace', false],
     ['closed', 'Closed', 'x', 'standard', ':x: · standard', false],
+    ['signature', 'Signature', 'robot_face', 'standard', ':robot_face: · standard', false],
   ]);
-  assert.deepEqual(rows(prEmojiView({ picks: { approved: 'tada', closed: 'ship_it' }, customs })).filter((r) => r[5]), [
+  assert.deepEqual(rows(prEmojiView({ picks: { approved: 'tada', closed: 'ship_it' }, signOff: 'robot_face', customs })).filter((r) => r[5]), [
     ['approved', 'Approved', 'tada', null, ':tada: · changed from :git_approved:', true],
     ['closed', 'Closed', 'ship_it', null, ':ship_it: · changed from :x:', true],
   ]);

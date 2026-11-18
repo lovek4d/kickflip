@@ -23,6 +23,7 @@
     check: '<path d="M20 6 9 17l-5-5"/>',
     merge: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7"/><path d="M6 8.5a9 9 0 0 0 9.5 9.5"/>',
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   };
   const tile = (key, color) => `<span class="icon sm solid" style="--c:${color}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TILE_PATHS[key]}</svg></span>`;
   const CHEVRON = '<span class="chev" aria-hidden="true">›</span>';

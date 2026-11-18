@@ -15,4 +15,4 @@ The digest never moved to the bar: its header and replies kept their mention, an
 - **A thread an earlier build opened with a header line** gets the bars alone, with no header of its own and so no count to keep current; the reply that once carried the header and a listing of the PRs is gone.
 - **Reactions are unchanged**: approved and merged stay emoji reactions on each message. Showing status in the text is its own task.
 
-Superseded in part: the reactions are now a state line in the bar ([a PR's state is a line in its message, not reactions](2026-11-18-0000-a-prs-state-is-a-line-in-its-message-not-reactions.md)).
+The reactions were a state line in the bar for a time ([a PR's state is a line in its message, not reactions](2026-11-18-0000-a-prs-state-is-a-line-in-its-message-not-reactions.md)), and are reactions again, removed when their state stops holding ([a PR's state is reactions again, and the signature is picked](2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md)).

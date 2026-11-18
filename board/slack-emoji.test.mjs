@@ -33,7 +33,8 @@ function page({ customs }) {
         const { [kind]: _, ...rest } = picks;
         picks = opts.body.get('emoji') ? { ...rest, [kind]: opts.body.get('emoji') } : rest;
       }
-      return { ok: true, json: async () => JSON.parse(JSON.stringify(prEmojiView({ picks, customs }))) };
+      const { signature, ...prPicks } = picks;
+      return { ok: true, json: async () => JSON.parse(JSON.stringify(prEmojiView({ picks: prPicks, signOff: signature || 'robot_face', customs }))) };
     },
   });
   for (const file of ['ui-hub.js', 'popup.js', 'slack-emoji.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
@@ -55,9 +56,10 @@ test("Hub › Slack's emoji rows load only while the token works, and each opens
   slot.set(true);
   await settle();
   assert.deepEqual(calls.map((c) => c.url), ['/_hub/api/slack-emoji']);
-  assert.equal(root.querySelector('h2').textContent, "Emoji in the PR's state line");
-  assert.deepEqual(titles(root), ['Approved', 'Merged', 'Closed standard']);
-  assert.deepEqual(subs(root), [':git_approved: · this workspace’s', ':git_merged: · this workspace’s', ':x: · standard']);
+  assert.equal(root.querySelector('h2').textContent, 'Reactions and signature');
+  assert.deepEqual(titles(root), ['Approved', 'Merged', 'Closed standard', 'Signature standard']);
+  assert.deepEqual(subs(root), [':git_approved: · this workspace’s', ':git_merged: · this workspace’s', ':x: · standard', ':robot_face: · standard']);
+  assert.equal(root.querySelector('[data-se-open="signature"]').textContent, '🤖▾');
   assert.equal(root.querySelector('[data-se-open="approved"] img').getAttribute('src'), customs.git_approved);
   assert.match(root.querySelector('.note').textContent, /^One set for every board\./);
   slot.set(true);
@@ -99,7 +101,7 @@ test('a pick saves at once and reads changed from its default with Use default, 
   mount(true);
   await settle();
   assert.deepEqual(subs(root)[0], ':white_check_mark: · standard, :git_approved: isn’t in this workspace');
-  assert.deepEqual(titles(root), ['Approved standard', 'Merged standard', 'Closed standard']);
+  assert.deepEqual(titles(root), ['Approved standard', 'Merged standard', 'Closed standard', 'Signature standard']);
   await fire(root.querySelector('[data-se-open="approved"]'), 'click');
   assert.deepEqual(root.querySelector('.se-pop').querySelectorAll('.se-sec').map((s) => s.textContent), ['Standard', ':white_check_mark: now']);
   await fire(root.querySelector('[data-se-pick="tada"]'), 'click');
@@ -113,6 +115,14 @@ test('a pick saves at once and reads changed from its default with Use default, 
   await settle();
   assert.deepEqual(calls.at(-1), { url: '/_hub/settings/slack-emoji', body: 'state=approved&emoji=' });
   assert.equal(subs(root)[0], ':white_check_mark: · standard, :git_approved: isn’t in this workspace');
+
+  // The signature is picked from the same grid.
+  await fire(root.querySelector('[data-se-open="signature"]'), 'click');
+  assert.equal(root.querySelector('.se-pop [aria-pressed="true"]').dataset.sePick, 'robot_face');
+  await fire(root.querySelector('[data-se-pick="tada"]'), 'click');
+  await settle();
+  assert.deepEqual(calls.at(-1), { url: '/_hub/settings/slack-emoji', body: 'state=signature&emoji=tada' });
+  assert.equal(subs(root)[3], ':tada: · changed from :robot_face: · Use default');
 
   refuse(true);
   await fire(root.querySelector('[data-se-open="merged"]'), 'click');

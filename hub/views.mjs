@@ -7,7 +7,7 @@ import { CHOICES as DURATIONS, FOREVER, durationEnd, endOf } from './duration.mj
 import { siteIcon } from './icons.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 import { buildersView, orchestratorsView } from '../shared/model-views.mjs';
-import { PR_EMOJI, prEmojiDefault } from './slack.mjs';
+import { PR_EMOJI, SIGN_OFF_DEFAULT } from './slack.mjs';
 
 export const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -178,34 +178,37 @@ function slackWords(slack) {
   return { set: true, title: workspace, sub: `Token •••••••• · sends as ${slack.user}`, summary: `Token set · ${workspace}` };
 }
 
-// docs/adr/2026-11-18-0000-a-prs-state-is-a-line-in-its-message-not-reactions.md
-// The standard emoji Hub › Slack's picker offers for a PR state's line, with the character each shows as.
+// docs/adr/2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md
+// The standard emoji Hub › Slack's picker offers for a PR state's reaction and the signature, with the character each
+// shows as.
 const STANDARD_EMOJI = [
-  ['white_check_mark', '✅'], ['heavy_check_mark', '✔️'], ['large_purple_circle', '🟣'], ['x', '❌'], ['+1', '👍'], ['tada', '🎉'],
+  ['white_check_mark', '✅'], ['heavy_check_mark', '✔️'], ['large_purple_circle', '🟣'], ['x', '❌'], ['robot_face', '🤖'], ['+1', '👍'], ['tada', '🎉'],
   ['rocket', '🚀'], ['sparkles', '✨'], ['fire', '🔥'], ['100', '💯'], ['star', '⭐'], ['eyes', '👀'], ['clap', '👏'], ['raised_hands', '🙌'],
   ['ship', '🚢'], ['checkered_flag', '🏁'], ['large_green_circle', '🟢'], ['large_blue_circle', '🔵'], ['large_orange_circle', '🟠'],
   ['red_circle', '🔴'], ['white_circle', '⚪'], ['no_entry', '⛔'], ['no_entry_sign', '🚫'], ['octagonal_sign', '🛑'], ['wastebasket', '🗑️'],
   ['lock', '🔒'], ['hourglass', '⌛'], ['heart', '❤️'], ['purple_heart', '💜'], ['green_heart', '💚'],
 ].map(([name, char]) => ({ name, char }));
-const PR_EMOJI_TITLES = { approved: 'Approved', merged: 'Merged', closed: 'Closed' };
-// What Hub › Slack shows for the PR states' emojis (hub/slack.mjs PR_EMOJI): a row per state with its emoji, a
-// custom one's {name, url} or a standard one's {name, char}, marked standard while it is its standard default, and
-// what it is: the workspace's own, the standard one (and which custom one the workspace lacks), or a pick, changed
-// from its default; then the picker's emoji, the workspace's own and the standard ones. picks: readPREmoji's;
-// customs: the workspace's own emoji {name: url}.
-export function prEmojiView({ picks, customs }) {
+const EMOJI_TITLES = { approved: 'Approved', merged: 'Merged', closed: 'Closed', signature: 'Signature' };
+// What Hub › Slack shows for the PR states' reactions (hub/slack.mjs PR_EMOJI) and the signature, the sign-off line's
+// emoji: a row each with its emoji, a custom one's {name, url} or a standard one's {name, char}, marked standard while
+// it is its standard default, and what it is: the workspace's own, the standard one (and which custom one the workspace
+// lacks), or a pick, changed from its default; then the picker's emoji, the workspace's own and the standard ones.
+// picks: readPREmoji's; signOff: readSignOff's; customs: the workspace's own emoji {name: url}.
+export function prEmojiView({ picks, signOff, customs }) {
   const emoji = (name) => (customs[name] ? { name, url: customs[name] } : { ...STANDARD_EMOJI.find((e) => e.name === name), name });
-  const rows = Object.entries(PR_EMOJI).map(([kind, { custom, standard }]) => {
-    const fallback = prEmojiDefault(kind, customs);
-    const name = picks[kind] || fallback;
-    const sub = picks[kind] ? `:${name}: · changed from :${fallback}:`
+  const kinds = { ...PR_EMOJI, signature: { standard: SIGN_OFF_DEFAULT } };
+  const chosen = { ...picks, ...(signOff === SIGN_OFF_DEFAULT ? {} : { signature: signOff }) };
+  const rows = Object.entries(kinds).map(([kind, { custom, standard }]) => {
+    const fallback = customs[custom] ? custom : standard;
+    const name = chosen[kind] || fallback;
+    const sub = chosen[kind] ? `:${name}: · changed from :${fallback}:`
       : !custom ? `:${name}: · standard`
         : fallback === standard ? `:${name}: · standard, :${custom}: isn’t in this workspace` : `:${name}: · this workspace’s`;
-    return { kind, title: PR_EMOJI_TITLES[kind], emoji: emoji(name), tag: !picks[kind] && fallback === standard ? 'standard' : null, sub, changed: Boolean(picks[kind]) };
+    return { kind, title: EMOJI_TITLES[kind], emoji: emoji(name), tag: !chosen[kind] && fallback === standard ? 'standard' : null, sub, changed: Boolean(chosen[kind]) };
   });
   return {
-    label: "Emoji in the PR's state line",
-    note: "One set for every board. The PR's Slack message shows it in its state line. A standard emoji stands in while the workspace lacks a custom one.",
+    label: 'Reactions and signature',
+    note: "One set for every board. A PR's Slack messages get its state's reaction, and every message the hub posts ends with the signature. A standard emoji stands in while the workspace lacks a custom one.",
     rows,
     customs: Object.entries(customs).map(([name, url]) => ({ name, url })),
     standard: STANDARD_EMOJI,

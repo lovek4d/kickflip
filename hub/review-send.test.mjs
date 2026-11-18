@@ -39,7 +39,7 @@ beforeEach(() => {
   write(kf('settings.json'), { quiet: { start: '22:00', end: hhmm(monday), hold: true } });
 });
 
-const SIGN_OFF = '\n- :claude_kickflip:';
+const SIGN_OFF = '\n- :robot_face:';
 // Each post's words, then a line for each attachment: its colour bar, linked title and text; the sign-off line, which
 // ends the text or the last attachment, taken off.
 const unsigned = (words) => (words.endsWith(SIGN_OFF) ? words.slice(0, -SIGN_OFF.length) : words);
@@ -49,14 +49,11 @@ const pairs = (list) => list.map((m) => [m.channel, shown(m), m.thread_ts ?? nul
 const COLOURS = { low: '#2eb67d', medium: '#e8912d', high: '#e01e5a', none: '#9e9e9e' };
 const bar = (n, title, line, risk = 'none') => `▌${COLOURS[risk]} <https://github.com/o/r/pull/${n}|${title}> ${line}`;
 const linkTo = (u, n, title, line, risk) => bar(n, title, line, risk);
-// A PR message's state line: the line above the sign-off, its time once edited kept on; null without one.
-const stateLine = (world, ts) => {
-  const lines = world.messages.find((m) => m.ts === ts).attachments.at(-1).text.split('\n');
-  if (lines.length < 2) return null;
-  const [above, signOff] = lines.slice(-2);
-  const edited = signOff.match(/ · _updated \d\d:\d\d_$/)?.[0] || '';
-  return /^:[\w+-]+: /.test(above) ? `${above}${edited}` : null;
-};
+// Each reaction in the world, "<ts> <emoji>", sorted; and those for each of list's messages.
+const reacted = (world) => world.reactions.map((r) => `${r.timestamp} ${r.name}`).sort();
+const on = (list, name) => list.map((ts) => `${ts} ${name}`);
+// A posted PR message's bar text, its sign-off included.
+const barText = (world, ts) => world.messages.find((m) => m.ts === ts).attachments.at(-1).text;
 
 test("review posts go into one thread per board in each reviewer's DM each day, opened by the day's digest: then only each PR's link, never a bump", async () => {
   const world = { ...slackWorld(), dms: { U1: 'D1', U2: 'D9' } };
@@ -77,7 +74,7 @@ test("review posts go into one thread per board in each reviewer's DM each day, 
     ['D1', opener, null], ['D1', link1('U1'), annDay], ['D9', opener, null], ['D9', link1('U2'), bobDay],
     ['D1', link1('U1'), annDay], ['D9', link1('U2'), bobDay],
   ]);
-  assert.deepEqual(prSlack()['o/r#1'].links, { Ann: { state: '', channel: 'D1', thread_ts: annDay, ts: ann1 }, Bob: { state: '', channel: 'D9', thread_ts: bobDay, ts: bob1 } });
+  assert.deepEqual(prSlack()['o/r#1'].links, { Ann: { reactions: [], channel: 'D1', thread_ts: annDay, ts: ann1 }, Bob: { reactions: [], channel: 'D9', thread_ts: bobDay, ts: bob1 } });
   assert.deepEqual(digests().map((d) => [d.date, d.reviewer, d.channel, d.ts]), [['2026-11-01', 'Ann', 'D1', annDay], ['2026-11-01', 'Bob', 'D9', bobDay]]);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
@@ -97,20 +94,19 @@ test("review posts go into one thread per board in each reviewer's DM each day, 
   assert.equal('replies' in await reviewDue(site, { now: sunday }), false);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
-  // GitHub's APPROVED review decision puts a state line above the sign-off of every link to that PR and its digest
-  // reply, edited in place, then Merged on merge, or Closed on a close; no reaction goes on any of them. The digest's
-  // header names no PR and gets no line, and its count is edited down.
+  // GitHub's APPROVED review decision reacts git_approved on every link to that PR and its digest reply, and a merge
+  // replaces it with git_merged, or a close with x; no message is edited for its state. The digest's header names no PR
+  // and gets none, and its count is edited down.
   setPRs({ 'o/r#1': pr({ head: 'ccc0000000', approved: true, reviewDecision: 'APPROVED' }), 'o/r#2': pr({ title: 'Docs', state: 'CLOSED' }), 'o/r#3': pr({ isDraft: true, title: 'Tests' }) });
   await poll();
-  const lines = (list) => list.map((ts) => stateLine(world, ts));
-  assert.deepEqual(lines([ann1, bob1, annListed, bobListed]), Array(4).fill(':git_approved: Approved · _updated 09:00_'));
-  assert.deepEqual(lines([ann2, bob2]), Array(2).fill(':x: Closed · _updated 09:00_'));
-  assert.equal(world.messages.find((m) => m.ts === annDay).text, 'Orch Digest\nAll reviewed\n- :claude_kickflip: · _updated 09:00_');
+  assert.deepEqual(reacted(world), [...on([ann1, bob1, annListed, bobListed], 'git_approved'), ...on([ann2, bob2], 'x')].sort());
+  assert.equal(world.messages.find((m) => m.ts === annDay).text, 'Orch Digest\nAll reviewed\n- :robot_face: · _updated 09:00_');
   setPRs({ 'o/r#1': pr({ head: 'ccc0000000', approved: true, reviewDecision: 'APPROVED', state: 'MERGED' }), 'o/r#2': pr({ title: 'Docs', state: 'CLOSED' }), 'o/r#3': pr({ isDraft: true, title: 'Tests' }) });
   await poll();
-  assert.deepEqual(lines([ann1, bob1, annListed, bobListed]), Array(4).fill(':git_merged: Merged · _updated 09:00_'));
-  assert.deepEqual(world.reactions, []);
-  assert.equal(prSlack()['o/r#1'].links.Ann.state, 'Merged');
+  assert.deepEqual(reacted(world), [...on([ann1, bob1, annListed, bobListed], 'git_merged'), ...on([ann2, bob2], 'x')].sort());
+  assert.ok(world.reactions.every((r) => r.channel === ([bob1, bob2, bobListed].includes(r.timestamp) ? 'D9' : 'D1')));
+  assert.deepEqual(prSlack()['o/r#1'].links.Ann.reactions, [{ kind: 'merged', name: 'git_merged' }]);
+  assert.deepEqual([ann1, bob1, annListed, bobListed].map((ts) => barText(world, ts)), Array(4).fill('+84/-12 · 5 files\n- :robot_face:'));
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
   // The next day's thread opens with that day's digest, however late on the weekday the hub gets to it.
@@ -151,7 +147,7 @@ test("a PR's link is one bar with no mention, coloured by the builder's risk hol
   assert.deepEqual(links.map((m) => m.text), Array(8).fill(''));
   assert.ok(links.every((m) => isSignedOff(m.text, m.attachments)));
   assert.deepEqual(links[0].attachments, [{
-    color: COLOURS.low, title: 'fix(board): bug no longer occurs', title_link: 'https://github.com/o/r/pull/1', text: '+13/-45 · 1 file · low risk\n- :claude_kickflip:', mrkdwn_in: ['text'],
+    color: COLOURS.low, title: 'fix(board): bug no longer occurs', title_link: 'https://github.com/o/r/pull/1', text: '+13/-45 · 1 file · low risk\n- :robot_face:', mrkdwn_in: ['text'],
     fallback: 'r#1 fix(board): bug no longer occurs · +13/-45 · 1 file · low risk',
   }]);
   // The digest's replies and the links are the same four bars.
@@ -164,57 +160,58 @@ test("a PR's link is one bar with no mention, coloured by the builder's risk hol
   assert.deepEqual(links.map(shown), [...bars, ...bars]);
 });
 
-test("a message posted before state lines keeps its reactions and gets its line at its next state change; an old bump is never edited", async () => {
+test("a message an earlier build gave a state line is edited once to drop it and gets its reaction; one reacted to by name alone has that name removed when its state stops holding, a bump's too", async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);
   saveToken(world);
   write(waveFile, { repo: 'o/r', reviewers: [bob], items: [{ id: 'A1', title: 'Old', pr: 1 }] });
   setPRs({ 'o/r#1': pr({ approved: true, reviewDecision: 'APPROVED' }) });
-  const ann1 = slack.say({ channel: 'D1', user: 'U0', text: '', attachments: [{ title: 'Fix limiter', text: '+84/-12 · 5 files\n- :claude_kickflip:' }] });
+  const ann1 = slack.say({ channel: 'D1', user: 'U0', text: '', attachments: [{ title: 'Fix limiter', text: '+84/-12 · 5 files\n:git_approved: Approved by Ann\n- :claude_kickflip: · _updated 08:00_' }] });
   const bob1 = slack.say({ channel: 'D2', user: 'U0', text: '', attachments: [{ title: 'Fix limiter', text: '+84/-12 · 5 files\n- :claude_kickflip:' }] });
   const bump = slack.say({ channel: 'D1', user: 'U0', text: '1 new commit\n- :claude_kickflip:' });
+  world.reactions.push(...[['D2', bob1], ['D1', bump]].map(([channel, timestamp]) => ({ channel, timestamp, name: 'git_approved' })));
   write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { head: 'aaa0000000',
-    links: { Ann: { channel: 'D1', ts: ann1, reactions: ['git_approved'] }, Bob: { channel: 'D2', ts: bob1, reactions: [] } },
+    links: { Ann: { channel: 'D1', ts: ann1, state: 'Approved by Ann' }, Bob: { channel: 'D2', ts: bob1, reactions: ['git_approved'] } },
     replies: [{ id: 'push-1', text: '1 new commit', to: { Ann: { ts: bump, reactions: ['git_approved'] } } }] } });
-  // Ann's link already shows the approval as its reaction; Bob's reaction never went, so his link is edited now.
-  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
-  assert.deepEqual([stateLine(world, ann1), stateLine(world, bob1)], [null, ':git_approved: Approved · _updated 09:00_']);
+  const poll = () => sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  assert.deepEqual((await poll()).sent, ['orch: git_approved for Ann on o/r#1', 'orch: dropping the state line for Ann on o/r#1']);
+  assert.equal(barText(world, ann1), '+84/-12 · 5 files\n- :robot_face: · _updated 09:00_');
+  assert.equal('state' in prSlack()['o/r#1'].links.Ann, false);
+  assert.deepEqual(reacted(world), on([ann1, bob1, bump], 'git_approved').sort());
+  // The merge replaces each approval, the earlier build's by its recorded name; nothing is edited again.
   setPRs({ 'o/r#1': pr({ approved: true, reviewDecision: 'APPROVED', state: 'MERGED' }) });
-  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
-  assert.deepEqual([stateLine(world, ann1), stateLine(world, bob1)], Array(2).fill(':git_merged: Merged · _updated 09:00_'));
+  await poll();
+  assert.deepEqual(reacted(world), on([ann1, bob1, bump], 'git_merged').sort());
+  assert.equal(slack.calls.filter((c) => c.method === 'chat.update').length, 1);
   assert.equal(world.messages.find((m) => m.ts === bump).text, '1 new commit\n- :claude_kickflip:');
-  assert.deepEqual(world.reactions, []);
-  assert.deepEqual(prSlack()['o/r#1'].links.Ann.reactions, ['git_approved']);
+  assert.deepEqual(prSlack()['o/r#1'].links.Bob.reactions, [{ kind: 'merged', name: 'git_merged' }]);
+  assert.deepEqual(await poll(), { sent: [], failed: [] });
 });
 
-test("the state line names who approved, a workspace without git_approved and git_merged gets the standard emojis, and Hub's pick for a state wins", async () => {
+test("a reviewer's own approval reacts on their messages only, a workspace without git_approved and git_merged gets the standard emojis, and Hub's pick for a state wins", async () => {
   const world = Object.assign(slackWorld(), { noEmoji: true });
   const slack = fakeSlack(world);
   saveToken(world);
   write(waveFile, { repo: 'o/r', reviewers: [bob], items: [{ id: 'A1', title: 'Old', pr: 1 }] });
   setPRs({ 'o/r#1': pr() });
-  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  const poll = () => sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  await poll();
   const link = (name) => prSlack()['o/r#1'].links[name].ts;
-  assert.deepEqual([stateLine(world, link('Ann')), stateLine(world, link('Bob'))], [null, null]);
-  // Bob's own approval shows on his link while GitHub's decision still waits on a code owner; logins no reviewer has
-  // are named as they are.
-  setPRs({ 'o/r#1': pr({ reviews: { ann: 'CHANGES_REQUESTED', bob: 'APPROVED', zed: 'APPROVED' } }) });
-  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
-  assert.deepEqual([stateLine(world, link('Ann')), stateLine(world, link('Bob'))], [null, ':white_check_mark: Approved by Bob and zed · _updated 09:00_']);
-  // A failed edit leaves the line owed, and it goes on the next poll.
-  setPRs({ 'o/r#1': pr({ state: 'MERGED', reviews: { bob: 'APPROVED' } }) });
-  world.updateError = 'ratelimited';
-  // Each reviewer's link and the digest reply that opened their day's thread.
-  assert.deepEqual((await sendReviews({ boards, fetch: slack.fetch, now: sunday })).failed.filter((f) => f.includes('state line')).sort(),
-    ['Ann', 'Ann', 'Bob', 'Bob'].map((name) => `orch: state line for ${name} on o/r#1: Slack: ratelimited`));
-  delete world.updateError;
+  const digestReply = (name) => digests().find((d) => d.reviewer === name).replies[0].ts;
+  assert.deepEqual(world.reactions, []);
+  // Bob's own approval reacts on his link and digest reply while GitHub's decision still waits on a code owner.
+  setPRs({ 'o/r#1': pr({ reviews: { ann: 'CHANGES_REQUESTED', bob: 'APPROVED' } }) });
+  await poll();
+  assert.deepEqual(reacted(world), on([link('Bob'), digestReply('Bob')], 'white_check_mark').sort());
   write(kf('slack.json'), { timezone: 'America/Los_Angeles', pr_emoji: { merged: 'tada' } });
-  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
-  assert.deepEqual([stateLine(world, link('Ann')), stateLine(world, link('Bob'))], Array(2).fill(':tada: Merged · _updated 09:00_'));
-  assert.deepEqual((await reviewDue(site, { now: sunday })).edits, []);
+  setPRs({ 'o/r#1': pr({ state: 'MERGED', reviews: { bob: 'APPROVED' } }) });
+  await poll();
+  assert.deepEqual(reacted(world), on([link('Ann'), digestReply('Ann'), link('Bob'), digestReply('Bob')], 'tada').sort());
+  assert.deepEqual(prSlack()['o/r#1'].links.Bob.reactions, [{ kind: 'merged', name: 'tada' }]);
+  assert.deepEqual((await reviewDue(site, { now: sunday })).reactions, []);
 });
 
-test('a link sent to an already approved PR carries its state line, and a link and reply follow the state back when it stops holding', async () => {
+test('an approval reacts on a link sent to an already approved PR, and its reaction is removed when the approval is taken back', async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);
   saveToken(world);
@@ -222,28 +219,61 @@ test('a link sent to an already approved PR carries its state line, and a link a
   setPRs({ 'o/r#1': pr({ reviewDecision: 'APPROVED', reviews: { ann: 'APPROVED' } }) });
   await sendReviews({ boards, fetch: slack.fetch, now: sunday });
   const ts = prSlack()['o/r#1'].links.Ann.ts;
-  assert.equal(stateLine(world, ts), ':git_approved: Approved by Ann');
-  assert.deepEqual((await reviewDue(site, { now: sunday })).edits, []);
-  // Ann dismisses her approval: the line goes on the next edit, and the bar keeps its sign-off.
-  setPRs({ 'o/r#1': pr({ reviews: { ann: 'COMMENTED' } }) });
+  // The reaction follows on the next poll, once the link is recorded.
   await sendReviews({ boards, fetch: slack.fetch, now: sunday });
-  assert.equal(stateLine(world, ts), null);
-  assert.equal(world.messages.find((m) => m.ts === ts).attachments[0].text, '+84/-12 · 5 files\n- :claude_kickflip: · _updated 09:00_');
-  assert.equal(prSlack()['o/r#1'].links.Ann.state, '');
+  assert.deepEqual(reacted(world), on([ts], 'git_approved'));
+  assert.equal(barText(world, ts), '+84/-12 · 5 files\n- :robot_face:');
+  // Ann dismisses her approval and the decision goes back to waiting: the reaction comes off, and nothing is edited.
+  setPRs({ 'o/r#1': pr({ reviews: { ann: 'COMMENTED' } }) });
+  assert.deepEqual((await sendReviews({ boards, fetch: slack.fetch, now: sunday })).sent, ['orch: removing git_approved for Ann on o/r#1']);
+  assert.deepEqual(world.reactions, []);
+  assert.deepEqual(prSlack()['o/r#1'].links.Ann.reactions, []);
+  assert.equal(slack.calls.filter((c) => c.method === 'chat.update').length, 0);
 });
 
-test('no state line edit is owed to someone who is no longer a reviewer', async () => {
+test("an approved flag under GitHub's REVIEW_REQUIRED stays in the digest and reacts nothing; reviewDecision APPROVED drops it", async () => {
+  const world = slackWorld();
+  const slack = fakeSlack(world);
+  saveToken(world);
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Open', prs: [{ number: 1 }, { number: 2 }] }] });
+  setPRs({ 'o/r#1': pr({ approved: true }), 'o/r#2': pr() });
+  await sendReviews({ boards, fetch: slack.fetch, now: monday });
+  const header = () => world.messages.find((m) => m.text.startsWith('Orch Digest')).text;
+  assert.equal(header(), `Orch Digest\n2 PRs pending review${SIGN_OFF}`);
+  assert.deepEqual(world.reactions, []);
+
+  setPRs({ 'o/r#1': pr({ approved: true, reviewDecision: 'APPROVED' }), 'o/r#2': pr() });
+  await sendReviews({ boards, fetch: slack.fetch, now: monday });
+  assert.equal(header(), `Orch Digest\n1 PR pending review${SIGN_OFF} · _updated 09:00_`);
+  assert.ok(world.reactions.length > 0);
+  assert.ok(world.reactions.every((r) => r.name === 'git_approved'));
+});
+
+test('a reply recorded without an id, or sharing one, is reacted to on its own message and not due again', async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);
   saveToken(world);
   write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Old', pr: 1 }] });
   setPRs({ 'o/r#1': pr({ state: 'MERGED' }) });
-  const bar = (channel) => slack.say({ channel, user: 'U0', text: '', attachments: [{ title: 'Fix limiter', text: '- :claude_kickflip:' }] });
-  const [ann1, bob1, bobDigest] = [bar('D1'), bar('D2'), bar('D2')];
-  write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { head: 'aaa0000000', links: { Ann: { channel: 'D1', ts: ann1, state: '' }, Bob: { channel: 'D2', ts: bob1, state: '' } }, replies: [{ id: 'digest-2026-11-01', text: '', to: { Bob: { channel: 'D2', ts: bobDigest, state: '' } } }] } });
+  const sent = (ts) => ({ ts, reactions: [] });
+  write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { head: 'aaa0000000', links: { Ann: { channel: 'D1', ts: '1792700000.000100', reactions: [] } }, replies: [{ text: 'a', to: { Ann: sent('1792700000.000200') } }, { id: 'x', text: 'b', to: { Ann: sent('1792700000.000300') } }, { id: 'x', text: 'c', to: { Ann: sent('1792700000.000400') } }] } });
   await sendReviews({ boards, fetch: slack.fetch, now: sunday });
-  assert.deepEqual([ann1, bob1, bobDigest].map((ts) => stateLine(world, ts)), [':git_merged: Merged · _updated 09:00_', null, null]);
-  assert.deepEqual((await reviewDue(site, { now: sunday })).edits, []);
+  assert.equal(world.reactions.length, 4);
+  const record = prSlack()['o/r#1'];
+  assert.deepEqual([record.links.Ann, ...record.replies.map((r) => r.to.Ann)].map((m) => m.reactions), Array(4).fill([{ kind: 'merged', name: 'git_merged' }]));
+  assert.deepEqual((await reviewDue(site, { now: sunday })).reactions, []);
+});
+
+test('no reaction is owed to someone who is no longer a reviewer', async () => {
+  const world = slackWorld();
+  const slack = fakeSlack(world);
+  saveToken(world);
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Old', pr: 1 }] });
+  setPRs({ 'o/r#1': pr({ state: 'MERGED' }) });
+  write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { head: 'aaa0000000', links: { Ann: { channel: 'D1', ts: '1792700000.000100', reactions: [] }, Bob: { channel: 'D2', ts: '1792700000.000500', reactions: [] } }, replies: [{ id: 'push-1', text: 'p', to: { Bob: { ts: '1792700000.000600', reactions: [] } } }] } });
+  await sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  assert.deepEqual(world.reactions.map((r) => r.timestamp), ['1792700000.000100']);
+  assert.deepEqual((await reviewDue(site, { now: sunday })).reactions, []);
 });
 
 test("a link before 09:00 opens the day's thread with the digest, and the weekday morning sends no second one", async () => {
@@ -390,7 +420,7 @@ test('the digest is owed to each reviewer until its header and every reply are p
   const first = await poll(monday, flaky);
   assert.ok(first.failed.includes('orch: digest to Ann: Slack: user_not_found'), first.failed.join('\n'));
   assert.ok(first.failed.includes('orch: digest to Bob: Slack: ratelimited'), first.failed.join('\n'));
-  assert.deepEqual(world.messages.filter((m) => m.text.includes('Digest')).map((m) => [m.channel, m.text]), [['D2', 'Orch Digest\n2 PRs pending review\n- :claude_kickflip:']]);
+  assert.deepEqual(world.messages.filter((m) => m.text.includes('Digest')).map((m) => [m.channel, m.text]), [['D2', 'Orch Digest\n2 PRs pending review\n- :robot_face:']]);
 
   failReplies = false;
   world.dms.U1 = 'D1';
@@ -409,13 +439,13 @@ test('the digest is owed to each reviewer until its header and every reply are p
   const before = world.messages.length;
   await poll();
   assert.equal(world.messages.length, before);
-  // A digest's one-PR reply is a message about that PR, so a merge edits its state line as the link's; its header gets none.
+  // A digest's one-PR reply is a message about that PR, so a merge reacts on it as on the link; its header gets none.
   const digestTs = (name, n) => digests().find((d) => d.reviewer === name).replies.find((r) => r.pr === `o/r#${n}`).ts;
   const linkTs = (name) => prSlack()['o/r#1'].links[name].ts;
   setPRs({ 'o/r#1': pr({ state: 'MERGED' }), 'o/r#2': pr() });
   await poll();
-  assert.deepEqual([digestTs('Ann', 1), linkTs('Ann'), digestTs('Bob', 1), linkTs('Bob')].map((ts) => stateLine(world, ts)), Array(4).fill(':git_merged: Merged · _updated 09:00_'));
-  assert.equal(stateLine(world, digestTs('Ann', 2)), null);
+  assert.deepEqual(world.reactions.map((r) => `${r.channel} ${r.timestamp} ${r.name}`).sort(),
+    [`D1 ${digestTs('Ann', 1)} git_merged`, `D1 ${linkTs('Ann')} git_merged`, `D2 ${digestTs('Bob', 1)} git_merged`, `D2 ${linkTs('Bob')} git_merged`].sort());
   // The next day starts afresh; the record keeps the last 7 days, whose threads the hub still hears.
   await poll(new Date('2026-11-03T17:00:00Z'));
   assert.deepEqual(digests().map((d) => d.date), ['2026-11-02', '2026-11-02', '2026-11-03', '2026-11-03']);
@@ -436,11 +466,12 @@ test("a digest header's count is edited as its reviewer's PRs leave review, to A
 
   setPRs({ 'o/r#1': pr({ reviewDecision: 'APPROVED', approved: true }), 'o/r#2': pr() });
   world.updateError = 'ratelimited';
-  // The PR's link and its digest reply are edited too, for its state line.
-  assert.deepEqual((await poll()).failed, ['orch: digest count for Ann: Slack: ratelimited', ...Array(2).fill('orch: state line for Ann on o/r#1: Slack: ratelimited')]);
+  // The PR's link and its digest reply are reacted to, not edited.
+  const first = await poll();
+  assert.deepEqual([first.sent, first.failed], [Array(2).fill('orch: git_approved for Ann on o/r#1'), ['orch: digest count for Ann: Slack: ratelimited']]);
   assert.equal(header(), `Orch Digest\n2 PRs pending review${SIGN_OFF}`);
   delete world.updateError;
-  assert.deepEqual((await poll()).sent, ['orch: digest count for Ann', ...Array(2).fill('orch: state line for Ann on o/r#1')]);
+  assert.deepEqual((await poll()).sent, ['orch: digest count for Ann']);
   assert.equal(header(), `Orch Digest\n1 PR pending review${SIGN_OFF} · _updated 09:00_`);
   assert.ok(isSignedOff(header()));
   assert.deepEqual(await poll(), { sent: [], failed: [] });

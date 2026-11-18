@@ -299,6 +299,12 @@ export function fakeSlack(world) {
       world.reactions.push({ channel: body.channel, timestamp: body.timestamp, name: body.name });
       return { ok: true };
     }
+    if (method === 'reactions.remove') {
+      const at = world.reactions.findIndex((r) => r.channel === body.channel && r.timestamp === body.timestamp && r.name === body.name);
+      if (at < 0) return { ok: false, error: 'no_reaction' };
+      world.reactions.splice(at, 1);
+      return { ok: true };
+    }
     return { ok: false, error: 'unknown_method' };
   }
   return {

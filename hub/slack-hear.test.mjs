@@ -50,8 +50,8 @@ async function opened() {
 
 test("each new message in an open day thread wakes its board once with a slack-question event: a reviewer's always expects an answer, the owner's only when it names @kickflip, and the board's own posts wake nobody", async () => {
   const { world, slack, poll, day } = await opened();
-  assert.deepEqual(world.messages.map((m) => m.text), ['Orch Digest\n1 PR pending review\n- :claude_kickflip:', '', '']);
-  assert.deepEqual(world.messages.slice(1).map((m) => m.attachments[0].text), ['+84/-12 · 5 files\n- :claude_kickflip:', '+84/-12 · 5 files\n- :claude_kickflip:']);
+  assert.deepEqual(world.messages.map((m) => m.text), ['Orch Digest\n1 PR pending review\n- :robot_face:', '', '']);
+  assert.deepEqual(world.messages.slice(1).map((m) => m.attachments[0].text), ['+84/-12 · 5 files\n- :robot_face:', '+84/-12 · 5 files\n- :robot_face:']);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
   assert.deepEqual(questions(), []);
 
@@ -115,7 +115,7 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
   assert.deepEqual((await slackThread(site, question.id, client)).lines, [
     'board: Orch Digest',
     '    1 PR pending review',
-    '    - :claude_kickflip:',
+    '    - :robot_face:',
     'board: r#1 Fix limiter · +84/-12 · 5 files',
     'board: r#1 Fix limiter · +84/-12 · 5 files',
     '→ Ann: Could the digest skip drafts?',
@@ -134,7 +134,7 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
   assert.deepEqual((await slackSkip(site, question.id)).lines, ["no reply to Ann's day thread"]);
   assert.deepEqual(handled().at(-1), { id: question.id, by: 'skip' });
   await assert.rejects(slackSkip(site, 'enope'), /no slack-question "enope"/);
-  assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: 'Drafts never reach it; filed a task for the owner.\n- :claude_kickflip:', thread_ts: day, ts: world.messages.at(-1).ts });
+  assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: 'Drafts never reach it; filed a task for the owner.\n- :robot_face:', thread_ts: day, ts: world.messages.at(-1).ts });
   await assert.rejects(slackAnswer(site, quiet.id, 'ok', client), /names no @kickflip, so it expects no reply/);
   await slackAnswer(site, question.id, 'x'.repeat(250), client);
   await assert.rejects(slackAnswer(site, question.id, 'x'.repeat(251), client), /runs to 251 characters, past the orchestrator's 250/);
@@ -154,7 +154,7 @@ test("slack say posts the words signed off in the reviewer's day thread, opening
   const { world, slack, poll, day } = await opened();
   const client = slackClient(world.token, { fetch: slack.fetch });
   assert.deepEqual((await slackSay(site, 'ann', 'r#1 is ready for another look.', { now: sunday }, client)).lines, ["said in Ann's day thread"]);
-  assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: 'r#1 is ready for another look.\n- :claude_kickflip:', thread_ts: day, ts: world.messages.at(-1).ts });
+  assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: 'r#1 is ready for another look.\n- :robot_face:', thread_ts: day, ts: world.messages.at(-1).ts });
   await poll();
   assert.deepEqual(questions(), []);
 
@@ -162,9 +162,9 @@ test("slack say posts the words signed off in the reviewer's day thread, opening
   world.messages.length = 0;
   await slackSay(site, 'Ann', 'Merged.', { now: days(1) }, client);
   const [header, listed, said] = world.messages;
-  assert.deepEqual([header.channel, header.text, header.thread_ts], ['D1', 'Orch Digest\n1 PR pending review\n- :claude_kickflip:', undefined]);
-  assert.deepEqual([listed.attachments[0].title, listed.attachments[0].text, listed.thread_ts], ['Fix limiter', '+84/-12 · 5 files\n_(9 days old)_\n- :claude_kickflip:', header.ts]);
-  assert.deepEqual([said.text, said.thread_ts], ['Merged.\n- :claude_kickflip:', header.ts]);
+  assert.deepEqual([header.channel, header.text, header.thread_ts], ['D1', 'Orch Digest\n1 PR pending review\n- :robot_face:', undefined]);
+  assert.deepEqual([listed.attachments[0].title, listed.attachments[0].text, listed.thread_ts], ['Fix limiter', '+84/-12 · 5 files\n_(9 days old)_\n- :robot_face:', header.ts]);
+  assert.deepEqual([said.text, said.thread_ts], ['Merged.\n- :robot_face:', header.ts]);
   await poll(days(1));
   assert.deepEqual(questions(), []);
   assert.equal(world.messages.length, 3);
@@ -193,10 +193,10 @@ test('board.mjs slack thread, slack answer, slack say and slack task run through
     assert.match(thread.out, /→ Ann: Can it batch\?/);
     const answered = await cli('slack', 'answer', question.id, '--text', 'Not yet; filed for the owner.');
     assert.equal(answered.code, 0, answered.err);
-    assert.equal(world.messages.at(-1).text, 'Not yet; filed for the owner.\n- :claude_kickflip:');
+    assert.equal(world.messages.at(-1).text, 'Not yet; filed for the owner.\n- :robot_face:');
     const said = await cli('slack', 'say', 'Ann', '--text', 'Batching is filed.');
     assert.equal(said.code, 0, said.err);
-    assert.equal(world.messages.at(-1).text, 'Batching is filed.\n- :claude_kickflip:');
+    assert.equal(world.messages.at(-1).text, 'Batching is filed.\n- :robot_face:');
     const filed = await cli('slack', 'task', question.id, 'w', '--title', 'feat(slack): batch sends', '--notes', 'Ann asks for batching.');
     assert.equal(filed.code, 0, filed.err);
     assert.match(filed.out, /w\/T-1/);
@@ -207,7 +207,7 @@ test('board.mjs slack thread, slack answer, slack say and slack task run through
   } finally { await server.close(); }
 });
 
-test("slack link sends the PR's one message format, the bar with no mention, in the reviewer's day thread, recorded with no state line so the board sends no second and edits its state line in", async () => {
+test("slack link sends the PR's one message format, the bar with no mention, in the reviewer's day thread, recorded so the board sends no second and reactions follow", async () => {
   const { world, poll, slack, day } = await opened();
   const client = slackClient(world.token, { fetch: slack.fetch });
   write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Limits', pr: 1 }, { id: 'A2', title: 'Docs', pr: 2, risk: 'high' }] });
@@ -215,16 +215,16 @@ test("slack link sends the PR's one message format, the bar with no mention, in 
   const lineOf = (m) => [m.channel, m.thread_ts, m.text, m.attachments];
   assert.deepEqual((await slackLink(site, 'o/r#2', '@U1', { now: sunday, readPR }, client)).lines, ["sent o/r#2 to Ann's day thread"]);
   assert.deepEqual(lineOf(world.messages.at(-1)), ['D1', day, '', [{
-    color: '#e01e5a', title: 'Docs of o/r#2', title_link: 'https://github.com/o/r/pull/2', text: '+3/-0 · 1 file · high risk\n- :claude_kickflip:', mrkdwn_in: ['text'],
+    color: '#e01e5a', title: 'Docs of o/r#2', title_link: 'https://github.com/o/r/pull/2', text: '+3/-0 · 1 file · high risk\n- :robot_face:', mrkdwn_in: ['text'],
     fallback: 'r#2 Docs of o/r#2 · +3/-0 · 1 file · high risk',
   }]]);
-  assert.deepEqual([read(path.join(site, 'data', 'pr-slack.json'))['o/r#2'].links.Ann.ts, read(path.join(site, 'data', 'pr-slack.json'))['o/r#2'].links.Ann.state], [world.messages.at(-1).ts, '']);
+  assert.equal(read(path.join(site, 'data', 'pr-slack.json'))['o/r#2'].links.Ann.ts, world.messages.at(-1).ts);
   const sentTs = world.messages.at(-1).ts;
 
   // A PR URL and a number in the board's repo name the PR as well; a PR on no card has no risk; the same PR goes once.
   await slackLink(site, 'https://github.com/x/y/pull/9', 'ann', { now: sunday, readPR }, client);
   assert.equal(world.messages.at(-1).attachments[0].color, '#9e9e9e');
-  assert.equal(world.messages.at(-1).attachments[0].text, '+3/-0 · 1 file\n- :claude_kickflip:');
+  assert.equal(world.messages.at(-1).attachments[0].text, '+3/-0 · 1 file\n- :robot_face:');
   await assert.rejects(slackLink(site, 'o/r#2', 'Ann', { now: sunday, readPR }, client), /already gone out/);
   await assert.rejects(slackLink(site, 'nope', 'Ann', { readPR }, client), /is no PR/);
   await assert.rejects(slackLink(site, 'o/r#2', 'Zed', { readPR }, client), /no reviewer "Zed"/);
@@ -235,10 +235,11 @@ test("slack link sends the PR's one message format, the bar with no mention, in 
   await poll();
   assert.equal(world.messages.filter((m) => m.attachments?.some((a) => a.title_link === 'https://github.com/o/r/pull/2')).length, 1);
   assert.ok(world.messages.length >= before);
-  // Its merge edits the state line in, as on the board's own link.
+  // Its merge reacts on it, as on the board's own link, and leaves its words as they are.
   write(kf('github-state.json'), { prs: { 'o/r#1': pr, 'o/r#2': { ...pr, state: 'MERGED', title: 'Docs of o/r#2', additions: 3, deletions: 0, files: 1 } } });
   await poll();
-  assert.equal(world.messages.find((m) => m.ts === sentTs).attachments[0].text, '+3/-0 · 1 file · high risk\n:git_merged: Merged\n- :claude_kickflip: · _updated 09:00_');
+  assert.deepEqual(world.reactions.filter((r) => r.timestamp === sentTs).map((r) => r.name), ['git_merged']);
+  assert.equal(world.messages.find((m) => m.ts === sentTs).attachments[0].text, '+3/-0 · 1 file · high risk\n- :robot_face:');
 });
 
 test('prLink is the only builder of a PR message: no other source file makes a PR attachment', () => {

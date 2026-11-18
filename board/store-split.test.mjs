@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 // each the one module that exports its concept's functions. home keeps the imports off the real hub.
 void home;
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const SLACK = ['readPRSlack', 'postLink', 'recordEdit', 'reviewDue', 'recordHeader', 'reviewDigest', 'heardThreads', 'markHeard', 'boardPosts',
+const SLACK = ['readPRSlack', 'postLink', 'recordReaction', 'recordEdit', 'reviewDue', 'recordHeader', 'reviewDigest', 'heardThreads', 'markHeard', 'boardPosts',
   'followedSlackThreads', 'markSlackThreadHeard', 'slackOutbox', 'markSlackPost', 'slackThread', 'slackSkip', 'slackAnswer', 'slackSay', 'slackLink',
   'slackTask', 'dayThread', 'postDigest'];
 const MIGRATIONS = ['migrateFollowups', 'migrateStatuses', 'migrateGates', 'migrateCreated', 'migratePhases', 'clearBuildPhases', 'discussNewCards',

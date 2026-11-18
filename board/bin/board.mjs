@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readiness } from '../../hub/readiness.mjs';
-import { readSlack, setSlack } from '../../hub/slack.mjs';
+import { readSlack, setSlack, signOffLine } from '../../hub/slack.mjs';
 import { routeRecord } from '../../hub/routes.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -467,6 +467,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   slack                                                 Slack identity as JSON; imports slack-bridge config once
   slack set [--self-dm D..] [--user U..]                 sets hub Slack identity in ~/.claude/kickflip/slack.json
             [--domain x] [--timezone Area/City]
+  slack signature                                       the sign-off line that ends every Slack message the hub and
+                                                         the orchestrator post, "- :<emoji>:", its emoji picked in
+                                                         Hub › Slack (:robot_face: by default)
   slack thread <eventId>                                a slack-question event's day thread, read from Slack through
                                                          Hub's token: one message a line, named board, you or the
                                                          reviewer; → marks the event's message. On a message that
@@ -493,16 +496,19 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   integrations                                          readiness rows as one JSON line
   review due                                            one JSON line of the Slack sends the hub owes, from local state
                                                          and data/pr-slack.json: {date, links: [{pr, key, reviewer,
-                                                         slack_user, state, text, attachments}], edits: [{pr, reviewer,
-                                                         reply?, channel, ts, state, text, attachments}], digest:
+                                                         slack_user, text, attachments}], reactions: [{pr, reviewer,
+                                                         reply?, channel, ts, kind, emoji?, remove?}], edits: [{pr,
+                                                         reviewer, reply?, channel, ts, text, attachments}], digest:
                                                          review digest's answer while due, else null}. links: each
                                                          open, non-draft PR's link to each reviewer without one, in
                                                          the reviewer's thread for date; no other message about a PR
-                                                         is owed. edits: each posted link and digest reply whose
-                                                         state line (Approved by <name>, Merged, Closed, or none)
-                                                         isn't the PR's now, edited in place, with no reaction. The
-                                                         hub sends and records each. While Slack isn't ready: {waiting} and
-                                                         nothing owed
+                                                         is owed. reactions: on every posted link and reply, the
+                                                         PR's state (kind approved, merged or closed, its emoji
+                                                         picked in Hub › Slack, which only the hub's send names);
+                                                         remove: one the hub added for a state that no longer
+                                                         holds. edits: each message an earlier build gave a state
+                                                         line, again without it. The hub sends and records each.
+                                                         While Slack isn't ready: {waiting} and nothing owed
   review post <pr> --file <review.md>                   posts the session's words as one Comment review (never an
           --read-at <time>                               approval or a request for changes) on an incoming PR at
                                                          its listed head, as the board's github-login (else gh's
@@ -1221,6 +1227,7 @@ const COMMANDS = {
     return store.handoff(site, ref, { to: f.to, note: f.note, done: f.done });
   }],
   slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
+  'slack signature': [[], [], () => ({ lines: [signOffLine()] })],
   'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {
     const fields = { 'self-dm': 'self_dm', user: 'owner_slack_user', domain: 'slack_domain', timezone: 'timezone' };
     try { return { lines: [JSON.stringify(await setSlack(Object.fromEntries(Object.entries(f).map(([k, v]) => [fields[k], v]))))] }; }
