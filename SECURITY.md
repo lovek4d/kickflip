@@ -17,8 +17,9 @@ kickflip is a single-owner tool. It runs on the owner's Mac and serves the owner
 
 **Who is not trusted**
 
-- Any other tailnet identity the owner hasn't shared a board with. Over the tailnet the hub serves the owner's own Tailscale login and refuses any other, except a login the owner shared a board with, which gets that board alone, view-only or full.
+- Any other machine or tailnet identity. Over the tailnet the hub serves only the owner's own Tailscale login and refuses every other; there is no sharing mechanism.
 - Web pages in the owner's browser. The previews a board shows (prototypes and visuals) run in a sandboxed frame with an opaque origin, isolated from the app's origin.
+- A file inside a served directory that points outside it (symlinks are refused).
 
 **What stays outside the model**
 
