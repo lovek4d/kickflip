@@ -1,7 +1,7 @@
 // A card's thread on the board view: taking it from the board's sync or loading it, rendering it, and its reply box
 // (docs/adr/2026-11-14-1340-threads-ride-the-boards-sync.md). Needs app-core.js and ui-patch.js.
 BoardView.part((B) => {
-  const { $, store, state, quieted, sendDraft, links } = B;
+  const { $, store, state, links } = B;
   const { esc, setHTML, threadMessages, dropZone, sendButton, requestRow, requestOf, requestShown, slashOf, doneButton, doneTone, BUTTON } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request', review: 'review-request' };
@@ -197,7 +197,8 @@ BoardView.part((B) => {
     el.dataset.sig = sig;
     // The reply form is built once per card, so a refresh never drops what is being typed.
     if (!el.querySelector('.msgs')) {
-      const draft = store.get('draft:' + key, '');
+      // Its draft lives on the board server (drafts.js), under the box's composer id.
+      const draft = B.drafts.text('item:' + key);
       // The row: the request words, with the attach at their right, and the send buttons
       // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`)}
@@ -284,12 +285,6 @@ BoardView.part((B) => {
     return Promise.all(open.map((key) => loadThread(key)));
   }
 
-  B.on(B.root, 'input', (ev) => {
-    const f = ev.target.closest('form[data-reply]');
-    if (!f || ev.target.tagName !== 'TEXTAREA') return;
-    if (quieted('draft:' + f.dataset.reply, ev.target)) return;
-    store.set('draft:' + f.dataset.reply, ev.target.value);
-  });
   // Sends key's outbox in order, one at a time, while the board is in reach: each leaves the outbox once the board has
   // it, and the thread loads with it in place while the next one goes. A send with no answer at all marks the board out
   // of reach (linkDown) and waits, with the ones behind it, for it to come back. One the board answers with an error,
@@ -407,9 +402,7 @@ BoardView.part((B) => {
       setOutbox(outbox().filter((o) => o.sendId !== sendId));
       if (!m.key) { if (!m.said) B.reopenAsk(m); } else {
         const ta = $(`form[data-reply="${CSS.escape(m.key)}"] textarea`);
-        const text = [m.text, ta?.value ?? store.get('draft:' + m.key, '')].filter(Boolean).join('\n\n');
-        if (ta) ta.value = text;
-        store.set('draft:' + m.key, text);
+        B.drafts.put('item:' + m.key, [m.text, ta?.value ?? B.drafts.text('item:' + m.key)].filter(Boolean).join('\n\n'));
         if (m.uploads) BoardAttach.move(sendBox(m), 'item:' + m.key, B.site.root);
       }
     }
@@ -430,7 +423,7 @@ BoardView.part((B) => {
     const intent = flag ? null : button.dataset.intent || null;
     if (!flag && !text && !attached && intent !== 'build') return;
     const key = f.dataset.reply;
-    await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
+    await B.drafts.send(id, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
       async () => enqueue(key, { ...(flag ? { kind: REQUEST_EVENT[flag] } : {}), text, ...(attached ? { attached: id } : {}), ...(intent ? { intent } : {}) }));
   }
   B.on(B.root, 'click', (ev) => {

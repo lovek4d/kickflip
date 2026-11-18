@@ -123,6 +123,8 @@
 //                     removed}` event (boards.mjs sendToBoards). → {rules, events, failed}; a bad list → 400 {error}
 //   /_hub/api/upload  POST the raw file as the body, its name URI-encoded in x-filename → {name, url, path, type, size}: the hub page's New task
 //                     box uploads here, to the hub's data/uploads, as a board's api/upload does
+//   /_hub/api/drafts  POST {id: ask, text, files} saves that box's draft in the hub's data/drafts.json (board/drafts.mjs
+//                     saveDraft) → {at}; /_hub/api/hub carries it as drafts. 400 {error} for any other box or a bad body
 //   /_hub/route       POST {text, files?, quick? | request?} (application/json) from that box: queues the task for the router
 //                     (from.via hub) and answers 202 {queued} at once; 400 {error} for no text or file, or another request
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
@@ -252,6 +254,7 @@ import { serveFiles } from './files.mjs';
 import { upgrader } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
 import { saveUpload } from '../board/cards.mjs';
+import { draftOf, readDrafts, saveDraft } from '../board/drafts.mjs';
 import { fallBackFromLinear } from '../board/settings.mjs';
 import { runMigrations } from '../board/migrations.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
@@ -1188,6 +1191,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       }),
       prompts: pendingFor(null).map(shown),
       remembered: rememberedFor(null),
+      drafts: await readDrafts(HOME),
     };
   }
   const settingsData = async () => {
@@ -1596,6 +1600,16 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     if (p === '/_hub/api/upload' && req.method === 'POST') {
       try { return sendJSON(200, await saveUpload(HOME, req, { name: decodeURIComponent(req.headers['x-filename'] || ''), type: req.headers['content-type'], length: Number(req.headers['content-length']) || 0 })); }
       catch (e) { if (e.status) return sendJSON(e.status, { error: e.message }); throw e; }
+    }
+    if (p === '/_hub/api/drafts' && req.method === 'POST') {
+      let draft;
+      try {
+        draft = draftOf(HOME, await readJSONBody(req));
+        if (draft.id !== 'ask') return sendJSON(400, { error: 'The hub keeps only the New task box’s draft.' });
+      } catch (e) { if (e.status) return sendJSON(e.status, { error: e.message }); throw e; }
+      const saved = await saveDraft(HOME, draft, { told: false });
+      stream.refresh();
+      return sendJSON(200, saved);
     }
     if (p === '/_hub/route' && req.method === 'POST') {
       let input;

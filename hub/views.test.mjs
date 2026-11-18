@@ -23,6 +23,8 @@ const BOARD_UI = { header: () => '', BUSY: ' disabled aria-busy="true"', waitOn:
 const memoryStore = () => { const m = new Map(); return { get: (k, d) => (m.has(k) ? m.get(k) : d), set: (k, v) => m.set(k, v) }; };
 const HUB_PAGE = () => ({ site: { root: '/_hub' }, store: memoryStore() });
 const ATTACH = { onChange: () => () => {}, list: () => [], saved: () => null, restore() {} };
+// The New task box's drafts (drafts.js), idle: board/view.test.mjs tests them.
+const DRAFTS = { create: () => ({ take() {}, text: () => '', put() {}, send: async (id, ta, current, run) => run() }) };
 const USABLE = { usable: true, reason: null, words: null, fix: null };
 const NOT_INSTALLED = codexStatus({ installed: false });
 const LOGGED_OUT = codexStatus({ installed: true, home: '/nonexistent' });
@@ -171,7 +173,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
       constructor(form) { this.form = form; }
       *[Symbol.iterator]() { for (const el of this.form.querySelectorAll('input[name]')) if (el.getAttribute('type') !== 'checkbox' || el.hasAttribute('checked')) yield [el.getAttribute('name'), el.value]; }
     },
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (root, site, run) => { const B = { ...HUB_PAGE(), root,$: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }; run(B); return B; } },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => { const B = { ...HUB_PAGE(), root,$: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }; run(B); return B; } },
     RulesEditor: { mount: () => ({ set() {} }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
@@ -548,7 +550,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   const listeners = [], opened = [];
   const context = vm.createContext({
     navigator: {}, localStorage: { getItem: () => 'mine' },
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, ago: (iso) => (Date.now() - Date.parse(iso) > 3600_000 ? '2h ago' : '5m ago') },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -670,7 +672,7 @@ test('an integration missing a permission reads amber degraded, and tapping the 
   const listeners = [], opened = [];
   const context = vm.createContext({
     navigator: {}, localStorage: { getItem: () => null },
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { markup: () => '', create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, ago: () => '5m ago' },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -761,7 +763,7 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
   const context = vm.createContext({
     navigator: {},
     setTimeout: (fn) => Promise.resolve().then(fn),
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     BoardDialogs: { confirm: async (text) => { asked.push(text); return confirmed; } },
     AppShell: { reload: () => { reloads++; } },
     fetch: (url, init = {}) => { requests.push([url, init.method || 'GET', init.body]); return new Promise((resolve) => answers.push(resolve)); },
@@ -846,7 +848,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -925,7 +927,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -1008,7 +1010,7 @@ test("the hub page leads with a banner while pushes are held or snoozed, and its
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: (el, site, ctx) => { settingsCtx = ctx; return { B: { refreshSettings: () => settingsRefreshes++ }, mount() {}, unmount() {} }; } },
     BoardUI: { ...BOARD_UI },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -1058,7 +1060,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   const data = () => ({ integrations: [], pause: gateNow(), usage: { claude: { at: new Date().toISOString(), five_hour } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI }, PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
@@ -1101,7 +1103,7 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
   const context = vm.createContext({
     navigator: {},
     setTimeout: (fn) => Promise.resolve().then(fn),
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     BoardDialogs: { confirm: async () => true },
     AppShell: { reload() {} },
     fetch: (url, init = {}) => { requests.push([url, init.method || 'GET', init.body]); return new Promise((resolve) => answers.push(resolve)); },
@@ -1179,7 +1181,7 @@ test("the pull's state is the hub's: a page opened mid-pull, or after a failed o
     const context = vm.createContext({
       navigator: {},
       setTimeout: (fn) => setImmediate(fn),
-      BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (r, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => page.listeners.push({ target, type, fn }) }) },
+      BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (r, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => page.listeners.push({ target, type, fn }) }) },
       BoardDialogs: { confirm: async () => true },
       AppShell: { reload() { page.reloads++; } },
       fetch: async (url) => {
@@ -1250,7 +1252,7 @@ test("the hub page's New strip sits under Boards, drawn by the board's own New s
   const strips = [];
   const context = vm.createContext({
     navigator: {}, localStorage: { getItem: () => null },
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardView: { page: (r, site, run) => run({ ...HUB_PAGE(), $: (s) => r.querySelector(s), alive: () => true, atUnmount() {}, on() {} }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (r, site, run) => run({ ...HUB_PAGE(), $: (s) => r.querySelector(s), alive: () => true, atUnmount() {}, on() {} }) },
     HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, newStrip: (entries, edits, opts) => { strips.push({ entries, opts }); return `<i class="strip">${entries.length}</i>`; } },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -1290,7 +1292,7 @@ test("the hub page's New task box sends through the page's outbox: its row leads
   const settle = () => new Promise((r) => setImmediate(r));
   const context = vm.createContext({
     navigator: {}, localStorage: { getItem: () => null },
-    BoardNewTask: { markup: () => '', wire: (B) => { wired = B; } },
+    BoardNewTask: { markup: () => '', wire: (B) => { wired = B; } }, BoardDrafts: DRAFTS,
     BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(), root, $: (s) => root.querySelector(s), atUnmount() {}, on() {}, alive: () => true, toast: (text) => toasts.push(text) }) },
     BoardAttach: { ...ATTACH, move: (from, to, site) => moves.push([from, to, site]), saved: () => [{ name: 'a.png', state: 'up' }], settled: async () => true,
       files: () => [{ name: 'a.png', url: 'uploads/1-a.png' }], clear: (id, site) => cleared.push([id, site]) },

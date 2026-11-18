@@ -13,7 +13,7 @@ globalThis.BoardNewTask = (function () {
 </dialog>`;
 
   function wire(B) {
-    const { $, store, quieted, sendDraft } = B;
+    const { $ } = B;
     const { keyedSend } = BoardUI;
     // The ask box is a bottom sheet: a <dialog> opened from the + button. Closing keeps the draft.
     const sheet = $('#sheet');
@@ -28,8 +28,8 @@ globalThis.BoardNewTask = (function () {
       ev.preventDefault();
       $('#askForm').requestSubmit(button);
     });
-    $('#askText').value = store.get('draft:ask', '');
-    B.on($('#askText'), 'input', (e) => { if (!quieted('draft:ask', e.target)) store.set('draft:ask', e.target.value); });
+    // Its draft lives on the site's server (drafts.js), under the box's composer id, ask.
+    $('#askText').value = B.drafts.text('ask');
     let stopFitting = null;
     const stopFit = () => { stopFitting?.(); stopFitting = null; };
     B.on(sheet, 'close', stopFit);
@@ -89,7 +89,7 @@ globalThis.BoardNewTask = (function () {
       const attached = BoardAttach.list('ask', B.site.root).length > 0;
       if (!text && !attached) return;
       const fields = request ? { request } : quick ? { quick: true } : null;
-      await sendDraft('draft:ask', $('#askText'), () => $('#askText'), async () => B.enqueue(undefined, { kind: 'ask', text, ...(attached ? { attached: 'ask' } : {}), ...(fields ? { fields } : {}) }));
+      await B.drafts.send('ask', $('#askText'), () => $('#askText'), async () => B.enqueue(undefined, { kind: 'ask', text, ...(attached ? { attached: 'ask' } : {}), ...(fields ? { fields } : {}) }));
       closeSheet();
     }
     B.on($('#askForm'), 'submit', (ev) => {
@@ -103,9 +103,7 @@ globalThis.BoardNewTask = (function () {
     // X on a New task the board didn't take (app-threads.js) puts its text back in the box, before whatever is typed
     // there, and its files with it, those still in its own box as they are, a failed one still marked, and opens the box.
     B.reopenAsk = (m) => {
-      const text = [m.text, $('#askText').value].filter(Boolean).join('\n\n');
-      $('#askText').value = text;
-      store.set('draft:ask', text);
+      B.drafts.put('ask', [m.text, $('#askText').value].filter(Boolean).join('\n\n'));
       if (m.uploads) BoardAttach.move(B.sendBox(m), 'ask', B.site.root);
       else BoardAttach.restore('ask', m.files, B.site.root);
       openSheet();

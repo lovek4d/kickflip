@@ -264,6 +264,9 @@
 //   POST /api/read               {marks: {card key: time}} → data/read.json (cards.mjs markRead), each mark only moving
 //                                forward, without waking Claude; every board answer carries each card's mark as its
 //                                readAt, and a card new to the board gets one as the server first sees it. A bad body → 400 {error}
+//   POST /api/drafts             {id, text, files} → data/drafts.json (drafts.mjs saveDraft): a composer's draft, ask or
+//                                item:<card key>, at the server's time, without waking Claude → {at}; every board answer
+//                                carries them all as drafts, and a reply's goes when its card leaves the board. A bad body → 400 {error}
 //   GET  /api/rules              {board, hub}: board.json's rules and the hub's from settings.json (hub/rules.mjs)
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (settings.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
@@ -354,6 +357,7 @@ import { PROTOTYPE_TEMPLATE, STAGE_TEMPLATE, SANDBOX, SANDBOX_MODULE, esc, proto
 import { launchAgent } from './agents.mjs';
 import { BOARD_CLI, pidAlive, stopAgents, stopRuns } from './headless.mjs';
 import { BoardError } from './checks.mjs';
+import { draftOf, pruneDrafts, readDrafts, saveDraft } from './drafts.mjs';
 import { readScriptOffer, readAgents, tapMerge, appendStatus, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
 import { heldReview, applyReviewAnswer, dropAskCard, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
@@ -715,6 +719,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     b.owner = b.owner.filter((q) => q.state !== 'resolved');
     const marks = await readMarks(here);
     b.items = b.items.map((i) => ({ ...(i.lane === 'done' ? slimDone(i) : i), readAt: marks[i.key] || null }));
+    b.drafts = await readDrafts(here);
     const shown = new Set(b.items.map((i) => i.key));
     b.ownerTopics = b.ownerTopics.map(({ title, summary, askedAt, ...t }) => (shown.has(t.card) ? t : { ...t, title, summary, ...(askedAt ? { askedAt } : {}) }));
     return { board: b, threads: new Map(b.items.map((i) => [i.key, threadViews[i.key]])), notes: new Map(b.items.map((i) => [i.key, cardNotes[i.key] ?? null])) };
@@ -935,7 +940,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       // board half-migrated.
       ready.then(() => {
         broadcast(`event: change\ndata: ${JSON.stringify({ at: now().toISOString() })}\n\n`);
-        for (const pass of [fileNewAsks, settleLanes, checkArchive, markNewCards, checkActions, checkWaits, checkAuto, checkIdle]) track(pass());
+        for (const pass of [fileNewAsks, settleLanes, checkArchive, markNewCards, dropGoneDrafts, checkActions, checkWaits, checkAuto, checkIdle]) track(pass());
         sent();
       });
     }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - at)));
@@ -1323,6 +1328,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         if (!valid) return json(res, 400, { error: 'Send {marks: {card key: ISO time}}.' });
         await markRead(here, (await sharedBoard()).items.map((i) => i.key), marks);
         return json(res, 200, { ok: true });
+      }
+      if (p === '/api/drafts' && req.method === 'POST') {
+        let draft;
+        try { draft = draftOf(here, await readBody(req)); } catch (e) { if (e.status === 400) return json(res, 400, { error: e.message }); throw e; }
+        return json(res, 200, await saveDraft(here, draft));
       }
       if (p === '/_claude/events' && req.method === 'GET') {
         return json(res, 200, await listEvents(url.searchParams.get('kind'), Math.min(500, Number(url.searchParams.get('limit') || 100))));
@@ -1835,6 +1845,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // server starts and after each board change.
   async function markNewCards() {
     try { await markRead(here, (await sharedBoard()).items.map((i) => i.key)); } catch (err) { console.error('Read marks failed:', err.message); }
+  }
+  // docs/adr/2026-11-18-1200-composer-drafts-live-on-the-server.md: a reply's draft goes with its card, after each board change.
+  async function dropGoneDrafts() {
+    try {
+      const keys = new Set((await sharedBoard()).items.map((i) => i.key));
+      await pruneDrafts(here, (id) => !id.startsWith('item:') || keys.has(id.slice('item:'.length)));
+    } catch (err) { console.error('Drafts failed:', err.message); }
   }
   async function archiveDone() {
     if (!archivedOf(await sharedBoard()).length) return;

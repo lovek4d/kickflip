@@ -29,6 +29,19 @@ test("the hub page's upload stores a file on the hub, and its route call queues 
   assert.equal((await post(hub, '/_hub/route', '{}', { 'content-type': 'text/plain' })).status, 403);
 });
 
+// docs/adr/2026-11-18-1200-composer-drafts-live-on-the-server.md
+test("the hub page's New task draft saves on the hub, at the hub's time, and every hub answer carries it as drafts; the hub keeps no other box's draft", async (t) => {
+  const hub = await inProcessHub(t);
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png', size: 3 };
+  const r = await post(hub, '/_hub/api/drafts', JSON.stringify({ id: 'ask', text: 'Half a task', files: [{ ...shot, path: '/etc/passwd' }] }));
+  assert.equal(r.status, 200);
+  const { at } = await r.json();
+  const data = await (await fetch(`${hub.base}/_hub/api/hub`, { headers: { accept: 'application/json' } })).json();
+  assert.deepEqual(data.drafts, { ask: { text: 'Half a task', files: [{ ...shot, path: path.join(web, 'data', shot.url) }], at } });
+  for (const bad of [{ id: 'item:w/T-1', text: 'x' }, { id: 'ask', text: 5 }]) assert.equal((await post(hub, '/_hub/api/drafts', JSON.stringify(bad))).status, 400, JSON.stringify(bad));
+  assert.equal((await post(hub, '/_hub/api/drafts', '{}', { 'content-type': 'text/plain' })).status, 403);
+});
+
 // docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md
 test("a route call under a send id is queued once, under that id, however often the page's outbox resends it", async (t) => {
   const hub = await inProcessHub(t);

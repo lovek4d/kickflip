@@ -10,7 +10,8 @@
 //   signal(fn) → off   calls fn on each change signal for this board, from the hub's one stream
 //   streaming() → bool true while that stream is open, when the page's down-check rests
 //   starting() → this board's starting entry from the sidebar's data while its orchestrator starts, else undefined
-// Load this after ui-*.js, attach.js and toasts.js, and before the app-*.js files.
+// A board view's B.drafts is its composer drafts (drafts.js), made as it mounts.
+// Load this after ui-*.js, attach.js, drafts.js and toasts.js, and before the app-*.js files.
 window.BoardView = (function () {
   const parts = [];
   const part = (fn) => { parts.push(fn); };
@@ -19,7 +20,8 @@ window.BoardView = (function () {
   const places = new Map();
 
   // Every board shares the hub's one origin, so each keeps its keys under site:<route>:; app.html's preload reads
-  // openItems by the same key. Thread and question drafts are already per card and keep their own keys.
+  // openItems by the same key. Question drafts, and thread drafts from before drafts lived on the server (drafts.js),
+  // are per card and keep their own keys.
   function storeFor(route) {
     const keyOf = (k) => (/^(draft:(?!ask$)|qdraft:)/.test(k) ? k : `site:${route}:${k}`);
     // The keys boards kept unprefixed move once, to the first board opened; a key whose new name is taken stays.
@@ -39,6 +41,7 @@ window.BoardView = (function () {
     return {
       get(k, d) { try { const v = localStorage.getItem(keyOf(k)); return v == null ? d : JSON.parse(v); } catch { return d; } },
       set(k, v) { try { localStorage.setItem(keyOf(k), JSON.stringify(v)); } catch {} },
+      remove(k) { try { localStorage.removeItem(keyOf(k)); } catch {} },
     };
   }
 
@@ -99,25 +102,7 @@ window.BoardView = (function () {
     };
     on(root, 'attach-notice', (ev) => toast(ev.detail.text));
     const store = storeFor(route);
-  // iOS commits a pending predictive-text word after Send clears the box, which would refill it and resave the draft.
-  // So Send blurs first, and input is dropped while the send runs and for a moment after it succeeds.
-  const quiet = new Map();
-  function quieted(draftKey, ta) {
-    const until = quiet.get(draftKey) || 0;
-    if (until <= Date.now()) return false;
-    if (until !== Infinity) ta.value = '';
-    return true;
-  }
-  async function sendDraft(draftKey, ta, current, send) {
-    ta.blur();
-    quiet.set(draftKey, Infinity);
-    try { await send(); } catch (e) { quiet.delete(draftKey); store.set(draftKey, (current() || ta).value); throw e; }
-    store.set(draftKey, '');
-    const now = current();
-    if (now) now.value = '';
-    quiet.set(draftKey, Date.now() + 1000);
-  }
-    const B = { root, site, route, store, quieted, sendDraft, toast, $, $$, on, every, tick, whileDown, later, sleep, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
+    const B = { root, site, route, store, toast, $, $$, on, every, tick, whileDown, later, sleep, atUnmount, alive: () => alive, own: (off) => (alive ? own(off) : off()) };
     return {
       B,
       start() { alive = true; },
@@ -167,6 +152,7 @@ window.BoardView = (function () {
     function mount() {
       if (B.alive()) return;
       begin();
+      B.drafts = BoardDrafts.create(B);
       for (const p of parts) p(B);
       start(B);
     }
@@ -233,6 +219,7 @@ window.BoardView = (function () {
         B.renderMainLog(d.main, load);
         for (const el of $$('details.item[open]')) if (!moved.has(el.dataset.key)) state.openItems.add(el.dataset.key);
         B.takeMarks(d.items);
+        B.drafts.take(d.drafts, d.items.map((i) => i.key));
         for (const it of d.items) if (state.openItems.has(it.key)) markSeen(it);
         // An open card's thread is renderThread's (app-threads.js), so a lane repaint leaves it as it is.
         const strips = B.captureStrips();

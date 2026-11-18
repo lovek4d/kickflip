@@ -498,7 +498,7 @@ test('board writes refuse cross-site requests and non-JSON bodies before their h
     assert.equal(r.status, 403, JSON.stringify(headers));
     assert.match(r.headers.get('content-type'), /^text\/plain/);
   }
-  for (const p of ['/_claude/events', '/api/settings', '/api/try', '/api/rules', '/api/hide', '/api/read']) {
+  for (const p of ['/_claude/events', '/api/settings', '/api/try', '/api/rules', '/api/hide', '/api/read', '/api/drafts']) {
     assert.equal((await fetch(base + p, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{' })).status, 403, p);
   }
   assert.equal((await fetch(`${base}/_claude/health`, { method: 'DELETE', headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
@@ -2345,6 +2345,29 @@ test("read marks live on the board: a card new to it is read up to then, POST /a
     await putWave(JSON.stringify({ ...wave, items: [...wave.items, { id: 'R1', title: 'Read' }] }));
     assert.equal(marks()['t/R2'], undefined, 'the dropped task loses its mark');
     assert.equal(marks()['t/R1'], '2099-01-01T00:00:00.000Z');
+  } finally { if (before) await putWave(before); else fs.rmSync(waveFile); }
+});
+
+// docs/adr/2026-11-18-1200-composer-drafts-live-on-the-server.md
+test("composer drafts live on the board: POST /api/drafts saves a box's text and files at the server's time, every page's board carries them as drafts, and a reply's draft goes when its card leaves the board", async () => {
+  const waveFile = path.join(site, 'data', 'items.json');
+  const before = fs.existsSync(waveFile) ? fs.readFileSync(waveFile, 'utf8') : null;
+  const wave = before ? JSON.parse(before) : { items: [] };
+  const post = (body) => fetch(`${base}/api/drafts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const drafts = async () => (await (await fetch(`${base}/api/board`)).json()).drafts;
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png', size: 3 };
+  try {
+    await putWave(JSON.stringify({ ...wave, items: [...wave.items, { id: 'D1', title: 'Drafted' }] }));
+    const reply = await (await ok200(post({ id: 'item:t/D1', text: 'Half a reply', files: [{ ...shot, path: '/etc/passwd' }] }))).json();
+    const ask = await (await ok200(post({ id: 'ask', text: 'A new task' }))).json();
+    assert.deepEqual(await drafts(), {
+      'item:t/D1': { text: 'Half a reply', files: [{ ...shot, path: path.join(site, 'data', shot.url) }], at: reply.at },
+      ask: { text: 'A new task', files: [], at: ask.at },
+    });
+    for (const bad of [{}, { id: 'edit:e1', text: '' }, { id: 'ask', text: 5 }, { id: 'ask', text: '', files: [{ url: '/etc/passwd' }] }]) assert.equal((await post(bad)).status, 400, JSON.stringify(bad));
+
+    await putWave(JSON.stringify(wave));
+    assert.deepEqual(Object.keys(await drafts()), ['ask'], 'the card left, and its reply draft with it');
   } finally { if (before) await putWave(before); else fs.rmSync(waveFile); }
 });
 

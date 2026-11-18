@@ -244,6 +244,8 @@ ${BoardNewTask.markup()}`,
           B.reopenAsk(m);
         }
       });
+      // The box's draft lives on the hub (drafts.js, POST /_hub/api/drafts), and comes back on each /_hub/api/hub answer.
+      B.drafts = BoardDrafts.create(B);
       BoardNewTask.wire(B);
       let flash = null;
       const restarting = new Set();
@@ -429,6 +431,7 @@ ${BoardNewTask.markup()}`,
         paint(d) {
           if (!d) { if (!last) main.innerHTML = '<p class="note">Offline. Is the host awake?</p>'; return; }
           last = d;
+          B.drafts.take(d.drafts);
           loadedVersion ??= d.version;
           paint();
           if (d.update?.pull?.state === 'pulling') followPull();

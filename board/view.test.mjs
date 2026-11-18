@@ -23,7 +23,7 @@ function boardPatch(from, to, threads = { from: {}, to: {} }, notes = { from: {}
 }
 
 const SCRIPTS = ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-waits.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'slack-emoji.js', 'sidebar.js', 'toasts.js', 'popup.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-search.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'slack-emoji.js', 'sidebar.js', 'toasts.js', 'popup.js', 'drafts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-search.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 // The time every test here builds its data from. A fake page's clock starts at it and moves only by its advance(ms)
@@ -1776,24 +1776,22 @@ test("where IndexedDB refuses or is missing, the board view loads the whole boar
   }
 });
 
-test("two boards' stores never share a key: a New task draft stays on its board, the old shared keys move to the first board opened, and a card's draft keeps its key", () => {
+test("two boards' stores never share a key: the old shared keys move to the first board opened, a New task draft among them, and a card's old draft keeps its key", () => {
   const { storage, localStorage } = memoryStorage([['draft:ask', JSON.stringify('old draft')], ['openItems', JSON.stringify(['w/A1'])], ['draft:w/A1', JSON.stringify('a reply')]]);
   const page = fakePage(localStorage);
   const open = (route) => {
     const root = new page.El();
     const view = page.win.BoardView.create(root, `https://mac.ts.net/${route}`);
     view.mount();
-    return { root, view, ask: root.querySelector('#askText'), store: view.B.store };
+    return { root, view, store: view.B.store };
   };
   const a = open('board-a');
   const b = open('board-b');
-  assert.deepEqual([a.ask.value, JSON.parse(JSON.stringify(a.store.get('openItems')))], ['old draft', ['w/A1']]);
-  assert.deepEqual([b.ask.value, b.store.get('openItems', null)], ['', null]);
+  assert.deepEqual([a.store.get('draft:ask'), JSON.parse(JSON.stringify(a.store.get('openItems')))], ['old draft', ['w/A1']]);
+  assert.deepEqual([b.store.get('draft:ask', null), b.store.get('openItems', null)], [null, null]);
 
-  page.fire(b.ask, 'input', { target: { value: 'for B' } });
   for (const { root } of [a, b]) page.fire(root, 'toggle', { target: { matches: (s) => s === 'details.item', dataset: { key: 'w/A2' }, open: false } });
   for (const { view } of [a, b]) view.unmount();
-  assert.deepEqual([open('board-a').ask.value, open('board-b').ask.value], ['old draft', 'for B']);
 
   const keys = [...storage.keys()].filter((k) => k !== 'draft:w/A1');
   const of = (route) => keys.filter((k) => k.startsWith(`site:${route}:`));
@@ -3301,8 +3299,11 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, notes, 
   const gets = [];
   const downloads = [];
   const patched = [];
+  // A draft saved answers with the server's time of the save, each later than the last, as board/drafts.mjs saveDraft does.
+  let draftSaves = 0;
   page.win.fetch = async (url, opts = {}) => {
     const u = new URL(url, 'https://mac.ts.net/');
+    if (opts.method === 'POST' && u.pathname.endsWith('/api/drafts')) { posts.push([u.pathname, JSON.parse(opts.body)]); const at = `2026-11-13T12:00:00.${String(++draftSaves).padStart(3, '0')}Z`; return { ok: true, status: 200, json: async () => ({ at }) }; }
     if (opts.method === 'POST') { posts.push([u.pathname, JSON.parse(opts.body)]); return { ok: true, status: 200, json: async () => ({ ok: true }) }; }
     gets.push(u.pathname);
     if (u.pathname.endsWith('/api/settings')) return { ok: true, status: 200, json: async () => ({ pause_choices: [{ value: '1h', label: '1h', ms: 3600_000 }, { value: 'forever', label: 'Forever', ms: null }] }) };
@@ -3653,7 +3654,7 @@ test("Implement or Discuss in the New task box closes it at once, its button nev
   await b.settle();
   const sheet = b.root.querySelector('#sheet');
   const implement = await askTap(b, 'Fix the header', 'quick');
-  assert.deepEqual([sheet.open, waitState(implement), b.root.querySelector('#askText').value, b.storage.get('site:board-a:draft:ask')], [false, IDLE, '', '""']);
+  assert.deepEqual([sheet.open, waitState(implement), b.root.querySelector('#askText').value], [false, IDLE, '']);
   assert.deepEqual(askOut(b), [['Fix the header', 'sending…']]);
   const [stored] = JSON.parse(b.storage.get(OUTBOX));
   const row = b.root.querySelector(`#newStrip .new-entry[data-send="${stored.sendId}"]`);
@@ -3705,7 +3706,7 @@ test("a New task the board didn't take reads <time> · not sent with Retry and X
   b.page.fire(b.root, 'click', { target: row().querySelector('button[data-unsend]') });
   await b.settle();
   assert.deepEqual([b.confirms.at(-1), askOut(b), JSON.parse(b.storage.get(OUTBOX))], ['Dismiss this task? Its text and files go back in the New task box.', [], []]);
-  assert.deepEqual([b.root.querySelector('#sheet').open, b.root.querySelector('#askText').value, b.storage.get('site:board-a:draft:ask')], [true, 'Fix the header\n\nDraft', JSON.stringify('Fix the header\n\nDraft')]);
+  assert.deepEqual([b.root.querySelector('#sheet').open, b.root.querySelector('#askText').value, draftPosts(b).at(-1)?.text], [true, 'Fix the header\n\nDraft', 'Fix the header\n\nDraft']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.page.win.BoardAttach.files('ask'))), [shot]);
   b.view.unmount();
 });
@@ -3922,7 +3923,6 @@ test("Reply clears the box and shows the message at once as sending…, its butt
 
   await send('First');
   assert.deepEqual([box().value, queued(), waitState(reply())], ['', [['First', 'sending…']], IDLE]);
-  assert.equal(b.storage.get('draft:w/T1'), '""');
   const [first] = b.sent;
   assert.deepEqual([first[0], first[1].key, first[1].text, first[1].intent, typeof first[1].sendId], ['item-message', 'w/T1', 'First', 'reply', 'string']);
   await send('Second');
@@ -3959,8 +3959,91 @@ test("Reply clears the box and shows the message at once as sending…, its butt
   b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-thread="w/T1"] button[data-unsend]') });
   await b.settle();
   assert.deepEqual([b.confirms.at(-1), queued(), box().value, JSON.parse(b.storage.get(OUTBOX))], ['Dismiss this message? Its text goes back in the box.', [], 'Third\n\nDraft', []]);
-  assert.equal(b.storage.get('draft:w/T1'), JSON.stringify('Third\n\nDraft'));
+  assert.deepEqual(draftPosts(b).at(-1), { id: 'item:w/T1', text: 'Third\n\nDraft', files: [] });
   assert.equal(b.root.querySelector('[data-thread="w/T1"]').querySelectorAll('button[data-edit], button[data-withdraw]').length, 0);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-18-1200-composer-drafts-live-on-the-server.md
+// The drafts the page saved on the board (POST api/drafts), in order.
+const draftPosts = (b) => b.posts.filter(([p]) => p.endsWith('/api/drafts')).map(([, d]) => d);
+const draftAt = (n) => `2026-11-13T13:00:0${n}.000Z`;
+test("a reply box draws its draft from the board's drafts, and saves what is typed on the board after a 1 s pause, at once as the box loses focus or the page hides, never twice the same; Send empties it there", async () => {
+  const board = { ...boardOf([workCard('T1')]), drafts: { 'item:w/T1': { text: 'Begun on the phone', files: [], at: draftAt(1) } } };
+  const b = boardOnDom({ open: ['w/T1'], board, threads: { 'w/T1': [] } });
+  await b.settle();
+  const box = () => b.root.querySelector('form[data-reply="w/T1"] textarea');
+  const type = (text) => { box().value = text; b.page.fire(b.root, 'input', { target: box() }); };
+  assert.equal(box().value, 'Begun on the phone');
+
+  type('Begun on the phone, then');
+  await b.settle();
+  assert.deepEqual(draftPosts(b), [], 'nothing while typing goes on');
+  b.page.runTimers(1000);
+  await b.settle();
+  assert.deepEqual(draftPosts(b), [{ id: 'item:w/T1', text: 'Begun on the phone, then', files: [] }]);
+
+  type('Begun on the phone, then the Mac');
+  b.page.fire(b.root, 'focusout', { target: box() });
+  await b.settle();
+  b.page.runTimers(1000);
+  b.page.fire(b.root, 'focusout', { target: box() });
+  await b.settle();
+  assert.deepEqual(draftPosts(b).map((d) => d.text), ['Begun on the phone, then', 'Begun on the phone, then the Mac'], 'the blur saved, its pause ended, and a second blur had nothing new');
+
+  type('Hidden');
+  b.doc.hidden = true;
+  b.page.fire(b.doc, 'visibilitychange');
+  await b.settle();
+  b.doc.hidden = false;
+  assert.equal(draftPosts(b).at(-1).text, 'Hidden');
+
+  b.page.fire(b.root, 'submit', { target: box().closest('form'), submitter: box().closest('form').querySelector('button[data-intent="reply"]') });
+  await b.settle();
+  assert.deepEqual([box().value, b.sent.at(-1)[1].text, draftPosts(b).at(-1)], ['', 'Hidden', { id: 'item:w/T1', text: '', files: [] }]);
+  b.view.unmount();
+});
+
+test("a draft saved on another device fills its box with the board that brings it, files too, but never a box with focus, which keeps what is typed and saves it over the other; an older draft changes nothing", async () => {
+  const board = { ...boardOf([workCard('T1')]), drafts: {} };
+  const b = boardOnDom({ open: ['w/T1'], board, threads: { 'w/T1': [] } });
+  const boxes = boxesOn(b.page.win);
+  await b.settle();
+  const box = () => b.root.querySelector('form[data-reply="w/T1"] textarea');
+  const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png', size: 3 };
+  const drafted = (text, at, files = []) => b.change({ board: { ...board, drafts: { 'item:w/T1': { text, files, at } } } });
+
+  await drafted('From the phone', draftAt(2), [shot]);
+  assert.deepEqual([box().value, JSON.parse(JSON.stringify(b.page.win.BoardAttach.files('item:w/T1')))], ['From the phone', [shot]]);
+  assert.deepEqual(draftPosts(b), [], 'taking a draft saves nothing back');
+
+  box().focus();
+  await drafted('Phone again', draftAt(3));
+  assert.equal(box().value, 'From the phone', 'the box being typed in keeps its words');
+  box().value = 'Mac words';
+  box().blur();
+  b.page.fire(b.root, 'focusout', { target: box() });
+  await b.settle();
+  assert.deepEqual(draftPosts(b), [{ id: 'item:w/T1', text: 'Mac words', files: [shot] }], 'the last save wins');
+
+  await drafted('Stale', draftAt(1));
+  assert.equal(box().value, 'Mac words');
+  assert.equal(boxes.boxes.get('item:w/T1').length, 1);
+  b.view.unmount();
+});
+
+test("the New task box draws its draft from the board, and this browser's old drafts move to the board once, each where the board has none for its box, their keys then gone", async () => {
+  const stored = [['site:board-a:draft:ask', JSON.stringify('Old task')], ['draft:w/T1', JSON.stringify('Old reply')], ['draft:w/T2', JSON.stringify('Kept on the board')], ['draft:w/T9', JSON.stringify('Another board’s')]];
+  const drafts = { 'item:w/T2': { text: 'Newer on the board', files: [], at: draftAt(1) } };
+  const b = boardOnDom({ open: ['w/T1', 'w/T2'], stored, board: { ...boardOf([workCard('T1'), workCard('T2')]), drafts }, threads: { 'w/T1': [], 'w/T2': [] } });
+  await b.settle();
+  assert.deepEqual(draftPosts(b), [{ id: 'ask', text: 'Old task', files: [] }, { id: 'item:w/T1', text: 'Old reply', files: [] }]);
+  assert.deepEqual([b.root.querySelector('#askText').value, b.root.querySelector('form[data-reply="w/T1"] textarea').value, b.root.querySelector('form[data-reply="w/T2"] textarea').value],
+    ['Old task', 'Old reply', 'Newer on the board']);
+  assert.deepEqual([...b.storage.keys()].filter((k) => k.includes('draft:')), ['draft:w/T9']);
+
+  await b.change({ board: { ...boardOf([workCard('T1'), workCard('T2')]), drafts: { ...drafts, ask: { text: 'Old task', files: [], at: draftAt(2) } } } });
+  assert.equal(draftPosts(b).length, 2, 'they move once');
   b.view.unmount();
 });
 
