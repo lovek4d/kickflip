@@ -179,7 +179,7 @@ export function scratchRepo() {
     audit: { dir: site('audit'), port: 2, cmd: ['node', '/x/board/server.mjs'] },
   } });
   // A finish lands at once with Auto-merge on; heldBoard turns it off.
-  write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), auto_merge: true });
+  write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), auto_merge: true, github_login: 'Me' });
   return repo;
 }
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: Auto-merge off holds a verified build for the owner's Merge.

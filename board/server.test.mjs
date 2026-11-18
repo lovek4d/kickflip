@@ -610,7 +610,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't', max_implementers: 10 }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't', max_implementers: 10, github_login: 'Me' }));
   await putWave(JSON.stringify({ items: [
     { id: 'B1', title: 'feat: tapped', lane: 'todo', next: 'Implement' }, { id: 'B2', title: 'feat: held', lane: 'todo', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'feat: blocked', lane: 'todo', deps: ['B4'] }, { id: 'B4', title: 'feat: dep', lane: 'todo' },
     { id: 'B5', title: 'feat: held and blocked', lane: 'todo', deps: ['B4'], held: true }, { id: 'B6', title: 'feat: leftover worktree', lane: 'todo' }, { id: 'B7', title: 'feat: leftover work', lane: 'todo' },
@@ -628,7 +628,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   try {
     await ok200(post({ kind: 'card-build', key: 't/B1' }));
     const record = JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', 'B1.json'), 'utf8'));
-    assert.deepEqual([record.kind, record.label, record.dispatched, record.worktree], ['claude', 'Builder', 'tap', { path: worktree, branch: 'B1', repo: clone }]);
+    assert.deepEqual([record.kind, record.label, record.dispatched, record.worktree], ['claude', 'Builder', 'tap', { path: worktree, branch: 'me/t/b1', repo: clone }]);
     assert.equal(git(worktree, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
     assert.equal(wave().items.find((i) => i.id === 'B1').next, undefined);
     // orchestrator-waits and waits-history are the waits check's own record of a change, not an event the tap sent.

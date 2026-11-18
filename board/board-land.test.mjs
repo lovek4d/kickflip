@@ -197,7 +197,7 @@ test("every land squashes the card's branch into one commit on main: --title els
   commit(worktree(), 'work.txt', 'built\n', 'feat(board): work\n\nThe detail.\n\nRefs: A1\n\nCo-Authored-By: Claude <c@x>');
   git(worktree(), 'switch', '--quiet', '-c', 'helper');
   commit(worktree(), 'helper.txt', 'helped\n', 'test: helper tests\n\nCo-Authored-By: Ann <ann@x>');
-  git(worktree(), 'switch', '--quiet', 'A1');
+  git(worktree(), 'switch', '--quiet', 'me/orch/a1');
   commit(worktree(), 'fix.txt', 'fixed\n', 'review fixes\n\nCo-Authored-By: Claude <c@x>');
   git(worktree(), 'merge', '--quiet', '--no-ff', '-m', 'chore: merge the tests helper branch', 'helper');
   git(worktree(), 'branch', '--quiet', '-D', 'helper');
@@ -295,12 +295,12 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
     manifest.sites.orch = { dir: manifest.sites.orch.dir, port: 1, cmd: manifest.sites.orch.cmd, ...fields };
     write(at('kickflip', 'manifest.json'), manifest);
   };
-  const reset = () => { git(project, 'worktree', 'remove', '--force', worktree()); git(project, 'branch', '--quiet', '-D', 'A1'); };
+  const reset = () => { git(project, 'worktree', 'remove', '--force', worktree()); git(project, 'branch', '--quiet', '-D', 'me/orch/a1'); };
   for (const fields of [{ owner: { repo: project } }, { github: 'owner/project', branch: 'main', local: true, owner: { repo: project } }]) {
     setOrch(fields);
     const r = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
     assert.equal(r.code, 0, r.err);
-    assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: project });
+    assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo: project });
     assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'main'));
     reset();
   }
@@ -346,7 +346,7 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   const landed = await landTrunk();
   assert.equal(landed.code, 0, landed.err);
   const tip = git(project, 'rev-parse', '--short', 'trunk');
-  assert.deepEqual(landed.out.trim().split('\n').slice(0, 4), [`rebased A1 onto trunk (${moved})`, 'testing every test file, as card.txt reaches no test', 'tests passed: 0', `trunk fast-forwarded to ${tip} in ${project}`]);
+  assert.deepEqual(landed.out.trim().split('\n').slice(0, 4), [`rebased me/orch/a1 onto trunk (${moved})`, 'testing every test file, as card.txt reaches no test', 'tests passed: 0', `trunk fast-forwarded to ${tip} in ${project}`]);
   assert.equal(fs.readFileSync(path.join(project, 'card.txt'), 'utf8'), 'card');
   assert.equal(git(project, 'rev-parse', 'trunk~1'), git(project, 'rev-parse', moved));
 });

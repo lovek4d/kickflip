@@ -10,7 +10,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { BoardError } from './checks.mjs';
-import { opensPRs, settingsOf } from './settings.mjs';
+import { opensPRs, settingsOf, storedTickets } from './settings.mjs';
+import { ticketIn } from './tickets.mjs';
 import { readLandTests } from '../shared/hub-settings.mjs';
 import { boardAt, readJSON, readManifest, samePath } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
@@ -36,37 +37,48 @@ const short = (repo, ref) => git(repo, 'rev-parse', '--short', ref).out;
 
 // → {path, branch, repo, remade}: a builder branch from base, checked out outside the shared clone. A worktree an earlier
 // build left at the path is remade when it holds no work (removeLeftover), and remade is the line saying so, else null.
-export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = false, busy = [] } = {}) {
+export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = false, busy = [], branch = id } = {}) {
   const root = path.resolve(repo);
   if (!git(root, 'rev-parse', '--git-dir').ok) fail(`--repo ${root} is not a git repo`);
-  if (!git(root, 'check-ref-format', '--branch', id).ok) fail(`--worktree: "${id}" can't be a branch name`);
+  if (!git(root, 'check-ref-format', '--branch', branch).ok) fail(`--worktree: "${branch}" can't be a branch name`);
   if (!git(root, 'check-ref-format', '--branch', base).ok) fail('--worktree: invalid base branch');
   const ref = remote ? `refs/remotes/origin/${base}` : `refs/heads/${base}`;
   // The shared clone is fetched only when a board picks it; offline, the last fetched tip still serves.
   if (remote) git(root, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${base}:${ref}`);
   if (!git(root, 'rev-parse', '--verify', '--quiet', ref).ok) fail(`--worktree: ${root} has no ${base} branch`);
   const dir = path.join(worktreesDir(), id);
-  const remade = fs.existsSync(dir) ? removeLeftover(root, dir, id, { ref, base, busy }) : null;
-  if (git(root, 'rev-parse', '--verify', '--quiet', `refs/heads/${id}`).ok) fail(`--worktree: branch ${id} already exists in ${root}`);
+  const remade = fs.existsSync(dir) ? removeLeftover(root, dir, [id, branch], { ref, base, busy }) : null;
+  if (git(root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).ok) fail(`--worktree: branch ${branch} already exists in ${root}`);
+  refuseNesting(root, branch);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
-  const r = git(root, 'worktree', 'add', '--quiet', '-b', id, dir, ref);
+  const r = git(root, 'worktree', 'add', '--quiet', '-b', branch, dir, ref);
   if (!r.ok) fail(`--worktree: git worktree add failed: ${r.err}`);
-  return { path: storedPath(dir), branch: id, repo: storedPath(root), remade };
+  return { path: storedPath(dir), branch, repo: storedPath(root), remade };
 }
 
-// The worktree at dir, on branch id of root, that an earlier build left: removed with its branch when it holds no commits
+// Git can't hold both a/b and a/b/c as branches: a branch that is a prefix of name, or that name is a prefix of, refuses.
+function refuseNesting(root, name) {
+  const parts = name.split('/');
+  const prefixes = parts.slice(1).map((_, i) => parts.slice(0, i + 1).join('/'));
+  const taken = prefixes.find((p) => git(root, 'rev-parse', '--verify', '--quiet', `refs/heads/${p}`).ok);
+  if (taken) fail(`--worktree: branch ${taken} already exists in ${root}, so git can't make ${name}; rename or delete ${taken}`);
+  const under = git(root, 'for-each-ref', '--count=1', '--format=%(refname:short)', `refs/heads/${name}/`).out;
+  if (under) fail(`--worktree: branch ${under} already exists in ${root}, so git can't make ${name}; rename or delete ${under}`);
+}
+
+// The worktree at dir, on one of branches (the card id of an earlier build, or the branch this one names) of root, that an earlier build left: removed with its branch when it holds no commits
 // beyond ref and no changes and no path in busy (the other open builder records' worktrees) names it; anything else at
 // dir refuses, naming the work it holds (docs/adr/2026-11-03-1653-a-build-remakes-a-leftover-worktree-that-holds-no-work.md).
-function removeLeftover(root, dir, id, { ref, base, busy }) {
+function removeLeftover(root, dir, branches, { ref, base, busy }) {
   const refuse = (why) => fail(`--worktree: ${dir} ${why}; land or remove it first`);
   if (busy.includes(storedPath(dir))) refuse('already exists and another open builder record uses it');
   const real = fs.realpathSync(dir);
-  const ours = git(root, 'worktree', 'list', '--porcelain').out.split('\n\n').some((entry) => {
+  const id = git(root, 'worktree', 'list', '--porcelain').out.split('\n\n').flatMap((entry) => {
     const lines = entry.split('\n');
     const at = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length);
-    try { return lines.includes(`branch refs/heads/${id}`) && fs.realpathSync(at) === real; } catch { return false; }
-  });
-  if (!ours) refuse('already exists');
+    try { return fs.realpathSync(at) === real ? branches.filter((b) => lines.includes(`branch refs/heads/${b}`)) : []; } catch { return []; }
+  })[0];
+  if (!id) refuse('already exists');
   const commits = Number(git(root, 'rev-list', '--count', `${ref}..refs/heads/${id}`).out);
   const changed = git(dir, 'status', '--porcelain').out.split('\n').filter(Boolean).length;
   const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
@@ -97,7 +109,34 @@ export function builderRepo(site, { repo, manifest = readManifest() } = {}) {
 }
 
 // The worktree of card id on the board at site, from builderRepo. → as makeWorktree
-export const boardWorktree = (site, id, { repo, busy } = {}) => makeWorktree(id, { ...builderRepo(site, { repo }), busy });
+export const boardWorktree = (site, id, { repo, busy } = {}) => makeWorktree(id, { ...builderRepo(site, { repo }), busy, branch: branchName(site, id) });
+
+// gh's signed-in user, read once per process: it can't change while a hub or board server runs. Null while gh has none,
+// which isn't kept, so a login made later is found.
+let ghLogin;
+const signedInLogin = () => {
+  if (ghLogin) return ghLogin;
+  const r = spawnSync('gh', ['api', 'user', '--jq', '.login'], { encoding: 'utf8' });
+  const login = r.status === 0 ? r.stdout.trim() : '';
+  if (login) ghLogin = login;
+  return login || null;
+};
+
+// The branch a card's build works on: <login>/<board name>/<ticket id>, lower case, the board's title with spaces as _.
+// The login is the board's github_login setting, else gh's signed-in user, and is left out with neither. The ticket id
+// follows the board's ticket setting: a GitHub issue's number, a Linear key, else the card id. With no board at site the card id is
+// the branch.
+// docs/adr/2026-11-18-1220-builder-branches-are-named-by-user-board-and-ticket.md
+export function branchName(site, id) {
+  const board = site ? boardAt(site) : null;
+  if (!board) return id;
+  const item = board.files.flatMap(({ itemFile }) => itemFile.items).find((it) => it?.id === id);
+  const tickets = storedTickets(board.tickets);
+  const n = tickets && item ? ticketIn(tickets, item.ticket) : null;
+  const ticket = !n ? id : tickets.source === 'github' ? String(n) : `${tickets.team}-${n}`;
+  const login = board.githubLogin ?? signedInLogin();
+  return [login, board.title.trim().replace(/\s+/g, '_'), ticket].filter(Boolean).join('/').toLowerCase();
+}
 
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
 // The worktree of helper name on card id: branch <id>-<name> from base, the card's branch, in repo. → as makeWorktree

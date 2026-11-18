@@ -651,7 +651,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          Resolves the task's answered questions, noting "Acted on:
                                                          builder started"
          [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
-                                                         ~/.claude/kickflip/worktrees/<id> on a new branch <id> from
+                                                         ~/.claude/kickflip/worktrees/<id> on a new branch <gh user>/<board>/<ticket> (<id> without a board) from
                                                          the board's branch of its clone (--repo overrides the clone), kept on
                                                          the record and printed as "worktree: <path>". Refuses when
                                                          that path or branch exists, unless it is a leftover

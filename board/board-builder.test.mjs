@@ -314,22 +314,23 @@ test('builder start --worktree makes a worktree on a new branch from main, keeps
 test("a build start on a board makes the card's worktree when its record keeps none, and the agent taking up a dispatched record keeps that one", async () => {
   const repo = scratchRepo();
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
-  const dispatched = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'claude');
+  write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), github_login: 'Me' });
+  const dispatched =await board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'claude');
   assert.equal(dispatched.code, 0, dispatched.err);
   assert.ok(dispatched.out.includes(`worktree: ${worktree()}\n`), dispatched.out);
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'main'));
   const taken = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Opus implementer');
   assert.equal(taken.code, 0, taken.err);
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo });
   assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'notes', '--label', 'Notes')).code, 0);
   assert.equal(read(at('waves', 'w', 'agents', 'A1@notes.json')).worktree, undefined);
-  assert.deepEqual(branches(repo), ['A1', 'main']);
+  assert.deepEqual(branches(repo), ['main', 'me/orch/a1']);
 
   commit(worktree(), 'work.txt', 'built');
   assert.equal((await board('--site', 'orch', 'builder', 'done', 'w/A1', '--next', 'Check the build')).code, 0);
   const again = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(again.code, 0, again.err);
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo });
   assert.equal(fs.readFileSync(path.join(worktree(), 'work.txt'), 'utf8'), 'built');
 });
 
@@ -386,9 +387,10 @@ test("builder start stores the installed link for the kickflip fallback repo, an
   const manifest = read(at('kickflip', 'manifest.json'));
   Object.assign(manifest.sites.orch, { hub: true, local: true, github: 'owner/project', branch: 'main', owner: { repo: project } });
   write(at('kickflip', 'manifest.json'), manifest);
+  write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), github_login: 'Me' });
   const hub = start('--site', 'orch');
   assert.equal(hub.status, 0, hub.stderr);
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: project });
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo: project });
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'main'));
   assert.deepEqual(branches(clone), ['main']);
 });
@@ -396,15 +398,16 @@ test("builder start stores the installed link for the kickflip fallback repo, an
 test('a build start on a board gives the card its worktree, and a later build start keeps it', async () => {
   const repo = scratchRepo();
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
+  write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), github_login: 'Me' });
   const first = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(first.code, 0, first.err);
-  assert.equal(git(worktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'A1');
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
+  assert.equal(git(worktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'me/orch/a1');
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo });
   assert.equal(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'A1').lane, 'progress');
   commit(worktree(), 'work.txt', 'built');
   const started = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(started.code, 0, started.err);
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo });
   assert.equal(fs.readFileSync(path.join(worktree(), 'work.txt'), 'utf8'), 'built');
 });
 
@@ -752,6 +755,7 @@ test("builder done --risk keeps the builder's risk on the card, and refuses any 
 test('agent launch asks for a helper on an open card, which then starts, reports and hands back as its own agent; agent wait prints its hand-back and agent merge brings in its branch', async (t) => {
   const repo = scratchRepo();
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
+  write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), github_login: 'Me' });
   const main = await onOrch('builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(main.code, 0, main.err);
   const helperFile = at('waves', 'w', 'agents', 'A1@tests.json');
@@ -787,7 +791,7 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   // The board server opens the record in the helper's own worktree off the card's branch (store.mjs startHelper);
   // here the test stands in for it.
   const tree = at('kickflip', 'worktrees', 'A1-tests');
-  git(worktree(), 'worktree', 'add', '--quiet', '-b', 'A1-tests', tree, 'A1');
+  git(worktree(), 'worktree', 'add', '--quiet', '-b', 'A1-tests', tree, 'me/orch/a1');
   write(helperFile, { ...record, started: new Date().toISOString(), dispatched: 'hub', worktree: { path: tree, branch: 'A1-tests', repo } });
   const start = await onOrch('builder', 'start', 'w/A1', '--kind', 'helper', '--agent', 'tests');
   assert.equal(start.code, 0, start.err);
@@ -808,11 +812,11 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   commit(worktree(), 'card.txt', 'card', 'feat: the task\n\nRefs: A1');
   const merged = await onOrch('agent', 'merge', 'w/A1', '--name', 'tests');
   assert.equal(merged.code, 0, merged.err);
-  assert.equal(merged.out, `merged A1-tests into A1\nworktree removed: ${tree}\nbranch deleted: A1-tests\n`);
+  assert.equal(merged.out, `merged A1-tests into me/orch/a1\nworktree removed: ${tree}\nbranch deleted: A1-tests\n`);
   // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
   assert.equal(git(worktree(), 'log', '-1', '--format=%B'), 'chore: merge the A1-tests helper branch\n\nRefs: A1');
   assert.equal(fs.readFileSync(path.join(worktree(), 'scroll.test.mjs'), 'utf8'), 'test');
-  assert.deepEqual(branches(repo), ['A1', 'main']);
+  assert.deepEqual(branches(repo), ['main', 'me/orch/a1']);
 });
 
 test("agent wait marks its spawner waiting while the helper is open, and refuses once the helper's process is gone without its done", async (t) => {

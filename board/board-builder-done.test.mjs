@@ -167,7 +167,7 @@ test("builder verified leaves a card handed back while one of its questions is o
   const main = git(repo, 'rev-parse', 'main');
   const failed = await onOrch('builder', 'verified', 'w/A1');
   assert.equal(failed.code, 1);
-  assert.equal(failed.err, `judgment calls verified, but A1 didn't finish: rebasing A1 onto main conflicts in shared/notes.md; resolve it in ${worktree()} and land again\n`);
+  assert.equal(failed.err, `judgment calls verified, but A1 didn't finish: rebasing me/orch/a1 onto main conflicts in shared/notes.md; resolve it in ${worktree()} and land again\n`);
   assert.deepEqual([itemOf().lane, typeof record().handed_back, git(repo, 'rev-parse', 'main'), (await onOrch('builder', 'calls', 'w/A1')).out.includes('\nverified ')], ['progress', 'string', main, true]);
 });
 
@@ -183,12 +183,12 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   // PR with a Conventional subject, checked before anything is pushed.
   const bad = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it on the phone.', '--title', 'A1: One');
   assert.deepEqual([bad.code, bad.err], [1, `--title "A1: One" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; pass --title "<type>(<scope>): <summary>", at most 100 characters\n`]);
-  assert.equal(git(origin, 'branch', '--list', 'A1'), '');
+  assert.equal(git(origin, 'branch', '--list', 'me/orch/a1'), '');
   const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it on the phone.', '--title', 'feat(board): the work, as one PR');
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\nA1: draft PR #100 opened\n'), r.out);
-  assert.deepEqual([git(origin, 'rev-parse', 'A1'), git(origin, 'rev-parse', 'main')], [git(worktree(), 'rev-parse', 'HEAD'), main]);
-  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr'), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', 'A1', '--title', 'feat(board): the work, as one PR', '--body', 'Checked it on the phone.']);
+  assert.deepEqual([git(origin, 'rev-parse', 'me/orch/a1'), git(origin, 'rev-parse', 'main')], [git(worktree(), 'rev-parse', 'HEAD'), main]);
+  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr'), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', 'me/orch/a1', '--title', 'feat(board): the work, as one PR', '--body', 'Checked it on the phone.']);
   assert.deepEqual([itemOf().prs, itemOf().lane, typeof record().done], [[{ number: 100 }], 'review', 'string']);
   assert.equal(threadOf().at(-1).text, 'Checked it on the phone.');
   assert.equal(fs.existsSync(worktree()), true);
@@ -208,7 +208,7 @@ test("while GitHub's limit holds, builder done pushes the branch but opens no PR
   const words = `GitHub rate limited, resets at ${clock(reset)}`;
   const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
   assert.equal(r.code, 1);
-  assert.ok(r.err.includes(`could not open a draft PR for A1: ${words}`), r.err);
+  assert.ok(r.err.includes(`could not open a draft PR for me/orch/a1: ${words}`), r.err);
   assert.equal(itemOf().prs, undefined);
   assert.deepEqual([threadOf().at(-1).line, threadOf().at(-1).text], ['gh-limited', `No PR opened: ${words}.`]);
   fs.rmSync(path.join(ghDir, 'limit.json'));
@@ -229,7 +229,7 @@ test("on a GitHub board, builder done on a card whose PR is open force-pushes th
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   assert.equal((await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.')).code, 0);
-  const before = git(origin, 'rev-parse', 'A1');
+  const before = git(origin, 'rev-parse', 'me/orch/a1');
 
   // main moves on; the board's rebase run (rebase_run, which the server sets) rebases the branch onto it.
   commit(origin, 'other.txt', 'main moved\n', 'main moved');
@@ -242,17 +242,17 @@ test("on a GitHub board, builder done on a card whose PR is open force-pushes th
   const rebased = git(worktree(), 'rev-parse', 'HEAD');
 
   // Someone else's push since the fetch: the lease refuses, and nothing changes on origin or the card.
-  git(origin, 'branch', '-f', 'A1', 'main');
+  git(origin, 'branch', '-f', 'me/orch/a1', 'main');
   const refused = await b('builder', 'done', 'w/A1', '--text', 'Rebased onto main.');
   assert.equal(refused.code, 1);
-  assert.match(refused.err, /could not push A1 to origin/);
-  assert.deepEqual([git(origin, 'rev-parse', 'A1'), itemOf().rebased, typeof itemOf().rebase_run], [git(origin, 'rev-parse', 'main'), undefined, 'object']);
+  assert.match(refused.err, /could not push me\/orch\/a1 to origin/);
+  assert.deepEqual([git(origin, 'rev-parse', 'me/orch/a1'), itemOf().rebased, typeof itemOf().rebase_run], [git(origin, 'rev-parse', 'main'), undefined, 'object']);
 
-  git(origin, 'branch', '-f', 'A1', before);
+  git(origin, 'branch', '-f', 'me/orch/a1', before);
   const r = await b('builder', 'done', 'w/A1', '--text', 'Rebased onto main.');
   assert.equal(r.code, 0, r.err);
-  assert.ok(r.out.includes('\nA1: pushed A1 to PR #100\n'), r.out);
-  assert.equal(git(origin, 'rev-parse', 'A1'), rebased);
+  assert.ok(r.out.includes('\nA1: pushed me/orch/a1 to PR #100\n'), r.out);
+  assert.equal(git(origin, 'rev-parse', 'me/orch/a1'), rebased);
   assert.equal(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'create').length, 1, 'the PR stays as it is');
   const item = itemOf();
   assert.deepEqual([item.prs, item.lane, item.rebase_run, typeof record().done], [[{ number: 100 }], 'review', undefined, 'string']);
@@ -275,13 +275,13 @@ test('on a plain git remote, builder done pushes the branch and the card waits o
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   const r = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
   assert.equal(r.code, 0, r.err);
-  assert.ok(r.out.includes('\nA1: pushed A1 for its merge\n'), r.out);
-  assert.equal(git(origin, 'rev-parse', 'A1'), git(worktree(), 'rev-parse', 'HEAD'));
-  assert.deepEqual([itemOf().pushed.branch, typeof record().done], ['A1', 'string']);
+  assert.ok(r.out.includes('\nA1: pushed me/orch/a1 for its merge\n'), r.out);
+  assert.equal(git(origin, 'rev-parse', 'me/orch/a1'), git(worktree(), 'rev-parse', 'HEAD'));
+  assert.deepEqual([itemOf().pushed.branch, typeof record().done], ['me/orch/a1', 'string']);
   // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md: the first arrival in review is kept, however often the push is set again.
   const arrived = itemOf().review_since;
   assert.equal(typeof arrived, 'string');
-  assert.equal((await onOrch('item', 'set', 'w/A1', '--pushed', 'A1')).code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--pushed', 'me/orch/a1')).code, 0);
   assert.equal(itemOf().review_since, arrived);
 });
 
@@ -300,7 +300,7 @@ test("with Auto-merge off, builder done on a local board verifies the build and 
   const held = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
   assert.equal(held.code, 0, held.err);
   assert.ok(held.out.includes('\nA1: verified; waits for your Merge\n'), held.out);
-  assert.deepEqual([git(repo, 'rev-parse', 'main'), itemOf().lane, itemOf().merge_ready.branch, typeof record().done], [main, 'review', 'A1', 'string']);
+  assert.deepEqual([git(repo, 'rev-parse', 'main'), itemOf().lane, itemOf().merge_ready.branch, typeof record().done], [main, 'review', 'me/orch/a1', 'string']);
   assert.equal(threadOf().at(-1).text, 'Checked it.');
   assert.equal(fs.existsSync(worktree()), true);
 
@@ -331,7 +331,7 @@ test('a Merge tap on a held build whose tested commit is still on top of main la
   tapMerge();
   const merged = await onOrch('merge', 'w/A1');
   assert.equal(merged.code, 0, merged.err);
-  assert.ok(merged.out.includes('A1 was tested on main as it is now; not testing it again'), merged.out);
+  assert.ok(merged.out.includes('me/orch/a1 was tested on main as it is now; not testing it again'), merged.out);
   assert.equal(merged.out.includes('tests passed'), false, merged.out);
   assert.equal(git(repo, 'show', 'main:work.txt'), 'built');
   assert.equal(git(repo, 'for-each-ref', 'refs/kickflip'), '');
@@ -344,7 +344,7 @@ test('a Merge tap on a held build whose tested commit is still on top of main la
   tapMerge('ENG-1');
   const retested = await onOrch('merge', 'w/ENG-1');
   assert.equal(retested.code, 0, retested.err);
-  assert.ok(retested.out.includes('rebased ENG-1 onto main'), retested.out);
+  assert.ok(retested.out.includes('rebased me/orch/eng-1 onto main'), retested.out);
   assert.ok(retested.out.includes('tests passed: 1'), retested.out);
 });
 
@@ -368,10 +368,10 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   tapMerge();
   const failed = await b('merge', 'w/A1');
   assert.equal(failed.code, 1);
-  assert.match(failed.err, /^rebasing A1 onto main conflicts in shared\/notes\.md/);
+  assert.match(failed.err, /^rebasing me\/orch\/a1 onto main conflicts in shared\/notes\.md/);
   assert.equal(git(repo, 'rev-parse', 'main'), main);
   assert.deepEqual(threadOf().slice(-1).map((m) => m.text), [
-    'Not merged yet: rebasing A1 onto main conflicts in shar… Its builder resumes to fix it and land it.',
+    'Not merged yet: rebasing me…/a1 onto main conflicts in… Its builder resumes to fix it and land it.',
   ]);
   await until(() => fs.existsSync(seen), 'the lander runs');
   assert.match(fs.readFileSync(seen, 'utf8'), /You are the headless lander for task A1/);
@@ -411,7 +411,7 @@ test("a tapped Merge whose rebase conflicts resumes the card's builder session, 
   const [args] = fs.readFileSync(seen, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(args.slice(0, 2), ['--resume', 'sess-1']);
   assert.match(args[3], /^The board resumes you, the builder of task A1/);
-  assert.match(args[3], /rebasing A1 onto main conflicts in shared\/notes\.md/);
+  assert.match(args[3], /rebasing me\/orch\/a1 onto main conflicts in shared\/notes\.md/);
   assert.equal(threadOf().filter((l) => l.line === 'builder-resumed').length, 0, "the builder's section is still the thread's last thing");
 });
 
@@ -445,7 +445,7 @@ test("a tapped Merge refused for a reason no lander fixes says why in the thread
   assert.equal(failed.code, 1);
   assert.equal(threadOf().at(-1).line, 'land-failed');
   assert.match(threadOf().at(-1).text, /^Not merged: \S+ is.* Tap Merge again\.$/);
-  assert.deepEqual([itemOf().lane, itemOf().merge_ready.branch], ['review', 'A1']);
+  assert.deepEqual([itemOf().lane, itemOf().merge_ready.branch], ['review', 'me/orch/a1']);
 });
 
 // docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md
@@ -521,9 +521,10 @@ test("on Draft PR or Ready PR, a hub card branches from origin's main, and its f
     const r = await b('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', `Checked ${id}.`);
     assert.equal(r.code, 0, r.err);
     assert.match(r.out, new RegExp(`\\n${id}: draft PR #\\d+ opened\\n`));
-    assert.equal(git(origin, 'rev-parse', id), git(tree, 'rev-parse', 'HEAD'));
-    assert.equal(git(origin, 'rev-list', '--count', `main..${id}`), '1');
-    assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr').at(-1), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', id, '--title', titles[id], '--body', `Checked ${id}.`]);
+    const branch = `me/orch/${id.toLowerCase()}`;
+    assert.equal(git(origin, 'rev-parse', branch), git(tree, 'rev-parse', 'HEAD'));
+    assert.equal(git(origin, 'rev-list', '--count', `main..${branch}`), '1');
+    assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr').at(-1), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', branch, '--title', titles[id], '--body', `Checked ${id}.`]);
     assert.deepEqual([itemOf(id).lane, itemOf(id).prs?.length], ['review', 1]);
   };
   assert.deepEqual(await b('settings', 'set', 'prs', 'on'), { code: 0, out: 'prs on\n', err: '' });

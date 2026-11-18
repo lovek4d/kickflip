@@ -222,7 +222,7 @@ export async function checkGitHub({ every, manifest }) {
 
 const repoList = (board) => (board.github ? [board.github] : [...new Set(board.files.map((w) => w.itemFile.repo).filter(Boolean))]);
 
-// A card's branch is its card id (board/worktree.mjs makeWorktree), so an open PR in the card's repo whose head is that
+// A hand-opened PR comes from a branch named as the card id (a build's branch is board/worktree.mjs branchName), so an open PR in the card's repo whose head is that
 // branch in the same repo, and which the card doesn't hold yet, was opened by hand: it is recorded as `item set --pr` does,
 // with no --clear-status. → [{file, id, pr, changes: ['linked']}] for the github-change event.
 async function linkHandPRs(board, open, failed) {
