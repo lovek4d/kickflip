@@ -1,0 +1,30 @@
+# Security
+
+## Reporting a vulnerability
+
+Report a vulnerability through GitHub's private vulnerability reporting: the repository's Security tab, "Report a vulnerability". Please don't open a public issue for it.
+
+Private vulnerability reporting is a repository setting, and the owner turns it on in the repository's settings (Settings, Advanced Security, Private vulnerability reporting).
+
+## Threat model
+
+kickflip is a single-owner tool. It runs on the owner's Mac and serves the owner's phone over a tailnet.
+
+**Who is trusted**
+
+- The owner, signed in on a device, is trusted with everything: approving and running a board's scripts, merging, and settings.
+- The agents (Claude Code and Codex sessions the boards launch) run as the owner's OS user. They are trusted to build, not to approve. They write board files through the CLI and need no owner rights over HTTP.
+
+**Who is not trusted**
+
+- Any other machine or tailnet identity. The hub answers only on loopback and on this Mac's own tailnet name, and refuses any other Host or WebSocket Origin. Access is local, or over the tailnet from the matching identity; there is no sharing mechanism.
+- Web pages in the owner's browser, including a DNS-rebinding page aimed at a local port, and the previews a board shows (prototypes and visuals), which are isolated from the app's origin.
+- A file inside a served directory that points outside it (symlinks are refused).
+
+**What stays outside the model**
+
+A process running as the same OS user can read anything the hub keeps on disk, so it can also read an owner secret. The owner proof stops a one-request self-approval by an agent. It does not stop a determined same-user process. If you run an agent you don't trust, run it as another user.
+
+**The supply chain**
+
+CI runs the tests on every push to main and every pull request. Every GitHub Action the workflows use is pinned to a full commit SHA, so a moved tag can't change what runs; update a pin by looking up the new release's commit.
