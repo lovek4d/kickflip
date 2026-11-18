@@ -1326,3 +1326,12 @@ test("a builder's brief says a timing taken while the host is busy is provisiona
   assert.ok(brief.includes('while the host is busy') && brief.includes('is provisional'), 'the brief marks a busy-host timing provisional');
   assert.ok(brief.includes('"Provisional: <timing>, taken while the host was busy"'), 'and gives the call its words');
 });
+
+test('a grill and a prototype planner brief tell the planner a question and its options stand alone, its visual or prototype carried as url', () => {
+  const rule = /A question stands alone: its context and each option.s label and detail are answerable as they stand, with no code or label defined elsewhere/;
+  for (const kind of ['grill', 'prototype']) {
+    const brief = plannerBrief({ ...card, kind, repo: '/r/shop', brief: { text: 'Settled: x.' } });
+    assert.match(brief, rule, kind);
+    assert.match(brief, /carries that page as its url/, kind);
+  }
+});

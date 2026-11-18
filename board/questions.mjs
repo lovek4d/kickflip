@@ -16,7 +16,7 @@ import { BoardError, fail, needSite, text, optional, pageUrl, bool, domId, onlyK
 import { settingsOf } from './settings.mjs';
 import { leaveNew } from './asks.mjs';
 import { passNews, checkAskQuestion, builderFiles } from './runs.mjs';
-import { ownerFile, parseKey, loadItemFile, loadItem, readReplyIndex, appendStatus, appendMessage, messageText, appendCommand, cardName, askCardOf, checkAsk, shownCard, leftTodo, checkSpec, namedTasks, linkedWith, ticketWrite, setItem, readArchive } from './cards.mjs';
+import { ownerFile, threadFile, parseKey, loadItemFile, loadItem, readReplyIndex, appendStatus, appendMessage, messageText, appendCommand, cardName, askCardOf, checkAsk, shownCard, leftTodo, checkSpec, namedTasks, linkedWith, ticketWrite, setItem, readArchive } from './cards.mjs';
 
 // data/staged-questions.json {<file>/<id>: [question]}: questions added to a card while a planner of it runs, held back from
 // owner.json until it finishes (docs/adr/2026-11-06-0100-a-grills-questions-appear-together-once-the-grill-is-done.md).
@@ -59,6 +59,8 @@ function checkDiagram(o, at) {
   o.practice.forEach((l, n) => text(l, `${at}.practice[${n}]`));
 }
 
+// An option label made only of short codes, such as "L4 and L1", means nothing unless its detail says what they are.
+const CODES_ONLY = /^[A-Z]\d+( and [A-Z]\d+)*$/;
 function checkOptions(options, name) {
   if (!Array.isArray(options) || !options.length) fail(`${name}.options must be a non-empty array`);
   const ids = new Set();
@@ -71,6 +73,7 @@ function checkOptions(options, name) {
     if (text(o.label, `${at}.label`).startsWith(`${o.id}. `)) fail(`${at}.label starts with "${o.id}. ", but the page adds the option letter itself`);
     optional(o.recommended, (v) => bool(v, `${at}.recommended`));
     optional(o.detail, (v) => (typeof v === 'string' ? v : fail(`${at}.detail must be text`)));
+    if (CODES_ONLY.test(o.label.trim()) && !o.detail?.trim()) fail(`${at}.label "${o.label}" is only codes with no detail; a question stands alone, so say what each one is in the label or the detail`);
   });
   if (options.filter((o) => o.recommended).length > 1) fail(`${name} recommends more than one option`);
 }
@@ -218,6 +221,23 @@ export async function addQuestions(site, input, renderCheck = async () => {}) {
   return publishQuestions(site, owner, items, questions.filter((q) => !held.includes(q)), lines);
 }
 
+// A question about something the card's visual or prototype shows links that page, so its context names no page the
+// question leaves out of url: a visual's file name, "visual" while the card has a visual, "prototype" while the card has
+// a recorded prototype.
+async function checkPageLinked(site, q, name) {
+  if (!q.context || !q.topic.startsWith('item:')) return;
+  const key = q.topic.slice(5);
+  const visuals = (await readLog(threadFile(site, key))).filter((m) => m.kind === 'visual' && m.link).map((m) => m.link);
+  const prototypes = (await readPrototypes(site)).filter((p) => p.card === key);
+  const visual = visuals.at(-1);
+  if (visual && (/\bvisual\b/i.test(q.context) || visuals.some((v) => q.context.includes(path.posix.basename(v))))) {
+    fail(`${name} names the card's visual in its context but has no url; set url to ${visual} so the sheet links it`);
+  }
+  if (prototypes.length && /\bprototype\b/i.test(q.context)) {
+    fail(`${name} names the card's prototype in its context but has no url; set url to prototype-${prototypes.at(-1).topic}.html?q=${q.id} so the sheet links it`);
+  }
+}
+
 // Refuses a question file addQuestions would refuse, and writes nothing. → what addQuestions then reads.
 export async function checkQuestions(site, input, renderCheck = async () => {}) {
   needSite(site);
@@ -253,6 +273,7 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
     for (const flag of Object.keys(GATES)) if (q[flag] !== undefined && checkGate(flag, q, `${name}.${flag}`)) await checkGateFact(site, q, flag, name);
     optional(q.suggested, (v) => checkSuggested(v, q.options, `${name}.suggested`));
     await checkPrototype(site, q, name);
+    if (!q.url) await checkPageLinked(site, q, name);
     if (q.ask !== undefined) await checkAskQuestion(site, q, name);
     optional(q.round_of, (id) => {
       const from = items.find((x) => x.id === id);

@@ -456,3 +456,31 @@ test("each batch of questions published on a card stores one Questions added lin
   assert.equal((await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'))).code, 0);
   assert.deepEqual(added('A1').map((m) => [m.link, m.questions]), [['questions.html#qa', ['qa', 'qb']], ['questions.html#qe', ['qe']]]);
 });
+
+test('question add refuses an option labelled only by codes with no detail, and takes one with a detail or a plain label', async () => {
+  const add = async (options) => { write(path.join(home, 'codes.json'), question('q9', { options })); return await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'codes.json')); };
+  for (const label of ['L4', 'L4 and L1', 'B2 and C3 and D4']) {
+    const refused = await add([{ id: 'A', label }, { id: 'B', label: 'Drop' }]);
+    assert.equal(refused.code, 1);
+    assert.match(refused.err, new RegExp(`question q9\\.options\\[0\\]\\.label "${label}" is only codes.*say what each one is`));
+  }
+  assert.equal((await add([{ id: 'A', label: 'L4 and L1', detail: 'L4 (the badge) and L1 (the header)' }, { id: 'B', label: 'Drop' }])).code, 0);
+  write(path.join(home, 'codes.json'), question('q8', { options: [{ id: 'A', label: 'Take B2 of the badge' }, { id: 'B', label: 'All four' }] }));
+  assert.equal((await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'codes.json'))).code, 0);
+});
+
+test("question add refuses a question whose context names the card's visual or prototype with no url, and takes one that links it", async () => {
+  await recordPrototype('look', ['A:Keep'], true);
+  const add = async (q) => { write(path.join(home, 'v.json'), q); return await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'v.json')); };
+  const on = (id, extra = {}) => question(id, { topic: 'item:w/A1', ...extra });
+  assert.equal((await add(on('v0', { context: 'The visual shows four fixes.' }))).code, 0);
+  const visual = { ts: new Date().toISOString(), who: 'claude', kind: 'visual', text: 'Four fixes', link: 'visuals/A1/four-fixes.html' };
+  fs.mkdirSync(path.dirname(site('orch', 'data', 'threads', 'w__A1.jsonl')), { recursive: true });
+  fs.appendFileSync(site('orch', 'data', 'threads', 'w__A1.jsonl'), JSON.stringify(visual) + '\n');
+  const refused = await add(on('v1', { context: 'The visual shows four fixes.' }));
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /question v1 names the card's visual in its context but has no url; set url to visuals\/A1\/four-fixes\.html/);
+  assert.equal((await add(on('v2', { context: 'See four-fixes.html.' }))).code, 1);
+  assert.equal((await add(on('v3', { context: 'The visual shows four fixes.', url: 'visuals/A1/four-fixes.html' }))).code, 0);
+  assert.equal((await add(on('v4', { context: 'Four fixes are left: the badge, the header, the footer and the toast.' }))).code, 0);
+});

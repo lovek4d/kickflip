@@ -3393,3 +3393,12 @@ test("a starting board's row shows its session's last activity, an orange stalle
   const html = ui.sidebar({ sites: [], starting: [{ ...base, failed: true, ended: true, error: 'Its session ended before it joined the hub.' }] }, { now });
   assert.match(html, /data-failed-start="shop" aria-haspopup="dialog">.*?<span class="sb-title">Shop<\/span><span class="sb-sub">session ended<\/span><\/span><\/button>/);
 });
+
+test("a question on a card's visual shows a See the visual link row under its context, and one with no url shows no row", () => {
+  const withContext = { ...question, context: 'Four fixes are left.' };
+  const html = ui.questionCard({ ...withContext, url: 'visuals/T-1/four-fixes.html' });
+  assert.match(html, /<div class="small"[^>]*><a href="visuals\/T-1\/four-fixes\.html">See the visual /);
+  assert.ok(html.indexOf('Four fixes are left.') < html.indexOf('See the visual'));
+  assert.ok(html.indexOf('See the visual') < html.indexOf('<label class="opt">'));
+  assert.doesNotMatch(ui.questionCard(withContext), /See the visual/);
+});

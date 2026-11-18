@@ -111,7 +111,9 @@
     const at = url.includes('#') ? url.indexOf('#') : url.length;
     return `${url.slice(0, at)}${url.slice(0, at).includes('?') ? '&' : '?'}${key}=${encodeURIComponent(value)}${url.slice(at)}`;
   };
+  const VISUAL_PAGE = /(?:^|\/)visuals\/[\w-]+\/[\w-]+\.html(?:[?#]|$)/;
   const questionLink = (url) => !url ? ''
+    : VISUAL_PAGE.test(url) ? `<div class="small" style="margin-bottom:8px"><a href="${esc(url)}">See the visual ${LINK_ARROW}</a></div>`
     : isPrototype(url) ? `<a class="button proto-view" href="${esc(url)}">View prototypes</a>`
     : `<div class="small" style="margin-bottom:8px"><a href="${esc(url)}"${opensHere(url) ? '' : ' target="_blank" rel="noopener"'}>${esc(url.replace(/^https:\/\/(linear\.app\/[^/]+\/issue|github\.com)\//, ''))} ${LINK_ARROW}</a></div>`;
 
