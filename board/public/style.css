@@ -956,12 +956,19 @@ main > * { transition: opacity .25s ease; }
   :root.typing body > .top, :root.typing body.has-sidebar > :not(.sidebar) > .top { display: none; }
 }
 
-.settings-modal { position: fixed; inset: max(12px, env(safe-area-inset-top)) 0 calc(12px + max(var(--kb, 0px), var(--app-bottom, 0px))); margin: auto; width: min(680px, calc(100% - 24px));
-  height: fit-content; max-width: none; max-height: max(120px, calc(var(--vh, 100dvh) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - 24px - env(safe-area-inset-top)));
-  padding: 0; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); color: var(--text);
-  overflow: hidden; box-shadow: 0 20px 70px #0004; }
+.settings-modal { padding: 0; border: 1px solid var(--line); background: var(--panel); color: var(--text); overflow: hidden; }
 .settings-modal[open] { display: flex; flex-direction: column; }
 .settings-modal::backdrop { background: rgba(0,0,0,calc(.4 * (1 - var(--swipe, 0)))); touch-action: none; }
+/* The standard sheet (questions, prototypes, logs, transcripts, visuals, notes, a card page, the architecture review
+   and settings): below 900px it is full height, the screen less the status bar, on the bottom edge or above the bar;
+   from 900px it is the right pane (the desktop block below). Its body scrolls inside. */
+@media (max-width: 899px) {
+  .sheet.reader-sheet, .sheet.arch-sheet, .settings-modal {
+    --standard-height: calc(var(--sheet-full, calc(var(--vh, 100dvh) + var(--kb, 0px))) - max(var(--app-bottom, 0px), var(--kb, 0px)) - max(12px, env(safe-area-inset-top)));
+    position: fixed; inset: auto 0 max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) 0; margin: 0 auto; width: 100%; max-width: none;
+    height: var(--standard-height); max-height: var(--standard-height); padding-bottom: 0;
+    border-width: 1px 0 0; border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,.18); }
+}
 .settings-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
 .settings-head h2 { margin: 0; font-size: 18px; }
 .settings-head p { margin: 4px 0 0; }
@@ -1055,9 +1062,9 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .main-log-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 .main-log-actions button { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 6px 18px; }
 #mainLogReason { color: var(--color-notice); overflow-wrap: anywhere; }
-/* The reader sheet (app-reader.js): a builder's log or notes, 85% of the height from the bottom. Its body scrolls
-   down only: every line wraps (#252). */
-.reader-sheet { height: 85dvh; max-height: 85dvh; padding: 0; overflow: hidden; }
+/* The reader sheet (app-reader.js): a builder's log or notes, at the standard sheet's size (the block after
+   .settings-modal). Its body scrolls down only: every line wraps (#252). */
+.reader-sheet { padding: 0; overflow: hidden; }
 .reader-sheet[open] { display: flex; flex-direction: column; }
 .reader-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line); }
 .reader-head h2 { flex: none; margin: 0; font-size: 15px; }
@@ -1073,10 +1080,8 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 @keyframes reader-pulse { 50% { opacity: .35; } }
 .reader-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 6px 0 max(12px, env(safe-area-inset-bottom)); }
 .reader-body > .muted { padding: 8px 14px; margin: 0; }
-/* A card page (app-reader.js openPage): the page fills the body in a frame, and on a phone the sheet stands near full
-   height. Its header holds the Round pill, whose rounds drop over the page, and Open alone ↗. */
-.reader-sheet.reader-page { height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(12px, env(safe-area-inset-top)));
-  max-height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(12px, env(safe-area-inset-top))); }
+/* A card page (app-reader.js openPage): the page fills the body in a frame. Its header holds the Round pill, whose
+   rounds drop over the page, and Open alone ↗. */
 .reader-page .reader-body { position: relative; display: flex; padding: 0; overflow: hidden; }
 /* A page under the one shown keeps its body, hidden (app-reader.js stackView). */
 .reader-body[hidden] { display: none; }
@@ -1166,10 +1171,10 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   :root { --sheet-w: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); }
   /* The reader sheet (app-reader.js) is a panel over the pane's half, at the width the seam gives it, while it is open. */
   /* A sheet stacked over another lies above it by its --layer (ui.js openSheet). */
-  .sheet.reader-sheet { position: fixed; z-index: calc(30 + var(--layer, 0)); inset: 56px 0 0 auto; margin: 0; width: var(--sheet-w); max-width: none;
+  .sheet.reader-sheet, .sheet.arch-sheet, .settings-modal { position: fixed; z-index: calc(30 + var(--layer, 0)); inset: 56px 0 0 auto; margin: 0; width: var(--sheet-w); max-width: none;
     height: auto; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
-  .sheet.reader-sheet[open] { animation: reader-in .22s ease-out; }
-  .sheet.reader-sheet.closing { animation: reader-out .18s ease-in forwards; }
+  .sheet.reader-sheet[open], .sheet.arch-sheet[open], .settings-modal[open] { animation: reader-in .22s ease-out; }
+  .sheet.reader-sheet.closing, .sheet.arch-sheet.closing, .settings-modal.closing { animation: reader-out .18s ease-in forwards; }
   .reader-sheet::backdrop { background: transparent; }
   .board-pane { display: flex; flex-direction: column; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px 16px 0; border-left: 1px solid var(--line); }
   /* The landing: the board's name, one line and the chips, then the glance, in a column at the pane's top. */

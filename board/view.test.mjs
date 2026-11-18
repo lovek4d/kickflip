@@ -6804,7 +6804,7 @@ test("the reader sheet wraps long lines in monospace and never scrolls sideways"
   assert.match(css, /\.reader-body \{[^}]*overflow-x: hidden/);
   assert.match(css, /\.reader-row \{[^}]*overflow-wrap: anywhere/);
   assert.match(css, /\.reader-raw, \.reader-text \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;[^}]*ui-monospace/);
-  assert.match(css, /\.reader-sheet \{[^}]*height: 85dvh/);
+  assert.doesNotMatch(css, /85dvh/);
 });
 
 // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md
@@ -7685,9 +7685,9 @@ test("a prototype or a visual opened from the questions sheet stacks on it, with
 test("a card page's sheet stands near full height on a phone, and from 900px takes the pane's width like every sheet, stacked over the questions sheet", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const wideAt = css.indexOf('@media (min-width: 900px) {\n  .split');
-  assert.match(css.slice(0, wideAt), /\.reader-sheet\.reader-page \{ height: calc\(var\(--vh, 100dvh\) - var\(--app-bottom, 0px\) - max\(12px, env\(safe-area-inset-top\)\)\);/);
+  assert.doesNotMatch(css, /\.reader-sheet\.reader-page \{/, 'a card page has no height of its own');
   assert.match(css.slice(0, wideAt), /\.reader-frame \{[^}]*flex: 1;[^}]*border: 0;/);
-  assert.match(css.slice(wideAt), /\.sheet\.reader-sheet \{ position: fixed; z-index: calc\(30 \+ var\(--layer, 0\)\);/, 'a sheet stacked over another lies above it by its layer (ui.js openSheet)');
+  assert.match(css.slice(wideAt), /\.sheet\.reader-sheet, \.sheet\.arch-sheet, \.settings-modal \{ position: fixed; z-index: calc\(30 \+ var\(--layer, 0\)\);/, 'a sheet stacked over another lies above it by its layer (ui.js openSheet)');
   assert.doesNotMatch(css, /reader-page \{ z-index/);
   assert.doesNotMatch(css, /pane-viewer|\.pv-top|board-pane\.viewing|board-pane\.widened/, 'the pane viewer is gone');
 });
