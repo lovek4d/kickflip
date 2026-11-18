@@ -166,6 +166,12 @@
 // loopback caller or a device signed in to Tailscale as the host's user gets front-door.mjs's refusal, the same on
 // every path (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). Nothing is shared with anyone else
 // (docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md).
+// Then every request and upgrade needs the owner's sign-in cookie (../shared/owner-sign-in.mjs), but the app's code and
+// icons, a process on this host's agent paths (AGENT_PATHS), another of the owner's hubs on /_hub/peer/*, and a board site's paths, whose server checks them; without
+// it a browser gets front-door.mjs's sign-in page (401)
+// (docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md).
+//   /_hub/sign-in     GET ?t=<token>, from `kickflip sign-in`'s link: the page asking to sign in, which uses nothing up;
+//                     POST {link, next} form-encoded from it: uses the link up, sets the device's cookie and 303s to next
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
 // /_hub/build, /_hub/kill, /_hub/pull and /_hub/peers/* also require loopback and refuse Origin and forwarded headers.
@@ -273,7 +279,8 @@ import { fallBackFromLinear } from '../board/settings.mjs';
 import { runMigrations } from '../board/migrations.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
-import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
+import { pipeUpgrade, refuse, refuseUpgrade, safeNext } from './front-door.mjs';
+import { agentCaller, redeemSignIn, signInCookie, signedIn as ownerSignedIn, tokenOf, withoutOwnerCookie } from '../shared/owner-sign-in.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { POLLS, CLOCKS, dueOn } from '../shared/polls.mjs';
@@ -297,6 +304,23 @@ const USAGE_SETTINGS = {
 };
 
 const stampedLog = (...a) => console.log(new Date().toISOString(), ...a);
+
+// docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
+// The hub's paths a browser reads with no cookie (startHub needOf 'open'), beside /_hub/icon-*.png and /_hub/app/.
+const OPEN_PATHS = new Set(['/sw.js', '/manifest.webmanifest', '/favicon.ico', '/_hub/kickflip.png', '/_hub/hub.css', '/_hub/colors.css']);
+// The hub's paths a process on this host calls with no cookie (needOf 'agent'), [method, path]: builds, serves and pulls
+// (board.mjs build, a board server's Serve and Main refresh), the permission hooks' prompts, the CLI's poll, status and
+// board restart, push.mjs's needs, and board.mjs's sends to the owner's other hubs. A prompt's answer is the owner's.
+const AGENT_PATHS = [
+  ['POST', /^\/_hub\/(build|kill|pull|poll|restart-board|prompts|permission-denied)$/],
+  ['GET', /^\/_hub\/prompts\/[\w-]+\/wait$/],
+  ['DELETE', /^\/_hub\/prompts\/[\w-]+$/],
+  ['GET', /^\/_hub\/(status|needs)\.json$/],
+  ['GET', /^\/_hub\/peers\/boards$/],
+  ['POST', /^\/_hub\/peers\/(ask|answer)$/],
+];
+// Another of the owner's hubs (needOf 'peer'): it passes the owner gate on its Tailscale identity and has no cookie.
+const PEER_PATH = /^\/_hub\/peer\/(ask|answer|boards)$/;
 
 // Whether something listens on the port, within PROBE_TIMEOUT.
 const PROBE_TIMEOUT = 2000;
@@ -352,6 +376,8 @@ function fromLoopback(req) {
 //   readMachine() → the Mac's {load, cores, pressure} for the busy gate (shared/machine-gate.mjs);
 //   gate: the owner gate every request passes (board/on-host.mjs ownerGate);
 //   peers: the owner's other hubs and how to reach them (peers.mjs tailnetPeers);
+//   signedIn(req) → whether the request carries a signed-in device's cookie (../shared/owner-sign-in.mjs signedIn),
+//   which the hub and its try relays ask;
 //   awake: the Keep awake controller (awake.mjs caffeinate);
 //   log(...parts): each line the hub logs, stamped on stdout by default;
 //   ticks: false runs neither of its clocks (shared/polls.mjs CLOCKS), so no reconcile, tick, hung check, new-code
@@ -361,7 +387,7 @@ function fromLoopback(req) {
 // poll and outbox (the peer outbox's retry) run one pass and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a
 // request, is done; close() stops every site and the server; shutdown() runs close(), at most STOP_WITHIN, then exit(0),
 // as the hub does on SIGTERM and to restart itself.
-export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, peers = tailnetPeers, awake = caffeinate({ log }), ticks = true, exit = (code) => process.exit(code) } = {}) {
+export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, peers = tailnetPeers, signedIn = (req) => ownerSignedIn(req), awake = caffeinate({ log }), ticks = true, exit = (code) => process.exit(code) } = {}) {
   const HOME = path.join(os.homedir(), '.claude', 'kickflip');
   const MANIFEST = path.join(HOME, 'manifest.json');
   const LOGS = path.join(HOME, 'logs');
@@ -1850,12 +1876,55 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
 
   // Every request and upgrade passes the owner gate first (board/on-host.mjs ownerGate, front-door.mjs): the owner is
   // served, anyone else refused (docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md).
+  // Then the sign-in (docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md): a path needs
+  // the signed-in device's cookie unless needOf says otherwise; a request without it gets the sign-in page.
   const server = http.createServer((req, res) => {
     gate(req).then((verdict) => {
-      if (verdict === 'owner') serve(req, res);
-      else refuse(req, res, verdict);
+      if (verdict !== 'owner') return refuse(req, res, verdict);
+      const url = requestURL(req);
+      if (url.pathname === '/_hub/sign-in') return signIn(req, res, url).catch((e) => { if (!res.headersSent) res.writeHead(e.status || 500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
+      const need = needOf(req, url);
+      if (need === 'open' || need === 'peer' || need === 'board' || (need === 'agent' && agentCaller(req)) || signedIn(req)) serve(req, res);
+      else refuse(req, res, 'signed-out');
     });
   });
+
+  // What a request needs past the gate: 'open' for the app's code, its icons and the web app manifest, which a browser
+  // fetches with no cookie, as a sandboxed preview's loads are; 'agent' for the paths the CLI, hooks and boards use from
+  // this host (../shared/owner-sign-in.mjs agentCaller), which need no cookie from such a caller; 'peer' for another of
+  // the owner's hubs' /_hub/peer/* paths, which the owner gate alone admits; 'board' for a board
+  // site's paths but its shell, which its own server checks (board/server.mjs needOf); else 'owner'.
+  function needOf(req, url) {
+    const p = url.pathname;
+    const read = req.method === 'GET' || req.method === 'HEAD';
+    if (read && (OPEN_PATHS.has(p) || /^\/_hub\/icon-\d+\.png$/.test(p) || p.startsWith('/_hub/app/'))) return 'open';
+    if (AGENT_PATHS.some(([method, pattern]) => method === req.method && pattern.test(p))) return 'agent';
+    if (PEER_PATH.test(p)) return 'peer';
+    if (p === '/' || p.startsWith('/_hub/')) return 'owner';
+    const served = servedSites(loadManifest());
+    const site = routeRecord(served, p.split('/')[1]);
+    if (!site || !isBoardSite(site)) return 'owner';
+    return pageOf({ method: req.method, pathname: p, search: url.search, dest: destOf(req.headers), sites: new Set(Object.keys(served)) }) === 'shell' ? 'owner' : 'board';
+  }
+
+  // GET, from a sign-in link: the page asking to sign in, the link's token filled in, since a link preview that loads it
+  // mustn't use it up. POST {link, next} from that page, form-encoded: uses the link up, sets the device's cookie and
+  // lands on next; a used or expired link gets the page again saying so.
+  async function signIn(req, res, url) {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      const token = tokenOf(url.searchParams.get('t'));
+      if (!token && signedIn(req)) { res.writeHead(302, { location: '/', 'cache-control': 'no-store' }).end(); return; }
+      refuse(req, res, token ? 'sign-in' : 'signed-out', { token, next: '/' });
+      return;
+    }
+    if (req.method !== 'POST') { res.writeHead(405).end(); return; }
+    if (crossSite(req.headers)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }).end('Requests must come from the app’s own pages.'); return; }
+    const form = new URLSearchParams(await readBody(req));
+    const device = await redeemSignIn(tokenOf(form.get('link')));
+    if (!device) { refuse(req, res, 'sign-in-failed', { next: safeNext(form.get('next')) }); return; }
+    const secure = req.headers['x-forwarded-proto'] === 'https';
+    res.writeHead(303, { location: safeNext(form.get('next')), 'set-cookie': signInCookie(device, { secure }), 'cache-control': 'no-store' }).end();
+  }
 
   function serve(req, res) {
     const url = requestURL(req);
@@ -1904,7 +1973,10 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
       return;
     }
-    const headers = { ...req.headers, 'x-forwarded-prefix': prefix, 'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host, 'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https' };
+    // A board server checks the sign-in cookie itself; any other site's server never gets it.
+    const { cookie, ...others } = req.headers;
+    const kept = isBoardSite(site) ? cookie : withoutOwnerCookie(cookie);
+    const headers = { ...others, ...(kept ? { cookie: kept } : {}), 'x-forwarded-prefix': prefix, 'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host, 'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https' };
     const up = http.request({ host: '127.0.0.1', port: site.port, method: req.method, path: rest, headers }, (r) => {
       // A board page tells the board's own failure from the hub's being down by this (board/public/ui.js downOf).
       const h = { ...r.headers, 'x-kickflip-hub': '1' };
@@ -1928,11 +2000,13 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   server.on('upgrade', async (req, socket, head) => {
     const verdict = await gate(req);
     if (verdict !== 'owner') { refuseUpgrade(socket, verdict); return; }
+    if (!signedIn(req)) { refuseUpgrade(socket, 'signed-out'); return; }
     const route = requestURL(req).pathname.split('/')[1];
     const site = routeRecord(servedSites(loadManifest()), route);
     if (!site?.port) { socket.destroy(); return; }
     const prefix = `/${route}`;
-    pipeUpgrade({ req, socket, head, port: site.port, path: req.url.slice(prefix.length) || '/', replace: ['x-forwarded-prefix'], extra: [`X-Forwarded-Prefix: ${prefix}`] });
+    const cookie = isBoardSite(site) ? req.headers.cookie : withoutOwnerCookie(req.headers.cookie);
+    pipeUpgrade({ req, socket, head, port: site.port, path: req.url.slice(prefix.length) || '/', replace: ['x-forwarded-prefix', 'cookie'], extra: [`X-Forwarded-Prefix: ${prefix}`, ...(cookie ? [`Cookie: ${cookie}`] : [])] });
   });
 
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(askedPort, '127.0.0.1', resolve); });

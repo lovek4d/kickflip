@@ -46,12 +46,28 @@ export function boardListening(child) {
 
 // docs/adr/2026-11-13-2210-the-board-server-starts-in-process-and-tests-await-settled.md
 // The board server in this process, listening on a port the OS picks, closed after test t; options go to
-// board/server.mjs startServer. base is its address. Import shared/scratch-home.mjs first, as the server reads HOME.
+// board/server.mjs startServer, every request a signed-in device's unless they pass signedIn
+// (docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md). base is its address. Import shared/scratch-home.mjs first, as the server reads HOME.
 export async function startBoard(t, options) {
   const { startServer } = await import('../board/server.mjs');
-  const board = await startServer(options);
+  const board = await startServer({ signedIn: () => true, ...options });
   t.after(() => board.close());
   return { ...board, base: `http://127.0.0.1:${board.server.address().port}` };
+}
+
+// docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
+// Signs a device in on home, for a test whose board servers run as their own processes and check the sign-in for real:
+// from then on every fetch that sends no Cookie of its own sends that device's. → the Cookie header's value
+export async function signInFetches(home) {
+  const { SIGN_IN_COOKIE, makeSignInLink, redeemSignIn } = await import('./owner-sign-in.mjs');
+  const cookie = `${SIGN_IN_COOKIE}=${await redeemSignIn(await makeSignInLink({ home }), { home })}`;
+  const plain = globalThis.fetch;
+  globalThis.fetch = (input, init = {}) => {
+    const headers = new Headers(init.headers);
+    if (!headers.has('cookie')) headers.set('cookie', cookie);
+    return plain(input, { ...init, headers });
+  };
+  return cookie;
 }
 
 // docs/adr/2026-11-12-1110-a-test-waits-on-state-and-fails-only-at-5x-its-budget.md

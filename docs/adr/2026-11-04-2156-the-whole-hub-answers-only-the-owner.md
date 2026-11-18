@@ -4,6 +4,8 @@ status: accepted
 
 # The whole hub answers only the owner
 
+Superseded in part by [the owner signs in with a link that sets a device cookie](2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md): a loopback caller passes this gate, but is no longer the owner; every request then needs the owner's sign-in, or is an agent path.
+
 Since #200 only restarts and the permission switches checked who was asking; every other hub path, board and try port answered any tailnet device. A shared-in user or tagged node could read every card, answer questions, add cards, upload files and start builds (a board's /api/try reaches the hub's loopback /_hub/build, so the hub saw a local call). The owner's answers on #210 (gate-all-notes.md, "The build") settled a gate at the front door.
 
 - **One gate before routing, on plain requests and upgrades (owner, gh210-read-only: owner only).** `board/on-host.mjs` `ownerGate` decides `owner`, `other` or `unread`; `hub/hub.mjs` asks it for every request before anything else, and in `server.on('upgrade')`, which skips the request handler. The owner is the same as #200's (docs/adr/2026-11-04-0502-only-the-signed-in-owner-changes-permissions-or-restarts.md): a client address that is one of the Mac's own (the Mac's browser, and every loopback caller: the CLI, builders, hooks, push.mjs, the hub's calls to boards), or a `Tailscale-User-Login` equal to the Mac's tailnet user. No login header (a tagged node, Funnel) is `other`.

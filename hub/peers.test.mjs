@@ -23,7 +23,8 @@ write(path.join(home, 'stand-in', 'board', 'server.mjs'), 'setInterval(() => {},
 
 // A hub with a board /audit (its port refuses, so events go straight to its log) and peers that the test sets: by
 // default the tailnet is on, this hub is maca and macb is online at this same hub, so a relay reaches itself.
-async function startHub(t, gate) {
+// options go to startHub.
+async function startHub(t, gate, options = {}) {
   fs.rmSync(web, { recursive: true, force: true });
   const dir = path.join(home, 'audit');
   fs.rmSync(dir, { recursive: true, force: true });
@@ -34,7 +35,7 @@ async function startHub(t, gate) {
     read: async () => ({ self: { name: 'maca', host: 'maca.tail1234.ts.net' }, peers: [{ name: 'macb', host: 'macb.tail1234.ts.net' }], offline: ['mini'] }),
     url: () => hub.base,
   };
-  const hub = await inProcessHub(t, { peers, ...(gate ? { gate } : {}) });
+  const hub = await inProcessHub(t, { peers, ...(gate ? { gate } : {}), ...options });
   await hub.settled();
   const events = () => { try { return fs.readFileSync(path.join(dir, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)); } catch { return []; } };
   const post = (p, body, headers = {}) => fetch(hub.base + p, { method: 'POST', headers: { ...json, ...headers }, body: JSON.stringify(body) });
@@ -173,4 +174,23 @@ test('only a local process sends to another hub; another hub reaches its peer ro
   assert.deepEqual(events().map((e) => e.data.from), [from]);
   assert.equal((await fetch(`${hub.base}/_hub/peer/boards`, { headers: otherMac })).status, 200);
   assert.equal((await fetch(`${hub.base}/_hub/peer/boards`, { headers: friend })).status, 403);
+});
+
+// docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
+test("another hub's peer routes and this host's agent's peers routes need no sign-in cookie; the owner's paths still do", async (t) => {
+  const { hub, events, post } = await startHub(t, ownerGate(), { signedIn: () => false });
+  write(path.join(web, 'settings.json'), { tailnet: true });
+  // An agent here relays to the other hub, whose /_hub/peer/ask takes it with no cookie: the other hub has none.
+  const r = await post('/_hub/peers/ask', { hub: 'macb', route: 'audit', text: QUESTION, from: { route: 'orch', title: 'Orch' } });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  assert.equal(events().length, 1);
+  assert.equal((await fetch(`${hub.base}/_hub/peers/boards`)).status, 200);
+  // The other Mac's hub through tailscale serve, with no cookie.
+  assert.equal((await fetch(`${hub.base}/_hub/peer/boards`, { headers: otherMac })).status, 200);
+  const answer = await post('/_hub/peer/answer', { id: 'p1', route: 'audit', text: 'Because CI', from: { hub: 'macb', route: 'orch', title: 'Orch' } }, otherMac);
+  assert.equal(answer.status, 400, 'past the sign-in, to the answer check');
+  // A browser on the peers routes, and the owner's paths, need the sign-in.
+  assert.equal((await fetch(`${hub.base}/_hub/peers/boards`, { headers: { 'sec-fetch-site': 'same-origin' } })).status, 401);
+  assert.equal((await fetch(`${hub.base}/_hub/api/hub`, { headers: otherMac })).status, 401);
+  assert.equal((await post('/_hub/restart-hub', {})).status, 401);
 });

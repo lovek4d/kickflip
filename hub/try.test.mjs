@@ -692,6 +692,38 @@ test('the relay hands the app an owner’s request without tailscale serve’s i
   assert.equal(upgraded, '');
 });
 
+// docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
+test("the relay needs the owner's sign-in cookie, and the app never gets it", async () => {
+  const signedIn = (req) => String(req.headers.cookie || '').includes('kickflip_owner=good');
+  setManager(tryManager({ now: () => clock, log() {}, gate: async () => 'owner', signedIn }));
+  const server = http.createServer();
+  await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  await new Promise((resolve) => server.close(resolve));
+  setScript(`const server = require('node:http').createServer((req, res) => res.end('cookie=' + (req.headers.cookie || '')));
+  server.on('upgrade', (req, socket) => socket.end('HTTP/1.1 101 Switching Protocols\\r\\nConnection: Upgrade\\r\\nUpgrade: test\\r\\n\\r\\n' + (req.headers.cookie || '')));
+  server.listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`);
+  await start();
+  await manager.settled();
+  const signedOut = await fetch(relayOf(8500) + '/', { headers: { accept: 'text/html' } });
+  assert.equal(signedOut.status, 401);
+  assert.match(await signedOut.text(), /Sign in to open this kickflip\./);
+  assert.equal(await (await fetch(relayOf(8500) + '/', { headers: { cookie: 'a=1; kickflip_owner=good' } })).text(), 'cookie=a=1');
+  const upgrade = (cookie) => new Promise((resolve, reject) => {
+    const request = http.request(relayOf(8500) + '/socket', { headers: { connection: 'Upgrade', upgrade: 'test', ...(cookie ? { cookie } : {}) } });
+    request.on('error', reject);
+    request.on('response', (res) => { res.resume(); resolve(res.statusCode); });
+    request.on('upgrade', (_response, socket, head) => {
+      let body = head.toString();
+      socket.on('data', (chunk) => { body += chunk; });
+      socket.on('end', () => { socket.destroy(); resolve(body); });
+    });
+    request.end();
+  });
+  assert.equal(await upgrade(null), 401);
+  assert.equal(await upgrade('kickflip_owner=good; b=2'), 'b=2');
+});
+
 test('a stopping hub leaves its try ports mapped, and each tick serves a gone or changed mapping again', async (t) => {
   const relays = fakeRelays(t);
   const logs = [];

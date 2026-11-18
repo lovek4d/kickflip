@@ -4,6 +4,8 @@ status: accepted
 
 # Only the signed-in owner changes permissions or restarts the hub
 
+Superseded in part by [the owner signs in with a link that sets a device cookie](2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md): a direct loopback caller is no longer the owner.
+
 Permissions' `POST /api/permissions` needed the host's own browser, and the hub's Restart hub (`POST /_hub/restart-hub`) and a board's Restart (`POST /_hub/restart-board`) had no gate beyond the cross-site check: any tailnet device could call them. The owner's answers on #200 (tailscale-signin-notes.md, "Owner answers (11/04)") settled the gate.
 
 - **The signed-in owner is any device logged in as the host's user (owner, gh200-who-is-owner).** `board/on-host.mjs` `fromOwner` is true when the request's client address is one of the machine's own (the host, as in `fromHost`), or when tailscale serve's `Tailscale-User-Login` equals the user of the host's tailnet node (`tailscale status --json` Self, read by the same `tailnetNode` as `fromHost`). Every one of the owner's devices carries that user, so the login can't tell them apart, and doesn't need to. A shared-in node carries its sharer's login and a tagged node gets no login header, so both are refused.

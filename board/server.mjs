@@ -23,6 +23,9 @@
 // its related the keys of cards it is Related to; an item file's older followups list moves into its items as the server
 // starts (migrations.mjs MIGRATIONS 'followups'). Item files are storage only: deps order the cards, and parent and related group
 // them (docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md). domain.mjs decides lanes and card state from what snapshot.mjs reads, for this server and the CLI alike.
+// Every request needs the owner's sign-in cookie (../shared/owner-sign-in.mjs), but a process on this host's AGENT_PATHS,
+// whose events may be any kind but the owner's (ownerKind), and a read of a file that isn't a page; without it, the
+// sign-in page (401) or 401 {error} (docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md).
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
 //                                docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md). /index.html redirects to /
@@ -340,6 +343,8 @@ import { builderRepo, git, moveQueuedLand } from './worktree.mjs';
 import * as runs from './runs.mjs';
 import { readRunTranscript } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
+import { agentCaller, signedIn as ownerSignedIn } from '../shared/owner-sign-in.mjs';
+import { refuse } from '../hub/front-door.mjs';
 import { readSync, writeSync, stamp, patchSince } from './sync.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
 import http from 'node:http';
@@ -416,6 +421,20 @@ async function pageHeaders(html) {
   vm.runInContext(await fs.readFile(path.join(template, 'public', 'ui-page-header.js'), 'utf8'), context);
   return html.replace(/<!--header (\{.*?\})-->/g, (_, options) => context.BoardUI.header(JSON.parse(options)));
 }
+// docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
+// The paths a process on this host gets with no sign-in cookie, as `<method> <path>`: the hub's probes, needs and
+// sidebar stream, the watcher's stop hook's working list (hooks-plugin/hooks/watcher-stop.mjs), and the CLI's and the
+// hub's writes (files.mjs changed, ../hub/boards.mjs appendEvent).
+const AGENT_PATHS = new Set(['GET /_claude/health', 'GET /_claude/needs', 'GET /api/stream', 'GET /api/working', 'POST /_claude/changed', 'POST /_claude/events']);
+// A read of a file that may be one of the app's or the site's own, never an API's or an upload; its page, an .html,
+// needs the sign-in still (the static branch refuses it).
+const fileRead = (method, p) => (method === 'GET' || method === 'HEAD') && !/^\/(api|_claude|uploads)(\/|$)/.test(p);
+// The event kinds only the owner's page posts: the owner's taps on a card (domain.mjs TAP_KINDS; a thread message is
+// one when it carries Reply's or Implement's intent, while the hub's Slack intake posts a plain one), a script's Run
+// or Decline, answers, a held review's Post it or Skip, and the reviewers Save.
+const OWNER_KINDS = new Set([SCRIPT_EVENTS.run, SCRIPT_EVENTS.decline, 'owner-answer', 'owner-answers', 'review-answer', 'reviewers']);
+const ownerKind = (kind, body) => OWNER_KINDS.has(kind) || (TAP_KINDS.has(kind) && (kind !== 'item-message' || Boolean(body.intent)));
+
 // docs/adr/2026-11-13-2210-the-board-server-starts-in-process-and-tests-await-settled.md
 // The board server for the site at site, listening on 127.0.0.1:port (0: a port the OS picks) under prefix (/<route>,
 // or '' for none), once its start passes have run. home is the HOME its own reads use; now its clock, read for each
@@ -431,7 +450,8 @@ async function pageHeaders(html) {
 // - close() waits for settled(), then stops listening and drops every connection, the page streams included.
 // describeNightly turns on the overnight triage's description check (checkTriage); the script entry below turns it on,
 // and a test opts in, so a test's board, whose manifest entry has no description, sends no triage for it at night.
-export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), launch = launchAgent, startScript = startScriptRunner, describeNightly = false } = {}) {
+// signedIn(req) → whether a request carries a signed-in device's cookie (../shared/owner-sign-in.mjs signedIn, on home).
+export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), launch = launchAgent, startScript = startScriptRunner, describeNightly = false, signedIn = (req) => ownerSignedIn(req, home) } = {}) {
   const here = path.resolve(site);
   // The board's own files come first, so a file an agent wrote in the site's public/ never replaces one of them; the
   // site's files serve every path the board doesn't use.
@@ -1029,6 +1049,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const url = new URL(req.url, 'http://site');
       let p = url.pathname;
       if (prefix && (p === prefix || p.startsWith(prefix + '/'))) p = p.slice(prefix.length) || '/';
+      // docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md: the board's port is on
+      // loopback, where any process reaches it past the hub, so the board checks the sign-in itself. Without the
+      // signed-in device's cookie a request gets only AGENT_PATHS from a process on this host (an event of any kind but
+      // the owner's, ownerKind), and reads of files that aren't pages: the app's code, and the site's own preview files,
+      // which a sandboxed preview loads with no cookie.
+      const owner = signedIn(req);
+      if (!owner && !(agentCaller(req) && AGENT_PATHS.has(`${req.method} ${p}`)) && !fileRead(req.method, p)) return refuse(req, res, 'signed-out');
       if (p === '/_claude/health') return json(res, 200, { ok: true });
       if (p === '/api/board') {
         const b = await answerBoard(req, String(url.searchParams.get('since') || ''));
@@ -1083,6 +1110,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const body = await readBody(req, 512 * 1024);
         const kind = String(body.kind || 'message').slice(0, 64);
         delete body.kind;
+        if (!owner && ownerKind(kind, body)) return refuse(req, res, 'signed-out');
         // The version of the board the page holds, so the answer's board is a patch from it.
         const since = String(body.since || '');
         delete body.since;
@@ -1373,6 +1401,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         : ['/prototype.html', '/prototype-stage.html'].includes(p) ? null : await staticFile(decodeURIComponent(p));
       if (!shell && !file) { res.writeHead(404).end(); return; }
       const ext = shell ? '.html' : path.extname(file).toLowerCase();
+      if (!owner && ext === '.html') return refuse(req, res, 'signed-out');
       const st = shell ? null : await fs.stat(file);
       // A preview: a stage, or any file of the site's own public/, which agents write.
       const preview = Boolean(recorded?.stage) || Boolean(file?.startsWith(siteRoot + path.sep));

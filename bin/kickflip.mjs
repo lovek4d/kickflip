@@ -123,6 +123,10 @@
 //               the hub through init's daemon pick and records on, printing the hub's tailnet address or why it has none
 //               yet; exit 1, still off, with no Tailscale or a failed mapping. off unmaps / and the try ports and records
 //               off. status (the default) prints which, with the address; exit 1 when it's on with no tailnet address
+//   kickflip sign-in | sign-out
+//               sign-in prints a link that signs in the device that opens it, for ten minutes and one device: on this host,
+//               and while the tailnet is on, on the tailnet too. A signed-in device carries a cookie the hub, its try ports
+//               and every board check on each request (../shared/owner-sign-in.mjs). sign-out signs every device out
 //   kickflip restart [route]
 //               restarts the site at that route; with no route, restarts the hub through its service
 //   kickflip logs <route> [--lines <n>]
@@ -210,6 +214,7 @@ import { uninstallStatusLine, nodeBin, watcherCommand } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { tailscaleDaemon, tailscaleArgv, answeredBy } from '../shared/tailscale.mjs';
 import { tailnetOn, localUrl, hubUrl, unmapHub, turnOn, turnOff, tailnetStatus } from '../shared/tailnet.mjs';
+import { makeSignInLink, signOutEverywhere } from '../shared/owner-sign-in.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
@@ -916,6 +921,20 @@ const commands = {
       else if (word === 'off') out(await turnOff({ port: HUB_PORT }));
       else out(tailnetStatus({ port: HUB_PORT }));
     } catch (e) { fail(e.message); }
+  },
+
+  // docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
+  async 'sign-in'() {
+    const token = await makeSignInLink();
+    out('Open this link on the device to sign in, within 10 minutes. It signs in one device.');
+    out(`${localUrl('', HUB_PORT)}_hub/sign-in?t=${token}`);
+    const host = tailnetHost();
+    if (host) out(`On the tailnet: https://${host}/_hub/sign-in?t=${token}`);
+  },
+
+  async 'sign-out'() {
+    const n = await signOutEverywhere();
+    out(`Signed out ${n === 1 ? '1 device' : `${n} devices`}. Each needs kickflip sign-in again.`);
   },
 
   async logs() {

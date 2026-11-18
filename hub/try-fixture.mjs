@@ -78,8 +78,8 @@ export const listing = (processes) => async (command, args, options) => {
 };
 // A test's manager sees only the processes it lists, none unless it passes its own run. Its tailnet is on unless the test
 // says otherwise, and its relays take any free port, so test files running at once and the host's own hub never meet on
-// a try port.
-export const tryManager = (options = {}) => createTryManager({ run: listing([]), tailnet: () => true, relayPort: () => 0, ...options });
+// a try port. Its relays take every request as a signed-in device's, unless the test passes its own signedIn.
+export const tryManager = (options = {}) => createTryManager({ run: listing([]), tailnet: () => true, relayPort: () => 0, signedIn: () => true, ...options });
 export const fetchTryBranches = (options = {}) => fetchTimed({ run: untimed, ...options });
 // → a port nothing on 127.0.0.1 listens on now.
 export async function freePort() {

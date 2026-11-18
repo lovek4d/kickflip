@@ -12,8 +12,8 @@ kickflip is a single-owner tool. It runs on the owner's Mac and serves the owner
 
 **Who is trusted**
 
-- The owner, signed in on a device, is trusted with everything: approving and running a board's scripts, merging, and settings.
-- The agents (Claude Code and Codex sessions the boards launch) run as the owner's OS user. They are trusted to build, not to approve. They write board files through the CLI and need no owner rights over HTTP.
+- The owner, signed in on a device, is trusted with everything: approving and running a board's scripts, merging, and settings. A device signs in by opening a link `kickflip sign-in` prints, which lasts ten minutes and signs in one device, and then carries an HttpOnly cookie. The hub, its try ports and every board server check that cookie on every page, read and tap; `kickflip sign-out` signs every device out.
+- The agents (Claude Code and Codex sessions the boards launch) run as the owner's OS user. They are trusted to build, not to approve. They write board files through the CLI and need no owner rights over HTTP: without the cookie, a process on this Mac gets only the agent paths (builds, permission prompts, status, and the events agents post), never a script's Run, an answer, a card tap or a setting.
 - The owner's other hubs: another machine signed in to the tailnet as the owner's own Tailscale login. It can file a one-line question on a board here, answer one a board here asked it, and list the boards' routes and titles, nothing more; it reads no cards, threads, notes or code. This hub sends to another hub only for an agent on this host, over loopback.
 
 **Who is not trusted**
@@ -24,7 +24,7 @@ kickflip is a single-owner tool. It runs on the owner's Mac and serves the owner
 
 **What stays outside the model**
 
-A process running as the same OS user can read anything the hub keeps on disk, and a request from this Mac's loopback is served as the owner. An agent is trusted not to approve, but nothing stops it doing so. If you run an agent you don't trust, run it as another user.
+A process running as the same OS user can read anything the hub keeps on disk, and can run `kickflip sign-in` and use its link. The sign-in stops a web page, or a one-line request from a builder, acting as the owner; it doesn't stop a process set on doing so. An agent is trusted not to approve, but nothing stops a determined one. If you run an agent you don't trust, run it as another user.
 
 **The supply chain**
 

@@ -12,9 +12,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { reposDir } from '../shared/repos.mjs';
 import { startFakeDevice } from './fake-device.mjs';
 import { fakeGh, prView, writePR, writeUser, queried } from '../shared/fake-gh.mjs';
-import { freePorts, ownSession, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
+import { freePorts, ownSession, signInFetches, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
+// The board servers the hub starts are their own processes, which check the owner's sign-in.
+const signedInCookie = await signInFetches(home);
 const SKILL = path.join(HUB_DIR, '..');
 // The bin on PATH holds a git stand-in once the hub starts; the test's own git is the host's.
 const GIT = '/usr/bin/git';
@@ -391,7 +393,7 @@ test("the hub serves what's loading this Mac, and its Stop takes JSON and refuse
 
 test('the proxy preserves browser origin, fetch metadata and the external host for board writes', async () => {
   const post = (headers) => new Promise((resolve, reject) => {
-    const req = http.request(`${base}/orch/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (res) => {
+    const req = http.request(`${base}/orch/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: signedInCookie, ...headers } }, (res) => {
       let body = '';
       res.on('data', (d) => { body += d; });
       res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], body }));

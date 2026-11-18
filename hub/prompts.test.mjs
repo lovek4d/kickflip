@@ -7,8 +7,11 @@ import http from 'node:http';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
+import { signInFetches } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
+// A board server the hub starts is its own process, which checks the owner's sign-in.
+await signInFetches(home);
 const HOOK = path.join(HUB_DIR, 'permission-hook.mjs');
 const { expired, GONE_AFTER, NO_ANSWER, UNREACHABLE, DROPPED, DENIED, WAIT_MS,
   promptRecord, answerOf, pushOf, shown, rememberRules, rememberedAnswer, pruneRemembered, readPrompts, savePrompts, updatePrompts, withPromptsLock, rememberedFor, pendingFor, matchesRule } = await import('./prompts.mjs');

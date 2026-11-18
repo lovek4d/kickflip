@@ -35,7 +35,7 @@ function writeManifest(sites) {
 }
 async function serve(route) {
   const site = makeSite(route);
-  const board = await startServer({ site });
+  const board = await startServer({ site, signedIn: () => true });
   servers.push(board);
   await board.settled();
   return { site, board, base: `http://127.0.0.1:${board.server.address().port}` };

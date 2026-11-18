@@ -6,9 +6,11 @@
 // with no such header reached the hub straight on loopback. When the host's tailnet address isn't on one of its
 // interfaces, the request is the host's when tailscale serve's Tailscale-User-Login is the host's user and the
 // forwarded address is one of the host node's own (`tailscale status --json` Self).
-// ownerGate tells the signed-in owner: the host, a direct loopback caller, or any device whose Tailscale-User-Login is
-// the host node's user (docs/adr/2026-11-04-0502-only-the-signed-in-owner-changes-permissions-or-restarts.md). The hub
-// listens on 127.0.0.1 alone, so only a local process can send that header past tailscale serve.
+// ownerGate tells who may reach the hub at all: the host, a direct loopback caller, or any device whose
+// Tailscale-User-Login is the host node's user (docs/adr/2026-11-04-0502-only-the-signed-in-owner-changes-permissions-or-restarts.md).
+// The hub listens on 127.0.0.1 alone, so only a local process can send that header past tailscale serve, which is why
+// the gate isn't the owner's proof: past it, every request needs the owner's sign-in cookie, or is an agent path
+// (../shared/owner-sign-in.mjs; docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md).
 // While the tailnet is off (../shared/tailnet.mjs), the host and the owner are a loopback client alone, and tailscale is
 // never asked: a tailscale serve mapping left in place still forwards each tailnet device with its own address, which
 // isn't loopback.

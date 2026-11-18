@@ -22,6 +22,7 @@ import { BASE_KEY, baseWorktreeOf } from '../board/prototype-base.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
+import { signedIn as ownerSignedIn, withoutOwnerCookie } from '../shared/owner-sign-in.mjs';
 
 // ask: 'busy' or 'cap' when the refusal is a serve the board holds back, which the card's Serve tap words as a dialog.
 export class BuildError extends Error {
@@ -48,6 +49,12 @@ export const BUSY_ASK = 'The host is busy, start this serve anyway?';
 const PORT_HELD_MS = 15_000;
 // What tailscale serve adds to say who a request is from; the try relay drops them before the app.
 const IDENTITY_HEADERS = ['tailscale-user-login', 'tailscale-user-name', 'tailscale-user-profile-pic', 'x-forwarded-for'];
+// A request's headers as the app gets them: without the identity headers, and without the owner's sign-in cookie.
+function appHeaders(req) {
+  const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !IDENTITY_HEADERS.includes(name) && name !== 'cookie'));
+  const cookie = withoutOwnerCookie(req.headers.cookie);
+  return cookie ? { ...headers, cookie } : headers;
+}
 // What stops a page from being framed by the board, which is another origin on the same host.
 const FRAME_HEADERS = ['x-frame-options'];
 const withoutFraming = (headers) => {
@@ -185,8 +192,9 @@ export async function installWorktree(board, key, manifest, { run = execFileAsyn
 
 // run: the commands it runs (git, ps, lsof, tailscale); grace: how long a stopped run's process group has after SIGTERM
 // before SIGKILL. tailnet: whether the tailnet is on (../shared/tailnet.mjs), read on each call; while it's off nothing
-// runs tailscale. relayPort(port): the port a run's relay listens on for its try port, that port itself.
-export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy', run: exec = execFileAsync, grace = 4000, daemon: daemonOf = tailscaleDaemon, tailnet = () => tailnetOn(), relayPort = (port) => port } = {}) {
+// runs tailscale. relayPort(port): the port a run's relay listens on for its try port, that port itself. signedIn(req):
+// whether a request carries a signed-in device's cookie (../shared/owner-sign-in.mjs signedIn).
+export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy', run: exec = execFileAsync, grace = 4000, daemon: daemonOf = tailscaleDaemon, tailnet = () => tailnetOn(), relayPort = (port) => port, signedIn = (req) => ownerSignedIn(req) } = {}) {
   const git = gitBy(exec);
   const boards = new Map();
   const runs = new Map();
@@ -376,11 +384,14 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     // visitor, so the app gets the request as a direct loopback caller's, without tailscale serve's identity headers: a demo hub behind it with its own owner gate passes it, where it would
     // ask its own, stubbed, tailscale who the login is and answer 503
     // (docs/adr/2026-11-06-1531-try-ports-stay-served-across-a-hub-restart-and-the-relay-hides-who-asked.md).
+    // Every request then needs the signed-in device's cookie, which the app never gets: it is the card's code
+    // (docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md).
     run.relay = http.createServer(async (req, res) => {
       const verdict = await gate(req);
       if (verdict !== 'owner') { refuse(req, res, verdict); return; }
+      if (!signedIn(req)) { refuse(req, res, 'signed-out'); return; }
       run.visited = now();
-      const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !IDENTITY_HEADERS.includes(name)));
+      const headers = appHeaders(req);
       const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers }, (answer) => {
         // The prototype serve is framed by the board's own page, so its answers lose the headers that refuse a frame.
         res.writeHead(answer.statusCode, run.key === BASE_KEY ? withoutFraming(answer.headers) : answer.headers);
@@ -395,7 +406,9 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     run.relay.on('upgrade', async (req, socket, head) => {
       const verdict = await gate(req);
       if (verdict !== 'owner') { refuseUpgrade(socket, verdict); return; }
-      track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url, replace: IDENTITY_HEADERS }));
+      if (!signedIn(req)) { refuseUpgrade(socket, 'signed-out'); return; }
+      const cookie = withoutOwnerCookie(req.headers.cookie);
+      track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url, replace: [...IDENTITY_HEADERS, 'cookie'], extra: cookie ? [`Cookie: ${cookie}`] : [] }));
     });
     // The relay listens on the try port on this host, where the host's browser opens it; while the tailnet is on,
     // tailscale serve maps the same port on the tailnet to it. Main's old run, still serving while this one came up,

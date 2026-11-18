@@ -29,7 +29,8 @@ export const idleMachine = () => ({ load: 0, cores: 8, pressure: 'normal' });
 
 // Starts a hub on port 0 with no timers of its own (the test runs each pass) and an idle Mac, closed after the test; a
 // Restart hub or self-restart stops it and leaves the test process running.
-// options go to startHub. → startHub's hub, with base, its URL, lines, what it has logged, and logged(pattern, n = 1),
+// options go to startHub; every request is a signed-in device's unless they pass signedIn
+// (../shared/owner-sign-in.mjs; hub/sign-in.test.mjs passes the real one). → startHub's hub, with base, its URL, lines, what it has logged, and logged(pattern, n = 1),
 // which resolves with the nth line, logged so far or next, that matches.
 export async function inProcessHub(t, options = {}) {
   const { startHub } = await import('./hub.mjs');
@@ -47,7 +48,7 @@ export async function inProcessHub(t, options = {}) {
     const seen = lines.filter((line) => pattern.test(line));
     return seen.length >= n ? Promise.resolve(seen[n - 1]) : new Promise((resolve) => waiters.add({ pattern, left: n - seen.length, resolve }));
   };
-  const hub = await startHub({ ticks: false, readMachine: idleMachine, log, exit: () => {}, ...options });
+  const hub = await startHub({ ticks: false, readMachine: idleMachine, log, exit: () => {}, signedIn: () => true, ...options });
   t.after(async () => { await hub.close(); setRelayPort(); });
   return { ...hub, base: `http://127.0.0.1:${hub.port}`, lines, logged };
 }

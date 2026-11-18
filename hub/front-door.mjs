@@ -1,7 +1,9 @@
-// What the hub and its try relays answer someone who isn't the owner, and the upgrade pipe both use
-// (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). board/on-host.mjs ownerGate gives the verdict.
+// What the hub, its try relays and the board servers answer someone who isn't the owner, and the upgrade pipe the hub and
+// relays use (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). board/on-host.mjs ownerGate gives the
+// verdict 'other' or 'unread'; 'signed-out' is a request with no signed-in device's cookie, which gets the sign-in page
+// (docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md).
 // The page is the same for every path and names no board, title, route or owner; its mark and colours are inline, since
-// every other hub path is refused too.
+// a refused request gets no other hub path either.
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -9,12 +11,18 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// verdict 'other' or 'unread' → {status, line, hint, json}. Nothing is shared
+// verdict → {status, line, hint, json, form}. Nothing is shared
 // (docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md), so the hint offers no ask.
+// form: the page takes a pasted sign-in link, which a home-screen app needs, since it has no address bar. 'sign-in' is
+// what a sign-in link opens, and 'sign-in-failed' what a used or expired one gets.
+const SIGN_IN = 'Sign in first: run kickflip sign-in on the hub’s Mac and open the link it prints.';
 const REFUSALS = {
   other: { status: 403, line: 'This kickflip belongs to someone else.', hint: 'Only its owner’s Tailscale account opens it.', json: {} },
   unread: { status: 503, line: 'Tailscale didn’t answer, so this kickflip can’t tell who you are.', hint: 'Open it on the host itself, or try again in a moment.',
     json: { error: 'Tailscale didn’t answer, so the hub can’t tell who you are.' } },
+  'signed-out': { status: 401, line: 'Sign in to open this kickflip.', hint: 'Run kickflip sign-in on its Mac, then open the link it prints, or paste it here.', json: { error: SIGN_IN }, form: true },
+  'sign-in': { status: 200, line: 'Sign in on this device?', hint: 'It opens this kickflip as its owner until kickflip sign-out.', json: {}, form: true },
+  'sign-in-failed': { status: 403, line: 'That sign-in link has expired or was already used.', hint: 'Run kickflip sign-in on its Mac for a new one.', json: { error: 'That sign-in link has expired or was already used.' }, form: true },
 };
 
 const STYLE = `html, body { margin: 0; height: 100%; }
@@ -22,10 +30,20 @@ body { display: grid; place-content: center; justify-items: center; gap: 10px; p
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; }
 .rf-mark { display: block; margin-bottom: 8px; width: 70px; height: 60px; object-fit: contain; }
 .rf-line { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; text-wrap: balance; }
-.rf-sub { margin: 0; font-size: 14px; color: var(--muted); }`;
+.rf-sub { margin: 0; font-size: 14px; color: var(--muted); }
+.rf-form { display: flex; gap: 8px; margin-top: 14px; width: min(420px, 100%); }
+.rf-form input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+.rf-form button { padding: 8px 14px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 600; }`;
 
-export function refusalPage(verdict) {
-  const { line, hint } = REFUSALS[verdict];
+const escAttr = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// A path on this host to land on after a sign-in: never //host, a backslash or a scheme. → the path, else /
+export const safeNext = (next) => (typeof next === 'string' && /^\/(?![/\\])/.test(next) ? next : '/');
+
+// options: token, the sign-in link's, filled in when a link opened the page; next, the path a sign-in lands on. The form
+// posts both to the hub's /_hub/sign-in.
+export function refusalPage(verdict, { token = '', next = '/' } = {}) {
+  const { line, hint, form } = REFUSALS[verdict];
   const colors = fs.readFileSync(path.join(ROOT, 'shared', 'colors.css'), 'utf8');
   const mark = fs.readFileSync(path.join(ROOT, 'board', 'public', 'kickflip.png')).toString('base64');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -33,24 +51,30 @@ export function refusalPage(verdict) {
 <img class="rf-mark" src="data:image/png;base64,${mark}" width="70" height="60" alt="">
 <p class="rf-line">${line}</p>
 <p class="rf-sub">${hint}</p>
+${form ? `<form class="rf-form" method="post" action="/_hub/sign-in"><input type="hidden" name="next" value="${escAttr(safeNext(next))}"><input name="link" value="${escAttr(token)}" placeholder="Sign-in link" aria-label="Sign-in link" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="submit">Sign in</button></form>` : ''}
 </body></html>`;
 }
 
-// A browser's request (one that accepts HTML) gets the page; anything else gets the JSON body.
-export function refuse(req, res, verdict) {
+// A browser's request (one that accepts HTML) gets the page; anything else gets the JSON body. options: refusalPage's,
+// next defaulting to the request's own path (behind the hub, a board server's gains its prefix); headers: more response
+// headers, such as a sign-in's Set-Cookie.
+export function refuse(req, res, verdict, { headers = {}, ...options } = {}) {
   const { status, json } = REFUSALS[verdict];
   const page = /\btext\/html\b/.test(req.headers.accept || '');
-  // A board page that loses its share reads 'access' (board/public/ui.js downOf).
-  res.writeHead(status, { 'content-type': page ? 'text/html; charset=utf-8' : 'application/json', 'cache-control': 'no-store', ...(verdict === 'other' ? { 'x-kickflip-down': 'access' } : {}) });
-  res.end(page ? refusalPage(verdict) : JSON.stringify(json));
+  // A board page that loses its access, or its sign-in, reads why (board/public/ui.js downOf).
+  const down = { other: 'access', 'signed-out': 'signed-out' }[verdict];
+  const next = `${req.headers['x-forwarded-prefix'] || ''}${req.url || '/'}`;
+  res.writeHead(status, { 'content-type': page ? 'text/html; charset=utf-8' : 'application/json', 'cache-control': 'no-store', ...(down ? { 'x-kickflip-down': down } : {}), ...headers });
+  res.end(page ? refusalPage(verdict, { next, ...options }) : JSON.stringify(json));
   // A body the client is still sending is never read.
   req.resume();
 }
 
+const REASONS = { 401: 'Unauthorized', 403: 'Forbidden', 503: 'Service Unavailable' };
 export function refuseUpgrade(socket, verdict) {
   const { status, json } = REFUSALS[verdict];
   const body = JSON.stringify(json);
-  socket.end(`HTTP/1.1 ${status} ${status === 403 ? 'Forbidden' : 'Service Unavailable'}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+  socket.end(`HTTP/1.1 ${status} ${REASONS[status]}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
 }
 
 // Pipes an upgrade request through to 127.0.0.1:port as `path`, with its headers except those named in `replace`,

@@ -122,8 +122,12 @@ A site joined with `kickflip page <name>` (`/kickflip page`) and `--port` (a ser
 _Avoid_: minimal site, unwatched site
 
 **Owner**:
-The person the sites serve, and the only one the hub and its try ports answer: a browser on the **host**, a loopback caller, or, while the **tailnet** is on, a device signed in to Tailscale as the host's user. Any other Tailscale identity is refused on every path; nothing is shared with anyone else ([the hub has no sharing](docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md)). The word for the session that serves a site is **owning session**.
+The person the sites serve, and the only one the hub and its try ports answer: a browser on the **host**, a loopback caller, or, while the **tailnet** is on, a device signed in to Tailscale as the host's user. Any other Tailscale identity is refused on every path; nothing is shared with anyone else ([the hub has no sharing](docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md)). Past that, every page, read and tap needs the owner's **sign-in**. The word for the session that serves a site is **owning session**.
 _Avoid_: user, admin, shared person, guest, viewer
+
+**Sign-in**:
+The owner's proof on a device: a cookie the device gets by opening a link `kickflip sign-in` prints, which lasts ten minutes and signs in one device; `kickflip sign-out` signs every device out. The hub, its try ports and each board server check it on every request. Without it a browser gets the sign-in page, and a process on the host (the CLI, hooks, builders, the hub's own calls) only the **agent paths**: builds, prompts, status and the events agents post, never an owner tap, answer, script Run or setting. The app's code and a preview's files load without it ([the owner signs in with a link that sets a device cookie](docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md)).
+_Avoid_: login, session, token
 
 **Board session**:
 A board's owning session as the manifest records it in the site's owner: its id, its folder (`repo`, where `claude --resume` finds it) and an optional model. `kickflip start` launches one in the background; `kickflip resume` brings it back and records the id it comes back under. A rejoin keeps the label, model and folder it leaves out.

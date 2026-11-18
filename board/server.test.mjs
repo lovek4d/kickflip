@@ -51,7 +51,7 @@ before(async () => {
   // Builders and planners the server launches run `true`, which exits at once.
   Object.assign(process.env, { KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', ...pushEnv, ...mergeEnv, ...slackEnv });
   const { startServer } = await import('./server.mjs');
-  board = await startServer({ site, now: () => new Date(Date.now() + clockSkewMs) });
+  board = await startServer({ site, now: () => new Date(Date.now() + clockSkewMs), signedIn: () => true });
   base = `http://127.0.0.1:${board.server.address().port}`;
   await board.settled();
 });
@@ -2280,7 +2280,7 @@ test("the board's version depends on its data alone: a minute later with nothing
       import { mock } from 'node:test';
       mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-04T10:00:20Z') });
       const { startServer } = await import(${JSON.stringify(server)});
-      const { server } = await startServer({ site: ${JSON.stringify(at)} });
+      const { server } = await startServer({ site: ${JSON.stringify(at)}, signedIn: () => true });
       const get = () => new Promise((resolve) => {
         const req = { method: 'GET', url: '/api/board', headers: {}, socket: { remoteAddress: '127.0.0.1' } };
         const res = { req, writeHead() { return this; }, end(body) { resolve(JSON.parse(body)); } };
@@ -2322,7 +2322,7 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
       const pushes = () => (fs.existsSync(${JSON.stringify(calls)}) ? fs.readFileSync(${JSON.stringify(calls)}, 'utf8').trim().split('\\n').map((l) => JSON.parse(l)) : []);
       const state = () => (fs.existsSync(idle) ? fs.readFileSync(idle, 'utf8') : '');
       const { startServer } = await import(${JSON.stringify(server)});
-      const board = await startServer({ site: ${JSON.stringify(at)} });
+      const board = await startServer({ site: ${JSON.stringify(at)}, signedIn: () => true });
       // Writes a file and has the server hear it, then waits for every check that started.
       const heard = async (file, text) => { fs.writeFileSync(file, text); board.changed(file); await board.settled(); };
       const write = (items) => heard(wave, JSON.stringify({ items }));
@@ -2359,7 +2359,7 @@ test("data/sync.json keeps the change numbers across a restart: the counter carr
   // A server on the site in this process, once its start's passes have finished.
   const start = async () => {
     const { startServer } = await import('./server.mjs');
-    const server = await startServer({ site: at });
+    const server = await startServer({ site: at, signedIn: () => true });
     await server.settled();
     return { ...server, get: async (q = '') => (await fetch(`http://127.0.0.1:${server.server.address().port}/api/board${q}`)).json() };
   };
