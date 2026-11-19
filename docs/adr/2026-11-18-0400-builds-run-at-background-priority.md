@@ -16,4 +16,6 @@ A land's `node --test` run starts `max(2, floor(cores / 2))` files at once, two 
 
 Left out: memory caps (Linux `MemoryMax`) and holding new launches under memory pressure. They come in a follow-up only if a measurement shows background priority isn't enough. Docker was weighed and set aside: on macOS it is a Linux VM that takes its RAM up front, needs Claude's login passed in, and runs tests on a different OS than the hub.
 
-Not measured yet: board API response time (`curl -w %{time_total}` on /api/board) during a land with 2+ builders running, before and after. The orchestrator takes it once this lands.
+Board latency, measured in T-773's quiet-host round 2: `GET /_claude/needs` from loopback, which builds the full board with no cookie (`board()` in board/server.mjs), sampled every few seconds. It takes about 78 ms idle. During a full land suite at 5 or at 10 files at once, background priority held the build time at p50 81–87 ms and p95 105–132 ms. The board stayed as quick at either file count.
+
+The probe is not `/api/board`: since c9e6fba6 (11/18) that path is off AGENT_PATHS and answers a 401 sign-in refusal in about 0.5 ms, so a curl on it times the refusal, not a board build.
