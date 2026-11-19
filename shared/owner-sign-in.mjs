@@ -1,13 +1,14 @@
 // The owner's sign-in (docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md,
 // docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md).
-// An 8-digit PIN, made by `kickflip link` or a signed-in hub page's Sign in a device, lasts 60 seconds and signs in one
+// An 8-digit PIN, made by `kickflip link` or Hub settings › Devices' Show PIN, lasts 60 seconds and signs in one
 // device; the device then carries a long-lived HttpOnly cookie, which the hub, its try relays and every board server
 // check on each request. A request without it is no owner: a browser gets the sign-in page, and a process on this host
 // gets only the agent paths each server names. A client's third wrong PIN voids every live PIN and blocks that client
-// (its tailnet node, else its IP) until `kickflip unblock`.
-// ~/.claude/kickflip/owner-sign-in.json, 0600, keeps {devices: [{hash, at, name, ip, seen}], pins: [{hash, until}],
-// misses: [{key, n, at}], blocks: [{key, name, ip, at}]}: sha256 of each secret, never the secret. It is read on every
-// check, since the CLI writes it underneath the servers.
+// (its tailnet node, else its IP) until `kickflip unblock` or Devices' Unblock.
+// ~/.claude/kickflip/owner-sign-in.json, 0600, keeps {devices: [{hash, at, name, ip, seen, pin}], pins: [{hash, until}],
+// misses: [{key, n, at}], blocks: [{key, name, ip, at}]}: sha256 of each secret, never the secret; a device's pin is
+// that of the PIN it signed in with, so `kickflip link` sees its PIN used. It is read on every check, since the CLI
+// writes it underneath the servers.
 // A process running as the owner's OS user can make a PIN too (SECURITY.md): the cookie stops a page or a one-line
 // request from acting as the owner, not a process set on doing so.
 import crypto from 'node:crypto';
@@ -82,12 +83,22 @@ export async function redeemPin(input, client, { device: named = client, home = 
     if (/^\d{8}$/.test(pinOf(input)) && f.pins.some((p) => p.hash === hash)) {
       const device = secret();
       const stamp = new Date(at).toISOString();
-      return { file: { ...f, devices: [...f.devices, { hash: hashOf(device), at: stamp, name: named.name, ip: named.ip, seen: stamp }], pins: f.pins.filter((p) => p.hash !== hash), misses: others }, result: { device } };
+      return { file: { ...f, devices: [...f.devices, { hash: hashOf(device), at: stamp, name: named.name, ip: named.ip, seen: stamp, pin: hash }], pins: f.pins.filter((p) => p.hash !== hash), misses: others }, result: { device } };
     }
     const n = (f.misses.find((m) => m.key === client.key)?.n || 0) + 1;
     if (n >= TRIES) return { file: { ...f, pins: [], misses: others, blocks: [...f.blocks, { key: client.key, name: client.name, ip: client.ip, at }] }, result: { blocked: true } };
     return { file: { ...f, misses: [...others, { key: client.key, n, at }] }, result: { left: TRIES - n } };
   });
+}
+
+// → {live: true} while the PIN can sign in, {used: the device's name} once one signed in with it, else {gone: true},
+// voided or expired unused
+export function pinState(pin, { home = os.homedir(), now = Date.now } = {}) {
+  const hash = hashOf(pinOf(pin));
+  const f = readFile(home);
+  const device = f.devices.find((d) => d.pin === hash);
+  if (device) return { used: device.name || 'A device' };
+  return f.pins.some((p) => p.hash === hash && p.until > now()) ? { live: true } : { gone: true };
 }
 
 // → whether the client is blocked

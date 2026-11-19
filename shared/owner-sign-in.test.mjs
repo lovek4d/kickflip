@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { tempDir } from './temp-dir.mjs';
-import { SIGN_IN_COOKIE, agentCaller, blockedClients, deviceIdOf, devicesOf, isBlocked, makePin, noteSeen, pinOf, redeemPin, removeDevice, signInCookie, signInFile, signOutEverywhere, signedIn, unblock, voidPin, withoutOwnerCookie } from './owner-sign-in.mjs';
+import { SIGN_IN_COOKIE, agentCaller, blockedClients, deviceIdOf, devicesOf, isBlocked, makePin, noteSeen, pinOf, redeemPin, removeDevice, signInCookie, signInFile, signOutEverywhere, pinState, signedIn, unblock, voidPin, withoutOwnerCookie } from './owner-sign-in.mjs';
 
 const req = (headers = {}, remoteAddress = '127.0.0.1') => ({ headers, socket: { remoteAddress } });
 const withCookie = (value, more = '') => req({ cookie: `theme=dark; ${SIGN_IN_COOKIE}=${value}${more}` });
@@ -125,4 +125,19 @@ test('an agent caller is a process on this host straight to loopback, never a br
   assert.equal(agentCaller(req({ origin: 'http://127.0.0.1:4500' })), false, 'a page sent it');
   assert.equal(agentCaller(req({ 'sec-fetch-site': 'same-origin' })), false, 'a browser sent it');
   assert.equal(agentCaller(req({ 'sec-fetch-mode': 'cors' })), true, "Node's fetch sends this");
+});
+
+test("a PIN reads live until a device signs in with it, then names that device; voided or expired unused, it's gone", async () => {
+  const home = tempDir('sign-in-');
+  const now = clock();
+  const { pin } = await makePin({ home, now });
+  assert.deepEqual(pinState(pin, { home, now }), { live: true });
+  await redeemPin(pin, phone, { home, now });
+  assert.deepEqual(pinState(pin, { home, now }), { used: 'pixel-8' });
+  const voided = (await makePin({ home, now })).pin;
+  await voidPin(voided, { home, now });
+  assert.deepEqual(pinState(voided, { home, now }), { gone: true });
+  const expired = (await makePin({ home, now })).pin;
+  now.add(60_000);
+  assert.deepEqual(pinState(expired, { home, now }), { gone: true });
 });

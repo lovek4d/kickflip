@@ -1091,7 +1091,7 @@ async function closedBoardsSettings({ answer, confirm }) {
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] },
+  const d = { devices: [], blocked: [], on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] },
     closed: [{ route: 'shop', title: 'The <Shop>', closedAt: '2026-11-01T10:00:00Z', repo: '/Users/me/shop' }] };
   const s = { posts: [], confirms: [], changed: 0, root, page };
   page.win.BoardDialogs.confirm = async (text) => { s.confirms.push(text); return confirm(text); };
@@ -1171,7 +1171,7 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'up · listening · every link passes', lines: [], remembered: [], restart });
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, capacity: { tasksInProgress: 5, landTests: 1 }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '2 sites', host: 'mac',
     groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }], pause: { state: 'normal', machine: { state: 'normal', reason: null } } };
-  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, closed: [] };
+  const settings = { devices: [], blocked: [], on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, closed: [] };
   const confirms = [];
   page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push([text, labels?.ok]); return true; };
   const posts = [];
@@ -1231,7 +1231,7 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, capacity: { tasksInProgress: 5, landTests: 1 }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '0 sites', host: 'mac', groups: [],
     usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', builders: { name: 'builders', label: 'Builders', description: '', choices: choices('auto') }, orchestrators: { name: 'orchestrators', label: 'Orchestrators', description: '', choices: choices('auto') } },
     pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date(NOW).toISOString(), machine: { state: 'normal', reason: null } } };
-  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off', choices: [] }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, closed: [], snooze: { choices: [] } };
+  const settings = { devices: [], blocked: [], on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off', choices: [] }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, closed: [], snooze: { choices: [] } };
   const posts = [];
   let answer;
   page.win.fetch = (url, opts = {}) => {
@@ -6502,7 +6502,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const data = { on: { on: true }, weekends: { on: false }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, closed: [], pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] } };
+  const data = { devices: [], blocked: [], on: { on: true }, weekends: { on: false }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, closed: [], pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] } };
   page.win.fetch = async () => ({ ok: true, json: async () => structuredClone(data) });
   page.win.RulesEditor.mount = () => ({ set() {} });
   const baseline = page.left();

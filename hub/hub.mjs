@@ -177,10 +177,11 @@
 //   /_hub/sign-in     GET: the PIN page, or / for a signed-in device; POST {pin, next} form-encoded from it: a live PIN
 //                     sets the device's cookie and 303s to next; a wrong one answers the page with the tries left, and
 //                     the third the blocked page (docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md)
-//   /_hub/pins        POST → {pin, until, address}: a new 60-second PIN for Sign in a device, and the hub's address;
+//   /_hub/pins        POST → {pin, until, address}: a new 60-second PIN for Devices' Show PIN, and the hub's address;
 //                     /_hub/pins/<pin> DELETE voids it as the dialog closes
-//   /_hub/devices     GET → {devices: [{id, name, ip, at, seen, me}]}, the signed-in devices, me on the asking one;
-//                     /_hub/devices/<id> DELETE signs that device out
+//   /_hub/devices     GET → {devices: [{id, name, ip, at, seen, me}], blocked: [{key, name, ip, at}]}, the signed-in
+//                     devices, me on the asking one, and the blocked clients, at their last try; /_hub/devices/<id>
+//                     DELETE signs that device out, and /_hub/blocked/<key> DELETE unblocks that client
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
 // /_hub/build, /_hub/kill, /_hub/pull and /_hub/peers/* also require loopback and refuse Origin and forwarded headers.
@@ -290,7 +291,7 @@ import { recordRefusal } from '../board/permissions.mjs';
 import { clientIdentity, hubGate } from '../board/on-host.mjs';
 import { hubUrl, localUrl } from '../shared/tailnet.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade, safeNext } from './front-door.mjs';
-import { agentCaller, deviceIdOf, devicesOf, isBlocked, makePin, noteSeen, redeemPin, removeDevice, signInCookie, signedIn as ownerSignedIn, voidPin, withoutOwnerCookie } from '../shared/owner-sign-in.mjs';
+import { agentCaller, blockedClients, deviceIdOf, devicesOf, isBlocked, makePin, noteSeen, redeemPin, removeDevice, signInCookie, signedIn as ownerSignedIn, unblock, voidPin, withoutOwnerCookie } from '../shared/owner-sign-in.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { POLLS, CLOCKS, dueOn } from '../shared/polls.mjs';
@@ -1313,10 +1314,13 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     if (pin && req.method === 'DELETE') return sendJSON(200, { voided: await voidPin(pin[1]) });
     if (p === '/_hub/devices' && req.method === 'GET') {
       const me = deviceIdOf(req);
-      return sendJSON(200, { devices: devicesOf().map((d) => ({ ...d, me: d.id === me })) });
+      return sendJSON(200, { devices: devicesOf().map((d) => ({ ...d, me: d.id === me })),
+        blocked: blockedClients().map((b) => ({ key: b.key, name: b.name || '', ip: b.ip || '', at: new Date(b.at).toISOString() })) });
     }
     const device = /^\/_hub\/devices\/([\w-]+)$/.exec(p);
     if (device && req.method === 'DELETE') return await removeDevice(device[1]) ? sendJSON(200, { removed: true }) : sendJSON(404, { error: 'That device isn’t signed in.' });
+    const block = /^\/_hub\/blocked\/([^/]+)$/.exec(p);
+    if (block && req.method === 'DELETE') return await unblock(decodeURIComponent(block[1])) ? sendJSON(200, { unblocked: true }) : sendJSON(404, { error: 'That device isn’t blocked.' });
     const closing = /^\/_hub\/close-board\/([a-z0-9-]+)$/.exec(p);
     if (closing && req.method === 'GET') {
       try { return sendJSON(200, await boardClosure(closing[1])); }

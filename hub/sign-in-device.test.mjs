@@ -27,7 +27,7 @@ function page() {
 const BOARD_UI = { BUSY: ' disabled aria-busy="true"', onBackdrop: (ev, backdrop) => ev.target === backdrop, outsideBox: () => true,
   swipeToDismiss: () => () => {}, openSheet: (sheet) => sheet.showModal(), newStrip: () => '' };
 
-test('Sign in a device opens on the PIN and the address, drains to orange, renews at 0 after voiding the old PIN, and voids the live one on close or pagehide', async () => {
+test('Show PIN opens Sign in a device on the PIN and the address, drains to orange, renews at 0 after voiding the old PIN, and voids the live one on close or pagehide', async () => {
   const { listeners, Element, B, click } = page();
   const root = new Element('div');
   let now = 1_000_000;
@@ -41,7 +41,7 @@ test('Sign in a device opens on the PIN and the address, drains to orange, renew
     setInterval: (fn) => { tick = fn; return 7; }, clearInterval: (id) => { if (id === 7) tick = null; },
     BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: { onChange: () => () => {}, list: () => [] },
     BoardDrafts: { create: () => ({ take() {} }) }, BoardView: { page: (el, site, run) => run(B(el)) },
-    HubSettings: { markup: () => '', create: () => ({ B: {}, mount() {}, unmount() {} }) },
+    HubSettings: { markup: () => '<button type="button" class="btn" data-pin-open>Show PIN</button>', create: () => ({ B: {}, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, header: ({ navAfter }) => `<header class="top"><nav class="nav">${navAfter}</nav></header>` },
     PromptAnswers: { wire: () => ({}) },
     HubKit: { holdUntilLive() {}, forms: () => ({}), live: () => () => {} },
@@ -58,8 +58,8 @@ test('Sign in a device opens on the PIN and the address, drains to orange, renew
   root.innerHTML = context.AppViews.hub.markup();
   context.AppViews.hub.create(root, '/_hub', {});
   const dialog = root.querySelector('#pinModal');
-  const open = root.querySelector('header [data-pin-open]');
-  assert.equal(open.textContent, 'Sign in a device');
+  assert.equal(root.querySelector('header [data-pin-open]'), null, 'the header holds no Sign in a device; Devices’ Show PIN opens it');
+  const open = root.querySelector('[data-pin-open]');
   assert.ok(dialog.classList.contains('hub-modal') && dialog.classList.contains('settings-modal'), 'opens as the hub’s other modals do');
 
   click(open);
@@ -117,17 +117,14 @@ test('Sign in a device opens on the PIN and the address, drains to orange, renew
   assert.equal(root.querySelector('.pin-digits'), null);
 });
 
-test('Hub settings › Devices lists each device with its ages and this device tagged, and Remove asks under its row before it signs the device out', async () => {
+const NOW = new Date(2026, 10, 18, 10);
+const before = (ms) => new Date(NOW - ms).toISOString();
+const AGES = { [before(2 * 86_400_000)]: '2d ago', [before(5 * 3_600_000)]: '5h ago', [before(3_600_000)]: '1h ago', [before(7_200_000)]: '2h ago', [NOW.toISOString()]: 'just now' };
+// Hub settings opened on Devices, GET /_hub/devices answering state's devices and blocked, and a DELETE answering
+// state.status, dropping the row it names while that's 200.
+async function devicesSheet(state) {
   const { Element, B, click } = page();
   const root = new Element('div');
-  const now = new Date(2026, 10, 18, 10);
-  const ago = (ms) => new Date(now - ms).toISOString();
-  const AGES = { [ago(2 * 86_400_000)]: '2d ago', [ago(5 * 3_600_000)]: '5h ago', [ago(3_600_000)]: '1h ago', [now.toISOString()]: 'just now' };
-  let devices = [
-    { id: 'd-mac', name: 'macbook-air', ip: '100.64.0.12', at: ago(2 * 86_400_000), seen: now.toISOString(), me: true },
-    { id: 'd-pixel', name: 'pixel-8', ip: '100.64.0.31', at: ago(5 * 3_600_000), seen: ago(3_600_000), me: false },
-  ];
-  let removal = 200;
   const calls = [];
   let live;
   const context = vm.createContext({
@@ -139,10 +136,13 @@ test('Hub settings › Devices lists each device with its ages and this device t
       device: () => ({ state: () => null, ready: Promise.resolve(), busy: () => false }), live: (b, opts) => { live = opts; return () => {}; } },
     fetch: async (url, opts = {}) => {
       calls.push([opts.method || 'GET', url]);
-      if (url === '/_hub/devices') return { ok: true, json: async () => ({ devices }) };
+      if (url === '/_hub/devices') return { ok: true, json: async () => ({ devices: state.devices, blocked: state.blocked }) };
       if (opts.method === 'DELETE') {
-        if (removal === 200) devices = devices.filter((d) => `/_hub/devices/${d.id}` !== url);
-        return { ok: removal === 200, status: removal, json: async () => (removal === 200 ? { removed: true } : { error: 'nope' }) };
+        if (state.status === 200) {
+          state.devices = state.devices.filter((d) => `/_hub/devices/${d.id}` !== url);
+          state.blocked = state.blocked.filter((b) => `/_hub/blocked/${encodeURIComponent(b.key)}` !== url);
+        }
+        return { ok: state.status === 200, status: state.status, json: async () => ({}) };
       }
       return { ok: false, json: async () => ({}) };
     },
@@ -150,14 +150,23 @@ test('Hub settings › Devices lists each device with its ages and this device t
   load(context, ['ui-hub.js', 'view-hub-settings.js']);
   root.innerHTML = context.HubSettings.markup();
   context.HubSettings.create(root, '/_hub', { view: { hash: '#devices' } });
-  live.paint(settingsView({ now, st: { settings: DEFAULTS, hold: hold(now, DEFAULTS), count: 0, nextFlushAt: flushAt(now, DEFAULTS) } }));
+  live.paint(settingsView({ now: NOW, st: { settings: DEFAULTS, hold: hold(NOW, DEFAULTS), count: 0, nextFlushAt: flushAt(NOW, DEFAULTS) } }));
   await settle();
+  return { root, calls, click };
+}
+
+test('Hub settings › Devices lists each device with its ages and this device tagged, and Remove asks under its row before it signs the device out', async () => {
+  const state = { status: 200, blocked: [], devices: [
+    { id: 'd-mac', name: 'macbook-air', ip: '100.64.0.12', at: before(2 * 86_400_000), seen: NOW.toISOString(), me: true },
+    { id: 'd-pixel', name: 'pixel-8', ip: '100.64.0.31', at: before(5 * 3_600_000), seen: before(3_600_000), me: false },
+  ] };
+  const { root, calls, click } = await devicesSheet(state);
 
   assert.equal(root.querySelector('#devices .title').textContent, 'Devices');
   assert.equal(root.querySelector('[data-summary="devices"]').textContent, '2 signed in');
   assert.equal(root.querySelector('#hubSettingsModal').open, true);
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Devices');
-  const rows = () => root.querySelectorAll('.setting-content .group > .row');
+  const rows = () => root.querySelectorAll('.setting-content .device-list > .row');
   assert.deepEqual(rows().map((r) => r.querySelector('.title').textContent), ['macbook-airThis device', 'pixel-8']);
   assert.deepEqual(rows().map((r) => r.querySelector('.sub').textContent), ['signed in 2d ago · seen just now', 'signed in 5h ago · seen 1h ago']);
   const mine = root.querySelector('[data-device-remove="d-mac"]');
@@ -173,14 +182,14 @@ test('Hub settings › Devices lists each device with its ages and this device t
   assert.equal(root.querySelector('.device-confirm'), null);
 
   // A refusal says so and keeps the row.
-  removal = 500;
+  state.status = 500;
   click(root.querySelector('[data-device-remove="d-pixel"]'));
   click(root.querySelector('[data-device-confirm="d-pixel"]'));
   await settle();
   assert.equal(root.querySelector('.hs-flash').textContent, 'Could not remove pixel-8. Is the host awake?');
   assert.equal(rows().length, 2);
 
-  removal = 200;
+  state.status = 200;
   calls.length = 0;
   click(root.querySelector('[data-device-remove="d-pixel"]'));
   click(root.querySelector('[data-device-confirm="d-pixel"]'));
@@ -190,4 +199,43 @@ test('Hub settings › Devices lists each device with its ages and this device t
   assert.deepEqual(rows().map((r) => r.querySelector('.title').textContent), ['macbook-airThis device']);
   assert.equal(root.querySelector('[data-summary="devices"]').textContent, '1 signed in');
   assert.equal(root.querySelector('.hs-flash').textContent, '');
+});
+
+test('Devices lists the blocked devices under the signed-in ones with Unblock, then a Sign in a device row whose Show PIN opens the PIN', async () => {
+  const state = { status: 200,
+    devices: [{ id: 'd-mac', name: 'macbook-air', ip: '100.64.0.12', at: before(2 * 86_400_000), seen: NOW.toISOString(), me: true }],
+    blocked: [{ key: 'node:iphone-guest', name: 'iphone-guest', ip: '100.64.0.9', at: before(7_200_000) }, { key: 'ip:100.88.14.9', name: '', ip: '100.88.14.9', at: before(5 * 3_600_000) }] };
+  const { root, calls, click } = await devicesSheet(state);
+  assert.equal(root.querySelector('[data-summary="devices"]').textContent, '1 signed in · 2 blocked');
+  const content = root.querySelector('.setting-content');
+  assert.deepEqual(content.querySelectorAll('h2.label').map((h) => h.textContent), ['Blocked devices', 'Sign in a device']);
+  const blockedRows = () => content.querySelectorAll('.blocked-list > .row');
+  assert.deepEqual(blockedRows().map((r) => [r.querySelector('.title').textContent, r.querySelector('.sub').textContent]),
+    [['iphone-guest', '100.64.0.9 · last tried 2h ago'], ['100.88.14.9', 'last tried 5h ago']], 'a client with no name reads its address');
+  assert.deepEqual(blockedRows().map((r) => r.querySelector('button').textContent), ['Unblock', 'Unblock']);
+  const pinRow = content.querySelector('.pin-row > .row');
+  assert.deepEqual([pinRow.querySelector('.title').textContent, pinRow.querySelector('.sub').textContent], ['Sign in a device', 'Show a PIN to type on the new device']);
+  assert.equal(pinRow.querySelector('[data-pin-open]').textContent, 'Show PIN', 'view-hub.js opens its PIN dialog from it, over this modal');
+
+  // A refusal says so and keeps the row.
+  state.status = 500;
+  click(root.querySelector('[data-device-unblock="node:iphone-guest"]'));
+  assert.equal(root.querySelector('[data-device-unblock="node:iphone-guest"]').textContent, 'Unblocking…');
+  await settle();
+  assert.equal(root.querySelector('.hs-flash').textContent, 'Could not unblock iphone-guest. Is the host awake?');
+  assert.equal(blockedRows().length, 2);
+
+  state.status = 200;
+  calls.length = 0;
+  click(root.querySelector('[data-device-unblock="node:iphone-guest"]'));
+  await settle();
+  assert.deepEqual(calls, [['DELETE', '/_hub/blocked/node%3Aiphone-guest'], ['GET', '/_hub/devices']]);
+  assert.equal(blockedRows().length, 1);
+  assert.equal(root.querySelector('.hs-flash').textContent, '');
+
+  click(root.querySelector('[data-device-unblock="ip:100.88.14.9"]'));
+  await settle();
+  assert.equal(content.querySelector('.blocked-list'), null);
+  assert.equal(content.querySelector('.blocked-none').textContent, 'No blocked devices. A device that gets its PIN wrong three times lands here.');
+  assert.equal(root.querySelector('[data-summary="devices"]').textContent, '1 signed in');
 });

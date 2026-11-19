@@ -23,21 +23,36 @@ function fakeFzf(home) {
   return `${bin}:/usr/bin:/bin`;
 }
 
-test('kickflip link prints the address and a live PIN, and Ctrl-C voids it', async () => {
-  const home = tempDir('sign-in-cli-');
+// kickflip link run piped, its output read until its first PIN line. → {child, text(), pin}
+async function link(home) {
   const child = spawn(process.execPath, [KICKFLIP, 'link'], { cwd: home, env: envOf(home) });
   let text = '';
   child.stdout.on('data', (c) => { text += c; });
-  while (!/PIN {3}\d{4} \d{4}\n/.test(text)) await once(child.stdout, 'data');
-  const [address, line] = text.trim().split('\n');
-  assert.equal(address, 'Open  http://127.0.0.1:4599/', 'with the tailnet off, this host\'s address, no token');
-  const pin = line.replace(/\D/g, '');
+  while (!/PIN: \d{4} \d{4}/.test(text)) await once(child.stdout, 'data');
+  return { child, text: () => text, pin: /PIN: (\d{4}) (\d{4})/.exec(text).slice(1).join('') };
+}
+
+test('kickflip link prints just the address and the PIN line, and Ctrl-C voids the PIN', async () => {
+  const home = tempDir('sign-in-cli-');
+  const { child, text, pin } = await link(home);
+  assert.deepEqual(text().trim().split('\n'), ['http://127.0.0.1:4599/', `PIN: ${pin.slice(0, 4)} ${pin.slice(4)} (expires in 60 s)`],
+    'with the tailnet off, this host\'s address, then the PIN');
   assert.equal(JSON.parse(fs.readFileSync(signInFile(home), 'utf8')).pins.length, 1, 'the PIN is live');
   child.kill('SIGINT');
   const [code] = await once(child, 'exit');
   assert.equal(code, 0);
-  assert.match(text, /PIN voided\.\n$/);
+  assert.equal(text().trim().split('\n').at(-1), `PIN: ${pin.slice(0, 4)} ${pin.slice(4)} (voided)`);
   assert.deepEqual(await redeemPin(pin, phone, { home }), { left: 2 }, 'a stopped kickflip link voids its PIN');
+});
+
+test('kickflip link exits once its PIN signs a device in, naming the device', async () => {
+  const home = tempDir('sign-in-cli-');
+  const { child, text, pin } = await link(home);
+  assert.ok((await redeemPin(pin, phone, { home })).device);
+  const [code] = await once(child, 'exit');
+  assert.equal(code, 0);
+  assert.equal(text().trim().split('\n').at(-1), `PIN: ${pin.slice(0, 4)} ${pin.slice(4)} (used by pixel-8)`);
+  assert.doesNotMatch(text(), /fresh PIN/);
 });
 
 test('kickflip devices lists the signed-in devices; unlink signs one out, named or picked with fzf; sign-out signs every one out', async () => {

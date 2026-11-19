@@ -135,10 +135,9 @@
 .hub-view .closed-sheet .group { margin-top: 10px; }
 .hub-view .closed-sheet .closed-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .hub-view .hub-modal .sub .danger { color: var(--color-danger); }
-/* Sign in a device (view-hub.js) and Hub settings › Devices (view-hub-settings.js)
+/* Sign in a device (view-hub.js), opened by Hub settings › Devices' Show PIN (view-hub-settings.js)
    (docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md). The PIN's bar is
    the accent's blue while it has time and the notice orange from 10 s left. */
-.hub-view .top .pin-open { margin-left: 6px; white-space: nowrap; }
 .hub-view .pin-content { padding: 14px 0 18px; }
 .hub-view .pin-say { margin: 14px 0 6px; color: var(--muted); }
 .hub-view .pin-say:first-child { margin-top: 0; }

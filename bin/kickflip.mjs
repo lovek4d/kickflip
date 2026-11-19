@@ -125,7 +125,8 @@
 //               off. status (the default) prints which, with the address; exit 1 when it's on with no tailnet address
 //   kickflip link | devices | unlink [<name>] | unblock [<name>] | sign-out
 //               link prints the hub's address, the tailnet's while it's on, and an 8-digit PIN that signs in one device
-//               typed there within 60 seconds, a fresh one each 60 seconds while it runs; Ctrl-C voids the live one. A
+//               typed there within 60 seconds, a new one each 60 seconds until one is used, when it names the device
+//               and exits 0; Ctrl-C voids the live one. A
 //               signed-in device carries a cookie the hub, its try ports and every board check on each request
 //               (../shared/owner-sign-in.mjs). devices lists the signed-in devices; unlink signs one out, and unblock
 //               lets in again a device its third wrong PIN blocked, each picked with fzf, or named. sign-out signs every
@@ -221,7 +222,7 @@ import { uninstallStatusLine, nodeBin, watcherCommand } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { tailscaleDaemon, tailscaleArgv, answeredBy } from '../shared/tailscale.mjs';
 import { tailnetOn, localUrl, hubUrl, unmapHub, turnOn, turnOff, tailnetStatus } from '../shared/tailnet.mjs';
-import { blockedClients, devicesOf, makePin, removeDevice, signOutEverywhere, unblock, voidPin } from '../shared/owner-sign-in.mjs';
+import { blockedClients, devicesOf, makePin, pinState, removeDevice, signOutEverywhere, unblock, voidPin } from '../shared/owner-sign-in.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { FEEDBACK_TYPES, feedbackUrl, versionsLine } from './feedback.mjs';
@@ -958,27 +959,33 @@ const commands = {
   },
 
   // docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
-  // In a terminal the PIN and its countdown redraw in place; piped, each PIN prints on a line of its own.
+  // docs/adr/2026-11-19-0630-the-pin-page-signs-in-at-the-eighth-digit-and-devices-holds-sign-in-a-device.md
+  // The address, then the PIN line. In a terminal the PIN and its countdown redraw in place, a new PIN replacing one
+  // that expired or was voided; piped, each PIN prints on a line of its own. Once a device signs in with the PIN, its
+  // line reads who and the command exits; Ctrl-C voids it.
   async link() {
     const host = tailnetHost();
-    out(`Open  ${host ? `https://${host}/` : localUrl('', HUB_PORT)}`);
+    out(host ? `https://${host}/` : localUrl('', HUB_PORT));
     const tty = process.stdout.isTTY;
+    const spaced = (pin) => `${pin.slice(0, 4)} ${pin.slice(4)}`;
+    const line = (text) => (tty ? process.stdout.write(`\r\x1b[2K${text}`) : out(text));
+    const end = (text) => { line(text); if (tty) process.stdout.write('\n'); process.exit(0); };
     let live = null;
     const stop = async () => {
-      if (live) await voidPin(live.pin);
-      out(`${tty ? '\n' : ''}PIN voided.`);
-      process.exit(0);
+      if (!live) process.exit(0);
+      await voidPin(live.pin);
+      end(`PIN: ${spaced(live.pin)} (voided)`);
     };
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
-    const spaced = (pin) => `${pin.slice(0, 4)} ${pin.slice(4)}`;
     for (;;) {
       live = await makePin();
-      if (!tty) out(`PIN   ${spaced(live.pin)}`);
-      for (let left = Math.ceil((live.until - Date.now()) / 1000); left > 0; left = Math.ceil((live.until - Date.now()) / 1000)) {
-        if (tty) process.stdout.write(`\r\x1b[2KPIN   ${spaced(live.pin)}   expires in ${left} s · a fresh PIN follows · Ctrl-C voids it`);
-        await new Promise((resolve) => setTimeout(resolve, Math.min(1000, live.until - Date.now())));
+      for (let state = pinState(live.pin), first = true; state.live; state = pinState(live.pin), first = false) {
+        if (tty || first) line(`PIN: ${spaced(live.pin)} (expires in ${Math.ceil((live.until - Date.now()) / 1000)} s)`);
+        await new Promise((resolve) => setTimeout(resolve, Math.min(1000, Math.max(0, live.until - Date.now()))));
       }
+      const state = pinState(live.pin);
+      if (state.used) end(`PIN: ${spaced(live.pin)} (used by ${state.used})`);
     }
   },
 

@@ -20,7 +20,7 @@ Kickflip needs Node 22 or newer. On Linux, install the same tools with your pack
 
 `kickflip init` links kickflip into Claude Code and starts the hub as a login service, on this machine at `http://127.0.0.1:4500/`. Run `kickflip doctor` any time to see what is set up and what is not.
 
-The hub opens only on a signed-in device. Run `kickflip link`, open the address it prints on the device and type the 8-digit PIN; a PIN lasts 60 seconds and signs in one device, and `kickflip link` prints a fresh one each minute until you stop it. A signed-in hub page's Sign in a device shows the same. Three wrong PINs block that device until `kickflip unblock`. `kickflip devices` lists the signed-in devices, `kickflip unlink` signs one out, and `kickflip sign-out` signs every device out.
+The hub opens only on a signed-in device. Run `kickflip link`, open the address it prints on the device and type the 8-digit PIN; a PIN lasts 60 seconds and signs in one device, and `kickflip link` prints a new one each minute until one is used, then exits. Hub › Devices › Show PIN on a signed-in device shows the same. The page signs in as the eighth digit is typed or pasted. Three wrong PINs block that device until `kickflip unblock` or Unblock in Hub › Devices, which lists the blocked devices. `kickflip devices` lists the signed-in devices, `kickflip unlink` signs one out, and `kickflip sign-out` signs every device out.
 
 ## Your first board
 

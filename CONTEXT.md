@@ -130,7 +130,7 @@ The owner's proof on a device: a cookie the device gets by typing a **PIN** on t
 _Avoid_: login, session, token
 
 **PIN**:
-Eight digits that sign in one device within 60 seconds, from `kickflip link` or a signed-in hub page's Sign in a device. A device's third wrong PIN voids every live PIN and **blocks** that device, its tailnet node or else its address, until `kickflip unblock` ([a device signs in with a 60-second PIN, and three misses block it](docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md)).
+Eight digits that sign in one device within 60 seconds, from `kickflip link` or Hub settings › Devices' Show PIN on a signed-in device. A device's third wrong PIN voids every live PIN and **blocks** that device, its tailnet node or else its address, until `kickflip unblock` or Devices' Unblock ([a device signs in with a 60-second PIN, and three misses block it](docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md)).
 _Avoid_: code, OTP, sign-in link
 
 **Board session**:

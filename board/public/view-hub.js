@@ -3,9 +3,10 @@
 // with the New strip after the boards, then hub settings summary rows ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)). Health carries the Keep awake toggle, and Linear's and Slack's Integrations rows
 // a button that opens their key modal ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)). A board's row can carry Restart (hub/restart-board.mjs), and
 // the Hub row Restart hub while the hub runs older code than its files. Health comes from GET /_hub/api/hub.
-// Its data refreshes every 30 seconds while it shows (hub-kit.js live). The header's Sign in a device opens a dialog with
-// the hub's address and a 60-second PIN for another device to type
-// (docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md).
+// Its data refreshes every 30 seconds while it shows (hub-kit.js live). Hub settings › Devices' Show PIN opens Sign in a
+// device, a dialog over that modal with the hub's address and a 60-second PIN for another device to type
+// (docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md,
+// docs/adr/2026-11-19-0630-the-pin-page-signs-in-at-the-eighth-digit-and-devices-holds-sign-in-a-device.md).
 (function () {
   // The last data, which a return to the view paints at once.
   let last = null;
@@ -154,8 +155,7 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
   (globalThis.AppViews ||= {}).hub = {
     className: 'hub-view view-hub',
     title: () => 'Hub',
-    markup: () => `${BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png',
-      navAfter: '<button type="button" class="btn pin-open" data-pin-open aria-haspopup="dialog">Sign in a device</button>' })}
+    markup: () => `${BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png' })}
 <main class="has-top"><div class="hub-status"></div><section class="hub-settings">${HubSettings.markup()}</section><div class="hub-foot"></div></main>
 <dialog class="sheet permissions-sheet" aria-labelledby="permissionsTitle"></dialog>
 ${pinModalMarkup}
@@ -384,7 +384,7 @@ ${BoardNewTask.markup()}`,
         load();
       }
       // docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
-      // The header's Sign in a device opens the PIN dialog and asks the hub for a PIN (POST /_hub/pins). Each second
+      // Devices' Show PIN opens the PIN dialog and asks the hub for a PIN (POST /_hub/pins). Each second
       // redraws the countdown; at 0 the old PIN is voided (DELETE /_hub/pins/<pin>), then a new one asked for. The
       // dialog closing, however it closes, voids the live PIN and drops an answer still on its way; the page going away
       // voids it too (pagehide, with keepalive so the request outlives the page).

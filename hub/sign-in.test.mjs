@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { SIGN_IN_COOKIE, devicesOf, makePin, redeemPin, signedIn } from '../shared/owner-sign-in.mjs';
+import { SIGN_IN_COOKIE, blockedClients, devicesOf, makePin, redeemPin, signedIn } from '../shared/owner-sign-in.mjs';
 import { clientIdentity } from '../board/on-host.mjs';
 
 const html = { accept: 'text/html,application/xhtml+xml' };
@@ -54,8 +54,8 @@ test('a device without the sign-in gets the sign-in page on every page and API p
     assert.equal(answer.status, 401, p);
     const text = await answer.text();
     assert.match(text, /<p class="rf-line">Sign in to open this kickflip\.<\/p>/);
-    assert.match(text, /<form class="rf-form" method="post" action="\/_hub\/sign-in"><input type="hidden" name="next" value="([^"]*)"><input name="pin" value="" placeholder="8-digit PIN"/);
-    assert.match(text, /Run <code>kickflip link<\/code> on its Mac, or tap Sign in a device/);
+    assert.match(text, /<form class="rf-form" method="post" action="\/_hub\/sign-in"><input type="hidden" name="next" value="([^"]*)"><label class="rf-boxes">(<span class="rf-box"><\/span>){8}<input name="pin" value=""/);
+    assert.match(text, /Run <code>kickflip link<\/code> on its host, or go to Hub &gt; Devices &gt; Show PIN on a signed in device\./);
     assert.equal(/name="next" value="([^"]*)"/.exec(text)[1], p, 'the sign-in lands back where it was asked');
   }
   for (const [method, p] of [['GET', '/_hub/api/hub'], ['GET', '/_hub/sidebar.json'], ['GET', '/app/x'], ['POST', '/_hub/restart-hub'], ['POST', '/_hub/prompts/p1/answer'], ['POST', '/_hub/settings/notifications']]) {
@@ -118,7 +118,7 @@ test('the sign-in page takes a live PIN once and sets the device cookie', async 
 
   const again = await form(base, pin, '/', { 'x-forwarded-for': '100.64.0.2' });
   assert.equal(again.status, 403);
-  assert.match(await again.text(), /<p class="rf-err">Wrong PIN, 2 tries left<\/p>/, 'a PIN signs in one device');
+  assert.match(await again.text(), /<p class="rf-status bad"[^>]*>Wrong PIN, 2 tries left<\/p>/, 'a PIN signs in one device');
 
   const shell = await fetch(`${base}/`, { headers: { ...page, cookie: value } });
   assert.equal(shell.status, 200);
@@ -141,7 +141,7 @@ test("a client's third wrong PIN voids the live PIN and blocks it on every page"
   const wrong = pin === '00000000' ? '00000001' : '00000000';
   const first = await form(base, wrong, '/', phone);
   assert.equal(first.status, 403);
-  assert.match(await first.text(), /<input name="pin" class="err"[^>]*>[\s\S]*<p class="rf-err">Wrong PIN, 2 tries left<\/p>/);
+  assert.match(await first.text(), /<label class="rf-boxes err">[\s\S]*<p class="rf-status bad"[^>]*>Wrong PIN, 2 tries left<\/p>/);
   assert.match(await (await form(base, wrong, '/', phone)).text(), /Wrong PIN, 1 try left/);
   const third = await form(base, wrong, '/', phone);
   assert.equal(third.status, 403);
@@ -177,6 +177,21 @@ test('a signed-in page makes and voids a PIN, and lists and removes devices', as
   for (const [method, p] of [['POST', '/_hub/pins'], ['GET', '/_hub/devices'], ['DELETE', `/_hub/devices/${devices[0].id}`]]) {
     assert.equal((await fetch(base + p, { method })).status, 401, `${method} ${p} needs the sign-in`);
   }
+});
+
+test('a signed-in page lists the blocked clients with the devices, and Unblock lets one try a PIN again', async (t) => {
+  const base = await startHub(t);
+  const mine = await device();
+  for (let i = 0; i < 3; i++) await redeemPin('nope', { key: 'node:pixel-8', name: 'pixel-8', ip: '100.64.0.31' }, { home });
+  const { blocked } = await (await fetch(`${base}/_hub/devices`, { headers: { cookie: mine } })).json();
+  assert.equal(blocked.length, 1);
+  assert.deepEqual([blocked[0].key, blocked[0].name, blocked[0].ip], ['node:pixel-8', 'pixel-8', '100.64.0.31']);
+  assert.match(blocked[0].at, /^\d{4}-\d\d-\d\dT/, 'when it last tried, as an ISO time');
+  const gone = await fetch(`${base}/_hub/blocked/${encodeURIComponent('node:pixel-8')}`, { method: 'DELETE', headers: { cookie: mine } });
+  assert.deepEqual(await gone.json(), { unblocked: true });
+  assert.deepEqual(blockedClients(home), []);
+  assert.equal((await fetch(`${base}/_hub/blocked/${encodeURIComponent('node:pixel-8')}`, { method: 'DELETE', headers: { cookie: mine } })).status, 404);
+  assert.equal((await fetch(`${base}/_hub/blocked/x`, { method: 'DELETE' })).status, 401, 'Unblock needs the sign-in');
 });
 
 test("a site that isn't a board never gets the sign-in cookie; a board's server does, to check it", async (t) => {

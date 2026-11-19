@@ -14,12 +14,12 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // verdict → {status, line, hint, json, form}. Nothing is shared
 // (docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md), so the hint offers no ask.
-// form: the page takes the 8-digit PIN `kickflip link` or a hub page's Sign in a device shows
+// form: the page takes the 8-digit PIN `kickflip link` or Hub settings › Devices' Show PIN shows
 // (docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md); 'pin-wrong' is the
 // same page after a wrong PIN, and 'blocked' what a client gets on every page once its third wrong PIN blocked it.
 // line and hint are HTML.
 const SIGN_IN = 'Sign in first: run kickflip link on the hub’s Mac and type the PIN it prints.';
-const SIGN_IN_HINT = 'Run <code>kickflip link</code> on its Mac, or tap Sign in a device on a hub page you’re signed in to, then type the 8-digit PIN.';
+const SIGN_IN_HINT = 'Run <code>kickflip link</code> on its host, or go to Hub &gt; Devices &gt; Show PIN on a signed in device.';
 const BLOCKED = 'This device has been blocked, use kickflip unblock on the host machine';
 const REFUSALS = {
   other: { status: 403, line: 'This kickflip belongs to someone else.', hint: 'Only its owner’s Tailscale account opens it.', json: {} },
@@ -37,11 +37,20 @@ body { display: grid; place-content: center; justify-items: center; gap: 10px; p
 .rf-mark { display: block; margin-bottom: 8px; width: 70px; height: 60px; object-fit: contain; }
 .rf-line { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; text-wrap: balance; }
 .rf-sub { margin: 0; font-size: 14px; color: var(--muted); }
-.rf-form { display: flex; gap: 8px; margin-top: 14px; width: min(420px, 100%); }
-.rf-form input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 18px; letter-spacing: .2em; text-align: center; }
-.rf-form input.err { border-color: var(--bad); }
-.rf-form button { padding: 8px 14px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 600; }
-.rf-err { margin: 0; color: var(--bad); font-weight: 600; }
+.rf-form { width: min(420px, 100%); margin-top: 14px; }
+.rf-boxes { position: relative; display: flex; justify-content: center; gap: 6px; cursor: text; }
+.rf-box { flex: 1; max-width: 40px; height: 50px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rf-box:nth-child(4) { margin-right: 10px; }
+.rf-boxes:focus-within .rf-box.cur { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rf-boxes:focus-within .rf-box.cur::after { content: ""; width: 2px; height: 24px; background: var(--accent); animation: rf-caret 1s steps(2) infinite; }
+.rf-boxes.err .rf-box { border-color: var(--bad); }
+.rf-boxes.lock .rf-box { border-color: var(--accent); animation: rf-pulse 1.1s ease-in-out infinite; }
+@keyframes rf-caret { 50% { opacity: 0; } }
+@keyframes rf-pulse { 50% { opacity: .35; } }
+.rf-boxes input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; font-size: 16px; caret-color: transparent; }
+.rf-status { height: 24px; margin: 0; font-weight: 600; line-height: 24px; }
+.rf-status.bad { color: var(--bad); }
+.rf-status.info { color: var(--accent); }
 body code { background: var(--chip); padding: 2px 6px; border-radius: 6px; font: .92em ui-monospace, "SF Mono", Menlo, monospace; }`;
 
 const escAttr = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -49,9 +58,25 @@ const escAttr = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<'
 // A path on this host to land on after a sign-in: never //host, a backslash or a scheme. → the path, else /
 export const safeNext = (next) => (typeof next === 'string' && /^\/(?![/\\])/.test(next) ? next : '/');
 
-// The PIN field drops whitespace as it's typed or pasted, and sends the form at its eighth digit.
-const PIN_SCRIPT = `const f = document.querySelector('.rf-form'), i = f.elements.pin;
-i.addEventListener('input', () => { i.value = i.value.replace(/\\s+/g, ''); if (/^\\d{8}$/.test(i.value)) f.requestSubmit(); });`;
+// One input under the eight boxes takes what is typed, pasted or filled in, keeps its first eight digits and paints them
+// into the boxes, the next empty one as the caret. A new digit clears a wrong PIN's red; the eighth locks the boxes,
+// reads Signing in… in the status slot and sends the form.
+const PIN_SCRIPT = `const f = document.querySelector('.rf-form'), i = f.querySelector('input[name=pin]'), wrap = f.querySelector('.rf-boxes'), boxes = f.querySelectorAll('.rf-box'), status = document.querySelector('.rf-status');
+const paint = () => boxes.forEach((b, n) => { b.textContent = i.value[n] || ''; b.classList.toggle('cur', n === i.value.length); });
+i.addEventListener('input', () => {
+  i.value = i.value.replace(/\\D+/g, '').slice(0, 8);
+  wrap.classList.remove('err');
+  status.classList.remove('bad', 'info');
+  status.textContent = '';
+  paint();
+  if (i.value.length < 8) return;
+  i.readOnly = true;
+  wrap.classList.add('lock');
+  status.classList.add('info');
+  status.textContent = 'Signing in…';
+  f.requestSubmit();
+});
+paint();`;
 
 // options: next, the path a sign-in lands on, which the form posts to the hub's /_hub/sign-in with the PIN; left, the
 // wrong PINs a 'pin-wrong' client has left.
@@ -65,9 +90,9 @@ export function refusalPage(verdict, { next = '/', left = 0 } = {}) {
 <img class="rf-mark" src="data:image/png;base64,${mark}" width="70" height="60" alt="">
 <p class="rf-line">${line}</p>
 ${hint ? `<p class="rf-sub">${hint}</p>` : ''}
-${form ? `<form class="rf-form" method="post" action="/_hub/sign-in"><input type="hidden" name="next" value="${escAttr(safeNext(next))}"><input name="pin"${wrong ? ' class="err"' : ''} value="" placeholder="8-digit PIN" aria-label="PIN" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" autofocus><button type="submit">Sign in</button></form>
+${form ? `<form class="rf-form" method="post" action="/_hub/sign-in"><input type="hidden" name="next" value="${escAttr(safeNext(next))}"><label class="rf-boxes${wrong ? ' err' : ''}">${'<span class="rf-box"></span>'.repeat(8)}<input name="pin" value="" aria-label="PIN" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" autofocus></label></form>
+<p class="rf-status${wrong ? ' bad' : ''}" role="status" aria-live="polite">${wrong ? `Wrong PIN, ${left === 1 ? '1 try' : `${left} tries`} left` : ''}</p>
 <script>${PIN_SCRIPT}</script>` : ''}
-${wrong ? `<p class="rf-err">Wrong PIN, ${left === 1 ? '1 try' : `${left} tries`} left</p>` : ''}
 </body></html>`;
 }
 
