@@ -199,6 +199,10 @@
 //   kickflip poll-now [--keep-queue]
 //               asks the hub for one poll now (GitHub check, github-change events,
 //               checked.json, then the queue unless --keep-queue) and prints its result
+//   kickflip feedback [--type bug|idea|question] [--title <title>] [--print]
+//               opens GitHub's new-issue form for kickflip (macOS `open`; elsewhere, or with --print, prints the URL) with the type,
+//               title and the kickflip, node and OS versions filled in. You write the details in the browser, under your own GitHub
+//               account; nothing from boards, paths or hosts is sent
 // Exit codes: 0 ok, 1 error, 2 bad usage, 3 route owned by another session (join/leave), or its recorded session is
 // live (start/resume/hub). hub passes through claude's exit code.
 import fs from 'node:fs';
@@ -220,6 +224,7 @@ import { tailnetOn, localUrl, hubUrl, unmapHub, turnOn, turnOff, tailnetStatus }
 import { blockedClients, devicesOf, makePin, removeDevice, signOutEverywhere, unblock, voidPin } from '../shared/owner-sign-in.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
+import { FEEDBACK_TYPES, feedbackUrl, versionsLine } from './feedback.mjs';
 
 const SKILL = cloneRoot();
 const HOME = path.join(os.homedir(), '.claude', 'kickflip');
@@ -234,7 +239,7 @@ for (let i = 0; i < rest.length; i++) {
   const a = rest[i];
   if (a.startsWith('--')) {
     const k = a.slice(2);
-    if (k === 'fix' || k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'silent' || k === 'keep-queue' || k === 'hub' || k === 'no-hub' || k === 'dry-run' || k === 'no-restart') args[k] = true;
+    if (k === 'fix' || k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'silent' || k === 'keep-queue' || k === 'hub' || k === 'no-hub' || k === 'dry-run' || k === 'no-restart' || k === 'print') args[k] = true;
     else if (k === 'watch' && (i + 1 >= rest.length || rest[i + 1].startsWith('--'))) args[k] = true;
     else args[k] = rest[++i];
   } else args._.push(a);
@@ -1131,6 +1136,18 @@ const commands = {
     if (rest.length) fail('migrations takes no arguments', 2);
     const { migrationsLeft } = await import('../board/migrations.mjs');
     out((await migrationsLeft()).map(({ id, scope, left }) => `${id} (${scope}): ${left.length ? `not yet on ${left.map((r) => (scope === 'hub' ? 'the hub' : `/${r}`)).join(', ')}` : 'every ledger lists it'}`).join('\n'));
+  },
+
+  async feedback() {
+    if (args._.length) fail('feedback takes --type and --title, no arguments', 2);
+    if (args.type !== undefined && !FEEDBACK_TYPES.includes(args.type)) fail(`--type takes one of: ${FEEDBACK_TYPES.join(', ')}`, 2);
+    const versions = versionsLine(JSON.parse(fs.readFileSync(path.join(SKILL, 'package.json'), 'utf8')).version);
+    const url = feedbackUrl({ type: args.type, title: args.title, versions });
+    out(`Versions filled in: ${versions}`);
+    const opening = process.platform === 'darwin' && !args.print;
+    if (opening) out('Opening GitHub…');
+    out(url);
+    if (opening) spawnSync('open', [url], { stdio: 'ignore' });
   },
 
   async 'poll-now'() {

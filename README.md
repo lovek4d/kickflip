@@ -63,6 +63,7 @@ Open that address on your phone, and add it to your home screen to get push noti
 - `kickflip close <route>` / `reopen <route>`: close a board and bring it back
 - `kickflip export <route>` / `import <file>`: move a board to another host
 - `kickflip notifications`: set push notifications
+- `kickflip feedback`: open a GitHub issue form with your versions filled in
 - `kickflip update`: install the latest version
 
 Run `kickflip --help` for everything.
