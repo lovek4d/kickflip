@@ -564,7 +564,7 @@ const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved'
 const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 
 // The card's one workflow button, which board/public/app-cards.js only labels: openQuestions on any card that has had
-// questions, Done ones too, blocked or not, which resolvedBy colours orange only while they wait on the owner, and none
+// questions (a Todo work card gets it without, below), Done ones too, blocked or not, which resolvedBy colours orange only while they wait on the owner, and none
 // otherwise (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md). An ask waiting on
 // the owner's Done has it in its thread box, beside Reply
 // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md). A grill or prototype is asked for from the
@@ -1548,6 +1548,8 @@ export function buildBoard(snapshot) {
     }
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.ownerBlock && started(it.storedLane, it.agents)) it.lane = 'progress';
+    // Every Todo work card has the Questions button, which the page disables while the card has had no question.
+    if (it.lane === 'todo' && it.kind === 'work') it.actionButton ||= BUTTON.openQuestions;
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
     if (it.kind === 'work') it.phase = phaseOf(it);
     // docs/adr/2026-11-15-0800-owner-actions-follow-state-gone-pushes-close-stale-taps-refused.md: the card's version, its

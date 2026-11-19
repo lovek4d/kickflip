@@ -201,7 +201,7 @@ test('a card waiting on its questions stays in Todo with its action until buildi
   assert.deepEqual([built.lane, built.action?.kind], ['progress', 'pick']);
   const held = card({ owner: { items: [q] }, held: true });
   assert.deepEqual([held.lane, held.ownerBlock, held.action?.kind, held.actionButton], ['todo', { until: null }, 'pick', 'openQuestions']);
-  assert.equal(card({ held: true }).actionButton, null);
+  assert.equal(card({ held: true }).actionButton, 'openQuestions', 'a Todo card with no question has the button too');
 });
 
 test("a card's install shows until the card is Done, and reads older once the PR's head has moved past the commit it was built from", () => {
@@ -384,7 +384,7 @@ test('lanes follow the PR, with a red ready PR in In Review until a fix builder 
   assert.equal(lanes({ ...greenDraft, state: 'MERGED' })['w/A1'], 'done');
   const done = buildBoard({ fromWaves: false, files: [{ slug: 's', itemFile: { items: [{ id: 'S1', title: 'One', lane: 'done', next: 'Builds after S0' }] } }] }).items[0];
   assert.deepEqual([done.lane, done.next, done.actionButton], ['done', null, null]);
-  assert.equal(board().items.find((i) => i.key === 'w/ENG-1').actionButton, null);
+  assert.equal(board().items.find((i) => i.key === 'w/ENG-1').actionButton, 'openQuestions');
 });
 
 // docs/adr/2026-11-05-0200-a-stale-review-and-a-silent-builder-join-the-orchestrator-list.md
@@ -3511,4 +3511,12 @@ test("a merging card's Next names its newest wait only while that wait is on", a
   assert.equal(next([wait]), 'Merging · waiting for #210 to land');
   assert.equal(next([wait, { ts: '2026-11-04T11:01:00Z', who: 'claude', kind: 'wait-over', of: wait.ts }]), 'Merging');
   assert.equal(next([{ ...wait, pid: gone }]), 'Merging');
+});
+
+// docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md
+test("every Todo work card has the Questions button, and a card in another lane has it only once it has had a question", () => {
+  const todo = board({ pr: null }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([todo.lane, todo.questions ?? null, todo.actionButton], ['todo', null, 'openQuestions']);
+  const started = board({ pr: null, item: { pr: undefined, lane: 'progress' } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([started.lane, started.actionButton], ['progress', null]);
 });

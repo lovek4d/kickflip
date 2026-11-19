@@ -30,4 +30,6 @@ Considered:
 - Todo for New cards only, with a work card being grilled still in In Review (`questions-lane`), which puts two cards waiting on the same kind of answer in different lanes;
 - the page choosing the button from the card's fields, a chain of conditions no test pins to a case.
 
+Every Todo work card shows the Questions button, so its place in the workflow row doesn't depend on a question having been asked; with none ever asked it is disabled (title "No questions yet").
+
 This narrows [the lane follows who acts next, and a card waiting on the owner says Action needed](2026-10-29-1639-the-lane-follows-who-acts-next.md) on where an owner's wait sits, [the + makes a New card, which Claude files, folds or answers](2026-10-29-1639-the-plus-makes-a-new-card.md) on an answered ask going to Done, and [a started card never returns to Todo](2026-10-29-1639-a-started-card-never-returns-to-todo.md) on when a card counts as started.

@@ -9365,3 +9365,15 @@ test("a send that fails brings the card's Open items and orange button back", as
   assert.deepEqual(marks(v), [true, true, '1']);
   v.unmount();
 });
+
+// docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md
+test("a Todo card that has had no question shows Questions disabled, titled No questions yet", async () => {
+  const cards = [workCard('Q1', { lane: 'todo', actionButton: 'openQuestions', questions: undefined })];
+  const b = boardOnDom({ open: ['w/Q1'], board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const button = b.root.querySelector('details.item[data-key="w/Q1"] .action-row.workflow button[title="No questions yet"]');
+  assert.equal(button.textContent.trim(), 'Questions');
+  assert.ok(button.hasAttribute('disabled'));
+  assert.equal(button.getAttribute('data-questions'), null);
+  b.view.unmount();
+});

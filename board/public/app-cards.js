@@ -291,7 +291,7 @@ BoardView.part((B) => {
   // The board download leaves resolved questions out, so a card with only those names its topic.
   const onlyResolved = (it) => !it.questions.open && !it.questions.answered && !it.questions.replied;
   const ACTION_BUTTONS = {
-    [BUTTON.openQuestions]: (it) => `<button type="button"${classes(it, BUTTON.openQuestions, 'button')} data-questions="${esc(onlyResolved(it) ? it.questions.topic : it.questions.first)}">Questions</button>`,
+    [BUTTON.openQuestions]: (it) => !it.questions ? '<button type="button" class="button" disabled title="No questions yet">Questions</button>' : `<button type="button"${classes(it, BUTTON.openQuestions, 'button')} data-questions="${esc(onlyResolved(it) ? it.questions.topic : it.questions.first)}">Questions</button>`,
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
