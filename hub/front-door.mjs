@@ -71,12 +71,13 @@ ${wrong ? `<p class="rf-err">Wrong PIN, ${left === 1 ? '1 try' : `${left} tries`
 </body></html>`;
 }
 
-// A browser's request (one that accepts HTML) gets the page; anything else gets the JSON body. options: refusalPage's,
+// A page load (a request that accepts HTML, navigates, or is the worker's shell refetch) gets the page; anything else gets the JSON body. options: refusalPage's,
 // next defaulting to the request's own path (behind the hub, a board server's gains its prefix); headers: more response
 // headers, such as a sign-in's Set-Cookie.
 export function refuse(req, res, verdict, { headers = {}, ...options } = {}) {
   const { status, json } = REFUSALS[verdict];
-  const page = /\btext\/html\b/.test(req.headers.accept || '');
+  const h = req.headers;
+  const page = /\btext\/html\b/.test(h.accept || '') || h['x-app-shell'] === '1' || h['sec-fetch-mode'] === 'navigate' || h['sec-fetch-dest'] === 'document';
   // A board page that loses its access, or its sign-in, reads why (board/public/ui.js downOf).
   const down = { other: 'access', 'signed-out': 'signed-out', blocked: 'signed-out' }[verdict];
   const next = `${req.headers['x-forwarded-prefix'] || ''}${req.url || '/'}`;

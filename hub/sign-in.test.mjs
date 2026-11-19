@@ -69,6 +69,18 @@ test('a device without the sign-in gets the sign-in page on every page and API p
   assert.deepEqual(await upgrade(base, '/app/socket'), { status: 401, body: JSON.stringify({ error: 'Sign in first: run kickflip link on the hub’s Mac and type the PIN it prints.' }) });
 });
 
+test("a signed-out page load the worker refetched, or an old worker's, gets the sign-in page, not JSON", async (t) => {
+  const base = await startHub(t);
+  for (const headers of [{ 'x-app-shell': '1' }, { 'sec-fetch-mode': 'navigate' }, { 'sec-fetch-dest': 'document' }]) {
+    const answer = await new Promise((resolve, reject) => {
+      http.get(`${base}/`, { headers }, (res) => { let body = ''; res.on('data', (c) => { body += c; }); res.on('end', () => resolve({ res, body })); }).on('error', reject);
+    });
+    assert.equal(answer.res.statusCode, 401);
+    assert.match(answer.res.headers['content-type'], /^text\/html/);
+    assert.match(answer.body, /Sign in to open this kickflip\./);
+  }
+});
+
 test('a process on this host gets the agent paths with no cookie, and no owner path', async (t) => {
   const base = await startHub(t);
   assert.equal((await fetch(`${base}/_hub/status.json`)).status, 200);

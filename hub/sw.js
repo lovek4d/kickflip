@@ -102,7 +102,7 @@ self.addEventListener('fetch', (event) => {
     }
     if (req.destination !== 'document' || !isShellPage(url)) return;
     // The hub tells the shell from a site's page by Sec-Fetch-Dest, which this fetch would lose (hub/shell.mjs destOf).
-    const page = new Request(url.href, { headers: { 'x-app-shell': '1' }, cache: 'no-store', redirect: 'manual' });
+    const page = new Request(url.href, { headers: { 'x-app-shell': '1', accept: req.headers.get('accept') || 'text/html' }, cache: 'no-store', redirect: 'manual' });
     event.respondWith(networkFirst(event, page, SHELL, isShell));
     return;
   }
@@ -110,7 +110,7 @@ self.addEventListener('fetch', (event) => {
 });
 
 // The worker's version, in each report to the hub, so the push log tells an old worker from this one.
-const SW_VERSION = '2026-11-17-declarative';
+const SW_VERSION = '2026-11-18-shell-accepts-html';
 
 // A declarative push (push.mjs sends one to Apple subscriptions) that reaches the worker, where the browser didn't
 // show it itself, read as the worker's own payload.

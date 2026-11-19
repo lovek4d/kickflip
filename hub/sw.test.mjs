@@ -97,7 +97,7 @@ function worker() {
   // A request the page makes; null when the worker leaves it to the network.
   w.request = (pathOrUrl, { method = 'GET', mode = 'cors', destination = '' } = {}) => {
     const ev = {
-      request: { url: new URL(pathOrUrl, ORIGIN).href, method, mode, destination },
+      request: { url: new URL(pathOrUrl, ORIGIN).href, method, mode, destination, headers: new Headers({ accept: 'text/html,application/xhtml+xml' }) },
       responded: null,
       waits: [],
       respondWith(p) { this.responded = Promise.resolve(p); },
@@ -142,6 +142,7 @@ test("the worker's own fetch of a page load reaches the hub as a page load, so a
     const headers = { ...Object.fromEntries(sent.headers), 'sec-fetch-dest': 'empty' };
     const u = new URL(sent.url);
     assert.equal(u.href, new URL(p, ORIGIN).href);
+    assert.match(headers.accept, /text\/html/, 'the hub sends a page, not JSON, to a signed-out device');
     assert.equal(pageOf({ method: sent.method, pathname: u.pathname, search: u.search, dest: destOf(headers), sites }), 'shell', p);
   }
   assert.equal(destOf({ 'sec-fetch-dest': 'iframe' }), 'iframe');
