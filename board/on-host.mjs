@@ -28,7 +28,7 @@ const interfaceAddresses = () => Object.values(os.networkInterfaces()).flat().ma
 // The host as the gate reads it on each request: its interfaces' addresses, its tailnet node, and whether the tailnet is on.
 const thisHost = { addresses: interfaceAddresses, node: tailnetNode, tailnet: () => tailnetOn() };
 
-// → {login, addresses} of the host's own tailnet node, or null when tailscale isn't installed, doesn't answer, or another
+// → {login, addresses, name} of the host's own tailnet node, or null when tailscale isn't installed, doesn't answer, or another
 // daemon answers for the recorded one
 async function tailnetNode() {
   const tailscale = tailscaleDaemon();
@@ -39,7 +39,7 @@ async function tailnetNode() {
     if (answeredBy(tailscale, status)) return null;
     const { Self, User } = status;
     const user = User?.[Self.UserID];
-    return { login: user?.LoginName, addresses: Self.TailscaleIPs || [] };
+    return { login: user?.LoginName, addresses: Self.TailscaleIPs || [], name: String(Self.DNSName || '').replace(/\.$/, '').toLowerCase() };
   } catch { return null; }
 }
 
@@ -81,6 +81,8 @@ export function ownerGate(host = thisHost, { now = Date.now, retryMs = 5000 } = 
     return asking;
   };
   return async (req) => {
+    const named = await hostVerdict(req, host, ownerNode);
+    if (named !== 'ok') return named;
     if (!host.tailnet()) return isLoopback(clientOf(req)) ? 'owner' : 'other';
     if (host.addresses().includes(clientOf(req))) return 'owner';
     const login = req.headers['tailscale-user-login'];
@@ -88,6 +90,25 @@ export function ownerGate(host = thisHost, { now = Date.now, retryMs = 5000 } = 
     const found = await ownerNode();
     return !found ? 'unread' : found.login === login ? 'owner' : 'other';
   };
+}
+
+const LOOPBACK_NAMES = ['127.0.0.1', 'localhost', '[::1]'];
+const nameOf = (hostPort) => String(hostPort).toLowerCase().replace(/:\d+$/, '');
+const originHost = (origin) => { try { return new URL(origin).host || 'null'; } catch { return 'null'; } };
+
+// The names a DNS-rebinding page can't take: this host's loopback and, while the tailnet is on, its own tailnet name;
+// the port is ignored. The request's Host must be one of them, and an upgrade's Origin too, which stops another site's
+// page opening a WebSocket from the owner's browser. A request with no Host header names nothing to rebind.
+// → 'ok', 'host' for a foreign name, 'unread' while the tailnet name is wanted and tailscale hasn't given it
+async function hostVerdict(req, host, ownerNode) {
+  const names = [req.headers.host];
+  if (req.headers.upgrade && req.headers.origin !== undefined) names.push(originHost(req.headers.origin));
+  const foreign = names.filter((n) => n !== undefined && !LOOPBACK_NAMES.includes(nameOf(n)));
+  if (!foreign.length) return 'ok';
+  if (!host.tailnet()) return 'host';
+  const node = await ownerNode();
+  if (!node?.name) return 'unread';
+  return foreign.every((n) => nameOf(n) === node.name) ? 'ok' : 'host';
 }
 
 // The hub process's one gate, shared by its own server and its try relays.

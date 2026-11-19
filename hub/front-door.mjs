@@ -23,6 +23,7 @@ const SIGN_IN_HINT = 'Run <code>kickflip link</code> on its Mac, or tap Sign in 
 const BLOCKED = 'This device has been blocked, use kickflip unblock on the host machine';
 const REFUSALS = {
   other: { status: 403, line: 'This kickflip belongs to someone else.', hint: 'Only its owner’s Tailscale account opens it.', json: {} },
+  host: { status: 403, line: 'This kickflip answers only its own address.', hint: 'Open it on the host, or on its tailnet name.', json: { error: 'This hub answers only its own address.' } },
   unread: { status: 503, line: 'Tailscale didn’t answer, so this kickflip can’t tell who you are.', hint: 'Open it on the host itself, or try again in a moment.',
     json: { error: 'Tailscale didn’t answer, so the hub can’t tell who you are.' } },
   'signed-out': { status: 401, line: 'Sign in to open this kickflip.', hint: SIGN_IN_HINT, json: { error: SIGN_IN }, form: true },

@@ -120,3 +120,30 @@ test('a sign-in client is its tailnet node by name through tailscale serve, else
   const loopback = await clientIdentity(async () => { asked = true; return status; })({ headers: {}, socket: { remoteAddress: '::ffff:127.0.0.1' } });
   assert.deepEqual([loopback, asked], [{ key: 'ip:127.0.0.1', name: '', ip: '127.0.0.1' }, false], 'a loopback client asks no tailscale');
 });
+
+test("the gate refuses a foreign Host, and a foreign Origin on an upgrade, before it asks who the client is", async () => {
+  const named = { ...node, name: 'studio.tail1234.ts.net' };
+  const gate = (tailnetOn) => ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => named, tailnet: () => tailnetOn });
+  const at = (g, headers, remote = '127.0.0.1') => g({ headers, socket: { remoteAddress: remote } });
+  const off = gate(false);
+  for (const host of ['127.0.0.1:4500', 'localhost', 'LOCALHOST:8501', '[::1]:4500']) assert.equal(await at(off, { host }), 'owner', host);
+  // A rebound name resolves to loopback, and the tailnet name is nothing while the tailnet is off.
+  for (const host of ['evil.example:4500', 'studio.tail1234.ts.net', '127.0.0.1.evil.example']) assert.equal(await at(off, { host }), 'host', host);
+  const on_ = gate(true);
+  assert.equal(await at(on_, { host: 'studio.tail1234.ts.net', ...served('100.70.1.2') }), 'owner');
+  assert.equal(await at(on_, { host: 'Studio.tail1234.ts.net:8501', ...served('100.70.1.2') }), 'owner');
+  assert.equal(await at(on_, { host: 'evil.example', ...served('100.70.1.2') }), 'host');
+  assert.equal(await at(on_, { host: 'other.tail1234.ts.net', ...served('100.70.1.2') }), 'host');
+  // An upgrade's Origin is held to the same names; a plain request's is crossSite's to judge.
+  const upgrade = { upgrade: 'websocket', host: '127.0.0.1:4500' };
+  assert.equal(await at(off, { ...upgrade, origin: 'http://localhost:4500' }), 'owner');
+  assert.equal(await at(off, upgrade), 'owner');
+  for (const origin of ['https://evil.example', 'null', 'invalid']) assert.equal(await at(off, { ...upgrade, origin }), 'host', origin);
+  assert.equal(await at(on_, { ...upgrade, host: 'studio.tail1234.ts.net', origin: 'https://studio.tail1234.ts.net', ...served('100.70.1.2') }), 'owner');
+  assert.equal(await at(on_, { ...upgrade, host: 'studio.tail1234.ts.net', origin: 'https://evil.example', ...served('100.70.1.2') }), 'host');
+  assert.equal(await at(off, { host: '127.0.0.1', origin: 'https://evil.example' }), 'owner');
+  // Tailscale not answering leaves the tailnet name unknown.
+  const silent = ownerGate({ addresses: () => ['127.0.0.1'], node: async () => null, tailnet: () => true });
+  assert.equal(await at(silent, { host: 'studio.tail1234.ts.net', ...served('100.70.1.2') }), 'unread');
+  assert.equal(await at(silent, { host: '127.0.0.1' }), 'owner');
+});

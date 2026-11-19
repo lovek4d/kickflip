@@ -1,6 +1,6 @@
 // The fixture sets HOME and PATH as it loads, so it comes first; its home is real, as the clone home under it needs
 // (repoPath refuses a clone home whose ancestors go through a symlink).
-import { home, inProcessHub } from './hub-fixture.mjs';
+import { home, web, bin, inProcessHub } from './hub-fixture.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -419,7 +419,15 @@ test('the proxy preserves browser origin, fetch metadata and the external host f
     } catch (e) { listener = `unknown (${e.message.split('\n')[0]})`; }
     assert.fail(`${JSON.stringify(headers)}: ${r.status}, not ${status}, ${r.type}: ${r.body.slice(0, 200)}\non orch's port ${orchPort}, ${listener}`);
   };
-  const host = 'mac.example.ts.net';
+  const host = 'mac.ts.net';
+  // The tailnet is on and this Mac's tailnet node is named host, so the gate admits that Host and no other.
+  const settings = path.join(web, 'settings.json');
+  const settingsBefore = fs.existsSync(settings) ? fs.readFileSync(settings, 'utf8') : null;
+  const tailscale = path.join(bin, 'tailscale');
+  const tailscaleBefore = fs.readFileSync(tailscale, 'utf8');
+  write(settings, { ...(settingsBefore && JSON.parse(settingsBefore)), tailnet: true });
+  write(tailscale, `#!/bin/sh\necho '${JSON.stringify({ BackendState: 'Running', Self: { UserID: 7, TailscaleIPs: ['100.81.98.101'], DNSName: `${host}.` }, User: { 7: { LoginName: 'owner@github' } } })}'\n`);
+  try {
   for (const headers of [
     { host, origin: `https://${host}` },
     { 'x-forwarded-host': host, origin: `https://${host}` },
@@ -433,6 +441,10 @@ test('the proxy preserves browser origin, fetch metadata and the external host f
     { host, origin: `https://${host}`, 'sec-fetch-site': 'same-site' },
   ]) await expect(403, headers);
   assert.equal(events('orch', 'proxy-guard').length, before);
+  } finally {
+    write(tailscale, tailscaleBefore);
+    if (settingsBefore === null) fs.rmSync(settings, { force: true }); else write(settings, settingsBefore);
+  }
 });
 
 test('one check polls each open PR on either board once, writes both checked.json, and pushes once for the board not listening', async () => {
