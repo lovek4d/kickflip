@@ -1530,7 +1530,7 @@ export async function addVisual(site, key, { file, title, implement }) {
   for (let n = 2; existsSync(path.join(dir, page)); n++) page = `${slug}-${n}.html`;
   await fs.writeFile(path.join(dir, page), html, { flag: 'wx' });
   const link = `visuals/${id}/${page}`;
-  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: VISUAL, text: text(name, '--name'), link: pageUrl(link, '--link') });
+  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: VISUAL, text: text(name, '--name'), link: pageUrl(link, '--link'), ...(implement ? { implement: true } : {}) });
   return { lines: [link] };
 }
 

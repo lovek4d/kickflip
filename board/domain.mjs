@@ -2301,7 +2301,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     facts.scriptAt && !facts.writes.some((t) => t > facts.scriptAt) && { kind: 'script', since: facts.scriptAt, next: "Read the script's result (the owner ran or declined it): answer it in the thread, or act on it" },
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
     // prototype or visual agent until the orchestrator writes its brief, whatever else the card asks of the owner.
-    owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page', [REVIEWER]: 'review' }[owed.kind]} should cover and the files that matter${owed.kind === 'prototype' ? PROTOTYPE_ROUNDS : ''}` },
+    owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind}${owed.kind === VISUAL && owed.final ? ' --final' : ''} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page', [REVIEWER]: 'review' }[owed.kind]} should cover and the files that matter${owed.kind === 'prototype' ? PROTOTYPE_ROUNDS : ''}` },
     // While the owner owes the card an answer, the waits below are theirs to unblock.
     ...(ASKING.has(it.action?.kind) ? [] : [
       // One stale wait: a stopped or silent builder, else a review past seven days. A builder waiting on its own ask is

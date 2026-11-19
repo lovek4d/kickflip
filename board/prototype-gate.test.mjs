@@ -220,6 +220,7 @@ test("a take pick on a prototyped card leaves it discussing and owes the orchest
   await settleAnswers(picked.site, [picked.answer('q-take', 'B', 'Round the corners')]);
   assert.equal(picked.card(), 'discussing');
   assert.deepEqual(picked.read().briefs.map(({ kind, ask }) => ({ kind, ask })), [{ kind: 'visual', ask: { question: 'q-take', choice: 'B', note: 'Round the corners' } }]);
+  assert.equal(picked.read().briefs[0].final, true, 'the visual a take pick owes is final on its own');
 
   const none = world('prototyping');
   none.put(take);

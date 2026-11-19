@@ -1908,6 +1908,8 @@ test("a card owing a brief reads the brief's word, blue, and waits on the orches
     assert.deepEqual(it.orchestrator, { kind: 'brief', since: at(5), picked: null, next: `Write the ${kind} brief: item brief w/A1 --kind ${kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${output} should cover and the files that matter${kind === 'prototype' ? '; name each prototype to draw as its own round, and each owner request the task owes (a Prototype tap, a no-pick answer) as a round of its own' : ''}` }, kind);
   }
   assert.equal(owed('grill').builder, null);
+  const finalOwed = one({ phase: 'discussing', briefs: [{ kind: 'visual', at: at(5), final: true }] });
+  assert.match(finalOwed.orchestrator.next, /^Write the visual brief: item brief w\/A1 --kind visual --final --file <draft\.md>/);
   const written = one({ phase: 'grilling', briefs: [{ kind: 'grill', at: at(5), brief: { heading: 'Brief for grill round 1', text: 'x', at: at(6) } }] });
   assert.deepEqual([written.briefing, written.planning, written.orchestrator?.kind], [null, null, undefined]);
   const drawing = one({ phase: 'discussing' }, { 'visual-1': { kind: 'visual', model: 'sonnet', started: at(7) } });

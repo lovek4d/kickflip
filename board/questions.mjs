@@ -259,7 +259,13 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
     if (q.topic.startsWith('item:ask:')) {
       const card = await askCardOf(site, await checkAsk(site, q.topic.slice(9), `${name}.topic`));
       fail(`${name}.topic: an ask's questions go on its task's topic${card ? `, item:${card.key}` : ''}`);
-    } else if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
+    } else if (q.topic.startsWith('item:')) {
+      const card = q.topic.slice(5);
+      const { item } = await loadItem(site, card);
+      const newest = (await readLog(threadFile(site, card))).findLast((m) => m.kind === 'visual');
+      // docs/adr/2026-11-19-0300-a-take-pick-owes-a-final-visual-and-its-confirm-is-implement.md
+      if (newest?.implement && item.waits_on_owner?.on === 'implement') fail(`${name}: the card's final visual is up and its confirm is the owner's Implement tap; ask no confirm question: a message in the thread changes it`);
+    }
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);
     text(q.question, `${name}.question`);
     const long = lineFault(q.question);
@@ -555,6 +561,7 @@ export async function moveOnAnswered(site, key, take) {
     await discuss(site, key);
     const { source, itemFile, item: picked } = await loadItem(site, key);
     owe(picked, VISUAL, take);
+    picked.briefs.find((b) => b.kind === VISUAL && !b.brief).final = true;
     await writeJSON(source.file, itemFile);
     return 'discussing';
   }
@@ -953,8 +960,9 @@ export async function writeBrief(site, key, { kind, file, final }) {
   const { source, itemFile, item: briefed } = await loadItem(site, key);
   const at = new Date().toISOString();
   const tapped = (briefed.briefs || []).some((b) => b.kind === kind && !b.brief && b.tap);
+  const owedFinal = (briefed.briefs || []).some((b) => b.kind === kind && !b.brief && b.final);
   if (!(briefed.briefs || []).some((b) => b.kind === kind && !b.brief)) owe(briefed, kind, {}, at);
-  briefed.briefs = briefed.briefs.map((b) => (b.kind === kind && !b.brief ? { ...b, brief: { heading, text: body, at, ...(final ? { final: true } : {}) } } : b));
+  briefed.briefs = briefed.briefs.map((b) => (b.kind === kind && !b.brief ? { ...b, brief: { heading, text: body, at, ...(final || owedFinal ? { final: true } : {}) } } : b));
   if (!beside({ kind }) && briefed.phase !== PLANNER_PHASE[kind]) {
     leaveNew(briefed);
     briefed.phase = PLANNER_PHASE[kind];
@@ -965,7 +973,7 @@ export async function writeBrief(site, key, { kind, file, final }) {
   // board's auto pass, which launches the agent.
   if (!tapped) await appendCommand(site, key, { command: `${kind}-started` });
   await appendEvent({ dir: site }, 'brief-written', { key, kind });
-  return { heading, lines: [`${name}: "${heading}" added to its notes; the board launches its ${{ [VISUAL]: 'visual agent', [REVIEWER]: 'reviewer' }[kind] ?? `${kind} planner`} from it`] };
+  return { heading, lines: [`${name}: "${heading}" added to its notes; the board launches its ${{ [VISUAL]: 'visual agent', [REVIEWER]: 'reviewer' }[kind] ?? `${kind} planner`} from it${kind === VISUAL && (final || owedFinal) ? "; it is a final visual: its page marks the task's Implement and no confirm question is asked" : ''}`] };
 }
 // The card's oldest written brief of kind taken off the card, once the agent's record holds it (startPlanner, startVisual).
 export async function dropBrief(site, key, kind) {
