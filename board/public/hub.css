@@ -114,6 +114,13 @@
 .hub-view .hub-setting:disabled { cursor: default; opacity: .6; }
 .hub-view .hub-setting .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hub-view .hub-modal .settings-body { padding-top: 2px; }
+/* The hub page has no pane beside it, so from 900px its sheets are centred modals with a backdrop, not the right pane (docs/adr/2026-11-18-0415-one-standard-sheet-size.md). */
+@media (min-width: 900px) {
+  .hub-view .hub-modal.settings-modal { inset: 0; margin: auto; width: min(680px, calc(100% - 48px)); height: fit-content; max-height: calc(100dvh - 48px);
+    border-width: 1px; border-radius: 18px; box-shadow: 0 20px 70px #0004; }
+  .hub-view .hub-modal.settings-modal[open] { animation: none; }
+  .hub-view .hub-modal.settings-modal.closing { animation: none; }
+}
 .hub-view .hub-modal .setting-content > .label:first-child { margin-top: 14px; }
 .hub-view .hub-modal .setting-content > .group:first-child { margin-top: 16px; }
 .hub-view .hub-modal .rules-box { margin-top: 14px; }
