@@ -263,7 +263,7 @@ test('start runs claude --bg in the folder, in auto mode with isolation off, and
   assert.deepEqual(call.argv, ['--bg', '--name', 'Shop', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus', "/kickflip board 'Shop' Pick up INT-9"]);
   const settings = JSON.parse(BG_SETTINGS);
   assert.deepEqual(Object.keys(settings), ['worktree', 'permissions', 'hooks']);
-  assert.deepEqual([settings.worktree, settings.permissions, Object.keys(settings.hooks)], [{ bgIsolation: 'none' }, { allow: ['Bash(kickflip doctor)'], deny: ['Workflow'] }, ['PermissionRequest', 'PermissionDenied']]);
+  assert.deepEqual([settings.worktree, settings.permissions, Object.keys(settings.hooks)], [{ bgIsolation: 'none' }, { allow: ['Bash(kickflip doctor)'], deny: ['Workflow'] }, ['PermissionRequest', 'PermissionDenied', 'Stop']]);
   const [{ matcher: deniedMatcher, hooks: [denied, ...moreDenied] }] = settings.hooks.PermissionDenied;
   assert.deepEqual([deniedMatcher, denied.type, moreDenied], ['Bash', 'command', []]);
   assert.equal(denied.command, `"${nodeBin()}" "${path.join(SKILL, 'hub', 'permission-denied-hook.mjs')}"`);

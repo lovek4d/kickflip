@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const home = fs.realpathSync(tempDir('start-signals-'));
@@ -96,4 +97,22 @@ test("each prompt a starting session raises goes in the hub's audit log with its
 
 test('a started session may run kickflip doctor without a prompt, but not its --fix', () => {
   assert.deepEqual(JSON.parse(BG_SETTINGS).permissions, { allow: ['Bash(kickflip doctor)'], deny: ['Workflow'] });
+});
+
+test("a board session's settings carry the watcher Stop hook, which blocks a turn's end with no watcher and names the relaunch", () => {
+  const [{ hooks: [hook, ...more] }, ...groups] = JSON.parse(BG_SETTINGS).hooks.Stop;
+  assert.deepEqual([hook.type, more, groups], ['command', [], []]);
+  const dir = path.join(home, '.claude', 'kickflip', 'sites', 'orch');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: { orch: { dir, port: 1, cmd: [process.execPath, '/skill/board/server.mjs', dir], owner: { session: 's-orch' } } } }));
+  const stop = (session) => {
+    const input = JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false, background_tasks: [], session_id: session });
+    const r = spawnSync('/bin/sh', ['-c', hook.command], { input, env: { ...process.env, HOME: home }, encoding: 'utf8' });
+    assert.deepEqual([r.status, r.stderr], [0, '']);
+    return r.stdout ? JSON.parse(r.stdout) : null;
+  };
+  const blocked = stop('s-orch');
+  assert.equal(blocked.decision, 'block');
+  assert.match(blocked.reason, /Relaunch it as a background Bash task, then end your turn: \/orch: \S+ \S+wait-events\.mjs orch s-orch$/);
+  assert.equal(stop('s-other'), null);
 });

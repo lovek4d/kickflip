@@ -129,7 +129,10 @@ export function logStartPrompt(input, { manifest = readManifest(), now = new Dat
 // (docs/adr/2026-11-04-0036-a-board-session-never-stalls-on-a-workflow-prompt.md). The allow rule lets a session run
 // `kickflip doctor`, which only reads, without a prompt, since a starting session that checks a failed step with it
 // would otherwise stall on one (docs/adr/2026-11-16-2300-a-starting-board-shows-its-sessions-liveness-activity-and-prompt.md);
-// `--fix` still asks. The hub service's PATH may have no
+// `--fix` still asks. The Stop hook keeps a board's session from ending a turn while its board has no watcher
+// (hooks-plugin/hooks/watcher-stop.mjs); it comes with every session the hub launches, so the guard holds whatever the
+// host's settings.json carries (docs/adr/2026-11-19-1310-the-hub-gives-every-board-session-the-watcher-stop-hook.md).
+// The hub service's PATH may have no
 // node, hence a full path.
 export const PROMPT_HOOK_TIMEOUT_S = WAIT_MS / 1000 + 60;
 export const BG_SETTINGS = JSON.stringify({
@@ -138,6 +141,7 @@ export const BG_SETTINGS = JSON.stringify({
   hooks: {
     PermissionRequest: [{ matcher: '*', hooks: [{ type: 'command', command: `"${nodeBin()}" "${path.join(SKILL_DIR, 'hub', 'permission-hook.mjs')}"`, timeout: PROMPT_HOOK_TIMEOUT_S }] }],
     PermissionDenied: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `"${nodeBin()}" "${path.join(SKILL_DIR, 'hub', 'permission-denied-hook.mjs')}"`, timeout: 15 }] }],
+    Stop: [{ hooks: [{ type: 'command', command: `"${nodeBin()}" "${path.join(SKILL_DIR, 'hooks-plugin', 'hooks', 'watcher-stop.mjs')}"` }] }],
   },
 });
 
