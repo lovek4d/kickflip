@@ -122,17 +122,14 @@ export const storedTickets = (value) => { try { return value ? ticketSource(valu
 // entry, `hub: true`) off unless true (opensPRs; docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md,
 // docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md), tickets, its one
 // ticket source, and github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md),
-// tool_use, normal unless high (docs/adr/2026-11-14-1500-a-tool-use-setting-sets-how-readily-the-orchestrator-uses-tools.md),
 // and build_target, the `.kickflip/build-<target>` the hub runs, absent for `.kickflip/build`
 // (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md), and scripts, kickflip when the
 // board runs its scripts from its site's scripts/, absent for the repo's .kickflip/
 // (docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md).
-const TOOL_USE = ['normal', 'high'];
 export const settingsOf = (cfg, board) => {
   const tickets = storedTickets(cfg?.tickets);
   return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_review: cfg?.auto_review === true,
     idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true, prs: board?.hub ? cfg?.prs === true : cfg?.prs !== false,
-    tool_use: cfg?.tool_use === 'high' ? 'high' : 'normal',
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}),
     ...(validBuildTarget(cfg?.build_target) ? { build_target: cfg.build_target } : {}),
     ...(kickflipHeld(cfg) ? { scripts: 'kickflip' } : {}) };
@@ -225,15 +222,17 @@ export async function refuseSecondProposal(site, title) {
 // listBoards entry or hub/board-repo.mjs boardRepo's answer, settings settingsOf's.
 export const opensPRs = (board, settings) => Boolean(board?.github) && (!board.local || board.hub === true) && settings.prs;
 
-// changes {auto_merge?: boolean, auto_build?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tool_use?: 'normal' | 'high', tickets?: source, github_login?: login | null, build_target?: target | null, scripts?: 'repo' | 'kickflip'} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null, build_target?: target | null, scripts?: 'repo' | 'kickflip'} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
-// then pushes main (permissions.mjs pushMain). Each save drops claude_model, a board's old Builders choice, which
+// then pushes main (permissions.mjs pushMain). Each save drops tool_use, the retired Tool use setting, which nothing
+// reads since the orchestrator always works as High (docs/adr/2026-11-19-1000-the-orchestrator-always-works-as-high.md),
+// and claude_model, a board's old Builders choice, which
 // nothing reads since models are the hub's alone (docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md),
 // and max_implementers and max_serves, its old Maximum tasks in progress and Maximum parallel serves, which are the
 // hub's alone (docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md,
 // docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md).
 export async function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'tickets', 'github_login', 'build_target', 'scripts'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login', 'build_target', 'scripts'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -254,8 +253,6 @@ export async function saveBoardSettings(site, changes) {
     } else if (k === 'scripts') {
       if (!['repo', 'kickflip'].includes(v)) fail('scripts must be repo or kickflip');
       if (v === 'repo') changes.scripts = undefined;
-    } else if (k === 'tool_use') {
-      if (!TOOL_USE.includes(v)) fail('tool_use must be normal or high');
     } else bool(v, k);
   }
   if (changes.prs === false) {
@@ -268,7 +265,7 @@ export async function saveBoardSettings(site, changes) {
     const before = settingsOf(cfg, board);
     from = before.scripts || 'repo';
     const settings = settingsOf({ ...cfg, ...changes }, board);
-    return { set: { ...changes, claude_model: undefined, max_implementers: undefined, max_serves: undefined }, settings, changed: Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])) };
+    return { set: { ...changes, claude_model: undefined, tool_use: undefined, max_implementers: undefined, max_serves: undefined }, settings, changed: Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])) };
   });
   // A move of the scripts' home keeps an on Run release script switch on, for the new home's release script.
   const folder = saved.changed.includes('scripts') ? listBoards().find((b) => samePath(b.dir, site))?.owner?.repo : null;
@@ -293,7 +290,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'github_login', 'tickets', 'build_target', 'scripts'];
+  const names = ['auto_merge', 'auto_build', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets', 'build_target', 'scripts'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -313,15 +310,11 @@ export async function setBoardSetting(site, name, value) {
     const { file, settings } = await saveBoardSettings(site, { scripts: value });
     return { file, lines: [`scripts ${settings.scripts || 'repo'}`] };
   }
-  if (key === 'tool_use') {
-    const { file, settings } = await saveBoardSettings(site, { tool_use: value });
-    return { file, lines: [`tool-use ${settings.tool_use}`] };
-  }
   if (!['on', 'off'].includes(value)) fail(`settings set ${name} takes on or off, not "${value}"`);
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
 }
-export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || k === 'tool_use' ? v : k === 'scripts' ? v || 'repo' : k === 'build_target' ? v || 'default' : v ? 'on' : 'off'}`);
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' ? v : k === 'scripts' ? v || 'repo' : k === 'build_target' ? v || 'default' : v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {

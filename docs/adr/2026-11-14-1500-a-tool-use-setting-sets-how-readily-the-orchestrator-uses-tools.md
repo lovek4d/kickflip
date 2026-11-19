@@ -1,5 +1,7 @@
 # A Tool use setting sets how readily the orchestrator uses tools
 
+Status: superseded by [the orchestrator always works as High](2026-11-19-1000-the-orchestrator-always-works-as-high.md)
+
 The owner (T-168) wanted the orchestrator "a little more proactive with using its tools" in a discussion, as a setting. Asked for the levels, they chose two, "Normal and high", and that at the higher level it "should be able to do these in general": launch a visual, grill or prototype itself.
 
 **`tool_use` is a board setting in board.json, `normal` or `high`, `normal` when absent** (`store.mjs` settingsOf, saveBoardSettings, `settings set tool-use`). Every new and existing board starts at Normal. Anything but `high` reads as `normal`.

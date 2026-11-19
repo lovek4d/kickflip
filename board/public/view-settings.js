@@ -61,12 +61,6 @@
     <span class="muted small sub">Claude reviews teammates’ PRs that touch this board’s work. May use a lot of usage.</span></span>
     <input type="checkbox" class="toggle" id="autoReview" disabled></label>
   <p class="muted small" id="autoReviewStatus" role="status"></p>
-  <div class="who"><span><span>Tool use</span>
-    <span class="muted small sub" id="toolUseSub"></span></span>
-    <span role="group" class="share-level" id="toolUse" aria-label="Tool use">
-      <button type="button" data-tool-use="normal" aria-pressed="true" disabled>Normal</button>
-      <button type="button" data-tool-use="high" aria-pressed="false" disabled>High</button></span></div>
-  <p class="muted small" id="toolUseStatus" role="status"></p>
   <label class="who" for="autoMerge"><span><span>Auto-merge</span>
     <span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch.</span></span>
     <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
@@ -243,19 +237,6 @@
       merge: { set: { prs: false }, sub: 'No PR opens: each task lands on the base branch and the base branch is pushed.', saved: 'Saved. Each task lands on the base branch with no PR, and the base branch is pushed.' },
     };
     let landing = 'draft';
-    // Tool use (docs/adr/2026-11-14-1500-a-tool-use-setting-sets-how-readily-the-orchestrator-uses-tools.md): a tap saves
-    // at once, the help line following the saved level.
-    const TOOL_USE = {
-      normal: { sub: 'Discusses first; a visual, grill or prototype when clearly useful.', saved: 'Saved. Claude discusses first and starts a visual, grill or prototype when clearly useful.' },
-      high: { sub: 'Draws visuals and starts grills and prototypes on its own while discussing.', saved: 'Saved. Claude starts visuals, grills and prototypes on its own while discussing.' },
-    };
-    let toolUse = 'normal';
-    const toolUseButtons = () => Object.keys(TOOL_USE).map((value) => $(`[data-tool-use="${value}"]`));
-    const showToolUse = () => {
-      $('#toolUseSub').textContent = TOOL_USE[toolUse].sub;
-      for (const button of toolUseButtons()) button.setAttribute('aria-pressed', String(button === $(`[data-tool-use="${toolUse}"]`)));
-    };
-    showToolUse();
     const landingButtons = () => Object.keys(LANDING).map((value) => $(`[data-landing="${value}"]`));
     const landingOf = (settings) => (settings?.prs === false ? 'merge' : settings?.skip_draft === true ? 'ready' : 'draft');
     const opensPRs = () => Boolean(repo.github) && (!repo.local || Boolean(repo.hub)) && landing !== 'merge';
@@ -525,9 +506,6 @@
       $('#autoReview').disabled = false;
       $('#idleNotification').checked = d.settings?.idle_notification === true;
       $('#idleNotification').disabled = false;
-      toolUse = d.settings?.tool_use === 'high' ? 'high' : 'normal';
-      showToolUse();
-      for (const button of toolUseButtons()) button.disabled = false;
       landing = landingOf(d.settings);
       for (const button of landingButtons()) button.disabled = false;
       syncPRs();
@@ -779,20 +757,6 @@
     });
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
-    for (const want of Object.keys(TOOL_USE)) B.on($(`[data-tool-use="${want}"]`), 'click', async () => {
-      const button = $(`[data-tool-use="${want}"]`);
-      if (want === toolUse) return;
-      try {
-        const settings = await saveToggle(button, { tool_use: want }, { group: toolUseButtons() });
-        if (!B.alive()) return;
-        toolUse = settings.tool_use;
-        showToolUse();
-        $('#toolUseStatus').textContent = TOOL_USE[toolUse].saved;
-      } catch (err) {
-        if (!B.alive()) return;
-        $('#toolUseStatus').textContent = err.message || 'Could not save. Is the host awake?';
-      }
-    });
     // A Landing tap saves at once with no confirmation, its choice's settings in one POST. Merge needs Push main after a
     // land, which the server checks; its refusal shows in the status line and the saved choice stays pressed.
     for (const want of Object.keys(LANDING)) B.on($(`[data-landing="${want}"]`), 'click', async () => {

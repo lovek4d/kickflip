@@ -297,7 +297,7 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set turns each on|off setting on and off in board.json, keeping its other keys", async () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true,"tool_use":"normal"}\n', err: '' });
+  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
   for (const name of ['auto-merge', 'auto-build', 'auto-review', 'skip-draft', 'idle-notification']) {
     const before = cfg();
@@ -352,14 +352,15 @@ test("settings prints the board's settings as JSON, off when absent, and setting
   assert.deepEqual(await board('settings', 'set', 'scripts', 'repo', '--site', 'orch'), { code: 0, out: 'scripts repo\n', err: '' });
   assert.ok(!('scripts' in cfg()));
 
-  // docs/adr/2026-11-14-1500-a-tool-use-setting-sets-how-readily-the-orchestrator-uses-tools.md
-  assert.equal(JSON.parse((await board('settings', '--site', 'orch')).out).tool_use, 'normal');
-  assert.deepEqual(await board('settings', 'set', 'tool-use', 'high', '--site', 'orch'), { code: 0, out: 'tool-use high\n', err: '' });
-  assert.equal(cfg().tool_use, 'high');
-  assert.equal(JSON.parse((await board('settings', '--site', 'orch')).out).tool_use, 'high');
-  assert.match((await board('settings', 'set', 'tool-use', 'extra', '--site', 'orch')).err, /tool_use must be normal or high/);
-  assert.equal(cfg().tool_use, 'high');
-  assert.equal((await board('settings', 'set', 'tool-use', 'normal', '--site', 'orch')).code, 0);
+  // docs/adr/2026-11-19-1000-the-orchestrator-always-works-as-high.md
+  assert.ok(!('tool_use' in JSON.parse((await board('settings', '--site', 'orch')).out)));
+  const noToolUse = await board('settings', 'set', 'tool-use', 'high', '--site', 'orch');
+  assert.equal(noToolUse.code, 1);
+  assert.match(noToolUse.err, /no board setting "tool-use"; settings are .*scripts/);
+  write(site('orch', 'board.json'), { ...cfg(), tool_use: 'high' });
+  assert.ok(!('tool_use' in JSON.parse((await board('settings', '--site', 'orch')).out)));
+  assert.equal((await board('settings', 'set', 'auto-merge', 'off', '--site', 'orch')).code, 0);
+  assert.ok(!('tool_use' in cfg()));
 
   const bad = [
     [['settings'], 1, /needs --site/],
@@ -540,8 +541,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting tool-use normal', 'setting github-login owner']);
-  assert.deepEqual(settingsLines(settingsOf({ tool_use: 'high' })).slice(-1), ['setting tool-use high']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });
