@@ -8274,7 +8274,7 @@ test("the board menu's Repo review opens the review sheet, Pause opens the durat
   const $ = (s) => b.root.querySelector(s);
   const openMenu = () => { if ($('#boardMenu').hidden) b.page.fire($('#boardMenuOpen'), 'click', { target: $('#boardMenuOpen') }); };
   openMenu();
-  assert.match($('#boardMenu').textContent, /Join in terminal[\s\S]*Settings[\s\S]*Repo review[\s\S]*No review yet[\s\S]*Pause[\s\S]*Running/);
+  assert.match($('#boardMenu').textContent, /Join in terminal[\s\S]*Repo review[\s\S]*No review yet[\s\S]*Pause[\s\S]*Running[\s\S]*Settings/);
   b.page.fire($('#boardMenu'), 'click', { target: $('[data-arch-sheet]') });
   assert.deepEqual([$('#boardMenu').hidden, $('#archSheet').open], [true, true]);
   $('#archSheet').close();

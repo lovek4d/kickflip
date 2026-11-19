@@ -120,18 +120,17 @@
   const COPY = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
   const PAUSE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14"/><path d="M15 5v14"/></svg>';
   const PLAY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4.5v15l12-7.5Z"/></svg>';
-  // The board menu's rows, in order: Join in terminal with the session's state on its right; Settings, the link the shell
-  // opens as Board Settings (aria-disabled until `settings`, the header's controls, is on); Repo review (the bulb), absent
+  // The board menu's rows, in order: Join in terminal with the session's state on its right; Repo review (the bulb), absent
   // while the board has no repo, with arch {running, at} saying whether a review runs or when the last one was; Pause or
   // Resume, with pause {paused, mine, words}: paused is the board's gate holding, mine that the owner's Pause board holds it,
   // words when it ends. A pause that isn't the board's own is shown but can't be tapped, as Resume wouldn't end it.
+  // Settings is last: the link the shell opens as Board Settings (aria-disabled until `settings`, the header's controls, is on).
   const boardMenu = (state, { settings = true, arch = null, pause = null } = {}) => {
     const { iconText, GEAR, BULB } = globalThis.BoardUI;
     const s = JOIN_STATES[state];
     const row = (attrs, icon, name, right, tag = 'button') => `<${tag} role="menuitem" class="board-menu-item" ${attrs}>${icon}<span>${name}</span>${right}</${tag}>`;
     const chevron = '<span class="it chev" aria-hidden="true">›</span>';
     const rows = [row('type="button" data-join-open', TERMINAL, 'Join in terminal', iconText('dot', s.colour, s.row || s.word))];
-    rows.push(row(`href="settings.html" id="settingsLink" aria-haspopup="dialog"${settings ? '' : ' aria-disabled="true" tabindex="-1"'}`, GEAR, 'Settings', chevron, 'a'));
     if (arch) {
       const day = new Date(arch.at).toLocaleDateString([], { month: 'short', day: 'numeric' });
       rows.push(row('type="button" data-arch-sheet aria-haspopup="dialog"', BULB, 'Repo review', arch.running ? iconText('dot', 'orange', 'Running') : iconText('dot', 'grey', arch.at ? `Last review ${day}` : 'No review yet')));
@@ -141,6 +140,7 @@
         : pause.mine ? row('type="button" data-pause-resume', PLAY, 'Resume', iconText('dot', 'grey', `Paused ${pause.words}`))
         : row('type="button" aria-disabled="true" disabled', PAUSE, 'Pause', iconText('dot', 'grey', `Paused ${pause.words}`)));
     }
+    rows.push(row(`href="settings.html" id="settingsLink" aria-haspopup="dialog"${settings ? '' : ' aria-disabled="true" tabindex="-1"'}`, GEAR, 'Settings', chevron, 'a'));
     return rows.join('');
   };
   // The sheet's inside: the state, the command with Copy (greyed with Wake while asleep, Wake's spinner with no text
