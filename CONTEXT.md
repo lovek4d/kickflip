@@ -126,8 +126,12 @@ The person the sites serve, and the only one the hub and its try ports answer: a
 _Avoid_: user, admin, shared person, guest, viewer
 
 **Sign-in**:
-The owner's proof on a device: a cookie the device gets by opening a link `kickflip sign-in` prints, which lasts ten minutes and signs in one device; `kickflip sign-out` signs every device out. The hub, its try ports and each board server check it on every request. Without it a browser gets the sign-in page, and a process on the host (the CLI, hooks, builders, the hub's own calls) only the **agent paths**: builds, prompts, status and the events agents post, never an owner tap, answer, script Run or setting. The app's code and a preview's files load without it ([the owner signs in with a link that sets a device cookie](docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md)).
+The owner's proof on a device: a cookie the device gets by typing a **PIN** on the sign-in page; `kickflip unlink` signs one device out and `kickflip sign-out` every device. The hub, its try ports and each board server check it on every request. Without it a browser gets the sign-in page, and a process on the host (the CLI, hooks, builders, the hub's own calls) only the **agent paths**: builds, prompts, status and the events agents post, never an owner tap, answer, script Run or setting. The app's code and a preview's files load without it ([the owner signs in with a link that sets a device cookie](docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md)).
 _Avoid_: login, session, token
+
+**PIN**:
+Eight digits that sign in one device within 60 seconds, from `kickflip link` or a signed-in hub page's Sign in a device. A device's third wrong PIN voids every live PIN and **blocks** that device, its tailnet node or else its address, until `kickflip unblock` ([a device signs in with a 60-second PIN, and three misses block it](docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md)).
+_Avoid_: code, OTP, sign-in link
 
 **Board session**:
 A board's owning session as the manifest records it in the site's owner: its id, its folder (`repo`, where `claude --resume` finds it) and an optional model. `kickflip start` launches one in the background; `kickflip resume` brings it back and records the id it comes back under. A rejoin keeps the label, model and folder it leaves out.

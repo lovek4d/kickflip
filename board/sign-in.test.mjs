@@ -5,12 +5,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { startBoard } from '../shared/test-helpers.mjs';
-import { SIGN_IN_COOKIE, makeSignInLink, redeemSignIn, signedIn } from '../shared/owner-sign-in.mjs';
+import { SIGN_IN_COOKIE, makePin, redeemPin, signedIn } from '../shared/owner-sign-in.mjs';
 
 let base, cookie;
 const site = path.join(home, 'site');
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
-const SIGN_IN = { error: 'Sign in first: run kickflip sign-in on the hub’s Mac and open the link it prints.' };
+const SIGN_IN = { error: 'Sign in first: run kickflip link on the hub’s Mac and type the PIN it prints.' };
 
 before(async () => {
   write(path.join(site, 'board.json'), { title: 'T', items: 'data/items.json', slug: 't' });
@@ -20,7 +20,7 @@ before(async () => {
   write(path.join(site, 'public', 'prototypes', 'p', 'A.js'), 'export function render() {}');
   // eslint-disable-next-line no-undef
   process.env.KICKFLIP_CLAUDE = 'true';
-  cookie = `${SIGN_IN_COOKIE}=${await redeemSignIn(await makeSignInLink({ home }), { home })}`;
+  cookie = `${SIGN_IN_COOKIE}=${(await redeemPin((await makePin({ home })).pin, { key: 'ip:test' }, { home })).device}`;
 });
 
 const start = async (t) => {

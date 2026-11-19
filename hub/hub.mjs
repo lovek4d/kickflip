@@ -170,10 +170,15 @@
 // (docs/adr/2026-11-18-0700-the-hub-has-no-sharing-only-the-owners-tailnet-identity-gets-in.md).
 // Then every request and upgrade needs the owner's sign-in cookie (../shared/owner-sign-in.mjs), but the app's code and
 // icons, a process on this host's agent paths (AGENT_PATHS), another of the owner's hubs on /_hub/peer/*, and a board site's paths, whose server checks them; without
-// it a browser gets front-door.mjs's sign-in page (401)
+// it a browser gets front-door.mjs's sign-in page (401), or its blocked page (403) from a client blocked for wrong PINs
 // (docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md).
-//   /_hub/sign-in     GET ?t=<token>, from `kickflip sign-in`'s link: the page asking to sign in, which uses nothing up;
-//                     POST {link, next} form-encoded from it: uses the link up, sets the device's cookie and 303s to next
+//   /_hub/sign-in     GET: the PIN page, or / for a signed-in device; POST {pin, next} form-encoded from it: a live PIN
+//                     sets the device's cookie and 303s to next; a wrong one answers the page with the tries left, and
+//                     the third the blocked page (docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md)
+//   /_hub/pins        POST → {pin, until, address}: a new 60-second PIN for Sign in a device, and the hub's address;
+//                     /_hub/pins/<pin> DELETE voids it as the dialog closes
+//   /_hub/devices     GET → {devices: [{id, name, ip, at, seen, me}]}, the signed-in devices, me on the asking one;
+//                     /_hub/devices/<id> DELETE signs that device out
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
 // /_hub/build, /_hub/kill, /_hub/pull and /_hub/peers/* also require loopback and refuse Origin and forwarded headers.
@@ -280,9 +285,10 @@ import { draftOf, readDrafts, saveDraft } from '../board/drafts.mjs';
 import { fallBackFromLinear } from '../board/settings.mjs';
 import { runMigrations } from '../board/migrations.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
-import { hubGate } from '../board/on-host.mjs';
+import { clientIdentity, hubGate } from '../board/on-host.mjs';
+import { hubUrl, localUrl } from '../shared/tailnet.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade, safeNext } from './front-door.mjs';
-import { agentCaller, redeemSignIn, signInCookie, signedIn as ownerSignedIn, tokenOf, withoutOwnerCookie } from '../shared/owner-sign-in.mjs';
+import { agentCaller, deviceIdOf, devicesOf, isBlocked, makePin, noteSeen, redeemPin, removeDevice, signInCookie, signedIn as ownerSignedIn, voidPin, withoutOwnerCookie } from '../shared/owner-sign-in.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { POLLS, CLOCKS, dueOn } from '../shared/polls.mjs';
@@ -306,6 +312,13 @@ const USAGE_SETTINGS = {
 };
 
 const stampedLog = (...a) => console.log(new Date().toISOString(), ...a);
+
+// A User-Agent → "<browser> on <OS>", what a device with no tailnet node name reads in Devices, or '' for one it can't read.
+export function browserOf(ua = '') {
+  const os = [['iPhone', /iPhone/], ['iPad', /iPad/], ['Android', /Android/], ['Mac', /Macintosh/], ['Windows', /Windows/], ['Linux', /Linux/]].find(([, re]) => re.test(ua))?.[0];
+  const browser = [['Edge', /Edg\//], ['Firefox', /Firefox\/|FxiOS/], ['Chrome', /Chrome\/|CriOS/], ['Safari', /Safari\//]].find(([, re]) => re.test(ua))?.[0];
+  return os && browser ? `${browser} on ${os}` : os || browser || '';
+}
 
 // docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
 // The hub's paths a browser reads with no cookie (startHub needOf 'open'), beside /_hub/icon-*.png and /_hub/app/.
@@ -389,7 +402,7 @@ function fromLoopback(req) {
 // poll and outbox (the peer outbox's retry) run one pass and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a
 // request, is done; close() stops every site and the server; shutdown() runs close(), at most STOP_WITHIN, then exit(0),
 // as the hub does on SIGTERM and to restart itself.
-export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, peers = tailnetPeers, signedIn = (req) => ownerSignedIn(req), awake = caffeinate({ log }), ticks = true, exit = (code) => process.exit(code) } = {}) {
+export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, answers = httpProbe, readMachine = readMac, gate = hubGate, peers = tailnetPeers, signedIn = (req) => ownerSignedIn(req), identify = clientIdentity(), awake = caffeinate({ log }), ticks = true, exit = (code) => process.exit(code) } = {}) {
   const HOME = path.join(os.homedir(), '.claude', 'kickflip');
   const MANIFEST = path.join(HOME, 'manifest.json');
   const LOGS = path.join(HOME, 'logs');
@@ -1287,6 +1300,20 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     };
     const json = wantsJSON(req);
     const p = url.pathname;
+    // docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
+    if (p === '/_hub/pins' && req.method === 'POST') {
+      let address;
+      try { address = hubUrl('', { port: PORT }); } catch { address = localUrl('', PORT); }
+      return sendJSON(200, { ...await makePin(), address });
+    }
+    const pin = /^\/_hub\/pins\/(\d{8})$/.exec(p);
+    if (pin && req.method === 'DELETE') return sendJSON(200, { voided: await voidPin(pin[1]) });
+    if (p === '/_hub/devices' && req.method === 'GET') {
+      const me = deviceIdOf(req);
+      return sendJSON(200, { devices: devicesOf().map((d) => ({ ...d, me: d.id === me })) });
+    }
+    const device = /^\/_hub\/devices\/([\w-]+)$/.exec(p);
+    if (device && req.method === 'DELETE') return await removeDevice(device[1]) ? sendJSON(200, { removed: true }) : sendJSON(404, { error: 'That device isn’t signed in.' });
     const closing = /^\/_hub\/close-board\/([a-z0-9-]+)$/.exec(p);
     if (closing && req.method === 'GET') {
       try { return sendJSON(200, await boardClosure(closing[1])); }
@@ -1893,8 +1920,9 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       const url = requestURL(req);
       if (url.pathname === '/_hub/sign-in') return signIn(req, res, url).catch((e) => { if (!res.headersSent) res.writeHead(e.status || 500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
       const need = needOf(req, url);
-      if (need === 'open' || need === 'peer' || need === 'board' || (need === 'agent' && agentCaller(req)) || signedIn(req)) serve(req, res);
-      else refuse(req, res, 'signed-out');
+      if (need === 'open' || need === 'peer' || need === 'board' || (need === 'agent' && agentCaller(req))) return serve(req, res);
+      if (signedIn(req)) { track(noteSeen(req).catch((e) => log(`sign-in: last seen not written: ${e.message}`))); return serve(req, res); }
+      return identify(req).then((client) => refuse(req, res, isBlocked(client) ? 'blocked' : 'signed-out'));
     });
   });
 
@@ -1916,23 +1944,27 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return pageOf({ method: req.method, pathname: p, search: url.search, dest: destOf(req.headers), sites: new Set(Object.keys(served)) }) === 'shell' ? 'owner' : 'board';
   }
 
-  // GET, from a sign-in link: the page asking to sign in, the link's token filled in, since a link preview that loads it
-  // mustn't use it up. POST {link, next} from that page, form-encoded: uses the link up, sets the device's cookie and
-  // lands on next; a used or expired link gets the page again saying so.
+  // GET: the PIN page, or home for a signed-in device. POST {pin, next} from it, form-encoded: a live PIN sets the
+  // device's cookie and lands on next; a wrong one answers the page again with the tries left, and a blocked client the
+  // blocked page. Each refusal is logged with its reason and client.
   async function signIn(req, res, url) {
     if (req.method === 'GET' || req.method === 'HEAD') {
-      const token = tokenOf(url.searchParams.get('t'));
-      if (!token && signedIn(req)) { res.writeHead(302, { location: '/', 'cache-control': 'no-store' }).end(); return; }
-      refuse(req, res, token ? 'sign-in' : 'signed-out', { token, next: '/' });
+      if (signedIn(req)) { res.writeHead(302, { location: '/', 'cache-control': 'no-store' }).end(); return; }
+      refuse(req, res, isBlocked(await identify(req)) ? 'blocked' : 'signed-out', { next: '/' });
       return;
     }
     if (req.method !== 'POST') { res.writeHead(405).end(); return; }
     if (crossSite(req.headers)) { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }).end('Requests must come from the app’s own pages.'); return; }
     const form = new URLSearchParams(await readBody(req));
-    const device = await redeemSignIn(tokenOf(form.get('link')));
-    if (!device) { refuse(req, res, 'sign-in-failed', { next: safeNext(form.get('next')) }); return; }
+    const next = safeNext(form.get('next'));
+    const client = await identify(req);
+    const result = await redeemPin(form.get('pin'), client, { device: { name: client.name || browserOf(req.headers['user-agent']), ip: client.ip } });
+    const who = `${client.name || 'a device'} at ${client.ip}`;
+    if (result.blocked) { log(`sign-in: ${who} is blocked`); refuse(req, res, 'blocked', { next }); return; }
+    if (result.left) { log(`sign-in: wrong PIN from ${who}, ${result.left} left`); refuse(req, res, 'pin-wrong', { next, left: result.left }); return; }
+    log(`sign-in: ${who} signed in`);
     const secure = req.headers['x-forwarded-proto'] === 'https';
-    res.writeHead(303, { location: safeNext(form.get('next')), 'set-cookie': signInCookie(device, { secure }), 'cache-control': 'no-store' }).end();
+    res.writeHead(303, { location: next, 'set-cookie': signInCookie(result.device, { secure }), 'cache-control': 'no-store' }).end();
   }
 
   function serve(req, res) {

@@ -135,6 +135,27 @@
 .hub-view .closed-sheet .group { margin-top: 10px; }
 .hub-view .closed-sheet .closed-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .hub-view .hub-modal .sub .danger { color: var(--color-danger); }
+/* Sign in a device (view-hub.js) and Hub settings › Devices (view-hub-settings.js)
+   (docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md). The PIN's bar is
+   the accent's blue while it has time and the notice orange from 10 s left. */
+.hub-view .top .pin-open { margin-left: 6px; white-space: nowrap; }
+.hub-view .pin-content { padding: 14px 0 18px; }
+.hub-view .pin-say { margin: 14px 0 6px; color: var(--muted); }
+.hub-view .pin-say:first-child { margin-top: 0; }
+.hub-view .pin-addr { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); font-weight: 600; overflow-wrap: anywhere; user-select: all; }
+.hub-view .pin-digits { margin: 18px 0 12px; padding-left: .12em; text-align: center; font: 600 46px/1 var(--mono); letter-spacing: .12em; font-variant-numeric: tabular-nums; user-select: all; }
+@media (min-width: 900px) { .hub-view .pin-digits { font-size: 56px; } }
+.hub-view .pin-digits.fresh { animation: pin-fresh 1.2s; }
+@keyframes pin-fresh { from { color: var(--accent); } }
+.hub-view .pin-drain { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+.hub-view .pin-drain i { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width 1s linear; }
+.hub-view .pin-drain.low i { background: var(--color-notice); }
+.hub-view .pin-count { display: flex; justify-content: space-between; margin-top: 6px; color: var(--muted); font-size: 12px; }
+.hub-view .pin-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.hub-view .device-tag { margin-left: 6px; padding: 2px 7px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; }
+.hub-view .group > .row.device-confirm { flex-wrap: wrap; background: color-mix(in srgb, var(--color-danger) 8%, var(--panel)); font-size: 13px; }
+.hub-view .device-confirm > span { flex: 1; min-width: 150px; }
+.hub-view .device-confirm .btn.danger { color: var(--on-accent); background: var(--color-danger); border-color: var(--color-danger); }
 
 .hub-view .u-tone-ok { --u: var(--muted); }
 .hub-view .u-tone-high { --u: var(--color-notice); }

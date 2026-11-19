@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fromHost, ownerGate } from './on-host.mjs';
+import { clientIdentity, fromHost, ownerGate } from './on-host.mjs';
 
 // The headers tailscale serve sent live (docs/adr/2026-11-04-0236-the-hub-tells-the-hosts-browser-by-its-forwarded-address-then-its-tailnet-node.md):
 // X-Forwarded-For is the client's tailnet address, Tailscale-User-Login and Tailscale-User-Name its user; no node header.
@@ -105,4 +105,18 @@ test("with the tailnet off, only a loopback client is the host and the owner, an
   tailnetOn = true;
   assert.deepEqual(await both(served('100.70.1.2')), [false, 'owner']);
   assert.equal(asked, 2);
+});
+
+// docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
+test('a sign-in client is its tailnet node by name through tailscale serve, else its address', async () => {
+  const status = { Self: { TailscaleIPs: ['100.81.98.101'], DNSName: 'Studio.tail1234.ts.net.' }, Peer: { a: { TailscaleIPs: ['100.64.0.31', 'fd7a::1'], DNSName: 'pixel-8.tail1234.ts.net.' } } };
+  const identify = clientIdentity(async () => status);
+  const forwarded = (ip) => ({ headers: { 'x-forwarded-for': ip }, socket: { remoteAddress: '127.0.0.1' } });
+  assert.deepEqual(await identify(forwarded('100.64.0.31')), { key: 'node:pixel-8', name: 'pixel-8', ip: '100.64.0.31' });
+  assert.deepEqual(await identify(forwarded('100.81.98.101')), { key: 'node:studio', name: 'studio', ip: '100.81.98.101' });
+  assert.deepEqual(await identify(forwarded('100.64.9.9')), { key: 'ip:100.64.9.9', name: '', ip: '100.64.9.9' }, 'a node tailscale doesn\'t list');
+  assert.deepEqual(await clientIdentity(async () => null)(forwarded('100.64.0.31')), { key: 'ip:100.64.0.31', name: '', ip: '100.64.0.31' }, 'tailscale not answering');
+  let asked = false;
+  const loopback = await clientIdentity(async () => { asked = true; return status; })({ headers: {}, socket: { remoteAddress: '::ffff:127.0.0.1' } });
+  assert.deepEqual([loopback, asked], [{ key: 'ip:127.0.0.1', name: '', ip: '127.0.0.1' }, false], 'a loopback client asks no tailscale');
 });

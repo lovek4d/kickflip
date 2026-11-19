@@ -6,7 +6,7 @@ import net from 'node:net';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { makeSignInLink, redeemSignIn, SIGN_IN_COOKIE } from '../shared/owner-sign-in.mjs';
+import { makePin, redeemPin, SIGN_IN_COOKIE } from '../shared/owner-sign-in.mjs';
 
 const worktree = path.resolve(process.argv[3] || process.cwd());
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-try-'));
@@ -47,7 +47,7 @@ function writeJSON(file, value) {
 // The demo's own sign-in, made in its throwaway HOME: a device cookie its hub accepts. The try relay never passes the
 // owner's cookie to a card's app, so this front port, which the relay serves, gives every request the demo's own.
 async function demoCookie() {
-  const device = await redeemSignIn(await makeSignInLink({ home }), { home });
+  const { device } = await redeemPin((await makePin({ home })).pin, { key: 'demo', name: 'Demo' }, { home });
   return `${SIGN_IN_COOKIE}=${device}`;
 }
 

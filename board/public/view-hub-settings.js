@@ -9,6 +9,9 @@
 // A Closed boards row opens that board's detail sheet, stacked on the modal, whose Reopen and Delete each confirm, then
 // post to /_hub/reopen-board or /_hub/delete-board while the row reads reopening… or deleting…; a refusal shows under
 // the row with Retry (docs/adr/2026-11-18-2300-a-closed-board-can-be-deleted.md).
+// Devices lists the devices signed in with a PIN from GET /_hub/devices, read again with each refresh, and Remove, after
+// a confirm under its row, sends DELETE /_hub/devices/<id>
+// (docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md).
 (function () {
   // The last data, which a return to the view paints at once.
   let last = null;
@@ -77,7 +80,22 @@
   const reopenConfirm = (b) => `Reopen ${b.title}? /${b.route} and its port are taken back and its session starts.`;
   const deleteConfirm = (b) => `Delete ${b.title} for good?\n\nGoes: its closed entry, freeing /${b.route} and its port; its site folder with its tasks, threads, notes and visuals; its builders’ worktrees and local branches; and its clone in the hub’s repos folder unless another board uses it.\n\nKept: your own repo folder, anything another board still uses, and GitHub’s issues, PRs and branches.\n\nThis can’t be undone and touches no GitHub data.`;
 
-  const sections = [['pause', 'Pause hub'], ['notifications', 'Notifications'], ['appearance', 'Appearance'], ['quiet', 'Quiet hours'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
+  // docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
+  // Devices: a row per device signed in with a PIN (GET /_hub/devices), when it signed in and was last seen, this device
+  // tagged and its Remove off. Remove asks under its row first; confirmed, it reads removing… until the hub answers.
+  function deviceRows(devices, { confirming, removing }) {
+    const { ago } = BoardUI;
+    const row = (d) => {
+      const busy = removing === d.id;
+      const remove = `<button type="button" class="btn quiet${d.me ? '' : ' danger'}" data-device-remove="${esc(d.id)}"${d.me || removing ? ' disabled' : ''}>${busy ? 'Removing…' : 'Remove'}</button>`;
+      const ask = confirming === d.id && !busy ? `<div class="row device-confirm"><span>Remove <b>${esc(d.name)}</b>? It signs out on its next request.</span><button type="button" class="btn quiet" data-device-cancel>Cancel</button><button type="button" class="btn danger" data-device-confirm="${esc(d.id)}">Remove</button></div>` : '';
+      return `<div class="row"><span class="body"><span class="text"><span class="title">${esc(d.name)}${d.me ? '<span class="device-tag">This device</span>' : ''}</span><span class="sub">signed in ${esc(ago(d.at))} · seen ${esc(ago(d.seen))}</span></span></span>${remove}</div>${ask}`;
+    };
+    return `<p class="note">Signed in with a PIN. Removing one signs it out; it needs a new PIN to come back.</p><div class="group">${devices.map(row).join('')}</div>`
+      + '<p class="note">Name is the tailnet node; a device with none shows its browser and OS.</p>';
+  }
+
+  const sections = [['pause', 'Pause hub'], ['devices', 'Devices'], ['notifications', 'Notifications'], ['appearance', 'Appearance'], ['quiet', 'Quiet hours'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
   // Linear and Slack open from their Integrations rows, so they have modals and no summary rows.
   const keys = [['linear', 'Linear'], ['slack', 'Slack']];
   const sectionOf = (hash) => {
@@ -104,6 +122,11 @@
       let shownClosed = null;
       let pending = null;
       const failed = {};
+      // GET /_hub/devices's list, null until it first answers; the device whose Remove asks to confirm; the one being removed.
+      let devices = null;
+      let devicesOffline = false;
+      let confirming = null;
+      let removing = null;
       let active = null;
       let settingsURL = '/_hub/';
       let returnFocus = null;
@@ -142,6 +165,8 @@
               busy: (on) => LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), on) });
             if (active === 'slack') emojiSlot = SlackEmoji.mount(B.$('.slack-emoji'), { on: LinearKey.works(last.slack) });
           }
+        } else if (active === 'devices') {
+          content.innerHTML = devices ? deviceRows(devices, { confirming, removing }) : `<p class="note">${devicesOffline ? 'Offline. Is the host awake?' : 'Loading…'}</p>`;
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => closedRow(b, { pending, failed })).join('') : '<p class="note">No closed boards.</p>'}</div>`;
         }
@@ -156,6 +181,7 @@
         B.$('.settings-body').scrollTop = scrollTop;
         const summaries = {
           pause: last.pause.summary,
+          devices: devices ? `${devices.length} signed in` : devicesOffline ? 'Offline' : 'Loading…',
           notifications: [last.on.on ? 'Pushes on' : 'Pushes off', last.snoozed?.summary, last.weekends.on ? 'Off on weekends' : '', deviceSummary()].filter(Boolean).join(' · '),
           appearance: oled() ? 'OLED mode on' : 'OLED mode off',
           quiet: last.quiet.summary,
@@ -205,6 +231,7 @@
         emojiSlot?.destroy(); emojiSlot = null;
         content.innerHTML = '';
         rules = null;
+        confirming = null;
         active = null;
         if (restore && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
       }
@@ -223,6 +250,7 @@
             B.$('#hubSettingsTitle').textContent = [...sections, ...keys].find(([section]) => section === id)[1];
             B.$('.settings-head .muted').textContent = keys.some(([key]) => key === id) ? 'Integrations' : 'Hub settings';
             content.innerHTML = id === 'rules' ? '<div id="hubRules" class="rules-box"></div>' : '<p class="note">Loading…</p>';
+            if (id === 'devices') loadDevices();
             flash = null;
             paint();
             unfitModal = BoardDialogs.fitSheet(modal);
@@ -280,6 +308,35 @@
         pending = null;
         if (B.alive()) paint();
       }
+      // The signed-in devices, read with each settings refresh and after a Remove.
+      async function loadDevices() {
+        try {
+          const r = await fetch('/_hub/devices', { headers: { accept: 'application/json' } });
+          if (!r.ok) throw new Error();
+          devices = (await r.json()).devices;
+          devicesOffline = false;
+        } catch { devicesOffline = true; }
+        if (B.alive()) paint();
+      }
+      // Signs the device out (DELETE /_hub/devices/<id>); one already gone (404) drops off as the list reloads.
+      async function removeDevice(id) {
+        const name = devices.find((d) => d.id === id)?.name || 'that device';
+        removing = id;
+        confirming = null;
+        flash = null;
+        paint();
+        const r = await fetch(`/_hub/devices/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { accept: 'application/json' } }).catch(() => null);
+        if (!r?.ok && r?.status !== 404) flash = { text: `Could not remove ${name}. Is the host awake?`, error: true };
+        removing = null;
+        await loadDevices();
+      }
+      B.on(root, 'click', (e) => {
+        const remove = e.target.closest?.('[data-device-remove]');
+        if (remove) { confirming = remove.dataset.deviceRemove; paint(); return; }
+        if (e.target.closest?.('[data-device-cancel]')) { confirming = null; paint(); return; }
+        const confirm = e.target.closest?.('[data-device-confirm]');
+        if (confirm && !removing) removeDevice(confirm.dataset.deviceConfirm);
+      });
       B.on(root, 'click', async (e) => {
         if (e.target.closest?.('[data-closed-dismiss]')) { closedSheet.close(); return; }
         const opener = e.target.closest?.('[data-closed-open]');
@@ -331,8 +388,9 @@
           if (!d) { if (!last) top.innerHTML = '<p class="note">Offline. Is the host awake?</p>'; return; }
           last = d;
           paint();
+          loadDevices();
         },
-        busy: () => Boolean(pending) || device.busy() || forms.busy() || Boolean(root.querySelector('dialog[open], [data-dirty], input:focus, textarea:focus')),
+        busy: () => Boolean(pending) || Boolean(removing) || device.busy() || forms.busy() || Boolean(root.querySelector('dialog[open], [data-dirty], input:focus, textarea:focus')),
       });
       paint();
       B.openSettings(ctx.view);

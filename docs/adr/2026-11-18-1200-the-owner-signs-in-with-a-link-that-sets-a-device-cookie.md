@@ -4,6 +4,9 @@ status: accepted
 
 # The owner signs in with a link that sets a device cookie
 
+The link is replaced by a PIN: [a device signs in with a 60-second PIN, and three misses block it](2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md).
+The cookie and what needs it stand as below.
+
 Replaces the loopback-is-owner bullets of
 [only the signed-in owner changes permissions or restarts](2026-11-04-0502-only-the-signed-in-owner-changes-permissions-or-restarts.md)
 ("A direct loopback caller is the owner") and

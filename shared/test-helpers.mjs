@@ -59,8 +59,8 @@ export async function startBoard(t, options) {
 // Signs a device in on home, for a test whose board servers run as their own processes and check the sign-in for real:
 // from then on every fetch that sends no Cookie of its own sends that device's. → the Cookie header's value
 export async function signInFetches(home) {
-  const { SIGN_IN_COOKIE, makeSignInLink, redeemSignIn } = await import('./owner-sign-in.mjs');
-  const cookie = `${SIGN_IN_COOKIE}=${await redeemSignIn(await makeSignInLink({ home }), { home })}`;
+  const { SIGN_IN_COOKIE, makePin, redeemPin } = await import('./owner-sign-in.mjs');
+  const cookie = `${SIGN_IN_COOKIE}=${(await redeemPin((await makePin({ home })).pin, { key: 'ip:test' }, { home })).device}`;
   const plain = globalThis.fetch;
   globalThis.fetch = (input, init = {}) => {
     const headers = new Headers(init.headers);

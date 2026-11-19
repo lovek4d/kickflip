@@ -123,10 +123,13 @@
 //               the hub through init's daemon pick and records on, printing the hub's tailnet address or why it has none
 //               yet; exit 1, still off, with no Tailscale or a failed mapping. off unmaps / and the try ports and records
 //               off. status (the default) prints which, with the address; exit 1 when it's on with no tailnet address
-//   kickflip sign-in | sign-out
-//               sign-in prints a link that signs in the device that opens it, for ten minutes and one device: on this host,
-//               and while the tailnet is on, on the tailnet too. A signed-in device carries a cookie the hub, its try ports
-//               and every board check on each request (../shared/owner-sign-in.mjs). sign-out signs every device out
+//   kickflip link | devices | unlink [<name>] | unblock [<name>] | sign-out
+//               link prints the hub's address, the tailnet's while it's on, and an 8-digit PIN that signs in one device
+//               typed there within 60 seconds, a fresh one each 60 seconds while it runs; Ctrl-C voids the live one. A
+//               signed-in device carries a cookie the hub, its try ports and every board check on each request
+//               (../shared/owner-sign-in.mjs). devices lists the signed-in devices; unlink signs one out, and unblock
+//               lets in again a device its third wrong PIN blocked, each picked with fzf, or named. sign-out signs every
+//               device out
 //   kickflip restart [route]
 //               restarts the site at that route; with no route, restarts the hub through its service
 //   kickflip logs <route> [--lines <n>]
@@ -214,7 +217,7 @@ import { uninstallStatusLine, nodeBin, watcherCommand } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { tailscaleDaemon, tailscaleArgv, answeredBy } from '../shared/tailscale.mjs';
 import { tailnetOn, localUrl, hubUrl, unmapHub, turnOn, turnOff, tailnetStatus } from '../shared/tailnet.mjs';
-import { makeSignInLink, signOutEverywhere } from '../shared/owner-sign-in.mjs';
+import { blockedClients, devicesOf, makePin, removeDevice, signOutEverywhere, unblock, voidPin } from '../shared/owner-sign-in.mjs';
 import { runDoctor } from './doctor.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 
@@ -313,6 +316,32 @@ function tailnetHost() {
   } catch { return ''; }
 }
 const siteUrl = (route) => { const h = tailnetHost(); return h ? `https://${h}/${route}/` : localUrl(route, HUB_PORT); };
+
+// ms → how long ago, as "just now", "4m ago", "5h ago" or "2d ago"
+function ageOf(ms) {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  return minutes < 24 * 60 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / (24 * 60))}d ago`;
+}
+
+// docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
+// rows: [{id, line}]; name: what the command's argument named, matched against each row's names. → the row named, else
+// the row fzf picked (prompt, header), else null for none picked. Fails for a name no row or several rows have, and
+// with no name and no fzf.
+function pickRow(rows, name, names, { prompt, header }) {
+  if (name !== undefined) {
+    const found = rows.filter((r) => names(r).includes(name));
+    if (found.length !== 1) fail(`${found.length ? 'more than one' : 'nothing'} named ${name}:\n${rows.map((r) => r.line).join('\n')}`, 2);
+    return found[0];
+  }
+  const picked = spawnSync('fzf', ['--delimiter', '\t', '--with-nth', '2..', '--prompt', `${prompt} > `, '--header', header, '--no-sort'], {
+    input: rows.map((r) => `${r.id}\t${r.line}`).join('\n'), stdio: ['pipe', 'pipe', 'inherit'], encoding: 'utf8',
+  });
+  if (picked.error) fail(`fzf isn't installed: name one, such as kickflip ${prompt} ${names(rows[0])[0]}`, 2);
+  const id = picked.stdout.split('\t')[0];
+  return rows.find((r) => r.id === id) || null;
+}
 
 // The hub's status, or null when nothing answers on its port. A hub that is down refuses at once, so a slow one is
 // waited for (docs/adr/2026-11-13-2230-kickflip-waits-for-a-slow-hub.md).
@@ -923,18 +952,60 @@ const commands = {
     } catch (e) { fail(e.message); }
   },
 
-  // docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
-  async 'sign-in'() {
-    const token = await makeSignInLink();
-    out('Open this link on the device to sign in, within 10 minutes. It signs in one device.');
-    out(`${localUrl('', HUB_PORT)}_hub/sign-in?t=${token}`);
+  // docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
+  // In a terminal the PIN and its countdown redraw in place; piped, each PIN prints on a line of its own.
+  async link() {
     const host = tailnetHost();
-    if (host) out(`On the tailnet: https://${host}/_hub/sign-in?t=${token}`);
+    out(`Open  ${host ? `https://${host}/` : localUrl('', HUB_PORT)}`);
+    const tty = process.stdout.isTTY;
+    let live = null;
+    const stop = async () => {
+      if (live) await voidPin(live.pin);
+      out(`${tty ? '\n' : ''}PIN voided.`);
+      process.exit(0);
+    };
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
+    const spaced = (pin) => `${pin.slice(0, 4)} ${pin.slice(4)}`;
+    for (;;) {
+      live = await makePin();
+      if (!tty) out(`PIN   ${spaced(live.pin)}`);
+      for (let left = Math.ceil((live.until - Date.now()) / 1000); left > 0; left = Math.ceil((live.until - Date.now()) / 1000)) {
+        if (tty) process.stdout.write(`\r\x1b[2KPIN   ${spaced(live.pin)}   expires in ${left} s · a fresh PIN follows · Ctrl-C voids it`);
+        await new Promise((resolve) => setTimeout(resolve, Math.min(1000, live.until - Date.now())));
+      }
+    }
+  },
+
+  async devices() {
+    const devices = devicesOf();
+    if (!devices.length) { out('No device is signed in. Sign one in with kickflip link.'); return; }
+    for (const d of devices) out(`${d.name}  ${d.ip}  signed in ${ageOf(Date.now() - Date.parse(d.at))} · seen ${ageOf(Date.now() - Date.parse(d.seen))}`);
+  },
+
+  async unlink() {
+    const devices = devicesOf();
+    if (!devices.length) { out('No device is signed in.'); return; }
+    const rows = devices.map((d) => ({ id: d.id, name: d.name, line: `${d.name}\t${d.ip}\tsigned in ${ageOf(Date.now() - Date.parse(d.at))} · seen ${ageOf(Date.now() - Date.parse(d.seen))}` }));
+    const row = pickRow(rows, args._[0], (r) => [r.name, r.id], { prompt: 'unlink', header: 'enter removes the device · esc cancels' });
+    if (!row) { out('Nothing removed.'); return; }
+    await removeDevice(row.id);
+    out(`Removed ${row.name}.`);
+  },
+
+  async unblock() {
+    const blocked = blockedClients();
+    if (!blocked.length) { out('No device is blocked.'); return; }
+    const rows = blocked.map((b) => ({ id: b.key, name: b.name || b.ip, ip: b.ip, line: `${b.name || b.ip}\t${b.ip}\tlast attempt ${ageOf(Date.now() - b.at)}` }));
+    const row = pickRow(rows, args._[0], (r) => [r.name, r.ip, r.id], { prompt: 'unblock', header: 'enter unblocks · esc cancels' });
+    if (!row) { out('Nothing unblocked.'); return; }
+    await unblock(row.id);
+    out(`Unblocked ${row.name}${row.name === row.ip ? '' : ` (${row.ip})`}.`);
   },
 
   async 'sign-out'() {
     const n = await signOutEverywhere();
-    out(`Signed out ${n === 1 ? '1 device' : `${n} devices`}. Each needs kickflip sign-in again.`);
+    out(`Signed out ${n === 1 ? '1 device' : `${n} devices`}. Each needs a new PIN from kickflip link.`);
   },
 
   async logs() {

@@ -92,3 +92,29 @@ export function ownerGate(host = thisHost, { now = Date.now, retryMs = 5000 } = 
 
 // The hub process's one gate, shared by its own server and its try relays.
 export const hubGate = ownerGate();
+
+// docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
+// status: `tailscale status --json`, ip: a tailnet address → the first label of the node's MagicDNS name, or ''
+export function nodeNameOf(status, ip) {
+  const node = [status?.Self, ...Object.values(status?.Peer || {})].find((n) => n?.TailscaleIPs?.includes(ip));
+  return node ? String(node.DNSName || node.HostName || '').split('.')[0].toLowerCase() : '';
+}
+
+async function tailnetStatus() {
+  const tailscale = tailscaleDaemon();
+  if (!tailscale) return null;
+  try {
+    const { stdout } = await run(...tailscaleArgv(tailscale, ['status', '--json']), { timeout: 5000 });
+    const status = JSON.parse(stdout);
+    return answeredBy(tailscale, status) ? null : status;
+  } catch { return null; }
+}
+
+// Who typed a sign-in PIN, the client its misses and block are kept under: its tailnet node, by name, for a request
+// tailscale serve forwarded, else its address. readStatus: `tailscale status --json`, or null when it doesn't answer.
+// → async (req) => {key: 'node:<name>' | 'ip:<address>', name: the node's name or '', ip}
+export const clientIdentity = (readStatus = tailnetStatus) => async (req) => {
+  const ip = clientOf(req);
+  const name = req.headers['x-forwarded-for'] ? nodeNameOf(await readStatus(), ip) : '';
+  return { key: name ? `node:${name}` : `ip:${ip}`, name, ip };
+};

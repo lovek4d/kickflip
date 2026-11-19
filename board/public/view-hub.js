@@ -3,7 +3,9 @@
 // with the New strip after the boards, then hub settings summary rows ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)). Health carries the Keep awake toggle, and Linear's and Slack's Integrations rows
 // a button that opens their key modal ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)). A board's row can carry Restart (hub/restart-board.mjs), and
 // the Hub row Restart hub while the hub runs older code than its files. Health comes from GET /_hub/api/hub.
-// Its data refreshes every 30 seconds while it shows (hub-kit.js live).
+// Its data refreshes every 30 seconds while it shows (hub-kit.js live). The header's Sign in a device opens a dialog with
+// the hub's address and a 60-second PIN for another device to type
+// (docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md).
 (function () {
   // The last data, which a return to the view paints at once.
   let last = null;
@@ -133,12 +135,30 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
     try { (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch { /* not allowed here */ }
   }
 
+  // docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
+  // Sign in a device's body: the hub's address, the PIN as two groups of four, and a bar draining over the PIN's 60
+  // seconds, orange from 10 s left. renewed marks a PIN that replaced one at 0, which reads fresh for its first seconds;
+  // error, the hub's refusal to make one, with Try again.
+  const PIN_LIFE = 60;
+  function pinBody(pin, left, { renewed = false, error = null } = {}) {
+    if (error) return `<p class="note pin-error">${esc(error)}</p><div class="pin-actions"><button type="button" class="btn" data-pin-retry>Try again</button></div>`;
+    if (!pin) return '<p class="note">Making a PIN…</p>';
+    const fresh = renewed && left > PIN_LIFE - 5;
+    return `<p class="pin-say">On the new device, open</p><div class="pin-addr">${esc(pin.address)}</div>
+<p class="pin-say">then type this PIN</p><div class="pin-digits${fresh ? ' fresh' : ''}">${esc(pin.pin.slice(0, 4))} ${esc(pin.pin.slice(4))}</div>
+<div class="pin-drain${left <= 10 ? ' low' : ''}"><i style="width:${(left / PIN_LIFE) * 100}%"></i></div><div class="pin-count"><span>PIN expires in ${left} s</span><span>new PIN follows</span></div>
+<p class="note">${fresh ? 'Fresh PIN: the one before it no longer works.' : 'Closing this dialog voids the PIN.'}</p>`;
+  }
+  const pinModalMarkup = '<dialog class="settings-modal hub-modal pin-modal" id="pinModal" aria-labelledby="pinTitle"><div class="settings-head"><div><h2 id="pinTitle">Sign in a device</h2></div><button type="button" class="ghost" data-pin-dismiss aria-label="Close">✕</button></div><div class="set settings-body"><div class="pin-content"></div></div></dialog>';
+
   (globalThis.AppViews ||= {}).hub = {
     className: 'hub-view view-hub',
     title: () => 'Hub',
-    markup: () => `${BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png' })}
+    markup: () => `${BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png',
+      navAfter: '<button type="button" class="btn pin-open" data-pin-open aria-haspopup="dialog">Sign in a device</button>' })}
 <main class="has-top"><div class="hub-status"></div><section class="hub-settings">${HubSettings.markup()}</section><div class="hub-foot"></div></main>
 <dialog class="sheet permissions-sheet" aria-labelledby="permissionsTitle"></dialog>
+${pinModalMarkup}
 ${BoardNewTask.markup()}`,
 
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
@@ -362,6 +382,68 @@ ${BoardNewTask.markup()}`,
         if (!out) { flash = { text: 'Could not remove that device. Is the host awake?', error: true }; paint(); return; }
         load();
       }
+      // docs/adr/2026-11-19-0130-a-device-signs-in-with-a-60-second-pin-and-three-misses-block-it.md
+      // The header's Sign in a device opens the PIN dialog and asks the hub for a PIN (POST /_hub/pins). Each second
+      // redraws the countdown; at 0 the old PIN is voided (DELETE /_hub/pins/<pin>), then a new one asked for. The
+      // dialog closing, however it closes, voids the live PIN and drops an answer still on its way; the page going away
+      // voids it too (pagehide, with keepalive so the request outlives the page).
+      const pinModal = B.$('#pinModal');
+      let pin = null, pinError = null, renewed = false, ticker = null, asking = 0;
+      const voidPin = (p, keepalive = false) => fetch(`/_hub/pins/${encodeURIComponent(p.pin)}`, { method: 'DELETE', headers: { accept: 'application/json' }, keepalive }).catch(() => {});
+      const pinLeft = () => Math.max(0, Math.min(PIN_LIFE, Math.ceil((pin.until - Date.now()) / 1000)));
+      const paintPin = () => { B.$('.pin-content').innerHTML = pinBody(pin, pin ? pinLeft() : 0, { renewed, error: pinError }); };
+      async function askPin() {
+        const ask = ++asking;
+        pinError = null;
+        let out = null;
+        try {
+          const r = await fetch('/_hub/pins', { method: 'POST', headers: { accept: 'application/json' } });
+          out = await r.json().catch(() => null);
+          if (!r.ok || !out?.pin) throw new Error();
+        } catch {
+          if (ask === asking) { pinError = out?.error || 'Could not make a PIN. Is the host awake?'; paintPin(); }
+          return;
+        }
+        if (ask !== asking) { voidPin(out); return; }
+        pin = out;
+        paintPin();
+      }
+      function tick() {
+        if (!pin) return;
+        paintPin();
+        if (pinLeft() > 0) return;
+        const old = pin;
+        pin = null;
+        renewed = true;
+        const ask = asking;
+        voidPin(old).then(() => { if (ask === asking) askPin(); });
+      }
+      function openPin() {
+        if (pinModal.open) return;
+        pin = null;
+        pinError = null;
+        renewed = false;
+        paintPin();
+        BoardUI.openSheet(pinModal);
+        ticker = setInterval(tick, 1000); // poll: pin-countdown
+        askPin();
+      }
+      function stopPin() {
+        clearInterval(ticker);
+        ticker = null;
+        asking += 1;
+        if (pin) voidPin(pin);
+        pin = null;
+      }
+      B.on(pinModal, 'close', stopPin);
+      B.on(pinModal, 'click', (e) => {
+        if (e.target.closest?.('[data-pin-retry]')) askPin();
+        if (e.target.closest?.('[data-pin-dismiss]') || (BoardUI.onBackdrop(e, pinModal) && BoardUI.outsideBox(e, pinModal))) pinModal.close();
+      });
+      B.on(root, 'click', (e) => { if (e.target.closest?.('[data-pin-open]')) openPin(); });
+      B.on(globalThis, 'pagehide', () => { if (pin) voidPin(pin, true); });
+      B.atUnmount(BoardUI.swipeToDismiss(pinModal));
+      B.atUnmount(() => { if (pinModal.open) pinModal.close(); stopPin(); });
       const sheet = B.$('.permissions-sheet');
       B.on(sheet, 'click', (e) => {
         const opener = e.target.closest?.('[data-settings-open]');
