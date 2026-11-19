@@ -452,12 +452,12 @@
   // dot still, until the orchestrator picks it up (the watcher's or the PostToolUse hook's working mark), then
   // "thinking…", the owner's word, while the orchestrator triages it. Another board's question reads a grey
   // "waiting…" until then.
-  const PICKUP_WAIT = `<span class="pickup-wait">${DOT}waiting…</span>`;
+  const PICKUP_WAIT = `<span class="pickup-wait">waiting…</span>`;
   const THINKING = `<span class="new-thinking">${DOT}thinking…</span>`;
   const thinking = (since) => (since ? globalThis.BoardUI.counted('new-thinking', 'thinking…', since) : THINKING);
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: a New task waiting for
   // pick-up reads a grey "waiting…", its dot still, counting up from when it was asked through the shared duration.
-  const pickupWait = (askedAt, word = 'waiting…') => globalThis.BoardUI.counted('pickup-wait', word, askedAt);
+  const pickupWait = (askedAt, word = 'waiting…') => globalThis.BoardUI.counted('pickup-wait', word, askedAt, '');
   // A handed ask's source line links the card it came from
   // (docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md). On a New board whose
   // orchestrator hasn't joined yet, a waiting ask reads waiting for the orchestrator (state starting, domain.mjs withHub;

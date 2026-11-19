@@ -195,7 +195,7 @@
   // of the board is no part of the count.
   const withCount = (word, since, now) => [word, globalThis.BoardUI.liveFor(since, now)].filter(Boolean).join(' ');
   const thinkingFor = (since, now) => withCount('thinking…', since, now);
-  const counted = (cls, word, since) => `<span class="${cls}" data-since="${esc(since)}" data-word="${word}">${WORKING_DOT}${withCount(word, since)}</span>`;
+  const counted = (cls, word, since, dot = WORKING_DOT) => `<span class="${cls}" data-since="${esc(since)}" data-word="${word}">${dot}${withCount(word, since)}</span>`;
   const recount = (root, now = Date.now()) => {
     for (const el of root.querySelectorAll('[data-since][data-word]')) {
       const dot = el.firstElementChild;

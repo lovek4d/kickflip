@@ -1735,9 +1735,9 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix <it>\nand more', files: [], ...extra } });
   const strip = (items, merges = []) => ui.newStrip(ui.newEntries({ items, merges }, {}));
   const entryText = (html) => text(html.split('<div class="list">')[1]);
-  // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: grey "waiting…", its
-  // dot still, counting up from the ask, until the orchestrator picks the task up, then the blue "thinking…".
-  const triaging = '<span class="pickup-wait" data-since="[^"]+" data-word="waiting…"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"></span></span>waiting…(?: \\([^)]+\\))?</span>';
+  // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md: grey "waiting…", with no
+  // dot, counting up from the ask, until the orchestrator picks the task up, then the blue "thinking…".
+  const triaging = '<span class="pickup-wait" data-since="[^"]+" data-word="waiting…">waiting…(?: \\([^)]+\\))?</span>';
   assert.match(strip([ask({ state: 'waiting' })]), /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div>/);
   assert.match(strip([ask({ state: 'waiting' })]), new RegExp(triaging));
   assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub"><span class="new-time">[^<]+<\/span> · Edited · <span class="new-thinking"><span class="it it-current"><span class="it-i it-pulse" aria-hidden="true"><\/span><\/span>thinking…<\/span><\/div>/);
@@ -3424,7 +3424,7 @@ test("New draws an ask the orchestrator filed under a collapsed Orchestrator sub
 test("a New board served while its orchestrator starts: its New asks read waiting for the orchestrator, its sidebar row opens it, and its banner carries the start's step, prompt, stall and failure until it joins", () => {
   const sent = ago(1);
   const strip = ui.newStrip(ui.newEntries({ items: [{ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix it', files: [], state: 'starting' } }], merges: [] }, {}));
-  assert.match(strip, /<span class="pickup-wait" data-since="[^"]+" data-word="waiting for the orchestrator"><span class="it it-current">.*?<\/span>waiting for the orchestrator(?: \([^)]+\))?<\/span>/);
+  assert.match(strip, /<span class="pickup-wait" data-since="[^"]+" data-word="waiting for the orchestrator">waiting for the orchestrator(?: \([^)]+\))?<\/span>/);
   assert.match(strip, /data-withdraw="a1"/, 'it deletes and has no Edit');
   assert.doesNotMatch(strip, /data-edit/);
 

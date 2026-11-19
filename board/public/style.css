@@ -426,9 +426,8 @@ button.attach:disabled { opacity: .35; }
 /* The session's working line, "thinking", is the owner's blue with one font, size, weight and pulse on the card and in the thread. */
 .thinking { color: var(--accent); font-size: 12px; font-weight: 600; }
 .thinking .it-pulse, .planner .it-pulse, .new-entry .new-thinking .it-pulse { color: inherit; }
-/* A New card's "waiting", until the orchestrator picks it up: grey, its dot still. */
+/* A New card's "waiting", until the orchestrator picks it up: grey, with no dot: the dot is for work. */
 .pickup-wait { color: var(--muted); font-size: 12px; font-weight: 600; }
-.pickup-wait .it-pulse { color: inherit; animation: none; }
 /* Every status line shares this spacing and gutter: the mark sits in the first 23px, and wrapped text hangs under the
    first line's text, never under the mark. A fold's summary hangs the same way inside its box. Each kind keeps only its colour. */
 .status-line { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
