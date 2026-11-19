@@ -55,6 +55,7 @@ import { BoardError, fail, needSite, optional, pageUrl, text } from './checks.mj
 import { appendStatus, blockerNames, cardName, checkNextDeps, depCards, depKey, leftTodo, loadItem, openKeys, ownerFile, parseKey, placeIn, recordOwnerTap, setItem, shownCard, threadFile } from './cards.mjs';
 import { asksImplement, briefOn, cardQuestions, clearNext, dropBrief, hasOpenQuestion, markWaiting, moveOnAnswered, noBrief, publishStaged, resolveAnswered, restoreBrief, setNext, stagedFile, stageImplement, unpickedPrototype } from './questions.mjs';
 import { askItem } from './asks.mjs';
+import { markdownPage } from './markdown-page.mjs';
 import { boardRepoOf, boardTarget } from './settings.mjs';
 
 const fileOf = (site, name) => path.join(site, 'data', name);
@@ -1505,7 +1506,8 @@ export async function isPlanner(site, key, agent = 'main') {
   return Boolean(record?.started && !record.done && plans(record));
 }
 
-// `visual add <file/id> --file <html> --title <t> [--implement]`: the visual agent's page, copied to the site's
+// `visual add <file/id> --file <html or md> --title <t> [--implement]`: the visual agent's page, or a Markdown report
+// drawn into one (markdown-page.mjs), copied to the site's
 // public/visuals/<card id>/<slug of title>.html, a new name each time, and a visual line in the card's thread linking it.
 // With --implement, a final visual's, the card waits on the owner's Implement as thread --implement marks it, and a
 // card already staged, ready or past Todo is refused before the page is placed
@@ -1514,9 +1516,10 @@ export async function isPlanner(site, key, agent = 'main') {
 export async function addVisual(site, key, { file, title, implement }) {
   needSite(site);
   const name = text(title, '--title');
-  if (typeof file !== 'string' || !file.endsWith('.html')) fail('--file takes the page, an .html file');
-  const html = await fs.readFile(path.resolve(file), 'utf8').catch(() => fail(`--file ${file} can't be read`));
-  if (!html.trim()) fail(`--file ${file} is empty`);
+  if (typeof file !== 'string' || !/\.(html|md)$/.test(file)) fail('--file takes the page, an .html file, or a report, a .md file');
+  const source = await fs.readFile(path.resolve(file), 'utf8').catch(() => fail(`--file ${file} can't be read`));
+  if (!source.trim()) fail(`--file ${file} is empty`);
+  const html = file.endsWith('.md') ? markdownPage(source, name) : source;
   await loadItem(site, key);
   if (implement) await markWaiting(site, key, 'implement');
   const { id } = parseKey(key);

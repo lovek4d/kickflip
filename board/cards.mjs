@@ -166,6 +166,14 @@ export async function refuseQuestionIds(site, texts) {
     fail(`the text names the question "${q.id}"; name its task instead, e.g. "the question on ${task}", and quote its words if needed: the owner sees a question by its words, never its id`);
   }
 }
+// docs/adr/2026-11-18-2345-a-report-for-the-owner-goes-to-a-visual-never-a-local-path.md
+// A thread line names no path on the machine the owner can't open: the session scratchpad (/private/tmp/claude-…), /tmp
+// and ~/.claude/jobs. A report goes to a visual on its task instead.
+const LOCAL_PATH = /(?<![\w./-])(?:\/private\/tmp\/|\/tmp\/|(?:~|\/Users\/[^/\s]+|\/home\/[^/\s]+)\/\.claude\/jobs\/)/;
+export function refuseLocalPaths(texts, key) {
+  const found = texts.filter((t) => typeof t === 'string').map((t) => LOCAL_PATH.exec(t)?.[0]).find(Boolean);
+  if (found) fail(`the text names a path the owner can't open (${found}…); put a report in a visual (board.mjs visual add ${key || '<task>'} --file <report.md> --title <t>, or item brief ${key || '<task>'} --kind visual) and keep the line to a summary and its link`);
+}
 // The cards owner.json's questions ids are asked on, for the question commands' ACTS entries.
 export async function questionCards(site, ids) {
   const owner = await readJSON(ownerFile(site), { items: [] });

@@ -36,6 +36,7 @@ test('the brief names the cards in progress with their builder state, the cards 
     '  2026-11-17T21:00:00.000Z ask e1: a new idea',
     '  2026-11-17T22:00:00.000Z answer t4-shape: Which shape? → Round (smaller)',
     'Memory: /m/MEMORY.md',
+    'A report for the owner goes to a visual on its task (visual add <key> --file <report.md> --title <t>); a thread line is a summary and its link, never a local path.',
     'Anything you needed and could not find here or on the board is a board gap: file it.',
   ]);
 });

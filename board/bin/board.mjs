@@ -94,7 +94,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
          queued push (tag ask-<eventId> or item-<file>/<id>) to the message's first line, keeping
          "· and N replies", and prints the new body. It never pushes: the thread's unread mark carries it
-  visual add <file>/<id> --file <page.html> --title <t>  a visual agent's page: copied to public/visuals/<id>/<slug>.html
+  visual add <file>/<id> --file <page.html|report.md> --title <t>  a visual agent's page or a Markdown report: copied to public/visuals/<id>/<slug>.html
                                                          (a new name each time), linked by a visual line in the
                                                          item's thread; prints the page's link. --implement, a
                                                          final visual's: the task waits on the owner's Implement,
@@ -1528,6 +1528,7 @@ export async function main(argv, options = {}) {
     checkInputs(allowed, opts);
     const site = route === undefined ? null : await store.siteDir(route);
     if (site && TO_OWNER[name] && (name !== 'thread' || (opts.who ?? 'claude') === 'claude')) await store.refuseQuestionIds(site, TO_OWNER[name].map((flag) => opts[flag]));
+    if (name === 'thread' && (opts.who ?? 'claude') === 'claude') store.refuseLocalPaths([opts.text], args[0]);
     const writes = routeRecord(WRITES, name);
     if (site && writes) await store.refuseInIntake(site, await writes(site, args, opts));
     const result = await run(site, args, opts, options);

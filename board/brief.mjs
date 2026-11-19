@@ -43,6 +43,7 @@ export function briefLines({ route, cards, events, memory, now }) {
     'Owner messages, last 24 h:',
     ...list(events.filter((e) => Date.parse(e.ts) >= since).map((e) => { const l = ownerLine(e); return l && `${e.ts} ${l}`; }).filter(Boolean)),
     `Memory: ${memory.file}${memory.exists ? '' : ' (none yet)'}`,
+    'A report for the owner goes to a visual on its task (visual add <key> --file <report.md> --title <t>); a thread line is a summary and its link, never a local path.',
     'Anything you needed and could not find here or on the board is a board gap: file it.',
   ];
 }
