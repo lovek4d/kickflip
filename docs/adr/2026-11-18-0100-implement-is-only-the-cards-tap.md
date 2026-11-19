@@ -23,8 +23,11 @@ and [an Implement option is only a last-wave closing question](2026-11-17-2100-a
   discussing and is marked again there, so the card reads Tap Implement. Only the owner's tap stages it.
 - **A prototype no is not Implement.** An older card's `prototype_gate` answered no keeps gates.prototype no and marks
   the card waiting on its Implement ask (settleAnswers), so it too returns to discussing once nothing is open, unstaged.
-- **A grilling card with no ask stages as before.** A staged or ready card a question sent back to grilling has had its
-  Implement.
+- **A grilling card's last answer never stages it (#1081, owner 11/18: "we have moved away from questions to implement,
+  it should at most mark the next as implement").** Once none of its questions is open, moveOnAnswered sends any
+  grilling card to discussing and marks its Implement ask waiting there, whether or not its grill posted `thread
+  --implement`. Only the owner's tap stages it. A card in another phase stays where it is, and the staging branch of
+  moveOnAnswered is gone. This replaces the earlier rule that a grilling card with no ask staged once answered.
 - **Old data.** At boot the `no-next-gate` migration (dropNextGates, board/migrations.mjs) resolves each unresolved
   next_gate question with a note in its card's thread, marking the card waiting on Implement where it still owes one,
   drops staged ones, and drops `gates.next` from every card. An answered next_gate question still needs no line in the
@@ -32,6 +35,6 @@ and [an Implement option is only a last-wave closing question](2026-11-17-2100-a
 
 ## Consequences
 
-- An owner message on a grilling card clears its Implement ask, as it clears any mark; that card then stages once
-  answered, as a card with no ask does.
+- An owner message on a grilling card clears its Implement ask, as it clears any mark; once answered, that card still
+  goes to discussing with the ask marked again.
 - The prototype planner posts no Implement ask: a take pick owes a final visual, which ends on the card's Implement.

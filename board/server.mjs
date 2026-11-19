@@ -219,7 +219,7 @@
 //                                {key, id, exit, output, timedOut, ms, log} when the script ends
 //                                (docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md).
 //                                An owner-answer goes into its card's notes verbatim, and one that leaves an unstarted
-//                                card with nothing open stages it (questions.mjs settleAnswers).
+//                                card with nothing open goes to discussing, its Implement ask waiting (questions.mjs settleAnswers).
 //                                What waits on the owner (domain.mjs ownerActions) is one live notification per board,
 //                                tagged board-<route> (domain.mjs ownerRow), tracked in data/action-pushes.json: its
 //                                first push alerts, each change re-pushes it silently, and once nothing waits it drops
@@ -544,7 +544,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md,
   // docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md). A note with no take resolves its
   // question. The POST answers once the answers are written and their questions resolved; the Send is then acted on in
-  // code (afterSend): gates settled, answers in the notes, cards left with nothing open staged, prototypes planned again
+  // code (afterSend): gates settled, answers in the notes, cards left with nothing open discussing, prototypes planned again
   // (docs/adr/2026-11-16-0300-send-answers-once-the-answers-are-written.md).
   // An answer to a question that already has one recorded is skipped
   // (docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md).

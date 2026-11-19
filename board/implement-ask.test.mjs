@@ -55,9 +55,9 @@ test("a grill's Implement ask carries the card back to discussing once every que
   const w = world();
   await addQuestions(w.site, [other(), other('q-two')]);
   await appendMessage(w.site, 't/A1', { text: ASK, implement: true });
-  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-other', 'a')]), { prototype: [], staged: [] });
+  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-other', 'a')]), { prototype: [] });
   assert.equal(w.read().phase, 'grilling');
-  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-two', 'a')]), { prototype: [], staged: [] });
+  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-two', 'a')]), { prototype: [] });
   assert.equal(w.read().phase, 'discussing');
   assert.deepEqual([w.read().waits_on_owner.on, w.read().waits_on_owner.phase], ['implement', 'discussing']);
   await stageImplement(w.site, 't/A1', { text: '' });
@@ -65,11 +65,13 @@ test("a grill's Implement ask carries the card back to discussing once every que
   assert.equal(w.read().waits_on_owner, undefined);
 });
 
-test('a grilling card with no Implement ask, one a question sent back from staging, stages once answered, as before', async () => {
+test("a grilling card's last answer leaves it discussing with Implement waiting, never staged, with or without its grill's ask", async () => {
   const w = world();
   await addQuestions(w.site, other());
-  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-other', 'a')]), { prototype: [], staged: ['t/A1'] });
-  assert.equal(w.read().phase, 'staging');
+  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-other', 'a')]), { prototype: [] });
+  assert.equal(w.read().phase, 'discussing');
+  assert.equal(w.read().waits_on_owner.on, 'implement');
+  assert.equal(w.thread().some((l) => l.line === 'staged'), false);
 });
 
 test('a grill that asks nothing and ends on its Implement ask moves the card to discussing, waiting on the tap, with no fault line; one with neither still faults', async () => {
@@ -90,7 +92,7 @@ test('a grill that asks nothing and ends on its Implement ask moves the card to 
 test("an open old prototype question's no is not Implement: the card returns to discussing on its Implement ask, unstaged", async () => {
   const w = world();
   w.published(oldGate());
-  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-gate', 'no')]), { prototype: [], staged: [] });
+  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-gate', 'no')]), { prototype: [] });
   assert.equal(w.read().phase, 'discussing');
   assert.equal(w.read().waits_on_owner.on, 'implement');
 });

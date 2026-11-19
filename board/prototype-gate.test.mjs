@@ -51,7 +51,7 @@ test('a prototype_gate question takes exactly yes and no, on a card', async () =
 test('yes moves a grilling card to prototyping and asks for its prototype planner, resolving the question', async () => {
   const { site, answer, card, resolved } = world();
   await addQuestions(site, [other, gate]);
-  assert.deepEqual(await settleAnswers(site, [answer('q-other', 'a'), answer('q-gate', 'yes')]), { prototype: ['t/A1'], staged: [] });
+  assert.deepEqual(await settleAnswers(site, [answer('q-other', 'a'), answer('q-gate', 'yes')]), { prototype: ['t/A1'] });
   assert.equal(card(), 'prototyping');
   assert.match(resolved('q-gate'), /^Prototype round: yes/);
 });
@@ -60,11 +60,11 @@ test('yes moves a grilling card to prototyping and asks for its prototype planne
 test('yes waits for every question: the card stays grilling while another is open and moves to prototyping on the Send that answers the last, in either order', async () => {
   const first = world();
   await addQuestions(first.site, [other, gate]);
-  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-gate', 'yes')]), { prototype: [], staged: [] });
+  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-gate', 'yes')]), { prototype: [] });
   assert.equal(first.card(), 'grilling', 'q-other is still open');
   assert.match(first.resolved('q-gate'), /^Prototype round: yes/);
   assert.equal(first.thread().at(-1).text, 'Prototype round asked: it moves to prototyping once every question is answered.');
-  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: ['t/A1'], staged: [] });
+  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: ['t/A1'] });
   assert.equal(first.card(), 'prototyping');
   assert.equal(first.thread().at(-1).text, 'Prototype round asked: it moves to prototyping once every question is answered.', 'moving to prototyping writes no line');
 
@@ -72,7 +72,7 @@ test('yes waits for every question: the card stays grilling while another is ope
   await addQuestions(last.site, [other, gate]);
   await settleAnswers(last.site, [last.answer('q-other', 'a')]);
   assert.equal(last.card(), 'grilling');
-  assert.deepEqual(await settleAnswers(last.site, [last.answer('q-gate', 'yes')]), { prototype: ['t/A1'], staged: [] });
+  assert.deepEqual(await settleAnswers(last.site, [last.answer('q-gate', 'yes')]), { prototype: ['t/A1'] });
   assert.equal(last.card(), 'prototyping');
 });
 
@@ -102,9 +102,9 @@ test("a remaining question the orchestrator resolves counts as answered: the gri
 test("no returns the card to discussing on its Implement ask once its other questions are answered, in either order, unstaged", async () => {
   const first = world();
   await addQuestions(first.site, [other, gate]);
-  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-gate', 'no')]), { prototype: [], staged: [] });
+  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-gate', 'no')]), { prototype: [] });
   assert.equal(first.card(), 'grilling', 'q-other is still open');
-  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: [], staged: [] });
+  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: [] });
   assert.equal(first.card(), 'discussing');
   assert.deepEqual([first.read().waits_on_owner.on, first.read().waits_on_owner.phase], ['implement', 'discussing']);
   assert.equal(first.read().staged_at, undefined);
@@ -129,20 +129,21 @@ test('a gate asked alone, answered no, returns the card to discussing on its Imp
 
   const moved = world('prototyping');
   await addQuestions(moved.site, [other, gate]);
-  assert.deepEqual(await settleAnswers(moved.site, [moved.answer('q-gate', 'yes')]), { prototype: [], staged: [] });
+  assert.deepEqual(await settleAnswers(moved.site, [moved.answer('q-gate', 'yes')]), { prototype: [] });
   assert.equal(moved.card(), 'prototyping');
 });
 
-test('a Send that leaves an unstarted card with nothing open stages it, a note-only answer included, and returns a prototyping card to discussing; no take picked, a running planner or a started card leaves it', async () => {
+test('a Send that leaves an unstarted grilling card with nothing open sends it to discussing, a note-only answer included, as a prototyping card does a prototyping card to discussing; no take picked, a running planner or a started card leaves it', async () => {
   const noted = world();
   await addQuestions(noted.site, other);
   await settleAnswers(noted.site, [noted.answer('q-other', null, 'Neither, follow quiet hours')]);
-  assert.equal(noted.card(), 'staging', 'the orchestrator judges a note-only answer from staging');
+  assert.equal(noted.card(), 'discussing', 'a note-only answer leaves the card discussing, never staged');
+  assert.equal(noted.read().waits_on_owner.on, 'implement');
 
   // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: a prototype round's answer goes back to the conversation.
   const talked = world('prototyping');
   await addQuestions(talked.site, other);
-  assert.deepEqual(await settleAnswers(talked.site, [talked.answer('q-other', 'a')]), { prototype: [], staged: [] });
+  assert.deepEqual(await settleAnswers(talked.site, [talked.answer('q-other', 'a')]), { prototype: [] });
   assert.equal(talked.card(), 'discussing');
   assert.equal(talked.thread().at(-1).text, 'Marked as discussing');
   const discussing = world('discussing');
@@ -153,7 +154,7 @@ test('a Send that leaves an unstarted card with nothing open stages it, a note-o
   const take = { id: 'q-take', topic: 'item:t/A1', question: 'Which take?', url: 'prototype-look.html?q=q-take', options: [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }] };
   const none = world('prototyping');
   none.put(take);
-  assert.deepEqual(await settleAnswers(none.site, [none.answer('q-take', null, 'Neither')]), { prototype: [], staged: [] });
+  assert.deepEqual(await settleAnswers(none.site, [none.answer('q-take', null, 'Neither')]), { prototype: [] });
   assert.equal(none.card(), 'prototyping', 'no take picked, so it prototypes again');
   // The next round names q-take in round_of, so its pick settles q-take's chain.
   none.put({ ...take, id: 'q-take-2', url: 'prototype-look.html?q=q-take-2', round_of: 'q-take', round: 2 });
@@ -209,7 +210,8 @@ test('a follow-up that fails on one card posts its reason to that card and leave
   const result = await settleAnswers(w.site, [w.answer('q-other', 'a'), w.answer('q-second', 'a')]);
   assert.match(w.thread().at(-1).text, /^Answers recorded, but writing them into its notes failed: a notes file is/);
   assert.match(w.notes('notes.md'), /q-second/);
-  assert.deepEqual(result.staged, ['t/A2']);
+  assert.equal(result.prototype.length, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(w.site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'A2').phase, 'discussing');
 });
 
 // docs/adr/2026-11-17-1800-a-take-pick-owes-a-final-visual-brief.md

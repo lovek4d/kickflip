@@ -486,7 +486,7 @@ async function resolveGate(site, key, kind, note) {
 // fact (keepGate). A prototype yes while another of its card's questions is open has a thread line say the card waits
 // for them. A no marks the card waiting on its Implement ask. Every answer on a card goes into the card's notes verbatim, and the card then moves on once nothing is left
 // open (moveOnAnswered).
-// → {prototype: [keys], staged: [keys]}: the cards whose prototype planner the server starts, and the cards staged.
+// → {prototype: [keys]}: the cards whose prototype planner the server starts.
 export async function settleAnswers(site, answers) {
   const asked = new Map(((await readJSON(ownerFile(site), { items: [] })).items || []).map((q) => [q.id, q]));
   for (const a of answers) {
@@ -519,28 +519,26 @@ export async function settleAnswers(site, answers) {
     if (key && picksTake(q, a.choice)) takes.set(key, { question: String(a.id), choice: String(a.choice), ...(a.note ? { note: String(a.note) } : {}) });
   }
   const prototype = [];
-  const staged = [];
   for (const [key, said] of byCard) {
     if (!(await loadItem(site, key).catch(() => null))) continue;
     await followUp(site, key, 'writing them into its notes', async () => {
       await appendNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
       const moved = await moveOnAnswered(site, key, takes.get(key));
       if (moved === 'prototyping') prototype.push(key);
-      if (moved === 'staging') staged.push(key);
     });
   }
-  return { prototype, staged };
+  return { prototype };
 }
 
 // docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
 // A card moves on once none of its questions is open: a grilling card whose gates.prototype is yes to prototyping, with
 // a thread line, the yes then spent as ran (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md); a
 // prototyping or discussing card back to the conversation, discussing (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md);
-// a grilling card its grill's Implement ask waits on back to discussing, the ask marked again there so the card owes the
-// owner's tap (docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md); any other stageable card to staging; a
+// a grilling card back to discussing, its Implement ask marked there so the card owes the owner's tap, whether or not
+// its grill posted the ask, and never to staging (docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md); a
 // take pick leaves the card discussing and owing the final visual's brief
 // (docs/adr/2026-11-17-1800-a-take-pick-owes-a-final-visual-brief.md). The move to prototyping owes the orchestrator's prototype brief.
-// → 'prototyping', 'discussing', 'staging' or null when the card stays.
+// → 'prototyping', 'discussing' or null when the card stays.
 export async function moveOnAnswered(site, key, take) {
   const { item } = await loadItem(site, key);
   const { asked } = await cardQuestions(site, key);
@@ -569,13 +567,10 @@ export async function moveOnAnswered(site, key, take) {
     await discuss(site, key);
     return 'discussing';
   }
-  if (asksImplement(item)) {
-    await discuss(site, key);
-    await markWaiting(site, key, 'implement');
-    return 'discussing';
-  }
-  await stage(site, key);
-  return 'staging';
+  if (item.phase !== 'grilling') return null;
+  await discuss(site, key);
+  await markWaiting(site, key, 'implement');
+  return 'discussing';
 }
 
 // docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md
@@ -994,7 +989,7 @@ export async function restoreBrief(site, key, entry) {
 export const briefOn = async (site, key, kind) => ((await loadItem(site, key)).item.briefs || []).find((b) => b.kind === kind && b.brief) ?? null;
 export const noBrief = async (site, key, kind) => fail(`${await cardName(site, key)} has no ${kind} brief; the orchestrator writes it with item brief ${key} --kind ${kind} --file <draft.md>`);
 // A question published on a ready or staging card leaves the owner something to decide, so the card is grilling until
-// the answer's Send stages it again.
+// the answer's Send returns it to discussing, its Implement ask waiting.
 async function grillAgain(site, key) {
   const loaded = await loadItem(site, key).catch(() => null);
   if (!loaded || !['ready', 'staging'].includes(loaded.item.phase) || leftTodo(loaded.item)) return;

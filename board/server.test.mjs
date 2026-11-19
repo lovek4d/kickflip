@@ -211,7 +211,7 @@ test("with an alert switched on, a card of that kind joining the board's open li
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
-test("the owner's last answer on an unstarted card stages it, held or blocked too, and wakes no session to start it", async () => {
+test("the owner's last answer on a grilling card leaves it discussing, held or blocked too, and wakes no session to start it", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const ask = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'A', label: 'This' }] });
   const answer = (id) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice: 'A' }) });
@@ -224,10 +224,10 @@ test("the owner's last answer on an unstarted card stages it, held or blocked to
   try {
     for (const id of ['s1a', 's2', 's4']) await ok200(answer(id));
     await board.settled();
-    assert.deepEqual(states(), ['grilling', 'staging', 'new', 'staging']);
+    assert.deepEqual(states(), ['grilling', 'discussing', 'new', 'discussing']);
     await ok200(answer('s1b'));
     await board.settled();
-    assert.deepEqual(states(), ['staging', 'staging', 'new', 'staging']);
+    assert.deepEqual(states(), ['discussing', 'discussing', 'new', 'discussing']);
     assert.deepEqual(unblocked().slice(before), []);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
@@ -406,7 +406,7 @@ test("one owner-answers request records every answer as one-by-one answers would
   const batch = (answers) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answers', answers }) });
   // The server's own orchestrator-waits pass appends meanwhile; the request's writes are what this compares.
   const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind !== 'orchestrator-waits');
-  await putWave(JSON.stringify({ items: [{ id: 'B1', title: 'Two questions' }] }));
+  await putWave(JSON.stringify({ items: [{ id: 'B1', title: 'Two questions', phase: 'grilling' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('b1a', 't/B1'), ask('b1b', 't/B1')] }));
   try {
     const untouched = [fs.readFileSync(ownerFile, 'utf8'), lines().length];
@@ -428,7 +428,7 @@ test("one owner-answers request records every answer as one-by-one answers would
     assert.deepEqual(out.ids, added.map((e) => e.id));
     await board.settled();
     const after = await (await fetch(`${base}/api/board`)).json();
-    assert.equal(after.items.find((i) => i.id === 'B1').staging, true, 'a note-only answer stages the task too');
+    assert.equal(after.items.find((i) => i.id === 'B1').phase, 'discussing', 'a note-only answer leaves the task discussing too');
     assert.deepEqual(after.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [], 'Send folds both answers');
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items.find((q) => q.id === 'b1a').resolved, 'Answered');
     assert.deepEqual(after.ownerTopics.find((t) => t.id === 'item:t/B1').questions, ['b1a', 'b1b']);
@@ -437,11 +437,11 @@ test("one owner-answers request records every answer as one-by-one answers would
 });
 
 // docs/adr/2026-11-16-0300-send-answers-once-the-answers-are-written.md
-test("Send answers once the answers are written and their questions resolved: the notes and staging follow, held up here by the card's notes lock", async () => {
+test("Send answers once the answers are written and their questions resolved: the notes and the move to discussing follow, held up here by the card's notes lock", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const itemsFile = path.join(site, 'data', 'items.json');
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  await putWave(JSON.stringify({ items: [{ id: 'FAST1', title: 'Fast' }] }));
+  await putWave(JSON.stringify({ items: [{ id: 'FAST1', title: 'Fast', phase: 'grilling' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'fast', topic: 'item:t/FAST1', question: 'fast?', options: [{ id: 'A', label: 'This' }] }] }));
   const card = () => JSON.parse(fs.readFileSync(itemsFile, 'utf8')).items.find((i) => i.id === 'FAST1');
   try {
@@ -452,11 +452,11 @@ test("Send answers once the answers are written and their questions resolved: th
       assert.equal((await r.json()).ids.length, 1);
       assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items[0].resolved, 'Answered');
       assert.equal(card().plan, undefined, 'no notes are written yet');
-      assert.notEqual(card().phase, 'staging');
+      assert.equal(card().phase, 'grilling');
     });
     await board.settled();
     assert.match(fs.readFileSync(path.join(site, 'data', card().plan), 'utf8'), /Answers \(owner/);
-    assert.equal((await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === 'FAST1').staging, true);
+    assert.equal(card().phase, 'discussing');
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 

@@ -50,33 +50,34 @@ test("the owner's answer to the prototype question becomes the card's gates.prot
   assert.equal((await briefFacts(world().site, 't/A1')).prototype, null);
 });
 
-test('a decided no stages a regrill once its own questions are answered, with no prototype question', async () => {
+test('a decided no sends a regrill to discussing once its own questions are answered, Implement waiting, with no prototype question', async () => {
   const w = world({ gates: { prototype: 'no' } });
   await addQuestions(w.site, other());
-  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-other', 'a')]), { prototype: [], staged: ['t/A1'] });
-  assert.equal(w.read().phase, 'staging');
+  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-other', 'a')]), { prototype: [] });
+  assert.equal(w.read().phase, 'discussing');
+  assert.equal(w.read().waits_on_owner.on, 'implement');
 });
 
-test('a yes is spent once its round runs: the move to prototyping marks it ran, and a later regrill stages', async () => {
+test('a yes is spent once its round runs: the move to prototyping marks it ran, and a later regrill goes to discussing', async () => {
   const w = world();
   await addQuestions(w.site, gate());
-  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-gate', 'yes')]), { prototype: ['t/A1'], staged: [] });
+  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-gate', 'yes')]), { prototype: ['t/A1'] });
   assert.equal(w.read().phase, 'prototyping');
   assert.deepEqual(w.read().gates, { prototype: 'ran' });
   w.set({ phase: 'grilling' });
   await addQuestions(w.site, other('q-again'));
-  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-again', 'a')]), { prototype: [], staged: ['t/A1'] });
-  assert.equal(w.read().phase, 'staging');
+  assert.deepEqual(await settleAnswers(w.site, [w.answer('q-again', 'a')]), { prototype: [] });
+  assert.equal(w.read().phase, 'discussing');
 
   const decided = world({ gates: { prototype: 'yes' } });
   await addQuestions(decided.site, other());
-  assert.deepEqual(await settleAnswers(decided.site, [decided.answer('q-other', 'a')]), { prototype: ['t/A1'], staged: [] });
+  assert.deepEqual(await settleAnswers(decided.site, [decided.answer('q-other', 'a')]), { prototype: ['t/A1'] });
   assert.deepEqual(decided.read().gates, { prototype: 'ran' });
 });
 
 // docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md
 test("a grill that ends asking nothing on a card whose prototype answer is kept moves the card on, with no fault line; an unanswered one still faults", async () => {
-  for (const [prototype, phase] of [['no', 'staging'], ['yes', 'prototyping'], ['ran', 'staging']]) {
+  for (const [prototype, phase] of [['no', 'discussing'], ['yes', 'prototyping'], ['ran', 'discussing']]) {
     const w = world({ gates: { prototype } });
     w.grill();
     await stopPlanner(w.site, 't/A1', { note: 'Nothing left to ask' });
