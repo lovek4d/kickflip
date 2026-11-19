@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { nodeTests } from './worktree.mjs';
 import * as store from './store.mjs';
-import { home, at, site, board, lines } from './board-fixture.mjs';
+import { home, at, site, board, lines, launched } from './board-fixture.mjs';
 
 // docs/adr/2026-11-13-2030-a-test-run-reports-live-lines-the-thread-does-not-show.md
 // Two quick test files and one that blocks reading a named pipe until the report's update opens it for writing, so the
@@ -40,6 +40,7 @@ test('a run reports its start, updates while it runs, and its result in words', 
 });
 
 test("a card's test report writes live lines that replace each other: only the start and result reach the thread, and the build never reads stale", async () => {
+  launched('audit', 'audit/A1');
   assert.equal((await board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude')).code, 0);
   const report = await store.testReport(site('audit'), 'audit/A1', { phase: 'building' });
   await report.start('full suite, 3 test files');
@@ -59,6 +60,7 @@ test("a card's test report writes live lines that replace each other: only the s
 });
 
 test('a test report on a worktree finds the card whose open build keeps it', async () => {
+  launched('audit', 'audit/A1');
   assert.equal((await board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude')).code, 0);
   const rec = JSON.parse(fs.readFileSync(site('audit', 'data', 'agents', 'A1.json'), 'utf8'));
   rec.worktree = { path: '/tmp/some-worktree' };

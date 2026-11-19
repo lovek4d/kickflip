@@ -646,7 +646,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          records the pick's kind and prints "kind: <kind>. <reason>";
                                                          on the open record a Build tap started or --dispatch
                                                          opened, it keeps that record's kind and worktree.
-         [--dispatch]                                    --dispatch: the session runs this right before it launches
+                                                         On a board, a build's start is its agent's check-in: it
+                                                         refuses with no launch to take up (a record the pull, a
+                                                         tap or --dispatch opened, a launch the board made, or a
+                                                         handed-back build). The pull launches a ready task's
+                                                         builder, and the board restarts an In Progress task with
+                                                         nothing building in place
+         [--dispatch]                                  --dispatch: the session runs this right before it launches
                                                          an agent of any kind (build, prototype, grill) so the record
                                                          is open at launch and the task reads starting; the agent's
                                                          own builder start takes it up. On a record the Build tap

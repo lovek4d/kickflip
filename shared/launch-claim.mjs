@@ -44,6 +44,12 @@ export function claimLaunch(dir, name, { alive = pidAlive } = {}) {
   return null;
 }
 
+// Whether a claim on name is held: its launch is under way, or the process it launched lives.
+export function claimed(dir, name, { alive = pidAlive } = {}) {
+  const record = read(path.join(dir, encodeURIComponent(name)));
+  return Boolean(record) && held(record, alive);
+}
+
 // Frees the claim on name: the run it launched ended, or was stopped.
 export function release(dir, name) {
   fs.rmSync(path.join(dir, encodeURIComponent(name)), { force: true });

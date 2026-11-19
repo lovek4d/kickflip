@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { run, read, at } from './board-fixture.mjs';
+import { run, read, at, launched } from './board-fixture.mjs';
 
 // The board-*.test.mjs files run board.mjs's main in-process (board-fixture.mjs boardWith); these run it as its own
 // node process, once per command group, for what only a process shows: --help, and the exit code of a success, a
@@ -32,6 +32,7 @@ test('item: a write exits 0, an unknown card 1, and missing arguments 2', () => 
 });
 
 test('builder: a start exits 0, an unknown card 1, and missing arguments 2', () => {
+  launched('orch', 'w/A1');
   const start = board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'claude');
   assert.equal(start.code, 0, start.err);
   assert.match(start.out, /^A1: builder started\n/);

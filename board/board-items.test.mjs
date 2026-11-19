@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { until } from '../shared/test-helpers.mjs';
-import { home, at, site, write, read, lines, run, runAsync, board, wave, question, recordPrototype, addPrototypeQuestion, git, commit, scratchRepo, boardsManifest, addEvents } from './board-fixture.mjs';
+import { home, at, site, write, read, lines, run, runAsync, board, wave, launched, question, recordPrototype, addPrototypeQuestion, git, commit, scratchRepo, boardsManifest, addEvents } from './board-fixture.mjs';
 
 test('item add records creation on a card placed in Todo, and refuses a taken id, an unknown dep, or a --summary', async () => {
   const before = Date.now();
@@ -350,6 +350,7 @@ test("a reply, a build's start and a later builder start each resolve the answer
   addEvents(answer('ask-q'), answer('card-q'));
   const notes = () => Object.fromEntries(read(site('orch', 'data', 'owner.json')).items.map((q) => [q.id, q.resolved ?? null]));
   assert.match((await board('reply', 'e1', '--site', 'orch', '--text', 'Done.')).out, /^resolved: ask-q$/m);
+  launched('orch', 'w/A1');
   const building = await board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'claude');
   assert.equal(building.code, 0, building.err);
   assert.match(building.out, /^resolved: card-q$/m);
@@ -619,6 +620,7 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
   ] });
   const lanes = () => read(at('waves', 'd', 'wave.json')).items.map((it) => it.lane);
   const events = () => lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-unblocked');
+  for (const id of ['A2', 'A3']) launched('orch', `d/${id}`);
   const blocked = await board('builder', 'start', 'd/A3', '--site', 'orch', '--kind', 'claude');
   assert.equal(blocked.code, 1);
   assert.match(blocked.err, /d\/A1.*d\/A2|d\/A2.*d\/A1/);
@@ -671,6 +673,7 @@ test('a hand-back unblocks nothing, and closing a handed-back card unblocks as u
     { id: 'A2', title: 'feat: two', deps: ['A1'] },
   ] });
   const unblocked = (r) => r.out.split('\n').filter((l) => l.startsWith('unblocked'));
+  for (const id of ['A1', 'A2']) launched('orch', `d/${id}`);
   assert.equal((await board('builder', 'start', 'd/A1', '--site', 'orch', '--kind', 'claude')).code, 0);
   assert.equal((await board('builder', 'call', 'd/A1', 'Kept the old header', '--site', 'orch')).code, 0);
   const handedBack = await board('builder', 'done', 'd/A1', '--summary', 'Built it.', '--site', 'orch');
@@ -690,7 +693,7 @@ test('an owner-blocked item emits its unblocking but never starts until --unbloc
     { id: 'A2', title: 'feat: two', deps: ['A1'] },
     { id: 'A3', title: 'feat: three', held: true, deps: ['A1'] },
   ] });
-  const start = (key) => board('builder', 'start', key, '--site', 'orch', '--kind', 'claude');
+  const start = (key) => { launched('orch', key); return board('builder', 'start', key, '--site', 'orch', '--kind', 'claude'); };
   const items = () => read(at('waves', 'd', 'wave.json')).items;
   assert.equal((await board('item', 'set', 'd/A2', '--blocked', '--site', 'orch')).code, 0);
   assert.equal(items()[1].held, true);
@@ -719,6 +722,7 @@ test('--pick-up-at blocks a card until a time, read as local time without an off
   const nine = new Date(later.getFullYear(), later.getMonth(), later.getDate(), 9, 0).toISOString();
   assert.equal((await board('item', 'set', 'd/A1', '--pick-up-at', local, '--site', 'orch')).code, 0);
   assert.deepEqual([item().held, item().pick_up_at], [true, nine]);
+  launched('orch', 'd/A1');
   const refused = await board('builder', 'start', 'd/A1', '--site', 'orch', '--kind', 'claude');
   assert.equal(refused.code, 1);
   assert.match(refused.err, new RegExp(`d/A1 is blocked until ${nine}.*--unblocked`));
@@ -749,6 +753,7 @@ test("a build's start takes a prototype pick's note as guidance, and refuses whi
   ] });
   let n = 0;
   const answer = (id, choice, note) => addEvents({ id: `a${++n}`, ts: `2026-11-01T10:${String(n).padStart(2, '0')}:00Z`, kind: 'owner-answer', data: { id, ...(choice ? { choice } : {}), ...(note === undefined ? {} : { note }) } });
+  launched('orch', 'w/A1');
   const start = (...extra) => board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'claude', ...extra);
   const lane = () => read(at('waves', 'w', 'wave.json')).items[0].lane;
 
@@ -889,6 +894,7 @@ test('ask move drops the card an ask became when it has not started, and refuses
   await board('item', 'set', 'w/A1', '--from-ask', 'e2', '--phase', 'grilling', '--site', 'orch', '--text', 'Filed.');
   await board('item', 'add', 'w/A2', '--phase', 'grilling', '--relate', 'w/A1', '--title', 'feat: two', '--site', 'orch');
   await board('item', 'set', 'w/A2', '--from-ask', 'e3', '--phase', 'grilling', '--site', 'orch', '--text', 'Building it.');
+  launched('orch', 'w/A2');
   const started = await board('builder', 'start', 'w/A2', '--site', 'orch', '--kind', 'claude');
   assert.equal(started.code, 0, started.err);
   assert.match((await board('ask', 'move', 'e3', '--to', 'audit', '--site', 'orch')).err, /ask "e3" became w\/A2, which has started or been answered/);
@@ -963,6 +969,7 @@ test('item set --from-ask on a card that came from another ask refuses and point
 });
 
 test('a card records when its lane last changed, and only then', async () => {
+  launched('orch', 'w/A1');
   assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'claude')).code, 0);
   const first = read(at('waves', 'w', 'wave.json')).items[0].lane_at;
   assert.ok(Date.parse(first));
@@ -1011,6 +1018,7 @@ test("a Next set while the card has an open question clears once its questions a
   const ownerFile = site('orch', 'data', 'owner.json');
   const ok = async (...args) => { const r = await board(...args, '--site', 'orch'); assert.equal(r.code, 0, r.err); return r; };
   await ok('item', 'set', 'w/ENG-1', '--next', 'Merge when CI is green');
+  for (const key of ['w/ENG-1', 'w/A1']) launched('orch', key);
   await ok('builder', 'start', 'w/ENG-1', '--kind', 'claude');
   assert.deepEqual([item('ENG-1').next, item('ENG-1').next_on_questions], [undefined, undefined]);
 
@@ -1027,6 +1035,7 @@ test("a Next set while the card has an open question clears once its questions a
   await ok('item', 'set', 'w/A1', '--next', 'Owner picks a tone');
   await ok('builder', 'start', 'w/A1', '--agent', 'grill', '--kind', 'grill');
   assert.equal(item('A1').next, 'Owner picks a tone');
+  launched('orch', 'w/A1');
   await ok('builder', 'start', 'w/A1', '--kind', 'claude');
   assert.deepEqual([item('A1').next, item('A1').next_on_questions], [undefined, undefined]);
 });
@@ -1059,6 +1068,7 @@ test('item set blocks a card until a condition with a reason, refuses its start 
   assert.match(lonely.err, /--block-reason goes with a block: --blocked-by or --blocked-until/);
   assert.equal((await board('item', 'set', 'd/A2', '--site', 'orch', '--blocked-until', 'the CI run on main is green', '--block-reason', 'the suite is red on main')).code, 0);
   assert.deepEqual([item('A2').blocked_until, item('A2').block_reason], ['the CI run on main is green', 'the suite is red on main']);
+  launched('orch', 'd/A2');
   const start = await board('builder', 'start', 'd/A2', '--site', 'orch', '--kind', 'claude');
   assert.equal(start.code, 1);
   assert.match(start.err, /d\/A2 is blocked until the CI run on main is green; start it once that holds and the block is cleared with --blocked-until ""/);

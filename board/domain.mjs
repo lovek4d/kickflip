@@ -2269,6 +2269,8 @@ export function strictlyIdle(built, { pulled = [] } = {}) {
 // card reads as Orchestrator review. → [{kind, since, picked, next, daily?}], next saying what it waits for, and daily on a
 // stale review, which re-wakes once a day after pickup (waitsStep).
 const STALL_NEXT = "item stall it with the reason when it can't go on";
+// docs/adr/2026-11-18-2000-builder-start-takes-up-a-launch.md: the board restarts the card's builder in place itself.
+const UNOWNED_NEXT = (key) => `Nothing builds it, and the board restarts its builder in place within minutes; if it hasn't, read why in audit ${key}, fix what refused it, or set its Next`;
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
 // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a staged card whose split was answered Split is filed as its split, not set ready.
@@ -2330,7 +2332,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       // docs/adr/2026-11-14-2015-a-clean-visual-end-with-no-page-reads-unplaced.md: held until a page lands or a newer visual agent starts.
       unplaced && { kind: 'visual', since: unplaced, next: 'Its visual agent ended without placing its page: read its log, then place the page with visual add, or ask for the visual again' },
       it.refusal && facts.refusedAt && { kind: 'refused', since: facts.refusedAt, next: `${it.refusal}: fix what refused the build and start it, or say on the task why it waits` },
-      it.next === NO_NEXT && lastBuild && { kind: 'unowned', since: lastBuild, next: 'Start a builder on it, or set its Next' },
+      it.next === NO_NEXT && lastBuild && { kind: 'unowned', since: lastBuild, next: UNOWNED_NEXT(it.key) },
       // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo whose block ended waits until the session writes on it.
       // A verified build waiting to land is its land step's (docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md).
       facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.land && !facts.writes.some((t) => t > facts.unblockedAt)

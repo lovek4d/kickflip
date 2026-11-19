@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fakeGh, prView, writePR, writeIssueComments, writeReviews, writeUser, writeAccounts, calls, tokens } from '../shared/fake-gh.mjs';
-import { withNotes, boardWith, bin, home, at, site, write, read, lines, run, board, runAsync, wave, ticketCli, record, annReviewer, bobReviewer, reviewState, slackToken, digestCommand } from './board-fixture.mjs';
+import { withNotes, boardWith, bin, home, at, site, write, read, lines, run, board, runAsync, wave, launched, ticketCli, record, annReviewer, bobReviewer, reviewState, slackToken, digestCommand } from './board-fixture.mjs';
 
 test('tickets link or are made in the board source through the CLI and an injected GitHub runner, and a board with none has none', async (t) => {
   const { saveBoardSettings } = await import('./store.mjs');
@@ -97,7 +97,7 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   const stateOf = (id) => world.teams[0].states.find((s) => s.id === world.issues[id].state).name;
   // builder start's move of the ticket reaches Linear through the global fetch, not the CLI's injected one.
   t.mock.method(globalThis, 'fetch', linear.fetch);
-  const start = (id) => cli('builder', 'start', `audit/${id}`, '--kind', 'claude');
+  const start = (id) => { launched('audit', `audit/${id}`); return cli('builder', 'start', `audit/${id}`, '--kind', 'claude'); };
   const said = (line) => out.slice(-4).includes(line);
   const moves = [
     ['B2', null, 'ENG-101', 'In Progress'], ['B2', ['--pr', '5'], 'ENG-101', 'In Review'], ['B2', ['--done', '--text', 'Done.'], 'ENG-101', 'Done'],
@@ -168,6 +168,7 @@ test("a board still on Linear after Hub's key went refuses new tickets and links
     assert.equal(err.at(-1), noKey);
   }
   assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
+  launched('audit', 'audit/B2');
   for (const args of [['builder', 'start', 'audit/B2', '--kind', 'claude'], ['item', 'set', 'audit/B2', '--pr', '9'], ['item', 'set', 'audit/B2', '--done', '--text', 'Done.']]) {
     assert.equal(await cli(...args), 0);
     assert.ok(out.slice(-4).includes('ticket ENG-101: not moved, Hub has no Linear key'), out.slice(-4).join('\n'));

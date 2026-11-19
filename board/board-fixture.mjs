@@ -21,6 +21,9 @@ export const site = (route, ...p) => at('kickflip', 'sites', route, ...p);
 export const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
 export const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 export const lines = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+// The launch claim the board takes when it launches the card's agent (headless.mjs launchLives), held by this test's
+// process, so a build's builder start on the board at route has a launch to take up.
+export const launched = (route, key, agent = 'main') => write(site(route, 'data', 'launches', encodeURIComponent(`${key}~${agent}`)), { owner: process.pid });
 
 export const pushStub = () => path.join(home, 'push-stub.mjs');
 const cliEnv = (env) => {

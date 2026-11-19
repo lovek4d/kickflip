@@ -38,7 +38,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
-import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, stopRuns } from './headless.mjs';
+import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, launchLives, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, stopRuns } from './headless.mjs';
 import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
 import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree } from './worktree.mjs';
 import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
@@ -729,28 +729,36 @@ async function launchCutOffBuilds(site, io) {
   }
 }
 
-// docs/adr/2026-11-15-1630-a-pulled-card-whose-launch-was-lost-launches-again.md
-// A card In Progress that has no agent record (lostLaunches) had its pull cut off after the card moved and
-// before its build started: it starts as the pull would have, at boot and each minute. A card moved within the last
-// LOST_GRACE_MS may be a start still under way, so only boot, which has none, takes it at once. Bumped cards start
-// first, and a busy host holds only the rest.
-const LOST_GRACE_MS = 120000;
-async function launchLostBuilds(site, built, io, grace) {
+// docs/adr/2026-11-18-2000-builder-start-takes-up-a-launch.md
+// A card In Progress with nothing building it (stuckBuilds) and no task blocking it gets its builder launched in
+// place, at boot and each minute: fresh, in the worktree its last build kept (startBuilder's ownWorktree), staying In
+// Progress on its slot, with a thread line. A card moved in or whose run ended within the last STUCK_GRACE_MS may be a
+// start or a finish still under way, so only boot, which has none, takes it at once. Bumped cards restart first, and a
+// busy host holds only the rest. A restart that fails is logged, and the card's unowned wait stays.
+const STUCK_GRACE_MS = 120000;
+async function restartStuckBuilds(site, built, io, grace) {
   const gate = readUsageGate({ dir: site });
   if (heldFor(gate, 'claude', true)) return;
   const items = await built();
   const bump = bumpIn(items);
   const blocked = new Set(items.filter((c) => c.blockedBy?.length).map((c) => c.key));
-  const lost = (await lostLaunches(site, new Date(Date.now() - grace).toISOString())).filter((k) => !blocked.has(k));
-  for (const key of byBump(lost, bump)) {
+  const stuck = (await stuckBuilds(site, new Date(Date.now() - grace).toISOString())).filter((k) => !blocked.has(k));
+  for (const key of byBump(stuck, bump)) {
     if (heldFor(gate, 'claude', Boolean(bump(key)))) return;
-    const { started } = await start(site, key, 'build', io);
-    io.log({ call: 'launch-lost', key, result: startResult(started), reason: 'It was In Progress with no agent record: its pull was cut off before its build started.', inputs: {} });
+    const entry = { call: 'restart', key, reason: 'It was In Progress with nothing building it.', inputs: {} };
+    try {
+      const started = await startBuilder(site, key, { kind: 'build', dispatch: 'hub', ownWorktree: (opts) => boardWorktree(site, key.split('/')[1], opts) });
+      await appendStatus(site, key, 'builder-restarted');
+      io.log({ ...entry, result: 'restarted', inputs: { kind: started.kind, model: started.model, worktree: started.worktree } });
+      await handOff(site, { key, kind: started.kind, model: started.model, worktree: started.worktree }, io);
+    } catch (e) {
+      io.log({ ...entry, result: 'failed', reason: `${entry.reason} The restart failed: ${e.message}` });
+    }
   }
 }
 
-// The minute's relaunches: a dead or held headless builder (reviveHeadless), then a lost launch (launchLostBuilds). At
-// boot, a build cut off before its launch instead of the first, and a lost launch is taken with no grace. read() → the
+// The minute's relaunches: a dead or held headless builder (reviveHeadless), then a card with nothing building it
+// (restartStuckBuilds). At boot, a build cut off before its launch instead of the first, and a stuck card is taken with no grace. read() → the
 // built board's items, read once, and only when a step needs them. Each step's failure is logged and leaves the next to run.
 export async function revive(site, read, io, { boot = false } = {}) {
   io = ioOf(io);
@@ -758,7 +766,7 @@ export async function revive(site, read, io, { boot = false } = {}) {
   const built = async () => (items ??= await read());
   if (boot) await launchCutOffBuilds(site, io).catch((e) => console.error('Cut-off launch check failed:', e.message));
   else await reviveHeadless(site, built, io).catch((e) => console.error('Headless builder check failed:', e.message));
-  await launchLostBuilds(site, built, io, boot ? 0 : LOST_GRACE_MS).catch((e) => console.error('Lost launch check failed:', e.message));
+  await restartStuckBuilds(site, built, io, boot ? 0 : STUCK_GRACE_MS).catch((e) => console.error('Stuck build check failed:', e.message));
 }
 
 // ---- A run's record ----
@@ -889,6 +897,7 @@ const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus', [VISUAL]: 'sonnet', 
 // the pick's, which reads the card's size and model (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
 // → {file, lines, kind, model, reason, worktree}: model is the Claude model or null, reason the pick's, worktree the path or null;
 // {file, alreadyOpen: true, lines: []} for a session's dispatch on a record the tap opened.
+const NO_LAUNCH = (key) => `${key} has no launch to take up: a build's builder start is the first step of the agent the board launched. The pull launches a ready task's builder, and the board restarts an In Progress task with nothing building in place; a session launching its own builder runs builder start ${key} --dispatch first`;
 export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, ownWorktree, dispatch, brief, target }) {
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
   const asLine = optional(progress, (v) => progressLine(site, phase, v, '--progress'));
@@ -914,6 +923,11 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
   // dispatched one included (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
   const resumed = before && unverifiedCalls(before).length ? before : null;
+  // docs/adr/2026-11-18-2000-builder-start-takes-up-a-launch.md: on a board a build's start is its agent's check-in, so
+  // it takes up a launch: a record the pull, a tap or a session's dispatch opened, a launch the board made (one that lives,
+  // or whose session it recorded since the record last started or closed), or a handed-back build. With none, nothing
+  // was launched, and a start would show a build that isn't running.
+  if (build && agent === 'main' && site && !dir && !(takeUp || resumed || dispatch || launchedSession(before) || launchLives(site, key))) fail(NO_LAUNCH(key));
   const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: { tap: "The owner's Build tap picked it.", hub: "The board's pull picked it." }[takeUp.dispatched] ?? "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
@@ -1607,18 +1621,20 @@ export async function cutOffBuilds(site) {
   return out;
 }
 
-// docs/adr/2026-11-15-1630-a-pulled-card-whose-launch-was-lost-launches-again.md
-// The cards In Progress that no build ever started on: open, in the lane since before `since` (ISO time), not held by
-// the owner, with no agent record of any kind in their folder. A pull that a restart cut off after it moved the card
-// and before it wrote the record leaves one. → [key]
-export async function lostLaunches(site, since) {
+// docs/adr/2026-11-18-2000-builder-start-takes-up-a-launch.md
+// The cards In Progress with nothing building them: open, not held by the owner, and owing a Next (domain.mjs owesNext:
+// no open agent record, no Next, no hand-back, no PR), in the lane and with their last record closed since before
+// `since` (ISO time). A pull a restart cut off before it wrote the record leaves one, and so does a card a script
+// moved in. → [key]
+export async function stuckBuilds(site, since) {
   const out = [];
   const open = await openKeys(site);
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     for (const item of itemFile?.items || []) {
       if (!open.has(`${source.slug}/${item.id}`) || item.lane !== 'progress' || item.held || !(item.lane_at < since)) continue;
-      if ((await builderFiles(source.dir, item.id)).length) continue;
+      const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter(Boolean);
+      if (!owesNext(item, records) || records.some((r) => r.done && String(r.done) >= since)) continue;
       out.push(`${source.slug}/${item.id}`);
     }
   }

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildBoard, pullOf } from './domain.mjs';
 import { fakeGh, prView, writePR, calls } from '../shared/fake-gh.mjs';
-import { boardWith, home, at, site, write, read, lines, run, board, wave } from './board-fixture.mjs';
+import { boardWith, home, at, site, write, read, lines, run, board, wave, launched } from './board-fixture.mjs';
 
 const shape = 'isn\'t "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope';
 const words = '"<type>(<scope>): <summary>" of at most 100 characters, or "ask(<scope>): <question>?" for a question';
@@ -44,6 +44,7 @@ test("builder start refuses a build of a card whose title isn't a Conventional s
   assert.match((await board('--site', 'orch', 'builder', 'start', 'w/A2', '--kind', 'build')).err, /^w\/A2's title "ask\(board\): why\?" is an ask, which is answered, not built; retitle it/);
   assert.deepEqual([items()[0].lane, fs.existsSync(at('waves', 'w', 'agents', 'A1.json'))], [undefined, false]);
   assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--title', 'feat(board): one')).code, 0);
+  launched('orch', 'w/A1');
   const r = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(r.code, 0, r.err);
   assert.equal(items()[0].lane, 'progress');

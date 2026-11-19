@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
+import { at, site, write, read, lines, board, wave, launched } from './board-fixture.mjs';
 import { moveCard } from './store.mjs';
 import { migratePhases, clearBuildPhases } from './migrations.mjs';
 import { footerOf, buildBoard, movesOf, PHASES } from './domain.mjs';
@@ -38,6 +38,7 @@ test('item add and item set take --phase, store it as phase, and refuse --state 
 
 test("--phase sets only a Todo card's phase", async () => {
   assert.equal((await board('item', 'add', 'audit/B2', '--site', 'audit', '--relate', 'audit/A1', '--title', 'feat: two', '--phase', 'grilling')).code, 0);
+  launched('audit', 'audit/B2');
   assert.equal((await board('builder', 'start', 'audit/B2', '--site', 'audit', '--kind', 'claude')).code, 0);
   const r = await board('item', 'set', 'audit/B2', '--site', 'audit', '--phase', 'grilling');
   assert.equal(r.code, 1);
@@ -62,6 +63,7 @@ test('moveCard writes the lane and its phase together; a phase change inside a l
 
 test("the store's own moves write the phase: a build's start reads reading, a block that leaves it in place, a close merged or closed", async () => {
   write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'A1', title: 'feat: one', lane: 'todo', phase: 'ready' }, { id: 'A2', title: 'feat: two', lane: 'todo', phase: 'ready' }, { id: 'A4', title: 'feat: four', lane: 'progress', phase: 'checking' }] });
+  launched('audit', 'audit/A1');
   assert.equal((await board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude')).code, 0);
   assert.deepEqual([auditItem().lane, auditItem().phase], ['progress', 'reading']);
   write(site('audit', 'data', 'agents', 'A4.json'), { kind: 'claude', started: '2026-11-04T09:00:00Z', done: '2026-11-04T10:00:00Z', handed_back: '2026-11-04T10:00:00Z' });

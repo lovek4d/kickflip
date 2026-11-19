@@ -1,7 +1,7 @@
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
+import { at, site, write, read, lines, board, wave, launched } from './board-fixture.mjs';
 import { moveCard } from './store.mjs';
 import { migrateStatuses } from './migrations.mjs';
 import { buildBoard, movesOf } from './domain.mjs';
@@ -34,6 +34,7 @@ test('a new card starts in Todo; a build start moves it to In Progress and a PR 
   const added = auditItem('B2');
   assert.equal(added.lane, 'todo');
   assert.equal(added.lane_at, added.created);
+  launched('audit', 'audit/B2');
   const started = await board('builder', 'start', 'audit/B2', '--site', 'audit', '--kind', 'claude');
   assert.equal(started.code, 0, started.err);
   assert.equal(auditItem('B2').lane, 'progress');

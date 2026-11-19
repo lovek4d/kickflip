@@ -813,8 +813,8 @@ test("a restarted server launches the builder of an In Progress card whose recor
   assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/C1']?.relaunched, false, 'the launch is tracked');
 });
 
-// docs/adr/2026-11-15-1630-a-pulled-card-whose-launch-was-lost-launches-again.md
-test("a restarted server launches a card In Progress that has no agent record, and leaves one with a record, a held one and a Todo one alone", async (t) => {
+// docs/adr/2026-11-18-2000-builder-start-takes-up-a-launch.md
+test("a restarted server restarts in place a card In Progress with nothing building it, with no record or a finished one, and leaves one with an open record, a Next, a hand-back, a hold or in Todo alone", async (t) => {
   const home = emptyHome();
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
@@ -837,17 +837,32 @@ test("a restarted server launches a card In Progress that has no agent record, a
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
   const at = '2026-11-15T22:25:56.000Z';
   const card = (id, extra) => ({ id, title: `fix(board): ${id}`, lane: 'progress', lane_at: at, ...extra });
-  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [card('L1'), card('L2'), card('L3', { held: 'owner' }), card('L4', { lane: 'todo' })] }));
-  fs.writeFileSync(path.join(data, 'agents', 'L2.json'), JSON.stringify({ started: at, kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'x', repo: wt } }));
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [card('L1'), card('L2'), card('L3', { held: 'owner' }), card('L4', { lane: 'todo' }),
+    card('L5'), card('L6', { next: 'Waits on the owner' }), card('L7')] }));
+  const tree = { path: wt, branch: 'x', repo: wt };
+  const done = '2026-11-15T23:00:00.000Z';
+  fs.writeFileSync(path.join(data, 'agents', 'L2.json'), JSON.stringify({ started: at, kind: 'claude', model: 'opus', worktree: tree }));
+  // A build whose run ended with nothing after it, as the record a builder start left with nothing launched closes.
+  fs.writeFileSync(path.join(data, 'agents', 'L5.json'), JSON.stringify({ started: at, done, kind: 'claude', model: 'opus', worktree: tree }));
+  fs.writeFileSync(path.join(data, 'agents', 'L6.json'), JSON.stringify({ started: at, done, kind: 'claude', model: 'opus', worktree: tree }));
+  fs.writeFileSync(path.join(data, 'agents', 'L7.json'), JSON.stringify({ started: at, done, handed_back: done, calls: [{ at: done, text: 'Kept the header' }], kind: 'claude', model: 'opus', worktree: tree }));
   const { runs, launch } = launcher(t);
   const board = await startBoard(t, { site, launch });
   await board.settled();
-  assert.equal(runs.length, 1, 'the lost launch starts, and only it');
-  assert.match(runs[0].prompt, /builder start t\/L1 --kind build/);
-  assert.ok(fs.existsSync(path.join(data, 'agents', 'L1.json')), 'its record is open');
-  assert.ok(JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/L1'], 'the launch is tracked');
+  assert.deepEqual(runs.map((r) => r.prompt.match(/builder start (t\/L\d) --kind build/)?.[1]).sort(), ['t/L1', 't/L5'], 'the stuck cards restart, and only they');
+  // The restart is fresh and in place: the card stays In Progress, and one whose last build kept a worktree works there.
+  assert.equal(runs.find((r) => r.prompt.includes('builder start t/L5 ')).cwd, wt);
+  const items = JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items;
+  assert.deepEqual(['L1', 'L5'].map((id) => items.find((i) => i.id === id).lane), ['progress', 'progress']);
+  for (const id of ['L1', 'L5']) {
+    const record = JSON.parse(fs.readFileSync(path.join(data, 'agents', `${id}.json`), 'utf8'));
+    assert.deepEqual([Boolean(record.started), 'done' in record, record.dispatched], [true, false, 'hub'], `${id}'s record is open for its builder to take up`);
+    assert.ok(JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))[`t/${id}`], `${id}'s launch is tracked`);
+    const thread = fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.ok(thread.some((m) => m.line === 'builder-restarted'), `${id}'s thread says it restarted`);
+  }
   const audit = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.equal(audit.filter((e) => e.call === 'launch-lost' && e.key === 't/L1').length, 1);
+  assert.deepEqual(audit.filter((e) => e.call === 'restart').map((e) => [e.key, e.result]).sort(), [['t/L1', 'restarted'], ['t/L5', 'restarted']]);
 });
 
 // A board server holds its port before any startup side effect: of two started on one site at once, only the one that

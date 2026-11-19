@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { land as landWorktree } from './worktree.mjs';
 import { fakeGh, prView, writePR, writeReviews, writeMerge, writeLimit, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
-import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, worktree, land, branches, onOrch, record, itemOf, threadOf, addEvents } from './board-fixture.mjs';
+import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, worktree, land, branches, onOrch, launched, record, itemOf, threadOf, addEvents } from './board-fixture.mjs';
 
 test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and leaves its refusal off the card's thread", async () => {
   const dir = path.join(home, 'fake-gh');
@@ -586,6 +586,7 @@ test('land refuses a release task in a repo with no .kickflip/release, landing a
   write(at('kickflip', 'manifest.json'), manifest);
   const main = git(repo, 'rev-parse', 'main');
 
+  launched('orch', 'w/A1');
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(at('kickflip', 'worktrees', 'A1'), 'package.json', JSON.stringify({ name: 'x', version: '0.2.0' }) + '\n', 'chore(release): 0.2.0\n\nRefs: A1');
   const refused = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
@@ -625,6 +626,7 @@ test("a repo's .kickflip/release replaces land's release: check before landing r
   write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
   allow('Bash(git push origin main)', 'Bash(.kickflip/release *)');
   const release = async (id, version) => {
+    launched('orch', `w/${id}`);
     assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
     commit(at('kickflip', 'worktrees', id), 'CHANGELOG.md', `${version}\n`, `chore(release): ${version}\n\n- feat: work\n\nRefs: ${id}`);
     return await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
@@ -695,6 +697,7 @@ test("a board whose scripts are in kickflip checks and ships a release with its 
   write(path.join(repo, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)', `Bash(${script} *)`] } });
   write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
   const release = async (id, version) => {
+    launched('orch', `w/${id}`);
     assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
     commit(at('kickflip', 'worktrees', id), 'CHANGELOG.md', `${version}\n`, `chore(release): ${version}\n\nRefs: ${id}`);
     return await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
@@ -728,6 +731,7 @@ test("a finish that joins a release card's land returns once that land records i
   const manifest = read(at('kickflip', 'manifest.json'));
   manifest.sites.orch.owner = { repo };
   write(at('kickflip', 'manifest.json'), manifest);
+  launched('orch', 'w/A1');
   const started = await onOrch('builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(started.code, 0, started.err);
   commit(at('kickflip', 'worktrees', 'A1'), 'CHANGELOG.md', '0.7.0\n', 'chore(release): 0.7.0\n\nRefs: A1');

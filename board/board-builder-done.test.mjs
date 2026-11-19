@@ -9,7 +9,7 @@ import { opensPRs, settingsOf } from './store.mjs';
 import { SUMMARY_HINT } from './domain.mjs';
 import { fakeGh, writeLimit, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
-import { boardWith, bin, home, at, site, write, read, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, land, branches, onOrch, record, itemOf, threadOf, remoteBoard, tapMerge, onHome } from './board-fixture.mjs';
+import { boardWith, bin, home, at, site, write, read, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, land, branches, onOrch, launched, record, itemOf, threadOf, remoteBoard, tapMerge, onHome } from './board-fixture.mjs';
 
 
 test('builder done on a build that keeps a worktree finishes the card: it needs --text, lands it and closes the card and its record; a failed finish refuses with the reason and keeps the builder on', async () => {
@@ -109,6 +109,7 @@ test("a finish on a local board pushes its branch to origin once it lands when t
   manifest.sites.orch.owner = { repo };
   write(at('kickflip', 'manifest.json'), manifest);
   const finish = async (id) => {
+    launched('orch', `w/${id}`);
     assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
     commit(at('kickflip', 'worktrees', id), `${id}.txt`, 'built\n', `feat: work\n\nRefs: ${id}`);
     const r = await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
@@ -160,6 +161,7 @@ test("builder verified leaves a card handed back while one of its questions is o
   assert.deepEqual([itemOf().lane, typeof record().handed_back, typeof record().verified.at], [undefined, 'string', 'string']);
 
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [] });
+  launched('orch', 'w/A1');
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   assert.equal((await onOrch('builder', 'call', 'w/A1', 'Kept the old colour')).code, 0);
   assert.equal((await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.')).code, 0);
@@ -176,6 +178,7 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   const origin = remoteBoard(() => ({ github: 'owner/project' }));
   const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  for (const id of ['A1', 'A2']) launched('orch', `w/${id}`);
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   const main = git(origin, 'rev-parse', 'main');
@@ -200,6 +203,7 @@ test("while GitHub's limit holds, builder done pushes the branch but opens no PR
   remoteBoard(() => ({ github: 'owner/project' }));
   const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  for (const id of ['A1', 'A2']) launched('orch', `w/${id}`);
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'fix: the first commit\n\nRefs: A1');
   commit(worktree(), 'more.txt', 'more\n', 'test: the second\n\nRefs: A1');
@@ -226,6 +230,7 @@ test("on a GitHub board, builder done on a card whose PR is open force-pushes th
   const origin = remoteBoard(() => ({ github: 'owner/project' }));
   const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  for (const id of ['A1', 'A2']) launched('orch', `w/${id}`);
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   assert.equal((await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.')).code, 0);
@@ -271,6 +276,7 @@ test("on a GitHub board, builder done on a card whose PR is open force-pushes th
 
 test('on a plain git remote, builder done pushes the branch and the card waits on the merge', async () => {
   const origin = remoteBoard((dir) => ({ remote: dir }));
+  launched('orch', 'w/A1');
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   const r = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
@@ -357,10 +363,13 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   fs.chmodSync(fake, 0o755);
   const env = { KICKFLIP_CLAUDE: fake };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  for (const id of ['A1', 'A2']) launched('orch', `w/${id}`);
   const manifest = read(at('kickflip', 'manifest.json'));
   manifest.sites.orch.owner = { repo };
   write(at('kickflip', 'manifest.json'), manifest);
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  // The build's run ended, so its launch is the lander's to take.
+  fs.rmSync(site('orch', 'data', 'launches'), { recursive: true });
   commit(worktree(), 'shared/notes.md', 'branch\n', 'feat: work\n\nRefs: A1');
   assert.equal((await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.')).code, 0);
   commit(repo, 'shared/notes.md', 'main\n');
@@ -396,12 +405,14 @@ test("a tapped Merge whose rebase conflicts resumes the card's builder session, 
   fs.chmodSync(fake, 0o755);
   const env = { KICKFLIP_CLAUDE: fake };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  for (const id of ['A1', 'A2']) launched('orch', `w/${id}`);
   const manifest = read(at('kickflip', 'manifest.json'));
   manifest.sites.orch.owner = { repo };
   write(at('kickflip', 'manifest.json'), manifest);
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'shared/notes.md', 'branch\n', 'feat: work\n\nRefs: A1');
   assert.equal((await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.')).code, 0);
+  fs.rmSync(site('orch', 'data', 'launches'), { recursive: true });
   const file = at('waves', 'w', 'agents', 'A1.json');
   write(file, { ...read(file), session: { id: 'sess-1', pid: 1, log: 'builder.log', at: new Date().toISOString() } });
   commit(repo, 'shared/notes.md', 'main\n');
@@ -491,6 +502,7 @@ test('on Merge, a hub card branches from its folder\'s main and lands there, ope
   const { origin, folder } = hubBoard();
   const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  for (const id of ['A1', 'A2']) launched('orch', `w/${id}`);
   const main = git(origin, 'rev-parse', 'main');
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   assert.equal(fs.existsSync(path.join(worktree(), 'local.txt')), true);
@@ -511,6 +523,7 @@ test("on Draft PR or Ready PR, a hub card branches from origin's main, and its f
   write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: titles.A1 }, { id: 'A2', title: titles.A2 }] });
   const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  for (const id of ['A1', 'A2']) launched('orch', `w/${id}`);
   const folderMain = git(folder, 'rev-parse', 'main');
   const originMain = git(origin, 'rev-parse', 'main');
   const finish = async (id) => {
@@ -544,6 +557,7 @@ test('PRs off on a GitHub board needs Push main granted; then a finish lands in 
   write(path.join(clone, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)'] } });
   write(path.join(clone, '.git', 'info', 'exclude'), '.claude\n');
   assert.deepEqual(await onOrch('settings', 'set', 'prs', 'off'), { code: 0, out: 'prs off\n', err: '' });
+  launched('orch', 'w/A1');
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   commit(origin, 'later.txt', 'origin moved\n');

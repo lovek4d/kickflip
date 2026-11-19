@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardWith, home, at, site, write, read, lines, run, runAsync, board, onOrch, threadOf, wave, question, git, commit, scratchRepo, worktree, land, branches, record, itemOf, toolUse, toolResult, stopHook, ago, onHome, pollClock } from './board-fixture.mjs';
+import { boardWith, home, at, site, write, read, lines, run, runAsync, board, onOrch, launched, threadOf, wave, question, git, commit, scratchRepo, worktree, land, branches, record, itemOf, toolUse, toolResult, stopHook, ago, onHome, pollClock } from './board-fixture.mjs';
 import * as store from './store.mjs';
 
 test('agent.mjs still writes builder records, beside the wave file it names', async () => {
@@ -91,6 +91,7 @@ test('a hand-back closes ordinary builders while an install survives until expli
 });
 
 test('builder start --model records the Claude model and prints it', async () => {
+  launched('orch', 'w/A1');
   const r = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'claude', '--model', 'sonnet', '--label', 'Sonnet builder');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^model: Claude Sonnet$/m);
@@ -153,6 +154,7 @@ test('builder verified marks a handed-back build with no calls, and refuses one 
 test('builder asks --wait returns once every ask is answered and fails after its timeout while one waits', async (t) => {
   onHome(t);
   const orch = (...args) => board('--site', 'orch', ...args);
+  launched('orch', 'w/A1');
   assert.equal((await orch('builder', 'start', 'w/A1', '--kind', 'claude', '--model', 'opus')).code, 0);
   assert.equal((await orch('builder', 'ask', 'w/A1', 'Spec contradicts the probe?')).code, 0);
   const { now, checked } = pollClock(t);
@@ -169,6 +171,7 @@ test('builder ask posts to the thread as the builder and wakes the orchestrator,
   const main = at('waves', 'w', 'agents', 'A1.json');
   const orch = (...args) => board('--site', 'orch', ...args);
   assert.match((await orch('builder', 'ask', 'w/A1', 'Stay orange?')).err, /needs an open builder record on w\/A1/);
+  launched('orch', 'w/A1');
   assert.equal((await orch('builder', 'start', 'w/A1', '--kind', 'claude', '--model', 'opus')).code, 0);
   assert.match((await board('builder', 'ask', 'w/A1', 'Stay orange?')).err, /needs --site/);
   const asked = await orch('builder', 'ask', 'w/A1', 'Should Implement stay', 'orange?');
@@ -203,8 +206,41 @@ test('builder ask posts to the thread as the builder and wakes the orchestrator,
   assert.equal((await orch('builder', 'verified', 'w/A1')).code, 0);
 });
 
+// docs/adr/2026-11-18-2000-builder-start-takes-up-a-launch.md
+test("a build's builder start on a board takes up a launch: it refuses with none, and starts on a live launch, a dispatched record, a handed-back build or its own --dispatch", async () => {
+  const main = at('waves', 'w', 'agents', 'A1.json');
+  const card = () => read(at('waves', 'w', 'wave.json')).items[0];
+  const before = card();
+  for (const kind of ['build', 'claude']) {
+    const refused = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', kind);
+    assert.deepEqual([refused.code, refused.err], [1, "w/A1 has no launch to take up: a build's builder start is the first step of the agent the board launched. The pull launches a ready task's builder, and the board restarts an In Progress task with nothing building in place; a session launching its own builder runs builder start w/A1 --dispatch first\n"]);
+  }
+  assert.deepEqual([fs.existsSync(main), card()], [false, before], 'a refused start records no build and leaves the card in its lane');
+  // Another agent beside the build and a start that is no build are no build's check-in.
+  assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench')).code, 0);
+  assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--label', 'Notes')).code, 0);
+  assert.equal((await board('builder', 'done', 'w/A1')).code, 0);
+  // A launch the board made, held while its process lives, is taken up.
+  launched('orch', 'w/A1');
+  assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  assert.equal((await board('--site', 'orch', 'builder', 'done', 'w/A1', '--next', 'Check it')).code, 0);
+  fs.rmSync(site('orch', 'data', 'launches'), { recursive: true });
+  write(site('orch', 'data', 'launches', encodeURIComponent('w/A1~main')), { owner: 2 ** 22 + 7, pid: 2 ** 22 + 7 });
+  assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build')).code, 1, "a launch whose process is gone is none");
+  // A session's dispatch opens the record its agent's start takes up.
+  assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'build')).code, 0);
+  assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  // A handed-back build's start resumes it.
+  assert.equal((await board('builder', 'call', 'w/A1', 'Kept the old name')).code, 0);
+  assert.match((await board('--site', 'orch', 'builder', 'done', 'w/A1', '--summary', 'Built it.')).out, /^handed back: /m);
+  assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  assert.equal(read(main).calls.length, 1);
+});
+
 test('builder pick names the kind that builds now, builder start refuses the other, and --kind build takes the pick', async () => {
   const noCodex = (...args) => boardWith(args, { PATH: path.join(home, 'bin') });
+  launched('orch', 'w/A1');
+  launched('orch', 'w/A2');
   assert.deepEqual(await noCodex('builder', 'pick', 'w/A1', '--site', 'orch'), { code: 0, err: '', out: "claude opus: Codex isn't installed on the host. Claude model is Auto and the task isn't small.\n" });
   assert.equal((await noCodex('builder', 'pick', 'w/Z9', '--site', 'orch')).code, 1);
   const refused = await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'codex');
@@ -230,6 +266,7 @@ test("a build start records builder pick's choice, reason and inputs in the boar
   assert.equal((await board('--site', 'orch', 'audit')).out, 'No calls in the last 30 days.\n');
   assert.equal((await noCodex('builder', 'pick', 'w/A1', '--site', 'orch')).code, 0);
   assert.equal(fs.existsSync(site('orch', 'data', 'audit.jsonl')), false, 'a pick that starts nothing records nothing');
+  launched('orch', 'w/A1');
   const started = await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'build');
   assert.equal(started.code, 0, started.err);
   const [entry, ...more] = fs.readFileSync(site('orch', 'data', 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
@@ -246,6 +283,7 @@ test("a build start records builder pick's choice, reason and inputs in the boar
 // docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
 test("a card's --size and --model feed builder pick's Claude model, and builder start refuses a --model the hub's Claude model rules out", async () => {
   const noCodex = (...args) => boardWith(args, { PATH: path.join(home, 'bin') });
+  launched('orch', 'w/A1');
   const card = () => read(at('waves', 'w', 'wave.json')).items[0];
   const pick = async () => (await noCodex('builder', 'pick', 'w/A1', '--site', 'orch')).out;
   assert.deepEqual([(await board('item', 'set', 'w/A1', '--size', 'small')).code, card().size], [0, 'small']);
@@ -328,6 +366,7 @@ test("a build start on a board makes the card's worktree when its record keeps n
 
   commit(worktree(), 'work.txt', 'built');
   assert.equal((await board('--site', 'orch', 'builder', 'done', 'w/A1', '--next', 'Check the build')).code, 0);
+  launched('orch', 'w/A1');
   const again = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(again.code, 0, again.err);
   assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo });
@@ -399,6 +438,7 @@ test('a build start on a board gives the card its worktree, and a later build st
   const repo = scratchRepo();
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
   write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), github_login: 'Me' });
+  launched('orch', 'w/A1');
   const first = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(first.code, 0, first.err);
   assert.equal(git(worktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'me/orch/a1');
@@ -563,6 +603,7 @@ test("a builder's builder start takes up the record the owner's Build tap starte
   const { started, ...record } = read(at('waves', 'w', 'agents', 'A1.json'));
   assert.deepEqual(record, { label: 'Codex builder', kind: 'codex', worktree: tapped.worktree });
   assert.ok(started > tapped.started);
+  launched('orch', 'w/A1');
   assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree, undefined);
 });
@@ -580,7 +621,10 @@ test("a builder's start keeps the session id its launch recorded since the recor
   write(file, { ...read(file), done: '2026-11-03T12:00:00.000Z', session: lander });
   assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Lander')).code, 0);
   assert.deepEqual(read(file).session, lander);
-  // A start with no launch since the record started belongs to no session the record knows.
+  // A start with no launch since the record started has none to take up; one on a launch whose session isn't recorded
+  // yet belongs to no session the record knows.
+  assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build')).code, 1);
+  launched('orch', 'w/A1');
   assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   assert.equal(read(file).session, undefined);
 });
@@ -674,6 +718,7 @@ test('builder start refuses a Claude pause before making records or a worktree, 
 // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
 test('builder start refuses every kind while the host is busy, and starts once it eases', async () => {
   write(at('kickflip', 'machine-state.json'), { state: 'busy', reason: 'load high' });
+  launched('orch', 'w/A1');
   for (const kind of ['build', 'grill']) {
     const r = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', kind);
     assert.equal(r.code, 1);
@@ -767,6 +812,7 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   const repo = scratchRepo();
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
   write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), github_login: 'Me' });
+  launched('orch', 'w/A1');
   const main = await onOrch('builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(main.code, 0, main.err);
   const helperFile = at('waves', 'w', 'agents', 'A1@tests.json');
@@ -832,12 +878,13 @@ test('agent launch asks for a helper on an open card, which then starts, reports
 
 test("agent wait marks its spawner waiting while the helper is open, and refuses once the helper's process is gone without its done", async (t) => {
   onHome(t);
+  launched('orch', 'w/A1');
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--kind', 'claude')).code, 0);
   assert.equal((await onOrch('agent', 'launch', 'w/A1', '--name', 'look', '--task', 'Read the code')).code, 0);
   const helperFile = at('waves', 'w', 'agents', 'A1@look.json');
   // The helper's own builder start, after its launch recorded the session, keeps that session.
-  const launched = new Date(Date.now() - 2000).toISOString();
-  write(helperFile, { ...read(helperFile), started: new Date().toISOString(), session: { id: 's', pid: 4242, at: launched } });
+  const launchedAt = new Date(Date.now() - 2000).toISOString();
+  write(helperFile, { ...read(helperFile), started: new Date().toISOString(), session: { id: 's', pid: 4242, at: launchedAt } });
   let running = true;
   const { now, checked } = pollClock(t);
   const waiting = store.waitHelper(site('orch'), 'w/A1', { name: 'look', now, alive: (pid) => pid === 4242 && running });

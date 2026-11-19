@@ -18,7 +18,7 @@ import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo, git } from './worktree.mjs';
 import { standardWords } from './commit-message.mjs';
 import { BoardError } from './checks.mjs';
-import { claimLaunch, release } from '../shared/launch-claim.mjs';
+import { claimed, claimLaunch, release } from '../shared/launch-claim.mjs';
 import { appendBuilderResumed, appendStatus } from './cards.mjs';
 import { readBoardRules } from './settings.mjs';
 import { briefFacts, recordedSession, recordSession } from './runs.mjs';
@@ -380,6 +380,8 @@ const claimsDir = (site) => path.join(site, 'data', 'launches');
 const claimName = (key, agent) => `${key}~${agent}`;
 // Frees the card's agent's launch claim, as its run ends or is stopped, so a later run of it launches.
 export const releaseLaunch = (site, key, agent = 'main') => release(claimsDir(site), claimName(key, agent));
+// Whether the board launched the card's agent and that launch is under way or its process lives.
+export const launchLives = (site, key, agent = 'main') => claimed(claimsDir(site), claimName(key, agent));
 
 // Launches through launch, with args, only if this process wins the exclusive claim on the card's agent, so two servers
 // or passes deciding to launch the same run launch it once. The claim holds the launched process's pid from its spawn.
