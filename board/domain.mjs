@@ -685,8 +685,8 @@ function placeOwnerWait(it, questionById, autoMerge) {
     return;
   }
   const ownerOnly = it.lane === 'todo' || it.waitsOn === 'ready' || (it.lane === 'progress' && it.waitsOn === 'owner');
-  // A stalled card stays in the lane it stalled in.
-  if (!it.action || !ownerOnly || it.stalled) return;
+  // A stalled card stays in the lane it stalled in, and so does one with a script waiting on Run.
+  if (!it.action || !ownerOnly || it.stalled || it.action.kind === ACTION_KIND.script) return;
   const lane = it.lane === 'todo' && (ASKING.has(it.action.kind) || it.action.kind === ACTION_KIND.implement || it.action.kind === ACTION_KIND.close) ? 'todo' : 'review';
   Object.assign(it, { lane, waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label });
 }
