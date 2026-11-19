@@ -41,6 +41,11 @@ BoardView.part((B) => {
   // on screen kept its lane, the topmost of them still shown, which the page follows to its new place
   // (docs/adr/2026-11-16-0916-the-topmost-card-on-screen-stays-put-through-any-reorder-or-resize.md). A field in a
   // dialog doesn't move with the page, so the cards anchor then.
+  // The board's scroll: from 900px the column beside the pane scrolls itself (style.css .split > main), so its bar sits on
+  // the pane's edge; below, the page does.
+  const column = () => (matchMedia('(min-width: 900px)').matches ? B.root.querySelector('.split > main') : null);
+  const scrollNow = () => column()?.scrollTop ?? scrollY;
+  const scrollByY = (dy) => (column() || window).scrollBy(0, dy);
   const topOf = (el) => el.getBoundingClientRect().top;
   const laneOf = (card) => card.closest('details.lane')?.dataset.lane;
   // On screen: any part of the card's box is in the viewport. A card in a closed lane or fold has an empty box.
@@ -85,13 +90,13 @@ BoardView.part((B) => {
   // sends one late, after a size change in the same frame, so taking the anchor then would take the shifted layout.
   let anchor = null;
   let anchorY = 0;
-  const take = (next) => { anchor = next; anchorY = scrollY; };
+  const take = (next) => { anchor = next; anchorY = scrollNow(); };
   // → whether anchor is still shown, after scrolling the page by however far it moved.
   function hold({ find, top }) {
     const el = find();
     if (!el) return false;
     const after = topOf(el);
-    if (after !== top) scrollBy(0, after - top);
+    if (after !== top) scrollByY(after - top);
     return true;
   }
   function steady(paint) {
@@ -107,12 +112,13 @@ BoardView.part((B) => {
   // to the topmost card on screen now.
   const watcher = new ResizeObserver(() => {
     if (!anchor) return;
-    if (hold(anchor)) anchorY = scrollY; else take(anchorNow());
+    if (hold(anchor)) anchorY = scrollNow(); else take(anchorNow());
   });
   watcher.observe(B.root);
   watcher.observe($('#lanes'));
   B.atUnmount(() => watcher.disconnect());
-  B.on(window, 'scroll', () => { if (scrollY !== anchorY) take(anchorNow()); }, { passive: true });
+  // Captured on the window: an element's scroll doesn't bubble, and the page's and the column's both land here.
+  B.on(window, 'scroll', () => { if (scrollNow() !== anchorY) take(anchorNow()); }, { capture: true, passive: true });
   // A text box taking focus becomes the anchor at once, so a size change above it, outside a repaint, moves the page
   // with it. Leaving it gives the anchor back to the topmost card on screen.
   B.on(B.root, 'focusin', () => take(anchorNow()));
@@ -132,7 +138,7 @@ BoardView.part((B) => {
     const top = topOf(form);
     change();
     const after = topOf(form);
-    if (after !== top) scrollBy(0, after - top);
+    if (after !== top) scrollByY(after - top);
     take(anchorNow());
   }
   // Where the owner left the board, kept for its next mount in this page: the page's scroll and the box they were typing
@@ -149,7 +155,7 @@ BoardView.part((B) => {
     if (place) return { y: place.y, box: place.box };
     const field = focusedField() || (held?.isConnected ? held : null);
     const selector = field && boxOf(field);
-    return { y: scrollY, box: selector ? { selector, selection: [field.selectionStart, field.selectionEnd, field.selectionDirection], top: field.scrollTop } : null };
+    return { y: scrollNow(), box: selector ? { selector, selection: [field.selectionStart, field.selectionEnd, field.selectionDirection], top: field.scrollTop } : null };
   });
   // Only the first call restores, and none when the URL names a card (linked). A phone's keyboard would open for the
   // focus, so only a mouse or trackpad gets the box back (sidebar.js DESKTOP).
@@ -157,7 +163,7 @@ BoardView.part((B) => {
     const p = place;
     place = null;
     if (!p || linked) return;
-    scrollTo(0, p.y);
+    if (column()) column().scrollTop = p.y; else scrollTo(0, p.y);
     const box = p.box && $(p.box.selector);
     if (!box || box.closest('details:not([open])') || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
     box.focus({ preventScroll: true });

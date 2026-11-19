@@ -42,6 +42,7 @@ function scenario() {
   const root = document.body.appendChild(document.createElement('div'));
   root.className = 'view-board';
   root.innerHTML = BoardView.markup({ title: 'A' });
+  root.querySelector('.split > main').style.paddingBottom = '3000px';
   let signal = null;
   BoardView.create(root, '/board-a', { signal: (fn) => { signal = fn; return () => {}; } }).mount();
 
@@ -57,7 +58,7 @@ function scenario() {
   const topmost = () => [...root.querySelectorAll('details.item')].find((d) => { const r = d.getBoundingClientRect(); return r.bottom > Math.max(r.top, 0) && r.top < innerHeight; }).dataset.key.slice(2);
   // Scrolls card id to just past the top of the screen, as the owner would, so the card above, whose border it may
   // share, is off it, and lets the board take its anchor. → the topmost card on screen then, and its top.
-  const scrollTo = async (id) => { scrollBy(0, top(id) + 2); await settle(); return [topmost(), top(topmost())]; };
+  const scrollTo = async (id) => { (innerWidth >= 900 ? root.querySelector('.split > main') : window).scrollBy(0, top(id) + 2); await settle(); return [topmost(), top(topmost())]; };
   // Loads a 200px image into host and waits on its load event, never on time, as the stub server answers /tall.svg only
   // once asked. → the image and its height at the load, before the board's next draw could replace the card it is in.
   const grow = async (host) => {

@@ -19,3 +19,12 @@ test('the desktop right pane never scrolls sideways: its content wraps to the pa
   assert.match(wide, /\.board-pane \* \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
   assert.match(wide, /\.board-pane pre[^{]*\{[^}]*white-space: pre-wrap;/);
 });
+
+test('the desktop board column is its own scroller below the header, so its bar sits on the left pane edge and the window never scrolls', () => {
+  const wide = css.slice(css.indexOf('@media (min-width: 900px) {\n  .split'));
+  const main = wide.match(/\.split > main \{[^}]*\}/)[0];
+  assert.match(main, /height: calc\(100vh - 56px\)/);
+  assert.match(main, /overflow-y: auto/);
+  assert.match(main, /overscroll-behavior: contain/);
+  assert.match(wide, /html:has\(\.view-board:not\(\[hidden\]\)\) \{ overflow: hidden; \}/);
+});

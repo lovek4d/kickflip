@@ -665,7 +665,7 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 2px; }
   .view-board .toast-stack { bottom: calc(var(--app-bottom, 0px) + var(--search-lift, 0px) + 83px + var(--fab-edge)); }
 }
 @media (min-width: 900px) {
-  .search-bar { top: 56px; margin-top: -12px; }
+  .search-bar { top: 0; margin-top: -12px; }
 }
 .top .nav #refresh:disabled, .top .nav a.icon[aria-disabled="true"] { opacity: .35; pointer-events: none; }
 /* The header's icon buttons drawn as the bare icon, with a count on its corner (the waits chip). */
@@ -1138,7 +1138,9 @@ button.thread-more[aria-busy="true"]::after { inset: 0 auto 0 12px; margin: auto
 .col-handle { display: none; }
 @media (min-width: 900px) {
   .split { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) var(--pane-w, minmax(0, 1fr)); align-items: start; }
-  .split > main { max-width: none; margin: 0; }
+  /* The board's column scrolls itself, below the header, so its bar sits on the left pane's right edge and the window never scrolls. */
+  html:has(.view-board:not([hidden])) { overflow: hidden; }
+  .split > main { max-width: none; margin: 0; height: calc(100vh - 56px); overflow-y: auto; overscroll-behavior: contain; }
   /* The board's + sits at the bottom right of the left pane: the pane ends at the middle of the space right of the sidebar. */
   .view-board .fab { right: calc(var(--pane-w, calc(50% - var(--sidebar-w, 0px) / 2)) + var(--fab-edge)); }
   body.has-sidebar { --sidebar-w: var(--sb-w, 272px); }
