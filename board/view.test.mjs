@@ -1085,7 +1085,8 @@ test('Board Settings offers Close board for the hub board like any other once it
   view.unmount();
 });
 
-test('Hub Settings lists closed boards, keeps a refused reopen available, then removes it after reopening', async () => {
+// Hub Settings with one closed board, its POSTs answered by answer(url) → {ok, out}, and confirm by confirm(text).
+async function closedBoardsSettings({ answer, confirm }) {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   Element.prototype.setSelectionRange = () => {};
@@ -1093,36 +1094,77 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
   const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] },
-    closed: [{ route: 'shop', title: 'The <Shop>' }] };
-  const posts = [];
-  let refuse = true;
-  let changed = 0;
+    closed: [{ route: 'shop', title: 'The <Shop>', closedAt: '2026-11-01T10:00:00Z', repo: '/Users/me/shop' }] };
+  const s = { posts: [], confirms: [], changed: 0, root, page };
+  page.win.BoardDialogs.confirm = async (text) => { s.confirms.push(text); return confirm(text); };
   page.win.fetch = async (url, opts = {}) => {
     if (opts.method === 'POST') {
-      posts.push([url, JSON.parse(opts.body), opts.headers['content-type']]);
-      return { ok: !refuse, json: async () => refuse ? { error: 'Not signed in.' } : { route: 'shop' } };
+      s.posts.push([url, JSON.parse(opts.body)]);
+      const { ok, out } = await answer(url);
+      return { ok, json: async () => out };
     }
     return { ok: true, json: async () => structuredClone(d) };
   };
-  const view = page.win.HubSettings.create(root, 'https://mac.ts.net/_hub', { view: { hash: '#closed' }, sidebarChanged: () => changed++ });
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
-  view.mount();
-  await settle();
-  const top = root;
-  assert.match(top.innerHTML, /Closed boards[\s\S]*The &lt;Shop&gt;[\s\S]*data-reopen="shop"/);
-  page.fire(root, 'click', { target: root.querySelector('[data-reopen="shop"]') });
-  await settle();
-  assert.match(top.innerHTML, /Not signed in/);
-  assert.match(top.innerHTML, /data-reopen="shop"/);
+  s.view = page.win.HubSettings.create(root, 'https://mac.ts.net/_hub', { view: { hash: '#closed' }, sidebarChanged: () => s.changed++ });
+  s.settle = () => new Promise((resolve) => setImmediate(resolve));
+  s.view.mount();
+  await s.settle();
+  s.open = () => page.fire(root, 'click', { target: root.querySelector('[data-closed-open="shop"]') });
+  s.tap = (sel) => page.fire(root, 'click', { target: root.querySelector(sel) });
+  s.sheet = root.querySelector('#closedSheet');
+  return s;
+}
+
+test('Hub Settings lists closed boards; a row opens its detail sheet, whose Reopen confirms first, keeps a refused reopen on the row, then removes it after reopening', async () => {
+  let refuse = true;
+  let agree = false;
+  const s = await closedBoardsSettings({ answer: () => (refuse ? { ok: false, out: { error: 'Not signed in.' } } : { ok: true, out: { route: 'shop' } }), confirm: () => agree });
+  assert.match(s.root.innerHTML, /Closed boards[\s\S]*data-closed-open="shop"[\s\S]*The &lt;Shop&gt;/);
+  s.open();
+  assert.equal(s.sheet.open, true);
+  assert.equal(s.root.querySelector('#closedTitle').textContent, 'The <Shop>');
+  const sheet = s.root.querySelector('.closed-content').innerHTML;
+  assert.match(sheet, /Route[\s\S]*\/shop[\s\S]*Closed[\s\S]*Repo[\s\S]*\/Users\/me\/shop[\s\S]*data-closed-reopen="shop"[\s\S]*data-closed-delete="shop"/);
+  s.tap('[data-closed-reopen="shop"]');
+  await s.settle();
+  assert.match(s.confirms[0], /Reopen The <Shop>\?.*\/shop.*port.*session/s);
+  assert.deepEqual(s.posts, [], 'a declined confirm posts nothing');
+  agree = true;
+  s.tap('[data-closed-reopen="shop"]');
+  await s.settle();
+  assert.equal(s.sheet.open, false);
+  assert.match(s.root.innerHTML, /Not signed in/);
+  assert.match(s.root.innerHTML, /data-closed-retry="shop"/);
   refuse = false;
-  page.fire(root, 'click', { target: root.querySelector('[data-reopen="shop"]') });
-  const reopen = root.querySelector('[data-reopen="shop"]');
-  assert.deepEqual([reopen.textContent, reopen.disabled, reopen.getAttribute('aria-busy')], ['Reopen', true, 'true'], 'Reopen waits with its label kept behind the spinner');
-  await settle();
-  assert.deepEqual(posts.at(-1), ['/_hub/reopen-board', { route: 'shop' }, 'application/json']);
-  assert.match(top.innerHTML, /No closed boards/);
-  assert.equal(changed, 1);
-  view.unmount();
+  s.tap('[data-closed-retry="shop"]');
+  assert.match(s.root.querySelector('[data-closed-open="shop"]').textContent, /reopening…/);
+  await s.settle();
+  assert.deepEqual(s.posts.at(-1), ['/_hub/reopen-board', { route: 'shop' }]);
+  assert.match(s.root.innerHTML, /No closed boards/);
+  assert.equal(s.changed, 1);
+  s.view.unmount();
+});
+
+test("a closed board's Delete confirms what goes and stays, reads deleting… on its row, shows a refusal with Retry, and the row is gone once deleted", async () => {
+  let refuse = true;
+  const rowWords = [];
+  const s = await closedBoardsSettings({ answer: () => (rowWords.push(s.root.querySelector('[data-closed-open="shop"]')?.textContent), refuse ? { ok: false, out: { error: '/w/S1 holds uncommitted work; commit or remove it, then delete again.' } } : { ok: true, out: { route: 'shop' } }), confirm: () => true });
+  s.open();
+  s.tap('[data-closed-delete="shop"]');
+  await s.settle();
+  assert.match(rowWords[0], /deleting…/);
+  assert.match(s.confirms[0], /Delete The <Shop> for good\?[\s\S]*site folder[\s\S]*worktrees[\s\S]*Kept:[\s\S]*GitHub[\s\S]*can’t be undone/);
+  assert.equal(s.sheet.open, false);
+  assert.deepEqual(s.posts, [['/_hub/delete-board', { route: 'shop' }]]);
+  assert.match(s.root.innerHTML, /holds uncommitted work/);
+  refuse = false;
+  s.tap('[data-closed-retry="shop"]');
+  await s.settle();
+  assert.equal(s.posts.length, 2);
+  assert.equal(s.confirms.length, 1, 'Retry repeats the confirmed delete without asking again');
+  assert.match(s.root.innerHTML, /No closed boards/);
+  assert.equal(s.changed, 1);
+  s.view.unmount();
 });
 
 test("Restart on a board's row of the Hub page confirms, waits disabled with its spinner until the hub answers, then toasts; a refusal shows above the page, and the hub board has no Restart", async () => {

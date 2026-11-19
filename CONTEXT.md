@@ -213,7 +213,7 @@ A site built from the board template that shows the tasks of its item files in l
 _Avoid_: dashboard, kanban
 
 **Closed board**:
-A board whose session and server have stopped and whose sidebar row is gone, with its folder, tasks, threads and notes kept on the host. The hub page lists it under Closed boards; Reopen restores it and resumes its recorded session. Open PRs stay on GitHub, and running builder records end with a note ([a closed board keeps its folder and can be reopened](docs/adr/2026-10-31-1603-a-closed-board-keeps-its-folder-and-can-be-reopened.md)).
+A board whose session and server have stopped and whose sidebar row is gone, with its folder, tasks, threads and notes kept on the host. The hub page lists it under Closed boards; Reopen restores it and resumes its recorded session. Open PRs stay on GitHub, and running builder records end with a note ([a closed board keeps its folder and can be reopened](docs/adr/2026-10-31-1603-a-closed-board-keeps-its-folder-and-can-be-reopened.md)). A closed board's row opens its detail sheet, whose Reopen and Delete each confirm first; Delete removes it for good, with its folder, builder worktrees and branches and a clone only it used, keeping the owner's repo and GitHub ([a closed board can be deleted](docs/adr/2026-11-18-2300-a-closed-board-can-be-deleted.md)).
 _Avoid_: deleted board, archived board
 
 **Hub links**:

@@ -325,7 +325,7 @@ test('hub writes refuse cross-site requests before handling forms, JSON or delet
   assert.equal(fs.readFileSync(settings, 'utf8'), before);
 });
 
-test('closing a board through the hub requires JSON, same-origin access and its exact name, retains its folder and stops its server after answering', async () => {
+test('closing a board through the hub requires JSON, same-origin access and its exact name, retains its folder and stops its server after answering, and a delete then removes it', async () => {
   const file = claude('kickflip', 'manifest.json');
   const original = read(file);
   const route = 'close-me';
@@ -346,6 +346,7 @@ test('closing a board through the hub requires JSON, same-origin access and its 
     for (const h of [{ ...headers, origin: 'https://other.example' }, { ...headers, 'sec-fetch-site': 'cross-site' }, { 'content-type': 'text/plain' }]) {
       assert.equal((await post('/_hub/close-board', body, h)).status, 403);
       assert.equal((await post('/_hub/reopen-board', { route }, h)).status, 403);
+      assert.equal((await post('/_hub/delete-board', { route }, h)).status, 403);
       assert.deepEqual(read(file), before);
     }
     assert.equal((await post('/_hub/close-board', { route, name: 'close me' })).status, 400);
@@ -371,6 +372,11 @@ test('closing a board through the hub requires JSON, same-origin access and its 
     assert.match((await reopened.json()).error, /claude --resume failed/);
     assert.equal(read(file).sites[route], undefined);
     assert.deepEqual(read(file).closed[route].site, entry);
+    const deleted = await post('/_hub/delete-board', { route });
+    assert.equal(deleted.status, 200);
+    assert.equal(read(file).closed?.[route], undefined);
+    assert.equal(fs.existsSync(dir), false);
+    assert.equal((await post('/_hub/delete-board', { route })).status, 404);
   } finally { await writeManifestFile(original); }
 });
 

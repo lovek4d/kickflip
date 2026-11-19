@@ -232,7 +232,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => b.textContent), ['1h', '3h', '6h', '1d', 'Forever']);
   assert.equal(root.querySelector('.dur-custom .btn').textContent, 'Custom');
-  assert.equal(root.querySelectorAll('dialog').length, 2, 'the settings modal, and the Alerts sheet in it');
+  assert.equal(root.querySelectorAll('dialog').length, 3, 'the settings modal, and the Alerts and closed board sheets in it');
   assert.equal(modal.open, true);
   assert.doesNotMatch(modal.textContent, /Pushes wait, then go|Turn off to drop|unlocked and used/);
   const enable = root.querySelector('[data-device="on"]');

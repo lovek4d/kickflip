@@ -10,7 +10,8 @@ import { tempDir } from '../shared/temp-dir.mjs';
 
 const home = fs.realpathSync(tempDir('close-board-'));
 process.env.HOME = home;
-const { boardClosure, closeBoard, closedBoards, reopenBoard } = await import('./close-board.mjs');
+const { boardClosure, closeBoard, closedBoards, deleteClosedBoard, reopenBoard } = await import('./close-board.mjs');
+const { reposDir } = await import('../shared/repos.mjs');
 const { readManifest, saveJSON, listBoards, hubBoard, withManifestLock } = await import('./boards.mjs');
 const { checkSessions, resumeSession, runSessionStop, stopSession } = await import('./sessions.mjs');
 const { requestBoard } = await import('./new-board.mjs');
@@ -303,4 +304,107 @@ test('a resumed copy inherits the saved cursor and a missing cursor replays ever
   assert.equal(reopened.session, copy);
   assert.equal(readManifest().sites.shop.owner.session, copy);
   assert.deepEqual(read(path.join(dir, 'data', `.watch-cursor-${copy}.json`)), { 'data/events.jsonl': 0, 'data/other.jsonl': 0 });
+});
+
+// A git repo at dir with one commit on main.
+function gitRepo(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  const g = (...args) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' });
+  g('init', '--quiet', '-b', 'main');
+  fs.writeFileSync(path.join(dir, 'README.md'), 'repo\n');
+  g('add', '.');
+  g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '--quiet', '-m', 'first');
+  return dir;
+}
+const gitOut = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
+// A closed Shop whose session works in repo, with a builder worktree on S1's branch and the prototype base worktree.
+async function closedWithWork(repo) {
+  const { dir, data, site } = fixture();
+  const manifest = readManifest();
+  manifest.sites.shop.owner.repo = repo;
+  saveJSON(web('manifest.json'), manifest);
+  const tree = web('worktrees', 'S1');
+  gitOut(repo, 'worktree', 'add', '--quiet', '-b', 'me/shop/s1', tree, 'main');
+  const base = web('worktrees', 'shop-prototypes');
+  gitOut(repo, 'worktree', 'add', '--quiet', '--detach', base, 'main');
+  fs.writeFileSync(path.join(base, 'prototype-page.html'), 'a round');
+  write(path.join(data, 'agents', 'S2.json'), { label: 'Finished', started: '2026-10-29T00:00:00Z', done: '2026-10-30T00:00:00Z', worktree: { path: tree, branch: 'me/shop/s1', repo } });
+  await closeBoard('shop', 'The Shop', { live });
+  return { dir, site, tree, base };
+}
+const branches = (repo) => gitOut(repo, 'branch', '--format=%(refname:short)').split('\n');
+const exists = (p) => fs.existsSync(p);
+
+test('a delete removes the closed entry, the site folder, the builder and prototype worktrees and branches, and a clone only it used', async () => {
+  const clone = gitRepo(path.join(reposDir(), 'o', 'r'));
+  const { dir, tree, base } = await closedWithWork(clone);
+  assert.deepEqual(closedBoards().map((b) => [b.route, b.repo]), [['shop', clone]]);
+  const out = await deleteClosedBoard('shop');
+  assert.equal(out.route, 'shop');
+  assert.equal(readManifest().closed, undefined);
+  assert.deepEqual([exists(dir), exists(tree), exists(base), exists(clone)], [false, false, false, false]);
+});
+
+test('a delete keeps the owner’s own repo and a clone another board uses, taking only this board’s worktrees and branches from it', async () => {
+  for (const [shared, other] of [[path.join(home, 'own repo'), null], [path.join(reposDir(), 'o', 'shared'), 'open'], [path.join(reposDir(), 'o', 'shared2'), 'closed']]) {
+    const repo = gitRepo(shared);
+    gitOut(repo, 'branch', 'keep-me');
+    const { dir, site, tree, base } = await closedWithWork(repo);
+    const manifest = readManifest();
+    const otherSite = { ...site, title: 'Other', dir: web('sites', 'other'), port: 49005, owner: { ...site.owner, session: 'abcdef01-1234-1234-1234-123456789abc', repo } };
+    if (other === 'open') manifest.sites.other = otherSite;
+    if (other === 'closed') manifest.closed.other = { site: otherSite, title: 'Other', closed_at: '2026-11-01T00:00:00Z' };
+    saveJSON(web('manifest.json'), manifest);
+    await deleteClosedBoard('shop');
+    assert.equal(readManifest().closed?.shop, undefined);
+    assert.deepEqual([exists(dir), exists(tree), exists(base), exists(repo)], [false, false, false, true]);
+    assert.deepEqual(branches(repo).sort(), ['keep-me', 'main']);
+    assert.doesNotMatch(gitOut(repo, 'worktree', 'list'), /S1|shop-prototypes/);
+    if (other === 'closed') assert.ok(readManifest().closed.other);
+  }
+});
+
+test('a delete refuses, changing nothing, while a builder worktree holds uncommitted work, an open board, and a folder outside the sites folder', async () => {
+  const repo = gitRepo(path.join(home, 'dirty repo'));
+  const { dir, tree, base } = await closedWithWork(repo);
+  fs.writeFileSync(path.join(tree, 'wip.txt'), 'unsaved');
+  const before = readManifest();
+  await assert.rejects(deleteClosedBoard('shop'), (e) => e.status === 409 && e.message.includes(tree) && /uncommitted/.test(e.message));
+  assert.deepEqual(readManifest(), before);
+  assert.deepEqual([exists(dir), exists(tree), exists(base)], [true, true, true]);
+  assert.ok(branches(repo).includes('me/shop/s1'));
+  fs.rmSync(path.join(tree, 'wip.txt'));
+  const moved = readManifest();
+  moved.closed.shop.site.dir = repo;
+  saveJSON(web('manifest.json'), moved);
+  await assert.rejects(deleteClosedBoard('shop'), (e) => e.status === 409 && /outside/.test(e.message));
+  assert.deepEqual([exists(repo), exists(tree)], [true, true]);
+  fixture();
+  await assert.rejects(deleteClosedBoard('shop'), { status: 404, message: 'That board is not closed.' });
+});
+
+test('a delete refuses, changing nothing, while a builder branch holds commits on neither main nor a remote, and goes once they land or are pushed', async () => {
+  for (const how of ['landed', 'pushed']) {
+    fs.rmSync(web('worktrees'), { recursive: true, force: true });
+    const repo = gitRepo(path.join(home, `unlanded ${how}`));
+    const { dir, tree } = await closedWithWork(repo);
+    const commit = (name) => { fs.writeFileSync(path.join(tree, name), name); gitOut(tree, 'add', '.'); gitOut(tree, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '--quiet', '-m', name); };
+    commit('a.txt');
+    commit('b.txt');
+    const before = readManifest();
+    await assert.rejects(deleteClosedBoard('shop'), (e) => e.status === 409 && e.message.includes('me/shop/s1 has 2 commits not on main'));
+    assert.deepEqual(readManifest(), before);
+    assert.deepEqual([exists(dir), exists(tree)], [true, true]);
+    assert.ok(branches(repo).includes('me/shop/s1'));
+    if (how === 'landed') gitOut(repo, 'merge', '--quiet', '--ff-only', 'me/shop/s1');
+    else {
+      const remote = path.join(home, 'remote.git');
+      fs.rmSync(remote, { recursive: true, force: true });
+      gitOut(home, 'init', '--quiet', '--bare', remote);
+      gitOut(repo, 'remote', 'add', 'origin', remote);
+      gitOut(repo, 'push', '--quiet', 'origin', 'me/shop/s1');
+    }
+    await deleteClosedBoard('shop');
+    assert.deepEqual([exists(dir), exists(tree), branches(repo).includes('me/shop/s1')], [false, false, false]);
+  }
 });

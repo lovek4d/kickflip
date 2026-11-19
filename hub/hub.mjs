@@ -51,6 +51,8 @@
 //   /_hub/close-board/<route> GET the board's title, hub flag, open PRs and running builder records
 //   /_hub/close-board POST {route, name} stops the session, closes builder records and keeps the site under `closed`
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
+//   /_hub/delete-board POST {route} deletes a closed board for good: its entry, folder, worktrees, branches and a clone
+//                     only it used (close-board.mjs deleteClosedBoard)
 //   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
 //                     the session → {route, title, session}, or {error} (restart-board.mjs)
 //   /_hub/check-update POST from the version in the hub page's footer: runs upgrade.mjs check() now and answers its result
@@ -255,7 +257,7 @@ import { folderInfo, folderSuggestions } from './folders.mjs';
 import { boardRepo, changeBoardRepo } from './board-repo.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
 import { requestCourse, resumeCourse, courseLessons } from './new-course.mjs';
-import { boardClosure, closeBoard, closedBoards, reopenBoard } from './close-board.mjs';
+import { boardClosure, closeBoard, closedBoards, deleteClosedBoard, reopenBoard } from './close-board.mjs';
 import { restartBoard, restartable } from './restart-board.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
@@ -1289,6 +1291,13 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     if (closing && req.method === 'GET') {
       try { return sendJSON(200, await boardClosure(closing[1])); }
       catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
+    if (p === '/_hub/delete-board' && req.method === 'POST') {
+      try {
+        const result = await deleteClosedBoard((await readJSONBody(req)).route);
+        stream.refresh();
+        return sendJSON(200, result);
+      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
     }
     if (['/_hub/close-board', '/_hub/reopen-board'].includes(p) && req.method === 'POST') {
       let route;

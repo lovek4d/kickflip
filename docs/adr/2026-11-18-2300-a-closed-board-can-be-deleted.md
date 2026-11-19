@@ -1,0 +1,15 @@
+# A closed board can be deleted
+
+A closed board can now be deleted for good from its detail sheet. The owner asked to "allow permanently deleting closed boards", picked take B of `prototype-delete-closed-board.html` (Delete inside a closed board's detail sheet, with a plain confirm) and added "similar confirmation for reopen as well".
+
+- **Where.** Hub → Settings → Closed boards lists each closed board as a row; a tap opens its detail sheet, stacked on the settings modal, with its route, closed time and repo, then Reopen and a red Delete. Each asks the browser's own confirm first ([confirmations are the browser's own](2026-11-03-0259-confirmations-are-the-browsers-own.md)). Reopen's names what comes back: the route and port, and its session starting. Delete's lists what goes and what stays, and says it can't be undone and touches no GitHub data.
+- **What goes.** `deleteClosedBoard` (`hub/close-board.mjs`, `POST /_hub/delete-board {route}`): every worktree a builder record in the board's folder names that git still lists on the record's branch, with that local branch; branches of records whose worktree is already gone; the board's prototype base worktree; the site folder (items, threads, notes, visuals, events); the board's clone under the clone home when no other open, closed or starting board records it; and last the closed entry, which frees the route and port.
+- **What stays.** The owner's own repo folder (only this board's worktrees and branches leave it), a clone another board uses, a worktree path another board's build has since taken on another branch, a clone in an older `.repos` location, and everything on GitHub: issues, PRs and remote branches.
+- **Refusals.** A builder worktree holding uncommitted work, or a builder branch holding commits on neither the board's base branch nor any remote branch ("me/shop/s1 has 2 commits not on main"), refuses the delete, naming each, before anything changes: builders never push, so such commits exist nowhere else. A branch whose commits are all landed or pushed goes; the prototype base's pages are throwaway and don't count. A site folder outside the hub's sites folder (a board joined with `--dir`) refuses too, since that folder may be the owner's own. The closed entry goes last, so a delete that fails part way is run again with Retry, which skips what is already gone.
+- **The row.** While the act runs the row reads deleting… or reopening…; a refusal shows its reason under the row with Retry, which repeats the confirmed act without asking again; a deleted board's row is gone.
+
+This amends [a closed board keeps its folder and can be reopened](2026-10-31-1603-a-closed-board-keeps-its-folder-and-can-be-reopened.md), which rejected deleting on close because it is irreversible. Close still keeps everything; delete is a separate, confirmed act on a board already closed.
+
+Considered:
+- A typed-name confirm for delete (take A): the owner picked the plain confirm.
+- Deleting despite uncommitted work or unlanded, unpushed commits: that work exists nowhere else.

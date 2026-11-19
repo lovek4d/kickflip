@@ -16,3 +16,5 @@ Considered:
 - A separate closed-boards file: requires coordinating two writes for a single move.
 
 Board Settings opens as a modal, and its confirmation points to Hub → Closed boards ([hub settings expand in place and board settings open in a modal](2026-10-31-1721-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)).
+
+Addendum (2026-11-18): a closed board can now be deleted for good, as a separate, confirmed act from its detail sheet in Closed boards; close itself still keeps everything ([a closed board can be deleted](2026-11-18-2300-a-closed-board-can-be-deleted.md)).

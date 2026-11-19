@@ -130,6 +130,11 @@
 .hub-view .group > button.row .text { flex: 1; min-width: 0; }
 .hub-view .alerts-sheet .alerts-body { padding: 10px 16px max(16px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))); }
 .hub-view .alerts-sheet .group { margin-top: 10px; }
+/* A Closed boards row opens that board's detail sheet, stacked on the modal (docs/adr/2026-11-18-2300-a-closed-board-can-be-deleted.md). */
+.hub-view .closed-sheet .closed-body { padding: 10px 16px max(16px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))); }
+.hub-view .closed-sheet .group { margin-top: 10px; }
+.hub-view .closed-sheet .closed-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.hub-view .hub-modal .sub .danger { color: var(--color-danger); }
 
 .hub-view .u-tone-ok { --u: var(--muted); }
 .hub-view .u-tone-high { --u: var(--color-notice); }
