@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { holdingLandLock, joiningLand, landInTurn } from './worktree.mjs';
+import { queuedAsks, holdingLandLock, joiningLand, landInTurn } from './worktree.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -52,6 +52,17 @@ test('a lock or queued ask left by a process that is gone is taken over', async 
   let ran = false;
   await holdingLandLock('#5', async () => { ran = true; });
   assert.equal(ran, true);
+  assert.deepEqual(fs.readdirSync(path.join(kick, 'land.queue')), []);
+});
+
+test('reading a queue removes a dead process\'s ticket and keeps a live one', (t) => {
+  const queue = path.join(home(t), '.claude', 'kickflip', 'land.queue');
+  fs.mkdirSync(queue, { recursive: true });
+  fs.writeFileSync(path.join(queue, `000000000000001-000000-${2 ** 22 + 1}`), '{}');
+  const live = `000000000000002-000000-${process.pid}`;
+  fs.writeFileSync(path.join(queue, live), '{"card":"#1"}');
+  assert.deepEqual(queuedAsks('land').map((a) => a.ticket), [live]);
+  assert.deepEqual(fs.readdirSync(queue), [live]);
 });
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: only the fast-forward of main holds the lock.

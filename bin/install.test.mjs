@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath, nodeBin, WATCHER_STOP } from './install.mjs';
+import { runInstall, installLinks, installClaudeSettings, removeRetiredState, uninstallStatusLine, storedPath, nodeBin, WATCHER_STOP } from './install.mjs';
 import { tailnetUrl } from '../shared/tailnet.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -1299,4 +1299,15 @@ test('kickflip url and kickflip tailnet status name this host’s address while 
   assert.equal(bad.status, 2);
   assert.match(bad.stderr, /tailnet takes on, off or status/);
   assert.equal(fs.existsSync(log), false);
+});
+
+test('removeRetiredState removes the unused test.queue and leaves the live queues', () => {
+  const kick = path.join(home, '.claude', 'kickflip');
+  fs.mkdirSync(path.join(kick, 'test.queue'), { recursive: true });
+  fs.writeFileSync(path.join(kick, 'test.queue', '1-2-3'), '');
+  fs.mkdirSync(path.join(kick, 'land.queue'));
+  assert.deepEqual(removeRetiredState({ home }), [`removed ${path.join(kick, 'test.queue')}`]);
+  assert.equal(fs.existsSync(path.join(kick, 'test.queue')), false);
+  assert.equal(fs.existsSync(path.join(kick, 'land.queue')), true);
+  assert.deepEqual(removeRetiredState({ home }), []);
 });

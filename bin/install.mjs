@@ -176,6 +176,7 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
   }
   for (const { link, target, created, replaced } of installLinks({ home, cloneRoot })) log(`${created || replaced ? 'linked' : 'checked'} ${link} -> ${target}`);
   for (const note of installClaudeSettings({ home })) log(note);
+  for (const note of removeRetiredState({ home })) log(note);
   const missing = missingSkills(home);
   if (missing.length) {
     const added = run('npx', addArgv(missing), { env, timeout: 300_000 });
@@ -197,6 +198,17 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
   // With no Tailscale the hub still serves this host, so a board starts and lands; doctor and the hub's Tailnet row say what's missing.
   if (!tailscale) return log(`skipped mapping tailscale / to the hub: Tailscale isn't installed on this host; ${tailscaleInstallHint(platform)}`);
   mapHub({ tailscale, port, home, run, env });
+}
+
+// State files in ~/.claude/kickflip that no code reads any more.
+const RETIRED_STATE = ['test.queue'];
+export function removeRetiredState({ home = os.homedir() } = {}) {
+  return RETIRED_STATE.flatMap((name) => {
+    const file = path.join(home, '.claude', 'kickflip', name);
+    if (!fs.existsSync(file)) return [];
+    fs.rmSync(file, { recursive: true, force: true });
+    return [`removed ${file}`];
+  });
 }
 
 export function installClaudeSettings({ home = os.homedir() } = {}) {

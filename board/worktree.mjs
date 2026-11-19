@@ -405,12 +405,13 @@ const readTicket = (queue, ticket) => { try { return JSON.parse(fs.readFileSync(
 // <name>.turn {last}: the board the queue's last turn went to.
 const turnOf = (name) => path.join(kickflipDir(), `${name}.turn`);
 const lastTurn = (name) => { try { return JSON.parse(fs.readFileSync(turnOf(name), 'utf8')).last ?? null; } catch { return null; } };
-// The live asks of queue name, in the hub's turn order (shared/turns.mjs inTurns), each board's by name, which starts
+// The live asks of queue name (a dead process's ticket is removed as it is read), in the hub's turn order (shared/turns.mjs inTurns), each board's by name, which starts
 // with asked, each {ticket, card, site, key, first}.
-function queuedAsks(name) {
+export function queuedAsks(name) {
   const queue = queueDir(name);
   let tickets = [];
   try { tickets = fs.readdirSync(queue).filter((t) => !t.endsWith('.tmp')).sort(); } catch {}
+  for (const t of tickets) if (!alive(ticketPid(t))) fs.rmSync(path.join(queue, t), { force: true });
   return inTurns(tickets.filter((t) => alive(ticketPid(t))).map((ticket) => ({ ticket, ...readTicket(queue, ticket) })), lastTurn(name));
 }
 // The ask that takes queue name's next place moves its turn on (turnAfter), which wakes every ask waiting there to
