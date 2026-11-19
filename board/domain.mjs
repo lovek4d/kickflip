@@ -832,6 +832,28 @@ function reviewerOf(agents) {
   const running = agents.filter((a) => a.kind === REVIEWER && a.started && !a.done).at(-1);
   return running ? { target: running.target || 'plan', since: running.started } : null;
 }
+// docs/adr/2026-11-19-0559-a-landing-cards-live-line-says-what-its-land-waits-on.md
+// What a running build's land is doing, as its live line reads it, or null: an open wait for a test slot or the land
+// lock (hub-lines.mjs waitsOf), the newest, over every status line, aged from when it began; else, when the newest
+// status line is the land's test run (runs.mjs testReport), Testing while it runs and red Land failed once it failed.
+// → {word, the glance's word; words, the live line's; at; failed}
+const LAND_WAITS = {
+  'test-waiting': (m) => (m.retry ? ['Retrying', `Retrying: waiting to test · ${m.waitFor} is testing first`] : ['Waiting to test', `Waiting to test · ${m.waitFor} is testing first`]),
+  'land-waiting': (m) => ['Waiting to land', `Waiting to land · ${m.waitFor} lands first`],
+};
+function landingOf(lines, line) {
+  const { over } = waitsOf(lines);
+  const wait = lines.filter((m) => m.kind === HUB && WAIT_LINES.includes(m.line) && !over.has(m.ts)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
+  if (wait) {
+    const [word, words] = LAND_WAITS[wait.line](wait);
+    // A wait line written before it kept the card it waits on reads its thread words.
+    return { word, words: wait.waitFor ? words : wait.text, at: wait.ts };
+  }
+  if (line?.phase !== 'landing' || !line.test) return null;
+  if (line.test !== 'end') return { word: 'Testing', words: line.text.replace(/^[^:]*: /, 'Testing · '), at: line.ts };
+  if (!(line.failed > 0)) return null;
+  return { word: 'Land failed', words: `Land failed: ${line.failed} test${line.failed === 1 ? '' : 's'}`, at: line.ts, failed: true };
+}
 // The words of a card whose run's log ends on Claude's login error, as its live line and its thread's status line.
 export const LOGGED_OUT_WORDS = 'Claude is logged out: run /login';
 // loggedOut: whether an open run of the card ends on that error (snapshot.mjs readSnapshot), which reads in red until a run resumes.
@@ -851,7 +873,8 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, logged
   const stop = planner ? null : running.find((a) => a.stopped && String(a.stopped.at) >= String(a.started))?.stopped;
   const quiet = line?.ts || since;
   const silentSince = stop ? stop.at : movedAt !== null && movedAt > Date.parse(quiet) ? new Date(movedAt).toISOString() : quiet;
-  const progress = line ? (line.phase || line.planner ? line.text.replace(': ', ' · ') : line.text || null) : planner ? PLANNER_WORD[kind] : null;
+  const land = planner ? null : landingOf(lines, line);
+  const progress = land ? land.words : line ? (line.phase || line.planner ? line.text.replace(': ', ' · ') : line.text || null) : planner ? PLANNER_WORD[kind] : null;
   const silent = now - Date.parse(silentSince);
   // Once a build asked to pause has paused it is neither live nor stale, since the board
   // resumes it when its cause clears (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
@@ -861,7 +884,7 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, logged
   const stale = held ? false : live === null ? silent >= BUILDER_STALE_AFTER : !live;
   // The builder line's words, before its age: a stop's words, else stopped (a gone process) then the progress line, or starting until the first one.
   const words = loggedOut ? LOGGED_OUT_WORDS : stop ? stoppedWords(stop.run) : [live === false && 'stopped', progress || (live === false ? null : 'starting')].filter(Boolean).join(' · ');
-  return { progress, words, ...(loggedOut ? { loggedOut } : {}), phase: stepOf(line?.phase) || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, stopped: stop ? stoppedWords(stop.run) : null,
+  return { progress, words, ...(loggedOut ? { loggedOut } : {}), phase: stepOf(line?.phase) || null, at: land?.at ?? quiet, ...(land ? { word: land.word } : {}), ...(land?.failed ? { failed: true } : {}), kind, planner, silentSince, stale, alive: live, held, stopped: stop ? stoppedWords(stop.run) : null,
     ...(pause ? { pause: { cause: pause.cause, words: pause.words, paused: Boolean(pause.paused) } } : {}) };
 }
 

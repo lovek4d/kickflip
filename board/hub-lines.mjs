@@ -52,7 +52,8 @@ export const HUB_LINES = {
   'land-moved-first': { tone: 'orange', mark: MOVE, text: ({ words }) => words, longest: { words: 'land moved first by orchestrator' } },
   'builder-stopped': { tone: 'grey', mark: HELD, text: () => 'Stopped its builder.' },
   'land-waiting': { tone: 'orange', mark: HELD, text: ({ card }) => fit('Waiting for ', card, ' to land') },
-  'test-waiting': { tone: 'orange', mark: HELD, text: ({ card }) => fit('Waiting to test: ', card, ' is testing first') },
+  // retry: the card's newest test run was its land's and failed (landRetry), so this wait is the land's retry.
+  'test-waiting': { tone: 'orange', mark: HELD, text: ({ card, retry }) => fit(retry ? 'Retrying: waiting to test, ' : 'Waiting to test: ', card, ' is testing first'), longest: { retry: true } },
   // Resumes and unblocks.
   resumed: { tone: 'orange', mark: RESUMED, text: ({ clear }) => `Resumed: ${clear}.`, longest: { clear: 'the usage pause lifted' } },
   // 'prototype-round', 'discussing-start' and 'new-question' are no longer written: a phase change within
@@ -184,6 +185,13 @@ export const HUB = 'hub';
 // process that waits, so one whose land died without recording an end reads as over too.
 export const WAIT_LINES = ['land-waiting', 'test-waiting'];
 export const WAIT_OVER = 'wait-over';
+// docs/adr/2026-11-19-0559-a-landing-cards-live-line-says-what-its-land-waits-on.md
+// Whether a land's test wait on thread, a card's stored lines, is a retry: the newest test result there
+// (runs.mjs testReport's {test: 'end', failed}) is a land's, and it failed.
+export function landRetry(thread) {
+  const end = thread.filter((m) => m.kind === 'status' && m.test === 'end').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
+  return end?.phase === 'landing' && end.failed > 0;
+}
 const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 // thread is a card's stored lines. → the lines without the WAIT_OVER records, and the ts of the wait lines among them
 // whose wait is over.

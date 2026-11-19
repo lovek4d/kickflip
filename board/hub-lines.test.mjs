@@ -98,3 +98,17 @@ test('style.css colours every tone a status line can take, merged purple from th
   for (const tone of TONES.filter((t) => t !== 'grey')) assert.match(css, new RegExp(`\\.msg\\.request\\.tone-${tone}\\s*\\{[^}]*color:`), tone);
   assert.match(css, /\.msg\.request\.tone-purple\s*\{[^}]*var\(--color-merged\)/);
 });
+
+// docs/adr/2026-11-19-0559-a-landing-cards-live-line-says-what-its-land-waits-on.md
+test("a land's test wait reads Retrying once the card's newest test run was a land's and failed", async () => {
+  const { landRetry } = await import('./hub-lines.mjs');
+  assert.equal(hubText('test-waiting', { card: '#1074' }), 'Waiting to test: #1074 is testing first');
+  assert.equal(hubText('test-waiting', { card: '#1074', retry: true }), 'Retrying: waiting to test, #1074 is testing first');
+  const end = (phase, failed, ts = '2026-11-18T10:05:00.000Z') => ({ ts, kind: 'status', phase, test: 'end', failed, text: 'x' });
+  assert.equal(landRetry([]), false);
+  assert.equal(landRetry([end('landing', 6)]), true);
+  assert.equal(landRetry([end('landing', 0)]), false);
+  assert.equal(landRetry([end('landing', 6), { ts: '2026-11-18T10:06:00.000Z', kind: 'status', phase: 'landing', text: 'Landing: fixing a test' }]), true, "a fix in landing is still the land's retry");
+  assert.equal(landRetry([end('landing', 6), end('building', 0, '2026-11-18T10:07:00.000Z')]), false, 'a later run of the builder starts afresh');
+  assert.equal(landRetry([end('landing', 6), end('landing', 0, '2026-11-18T10:07:00.000Z')]), false);
+});

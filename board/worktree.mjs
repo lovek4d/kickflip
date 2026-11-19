@@ -262,7 +262,7 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     const result = { ok: status === 0, pass: count('pass'), fail: count('fail') };
     const seconds = Math.round((Date.now() - began) / 1000);
     try {
-      said.push(report?.end(`${result.pass} passed, ${result.fail} failed in ${Math.floor(seconds / 60)}m ${seconds % 60}s`));
+      said.push(report?.end(`${result.pass} passed, ${result.fail} failed in ${Math.floor(seconds / 60)}m ${seconds % 60}s`, { failed: result.fail }));
       await Promise.all(said);
     } catch (e) { reject(e); return; }
     if (result.ok) { resolve(result); return; }
@@ -646,7 +646,7 @@ const HOST_RECHECK_MS = 30_000;
 export async function untilHostEases({ say = console.log, report, wait = sleep } = {}) {
   if (readMachineState().state !== 'busy') return;
   say(HOST_BUSY);
-  await report?.update(HOST_BUSY);
+  await report?.update(HOST_BUSY, { busy: true });
   do await wait(HOST_RECHECK_MS); while (readMachineState().state === 'busy');
 }
 

@@ -51,7 +51,9 @@ BoardView.part((B) => {
     if (it.blocked) return ['notice', it.blockedBy?.length ? `Blocked by ${it.blockedBy.map((b) => b.ref).join(', ')}` : 'Blocked'];
     if (it.builder?.pause?.paused) return ['quiet', 'Paused'];
     if (it.waitsOn === 'checking' || (!it.builder && it.orchestrator)) return ['notice', 'Checking'];
-    if (it.builder) return ['notice', it.builder.phase ? capital(it.builder.phase) : 'Starting'];
+    // A landing build's word says what its land does (domain.mjs builderOf landingOf): red once it failed.
+    if (it.builder?.failed) return ['danger', it.builder.word];
+    if (it.builder) return ['notice', it.builder.word || (it.builder.phase ? capital(it.builder.phase) : 'Starting')];
     if (it.land) return ['notice', 'Landing'];
     return ['quiet', 'Stopped'];
   }
@@ -78,7 +80,7 @@ BoardView.part((B) => {
     if (laneId === 'progress') {
       const kinds = cards.map((it) => {
         const [tone, word] = buildState(it);
-        return tone === 'danger' || it.blocked ? 'blocked' : word === 'Landing' ? 'landing' : tone === 'quiet' ? 'paused' : 'building';
+        return tone === 'danger' || it.blocked ? 'blocked' : word === 'Landing' || it.builder?.word ? 'landing' : tone === 'quiet' ? 'paused' : 'building';
       });
       return tally(['building', 'landing', 'blocked', 'paused'].map((kind) => [kinds.filter((k) => k === kind).length, kind]));
     }

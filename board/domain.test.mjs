@@ -3520,3 +3520,49 @@ test("every Todo work card has the Questions button, and a card in another lane 
   const started = board({ pr: null, item: { pr: undefined, lane: 'progress' } }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual([started.lane, started.actionButton], ['progress', null]);
 });
+
+// docs/adr/2026-11-19-0559-a-landing-cards-live-line-says-what-its-land-waits-on.md
+test("a landing card's live line names an open test or land wait with its age, over every builder line, until the wait is over", async () => {
+  const { spawnSync } = await import('node:child_process');
+  const gone = spawnSync(process.execPath, ['-e', '']).pid;
+  const agents = { A1: { main: { kind: 'claude', started: '2026-11-18T10:00:00.000Z' } } };
+  const landing = { ts: '2026-11-18T10:10:00.000Z', who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: rebasing onto main and landing' };
+  const testWait = { ts: '2026-11-18T10:10:01.000Z', who: 'claude', kind: 'hub', line: 'test-waiting', text: 'Waiting to test: #1068 is testing first', waitFor: '#1068', pid: process.pid };
+  const taking = { ts: '2026-11-18T10:10:15.000Z', who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: taking up the verified build' };
+  const builder = (lines) => board({ now: Date.parse('2026-11-18T10:16:00.000Z'), agents, threads: { 'w/A1': lines } }).items.find((i) => i.key === 'w/A1').builder;
+  const read = (b) => [b.words, b.at, b.word ?? null, b.phase, Boolean(b.failed)];
+  assert.deepEqual(read(builder([landing, testWait, taking])), ['Waiting to test · #1068 is testing first', testWait.ts, 'Waiting to test', 'landing', false],
+    "the lander's line taking up the build doesn't hide the wait, and the wait's age counts from when it began");
+  const over = { ts: '2026-11-18T10:14:00.000Z', who: 'claude', kind: 'wait-over', of: testWait.ts };
+  assert.deepEqual(read(builder([landing, testWait, taking, over])), ['Landing · taking up the verified build', taking.ts, null, 'landing', false]);
+  assert.equal(builder([landing, { ...testWait, pid: gone }]).word, undefined, "a wait whose land is gone is over");
+  // The land lock's wait, the newest open wait winning.
+  const landWait = { ts: '2026-11-18T10:15:00.000Z', who: 'claude', kind: 'hub', line: 'land-waiting', text: 'Waiting for #12 to land', waitFor: '#12', pid: process.pid };
+  assert.deepEqual(read(builder([landing, testWait, landWait])), ['Waiting to land · #12 lands first', landWait.ts, 'Waiting to land', 'landing', false]);
+  // A retry's wait says so.
+  assert.deepEqual(read(builder([landing, { ...testWait, retry: true }])), ['Retrying: waiting to test · #1068 is testing first', testWait.ts, 'Retrying', 'landing', false]);
+  // A planner's run reads no land wait.
+  const planning = board({ now: Date.parse('2026-11-18T10:16:00.000Z'), agents: { A1: { main: { kind: 'grill', started: '2026-11-18T10:00:00.000Z' } } }, threads: { 'w/A1': [testWait] } }).items.find((i) => i.key === 'w/A1').builder;
+  assert.equal(planning.word, undefined);
+});
+
+test("a land's test run reads Testing while it runs, and red Land failed with its count once it fails, until the builder's next line", () => {
+  const agents = { A1: { main: { kind: 'claude', started: '2026-11-18T10:00:00.000Z' } } };
+  const at = (m) => `2026-11-18T10:${String(m).padStart(2, '0')}:00.000Z`;
+  const line = (m, text, more = {}) => ({ ts: at(m), who: 'claude', kind: 'status', phase: 'landing', text, ...more });
+  const builder = (...lines) => board({ now: Date.parse(at(40)), agents, threads: { 'w/A1': lines } }).items.find((i) => i.key === 'w/A1').builder;
+  const read = (b) => [b.words, b.word ?? null, b.phase, Boolean(b.failed)];
+  const start = line(10, 'Landing: 200 test files', { test: 'start' });
+  const update = line(12, 'Landing: 250 tests run, 6 failing', { test: 'update', live: true });
+  assert.deepEqual(read(builder(start)), ['Testing · 200 test files', 'Testing', 'landing', false]);
+  assert.deepEqual(read(builder(start, update)), ['Testing · 250 tests run, 6 failing', 'Testing', 'landing', false]);
+  const failed = line(15, 'Landing: 2543 passed, 6 failed in 5m 50s', { test: 'end', failed: 6 });
+  assert.deepEqual(read(builder(start, update, failed)), ['Land failed: 6 tests', 'Land failed', 'landing', true]);
+  assert.equal(builder(start, { ...failed, failed: 1 }).words, 'Land failed: 1 test');
+  const passed = line(15, 'Landing: 2549 passed, 0 failed in 5m 50s', { test: 'end', failed: 0 });
+  assert.deepEqual(read(builder(start, passed)), ['Landing · 2549 passed, 0 failed in 5m 50s', null, 'landing', false]);
+  const fixing = line(18, 'Landing: fixing hub/views.test.mjs');
+  assert.deepEqual(read(builder(start, failed, fixing)), ['Landing · fixing hub/views.test.mjs', null, 'landing', false]);
+  // A builder's own test run in building is no land's.
+  assert.deepEqual(read(builder({ ...start, phase: 'building', text: 'Building: 3 test files' })), ['Building · 3 test files', null, 'building', false]);
+});

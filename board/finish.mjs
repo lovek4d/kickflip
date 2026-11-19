@@ -14,7 +14,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ghSync, limitWords } from '../shared/gh.mjs';
 import { BoardError } from './checks.mjs';
-import { messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, appendWaitOver, setItem, appendMessage, builderModel, cardTitleOf } from './cards.mjs';
+import { readLog } from './files.mjs';
+import { landRetry } from './hub-lines.mjs';
+import { threadFile, messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, appendWaitOver, setItem, appendMessage, builderModel, cardTitleOf } from './cards.mjs';
 import { checkClose } from './questions.mjs';
 import { readBoardSettings } from './settings.mjs';
 import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase } from './runs.mjs';
@@ -56,7 +58,8 @@ export async function finishCard(site, key, { text, closing, ownerStep, check, r
 }
 
 // The wait lines a land writes, one for each card it waits on; the wait line before one, or the last, is ended by
-// over() (hub-lines.mjs WAIT_OVER): when its wait is over, whether the land got its turn or stopped.
+// over() (hub-lines.mjs WAIT_OVER): when its wait is over, whether the land got its turn or stopped. A test wait after
+// the card's land failed its tests reads as the land's retry (hub-lines.mjs landRetry).
 function waitLines(site, key, kind) {
   let open = null;
   const over = async () => {
@@ -66,7 +69,8 @@ function waitLines(site, key, kind) {
   };
   const onWait = async (card) => {
     await over();
-    open = (await appendStatus(site, key, kind, { card }, { pid: process.pid })).line.ts;
+    const retry = kind === 'test-waiting' && landRetry(await readLog(threadFile(site, key)));
+    open = (await appendStatus(site, key, kind, { card, retry }, { pid: process.pid, wait: { for: card, retry } })).line.ts;
   };
   return { onWait, over };
 }

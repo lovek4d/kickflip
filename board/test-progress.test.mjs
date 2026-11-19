@@ -26,7 +26,7 @@ test('a run reports its start, updates while it runs, and its result in words', 
   const report = {
     start: (w) => said.push(['start', w]),
     update: (w) => { said.push(['update', w]); if (/^[1-9]/.test(w) && !released++) release(); },
-    end: (w) => said.push(['end', w]),
+    end: (w, counts) => said.push(['end', w, counts]),
   };
   const r = await nodeTests(dir, { report, every: 20 });
   assert.equal(r.ok, true);
@@ -34,6 +34,7 @@ test('a run reports its start, updates while it runs, and its result in words', 
   assert.ok(said.some(([kind, w]) => kind === 'update' && /^[1-9]\d* tests run, 0 failing$/.test(w)), JSON.stringify(said));
   assert.match(said.at(-1)[1], /^3 passed, 0 failed in \d+m \d+s$/);
   assert.equal(said.at(-1)[0], 'end');
+  assert.deepEqual(said.at(-1)[2], { failed: 0 }, 'the result names how many failed, for the live line');
   const chosen = await nodeTests(dir, { files: ['a.test.mjs'], report });
   assert.equal(chosen.ok, true);
   assert.equal(said.find((s, i) => i > 3 && s[0] === 'start')[1], '1 test files');
@@ -57,6 +58,13 @@ test("a card's test report writes live lines that replace each other: only the s
   const landing = await store.testReport(site('audit'), 'audit/A1', { phase: 'landing' });
   await landing.start('12 test files');
   assert.equal(lines(site('audit', 'data', 'threads', 'audit__A1.jsonl')).at(-1).text, 'Landing: 12 test files');
+  // Each line says which part of the run it is, and the result how many failed (domain.mjs builderOf reads Testing and Land failed).
+  // A wait for a busy host is no part of the run.
+  await landing.update('3 tests run, 1 failing');
+  await landing.update('waiting: the host is busy', { busy: true });
+  await landing.end('11 passed, 1 failed in 0m 9s', { failed: 1 });
+  const last = lines(site('audit', 'data', 'threads', 'audit__A1.jsonl')).filter((m) => m.kind === 'status').slice(-4);
+  assert.deepEqual(last.map((m) => [m.test, m.failed, Boolean(m.live)]), [['start', undefined, false], ['update', undefined, true], [undefined, undefined, true], ['end', 1, false]]);
 });
 
 test('a test report on a worktree finds the card whose open build keeps it', async () => {

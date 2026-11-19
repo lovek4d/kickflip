@@ -818,7 +818,7 @@ const forAgent = (line, planner, name) => {
 // A planner's line is marked planner and led by its kind's word, whichever agent it runs as ("Prototyping: …")
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
 // docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
-async function statusToThread(site, key, agent = 'main', builder, { phase, detail }, ts, { live = false } = {}) {
+async function statusToThread(site, key, agent = 'main', builder, { phase, detail }, ts, { live = false, test, failed } = {}) {
   const planner = plans(builder);
   const who = planner || agent === 'main' ? '' : builder.kind === HELPER ? agent : modelName(builder) || builder.kind || agent;
   const head = planner ? PLANNER_WORD[builder.kind] : [who, phase].filter(Boolean).join(' ');
@@ -826,7 +826,7 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
   const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail.replace(repeat, '')}` : detail;
   const file = threadFile(site, key);
   if ((await readLog(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
-  await appendLine(file, { ts, who: 'claude', kind: 'status', run: builder.started, ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), ...(live ? { live: true } : {}), text: body });
+  await appendLine(file, { ts, who: 'claude', kind: 'status', run: builder.started, ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), ...(live ? { live: true } : {}), ...(test ? { test } : {}), ...(failed !== undefined ? { failed } : {}), text: body });
 }
 
 // The thread's status line for a card whose open run ended on Claude's login error: LOGGED_OUT_WORDS, once until another
@@ -857,11 +857,13 @@ async function newestBuild(site, key) {
 export async function testReport(site, key, { phase }) {
   // Like the landing line, it joins the section of the card's newest build, which is closed once the build handed back.
   const record = await newestBuild(site, key);
-  const say = (live) => async (words) => {
+  // Each line keeps which part of the run it is (test) and the result how many failed, for the live line (domain.mjs
+  // builderOf); an update saying the run waits for a busy host (worktree.mjs untilHostEases) is no part of it yet.
+  const say = (test) => async (words, { failed, busy = false } = {}) => {
     const line = progressLine(site, phase, words, 'a test report');
-    await statusToThread(site, key, 'main', record, line, new Date().toISOString(), { live });
+    await statusToThread(site, key, 'main', record, line, new Date().toISOString(), { live: test === 'update', test: busy ? undefined : test, failed });
   };
-  return { start: say(false), update: say(true), end: say(false) };
+  return { start: say('start'), update: say('update'), end: say('end') };
 }
 
 // The key of the card whose open build keeps the worktree at dir, or null.

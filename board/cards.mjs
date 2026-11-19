@@ -393,10 +393,11 @@ const checkThreadKey = async (site, key) => (String(key).startsWith('ask:') ? ch
 // A status line of a kind in hub-lines.mjs HUB_LINES, its words from inputs; a fault line freshens the queued push.
 // questions: the ids a questions-added line holds, which colour it (domain.mjs threadOf).
 // → {line, lines for the CLI to print}
-export async function appendStatus(site, key, kind, inputs = {}, { link, questions, pid } = {}) {
+// wait, on a wait line (hub-lines.mjs WAIT_LINES), is {for: the card it waits on, retry}, kept for its live line (domain.mjs builderOf).
+export async function appendStatus(site, key, kind, inputs = {}, { link, questions, pid, wait } = {}) {
   needSite(site);
   await checkThreadKey(site, key);
-  const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(detailOf(kind, inputs) ? { detail: detailOf(kind, inputs) } : {}), ...(link ? { link } : {}), ...(questions ? { questions } : {}), ...(pid ? { pid } : {}) };
+  const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(detailOf(kind, inputs) ? { detail: detailOf(kind, inputs) } : {}), ...(link ? { link } : {}), ...(questions ? { questions } : {}), ...(pid ? { pid } : {}), ...(wait ? { waitFor: wait.for, ...(wait.retry ? { retry: true } : {}) } : {}) };
   await appendLine(threadFile(site, key), line);
   return { line, lines: hubLineOf(line).fault ? await freshenPush(site, key, line.text) : [] };
 }

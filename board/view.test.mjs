@@ -9377,3 +9377,32 @@ test("a Todo card that has had no question shows Questions disabled, titled No q
   assert.equal(button.getAttribute('data-questions'), null);
   b.view.unmount();
 });
+
+// docs/adr/2026-11-19-0559-a-landing-cards-live-line-says-what-its-land-waits-on.md
+test("a landing card's glance row and live line read what its land waits on: Waiting to test, Testing and Retrying in orange, Land failed in red", async () => {
+  const landing = (id, word, words, more = {}) => workCard(id, { lane: 'progress', builder: { phase: 'landing', at: minsAgo(6), word, words, progress: words, ...more } });
+  const board = { ...boardOf([
+    landing('L1', 'Waiting to test', 'Waiting to test · #1068 is testing first'),
+    landing('L2', 'Testing', 'Testing · 250 tests run, 0 failing'),
+    landing('L3', 'Land failed', 'Land failed: 6 tests', { failed: true }),
+    landing('L4', 'Retrying', 'Retrying: waiting to test · #1074 is testing first'),
+    landing('L5', null, 'Landing · rebasing onto main and landing'),
+  ]), title: 'Shop', version: 'v1' };
+  const wide = boardOnDom({ board, threads: {}, width: 1280 });
+  await wide.settle();
+  const g = glanceOf(wide.root);
+  assert.deepEqual(g.building.map((r) => [r[0], r[1], r[3]]), [
+    ['w/L3', 'danger', 'Land failed'],
+    ['w/L1', 'notice', 'Waiting to test'],
+    ['w/L2', 'notice', 'Testing'],
+    ['w/L4', 'notice', 'Retrying'],
+    ['w/L5', 'notice', 'Landing'],
+  ]);
+  assert.equal(g.lanes.find((l) => l[0] === 'progress')[2], 'In Progress4 landing · 1 blocked');
+  const line = (id) => wide.root.querySelector(`details.item[data-key="w/${id}"] summary .line3`);
+  assert.match(line('L1').textContent, /^Waiting to test · #1068 is testing first \(6m\)$/);
+  assert.ok(line('L1').classList.contains('in-progress') && !line('L1').classList.contains('refused'));
+  assert.ok(line('L3').classList.contains('refused'), 'a failed land reads red');
+  assert.match(line('L3').textContent, /^Land failed: 6 tests/);
+  wide.view.unmount();
+});
