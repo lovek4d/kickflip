@@ -108,6 +108,10 @@ export function fakeLinear(world) {
       world.issues[identifier] = { team: team.key, assignee: variables.input.assigneeId ?? null, state: team.states[0].id, input: variables.input };
       return ok({ issueCreate: { success: true, issue: { identifier, url: `https://linear.app/${world.org.urlKey}/issue/${identifier}` } } });
     }
+    if (query.includes('commentCreate')) {
+      (world.issues[variables.input.issueId].comments ||= []).push(variables.input.body);
+      return ok({ commentCreate: { success: true } });
+    }
     if (query.includes('issueUpdate')) {
       const issue = world.issues[variables.id];
       if (variables.stateId) issue.state = variables.stateId;

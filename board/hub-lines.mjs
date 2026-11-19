@@ -86,6 +86,7 @@ export const HUB_LINES = {
   'ticket-assigned': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Assigned ${ticket} to you.`, longest: { ticket: TICKET } },
   'ticket-moved': { tone: 'blue', mark: MOVE, text: ({ ticket, state, assigned }) => fit(assigned ? `Assigned ${ticket} to you and moved it to ` : `Moved ${ticket} to `, state, '.'), longest: { ticket: TICKET, assigned: true } },
   'ticket-left': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Left ${ticket} as it is: assigned to someone else.`, longest: { ticket: TICKET } },
+  'ticket-commented': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Commented on ${ticket}.`, longest: { ticket: TICKET } },
   'ticket-closed': { tone: 'green', mark: DONE, text: ({ ticket, state }) => (state ? fit(`Closed ${ticket}: moved to `, state, '.') : `Closed ${ticket}.`), longest: { ticket: TICKET } },
   // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: one per batch published on a
   // card, holding its question ids; orange while any of them is open (domain.mjs threadOf), grey once none is.
@@ -144,7 +145,7 @@ export const HUB_LINES = {
   // docs/adr/2026-11-15-0040-a-cold-resume-past-150k-starts-a-fresh-agent-with-a-handoff.md: cap, in thousands of tokens.
   'fresh-builder': { tone: 'orange', mark: BUILD, text: ({ cap }) => `Fresh builder: its session was over ${cap}k.`, longest: { cap: 1000 } },
   // Faults.
-  'ticket-failed': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ ticket, to, why }) => fit(to ? `Couldn't move ${ticket} to ${to}: ` : `Couldn't close ${ticket}: `, why), longest: { ticket: TICKET, to: 'In Progress' } },
+  'ticket-failed': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ ticket, to, why, comment }) => fit(comment ? `Couldn't comment on ${ticket}: ` : to ? `Couldn't move ${ticket} to ${to}: ` : `Couldn't close ${ticket}: `, why), longest: { ticket: TICKET, to: 'In Progress' } },
   // brief, when the refusal has one, is its reason in a line's room (commit-message.mjs startTitleBrief); why is whole.
   'build-refused': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why, brief }) => fit("Couldn't start implementing: ", brief ?? why) },
   'planner-unasked': { mark: FAULT, fault: true, detail: ({ kind }) => kind, text: ({ kind }) => `Its ${kind} planner ended without posting a question, so it waits on the orchestrator.`, longest: { kind: 'prototype' } },

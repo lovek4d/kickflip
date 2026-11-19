@@ -869,3 +869,17 @@ test("script set replaces the board's kickflip-held script from a file or stdin,
   assert.match((await board('script', 'set', 'serve', '--file', path.join(home, 'build.sh'), '--site', 'orch')).err, /no script "serve"/);
   assert.match((await board('script', 'set', 'build', '--site', 'orch')).err, /script set needs --file/);
 });
+
+// docs/adr/2026-11-19-1600-a-tasks-pr-is-commented-on-its-ticket.md
+test("a PR's comment goes on a Linear ticket whoever it is assigned to, and a failed comment is a fault line, not a throw", async (t) => {
+  const { world, linear } = await ticketCli(t);
+  const { commentTicket } = await import('./tickets.mjs');
+  const source = { source: 'linear', workspace: 'acme', team: 'ENG', project: 'p' };
+  world.issues['ENG-9'] = { team: 'ENG', assignee: 'someone', state: 's-todo' };
+  const pr = { lead: 'PR opened', title: 'feat(board): one', url: 'https://github.com/o/r/pull/3' };
+  assert.deepEqual(await commentTicket(source, { ticket: 'ENG-9' }, pr, { linearFetch: linear.fetch }), { kind: 'ticket-commented', inputs: { ticket: 'ENG-9' } });
+  assert.deepEqual(world.issues['ENG-9'].comments, ['PR opened: [feat(board): one](https://github.com/o/r/pull/3)']);
+  assert.equal(await commentTicket(source, {}, pr, { linearFetch: linear.fetch }), null);
+  const down = await commentTicket(source, { ticket: 'ENG-9' }, pr, { linearFetch: async () => { throw new Error('offline'); } });
+  assert.deepEqual([down.kind, down.inputs.comment], ['ticket-failed', true]);
+});

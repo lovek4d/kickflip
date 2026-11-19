@@ -181,3 +181,24 @@ export async function moveTicket(source, item, target, { repo, run = runRepo, li
     return { kind: 'ticket-closed', inputs: { ticket } };
   } catch (e) { return failed(e); }
 }
+
+// A card's PR, or its commit landed on main, is announced once on its ticket, whoever the ticket is assigned to: a
+// comment of one line, "<lead>: [<title>](<url>)" (docs/adr/2026-11-19-1600-a-tasks-pr-is-commented-on-its-ticket.md). → {kind, inputs} of the status line
+// (hub-lines.mjs ticket-commented or ticket-failed), or null when the card has no ticket in the source. Never throws.
+export async function commentTicket(source, item, { lead, title, url }, { repo, run = runRepo, linearFetch } = {}) {
+  const ticket = item.ticket;
+  if (!source || !ticket || !ticketIn(source, ticket)) return null;
+  const body = `${lead}: [${title}](${url})`;
+  try {
+    if (source.source === 'linear') {
+      const linear = savedClient({ fetch: linearFetch });
+      if (!linear) throw new Error('Hub has no Linear key');
+      await linear.commentIssue(ticket, body);
+    } else {
+      if (!repo) throw new Error('the board has no GitHub repo');
+      const out = await (await issueRunner(source, run))('gh', ['issue', 'comment', ticket.slice(1), '--repo', repo, '--body', body]);
+      if (out.status !== 0) throw new Error(out.stderr || 'gh issue comment failed');
+    }
+    return { kind: 'ticket-commented', inputs: { ticket } };
+  } catch (e) { return { kind: 'ticket-failed', inputs: { ticket, why: String(e?.message || e).split('\n')[0], comment: true } }; }
+}

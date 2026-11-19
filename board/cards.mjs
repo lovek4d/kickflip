@@ -1544,7 +1544,7 @@ export async function postPR(site, pr, { replyTo, body }) {
   } catch (e) { fail(e.message); }
 }
 
-const boardSource = async (site) => storedTickets((await boardConfig(site)).tickets);
+export const boardSource = async (site) => storedTickets((await boardConfig(site)).tickets);
 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `board.mjs merge`: merges the card's PRs with gh --squash, in the card's order, once GitHub reads every open one

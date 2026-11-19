@@ -197,6 +197,29 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   assert.equal(fs.existsSync(worktree()), true);
 });
 
+// docs/adr/2026-11-19-1600-a-tasks-pr-is-commented-on-its-ticket.md
+test("opening a card's draft PR comments it on the card's GitHub ticket once, the PR title linked, and a push to the open PR comments nothing", async () => {
+  const ghDir = path.join(home, 'gh');
+  remoteBoard(() => ({ github: 'owner/project' }));
+  const { saveBoardSettings } = await import('./store.mjs');
+  await saveBoardSettings(site('orch'), { tickets: { source: 'github' } });
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: wave().items.map((i) => (i.id === 'A1' ? { ...i, ticket: '#7' } : i)) });
+  launched('orch', 'w/A1');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
+  const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked.', '--title', 'feat(board): the work, as one PR');
+  assert.equal(r.code, 0, r.err);
+  const comment = ['issue', 'comment', '7', '--repo', 'owner/project', '--body', 'PR opened: [feat(board): the work, as one PR](https://github.com/owner/project/pull/100)'];
+  assert.deepEqual(calls(ghDir).filter((a) => a[1] === 'comment'), [comment]);
+  assert.deepEqual(threadOf().filter((m) => m.line === 'ticket-commented').map((m) => [m.line, m.text]), [['ticket-commented', 'Commented on #7.']]);
+  commit(worktree(), 'more.txt', 'more\n', 'feat: more\n\nRefs: A1');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  assert.equal((await b('builder', 'done', 'w/A1', '--summary', 'Again.', '--text', 'Checked.')).code, 0);
+  assert.equal(calls(ghDir).filter((a) => a[1] === 'comment').length, 1);
+});
+
 // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md
 test("while GitHub's limit holds, builder done pushes the branch but opens no PR, and says so with the reset time in the card's thread", async () => {
   const ghDir = path.join(home, 'gh');
@@ -557,13 +580,22 @@ test('PRs off on a GitHub board needs Push main granted; then a finish lands in 
   write(path.join(clone, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)'] } });
   write(path.join(clone, '.git', 'info', 'exclude'), '.claude\n');
   assert.deepEqual(await onOrch('settings', 'set', 'prs', 'off'), { code: 0, out: 'prs off\n', err: '' });
+  // docs/adr/2026-11-19-1600-a-tasks-pr-is-commented-on-its-ticket.md: the land that pushes main comments the landed commit on the card's ticket.
+  const ghDir = path.join(home, 'gh');
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const { saveBoardSettings } = await import('./store.mjs');
+  await saveBoardSettings(site('orch'), { tickets: { source: 'github' } });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: wave().items.map((i) => (i.id === 'A1' ? { ...i, ticket: '#7' } : i)) });
   launched('orch', 'w/A1');
-  assert.equal((await onOrch('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  assert.equal((await boardWith(['--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build'], env)).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   commit(origin, 'later.txt', 'origin moved\n');
-  const r = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
+  const r = await boardWith(['--site', 'orch', 'builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.'], env);
   assert.equal(r.code, 0, r.err);
-  assert.ok(r.out.includes('\nA1: landed and done\n'), r.out);
+  assert.ok(r.out.includes('\n#7: landed and done\n'), r.out);
+  const landedSha = git(origin, 'rev-parse', 'main');
+  assert.deepEqual(calls(ghDir).filter((a) => a[1] === 'comment'), [['issue', 'comment', '7', '--repo', 'owner/project', '--body', `Landed on main: [feat: work](https://github.com/owner/project/commit/${landedSha})`]]);
+  assert.deepEqual(threadOf().filter((m) => m.line === 'ticket-commented').map((m) => m.text), ['Commented on #7.']);
   assert.ok(r.out.includes('\npushed main to origin\n'), r.out);
   assert.equal(git(origin, 'show', 'main:work.txt'), 'built');
   assert.equal(git(origin, 'show', 'main:later.txt'), 'origin moved');

@@ -16,7 +16,7 @@ import { ghSync, limitWords } from '../shared/gh.mjs';
 import { BoardError } from './checks.mjs';
 import { readLog } from './files.mjs';
 import { landRetry } from './hub-lines.mjs';
-import { threadFile, messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, appendWaitOver, setItem, appendMessage, builderModel, cardTitleOf } from './cards.mjs';
+import { threadFile, messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, appendWaitOver, setItem, appendMessage, builderModel, cardTitleOf, boardSource } from './cards.mjs';
 import { checkClose } from './questions.mjs';
 import { readBoardSettings } from './settings.mjs';
 import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase, endFixRun } from './runs.mjs';
@@ -27,6 +27,7 @@ import { shipRelease } from './release.mjs';
 import { landByBuilder } from './headless.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
+import { commentTicket } from './tickets.mjs';
 import { subjectFault } from './commit-message.mjs';
 
 const fail = (msg) => { throw new BoardError(msg); };
@@ -119,7 +120,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   return {
     said: release ? `landed; waits until release ${release.version} is published`
       : ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
-    lines: [...closed.lines, ...await pushBase(site, key, repo, base, landed.release)],
+    lines: [...closed.lines, ...await pushBase(site, key, repo, base, landed)],
   };
 }
 
@@ -155,7 +156,7 @@ export async function landHeld(site, key, { launch = landByBuilder } = {}) {
 // The card has already landed, so a push that fails is said, on the card's thread too, and leaves the land standing.
 // release, the land's (release.mjs landRelease), ships once base reached origin
 // (docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md).
-async function pushBase(site, key, repo, base, release) {
+async function pushBase(site, key, repo, base, { release, commit }) {
   const permissions = await readPermissions(repo, site);
   if (!permissions.pushMain) return [];
   const pushed = git(repo, 'push', '--quiet', 'origin', base);
@@ -164,10 +165,18 @@ async function pushBase(site, key, repo, base, release) {
     await appendStatus(site, key, 'push-failed', { base, error: pushed.err });
     return [`landed, but ${why}`];
   }
-  if (!release) return [`pushed ${base} to origin`];
+  const lines = [`pushed ${base} to origin`];
+  // The landed commit is announced on the card's ticket once, when its push put it on origin.
+  const github = boardRepo(boardAt(site).route).github;
+  if (github) {
+    const subject = git(repo, 'log', '-1', '--format=%s', commit).out;
+    const posted = await commentTicket(await boardSource(site), (await loadItem(site, key)).item, { lead: `Landed on ${base}`, title: subject, url: `https://github.com/${github}/commit/${commit}` }, { repo: github });
+    if (posted) lines.push((await appendStatus(site, key, posted.kind, posted.inputs)).line.text);
+  }
+  if (!release) return lines;
   const shipped = shipRelease(repo, release, permissions, site);
   if (shipped.failed) await appendStatus(site, key, 'push-failed', { base: `release ${release.version}`, error: shipped.failed });
-  return [`pushed ${base} to origin`, shipped.line];
+  return [...lines, shipped.line];
 }
 
 async function sendForReview(site, key, { path: dir, branch, base, title: given, text }) {
@@ -215,5 +224,11 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   if (!number) fail(`could not open a draft PR for ${branch}: ${(created.stderr || `gh exited ${created.status}`).trim().split('\n')[0]}`);
   const set = await setItem(site, key, { pr: Number(number) });
   await appendMessage(site, key, { text });
+  // The PR is announced on the card's ticket once, when this finish opened it, not when it found one already open.
+  if (created.status === 0) {
+    const { item } = await loadItem(site, key);
+    const posted = await commentTicket(await boardSource(site), item, { lead: 'PR opened', title, url: `https://github.com/${github}/pull/${number}` }, { repo: github });
+    if (posted) set.lines.push((await appendStatus(site, key, posted.kind, posted.inputs)).line.text);
+  }
   return { said: `draft PR #${number} opened`, lines: set.lines };
 }

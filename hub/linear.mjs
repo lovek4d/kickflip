@@ -109,6 +109,10 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
       if (!d.issueUpdate.success) throw new LinearError('Linear did not move the issue.');
       return state.name;
     },
+    async commentIssue(identifier, body) {
+      const d = await call('mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success } }', { input: { issueId: identifier, body } });
+      if (!d.commentCreate.success) throw new LinearError('Linear did not post the comment.');
+    },
     async assignIssue(identifier, assignee) {
       const d = await call('mutation($id: String!, $assigneeId: String!) { issueUpdate(id: $id, input: { assigneeId: $assigneeId }) { success } }', { id: identifier, assigneeId: assignee });
       if (!d.issueUpdate.success) throw new LinearError('Linear did not assign the issue.');
