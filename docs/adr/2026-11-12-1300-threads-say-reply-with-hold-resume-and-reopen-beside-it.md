@@ -1,6 +1,6 @@
 # Threads say Reply, with Hold, Resume and Reopen beside it
 
-Superseded in part by [the owner's hold is a block](2026-11-15-2230-the-owners-hold-is-a-block.md): Hold and Resume read Block and Unblock.
+Superseded in part by [the owner's hold is a block](2026-11-15-2230-the-owners-hold-is-a-block.md): Hold and Resume read Block and Unblock. Reopen moves a Done card to In Review, and a message on a Done card leaves it Done ([a Done card stays Done when commented](2026-11-18-2359-a-done-card-stays-done-when-commented-and-only-reopen-moves-it-back.md)).
 
 The owner (card #588): "Align the in progress thread with the to-do and in review by adding a second button … And do the same thing for done. We should have a reopen and a reply. So we shouldn't have send buttons anymore, really. They should all say reply and they should all have the same style. Reopen and pause should both be quiet buttons, but resume can be orange." In the grill, Pause turned out to be the card's Hold under another name, and the owner took "bring hold over to in progress".
 

@@ -202,7 +202,7 @@
 //                                card-hold and card-done are written to the item file first, with the owner's thread
 //                                line, and a Done unblocks blocked cards (cards.mjs recordOwnerTap); an Unblock relaunches
 //                                the run its Block stopped (runs.mjs resume). card-reopen {key} is a Done card's Reopen: it
-//                                moves the card back to Todo, discussing, before its event (cards.mjs recordOwnerTap),
+//                                moves the card back to In Review before its event (cards.mjs recordOwnerTap),
 //                                and one on a card not in Done → 400 {error}. card-cancel {key} is a staged or ready Todo card's Cancel: it moves the card back to discussing before its event, its Implement owed again, and one on any other card → 400 {error}. None of them wakes a session, nor do card-unbump,
 //                                grill-more, prototype-request or visual-request
 //                                (docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md); one whose item

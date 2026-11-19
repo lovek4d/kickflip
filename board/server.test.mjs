@@ -1131,7 +1131,7 @@ test("a Hold or Done whose item file couldn't be written is refused with why and
 });
 
 // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
-test("a Reopen moves a Done card back to Todo, discussing, with its line, records card-reopen and wakes nobody; one on a card not in Done is refused and records nothing", async () => {
+test("a Reopen moves a Done card back to In Review with its line, records card-reopen and wakes nobody; one on a card not in Done is refused and records nothing", async () => {
   const wave = path.join(site, 'data', 'items.json');
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
   const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean) : []);
@@ -1142,12 +1142,12 @@ test("a Reopen moves a Done card back to Todo, discussing, with its line, record
   const [status, out] = await post({ kind: 'card-reopen', key: 't/RO1' });
   assert.equal(status, 200, out.error);
   const card = out.board.items.find((i) => i.id === 'RO1');
-  assert.deepEqual([card.lane, card.phase, card.reopened], ['todo', 'discussing', true]);
+  assert.deepEqual([card.lane, card.reopened], ['review', true]);
   const stored = JSON.parse(fs.readFileSync(wave, 'utf8')).items[0];
-  assert.deepEqual([stored.lane, stored.phase, Boolean(stored.reopened_at)], ['todo', 'discussing', true]);
+  assert.deepEqual([stored.lane, Boolean(stored.reopened_at)], ['review', true]);
   assert.equal(JSON.parse(logged().at(-1)).kind, 'card-reopen');
   const thread = fs.readFileSync(path.join(site, 'data', 'threads', 't__RO1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.deepEqual(thread.map((m) => m.text), ['Reopened', 'Moved to Todo: you reopened it']);
+  assert.deepEqual(thread.map((m) => m.text), ['Reopened', 'Moved to In Review: you reopened it']);
   await board.settled();
   const before = logged().length;
   for (const key of ['t/RO1', 't/RO2']) assert.deepEqual(await post({ kind: 'card-reopen', key }), [400, { error: `${key} isn’t in Done, so there is nothing to reopen.` }]);

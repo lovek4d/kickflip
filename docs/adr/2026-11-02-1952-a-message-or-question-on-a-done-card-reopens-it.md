@@ -1,5 +1,5 @@
 ---
-status: superseded in part by 2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping, 2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed, 2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state, 2026-11-09-1804-in-progress-means-a-builder-runs
+status: superseded in part by 2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping, 2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed, 2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state, 2026-11-09-1804-in-progress-means-a-builder-runs, 2026-11-18-2359-a-done-card-stays-done-when-commented-and-only-reopen-moves-it-back
 ---
 
 # A message or question on a Done card reopens it until the owner's Done

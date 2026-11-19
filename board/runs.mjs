@@ -1997,15 +1997,11 @@ export async function verifiedFinish(site, key) {
   return { waits: (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id) };
 }
 
-// docs/adr/2026-11-02-1952-a-message-or-question-on-a-done-card-reopens-it.md: a done card the owner messaged since it closed reads
-// reopened, and only the owner's Done closes it again.
+// docs/adr/2026-11-18-2359-a-done-card-stays-done-when-commented-and-only-reopen-moves-it-back.md: a card the owner
+// reopened closes again only on the owner's Done.
 export async function checkNotReopened(site, key) {
   const { item } = await loadItem(site, key);
   if (item.reopened_at) fail(`the owner reopened ${await cardName(site, key)}; it closes on the owner's Done`);
-  if (item.lane !== 'done' || storedPRs(item).some((p) => p.merged_at)) return;
-  const doneAt = String(item.closed_at || '');
-  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
-  if (events.some((e) => e.kind === 'item-message' && e.data?.key === key && String(e.ts) > doneAt)) fail(`the owner reopened ${await cardName(site, key)} with a message; it closes on the owner's Done`);
 }
 
 // A card's live records: its past runs' (keepPastRun) are read by the thread alone.

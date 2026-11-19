@@ -253,19 +253,14 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   if (tappedDone) it = { ...it, lane: 'done', closed_at: closedAt, reopened_at: undefined };
   // When the card last closed: its move to Done (the owner's Done until the board applies it), or its PRs' merge.
   const closed = [it.closed_at, ...prs.flatMap((p) => [p.merged_at, p.gh?.mergedAt])].filter(Boolean).map(String).sort().pop() || null;
-  // A Done card reopens, and so does one whose PR merged; a reopened one stays open until it moves to Done again
-  // (docs/adr/2026-11-02-1952-a-message-or-question-on-a-done-card-reopens-it.md,
-  // docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card that never landed,
-  // every PR closed unmerged, doesn't reopen
+  // Only the owner's Reopen takes a Done card, or one whose PR merged, out of Done: a message or question on it stays
+  // there for the orchestrator to answer. A reopened card stays open until it moves to Done again
+  // (docs/adr/2026-11-18-2359-a-done-card-stays-done-when-commented-and-only-reopen-moves-it-back.md). A card that
+  // never landed, every PR closed unmerged, doesn't reopen
   // (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md).
   const doneAt = String(closed || '');
   const neverLanded = views.length > 0 && views.every((v) => v.status === PR_STATE.closed);
-  // The owner's Reopen put the card back in Todo, discussing (cards.mjs recordOwnerTap): it reads as a Todo card until a
-  // build takes it, merged PR or not, and still counts as finished for the cards waiting on it
-  // (docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md).
-  const backInTodo = it.lane === 'todo' && Boolean(it.reopened_at);
-  const reopenedAt = !backInTodo && (it.lane === 'done' || it.reopened_at || prStatus === PR_STATE.merged) && !neverLanded
-    ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() || it.reopened_at || undefined : undefined;
+  const reopenedAt = it.reopened_at && !neverLanded ? it.reopened_at : undefined;
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a card the orchestrator answered
   // (asks.mjs answerCard) before it was sorted or closed waits as a reopened card Claude has answered does: on the
   // owner's Done in In Review, or on the orchestrator while the owner's reply is unanswered.
@@ -300,9 +295,8 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const lastRebase = (it.rebased || []).at(-1);
   const runs = agents.filter((a) => a.started && !a.done && builds(a));
   const checkingCode = Boolean(checkingAt) && changesCode(newestBuild(agents));
-  let lane = laneOf(it, pr, runs.some(changesCode), checkingCode, pushed || mergeReady, Boolean(reopenAt) || backInTodo, skipDraft, rebasing, runs.length > 0 || Boolean(checkingAt));
+  let lane = laneOf(it, pr, runs.some(changesCode), checkingCode, pushed || mergeReady, Boolean(reopenAt), skipDraft, rebasing, runs.length > 0 || Boolean(checkingAt));
   if (reopenAt && lane === 'todo') lane = 'progress';
-  if (backInTodo && !runs.length && !checkingAt) lane = 'todo';
   // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
   const staleReview = lane === 'review' && Boolean(inReviewSince) && now - Date.parse(inReviewSince) > STALE_AFTER;
   const stepWaits = Boolean(ownerStep) && landed && lane === 'done';
@@ -382,10 +376,10 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     key, kind: 'work', order, file: slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
     created: it.created || null, reviewSince: (idle && reopenAt) || release && it.release.since || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     repo,
-    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt) || backInTodo, answered: Boolean(answeredAt), awaitsDone,
+    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt), answered: Boolean(answeredAt), awaitsDone,
     // docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md: a Done card, or one reopened since, has
     // finished for the cards waiting on it, which every process reads here (snapshot.mjs builtCards).
-    finished: lane === 'done' || Boolean(reopenedAt) || backInTodo,
+    finished: lane === 'done' || Boolean(reopenedAt),
     // A planner of the card waits in the server's queue for a launch hold to lift (server.mjs launchPlanner): the
     // card's footer reads paused.
     plannerQueued,
@@ -433,7 +427,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     turn: lane === 'todo' && it.phase === 'discussing' ? (said.some((m) => m.state === 'waiting' || m.state === 'working') ? 'claude' : 'owner') : undefined,
     updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
-    waitFacts: waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt: refusal ? newest.ts : null, closed: lane === 'done' ? null : doneAt }),
+    waitFacts: waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt: refusal ? newest.ts : null, closed: doneAt }),
   };
 }
 
@@ -462,7 +456,7 @@ const unverifiedOf = (agents) => agents.some((a) => a.calls.some((c) => !a.verif
 // prototype requests, when the pull refused it, the owner's word it waits on (ownerWord), when the card last changed state
 // (limboFrom), whether its records hold unverified calls, and the session's writes on it: a thread line of Claude's
 // other than a status, agent, move, refusal or board command line (staged, related, followup: the board writes those,
-// not the session), a verify and a builder start. closed is when the card last closed, null on a Done card.
+// not the session), a verify and a builder start. closed is when the card last closed.
 function waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt, closed }) {
   const answered = new Set(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => m.ask));
   const ask = thread.filter((m) => m.kind === BUILDER_ASK.ask && !answered.has(m.ask)).sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
@@ -1634,8 +1628,8 @@ export function buildBoard(snapshot) {
     if (it.kind !== 'work') continue;
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered' || (q.resolved === ANSWERED && q.state === 'resolved' && q.answers.length && !q.answers.at(-1).reply)).map((q) => q.answers.at(-1).ts).sort().pop();
     // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
-    // Review (laneOf, workItem); a card the orchestrator stalled waits on the owner alone.
-    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.waitFacts.scriptAt || it.briefs.some((b) => !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince })
+    // Review (laneOf, workItem), and an owner's message on a Done card from Done; a card the orchestrator stalled waits on the owner alone.
+    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'done' && it.waitFacts.ownerWord) || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.waitFacts.scriptAt || it.briefs.some((b) => !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince })
       // A requested brief is owed in every lane: Done owes that wait alone.
       : it.briefs.some((b) => !b.brief) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince }).filter((w) => w.kind === 'brief') : [];
     // The card shows its first wait; the waits list (orchestratorWaits) names every one.
@@ -2079,8 +2073,8 @@ function phaseOf(it) {
 // The moves the board server's settle pass makes after a build (cards.mjs moveCard): each work card whose built lane
 // differs from its stored one moves to it, with why as its thread line. Done is left to what closes
 // a card (item set --done, a land, a merge, the owner's Done), which records why itself, and a stored Done shown
-// elsewhere moves only once a message or question reopened it: an owner step shows a landed card in In Review while it
-// stays Done. → [{key, to, phase, why, from: {lane, phase}}], from the card's stored lane and phase the move was made
+// elsewhere stays there: an owner step shows a landed card in In Review while it stays Done, and only the owner's
+// Reopen moves it (cards.mjs recordOwnerTap). → [{key, to, phase, why, from: {lane, phase}}], from the card's stored lane and phase the move was made
 // from, which moveCard checks against the file.
 // docs/adr/2026-11-11-1200-every-lane-has-phases.md: each move carries the card's phase there, and a card staying in
 // In Progress or In Review whose phase changed moves within its lane, which writes no line. Todo's and Done's phases
@@ -2088,14 +2082,13 @@ function phaseOf(it) {
 export function movesOf(built) {
   return built.items.filter((i) => i.kind === 'work').flatMap((i) => {
     const to = i.lane;
-    if (to === 'done' || (i.storedLane === 'done' && !i.reopened)) return [];
+    if (to === 'done' || i.storedLane === 'done') return [];
     if (to === i.storedLane && (to === 'todo' || i.phase === i.storedPhase)) return [];
     return [{ key: i.key, to, phase: i.phase, why: moveWhy(i, to), from: { lane: i.storedLane, phase: i.storedPhase } }];
   });
 }
 function moveWhy(i, to) {
   if (to === 'todo') return i.blocked ? 'it is blocked' : 'nothing builds it';
-  if (i.reopened && i.storedLane === 'done') return 'a message or question reopened it';
   if (i.answered && to === 'review') return 'answered, it waits for your Done';
   if (to === 'progress') return i.waitsOn === 'checking' ? 'its build handed back for a check' : i.builder ? 'a build started' : 'Claude acts next';
   return i.next || 'it waits on review';

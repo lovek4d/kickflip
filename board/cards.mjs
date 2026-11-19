@@ -1176,11 +1176,12 @@ export async function recordOwnerTap(site, kind, data) {
   const said = { text: COMMANDS.done, who: 'love', command: 'done' };
   const item = itemFile.items.find((it) => it.id === id) || fail(`item file "${slug}" has no item "${id}"`);
   // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md: a Done card's Reopen moves it
-  // back to Todo, discussing, its conversation open again; a card not in Done has nothing to reopen.
+  // docs/adr/2026-11-18-2359-a-done-card-stays-done-when-commented-and-only-reopen-moves-it-back.md: a Done card's
+  // Reopen moves it back to In Review, for more discussion on that work; a card not in Done has nothing to reopen.
   if (kind === 'card-reopen') {
     if (item.lane !== 'done') return null;
     await appendCommand(site, key, { who: 'love', command: 'reopened' });
-    return moveCard(site, key, 'todo', 'you reopened it', 'discussing');
+    return moveCard(site, key, 'review', 'you reopened it');
   }
   // A staged or ready Todo card's Cancel takes it back to discussing, its Implement owed again, its ticket kept;
   // a card in any other place or phase has nothing to cancel.

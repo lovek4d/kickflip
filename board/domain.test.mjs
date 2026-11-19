@@ -930,7 +930,7 @@ test("a routed ask's thread opens with a blue status line naming where it came f
   assert.equal(threadOf('w/T-3', { events: [typed], fromAsk: 'b4' })[0].text, 'Routed here from the hub: checkout is the shop');
 });
 
-test("the owner's reply on a Done ask's card, sent on the card or the ask's old key, waits and works like a work item's thread message, and reopens the card", () => {
+test("the owner's reply on a Done ask's card, sent on the card or the ask's old key, waits and works like a work item's thread message, and leaves the card in Done", () => {
   const ask = askAt('a1', '2026-10-23T09:00:00Z', { reply: { html: 'Yes.' } });
   const working = { m1: '2026-10-23T10:01:00Z' };
   const items = [{ id: 'T-1', title: 'a1 first line', from_ask: 'a1', answered_at: '2026-10-23T09:05:00Z', lane: 'done', closed_at: '2026-10-23T09:30:00Z' }];
@@ -940,7 +940,7 @@ test("the owner's reply on a Done ask's card, sent on the card or the ask's old 
     assert.deepEqual(msgs.map(({ eventId, state }) => [eventId, state]), [['a1', 'replied'], ['m1', 'working']]);
     const b = askBoard([ask, msg], { working, items });
     const item = b.items.find((i) => i.key === 'w/T-1');
-    assert.deepEqual([item.lane, item.reopened, item.working, item.threadCount, b.working], ['review', true, true, 2, 1]);
+    assert.deepEqual([item.lane, item.reopened, item.working, item.threadCount, b.working], ['done', false, true, 2, 1]);
   }
 });
 
@@ -1200,7 +1200,7 @@ test("a Build the board started is In Progress reading starting until its builde
   assert.equal(card({ item: { lane: 'progress' }, agents: tapped, threads: { 'w/A1': [refused] } }).refusal, null);
 });
 
-test("a card-done moves a card to Done and unblocks dependents at once, unless the card moved lanes after it, and an owner message or question after it reopens it, a merged card too", () => {
+test("a card-done moves a card to Done and unblocks dependents at once, unless the card moved lanes after it, and an owner message or question after it leaves it in Done until the owner's Reopen, a merged card too", () => {
   const close = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-done', data: { key }, reply: null });
   const doneAt = '2026-10-23T11:20:00Z';
   const items = [
@@ -1230,18 +1230,28 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
   const said = { ...snapshot, events: [...events, msg('w/A4', '2026-10-23T11:15:00Z'), msg('w/A4', '2026-10-23T11:30:00Z'), msg('w/A7', '2026-10-23T11:30:00Z')],
     owner: { items: [{ id: 'q1', topic: 'item:w/A8', question: 'Which?', options: [{ id: 'a', label: 'A' }], asked_at: '2026-10-23T11:30:00Z' }] } };
   const card = (s, id) => buildBoard(s).items.find((i) => i.id === id);
+  // docs/adr/2026-11-18-2359-a-done-card-stays-done-when-commented-and-only-reopen-moves-it-back.md: a message stays a
+  // message, answered from Done, which the thread reads as a reply waiting.
+  for (const id of ['A4', 'A7']) {
+    const stays = card(said, id);
+    assert.deepEqual([stays.lane, stays.reopened, stays.orchestrator?.kind, stays.closedAt], ['done', false, 'reply', doneAt], id);
+  }
+  assert.equal(card({ ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } }, 'A4').orchestrator, null);
+  // Only the Reopen, which stores In Review with reopened_at, takes it out of Done.
+  const reopen = (s) => ({ ...s, files: [{ ...s.files[0], itemFile: { items: items.map((i) => (['A4', 'A7', 'A8'].includes(i.id) ? { ...i, lane: 'review', lane_at: '2026-10-23T11:12:00Z', reopened_at: '2026-10-23T11:12:00Z' } : i)) } }] });
   const state = (s, id) => (({ lane, waitsOn, closedAt, action, actionButton, next }) => [lane, waitsOn, closedAt, action?.kind ?? null, actionButton, next])(card(s, id));
   // docs/adr/2026-11-09-1804-in-progress-means-a-builder-runs.md: the reply waits on the orchestrator in In Review.
-  assert.deepEqual(state(said, 'A4'), ['review', null, null, null, null, 'Your reply waits on the orchestrator']);
-  assert.deepEqual(orchestratorWaits(buildBoard(said)).filter((w) => w.key === 'w/A4').map((w) => [w.kind, w.since, w.next]), [['reply', '2026-10-23T11:30:00Z', "Act on the owner's reply: answer it in the thread, or act and let the action's line answer it"]]);
+  const reopened = reopen(said);
+  assert.deepEqual(state(reopened, 'A4'), ['review', null, null, null, null, 'Your reply waits on the orchestrator']);
+  assert.deepEqual(orchestratorWaits(buildBoard(reopened)).filter((w) => w.key === 'w/A4').map((w) => [w.kind, w.since, w.next]), [['reply', '2026-10-23T11:30:00Z', "Act on the owner's reply: answer it in the thread, or act and let the action's line answer it"]]);
   assert.deepEqual(card(said, 'A6').blockedBy, []);
-  assert.deepEqual(state(said, 'A7'), ['review', null, null, null, null, 'Your reply waits on the orchestrator']);
-  assert.equal(card(said, 'A7').reopened, true);
-  assert.deepEqual(state(said, 'A8'), ['review', 'owner', null, 'questions', 'openQuestions', 'Answer 1 question']);
-  const answered = { ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
+  assert.deepEqual(state(reopened, 'A7'), ['review', null, null, null, null, 'Your reply waits on the orchestrator']);
+  assert.equal(card(reopened, 'A7').reopened, true);
+  assert.deepEqual(state(reopened, 'A8'), ['review', 'owner', null, 'questions', 'openQuestions', 'Answer 1 question']);
+  const answered = reopen({ ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } });
   assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, null, null, 'Tap Done']);
   assert.deepEqual((({ awaitsDone, bumpable, resolvedBy }) => [awaitsDone, bumpable, resolvedBy])(card(answered, 'A4')), [true, false, null]);
-  const followUp = (next_at) => ({ ...answered, files: [{ ...answered.files[0], itemFile: { items: items.map((i) => (i.id === 'A4' ? { ...i, next: 'Build the fix', next_at } : i)) } }] });
+  const followUp = (next_at) => ({ ...answered, files: [{ ...answered.files[0], itemFile: { items: answered.files[0].itemFile.items.map((i) => (i.id === 'A4' ? { ...i, next: 'Build the fix', next_at } : i)) } }] });
   assert.deepEqual(state(followUp('2026-10-23T11:35:00Z'), 'A4'), ['review', null, null, null, null, 'Build the fix'], 'a Next set after the reopen waits in In Review for its builder');
   const building = { ...followUp('2026-10-23T11:35:00Z'), files: [{ ...followUp('2026-10-23T11:35:00Z').files[0], agents: { A4: { main: { started: '2026-10-23T11:45:00Z' } } } }] };
   assert.deepEqual(state(building, 'A4').slice(0, 2), ['progress', 'builder'], 'its builder takes it to In Progress');
@@ -1251,18 +1261,18 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
   assert.deepEqual(state(followUp('2026-10-23T11:05:00Z'), 'A4'), ['review', 'owner', null, null, null, 'Tap Done'], 'a Next from before the reopen does not');
   assert.deepEqual(needsAnswer(buildBoard(answered)).items.filter((l) => l.url === '#selectedCard=w%2FA4'), []);
   assert.deepEqual(state({ ...answered, events: [...answered.events, close('w/A4', '2026-10-23T11:50:00Z')] }, 'A4'), ['done', null, '2026-10-23T11:50:00Z', null, null, null]);
-  const mergedAnswered = { ...said, threads: { 'w/A7': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
+  const mergedAnswered = { ...reopened, threads: { 'w/A7': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
   assert.deepEqual(state(mergedAnswered, 'A7'), ['review', 'owner', null, null, null, 'Tap Done']);
   assert.deepEqual(state({ ...mergedAnswered, events: [...mergedAnswered.events, close('w/A7', '2026-10-23T11:50:00Z')] }, 'A7'), ['done', null, '2026-10-23T11:50:00Z', null, null, null]);
   assert.equal(card({ ...mergedAnswered, events: [...mergedAnswered.events, close('w/A7', '2026-10-23T11:50:00Z')] }, 'A7').pr.status, 'merged');
 });
 
-test('a message on a card whose PR merged reopens it after the merge, not before, and its PR still reads merged; a Done card whose PR closed unmerged stays Done', () => {
+test('a message on a card whose PR merged stays in Done, and only its Reopen takes it out, its PR still reading merged; a Done card whose PR closed unmerged stays Done', () => {
   const msg = (ts) => ({ id: `m-${ts}`, ts, kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' }, reply: null });
   const merged = { ...greenDraft, isDraft: false, state: 'MERGED', mergedAt: '2026-10-23T11:00:00Z' };
   const card = (events, item = {}) => board({ pr: merged, events, item: { lane: 'progress', lane_at: '2026-10-23T10:00:00Z', ...item } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual([card([msg('2026-10-23T10:30:00Z')]).lane, card([]).pr.status], ['done', 'merged']);
-  const reopened = card([msg('2026-10-23T11:30:00Z')]);
+  assert.deepEqual([card([msg('2026-10-23T10:30:00Z')]).lane, card([msg('2026-10-23T11:30:00Z')]).lane, card([]).pr.status], ['done', 'done', 'merged']);
+  const reopened = card([msg('2026-10-23T11:30:00Z')], { lane: 'review', reopened_at: '2026-10-23T11:20:00Z' });
   assert.deepEqual([reopened.lane, reopened.reopened, reopened.pr.status, reopened.closedAt], ['review', true, 'merged', null]);
   const unlanded = board({ pr: { ...merged, state: 'CLOSED', mergedAt: null }, events: [msg('2026-10-23T11:30:00Z')], item: { lane: 'done', closed_at: '2026-10-23T11:00:00Z' } }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual([unlanded.lane, unlanded.reopened], ['done', false]);
@@ -1408,7 +1418,7 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
     { id: 'S1', title: 's', pr: 3, review_sent: sent(2), created: made(1) }, { id: 'S2', title: 's', pr: 4, review_sent: sent(1), created: made(2) },
     { id: 'P1', title: 'p', created: made(9) }, { id: 'P2', title: 'p', created: made(1) },
     { id: 'P3', title: 'p', lane: 'progress', lane_at: at(5), created: made(2) },
-    { id: 'P4', title: 'p', lane: 'done', lane_at: at(3), closed_at: at(3), created: made(3) },
+    { id: 'P4', title: 'p', lane: 'review', lane_at: at(7), closed_at: at(3), reopened_at: at(7), created: made(3) },
     { id: 'T1', title: 't', created: made(8) }, { id: 'T2', title: 't', created: made(4) },
     { id: 'D1', title: 'd', pr: 5, created: made(9) }, { id: 'D2', title: 'd', pr: 6, created: made(1) }, { id: 'D3', title: 'd', lane: 'done', lane_at: at(8), closed_at: at(8), created: made(3) },
     { id: 'D4', title: 'd', created: made(1) },
@@ -1926,10 +1936,11 @@ test('a bump stays through In Review and ends when the card closes, merged or Do
   assert.deepEqual([merged.lane, merged.bumpable, merged.bumpedAt], ['done', false, null]);
   const done = { pr: null, item: { pr: undefined, lane: 'done', lane_at: '2026-11-03T10:05:00.000Z', closed_at: '2026-11-03T10:05:00.000Z' } };
   assert.equal(card({ ...done, events: [bump(1)] }).bumpedAt, null);
-  const msg = { id: 'm1', ts: '2026-11-03T10:06:00.000Z', kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' }, reply: null };
-  const reopened = card({ ...done, events: [bump(1), msg] });
+  const back = { pr: null, item: { pr: undefined, lane: 'review', lane_at: '2026-11-03T10:06:00.000Z', closed_at: '2026-11-03T10:05:00.000Z', reopened_at: '2026-11-03T10:06:00.000Z' } };
+  const msg = { id: 'm1', ts: '2026-11-03T10:06:30.000Z', kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' }, reply: null };
+  const reopened = card({ ...back, events: [bump(1), msg] });
   assert.deepEqual([reopened.lane, reopened.reopened, reopened.bumpedAt], ['review', true, null], 'a bump from before the close is over');
-  assert.equal(card({ ...done, events: [bump(1), msg, bump(7)] }).bumpedAt, '2026-11-03T10:07:00.000Z');
+  assert.equal(card({ ...back, events: [bump(1), msg, bump(7)] }).bumpedAt, '2026-11-03T10:07:00.000Z');
 });
 
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
@@ -2349,11 +2360,12 @@ test("a card whose code landed stays in In Review on its owner step, the step as
   assert.deepEqual(look(card({ lane: 'done' }, { pr: { ...merged, state: 'CLOSED', mergedAt: null } })).slice(0, 4), ['done', null, null, null]);
   // A reopened card Claude has answered waits on the same Done, reading its step.
   const msg = { id: 'm1', ts: '2026-10-23T11:30:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' }, reply: null };
-  const answered = card({ lane: 'done' }, { events: [msg], threads: { 'w/A1': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } });
+  const reopened = { lane: 'review', reopened_at: '2026-10-23T11:20:00Z' };
+  const answered = card(reopened, { events: [msg], threads: { 'w/A1': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } });
   assert.deepEqual(look(answered), waiting);
   // Until Claude answers, the reply keeps it in In Review waiting on the orchestrator
   // (docs/adr/2026-11-09-1804-in-progress-means-a-builder-runs.md).
-  assert.deepEqual(look(card({ lane: 'done' }, { events: [msg] })), ['review', null, 'Your reply waits on the orchestrator', null, false, true, null, true]);
+  assert.deepEqual(look(card(reopened, { events: [msg] })), ['review', null, 'Your reply waits on the orchestrator', null, false, true, null, true]);
 });
 
 // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md
@@ -3067,15 +3079,16 @@ test("a PR whose hub record has no url still links to it, by its repo and number
 });
 
 // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
-test("a Done card the owner reopened reads Todo, discussing, its PR merged or not, still counting as finished for its dependents; a message there wakes no reopen, and a build takes it to In Progress", () => {
+test("a Done card the owner reopened reads In Review, its PR merged or not, still counting as finished for its dependents, and a build takes it to In Progress", () => {
   const merged = { ...greenDraft, isDraft: false, state: 'MERGED', mergedAt: '2026-10-23T11:00:00Z' };
-  const back = { lane: 'todo', phase: 'discussing', lane_at: '2026-10-23T12:00:00Z', closed_at: '2026-10-23T11:00:00Z', reopened_at: '2026-10-23T12:00:00Z' };
+  const back = { lane: 'review', lane_at: '2026-10-23T12:00:00Z', closed_at: '2026-10-23T11:00:00Z', reopened_at: '2026-10-23T12:00:00Z' };
   const msg = { id: 'm1', ts: '2026-10-23T12:30:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Try the blue' }, reply: null };
   const card = (opts) => board(opts).items.find((i) => i.key === 'w/A1');
-  for (const opts of [{ pr: null, item: { pr: undefined, ...back } }, { pr: merged, item: back }, { pr: null, item: { pr: undefined, ...back }, events: [msg] }]) {
+  for (const opts of [{ pr: null, item: { pr: undefined, ...back } }, { pr: merged, item: back }]) {
     const it = card(opts);
-    assert.deepEqual([it.lane, it.phase, it.reopened, it.closedAt, it.awaitsDone], ['todo', 'discussing', true, null, false]);
+    assert.deepEqual([it.lane, it.reopened, it.closedAt, it.awaitsDone], ['review', true, null, true]);
   }
+  assert.equal(card({ pr: null, item: { pr: undefined, ...back }, events: [msg] }).awaitsDone, false, 'a message there waits on the orchestrator');
   const deps = buildBoard({ fromWaves: false, files: [{ slug: 'w', agents: {}, itemFile: { items: [{ id: 'A1', title: 'One', ...back }, { id: 'A5', title: 'Five', deps: ['A1'] }] } }] });
   assert.deepEqual(deps.items.find((i) => i.id === 'A5').blockedBy, []);
   const building = card({ pr: null, item: { pr: undefined, ...back }, agents: { A1: { main: { kind: 'claude', model: 'opus', started: '2026-10-23T12:40:00Z' } } } });

@@ -110,7 +110,7 @@ test('the settle pass moves a card to where the board places it, never to Done, 
 });
 
 // docs/adr/2026-11-09-1804-in-progress-means-a-builder-runs.md
-test('the settle pass moves a Done card a message reopened, and a ready PR gone red with no builder, to In Review', async () => {
+test('the settle pass leaves a Done card a message was left on in Done, and moves a ready PR gone red with no builder to In Review', async () => {
   const msg = { id: 'm1', ts: '2026-11-04T09:00:00Z', kind: 'item-message', data: { key: 'w/D1', text: 'One more thing' }, reply: null };
   const board = buildBoard({ fromWaves: true, owner: {}, events: [msg], prs: { 'o/r#7': { state: 'OPEN', isDraft: false, checks: { state: 'fail' }, reviews: {} } },
     files: [{ slug: 'w', agents: {}, itemFile: { repo: 'o/r', items: [
@@ -118,7 +118,6 @@ test('the settle pass moves a Done card a message reopened, and a ready PR gone 
       { id: 'R1', title: 'Red', lane: 'progress', phase: 'reading', pr: 7 },
     ] } }] });
   assert.deepEqual(movesOf(board).map((m) => [m.key, m.to, m.why]).sort(), [
-    ['w/D1', 'review', 'a message or question reopened it'],
     ['w/R1', 'review', 'Fix the failing CI'],
   ]);
 });

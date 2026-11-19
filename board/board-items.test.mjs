@@ -1031,14 +1031,16 @@ test("a Next set while the card has an open question clears once its questions a
   assert.deepEqual([item('A1').next, item('A1').next_on_questions], [undefined, undefined]);
 });
 
-test('item set --done refuses a done card the owner reopened with a message; it closes on their Done', async () => {
+test('item set --done accepts a done card with a message on it, and refuses one the owner reopened; it closes on their Done', async () => {
   write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One', lane: 'done', lane_at: '2026-10-23T10:00:00Z', closed_at: '2026-10-23T10:00:00Z' }] });
   assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--done', '--text', 'Still done.')).code, 0);
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'm1', ts: new Date(Date.now() + 1000).toISOString(), kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' } }) + '\n');
-  const closed = read(at('waves', 'w', 'wave.json')).items[0].closed_at;
+  assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--done', '--text', 'Answered.')).code, 0);
+  const file = at('waves', 'w', 'wave.json');
+  const wave = read(file);
+  write(file, { ...wave, items: [{ ...wave.items[0], lane: 'review', reopened_at: new Date().toISOString() }] });
   const r = await board('item', 'set', 'w/A1', '--site', 'orch', '--done', '--text', 'Answered.');
-  assert.deepEqual([r.code, r.err], [1, "the owner reopened A1 with a message; it closes on the owner's Done\n"]);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].closed_at, closed);
+  assert.deepEqual([r.code, r.err], [1, "the owner reopened A1; it closes on the owner's Done\n"]);
 });
 
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
