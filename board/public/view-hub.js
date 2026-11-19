@@ -340,7 +340,8 @@ ${BoardNewTask.markup()}`,
         if (last && last.version !== loadedVersion) return { kind: 'updated', text: 'updated, reload' };
         return null;
       };
-      const shownUpdate = () => pullNote() || updateText;
+      // A tap's own "pulling" is the hub's pull and goes with it: once the hub reads idle on the old version, the pull is over.
+      const shownUpdate = () => pullNote() || (updateText?.kind === 'pulling' ? null : updateText);
       async function followPull() {
         if (following) return;
         following = true;

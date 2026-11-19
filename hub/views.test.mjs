@@ -1207,6 +1207,7 @@ test("the pull's state is the hub's: a page opened mid-pull, or after a failed o
   hub.data = data('0.7.7', { state: 'idle' });
   const tapper = open();
   assert.equal(tapper.note(), null);
+  hub.data = data('0.7.7', { state: 'pulling', latest: '0.7.8' });
   tapper.tap();
   await settle();
   assert.deepEqual(tapper.note(), ['update-note pulling', 'pulling 0.7.8…']);
@@ -1224,6 +1225,10 @@ test("the pull's state is the hub's: a page opened mid-pull, or after a failed o
   await settle();
   assert.deepEqual(fresh.note(), ['update-note pulling', 'pulling 0.7.8…'], 'the hub being down mid-restart is still the pull');
   hub.up = true;
+  // The pull is over but the restart hasn't come (it waits while the hub is busy): the tapping page no longer reads pulling.
+  hub.data = data('0.7.7', { state: 'idle' });
+  await settle();
+  for (const page of [tapper, fresh]) assert.equal(page.note(), null, 'an installed pull awaiting its restart is not pulling');
   hub.data = data('0.7.8', { state: 'idle' });
   await settle();
   for (const page of [tapper, fresh]) {
