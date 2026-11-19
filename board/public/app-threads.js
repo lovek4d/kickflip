@@ -117,8 +117,9 @@ BoardView.part((B) => {
   // A card's sends draw in its thread, the New task box's in the New strip, which the board's first land draws when a
   // task is sent before it.
   const repaint = (key) => (key ? B.repaintThread(key) : state.board && B.renderNew(state.board));
-  // Where an unsent tap is: not sent, waiting for the host while the board is out of reach, else sending….
-  const pendingOf = (m) => (m.failed ? 'failed' : state.link === 'online' ? 'sending' : 'held');
+  // Where an unsent tap is: not sent, waiting for the host while the board is offline (its load failed), else sending…,
+  // a reconnect's included: it lasts under a second and the tap goes out the moment it is over.
+  const pendingOf = (m) => (m.failed ? 'failed' : state.link === 'offline' ? 'held' : 'sending');
   // The New strip's rows for the keyless taps of the outbox the board d doesn't hold yet (ui-cards.js newEntry); once
   // it holds an ask, matched by its sendId, the board's own row takes its place. A New task whose send hasn't failed
   // has its Delete (withdraw). A Delete has no row: it marks its ask's (deletingIn).

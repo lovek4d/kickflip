@@ -424,6 +424,26 @@ test('offline, the board stays readable with no toast and nothing held: the head
   b.view.unmount();
 });
 
+// docs/adr/2026-11-16-1600-owner-taps-wait-for-the-host-in-the-outbox.md
+test('a tap sent while the link reconnects reads sending…, not waiting for the host, and goes out once the link is back', async () => {
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] } });
+  await b.settle();
+  const { B } = b.view;
+  B.linkDown();
+  B.loadBoard = () => new Promise(() => {});
+  b.page.fire(b.root.querySelector('#refresh'), 'click');
+  assert.equal(B.state.link, 'reconnecting');
+  const form = b.root.querySelector('form[data-reply="w/T1"]');
+  form.querySelector('textarea').value = 'Mid reconnect';
+  b.page.fire(b.root, 'submit', { target: form, submitter: form.querySelector('button[data-intent="reply"]') });
+  await b.settle();
+  assert.deepEqual([threadLines(b, 'w/T1'), b.sent.length], [['Mid reconnect (sending…)'], 0]);
+  B.linkUp();
+  await b.settle();
+  assert.deepEqual(sentNoIds(b).map(([k]) => k), ['item-message']);
+  b.view.unmount();
+});
+
 test("a send that gets no answer at all marks the board out of reach and its tap waits for the host, holding the ones behind it, never reading not sent; one with no answer in 15 s reads not sent with Retry", async () => {
   const unreachable = () => Promise.reject(Object.assign(new TypeError('Failed to fetch'), { unreachable: true }));
   let send = unreachable;
