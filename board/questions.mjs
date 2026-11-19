@@ -898,13 +898,15 @@ export function dropOwed(item) {
   if (!item.briefs.length) delete item.briefs;
 }
 // The owner's Grill or Prototype tap (kind grill or prototype) on a Todo card: the card owes the orchestrator's brief for
-// it, and a discussing, ready or staging card moves to grilling or prototyping. A Visual or Review tap (kind visual or
+// it, and a discussing or ready card moves to grilling or prototyping; a staged card is left as it is
+// (docs/adr/2026-11-19-1500-a-staged-card-moves-only-by-the-orchestrators-review.md). A Visual or Review tap (kind visual or
 // reviewer) owes that agent's brief on any open card and moves no phase.
 export async function planAgain(site, key, kind, ask = {}) {
   const { source, itemFile, item } = await loadItem(site, key);
   const card = await shownCard(site, key);
   if (card.finished || (!beside({ kind }) && card.lane !== 'todo')) return;
-  if (!beside({ kind }) && ['discussing', 'ready', 'staging'].includes(item.phase)) {
+  if (item.phase === 'staging') return;
+  if (!beside({ kind }) && ['discussing', 'ready'].includes(item.phase)) {
     item.phase = PLANNER_PHASE[kind];
     delete item.staged_at;
   }
@@ -975,11 +977,11 @@ export async function restoreBrief(site, key, entry) {
 // The oldest written brief of kind on the card, left on it, or null.
 export const briefOn = async (site, key, kind) => ((await loadItem(site, key)).item.briefs || []).find((b) => b.kind === kind && b.brief) ?? null;
 export const noBrief = async (site, key, kind) => fail(`${await cardName(site, key)} has no ${kind} brief; the orchestrator writes it with item brief ${key} --kind ${kind} --file <draft.md>`);
-// A question published on a ready or staging card leaves the owner something to decide, so the card is grilling until
+// A question published on a ready card leaves the owner something to decide, so the card is grilling until
 // the answer's Send returns it to discussing, its Implement ask waiting.
 async function grillAgain(site, key) {
   const loaded = await loadItem(site, key).catch(() => null);
-  if (!loaded || !['ready', 'staging'].includes(loaded.item.phase) || leftTodo(loaded.item)) return;
+  if (!loaded || loaded.item.phase !== 'ready' || leftTodo(loaded.item)) return;
   loaded.item.phase = 'grilling';
   delete loaded.item.staged_at;
   await writeJSON(loaded.source.file, loaded.itemFile);

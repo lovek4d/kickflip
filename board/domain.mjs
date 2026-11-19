@@ -2218,6 +2218,9 @@ export function tapPlan(card, kind, body) {
   // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a request owes the orchestrator's
   // brief, and ends an Implement or Close mark (docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md).
   if (!body.key) return [event];
+  // docs/adr/2026-11-19-1500-a-staged-card-moves-only-by-the-orchestrators-review.md: a typed /grill, /prototype, /visual
+  // or /review on a staged card is refused as its buttons are disabled; only Cancel and the orchestrator's review move it.
+  if (card?.lane === 'todo' && card.storedPhase === 'staging') return { refuse: { status: 409, words: `${card.ref || key} is staged, so only your Cancel or my review moves it; nothing changed.` } };
   const ask = {
     ...(body.text ? { text: String(body.text) } : {}),
     ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}),

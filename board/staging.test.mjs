@@ -127,13 +127,14 @@ test("leaving staging or ready for grilling or prototyping owes the orchestrator
   assert.equal(item().briefs, undefined, 'a grill handing on to its prototype owes no round of its own');
 });
 
-test('a question added on a staging or ready card moves it to grilling, where it waits on the answer', async () => {
+// docs/adr/2026-11-19-1500-a-staged-card-moves-only-by-the-orchestrators-review.md
+test('a question added on a ready card moves it to grilling, where it waits on the answer; a staged card stays staged', async () => {
   for (const [n, from] of [[1, 'staging'], [2, 'ready']]) {
     setState({ phase: from, staged_at: from === 'staging' ? '2026-11-06T10:00:00.000Z' : undefined });
     write(path.join(home, 'q.json'), question(`q${n}`, { topic: 'item:w/A1' }));
     const r = await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'));
     assert.equal(r.code, 0, r.err);
-    assert.deepEqual([item().phase, item().staged_at, item().briefs], ['grilling', undefined, undefined]);
+    assert.deepEqual([item().phase, item().staged_at, item().briefs], from === 'staging' ? ['staging', '2026-11-06T10:00:00.000Z', undefined] : ['grilling', undefined, undefined]);
     // Going back to grilling is silent: the thread holds only the questions-added line.
     assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => m.line).slice(-1), ['questions-added']);
   }

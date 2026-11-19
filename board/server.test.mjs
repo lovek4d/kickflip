@@ -760,10 +760,14 @@ test("an Implement message stages a Todo card where it is, its words left out of
     const back = await post({ kind: 'item-message', key: 't/IMPR2', text: 'Also the weekend', intent: 'reply' });
     assert.deepEqual([back.board.items.find((i) => i.id === 'IMPR2').staging, item('IMPR2').phase], [true, 'staging']);
     assert.equal(item('IMPR2').plan, undefined);
-    // A Grill or Prototype tap takes a ready or staging card out of it.
+    // A Grill tap takes a ready card out of it; a typed request on a staged card is refused and leaves it staged.
     await post({ kind: 'grill-more', key: 't/IMPG1' });
-    await post({ kind: 'prototype-request', key: 't/IMPP1' });
-    assert.deepEqual([item('IMPG1').phase, item('IMPP1').phase, item('IMPP1').staged_at], ['grilling', 'prototyping', undefined]);
+    const staged2 = item('IMPP1').staged_at;
+    for (const kind of ['prototype-request', 'grill-more', 'visual-request', 'review-request']) {
+      const refused = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, key: 't/IMPP1' }) });
+      assert.equal(refused.status, 409, kind);
+    }
+    assert.deepEqual([item('IMPG1').phase, item('IMPP1').phase, item('IMPP1').staged_at, item('IMPP1').briefs], ['grilling', 'staging', staged2, undefined]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
