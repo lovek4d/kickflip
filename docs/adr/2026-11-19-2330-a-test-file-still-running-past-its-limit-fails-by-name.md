@@ -1,0 +1,9 @@
+# A test file still running past its limit fails by name
+
+`--test-timeout` bounds each test, not a test file's process. A file whose tests are done but whose process a handle holds open (a timer, a server, a child, a watcher), or a file stuck before it registers a test (a top-level `await` that never settles), is bounded by nothing short of the run's cut-off ([land suites run side by side, under a time limit](2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md)). Measuring T-773, a run outside `nodeTests` sat 50 minutes on board/board-builder.test.mjs, which never reported; in a land it would have been cut off only at 15 minutes, as a hung run with no failing test.
+
+Decision: each test file's process has a wall-clock limit, `fileLimit` in `nodeTests` (board/worktree.mjs), 10 minutes by default: past the per-test 5 minutes, so a file's one slow test still fails as timed out, and inside the run's 15. The run's preload (board/exit-with-run.mjs), which every node process of a run loads, reads it from `KICKFLIP_TEST_FILE_LIMIT` and, in a process the runner started for a `*.test.mjs` file, sets an unref'd timer: once it fires, it writes `Error: test file still running after <limit>, held open by <resources>` and exits 1. The runner reports a file process that exits 1 as a failing test named by the file, with the file as its location, so the land names the file and shows the error, and the rest of the suite runs to its end. The resources are `process.getActiveResourcesInfo()`, so the failure says what kind of handle held the file.
+
+The timer can't fire in a file whose event loop is blocked; the run's cut-off still ends that one.
+
+`--test-force-exit` is not used: it ends a held file cleanly but passes it, hiding the leak, ends a file before tests it registers late (the ADR above), and never ends a file stuck before its tests.

@@ -70,6 +70,26 @@ test('a test that runs past the per-test limit fails as timed out, and the rest 
   assert.match(r.failures[0], /^(slow|\S*slow\.test\.mjs)\n.*slow\.test\.mjs:\d+:\d+\n  test timed out after 2000ms/);
 });
 
+test('a test file still running past the per-file limit, held open after its tests or stuck before them, fails by name with what holds it, and the rest of the suite still passes', async (t) => {
+  const dir = home(t);
+  const tree = path.join(dir, 'tree');
+  fs.mkdirSync(tree);
+  fs.writeFileSync(path.join(tree, 'held.test.mjs'), "import test from 'node:test';\ntest('done', () => {});\nsetInterval(() => {}, 1000);\n");
+  fs.writeFileSync(path.join(tree, 'stuck.test.mjs'), "import test from 'node:test';\nawait new Promise(() => setInterval(() => {}, 1000));\ntest('never', () => {});\n");
+  fs.writeFileSync(path.join(tree, 'fine.test.mjs'), "import test from 'node:test';\ntest('fine', () => {});\n");
+  // The file limit is long enough for the passing file to start under load.
+  const r = await nodeTests(tree, { fileLimit: 4000, limit: 30000 });
+  assert.equal(r.ok, false);
+  assert.equal(r.hung, undefined);
+  assert.equal(r.pass, 2);
+  assert.deepEqual(r.failedFiles, ['held.test.mjs', 'stuck.test.mjs']);
+  const failures = r.failures.toSorted();
+  assert.equal(failures.length, 2);
+  for (const [i, name] of ['held', 'stuck'].entries()) {
+    assert.match(failures[i], new RegExp(`^\\S*${name}\\.test\\.mjs\\n.*${name}\\.test\\.mjs:\\d+:\\d+\\n  Error: test file still running after 4 seconds, held open by .*Timeout`));
+  }
+});
+
 test('a suite that passes resolves with its counts and saves no log', async (t) => {
   const dir = home(t);
   const tree = path.join(dir, 'tree');

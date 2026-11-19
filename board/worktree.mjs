@@ -221,11 +221,14 @@ export const testArgs = (testLimit, files) => ['--test', '--test-reporter=tap', 
 // would otherwise report to that test's runner instead of exiting with its own result. KICKFLIP_TAILSCALE is a failing
 // stub, so a test's hub never reaches the host's Tailscale; a test with its own stub names it. Every node process of the
 // run loads exit-with-run.mjs, which exits it once this process is gone. Each test fails once it runs past
-// testLimit, and the whole run is cut off at limit: its process group is killed, so a hung file's child dies with it, and
+// testLimit; each test file's process ends once it runs past fileLimit, failed by name, whether a handle its tests left
+// holds it open or it is stuck before its tests start, which testLimit never bounds
+// (docs/adr/2026-11-19-2330-a-test-file-still-running-past-its-limit-fails-by-name.md); and the whole run is cut off
+// at limit: its process group is killed, so a hung file's child dies with it, and
 // → {hung: {after, files}} naming the files still running, with the partial output and those processes saved to the log
 // (docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md). Whatever the run's tests left
 // running in its process group is killed as the run exits.
-export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000, report, every = REPORT_EVERY } = {}) {
+export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000, fileLimit = 10 * 60 * 1000, report, every = REPORT_EVERY } = {}) {
   const files = chosen ? chosen.map((f) => path.join(dir, f)) : testFiles(dir);
   if (!files.length) return Promise.resolve({ ok: true, pass: 0, fail: 0 });
   const began = Date.now();
@@ -241,7 +244,7 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
   // A run started from inside a run's test has the import already, and watches its own starter.
   const exitWithRun = `--import=${JSON.stringify(EXIT_WITH_RUN)}`;
   const options = rest.NODE_OPTIONS?.includes(exitWithRun) ? rest.NODE_OPTIONS : [rest.NODE_OPTIONS, exitWithRun].filter(Boolean).join(' ');
-  const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), NODE_OPTIONS: options };
+  const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), KICKFLIP_TEST_FILE_LIMIT: String(fileLimit), NODE_OPTIONS: options };
   const [wrapper, ...wrapped] = backgroundArgv([nodeBin(), ...testArgs(testLimit, files)]);
   const child = spawn(wrapper, wrapped, { cwd: dir, env, detached: true });
   // macOS answers EPERM, not ESRCH, for a group whose processes have all died but aren't yet reaped.
