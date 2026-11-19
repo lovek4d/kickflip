@@ -1,4 +1,5 @@
 import { home, bin } from './hub-fixture.mjs';
+import { MAX_SERVES, setServes } from '../shared/hub-settings.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -271,13 +272,14 @@ test('the stand-in tailscale keeps every mapping of serves that run at once, as 
   assert.deepEqual(Object.keys(read(path.join(home, 'tailscale.status')).TCP).sort(), mapped.map(String));
 });
 
-test('a serve past the board’s Maximum parallel serves is refused, a busy host asks first, and Auto serve waits for room', async (t) => {
+test('a serve past the hub’s Maximum parallel serves is refused, a busy host asks first, and Auto serve waits for room', async (t) => {
   fakeRelays(t);
+  t.after(() => setServes(MAX_SERVES));
   let busy = false;
   setManager(tryManager({ now: () => clock, answers: async () => true, busy: () => busy, log() {} }));
   write(path.join(site, 'data/items.json'), { items: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }] });
   for (const id of ['A2', 'A3']) write(path.join(site, `data/agents/${id}.json`), { worktree: { path: worktree, repo } });
-  config({ max_serves: 2 });
+  await setServes(2);
   setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
   commit(worktree);
   await start();
@@ -297,7 +299,8 @@ test('a serve past the board’s Maximum parallel serves is refused, a busy host
   assert.equal(state().cards['w/A3'].state, 'ready');
   await kill('w/A3');
   // Auto serve starts nothing new on a busy host or at the cap, and serves once there is room.
-  config({ auto_build: true, max_serves: 1 });
+  config({ auto_build: true });
+  await setServes(1);
   write(path.join(worktree, 'next'), 'next');
   commit(worktree, 'next');
   await kill();
@@ -310,6 +313,32 @@ test('a serve past the board’s Maximum parallel serves is refused, a busy host
   assert.equal(Object.values(state().cards).filter((card) => card.state === 'ready').length, 1);
   await tick();
   assert.equal(Object.values(state().cards).filter((card) => card.state).length, 1);
+});
+
+// docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
+test('Auto serve counts every board’s serves against the hub’s number, and the boards take turns at a free slot', async (t) => {
+  fakeRelays(t);
+  t.after(() => setServes(MAX_SERVES));
+  t.after(() => { delete manifest.sites.other; });
+  setManager(tryManager({ now: () => clock, answers: async () => true, log() {} }));
+  const other = fs.mkdtempSync(path.join(home, 'site-'));
+  write(path.join(other, 'board.json'), { items: 'data/items.json', slug: 'w', auto_build: true });
+  write(path.join(other, 'data/items.json'), { items: [{ id: 'B1' }] });
+  write(path.join(other, 'data/agents/B1.json'), { worktree: { path: worktree, repo } });
+  manifest.sites.other = { ...manifest.sites.orch, dir: other };
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }] });
+  for (const id of ['A2', 'A3']) write(path.join(site, `data/agents/${id}.json`), { worktree: { path: worktree, repo } });
+  config({ auto_build: true });
+  await setServes(2);
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  commit(worktree);
+  await tick();
+  await manager.settled();
+  const serving = (dir) => Object.entries(read(path.join(dir, 'data', 'try.json')).cards).filter(([, card]) => card.state).map(([key]) => key);
+  assert.equal(serving(site).length, 1, 'the board with three cards waiting takes one turn');
+  assert.deepEqual(serving(other), ['w/B1'], 'and the board with one takes the other');
+  await tick();
+  assert.equal(serving(site).length + serving(other).length, 2, 'two serves fill the hub');
 });
 
 test('Kill stops a running or ready serve, frees its port, and Auto serve leaves it until its head moves, across a hub restart', async (t) => {

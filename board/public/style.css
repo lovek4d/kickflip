@@ -786,7 +786,6 @@ main > * { transition: opacity .25s ease; }
 .view-settings label.who { gap: 12px; cursor: pointer; }
 .view-settings label.who .sub { display: block; margin-top: 2px; }
 .view-settings input.toggle { flex: none; width: 1.4rem; height: 1.4rem; margin: 0; accent-color: var(--accent); }
-.view-settings input.count { flex: none; width: 4.5em; text-align: center; }
 .view-settings label.who select { flex: none; max-width: 45%; min-height: 36px; }
 /* A settings switch waiting on the server (ui.js waitOn) keeps its face, disabled, with a spinner beside it
    (docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md) */

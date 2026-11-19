@@ -1919,9 +1919,6 @@ export function rebasesDue(items, sent, base) {
   });
 }
 
-// docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
-// How many card serves a board keeps up at once, unless its max_serves setting says otherwise.
-export const MAX_SERVES = 10;
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
 // For built items: the agents due to launch, one per open card and kind with a written brief: a grill or prototype on a
 // Todo card while no agent other than a visual or reviewer runs there, a visual or reviewer beside anything but another

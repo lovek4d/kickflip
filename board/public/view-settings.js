@@ -53,10 +53,6 @@
   <p class="muted small" id="landingStatus" role="status"></p>
   </div>
   <h2>Auto</h2>
-  <label class="who" for="maxServes"><span><span>Maximum parallel serves</span>
-    <span class="muted small sub">Each open task worktree keeps one serve up. Installs aren’t counted. A busy host asks before it starts another.</span></span>
-    <input type="number" class="count" id="maxServes" min="1" max="99" step="1" inputmode="numeric" disabled></label>
-  <p class="muted small" id="maxServesStatus" role="status"></p>
   <label class="who" for="autoBuild"><span><span>Auto serve</span>
     <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
     <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
@@ -465,7 +461,6 @@
     // session awake (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
     const autoMerge = $('#autoMerge');
     const autoMergeStatus = $('#autoMergeStatus');
-    const savedCaps = {};
     let buildTarget = null, buildTargets = null, scriptsSource = null;
     // Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): the hub's duration
     // picker (hub-kit.js) with the Block sheet's chips, Forever included, posting {pause} to api/pause at once. A Forever
@@ -526,10 +521,6 @@
       buildTarget = d.settings?.build_target || '';
       scriptsSource = d.settings?.scripts || 'repo';
       showBuildTargets();
-      for (const [id, key] of [['maxServes', 'max_serves']]) {
-        $(`#${id}`).value = savedCaps[key] = String(d.settings?.[key]);
-        $(`#${id}`).disabled = false;
-      }
       $('#autoReview').checked = d.settings?.auto_review === true;
       $('#autoReview').disabled = false;
       $('#idleNotification').checked = d.settings?.idle_notification === true;
@@ -756,25 +747,6 @@
       }
     });
 
-    // Maximum parallel serves (docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md) saves on
-    // change, waiting on the server like a toggle; a number outside 1 to 99 or a refusal puts the saved one back.
-    const capInput = (id, key, saidOf) => B.on($(`#${id}`), 'change', async () => {
-      const input = $(`#${id}`);
-      const status = $(`#${id}Status`);
-      const want = /^\d+$/.test(input.value) ? Number(input.value) : 0;
-      if (want < 1 || want > 99) { input.value = savedCaps[key]; status.textContent = 'Pick a whole number from 1 to 99.'; return; }
-      try {
-        const settings = await saveToggle(input, { [key]: want });
-        if (!B.alive()) return;
-        input.value = savedCaps[key] = String(settings[key]);
-        status.textContent = saidOf(settings[key]);
-      } catch (e) {
-        if (!B.alive()) return;
-        input.value = savedCaps[key];
-        status.textContent = e.message || 'Could not save. Is the host awake?';
-      }
-    });
-    capInput('maxServes', 'max_serves', (n) => `Saved. Up to ${n === 1 ? '1 serve stays' : `${n} serves stay`} up at once.`);
     // Description saves on blur, with no Save or Cancel; an empty one is refused and the saved text comes back. The
     // source line says how it was last set (store.mjs readBoardDescription).
     const descriptionBox = $('#boardDescription');

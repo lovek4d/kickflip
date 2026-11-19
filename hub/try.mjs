@@ -14,7 +14,8 @@ import { tailnetOn } from '../shared/tailnet.mjs';
 import { buildNameOf, buildScriptError, scriptFileOf, scriptsDirOf } from '../board/build-script.mjs';
 import { appendStatus, setItem } from '../board/cards.mjs';
 import { servedRoundsOpen } from '../board/questions.mjs';
-import { settingsOf } from '../board/settings.mjs';
+import { readServes } from '../shared/hub-settings.mjs';
+import { inTurns, turnAfter } from '../shared/turns.mjs';
 import { backgroundArgv } from '../board/background.mjs';
 import { recordedWorktree } from '../board/runs.mjs';
 import { readMachineState } from '../shared/machine-gate.mjs';
@@ -215,6 +216,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   let stopping = false;
   let ticking = null;
   let queued = null;
+  // The board dir the last serve slot's turn went to (shared/turns.mjs).
+  let lastServe = null;
   let initializing = null;
   // What a caller awaits instead of reading try.json again and again: settled() once every run is ready or has ended and
   // no start, kill, tick, pull, probe, stop or run's end is under way; next(key, state) once key's entry next moves into
@@ -509,15 +512,29 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     restarts.set(id, recent);
     return recent.length < RESTARTS;
   }
-  // Why a new serve of a card can't start now: {ask: 'cap', cap} once the board's card serves reach its Maximum parallel
-  // serves, {ask: 'busy'} while the host is busy, else null. A card already serving takes no new slot, and an app
-  // board's builds, which keep no server up, none at all.
+  // Whether a new serve of a card takes a slot: a card already serving takes no new one, and an app board's builds,
+  // which keep no server up, none at all.
+  const takesSlot = (board, id) => !runs.has(id) && stateOf(board).state.kind !== 'app';
+  // The card serves up on every board, which the hub's Maximum parallel serves counts (hub-settings.mjs readServes).
+  const cardServes = () => [...runs.values()].filter((run) => isCard(run.key) && !run.stopped && !run.finished).length;
+  // Why a new serve of a card can't start now: {ask: 'cap', cap} once the card serves reach the hub's Maximum parallel
+  // serves, {ask: 'busy'} while the host is busy, else null.
   function servesHeld(board, id) {
-    if (runs.has(id) || stateOf(board).state.kind === 'app') return null;
-    const cap = settingsOf(readJSON(path.join(board.dir, 'board.json'), {}), board).max_serves;
-    const serving = [...runs.values()].filter((run) => run.board.dir === board.dir && isCard(run.key) && !run.stopped && !run.finished).length;
-    if (serving >= cap) return { ask: 'cap', cap };
+    if (!takesSlot(board, id)) return null;
+    const cap = readServes();
+    if (cardServes() >= cap) return { ask: 'cap', cap };
     return busy() ? { ask: 'busy' } : null;
+  }
+  // Auto serve's start of the card key, whose try.json entry is entry: a refusal leaves it for a later tick, and a
+  // failure marks its head tried and says so.
+  async function autoServe(board, key, entry, manifest) {
+    try { await start({ route: board.route, key }, { manifest, auto: true }); }
+    catch (e) {
+      if ([409, 503].includes(e.status)) return;
+      update(board, key, { sha: entry.head });
+      await failure({ board, key, logFile: failureLog(board, key, e) }, 1);
+      throw e;
+    }
   }
   async function stopRun(run, keepPort = false) {
     await halt(run, keepPort);
@@ -787,7 +804,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     }
     // The tick checks its own serves before it starts one; an owner's Serve is refused here, a busy host's unless anyway.
     const held = isCard(key) && !auto && !interrupted.has(id) ? servesHeld(board, id) : null;
-    if (held?.ask === 'cap') throw new BuildError(`This board is at its cap of ${held.cap} parallel serves. Kill another serve, or raise Maximum parallel serves in Board settings.`, 409, 'cap');
+    if (held?.ask === 'cap') throw new BuildError(`The hub is at its cap of ${held.cap} parallel serves. Kill another serve, or raise Maximum parallel serves in Hub settings.`, 409, 'cap');
     if (held?.ask === 'busy' && !input.anyway) throw new BuildError(BUSY_ASK, 409, 'busy');
     starting.add(id);
     const resuming = interrupted.delete(id);
@@ -894,6 +911,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
           persist(run.board);
         }
       }
+      // The card serves that wait for a new slot, each {site, first, board, key, entry}.
+      const waiters = [];
       for (const board of listed) {
         if (stopping) return;
         if (routes && !routes.includes(board.route)) continue;
@@ -922,15 +941,11 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
             const resume = interrupted.has(id);
             const wanted = resume
               || (board.auto_build && entry.script && entry.ahead > 0 && (entry.sha || lastHeads.get(id)) !== entry.head && entry.state !== 'running');
-            // Auto serve starts a new serve only while the board has room and the host isn't busy; a later tick starts it.
-            if (wanted && !starting.has(id) && (resume || !servesHeld(board, id))) {
-              try { await start({ route: board.route, key }, { manifest, auto: true }); }
-              catch (e) {
-                if ([409, 503].includes(e.status)) continue;
-                update(board, key, { sha: entry.head });
-                await failure({ board, key, logFile: failureLog(board, key, e) }, 1);
-                throw e;
-              }
+            // A serve that takes no new slot starts now; one that does waits for the boards' turns below, and on a busy
+            // host for a later tick.
+            if (wanted && !starting.has(id)) {
+              if (resume || !takesSlot(board, id)) await autoServe(board, key, entry, manifest);
+              else if (!busy()) waiters.push({ site: board.dir, first: null, board, key, entry });
             }
           } catch (e) { log(`try /${board.route} ${key}: ${e.message}`); }
         }
@@ -967,6 +982,14 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
           const metadata = { sha, branch, slug: slug || '', at, script, ...(board.build_target ? { target: board.build_target } : {}), ...(saved ? { saved } : {}) };
           await launchMain(board, source.repo, metadata);
         } catch (e) { log(`try /${board.route} main: ${e.message}`); }
+      }
+      // docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md: the free serve slots, the hub's Maximum
+      // parallel serves less every board's card serves, go to the waiting serves in the hub's turn order.
+      const taken = inTurns(waiters, lastServe).slice(0, Math.max(0, readServes() - cardServes()));
+      lastServe = turnAfter(taken, lastServe);
+      for (const { board, key, entry } of taken) {
+        if (stopping) return;
+        try { await autoServe(board, key, entry, manifest); } catch (e) { log(`try /${board.route} ${key}: ${e.message}`); }
       }
     })().finally(() => { ticking = null; });
     return ticking;

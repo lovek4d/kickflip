@@ -255,3 +255,24 @@ test('a land says its wait is over once it has its turn, and says nothing when i
   await holdingLandLock('#251', async () => { said.push('ran again'); }, { onTurn: () => said.push('turn again') });
   assert.deepEqual(said, ['wait', 'turn', 'ran', 'ran again']);
 });
+
+// docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
+test('lands take turns round the boards, one each, a bump going first without moving the turn', async (t) => {
+  home(t);
+  const order = [];
+  let release, holding;
+  const held = new Promise((r) => { holding = r; });
+  const hold = holdingLandLock('#1', () => new Promise((r) => { release = r; holding(); }), { site: '/a', key: 'a/1' });
+  await held;
+  const queued = [];
+  // Each land is queued, waiting, before the next is asked for, so the asks keep their order.
+  for (const [card, site, first] of [['#2', '/a', null], ['#3', '/a', null], ['#4', '/b', null], ['#5', '/a', '2026-11-19T01:00:00.000Z']]) {
+    let waits;
+    const waiting = new Promise((r) => { waits = r; });
+    queued.push(holdingLandLock(card, async () => { order.push(card); }, { site, key: `${site.slice(1)}/${card.slice(1)}`, first, onWait: () => waits() }));
+    await waiting;
+  }
+  release();
+  await Promise.all([hold, ...queued]);
+  assert.deepEqual(order, ['#5', '#4', '#2', '#3']);
+});

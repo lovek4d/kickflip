@@ -921,7 +921,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   let refused = false;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1, tasksInProgress: 5 };
+  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1, tasksInProgress: 5, serves: 10 };
   const hub = (claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare: 'off', codex: USABLE, ...saved,
     sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
   const context = vm.createContext({
@@ -933,7 +933,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
-      if (!refused) Object.assign(saved, url.endsWith('/land-tests') ? { landTests: Number(opts.body.get('value')) } : url.endsWith('/tasks-in-progress') ? { tasksInProgress: Number(opts.body.get('value')) } : { [url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel']: opts.body.get('value') });
+      if (!refused) Object.assign(saved, url.endsWith('/land-tests') ? { landTests: Number(opts.body.get('value')) } : url.endsWith('/tasks-in-progress') ? { tasksInProgress: Number(opts.body.get('value')) } : url.endsWith('/serves') ? { serves: Number(opts.body.get('value')) } : { [url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel']: opts.body.get('value') });
       return { ok: !refused, json: async () => refused ? { error: 'claude-model takes opus, auto or sonnet' } : hub() };
     },
   });
@@ -985,8 +985,9 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
     await listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form, submitter: { name: 'value', value }, preventDefault() {} });
     return [posts.at(-1).url, posts.at(-1).opts.body.toString(), root.querySelector(`.capacity form[action="${action}"] output`).textContent];
   };
-  assert.deepEqual(root.querySelectorAll('.capacity output').map((o) => o.textContent), ['5', '1']);
+  assert.deepEqual(root.querySelectorAll('.capacity output').map((o) => o.textContent), ['5', '10', '1']);
   assert.deepEqual(await step('/_hub/settings/tasks-in-progress', '4'), ['/_hub/settings/tasks-in-progress', 'value=4', '4']);
+  assert.deepEqual(await step('/_hub/settings/serves', '9'), ['/_hub/settings/serves', 'value=9', '9']);
   assert.deepEqual(await step('/_hub/settings/land-tests', '2'), ['/_hub/settings/land-tests', 'value=2', '2']);
   refused = true;
   await submit('opus');
@@ -1063,7 +1064,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   const five_hour = { used_percentage: 91, resets_at, state: 'live' };
   const choice = { pauseAt: 90, going: false };
   const gateNow = () => usageGate({ claude: { five_hour }, pauseAt: choice.pauseAt, keepGoing: choice.going ? { window: 'five_hour', until: resets_at } : undefined, machine: CALM_GATE.machine });
-  const data = () => ({ integrations: [], capacity: { tasksInProgress: 5, landTests: 1 }, pause: gateNow(), usage: { claude: { at: new Date().toISOString(), five_hour } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
+  const data = () => ({ integrations: [], capacity: { tasksInProgress: 5, serves: 10, landTests: 1 }, pause: gateNow(), usage: { claude: { at: new Date().toISOString(), five_hour } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
     BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },

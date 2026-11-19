@@ -85,6 +85,22 @@ export async function setTasksInProgress(value, home = os.homedir()) {
   return n;
 }
 
+// docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
+// Maximum parallel serves: the card serves up at once across every board on the host (hub/try.mjs), 1 to 99,
+// MAX_SERVES unless settings.json says otherwise. Boards take turns at it (shared/turns.mjs).
+export const MAX_SERVES = 10;
+export const readServes = (home = os.homedir()) => {
+  const stored = read(home).serves;
+  return validCount(stored) ? stored : MAX_SERVES;
+};
+// Throws {status: 400} for a value that isn't a whole number from 1 to 99.
+export async function setServes(value, home = os.homedir()) {
+  const n = /^\d+$/.test(String(value)) ? Number(value) : value;
+  if (!validCount(n)) throw Object.assign(new Error('serves takes a whole number from 1 to 99'), { status: 400 });
+  await update((file) => ({ ...file, serves: n }), home);
+  return n;
+}
+
 // Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md),
 // Hub settings' Builders: opus or sonnet forces it, auto leaves it to the card (usage-gate.mjs builderPick), on every
 // board. A missing or unknown stored value is auto.

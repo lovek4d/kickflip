@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { withFileLock } from '../hub/locks.mjs';
+import { inTurns, turnAfter } from '../shared/turns.mjs';
 
 const buildsDir = (home) => path.join(home, '.claude', 'kickflip', 'builds');
 const turnFile = (home) => path.join(buildsDir(home), 'turn.json');
@@ -30,30 +31,15 @@ function liveBoards(home, site = null) {
 const counted = (b) => b.held + b.granted.length;
 
 // boards [{site, held, wants, granted}], cap the hub's number of slots, last the board the last turn went to.
-// The free slots, the cap less every board's held and granted ones, go first to the bumped cards, the earliest bump
-// first whichever board it is on, then round the boards in order of site from the one after last, one card each per
-// turn, a board with nothing wanted giving its turn up. A bump moves no turn.
+// The free slots, the cap less every board's held and granted ones, go to the wanted cards not yet granted in the
+// hub's turn order (shared/turns.mjs inTurns): bumped first, then one card per board per turn from the board after last.
 // → {grants: Map site → keys granted now, last: the board the last turn went to}
 export function turnsOf(boards, { cap, last = null }) {
-  let free = cap - boards.reduce((n, b) => n + counted(b), 0);
-  const grants = new Map(boards.map((b) => [b.site, []]));
-  const left = new Map(boards.map((b) => [b.site, b.wants.filter((w) => !b.granted.includes(w.key))]));
-  const give = (site, key) => {
-    grants.get(site).push(key);
-    left.set(site, left.get(site).filter((w) => w.key !== key));
-    free--;
-  };
-  const bumped = boards.flatMap((b) => left.get(b.site).filter((w) => w.first).map((w) => ({ site: b.site, ...w })))
-    .sort((a, b) => a.first.localeCompare(b.first));
-  for (const w of bumped) if (free > 0) give(w.site, w.key);
-  const sites = boards.map((b) => b.site).sort();
-  const order = last === null ? sites : [...sites.filter((s) => s > last), ...sites.filter((s) => s <= last)];
-  while (free > 0 && order.some((s) => left.get(s).length)) {
-    for (const site of order) {
-      if (free > 0 && left.get(site).length) { give(site, left.get(site)[0].key); last = site; }
-    }
-  }
-  return { grants, last };
+  const free = cap - boards.reduce((n, b) => n + counted(b), 0);
+  const waiters = boards.flatMap((b) => b.wants.filter((w) => !b.granted.includes(w.key)).map((w) => ({ ...w, site: b.site })));
+  const taken = free > 0 ? inTurns(waiters, last).slice(0, free) : [];
+  const grants = new Map(boards.map((b) => [b.site, taken.filter((w) => w.site === b.site).map((w) => w.key)]));
+  return { grants, last: turnAfter(taken, last) };
 }
 
 // One board's pass at the hub's slots, under the builds lock: the board at site, held holding that many slots and

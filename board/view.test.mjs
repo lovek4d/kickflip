@@ -974,30 +974,6 @@ test('a Landing tap saves prs and skip_draft together with no confirmation, Merg
   view.unmount();
 });
 
-// docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
-// docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md: Maximum tasks in progress is the hub's alone.
-const CAPS = [['max_serves', 'maxServes']];
-for (const [key, id] of CAPS) {
-  test(`Board Settings saves ${key} as a whole number from 1 to 99 on change, and puts the saved one back on a bad number or a refusal`, async () => {
-    const s = await settingsPage({ settings: { max_serves: 6 } }).mount();
-    const input = s.root.querySelector(`#${id}`), status = s.root.querySelector(`#${id}Status`);
-    const values = () => CAPS.map(([, other]) => s.root.querySelector(`#${other}`).value);
-    assert.deepEqual([input.disabled, values()], [false, ['6']]);    await s.set(input, '4');
-    assert.deepEqual([s.posts, input.value], [[{ [key]: 4 }], '4']);
-    assert.match(status.textContent, /\b4\b/, 'the status names the number saved');
-    const saved = status.textContent;
-    for (const bad of ['0', '100', '2.5', '']) {
-      await s.set(input, bad);
-      assert.deepEqual([s.posts.length, input.value], [1, '4'], bad);
-      assert.notEqual(status.textContent, saved, bad);
-    }
-    s.refuse = 'Cannot save';
-    await s.set(input, '7');
-    assert.deepEqual([input.value, status.textContent], ['4', 'Cannot save']);
-        s.view.unmount();
-  });
-}
-
 test('Board Settings warns about active work, requires the exact board name and waits for the close response before opening the hub', async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
@@ -4403,7 +4379,7 @@ test('a web card’s Serve asks the busy host’s question and sends anyway, a c
   await b.settle();
   const original = b.page.win.fetch;
   const posts = [];
-  let answer = { ok: false, json: async () => ({ error: 'This board is at its cap of 2 parallel serves. Kill another serve, or raise Maximum parallel serves in Board settings.', ask: 'cap' }) };
+  let answer = { ok: false, json: async () => ({ error: 'The hub is at its cap of 2 parallel serves. Kill another serve, or raise Maximum parallel serves in Hub settings.', ask: 'cap' }) };
   b.page.win.fetch = async (url, opts = {}) => {
     if (/\/api\/try(\/kill)?$/.test(url)) { posts.push([url, JSON.parse(opts.body)]); return answer; }
     return original(url, opts);
@@ -4412,7 +4388,7 @@ test('a web card’s Serve asks the busy host’s question and sends anyway, a c
   await b.settle();
   assert.deepEqual(b.confirms, ['The host is busy, start this serve anyway?']);
   assert.deepEqual(posts, [['https://mac.ts.net/board-a/api/try', { key: 'w/R1', anyway: true }]]);
-  assert.deepEqual(b.notices, ['This board is at its cap of 2 parallel serves. Kill another serve, or raise Maximum parallel serves in Board settings.']);
+  assert.deepEqual(b.notices, ['The hub is at its cap of 2 parallel serves. Kill another serve, or raise Maximum parallel serves in Hub settings.']);
   // A busy host the board didn't show yet: the hub's refusal asks the same question, and the tap sends again with anyway.
   await b.change({ board: boardOf([{ ...card, try: { ...card.try, hostBusy: false } }]) });
   let refusals = 1;
@@ -6763,7 +6739,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
+    ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
     ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);

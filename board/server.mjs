@@ -5,7 +5,7 @@
 // the other files below through bin/board.mjs (store.mjs). Every write goes through files.mjs, as every process's does:
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, max_serves, auto_review, idle_notification, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_review, idle_notification, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // build_target names the script, build-<target>, else build; scripts, kickflip, runs the scripts from the site's scripts/,
 // else from the repo's .kickflip/ (build-script.mjs scriptFileOf).
@@ -280,7 +280,7 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (settings.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, max_serves, auto_review, idle_notification, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
+//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_review, idle_notification, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets), or in its site's scripts/ while its scripts are in kickflip
 //   GET  /api/scripts            {source: repo | kickflip, repo: [name], scripts: [{name, text}]}: where the board's scripts live, the
@@ -291,7 +291,7 @@
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (settings.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id, builders}; a bad body → 400 {error}
 //   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused, unavailable}]}: the board's session

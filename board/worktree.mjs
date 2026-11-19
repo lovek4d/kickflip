@@ -13,6 +13,7 @@ import { BoardError } from './checks.mjs';
 import { opensPRs, settingsOf, storedTickets } from './settings.mjs';
 import { ticketIn } from './tickets.mjs';
 import { readLandTests } from '../shared/hub-settings.mjs';
+import { inTurns, turnAfter } from '../shared/turns.mjs';
 import { boardAt, readJSON, readManifest, samePath } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -358,12 +359,13 @@ function tapFailures(tap, dir) {
 // One land at a time on the host: ~/.claude/kickflip/land.lock
 // {card, pid, at} names the card landing. A land that finds it held waits its turn across every process, in a file per
 // ask in ~/.claude/kickflip/land.queue, named <asked ms>-<count>-<pid> and holding {card, site, key, first}, calling
-// onWait(card) with the card it waits for. The queue goes bumped first, the earliest bump (first) ahead, then first in
-// first out by asked, when the land was asked for, so a land that lets go of the lock to test again keeps its place
+// onWait(card) with the card it waits for. The queue goes in the hub's turns (queuedAsks): bumped first, the earliest
+// bump (first) ahead, then the boards in turn, each board's first in first out by asked, when the land was asked for, so
+// a land that lets go of the lock to test again keeps its place
 // (docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md,
 // docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md). A bump never stops the land holding the
-// lock. A waiter wakes when its own ask is moved or the one file it waits on goes: the lock, or the nearest ask ahead
-// of it. A lock or ask whose process is gone is taken over, found by a slow recheck since a process that dies removes
+// lock. A waiter wakes when its own ask is moved, the queue's turn moves, or the one file it waits on goes: the lock,
+// or the nearest ask ahead of it. A lock or ask whose process is gone is taken over, found by a slow recheck since a process that dies removes
 // neither.
 const kickflipDir = () => path.join(os.homedir(), '.claude', 'kickflip');
 const landing = () => path.join(kickflipDir(), 'landing');
@@ -396,21 +398,32 @@ async function untilGone(files) {
 const queueDir = (name) => path.join(kickflipDir(), `${name}.queue`);
 const ticketPid = (ticket) => Number(ticket.split('-')[2]);
 const readTicket = (queue, ticket) => { try { return JSON.parse(fs.readFileSync(path.join(queue, ticket), 'utf8')); } catch { return {}; } };
-// Where an ask stands in the queue: bumped asks first, the earliest bump ahead, then by name, which starts with asked.
-const rank = (ticket, { first }) => `${first ? `0${String(Date.parse(first)).padStart(16, '0')}` : '1'}-${ticket}`;
-// The live asks of queue name, in queue order, each {ticket, card, site, key, first}.
+// docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
+// <name>.turn {last}: the board the queue's last turn went to.
+const turnOf = (name) => path.join(kickflipDir(), `${name}.turn`);
+const lastTurn = (name) => { try { return JSON.parse(fs.readFileSync(turnOf(name), 'utf8')).last ?? null; } catch { return null; } };
+// The live asks of queue name, in the hub's turn order (shared/turns.mjs inTurns), each board's by name, which starts
+// with asked, each {ticket, card, site, key, first}.
 function queuedAsks(name) {
   const queue = queueDir(name);
   let tickets = [];
-  try { tickets = fs.readdirSync(queue).filter((t) => !t.endsWith('.tmp')); } catch {}
-  return tickets.filter((t) => alive(ticketPid(t))).map((ticket) => ({ ticket, ...readTicket(queue, ticket) }))
-    .sort((a, b) => (rank(a.ticket, a) < rank(b.ticket, b) ? -1 : 1));
+  try { tickets = fs.readdirSync(queue).filter((t) => !t.endsWith('.tmp')).sort(); } catch {}
+  return inTurns(tickets.filter((t) => alive(ticketPid(t))).map((ticket) => ({ ticket, ...readTicket(queue, ticket) })), lastTurn(name));
 }
-const writeTicket = (queue, ticket, content) => {
-  const tmp = path.join(queue, `${ticket}.tmp`);
+// The ask that takes queue name's next place moves its turn on (turnAfter), which wakes every ask waiting there to
+// read its place again. The turn file is there before any ask waits on it.
+function takeTurn(name, ask) {
+  const last = lastTurn(name);
+  const next = turnAfter([ask], last);
+  if (next !== last) writeJSON(turnOf(name), { last: next });
+}
+const turnKept = (name) => { if (!fs.existsSync(turnOf(name))) writeJSON(turnOf(name), { last: null }); };
+const writeJSON = (file, content) => {
+  const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(content));
-  fs.renameSync(tmp, path.join(queue, ticket));
+  fs.renameSync(tmp, file);
 };
+const writeTicket = (queue, ticket, content) => writeJSON(path.join(queue, ticket), content);
 let asks = 0;
 // The lock named name (<name>.lock, queue in <name>.queue) held while fn runs; onWait(card) names who it waits for.
 // site and key name the board card the ask is for, and first its standing bump, so a bump can move it.
@@ -420,6 +433,7 @@ async function holdingQueuedLock(name, card, fn, { onWait, onTurn, asked = Date.
   fs.mkdirSync(queue, { recursive: true });
   const ticket = `${String(asked).padStart(15, '0')}-${String(asks++).padStart(6, '0')}-${process.pid}`;
   writeTicket(queue, ticket, { card, site, key, first });
+  turnKept(name);
   let waitingFor = null;
   try {
     for (;;) {
@@ -428,7 +442,7 @@ async function holdingQueuedLock(name, card, fn, { onWait, onTurn, asked = Date.
       const ahead = all.slice(0, mine);
       let held = null;
       if (!ahead.length) {
-        try { fs.writeFileSync(file, JSON.stringify({ card, pid: process.pid, at: new Date().toISOString() }), { flag: 'wx' }); break; }
+        try { fs.writeFileSync(file, JSON.stringify({ card, pid: process.pid, at: new Date().toISOString() }), { flag: 'wx' }); takeTurn(name, all[mine]); break; }
         catch (e) {
           if (e.code !== 'EEXIST') throw e;
           try { held = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
@@ -437,7 +451,7 @@ async function holdingQueuedLock(name, card, fn, { onWait, onTurn, asked = Date.
       }
       const who = held?.card ?? (ahead.length ? `the ${name} ahead` : null);
       if (who && who !== waitingFor) { waitingFor = who; await onWait?.(who); }
-      await untilGone([ahead.length ? path.join(queue, ahead.at(-1).ticket) : file, path.join(queue, ticket)]);
+      await untilGone([ahead.length ? path.join(queue, ahead.at(-1).ticket) : file, path.join(queue, ticket), turnOf(name)]);
     }
   } finally {
     fs.rmSync(path.join(queue, ticket), { force: true });
@@ -451,7 +465,7 @@ export const holdingLandLock = (card, fn, opts) => holdingQueuedLock('land', car
 
 // docs/adr/2026-11-16-0700-land-test-runs-take-turns-on-the-host.md
 // fn run in one of slots test slots on the host, a file per run in ~/.claude/kickflip/landtest.running named like its
-// ask in landtest.queue, which orders the asks as the land queue does (bumped, then first asked). The ask at the head
+// ask in landtest.queue, which orders the asks as the land queue does (bumped, then the boards in turn). The ask at the head
 // of the queue starts once fewer than slots runs are live; onWait(card) names the run it waits for. A run whose process
 // is gone is not counted.
 export async function holdingTestSlot(card, fn, { slots, onWait, onTurn, asked = Date.now(), site = null, key = null, first = null } = {}) {
@@ -461,20 +475,22 @@ export async function holdingTestSlot(card, fn, { slots, onWait, onTurn, asked =
   fs.mkdirSync(running, { recursive: true });
   const ticket = `${String(asked).padStart(15, '0')}-${String(asks++).padStart(6, '0')}-${process.pid}`;
   writeTicket(queue, ticket, { card, site, key, first });
+  turnKept('landtest');
   let waitingFor = null;
   try {
     for (;;) {
       const all = queuedAsks('landtest');
-      const ahead = all.slice(0, all.findIndex((a) => a.ticket === ticket));
+      const mine = all.findIndex((a) => a.ticket === ticket);
+      const ahead = all.slice(0, mine);
       const live = [];
       for (const name of fs.readdirSync(running).filter((t) => !t.endsWith('.tmp'))) {
         if (alive(ticketPid(name))) live.push(name);
         else fs.rmSync(path.join(running, name), { force: true });
       }
-      if (!ahead.length && live.length < slots) { writeTicket(running, ticket, { card }); break; }
+      if (!ahead.length && live.length < slots) { writeTicket(running, ticket, { card }); takeTurn('landtest', all[mine]); break; }
       const who = ahead.length ? ahead.at(-1).card : readTicket(running, live[0]).card;
       if (who && who !== waitingFor) { waitingFor = who; await onWait?.(who); }
-      await untilGone([...(ahead.length ? [path.join(queue, ahead.at(-1).ticket)] : live.map((t) => path.join(running, t))), path.join(queue, ticket)]);
+      await untilGone([...(ahead.length ? [path.join(queue, ahead.at(-1).ticket)] : live.map((t) => path.join(running, t))), path.join(queue, ticket), turnOf('landtest')]);
     }
   } finally {
     fs.rmSync(path.join(queue, ticket), { force: true });

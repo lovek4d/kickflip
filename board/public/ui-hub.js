@@ -109,12 +109,14 @@
       + `<p class="u-share-desc">${desc}</p></div>`;
   }
 
-  // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md
+  // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md,
+  // docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
   // The Capacity section, right below Usage: the hub's numbers every board shares, capacity being hub/views.mjs
   // hubView's capacity.
   const capacityCard = (capacity) => `<section class="capacity"><h2 class="label">Capacity</h2><div class="group">`
     + countControl('Maximum tasks in progress', capacity.tasksInProgress, '/_hub/settings/tasks-in-progress', 'Hub-wide. Each counts from its build starting until it lands. Boards take turns, one card each.')
-    + countControl('Maximum parallel land tests', capacity.landTests, '/_hub/settings/land-tests', 'Hub-wide. Lands run the tests their change affects. Over this many at once, a land waits its turn, bumped first, then first asked.')
+    + countControl('Maximum parallel serves', capacity.serves, '/_hub/settings/serves', 'Hub-wide. Each open task worktree keeps one serve up. Installs aren’t counted. A busy host asks before it starts another. Boards take turns, one card each.')
+    + countControl('Maximum parallel land tests', capacity.landTests, '/_hub/settings/land-tests', 'Hub-wide. Lands run the tests their change affects. Boards take turns, one card each.')
     + '</div></section>';
 
   // data is the usage reading; claude, when given, opens Claude's block with the Builders and Orchestrators controls,

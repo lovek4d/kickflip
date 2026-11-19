@@ -122,3 +122,20 @@ test('a test run says its wait is over once it holds a slot, and says nothing wh
   await holdingTestSlot('#3', async () => { said.push('ran again'); }, { slots: 1, onTurn: () => said.push('turn again') });
   assert.deepEqual(said, ['wait', 'turn', 'ran', 'ran again']);
 });
+
+// docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
+test('land test runs take turns round the boards, one each, from the board after the last served', async (t) => {
+  home(t);
+  const order = [];
+  const first = held('#1', { slots: 1, site: '/a', key: 'a/1' });
+  await first.started;
+  const runs = [];
+  for (const [card, site] of [['#2', '/a'], ['#3', '/a'], ['#4', '/b']]) {
+    const run = waiting(card, { slots: 1, site, key: `${site.slice(1)}/${card.slice(1)}` }, order);
+    await run.waits;
+    runs.push(run);
+  }
+  first.release();
+  await Promise.all([first.done, ...runs.map((r) => r.done)]);
+  assert.deepEqual(order, ['#4', '#2', '#3'], 'board a asked first twice, but b had the next turn');
+});

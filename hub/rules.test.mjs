@@ -282,7 +282,8 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
     });
     // docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md
     // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md
-    for (const [route, key, start] of [['land-tests', 'landTests', 1], ['tasks-in-progress', 'tasksInProgress', 5]]) {
+    // docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
+    for (const [route, key, start] of [['land-tests', 'landTests', 1], ['tasks-in-progress', 'tasksInProgress', 5], ['serves', 'serves', 10]]) {
       await t.test(`the ${route} route saves 1 to 99, refuses anything else and redirects forms`, async () => {
         const post = (body, json = true) => fetch(`${base}/_hub/settings/${route}`, {
           method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',

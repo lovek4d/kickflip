@@ -297,7 +297,7 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set turns each on|off setting on and off in board.json, keeping its other keys", async () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"max_serves":10,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true,"tool_use":"normal"}\n', err: '' });
+  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true,"tool_use":"normal"}\n', err: '' });
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
   for (const name of ['auto-merge', 'auto-build', 'auto-review', 'skip-draft', 'idle-notification']) {
     const before = cfg();
@@ -314,6 +314,12 @@ test("settings prints the board's settings as JSON, off when absent, and setting
   assert.equal((await board('settings', '--site', 'orch')).out.includes('max_implementers'), false);
   assert.equal((await board('settings', 'set', 'auto-merge', 'off', '--site', 'orch')).code, 0);
   assert.equal('max_implementers' in cfg(), false);
+  // docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md: so is Maximum parallel serves, and max_serves.
+  assert.match((await board('settings', 'set', 'max-serves', '4', '--site', 'orch')).err, /no board setting "max-serves"/);
+  write(site('orch', 'board.json'), { ...cfg(), max_serves: 4 });
+  assert.equal((await board('settings', '--site', 'orch')).out.includes('max_serves'), false);
+  assert.equal((await board('settings', 'set', 'auto-merge', 'off', '--site', 'orch')).code, 0);
+  assert.equal('max_serves' in cfg(), false);
   // docs/adr/2026-11-15-1100-the-planner-limit-is-dropped.md
   assert.notEqual((await board('settings', 'set', 'max-planners', '5', '--site', 'orch')).code, 0, 'the Planner limit is gone');
   assert.equal('max_planners' in cfg(), false);
@@ -534,7 +540,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting max-serves 10', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting tool-use normal', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting tool-use normal', 'setting github-login owner']);
   assert.deepEqual(settingsLines(settingsOf({ tool_use: 'high' })).slice(-1), ['setting tool-use high']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });

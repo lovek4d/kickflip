@@ -103,6 +103,8 @@
 //                     → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/tasks-in-progress POST value=1..99, Maximum tasks in progress (hub-settings.mjs setTasksInProgress)
 //                     → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/serves POST value=1..99, Maximum parallel serves (hub-settings.mjs setServes) → /_hub/api/hub's
+//                     JSON, or 400 {error}
 //   /_hub/settings/land-tests POST value=1..99, Maximum parallel land tests (push.mjs setLandTests) → /_hub/api/hub's
 //                     JSON, or 400 {error}
 //   /_hub/settings/pause-at POST value=50..100 in steps of 5 → /_hub/api/hub's JSON, or 400 {error}; 100 is Off
@@ -139,7 +141,7 @@
 //                     runs the board's build[-<build target>] script, <worktree>/.kickflip/ or its site's scripts/
 //                     in kickflip, as <script> <key> <worktree>
 //                     asynchronously; data/try.json and data/try/<id>.log carry its state (try.mjs). A card's new
-//                     serve at the board's max_serves → 409 {error, ask: 'cap'}; on a busy host without anyway: true
+//                     serve at the hub's Maximum parallel serves (hub-settings.mjs readServes) → 409 {error, ask: 'cap'}; on a busy host without anyway: true
 //                     → 409 {error, ask: 'busy'}
 //   /_hub/kill        POST {route, key}, loopback only: a card's Kill, stopping its serve → {status: 'stopped'}, or
 //                     409 when none runs (try.mjs kill)
@@ -239,7 +241,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
 import { publicKey, reportPush, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, setAlert, readAlerts, deliver } from './push.mjs';
-import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readLandTests, setLandTests, readTasksInProgress, setTasksInProgress, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
+import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readLandTests, setLandTests, readTasksInProgress, setTasksInProgress, readServes, setServes, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
@@ -312,6 +314,7 @@ const VALUE_SETTINGS = {
   '/_hub/settings/claude-model': setClaudeModel,
   '/_hub/settings/orchestrator-model': changeOrchestratorModel,
   '/_hub/settings/tasks-in-progress': setTasksInProgress,
+  '/_hub/settings/serves': setServes,
   '/_hub/settings/land-tests': setLandTests,
 };
 
@@ -1271,7 +1274,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return {
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), landTests: readLandTests(), tasksInProgress: readTasksInProgress(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
+        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), landTests: readLandTests(), tasksInProgress: readTasksInProgress(), serves: readServes(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
         remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pendingFor(null).map(shown),

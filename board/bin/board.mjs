@@ -555,7 +555,6 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false,
-                                                         "max_serves": 10,
                                                          "auto_review": false, "idle_notification": false,
                                                          "skip_draft": false, "prs": true,
                                                          "github_login": "owner"}
