@@ -585,16 +585,18 @@ test("an owner-step check that can't run three times in a row is marked broken, 
 
 // docs/adr/2026-11-05-1000-the-poll-links-a-pr-opened-by-hand-on-a-cards-branch.md
 test("the poll links an open same-repo PR whose head is a card's branch, once, and wakes the session with linked", async () => {
-  const board = fileBoard('hand', { slug: 'h' }, [
+  const board = fileBoard('hand', { slug: 'h', github_login: 'me' }, [
     { id: 'H1', lane: 'progress' }, { id: 'H2', held: true }, { id: 'H3', pr: 70 }, { id: 'H4', lane: 'done' }, { id: 'H5' }, { id: 'H6' },
   ]);
   writeOpen(home, 'o/r', [
-    { number: 12, headRefName: 'H1', isCrossRepository: false },
-    { number: 13, headRefName: 'H2', isCrossRepository: false },
-    { number: 14, headRefName: 'H3', isCrossRepository: false },
-    { number: 15, headRefName: 'H4', isCrossRepository: false },
-    { number: 16, headRefName: 'H5', isCrossRepository: true },
+    { number: 12, headRefName: 'me/hand/h1', isCrossRepository: false },
+    { number: 13, headRefName: 'me/hand/h2', isCrossRepository: false },
+    { number: 14, headRefName: 'me/hand/h3', isCrossRepository: false },
+    { number: 15, headRefName: 'me/hand/h4', isCrossRepository: false },
+    { number: 16, headRefName: 'me/hand/h5', isCrossRepository: true },
     { number: 17, headRefName: 'unrelated', isCrossRepository: false },
+    { number: 18, headRefName: 'H6', isCrossRepository: false },
+    { number: 19, headRefName: 'other/hand/h6', isCrossRepository: false },
   ]);
   writePR(home, 70, prView());
   writePR(home, 12, prView({ isDraft: true }));
@@ -605,14 +607,14 @@ test("the poll links an open same-repo PR whose head is a card's branch, once, a
   assert.deepEqual(items.map((i) => storedPRs(i).map((p) => p.number)), [[12], [13], [70], [], [], []]);
   // A linked PR is a handover: each card moves to In Review, and a held one leaves its hold.
   assert.deepEqual(items.slice(0, 2).map((i) => [i.lane, i.held]), [['review', undefined], ['review', undefined]]);
-  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Moved to In Review: PR #12 opened', 'Found PR #12 on branch H1.']);
+  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Moved to In Review: PR #12 opened', 'Found PR #12 on branch me/hand/h1.']);
   assert.deepEqual(board.thread('h/H5'), []);
   assert.deepEqual(board.events().map((e) => e.data.prs), [[
     { file: 'h', id: 'H1', pr: 12, changes: ['linked'] }, { file: 'h', id: 'H2', pr: 13, changes: ['linked'] },
   ]]);
   assert.deepEqual(queried(home).at(-1), ['o/r#70']);
   await board.poll();
-  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Moved to In Review: PR #12 opened', 'Found PR #12 on branch H1.']);
+  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Moved to In Review: PR #12 opened', 'Found PR #12 on branch me/hand/h1.']);
   assert.equal(board.events().length, 1);
   assert.deepEqual(queried(home).at(-1), ['o/r#12', 'o/r#13', 'o/r#70']);
 });

@@ -23,6 +23,7 @@ import { wakesDue, localDay } from './schedule.mjs';
 import { overnightOn } from './overnight.mjs';
 import { githubStateFile, wakeStateFile, wavesDir, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
 import { appendMessage, appendStatus, setItem, mergeCard } from '../board/cards.mjs';
+import { boardBranch } from '../board/worktree.mjs';
 import { allLanded, cardPRs, leastReady, prNames } from '../shared/card-prs.mjs';
 
 const PR_ENDED = ['MERGED', 'CLOSED'];
@@ -222,21 +223,24 @@ export async function checkGitHub({ every, manifest }) {
 
 const repoList = (board) => (board.github ? [board.github] : [...new Set(board.files.map((w) => w.itemFile.repo).filter(Boolean))]);
 
-// A hand-opened PR comes from a branch named as the card id (a build's branch is board/worktree.mjs branchName), so an open PR in the card's repo whose head is that
-// branch in the same repo, and which the card doesn't hold yet, was opened by hand: it is recorded as `item set --pr` does,
+// A hand-opened PR comes from the card's own branch, the board-named one a build pushes (board/worktree.mjs boardBranch), so an open PR in the card's repo whose head is that
+// branch in the same repo, and which the card doesn't hold yet, was opened by hand: a bare card id names no board, so another board's same-numbered card never matches. It is recorded as `item set --pr` does,
 // with no --clear-status. → [{file, id, pr, changes: ['linked']}] for the github-change event.
 async function linkHandPRs(board, open, failed) {
   const out = [];
   for (const { slug, itemFile } of board.files) {
     const repo = board.github || itemFile.repo;
     const heads = new Map((open[repo] || []).filter((p) => !p.isCrossRepository).map((p) => [p.headRefName, p.number]));
+    if (!heads.size) continue;
     for (const item of itemFile.items) {
-      if (!heads.has(item.id) || item.lane === 'done' || cardPRs(item, repo).some((p) => p.repo === repo)) continue;
+      if (item.lane === 'done' || cardPRs(item, repo).some((p) => p.repo === repo)) continue;
+      const branch = boardBranch(board, item.id);
+      if (!heads.has(branch)) continue;
       const card = `${slug}/${item.id}`;
-      const pr = heads.get(item.id);
+      const pr = heads.get(branch);
       try {
         await setItem(board.dir, card, { pr });
-        await appendStatus(board.dir, card, 'pr-found', { pr, branch: item.id });
+        await appendStatus(board.dir, card, 'pr-found', { pr, branch });
         out.push({ file: slug, id: item.id, pr, changes: ['linked'] });
       } catch (err) { failed.push(`${board.route}: could not link PR #${pr} to ${card} (${err.message})`); }
     }

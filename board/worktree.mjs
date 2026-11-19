@@ -130,7 +130,11 @@ const signedInLogin = () => {
 // docs/adr/2026-11-18-1220-builder-branches-are-named-by-user-board-and-ticket.md
 export function branchName(site, id) {
   const board = site ? boardAt(site) : null;
-  if (!board) return id;
+  return board ? boardBranch(board, id) : id;
+}
+
+// branchName for a board already read (hub/boards.mjs boardOf).
+export function boardBranch(board, id) {
   const item = board.files.flatMap(({ itemFile }) => itemFile.items).find((it) => it?.id === id);
   const tickets = storedTickets(board.tickets);
   const n = tickets && item ? ticketIn(tickets, item.ticket) : null;
