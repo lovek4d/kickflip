@@ -1865,15 +1865,15 @@ export const bumpIn = (items) => {
   return (key) => bumps.get(key) ?? null;
 };
 
-// For built items in board order, cap the board's Maximum tasks in progress and pulled the cards the pull started
+// For built items in board order, cap the slots the board may fill and pulled the cards the pull started
 // builds on: each open card In Progress takes one slot until it lands, whatever runs on it, building, in Orchestrator
 // review, landing, waiting on the owner, paused or stalled, and however many agents, unless a task blocks it
 // or an open owner question waits on (docs/adr/2026-11-16-0300-a-blocked-in-progress-card-takes-no-slot.md,
 // docs/adr/2026-11-16-0400-a-card-waiting-on-the-owners-answer-takes-no-slot.md). A card in any other lane takes none.
 // pullable lists the cards ready to build, in board order, so bumped first and the
 // rest newest first (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
-// waiting lists the pulled cards not yet started that still hold a slot: the pullable ones. free is the slots left, the cap less the cards In Progress and waiting. pulls lists the pullable
-// cards not pulled that fit them, the bumped ones first (byBump), then the ones blocking a card In Progress (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md,
+// waiting lists the pulled cards not yet started that still hold a slot: the pullable ones. held counts the cards In Progress and waiting, and free is the slots left, the cap less held.
+// queue lists the pullable cards not pulled, the order the hub's turns take this board's cards in (build-turns.mjs), and pulls the ones that fit the free slots, the bumped ones first (byBump), then the ones blocking a card In Progress (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md,
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md). helpers lists every requested helper, {key, name}: a card's helpers
 // run on its slot. hold lists the cards an unanswered overnight triage names, which the pull leaves. retitle lists the
 // cards ready to build whose title isn't a Conventional subject, which are left out of pullable until retitled. idle
@@ -1900,10 +1900,11 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] }
   const pullable = ready.map((i) => i.key).filter((k) => !retitle.includes(k));
   const waiting = open.filter((i) => pulled.includes(i.key) && pullable.includes(i.key)).map((i) => i.key);
   const helpers = open.flatMap((i) => (i.agents || []).filter((a) => a.kind === HELPER && !a.started && !a.done).map((a) => ({ key: i.key, name: a.name })));
-  const free = Math.max(0, cap - inProgress - waiting.length);
+  const held = inProgress + waiting.length;
+  const free = Math.max(0, cap - held);
   const fresh = pullable.filter((k) => !waiting.includes(k) && !hold.includes(k));
-  const pulls = byBump([...fresh.filter((k) => blockers.has(k)), ...fresh.filter((k) => !blockers.has(k))], bumpIn(open)).slice(0, free);
-  return { idle: !busy && !open.some((i) => i.waitsOn === 'checking'), pullable, retitle, waiting, pulls, helpers, free };
+  const queue = byBump([...fresh.filter((k) => blockers.has(k)), ...fresh.filter((k) => !blockers.has(k))], bumpIn(open));
+  return { idle: !busy && !open.some((i) => i.waitsOn === 'checking'), pullable, retitle, waiting, queue, pulls: queue.slice(0, free), helpers, held, free };
 }
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md

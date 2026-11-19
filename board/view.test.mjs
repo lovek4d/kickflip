@@ -974,16 +974,15 @@ test('a Landing tap saves prs and skip_draft together with no confirmation, Merg
   view.unmount();
 });
 
-// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
-const CAPS = [['max_implementers', 'maxImplementers'], ['max_serves', 'maxServes']];
+// docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md: Maximum tasks in progress is the hub's alone.
+const CAPS = [['max_serves', 'maxServes']];
 for (const [key, id] of CAPS) {
   test(`Board Settings saves ${key} as a whole number from 1 to 99 on change, and puts the saved one back on a bad number or a refusal`, async () => {
-    const s = await settingsPage({ settings: { max_implementers: 10, max_serves: 6 } }).mount();
+    const s = await settingsPage({ settings: { max_serves: 6 } }).mount();
     const input = s.root.querySelector(`#${id}`), status = s.root.querySelector(`#${id}Status`);
     const values = () => CAPS.map(([, other]) => s.root.querySelector(`#${other}`).value);
-    assert.deepEqual([input.disabled, values()], [false, ['10', '6']]);
-    await s.set(input, '4');
+    assert.deepEqual([input.disabled, values()], [false, ['6']]);    await s.set(input, '4');
     assert.deepEqual([s.posts, input.value], [[{ [key]: 4 }], '4']);
     assert.match(status.textContent, /\b4\b/, 'the status names the number saved');
     const saved = status.textContent;
@@ -995,8 +994,7 @@ for (const [key, id] of CAPS) {
     s.refuse = 'Cannot save';
     await s.set(input, '7');
     assert.deepEqual([input.value, status.textContent], ['4', 'Cannot save']);
-    assert.deepEqual(values().filter((v, i) => CAPS[i][0] !== key), ['10', '6'].filter((v, i) => CAPS[i][0] !== key), 'the other caps stay as saved');
-    s.view.unmount();
+        s.view.unmount();
   });
 }
 
@@ -1171,7 +1169,7 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'up · listening · every link passes', lines: [], remembered: [], restart });
-  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '2 sites', host: 'mac',
+  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, capacity: { tasksInProgress: 5, landTests: 1 }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '2 sites', host: 'mac',
     groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }], pause: { state: 'normal', machine: { state: 'normal', reason: null } } };
   const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, closed: [] };
   const confirms = [];
@@ -1230,7 +1228,7 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   page.win.document.getElementById = () => true;
   page.win.FormData = class { constructor(form) { return form.querySelectorAll('input[name]').filter((i) => !i.disabled && (i.getAttribute('type') !== 'checkbox' || i.checked)).map((i) => [i.getAttribute('name'), i.value]); } };
   const choices = (on) => ['half', 'auto', 'off'].map((value) => ({ value, label: value, on: value === on }));
-  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '0 sites', host: 'mac', groups: [],
+  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, capacity: { tasksInProgress: 5, landTests: 1 }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '0 sites', host: 'mac', groups: [],
     usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', builders: { name: 'builders', label: 'Builders', description: '', choices: choices('auto') }, orchestrators: { name: 'orchestrators', label: 'Orchestrators', description: '', choices: choices('auto') } },
     pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date(NOW).toISOString(), machine: { state: 'normal', reason: null } } };
   const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off', choices: [] }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, closed: [], snooze: { choices: [] } };
@@ -6765,7 +6763,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['maxImplementers', 'Maximum tasks in progress'], ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
+    ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
     ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);

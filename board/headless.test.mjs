@@ -1368,7 +1368,8 @@ test("a builder's, a lander's and a writing helper's brief give the commit stand
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
 test('a writing helper launches at once, its card In Progress already holding the slot, in its own worktree off the card branch', async (t) => {
   const b = oneLaunchBoard(t, [{ id: 'V1', title: 'Split me', lane: 'progress' }]);
-  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', max_implementers: 1 }));
+  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(b.home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tasksInProgress: 1 }));
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const cardTree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1');
   git(b.clone, 'worktree', 'add', '--quiet', '-b', 'V1', cardTree, 'main');

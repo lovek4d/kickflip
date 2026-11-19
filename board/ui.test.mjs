@@ -2621,17 +2621,18 @@ test('the sidebar shows Claude’s week as a second bar once it is within the ne
   assert.equal(bars(hub(95, 90, 'reset')), 1);
 });
 
-// docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md
-test("Claude's block draws Maximum parallel land tests after Builders and Orchestrators, a stepper posting one fewer or one more, from 1 to 99", () => {
-  const reading = { at: new Date(NOW).toISOString(), five_hour: null, seven_day: null };
-  const card = (landTests) => context.HubUI.usageCard({ claude: reading }, null, null, { model: 'auto', builder: 'Claude', builders: buildersView('auto'), orchestrators: orchestratorsView('opus'), landTests });
-  const three = card(3);
-  assert.match(text(three), /Builders .*Orchestrators .*Maximum parallel land tests − 3 \+ Lands run the tests their change affects\./);
-  assert.match(three, /form class="segments ub-step" method="post" action="\/_hub\/settings\/land-tests"/);
-  assert.match(three, /value="2" aria-label="One fewer">/);
-  assert.match(three, /value="4" aria-label="One more">/);
-  assert.match(card(1), /value="0" aria-label="One fewer" disabled/);
-  assert.match(card(99), /value="100" aria-label="One more" disabled/);
+// docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md
+test('Capacity, its own section, draws Maximum tasks in progress then Maximum parallel land tests, steppers posting one fewer or one more, from 1 to 99', () => {
+  const card = (tasksInProgress, landTests) => context.HubUI.capacityCard({ tasksInProgress, landTests });
+  const both = card(4, 3);
+  assert.match(text(both), /^Capacity Maximum tasks in progress − 4 \+ Hub-wide\. Each counts from its build starting until it lands\. Boards take turns, one card each\. Maximum parallel land tests − 3 \+ Hub-wide\. Lands run the tests their change affects\./);
+  assert.match(both, /<section class="capacity"><h2 class="label">Capacity<\/h2><div class="group"><div class="block">/);
+  assert.match(both, /form class="segments ub-step" method="post" action="\/_hub\/settings\/tasks-in-progress" role="group" aria-label="Maximum tasks in progress"><button name="value" value="3" aria-label="One fewer">/);
+  assert.match(both, /action="\/_hub\/settings\/land-tests"[^]*value="2" aria-label="One fewer">[^]*value="4" aria-label="One more">/);
+  assert.match(card(1, 1), /value="0" aria-label="One fewer" disabled/);
+  assert.match(card(99, 1), /value="100" aria-label="One more" disabled/);
+  const usage = context.HubUI.usageCard({ claude: { at: new Date(NOW).toISOString(), five_hour: null, seven_day: null } }, null, null, { model: 'auto', builder: 'Claude', builders: buildersView('auto'), orchestrators: orchestratorsView('opus') });
+  assert.doesNotMatch(usage, /land-tests|tasks-in-progress/, 'Usage keeps no capacity row');
 });
 
 test('the pause line stepper, both tools’ ticks, banners and status slots follow the gate', () => {
@@ -2645,7 +2646,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const card = hub.usageCard({ claude: reading, codex: reading }, null, pause);
   assert.match(text(card), /Codex .*Pause work at 10% buffer − 90% \+/);
   assert.match(text(card), /Claude’s new work waits.*Codex hands its work to Claude implementers/);
-  for (const builder of ['Opus', 'Sonnet']) assert.match(text(hub.usageCard({ claude: reading }, null, pause, { model: builder.toLowerCase(), builder, builders: buildersView(builder.toLowerCase()), orchestrators: orchestratorsView('opus'), landTests: 1 })), new RegExp(`Codex hands its work to ${builder} implementers`));
+  for (const builder of ['Opus', 'Sonnet']) assert.match(text(hub.usageCard({ claude: reading }, null, pause, { model: builder.toLowerCase(), builder, builders: buildersView(builder.toLowerCase()), orchestrators: orchestratorsView('opus') })), new RegExp(`Codex hands its work to ${builder} implementers`));
   assert.equal([...card.matchAll(/class="ub-mark" style="left:90%"/g)].length, 4);
   assert.match(card, /form class="segments ub-step" method="post" action="\/_hub\/settings\/pause-at"/);
   assert.match(card, /value="85" aria-label="Pause 5% sooner"/);

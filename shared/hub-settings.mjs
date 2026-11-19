@@ -56,16 +56,32 @@ export async function setAutoUpdate(on, home = os.homedir()) {
 // docs/adr/2026-11-16-0700-land-test-runs-take-turns-on-the-host.md
 // Land test runs at once on the host: the hub's one number, 1 to 99, MAX_LAND_TESTS unless settings.json says otherwise.
 export const MAX_LAND_TESTS = 1;
-const validLandTests = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
+const validCount = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
 export const readLandTests = (home = os.homedir()) => {
   const stored = read(home).landTests;
-  return validLandTests(stored) ? stored : MAX_LAND_TESTS;
+  return validCount(stored) ? stored : MAX_LAND_TESTS;
 };
 // Throws {status: 400} for a value that isn't a whole number from 1 to 99.
 export async function setLandTests(value, home = os.homedir()) {
   const n = /^\d+$/.test(String(value)) ? Number(value) : value;
-  if (!validLandTests(n)) throw Object.assign(new Error('land-tests takes a whole number from 1 to 99'), { status: 400 });
+  if (!validCount(n)) throw Object.assign(new Error('land-tests takes a whole number from 1 to 99'), { status: 400 });
   await update((file) => ({ ...file, landTests: n }), home);
+  return n;
+}
+
+// docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md
+// Maximum tasks in progress: the cards In Progress at once across every board on the host, 1 to 99,
+// MAX_TASKS_IN_PROGRESS unless settings.json says otherwise. Boards take turns at it (board/build-turns.mjs).
+export const MAX_TASKS_IN_PROGRESS = 5;
+export const readTasksInProgress = (home = os.homedir()) => {
+  const stored = read(home).tasksInProgress;
+  return validCount(stored) ? stored : MAX_TASKS_IN_PROGRESS;
+};
+// Throws {status: 400} for a value that isn't a whole number from 1 to 99.
+export async function setTasksInProgress(value, home = os.homedir()) {
+  const n = /^\d+$/.test(String(value)) ? Number(value) : value;
+  if (!validCount(n)) throw Object.assign(new Error('tasks-in-progress takes a whole number from 1 to 99'), { status: 400 });
+  await update((file) => ({ ...file, tasksInProgress: n }), home);
   return n;
 }
 

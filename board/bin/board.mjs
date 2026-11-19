@@ -555,7 +555,6 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false,
-                                                         "max_implementers": 5,
                                                          "max_serves": 10,
                                                          "auto_review": false, "idle_notification": false,
                                                          "skip_draft": false, "prs": true,
@@ -614,11 +613,6 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   script set <name> --file <script>|-                    replaces the board's kickflip-held script <name> with
                                                          the file, mode 0700. No earlier save is kept. A saved
                                                          build script rebuilds main
-  settings set max-implementers <1..99>                  Maximum tasks in progress, 5 by default: the tasks
-                                                         In Progress the pull fills up to, each counting until it
-                                                         lands, whatever it waits on. A tap or a bump waits for a
-                                                         slot too.
-                                                         Only on the owner's word
   settings set auto-review on|off                       on: while the board is idle and nothing is pulled, the board
                                                          server sends pr-review {pr, head, repo, title, author, url,
                                                          touches, asked} for one incoming PR at a time that touches

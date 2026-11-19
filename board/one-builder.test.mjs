@@ -37,7 +37,8 @@ async function pullingBoard(t) {
   fs.mkdirSync(path.join(data, 'threads'), { recursive: true });
   fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: { t: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], branch: 'main', owner: { repo } } } }));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', max_implementers: 2 }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tasksInProgress: 2 }));
   const wave = path.join(data, 'items.json');
   fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'A1', title: 'feat: next', lane: 'todo', phase: 'ready' }] }));
   const log = path.join(home, 'launches.log');

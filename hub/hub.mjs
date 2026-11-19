@@ -101,6 +101,8 @@
 //   /_hub/settings/claude-model POST value=opus|auto|sonnet, Builders → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/orchestrator-model POST value=opus|sonnet, Orchestrators (sessions.mjs changeOrchestratorModel)
 //                     → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/tasks-in-progress POST value=1..99, Maximum tasks in progress (hub-settings.mjs setTasksInProgress)
+//                     → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/land-tests POST value=1..99, Maximum parallel land tests (push.mjs setLandTests) → /_hub/api/hub's
 //                     JSON, or 400 {error}
 //   /_hub/settings/pause-at POST value=50..100 in steps of 5 → /_hub/api/hub's JSON, or 400 {error}; 100 is Off
@@ -236,7 +238,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
 import { publicKey, reportPush, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, setAlert, readAlerts, deliver } from './push.mjs';
-import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readLandTests, setLandTests, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
+import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readLandTests, setLandTests, readTasksInProgress, setTasksInProgress, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
@@ -303,11 +305,12 @@ const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 // The version of the code this process started with; new files on disk run only after a restart.
 const VERSION = JSON.parse(fs.readFileSync(path.join(HUB_DIR, '..', 'package.json'), 'utf8')).version;
-// The Usage card's Claude block: Builders, Orchestrators and Maximum parallel land tests, each saving one value posted
-// as a form.
-const USAGE_SETTINGS = {
+// The Usage card's Claude block, Builders and Orchestrators, and the Capacity section's numbers, each saving one value
+// posted as a form.
+const VALUE_SETTINGS = {
   '/_hub/settings/claude-model': setClaudeModel,
   '/_hub/settings/orchestrator-model': changeOrchestratorModel,
+  '/_hub/settings/tasks-in-progress': setTasksInProgress,
   '/_hub/settings/land-tests': setLandTests,
 };
 
@@ -1267,7 +1270,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return {
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), landTests: readLandTests(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
+        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), landTests: readLandTests(), tasksInProgress: readTasksInProgress(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
         remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pendingFor(null).map(shown),
@@ -1628,9 +1631,9 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       }
       return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
     }
-    if (Object.hasOwn(USAGE_SETTINGS, p) && req.method === 'POST') {
+    if (Object.hasOwn(VALUE_SETTINGS, p) && req.method === 'POST') {
       const f = new URLSearchParams(await readBody(req));
-      try { await USAGE_SETTINGS[p](f.get('value')); } catch (e) {
+      try { await VALUE_SETTINGS[p](f.get('value')); } catch (e) {
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }

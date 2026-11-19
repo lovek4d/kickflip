@@ -177,7 +177,8 @@ test('with auto implement on the board starts and launches the build of the top 
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', max_implementers: 2 }));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
+  put(path.join(path.dirname(usageFile), 'settings.json'), JSON.stringify({ tasksInProgress: 2 }));
   const wave = { items: [
     { id: 'A0', title: 'feat: running', lane: 'progress' },
     { id: 'A1', title: 'feat: held', lane: 'todo', phase: 'ready', held: true },
@@ -221,7 +222,7 @@ test('with auto implement on the board starts and launches the build of the top 
   // the pick it started on are in the board's audit log, with what each read.
   const logged = lines(path.join(dataDir, 'audit.jsonl'));
   const pull = logged.find((e) => e.call === 'pull' && e.key === 't/A5');
-  assert.deepEqual([pull.key, pull.result, pull.reason, pull.inputs.cap, pull.inputs.pullable.includes('t/A5')], ['t/A5', 'started', 'An implementer slot was free and it was the top ready task in Todo.', 2, true]);
+  assert.deepEqual([pull.key, pull.result, pull.reason, pull.inputs.cap, pull.inputs.pullable.includes('t/A5')], ['t/A5', 'started', 'A hub build slot was free and the turn fell to this board\'s top ready task.', 2, true]);
   const pick = logged.find((e) => e.call === 'builder-pick');
   assert.deepEqual([pick.key, pick.result, pick.inputs.dispatch, pick.inputs.codex], ['t/A5', 'claude opus', 'hub', 'not logged in']);
   assert.ok(logged.indexOf(pick) < logged.indexOf(pull), 'the pick is logged as the start makes it, the pull once the start returns');
@@ -307,9 +308,10 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   const boardFile = path.join(siteDir, 'board.json');
   // A0 In Progress holds one slot (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md), the
   // day's pull takes the other.
-  put(boardFile, JSON.stringify({ items: 'data/items.json', slug: 't', max_implementers: 2 }));
+  put(boardFile, JSON.stringify({ items: 'data/items.json', slug: 't' }));
+  put(path.join(path.dirname(usageFile), 'settings.json'), JSON.stringify({ tasksInProgress: 2 }));
   // The hub's Triage overnight switch (docs/adr/2026-11-16-0100-one-hub-triage-overnight-switch-replaces-the-board-toggle.md): on unless settings.json stores it off.
-  const triageOn = (on) => put(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify(on ? {} : { overnight: { triage: false } }));
+  const triageOn = (on) => put(path.join(home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tasksInProgress: 2, ...(on ? {} : { overnight: { triage: false } }) }));
   triageOn(false);
   const wave = { items: [
     { id: 'A0', title: 'feat: running', lane: 'progress' },
@@ -419,7 +421,7 @@ test('a board with no description, or none checked in 7 days, sends the overnigh
   const waveFile = path.join(dataDir, 'items.json');
   const eventsFile = path.join(dataDir, 'events.jsonl');
   fs.mkdirSync(dataDir, { recursive: true });
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', max_implementers: 2 }));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
   put(waveFile, JSON.stringify({ items: [{ id: 'A1', title: 'feat: one', lane: 'todo' }] }));
   fs.writeFileSync(path.join(dataDir, 'owner.json'), JSON.stringify({ topics: [], items: [] }));
   fs.writeFileSync(eventsFile, '');

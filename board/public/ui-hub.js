@@ -99,18 +99,26 @@
       + `<p class="u-share-desc">${esc(model.description)}</p></div>`;
   }
 
-  // Maximum parallel land tests, the hub's one number for every board, drawn as Pause work at's stepper: n is
-  // hub/views.mjs hubView's claude.landTests, and its form posts to /_hub/settings/land-tests, which view-hub.js sends.
-  function landTestsControl(n) {
-    return `<div class="ub-row"><span class="ub-label"><span class="title">Maximum parallel land tests</span></span>`
-      + `<form class="segments ub-step" method="post" action="/_hub/settings/land-tests" role="group" aria-label="Maximum parallel land tests"><button name="value" value="${n - 1}" aria-label="One fewer"${n <= 1 ? ' disabled' : ''}>−</button>`
+  // A hub-wide number from 1 to 99, drawn as Pause work at's stepper: its form posts n's neighbour to action, which
+  // view-hub.js sends.
+  function countControl(title, n, action, desc) {
+    return `<div class="block"><div class="ub-row"><span class="ub-label"><span class="title">${title}</span></span>`
+      + `<form class="segments ub-step" method="post" action="${action}" role="group" aria-label="${title}"><button name="value" value="${n - 1}" aria-label="One fewer"${n <= 1 ? ' disabled' : ''}>−</button>`
       + `<output aria-live="polite">${n}</output>`
       + `<button name="value" value="${n + 1}" aria-label="One more"${n >= 99 ? ' disabled' : ''}>+</button></form></div>`
-      + '<p class="u-share-desc">Lands run the tests their change affects. Over this many at once, a land waits its turn, bumped first, then first asked.</p>';
+      + `<p class="u-share-desc">${desc}</p></div>`;
   }
 
-  // data is the usage reading; claude, when given, opens Claude's block with the Builders and Orchestrators controls
-  // and Maximum parallel land tests, even without a reading; codex, when given, draws Codex's block even without a reading: the Codex share control
+  // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md
+  // The Capacity section, right below Usage: the hub's numbers every board shares, capacity being hub/views.mjs
+  // hubView's capacity.
+  const capacityCard = (capacity) => `<section class="capacity"><h2 class="label">Capacity</h2><div class="group">`
+    + countControl('Maximum tasks in progress', capacity.tasksInProgress, '/_hub/settings/tasks-in-progress', 'Hub-wide. Each counts from its build starting until it lands. Boards take turns, one card each.')
+    + countControl('Maximum parallel land tests', capacity.landTests, '/_hub/settings/land-tests', 'Hub-wide. Lands run the tests their change affects. Over this many at once, a land waits its turn, bumped first, then first asked.')
+    + '</div></section>';
+
+  // data is the usage reading; claude, when given, opens Claude's block with the Builders and Orchestrators controls,
+  // even without a reading; codex, when given, draws Codex's block even without a reading: the Codex share control
   // first, then Codex's bars while share isn't Off.
   function usageCard(data, codex, pause, claude) {
     const { usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords } = BoardUI;
@@ -124,7 +132,7 @@
       `<div class="u-tone-${usageTone(r[key])}${pause?.pause_at < 100 ? ' ub-marked' : ''}"><div class="u-win"><span>${label}</span><span>${usageWords(r, key)}</span></div>${usageBar(r[key]).replace('</span>', `${pause?.pause_at < 100 ? `<span class="ub-mark" style="left:${pause.pause_at}%"></span>` : ''}</span>`)}</div>`).join('');
     const blocks = products.map((p) => {
       const r = data?.[p] || { at: null };
-      if (p === 'claude' && claude) return `<div class="block u-block">${head(usageNames.claude, asof(r))}${modelControl(claude.builders, '/_hub/settings/claude-model')}${modelControl(claude.orchestrators, '/_hub/settings/orchestrator-model')}${landTestsControl(claude.landTests)}${windows(r)}</div>`;
+      if (p === 'claude' && claude) return `<div class="block u-block">${head(usageNames.claude, asof(r))}${modelControl(claude.builders, '/_hub/settings/claude-model')}${modelControl(claude.orchestrators, '/_hub/settings/orchestrator-model')}${windows(r)}</div>`;
       if (p !== 'codex' || !codex) return `<div class="block u-block">${head(usageNames[p], asof(r))}${windows(r)}</div>`;
       const bars = codex.usable && codex.share !== 'off';
       return `<div class="block u-block">${head(usageNames.codex, codex.tag || (bars ? asof(r) : ''))}${codexShare(codex)}${bars ? `<div class="u-codex-bars">${windows(r)}</div>` : ''}</div>`;
@@ -133,5 +141,5 @@
     return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}${buffer}</div></section>`;
   }
 
-  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, machineRow, deviceRow, usageCard };
+  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, machineRow, deviceRow, usageCard, capacityCard };
 })();

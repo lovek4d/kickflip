@@ -594,7 +594,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   live.paint({ ...data, version: '0.4.2', remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
   const labels = root.querySelectorAll('.hub-status .label').map((el) => el.textContent);
   assert.equal(data.integrations, integrations);
-  assert.deepEqual(labels.slice(0, 4), ['Usage', 'Health', 'Integrations', 'Boards']);
+  assert.deepEqual(labels.slice(0, 5), ['Usage', 'Capacity', 'Health', 'Integrations', 'Boards']);
   const label = root.querySelectorAll('.label').find((el) => el.textContent === 'Integrations');
   const group = label.nextSibling;
   assert.deepEqual(group.querySelectorAll('.title').map((el) => el.textContent), ['GitHub', 'Codex', 'Linear', 'Slack', 'Tailnet', 'Notifications']);
@@ -921,7 +921,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   let refused = false;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1 };
+  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1, tasksInProgress: 5 };
   const hub = (claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare: 'off', codex: USABLE, ...saved,
     sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
   const context = vm.createContext({
@@ -933,7 +933,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
-      if (!refused) Object.assign(saved, url.endsWith('/land-tests') ? { landTests: Number(opts.body.get('value')) } : { [url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel']: opts.body.get('value') });
+      if (!refused) Object.assign(saved, url.endsWith('/land-tests') ? { landTests: Number(opts.body.get('value')) } : url.endsWith('/tasks-in-progress') ? { tasksInProgress: Number(opts.body.get('value')) } : { [url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel']: opts.body.get('value') });
       return { ok: !refused, json: async () => refused ? { error: 'claude-model takes opus, auto or sonnet' } : hub() };
     },
   });
@@ -965,7 +965,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   assert.deepEqual([control('orchestrators').getAttribute('aria-label'), control('orchestrators').getAttribute('action')], ['Orchestrators', '/_hub/settings/orchestrator-model']);
   assert.deepEqual(control('builders').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Auto', 'Sonnet']);
   assert.deepEqual(control('orchestrators').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Sonnet']);
-  assert.match(claude().textContent, /^Claude.*BuildersOpusAutoSonnetAuto: small tasks get Sonnet, the rest get Opus\.OrchestratorsOpusSonnetEach board’s own session runs on Opus\..*Maximum parallel land tests−1\+Lands run the tests.*5-hour42%/);
+  assert.match(claude().textContent, /^Claude.*BuildersOpusAutoSonnetAuto: small tasks get Sonnet, the rest get Opus\.OrchestratorsOpusSonnetEach board’s own session runs on Opus\..*5-hour42%/);
   assert.deepEqual([selected(), selected('orchestrators')], ['auto', 'opus']);
   for (const value of ['opus', 'sonnet', 'auto']) {
     await submit(value);
@@ -977,11 +977,17 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   await submit('sonnet', 'orchestrators');
   assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/orchestrator-model', 'value=sonnet']);
   assert.deepEqual([selected(), selected('orchestrators'), desc('orchestrators')], ['auto', 'sonnet', `Each board’s own session runs on Sonnet. ${SWITCH}`]);
-  // Maximum parallel land tests, the hub's one number, steps from Claude's block.
-  const landTests = () => claude().querySelector('form[action="/_hub/settings/land-tests"]');
-  assert.equal(landTests().querySelector('output').textContent, '1');
-  await listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: landTests(), submitter: { name: 'value', value: '2' }, preventDefault() {} });
-  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString(), landTests().querySelector('output').textContent], ['/_hub/settings/land-tests', 'value=2', '2']);
+  // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md: the hub's numbers step from the Capacity
+  // section right below Usage.
+  assert.equal(root.querySelector('section.usage').nextSibling, root.querySelector('section.capacity'));
+  const step = async (action, value) => {
+    const form = root.querySelector(`.capacity form[action="${action}"]`);
+    await listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form, submitter: { name: 'value', value }, preventDefault() {} });
+    return [posts.at(-1).url, posts.at(-1).opts.body.toString(), root.querySelector(`.capacity form[action="${action}"] output`).textContent];
+  };
+  assert.deepEqual(root.querySelectorAll('.capacity output').map((o) => o.textContent), ['5', '1']);
+  assert.deepEqual(await step('/_hub/settings/tasks-in-progress', '4'), ['/_hub/settings/tasks-in-progress', 'value=4', '4']);
+  assert.deepEqual(await step('/_hub/settings/land-tests', '2'), ['/_hub/settings/land-tests', 'value=2', '2']);
   refused = true;
   await submit('opus');
   assert.equal(selected(), 'auto');
@@ -1057,7 +1063,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   const five_hour = { used_percentage: 91, resets_at, state: 'live' };
   const choice = { pauseAt: 90, going: false };
   const gateNow = () => usageGate({ claude: { five_hour }, pauseAt: choice.pauseAt, keepGoing: choice.going ? { window: 'five_hour', until: resets_at } : undefined, machine: CALM_GATE.machine });
-  const data = () => ({ integrations: [], pause: gateNow(), usage: { claude: { at: new Date().toISOString(), five_hour } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
+  const data = () => ({ integrations: [], capacity: { tasksInProgress: 5, landTests: 1 }, pause: gateNow(), usage: { claude: { at: new Date().toISOString(), five_hour } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
     BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },

@@ -5,7 +5,7 @@
 // the other files below through bin/board.mjs (store.mjs). Every write goes through files.mjs, as every process's does:
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, max_serves, auto_review, idle_notification, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // build_target names the script, build-<target>, else build; scripts, kickflip, runs the scripts from the site's scripts/,
 // else from the repo's .kickflip/ (build-script.mjs scriptFileOf).
@@ -227,9 +227,9 @@
 //                                Within a minute of an owner block's until or pick_up_at the server unblocks it
 //                                (cards.mjs pickUp), at most once per time even across a restart.
 //                                The Auto jobs below run on every board change and once at start, and on the minute
-//                                check only once a usage pause lifts or while an overnight triage is due. The server always starts and launches the build of the top pullable Todo cards, one per
-//                                implementer slot max_implementers leaves free, each card In Progress taking one
-//                                (domain.mjs pullOf), bumped cards first, whether or not the board is idle, each once,
+//                                check only once a usage pause lifts, while an overnight triage is due or when a hub build slot is due to the board (build-turns.mjs turnDue). The server always starts and launches the build of the top pullable Todo cards, one per
+//                                hub build slot the turns give the board (build-turns.mjs), each card In Progress taking
+//                                one (domain.mjs pullOf), bumped cards first, whether or not the board is idle, each once,
 //                                tracked in data/pulled.json, its record dispatched: 'hub'. The helpers board.mjs agent
 //                                launch asked for (runs.mjs tick), the landers and the rebase runs take no slot.
 //                                Neither appends an event.
@@ -280,7 +280,7 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (settings.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build,max_implementers, max_serves, auto_review, idle_notification, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
+//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, max_serves, auto_review, idle_notification, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets), or in its site's scripts/ while its scripts are in kickflip
 //   GET  /api/scripts            {source: repo | kickflip, repo: [name], scripts: [{name, text}]}: where the board's scripts live, the
@@ -291,7 +291,7 @@
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (settings.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99?: 1..99, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, max_serves?: 1..99, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id, builders}; a bad body → 400 {error}
 //   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused, unavailable}]}: the board's session
@@ -387,6 +387,8 @@ import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { readUsageGate, heldFor, tasksInProgressCap, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
+import { readTasksInProgress } from '../shared/hub-settings.mjs';
+import { claimBuilds, othersHeld, leaveTurns, turnDue, watchGrants } from './build-turns.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
@@ -1005,7 +1007,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       // A refusal is a thread line too (cards.mjs mergeCard).
       else if (effect.do === 'merge') await mergeCard(here, key, { tapped: true });
       else if (effect.do === 'build') {
-        const full = !pullOf((await sharedBoard()).items, { cap: tasksInProgressCap(readUsageGate({ dir: here }), settingsOf(await config()).max_implementers), pulled: await sentOf(PULL) }).free;
+        const full = !pullOf((await sharedBoard()).items, { cap: boardCap(readUsageGate({ dir: here })), pulled: await sentOf(PULL) }).free;
         // A build's launch wakes no session, so the tap answers with no event id.
         await runs.start(here, key, 'build', { ...runIo, dispatch: 'tap', full });
         id = null;
@@ -1469,6 +1471,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // review. None goes out while usage is paused, nor while the Mac is busy unless its card is bumped (shared/usage-gate.mjs heldFor), each launch checking
   // again (runs.mjs heldNow); the minute check runs the jobs again once the hold lifts, since it lives outside the board's
   // data. Near the line the pull's cap is halved (tasksInProgressCap). A grill or prototype asked for during a hold launches first. A check asked for while one runs runs again after it.
+  // The slots this board could fill if every free one fell to it: Hub settings' Maximum tasks in progress, halved near
+  // the usage line, less what every other board holds (build-turns.mjs othersHeld).
+  const boardCap = (gate) => tasksInProgressCap(gate, readTasksInProgress(home)) - othersHeld({ home, site: here });
   let checkingAuto = null;
   let autoAgain = false;
   let heldByPause = false;
@@ -1488,7 +1493,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     return checkingAuto;
   }
   async function runAuto() {
-    const settings = settingsOf(await config());
     // Before the board is read, so a gone planner's line lands now and the card's next brief launches in this pass.
     await runs.closeGone(here, runIo);
     for (const key of Object.keys(await loggedOutCards(await liveFiles(here), home))) await noteLoggedOut(here, key);
@@ -1497,11 +1501,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const hold = await triageHold(log);
     const pulled = await sentOf(PULL);
     const gate = readUsageGate({ dir: here });
-    const cap = tasksInProgressCap(gate, settings.max_implementers);
+    const hubCap = tasksInProgressCap(gate, readTasksInProgress(home));
+    const cap = boardCap(gate);
     if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
     boardPaused = gate.manual === 'board';
     const resumes = await checkPauses(items, gate, cap);
-    const { idle, pullable, retitle, waiting, pulls, helpers } = pullOf(items, { cap, pulled, hold });
+    const { idle, pullable, retitle, waiting, queue, held: holding, helpers } = pullOf(items, { cap, pulled, hold });
     heldByPause = (await runs.tick(here, items, runIo, { resumes, helpers })).held;
     const ready = idle && !heldByPause;
     // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: the pull refuses a ready card it can't title its PR by,
@@ -1520,13 +1525,17 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (held.length) logCall({ call: 'pull', result: 'held', reason: 'An overnight triage waits for the session\'s reply and names these tasks, so the pull leaves them until it is answered or quiet hours end.', inputs: { cards: held } });
     const startPull = async (key) => {
       const { started } = await runs.start(here, key, 'build', runIo);
-      logCall({ call: 'pull', key, result: runs.startResult(started), reason: 'An implementer slot was free and it was the top ready task in Todo.', inputs: { cap, pullable, waiting } });
+      logCall({ call: 'pull', key, result: runs.startResult(started), reason: 'A hub build slot was free and the turn fell to this board\'s top ready task.', inputs: { cap: hubCap, pullable, waiting } });
     };
-    // A card that already has a builder, as a pass an instant earlier left it, is not started again. A hold keeps the
-    // pulls, a busy host only the unbumped ones (docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md).
-    const unstarted = [];
+    // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md: the board offers its queue to the hub's
+    // turns and starts the cards the turns give it. A hold keeps them all from the turns, a busy host only the
+    // unbumped ones (docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md). A card that already has a builder,
+    // as a pass an instant earlier left it, is not started again.
     const bump = bumpIn(items);
-    for (const key of pulls.filter((k) => !heldFor(gate, 'claude', Boolean(bump(k))))) {
+    const wants = queue.filter((k) => !heldFor(gate, 'claude', Boolean(bump(k)))).map((key) => ({ key, first: bump(key) }));
+    const { take } = await claimBuilds({ home, site: here, held: holding, wants, cap: hubCap });
+    const unstarted = [];
+    for (const key of take) {
       if (await runs.unstarted(here, key)) { unstarted.push(key); continue; }
       logCall({ call: 'pull', key, result: 'skipped', reason: 'It already has a builder.', inputs: {} });
     }
@@ -1930,6 +1939,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // docs/adr/2026-11-16-0312-a-store-write-tells-its-board-server.md: a write in this process, the server's own and the
   // startup passes' included, calls changed directly; one in another process POSTs /_claude/changed.
   const untell = tellOnWrite(here, changed);
+  // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md: another board's pass granting this board a
+  // card runs the pull, which takes it.
+  const stopGrants = watchGrants({ home, site: here }, () => track(checkAuto()));
 
   const archived = archiveReader(here);
   // docs/adr/2026-11-17-0601-migrations-run-once-per-ledger-from-one-list.md
@@ -1969,7 +1981,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     track(checkReadyExpiry());
     // A pause standing, or a usage pause or Pause board or hub starting, runs the pause pass (checkPauses).
     const gate = readUsageGate({ dir: here });
-    if ((heldByPause && !heldFor(gate, 'claude')) || pausesLive || (!heldByPause && pausesRunning(gate, 'claude'))) track(checkAuto());
+    // So does a hub build slot due to this board (build-turns.mjs turnDue), which no change of its own data signals.
+    if ((heldByPause && !heldFor(gate, 'claude')) || pausesLive || (!heldByPause && pausesRunning(gate, 'claude'))
+      || turnDue({ home, site: here, cap: tasksInProgressCap(gate, readTasksInProgress(home)) })) track(checkAuto());
     else track(triageDue().then((due) => { if (due) return checkAuto(); }, (err) => console.error('Triage check failed:', err.message)));
     track(checkActions());
     track(checkWaits());
@@ -1977,7 +1991,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
   async function close() {
     untell();
+    stopGrants();
     await settled();
+    leaveTurns({ home, site: here });
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }

@@ -281,23 +281,26 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/']);
     });
     // docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md
-    await t.test('the land tests route saves 1 to 99, refuses anything else and redirects forms', async () => {
-      const post = (body, json = true) => fetch(`${base}/_hub/settings/land-tests`, {
-        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
+    // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md
+    for (const [route, key, start] of [['land-tests', 'landTests', 1], ['tasks-in-progress', 'tasksInProgress', 5]]) {
+      await t.test(`the ${route} route saves 1 to 99, refuses anything else and redirects forms`, async () => {
+        const post = (body, json = true) => fetch(`${base}/_hub/settings/${route}`, {
+          method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
+        });
+        assert.equal((await getHub()).capacity[key], start);
+        const settingsBefore = JSON.parse(fs.readFileSync(file, 'utf8'));
+        const r = await post('value=3');
+        assert.equal(r.status, 200);
+        assert.equal((await r.json()).capacity[key], 3);
+        assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { ...settingsBefore, [key]: 3 });
+        for (const value of ['0', '100', '1.5']) {
+          const refused = await post(`value=${value}`);
+          assert.deepEqual([refused.status, await refused.json()], [400, { error: `${route} takes a whole number from 1 to 99` }]);
+        }
+        const redirect = await post('value=1', false);
+        assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/']);
       });
-      assert.equal((await getHub()).claude.landTests, 1);
-      const settingsBefore = JSON.parse(fs.readFileSync(file, 'utf8'));
-      const r = await post('value=3');
-      assert.equal(r.status, 200);
-      assert.equal((await r.json()).claude.landTests, 3);
-      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { ...settingsBefore, landTests: 3 });
-      for (const value of ['0', '100', '1.5']) {
-        const refused = await post(`value=${value}`);
-        assert.deepEqual([refused.status, await refused.json()], [400, { error: 'land-tests takes a whole number from 1 to 99' }]);
-      }
-      const redirect = await post('value=1', false);
-      assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/']);
-    });
+    }
     await t.test('pause line routes save the gate, refuse bad values and redirect forms', async () => {
       const postGate = (name, body, json = true) => fetch(`${base}/_hub/settings/${name}`, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',

@@ -1957,6 +1957,8 @@ test('a bumped ready card goes first in the pull but waits for a slot like any o
   const top = card('w/T2', { bumpedAt: '2026-11-06T11:00:00Z' });
   const full = pullOf([running, plain, top], { cap: 1 });
   assert.deepEqual([full.pulls, full.free], [[], 0], 'a full In Progress starts nothing, bumped or not');
+  // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md: what the board offers the hub's turns.
+  assert.deepEqual([full.held, full.queue], [1, ['w/T2', 'w/T1']], 'held counts the slot taken, and the queue lists every card in its order, full or not');
   assert.deepEqual(Object.keys(full).filter((k) => ['bumpOuts', 'pastCap'].includes(k)), [], 'nothing is bumped out');
   assert.deepEqual(pullOf([running, plain, top], { cap: 2 }).pulls, ['w/T2'], 'one free slot takes the bump first');
   assert.deepEqual(pullOf([running, plain, top], { cap: 3 }).pulls, ['w/T2', 'w/T1']);
