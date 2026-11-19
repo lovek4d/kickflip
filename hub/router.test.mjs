@@ -7,7 +7,7 @@ import { tempDir } from '../shared/temp-dir.mjs';
 
 const home = tempDir('router-');
 process.env.HOME = home;
-const { routingBoards, routePrompt, parseRoute, routeRequest, drainRoutes, routedRows, ROUTE_QUEUE, ROUTED_LOG, ROUTE_TRIES } = await import('./router.mjs');
+const { routingBoards, routePrompt, parseRoute, routeRequest, drainRoutes, routedRows, dismissRow, ROUTE_QUEUE, ROUTED_LOG, ROUTED_DISMISSED, ROUTE_TRIES } = await import('./router.mjs');
 
 const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const events = (dir) => fs.readFileSync(path.join(dir, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
@@ -25,7 +25,7 @@ const manifestOf = (...boards) => ({ sites: Object.fromEntries(boards) });
 const item = (id, title, lane, at) => ({ id, title, lane, created: at, lane_at: at });
 
 beforeEach(() => {
-  for (const f of [ROUTE_QUEUE, ROUTED_LOG]) fs.rmSync(f, { force: true });
+  for (const f of [ROUTE_QUEUE, ROUTED_LOG, ROUTED_DISMISSED]) fs.rmSync(f, { force: true });
 });
 
 test('a board for routing is its route, title, description and its 15 most recently changed open card titles', () => {
@@ -167,4 +167,17 @@ test("a hub request's intent fields ride on its ask, and its uploads are copied 
   assert.equal(fs.existsSync(path.join(uploads, '1700-shot.png')), false);
   await routeRequest({ text: 'look into it', fields: { request: 'grill' }, from: { via: 'hub', by: 'love' } }, { manifest: manifestOf(shop), paused: () => false });
   assert.equal(events(shop[1].dir)[1].data.request, 'grill');
+});
+
+test("a dismissed row leaves the hub page's rows, whatever kind it was, and stays gone", async () => {
+  const shop = board('shop', {});
+  fs.writeFileSync(path.join(shop[1].dir, 'data', 'events.jsonl'), JSON.stringify({ id: 'a1', ts: '2026-11-12T08:00:00Z', kind: 'board-ask', data: { text: 'why X?', from: { route: 'other', title: 'Other' } } }) + '\n');
+  fs.writeFileSync(ROUTED_LOG, JSON.stringify({ routed: [{ id: 'r1', at: '2026-11-12T09:00:00Z', text: 'checkout', route: 'shop', eventId: 'e1', reason: 'shop' }, { id: 'r2', at: '2026-11-12T09:10:00Z', text: 'two', route: 'shop', eventId: 'e2', reason: 'shop' }] }));
+  const manifest = manifestOf(shop);
+  assert.deepEqual(routedRows({ manifest }).map((r) => r.id), ['r2', 'r1', 'a1']);
+  await dismissRow('r1');
+  await dismissRow('a1');
+  await dismissRow('a1');
+  assert.deepEqual(routedRows({ manifest }).map((r) => r.id), ['r2']);
+  assert.deepEqual(read(ROUTED_DISMISSED).dismissed, ['r1', 'a1']);
 });

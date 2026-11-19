@@ -29,6 +29,9 @@ const WEB = path.join(os.homedir(), '.claude', 'kickflip');
 const UPLOAD_HOME = WEB;
 export const ROUTE_QUEUE = path.join(WEB, 'route-queue.json');
 export const ROUTED_LOG = path.join(WEB, 'routed.json');
+// The ids of the New rows the owner dismissed, oldest first, kept in the hub so every device sees the same strip.
+export const ROUTED_DISMISSED = path.join(WEB, 'routed-dismissed.json');
+const KEEP_DISMISSED = 500;
 export const ROUTE_TRIES = 3;
 const RECENT = 15;
 // The hub page shows this many; the log keeps no more.
@@ -203,8 +206,17 @@ function askedRows(board, boards) {
   });
 }
 
+// Hides row id from the hub page's New rows for good (the X on a routed row, or following its link).
+export async function dismissRow(id) {
+  await withFileLock(ROUTED_DISMISSED, () => {
+    const { dismissed } = readJSON(ROUTED_DISMISSED, { dismissed: [] });
+    if (!dismissed.includes(id)) saveJSON(ROUTED_DISMISSED, { dismissed: [...dismissed, id].slice(-KEEP_DISMISSED) });
+  });
+}
+
 // The hub page's New rows, newest first: each queued request, waiting, then each routed one with `to`, the card it
-// became, and `moved`, where a later `ask move` sent it, and each ask another board put to a board, queued or answered.
+// became, and `moved`, where a later `ask move` sent it, and each ask another board put to a board, queued or answered,
+// less the rows dismissRow hid.
 export function routedRows({ manifest = readManifest() } = {}) {
   const boards = listBoards(manifest);
   const waiting = readJSON(ROUTE_QUEUE, { queue: [] }).queue.map((q) => ({ id: q.id, at: q.at, text: q.text, via: q.from?.via, by: q.from?.by, waiting: true }));
@@ -213,5 +225,6 @@ export function routedRows({ manifest = readManifest() } = {}) {
     const moved = board && movedTo(board, r.eventId, boards);
     return { id: r.id, at: r.at, text: r.text, via: r.via, by: r.by, reason: r.reason, to: board ? cardOf(board, r.eventId) : { route: r.route, ref: null, title: null, href: `/${r.route}/` }, ...(moved ? { moved } : {}) };
   });
-  return [...waiting, ...routed, ...boards.flatMap((b) => askedRows(b, boards))].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const dismissed = new Set(readJSON(ROUTED_DISMISSED, { dismissed: [] }).dismissed);
+  return [...waiting, ...routed, ...boards.flatMap((b) => askedRows(b, boards))].filter((r) => !dismissed.has(r.id)).sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }

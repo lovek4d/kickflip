@@ -133,6 +133,8 @@
 //                     box uploads here, to the hub's data/uploads, as a board's api/upload does
 //   /_hub/api/drafts  POST {id: ask, text, files} saves that box's draft in the hub's data/drafts.json (board/drafts.mjs
 //                     saveDraft) → {at}; /_hub/api/hub carries it as drafts. 400 {error} for any other box or a bad body
+//   /_hub/api/dismiss-row POST {id} hides that New row from /_hub/api/hub's routed for good (router.mjs dismissRow) → {dismissed};
+//                     400 {error} for no id
 //   /_hub/route       POST {text, files?, quick? | request?} (application/json) from that box: queues the task for the router
 //                     (from.via hub) and answers 202 {queued} at once; 400 {error} for no text or file, or another request
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
@@ -253,7 +255,7 @@ import { checkGitHub, sendWakes } from './github.mjs';
 import { migrateTriage, overnightJobs, setOvernight } from './overnight.mjs';
 import { runNightlySuite } from './nightly-suite.mjs';
 import { checkIncoming } from './incoming.mjs';
-import { drainRoutes, queueRequest, routedRows } from './router.mjs';
+import { dismissRow, drainRoutes, queueRequest, routedRows } from './router.mjs';
 import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubCodeState, readJSON, migrateCellarNode, servedSites } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
@@ -1779,6 +1781,14 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       track(drainRoutes().then((r) => { for (const e of r.routed) log(`router: hub request → /${e.route}: ${e.reason}`); stream.refresh(); }, (e) => log('router:', e.message)));
       stream.refresh();
       return sendJSON(202, { queued: true });
+    }
+    if (p === '/_hub/api/dismiss-row' && req.method === 'POST') {
+      let id;
+      try { ({ id } = await readJSONBody(req)); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the row id as JSON.' }); }
+      if (typeof id !== 'string' || !id) return sendJSON(400, { error: 'Send the row id as JSON.' });
+      await dismissRow(id);
+      stream.refresh();
+      return sendJSON(200, { dismissed: id });
     }
     if (p === '/_hub/poll' && req.method === 'POST') {
       const body = await readJSONBody(req);

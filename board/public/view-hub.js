@@ -245,6 +245,17 @@ ${BoardNewTask.markup()}`,
         setOutbox([...outbox(), m]);
         flush();
       };
+      // The X on a routed row, or following its link to the card, dismisses it on the hub, so every device's strip drops it
+      // (router.mjs dismissRow). No confirm, as a board's New strip has none. The strip repaints after the click, so the
+      // browser follows the link as it was drawn.
+      B.on(root, 'click', (ev) => {
+        const b = ev.target.closest('.routed [data-dismiss-row]');
+        if (!b || !last) return;
+        const id = b.dataset.dismissRow;
+        fetch('/_hub/api/dismiss-row', { method: 'POST', keepalive: true, headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {});
+        last = { ...last, routed: last.routed.filter((r) => r.id !== id) };
+        B.later(0, paint);
+      });
       // Retry sends a failed task again in place, X drops it and puts its text and files back in the New task box
       // (new-task.js reopenAsk), each after a confirm.
       B.on(root, 'click', async (ev) => {

@@ -502,26 +502,31 @@
     return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${[newTime(e.sent), line].filter(Boolean).join(' · ')}</div></div>`;
   }
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
-  // A hub Routed row (hub/router.mjs routedRows), drawn as a New entry with no actions: a blue link to the card it
+  // A hub Routed row (hub/router.mjs routedRows), drawn as a New entry: a blue link to the card it
   // became, was added to, or a later ask move sent it to, then a muted line with who sent it, from where, when and the
-  // router's reason. One still queued reads waiting….
+  // router's reason. One still queued reads waiting…, with no X. A routed row has the board's X, with no confirm, and its
+  // links dismiss it too (view-hub.js), as a board's New entry does (newEntry, above).
   const VIA = { slack: 'Slack' };
+  const dismissRow = (id) => `data-dismiss-row="${esc(id)}"`;
+  const rowActions = (id) => `<div class="ask-actions"><button type="button" class="ghost icon new-dismiss" ${dismissRow(id)} aria-label="Dismiss" title="Dismiss">${globalThis.BoardUI.DISMISS}</button></div>`;
   function routedEntry(r) {
     if (r.asked) return askedEntry(r);
     const to = r.moved || r.to;
     const words = r.moved ? 'Moved to' : to?.into ? 'Added to' : 'Routed to';
     const line = r.waiting ? PICKUP_WAIT
-      : `<a class="new-link" href="${esc(to.href)}">${words} <b>/${esc(to.route)}${to.ref ? ` ${esc(to.ref)}` : ''}</b>${to.title ? ` · ${esc(to.title)}` : ''}</a>`;
+      : `<a class="new-link" href="${esc(to.href)}" ${dismissRow(r.id)}>${words} <b>/${esc(to.route)}${to.ref ? ` ${esc(to.ref)}` : ''}</b>${to.title ? ` · ${esc(to.title)}` : ''}</a>`;
     const why = r.waiting ? '' : r.moved ? ` — was routed to /${r.to.route}: ${r.reason}` : ` — ${r.reason}`;
-    return `<div class="new-entry" data-new="${esc(r.id)}"><div class="new-msg">${esc(r.text)}</div><div class="new-line sub${r.waiting ? '' : ' new-done'}">${newTime(r.at)} · ${line}</div>`
+    return `<div class="new-entry" data-new="${esc(r.id)}">${r.waiting ? '' : rowActions(r.id)}<div class="new-msg">${esc(r.text)}</div><div class="new-line sub${r.waiting ? '' : ' new-done'}">${newTime(r.at)} · ${line}</div>`
       + `<div class="new-line sub new-why">${esc([r.by, VIA[r.via] || r.via].filter(Boolean).join(' · '))}${esc(why)}</div></div>`;
   }
   // An incoming board ask (router.mjs askedRows): a link to its entry on the answering board, then queued, or Answered
-  // linking the asking card, where the answer landed; a muted line names the asking board and card.
+  // linking the asking card, where the answer landed; a muted line names the asking board and card. Once answered it has
+  // the X, and both links dismiss it.
   function askedEntry(r) {
     const { from, to, answered } = r.asked;
-    const state = !answered ? 'queued' : answered.href ? `<a class="new-link" href="${esc(answered.href)}">Answered</a>` : 'Answered';
-    return `<div class="new-entry" data-new="${esc(r.id)}"><div class="new-msg">${esc(r.text)}</div><div class="new-line sub${answered ? ' new-done' : ''}">${newTime(r.at)} · <a class="new-link" href="${esc(to.href)}">Asked <b>/${esc(to.route)}</b></a> · ${state}</div>`
+    const mark = answered ? ` ${dismissRow(r.id)}` : '';
+    const state = !answered ? 'queued' : answered.href ? `<a class="new-link" href="${esc(answered.href)}"${mark}>Answered</a>` : 'Answered';
+    return `<div class="new-entry" data-new="${esc(r.id)}">${answered ? rowActions(r.id) : ''}<div class="new-msg">${esc(r.text)}</div><div class="new-line sub${answered ? ' new-done' : ''}">${newTime(r.at)} · <a class="new-link" href="${esc(to.href)}"${mark}>Asked <b>/${esc(to.route)}</b></a> · ${state}</div>`
       + `<div class="new-line sub new-why">${esc(`/${from.route}${from.ref ? ` ${from.ref}` : ''} · board ask`)}</div></div>`;
   }
   // docs/adr/2026-11-16-1500-new-groups-the-orchestrators-asks-under-a-collapsed-orchestrator-section.md

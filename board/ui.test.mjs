@@ -1765,7 +1765,7 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
 });
 
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
-test("the hub's Routed section is the New strip under its own head: each row links to its card, the reason on a muted second line, with no Dismiss", () => {
+test("the hub's Routed section is the New strip under its own head: each row links to its card, the reason on a muted second line, with Dismiss on each routed one", () => {
   const at = ago(3);
   const rows = [
     { id: 'q1', at, text: 'held one', via: 'slack', by: 'Quinn', waiting: true },
@@ -1776,7 +1776,7 @@ test("the hub's Routed section is the New strip under its own head: each row lin
   const html = ui.newStrip(rows.map((routed) => ({ id: routed.id, routed })), { label: 'Routed', empty: 'Nothing routed yet.' });
   assert.match(html, /<summary><span class="lane-name">Routed<\/span><span class="count">4<\/span><\/summary>/);
   assert.match(html, /<div class="new-msg">checkout &lt;500s&gt;<\/div>/);
-  assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)">(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])]), [
+  assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)"[^>]*>(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])]), [
     ['/shop/#selectedCard=items%2FT-5', 'Routed to /shop T-5 · Checkout 500s'],
     ['/other/#selectedCard=items%2FT-9', 'Moved to /other T-9 · Rename'],
     ['/shop/#selectedCard=items%2FT-5', 'Added to /shop T-5 · Checkout 500s'],
@@ -1787,7 +1787,13 @@ test("the hub's Routed section is the New strip under its own head: each row lin
   assert.equal(firsts.length, 4, 'every row opens its first line with its time');
   assert.ok(firsts.every((f) => f.startsWith(`${ui.time(at)} · `)));
   assert.match(html, /pickup-wait/, 'a queued request reads waiting…');
-  assert.doesNotMatch(html, /data-dismiss-new|data-edit|data-withdraw|new-dismiss/);
+  assert.doesNotMatch(html, /data-dismiss-new|data-edit|data-withdraw/);
+  const entry = (id) => html.split('<div class="new-entry"').find((e) => e.includes(`data-new="${id}"`));
+  assert.doesNotMatch(entry('q1'), /data-dismiss-row|new-dismiss/, 'a waiting row has neither X nor a dismissing link');
+  for (const id of ['r1', 'r2', 'r3']) {
+    assert.match(entry(id), new RegExp(`<button type="button" class="ghost icon new-dismiss" data-dismiss-row="${id}" aria-label="Dismiss"`));
+    assert.match(entry(id), new RegExp(`<a class="new-link" href="[^"]+" data-dismiss-row="${id}">`), 'following the link dismisses too');
+  }
   assert.match(ui.newStrip([], { label: 'Routed', empty: 'Nothing routed yet.' }), /<span class="count">0<\/span>[^]*<div class="new-entry new-empty">Nothing routed yet\.<\/div>/);
 });
 
@@ -1803,11 +1809,15 @@ test("the hub's New strip draws an incoming ask: who asked whom, queued or answe
   assert.match(html, /<div class="new-msg">why &lt;X&gt;\?<\/div>/);
   const firsts = [...html.matchAll(/<div class="new-line sub[^"]*">(<span class="new-time">.*?)<\/div>/g)].map((m) => text(m[1]));
   assert.deepEqual(firsts.map((f) => f.slice(ui.time(at).length + 3)), ['Asked /shop · queued', 'Asked /shop · Answered', 'Asked /shop · Answered']);
-  assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)">(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])]), [
+  assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)"[^>]*>(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])]), [
     ['/shop/#selectedCard=ask%3Aa1', 'Asked /shop'], ['/shop/#selectedCard=ask%3Aa2', 'Asked /shop'], ['/other/#selectedCard=items%2FT-9', 'Answered'], ['/shop/#selectedCard=ask%3Aa3', 'Asked /shop']]);
   const whys = [...html.matchAll(/<div class="new-line sub new-why">(.*?)<\/div>/g)].map((m) => text(m[1]));
   assert.deepEqual(whys, ['/other T-9 · board ask', '/other · board ask', '/other · board ask']);
-  assert.doesNotMatch(html, /data-dismiss-new|data-edit|data-withdraw|new-dismiss/);
+  assert.doesNotMatch(html, /data-dismiss-new|data-edit|data-withdraw/);
+  const entry = (id) => html.split('<div class="new-entry"').find((e) => e.includes(`data-new="${id}"`));
+  assert.doesNotMatch(entry('a1'), /data-dismiss-row/, 'a queued ask has no X');
+  for (const id of ['a2', 'a3']) assert.match(entry(id), new RegExp(`class="ghost icon new-dismiss" data-dismiss-row="${id}"`));
+  assert.equal([...entry('a2').matchAll(/<a class="new-link"[^>]*data-dismiss-row="a2"/g)].length, 2, 'both links of an answered ask dismiss it');
 });
 
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
