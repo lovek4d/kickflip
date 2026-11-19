@@ -209,6 +209,10 @@ test('the sheet stack never touches the browser history', () => {
   assert.doesNotMatch(src('app-reader.js'), /afterSheets|entry: true|page-back/);
 });
 
+test('closing a sheet never scrolls the board: no window scroll, no scrollToFocus, no scroll restoration in the sheet code', () => {
+  for (const file of ['ui.js', 'app-reader.js']) assert.doesNotMatch(src(file), /scrollTo\(|scrollBy\(|scrollIntoView|scrollToFocus|scrollRestoration/, file);
+});
+
 test('swapSheet is gone: a sheet opened from another stacks on it', () => {
   assert.equal(context.BoardUI.swapSheet, undefined);
   for (const f of fs.readdirSync(new URL('./public/', import.meta.url)).filter((x) => x.endsWith('.js'))) assert.doesNotMatch(src(f), /swapSheet/, f);
