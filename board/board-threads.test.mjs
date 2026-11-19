@@ -71,7 +71,7 @@ test('every text flag refuses a bare file path, and --file refuses a missing fil
   assert.match(thread.err, /--text takes text, not a file path/);
   assert.doesNotMatch(thread.err, /for a file use/);
   assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--next', './plan.md')).code, 2);
-  assert.equal((await board('thread', 'w/A1', '--site', 'orch', '--text', `Wrote ${real} for you`)).code, 0);
+  assert.equal((await board('thread', 'w/A1', '--site', 'orch', '--text', 'Wrote docs/plan.md for you')).code, 0);
   const missing = await board('reply', 'e1', '--site', 'orch', '--file', path.join(home, 'nope.html'));
   assert.equal(missing.code, 2);
   assert.match(missing.err, /no such file/);

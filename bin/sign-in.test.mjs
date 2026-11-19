@@ -19,7 +19,7 @@ const laptop = { key: 'ip:192.168.1.9', name: 'Safari on Mac', ip: '192.168.1.9'
 function fakeFzf(home) {
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(path.join(bin, 'fzf'), `#!/bin/sh\necho "$@" > "${home}/fzf.args"\n[ "$FZF_PICK" = 0 ] && exit 130\nsed -n "\${FZF_PICK}p"\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'fzf'), `#!/bin/sh\necho "$@" > "${home}/fzf.args"\n[ "$FZF_PICK" = 0 ] && cat > /dev/null && exit 130\nsed -n "\${FZF_PICK}p"\n`, { mode: 0o755 });
   return `${bin}:/usr/bin:/bin`;
 }
 

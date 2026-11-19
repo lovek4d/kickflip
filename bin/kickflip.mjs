@@ -338,7 +338,7 @@ function pickRow(rows, name, names, { prompt, header }) {
   const picked = spawnSync('fzf', ['--delimiter', '\t', '--with-nth', '2..', '--prompt', `${prompt} > `, '--header', header, '--no-sort'], {
     input: rows.map((r) => `${r.id}\t${r.line}`).join('\n'), stdio: ['pipe', 'pipe', 'inherit'], encoding: 'utf8',
   });
-  if (picked.error) fail(`fzf isn't installed: name one, such as kickflip ${prompt} ${names(rows[0])[0]}`, 2);
+  if (picked.error?.code === 'ENOENT') fail(`fzf isn't installed: name one, such as kickflip ${prompt} ${names(rows[0])[0]}`, 2);
   const id = picked.stdout.split('\t')[0];
   return rows.find((r) => r.id === id) || null;
 }
