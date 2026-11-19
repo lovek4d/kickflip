@@ -492,7 +492,7 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 .msg-foot .foot-status { display: inline-flex; align-items: center; }
 .msg-foot .thinking, .status-line .thinking { font-weight: 400; }
 .msg-foot .not-sent, .status-line .not-sent, .new-line .not-sent { color: var(--color-danger); font-weight: 600; }
-.msg-foot .send-again { margin-left: auto; display: inline-flex; gap: 2px; }
+.msg-foot .send-again { margin: -6px 0 -6px auto; display: inline-flex; gap: 2px; }
 .msg-foot .send-again .icon, .status-line .send-again .icon, .new-line .send-again .icon { width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; color: var(--color-danger); }
 /* A bare tap's failed line, and a New strip row's, keeps Retry and X on its line of text, the same bare 16px glyphs as
    a message footer's, overlapping the line's height rather than growing it

@@ -3484,3 +3484,9 @@ test("a question on a card's visual shows a See the visual link row under its co
   assert.ok(html.indexOf('See the visual') < html.indexOf('<label class="opt">'));
   assert.doesNotMatch(ui.questionCard(withContext), /See the visual/);
 });
+
+test("a message footer's Retry and X overlap its line like a status line's, so a failed send doesn't grow the row", () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  // 28px tap targets in a ~16px footer: the vertical margins cancel the difference.
+  assert.match(css, /^\.msg-foot \.send-again \{ margin: -6px 0 -6px auto;/m);
+});
