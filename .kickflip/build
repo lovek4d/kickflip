@@ -3,18 +3,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { makeSignInLink, redeemSignIn, SIGN_IN_COOKIE } from '../shared/owner-sign-in.mjs';
 
 const worktree = path.resolve(process.argv[3] || process.cwd());
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-try-'));
 let hub;
+let front;
 let stopping = false;
 
 process.on('exit', () => fs.rmSync(home, { recursive: true, force: true }));
 function stop() {
   if (stopping) return;
   stopping = true;
+  front?.closeAllConnections();
+  front?.close();
   if (hub) hub.kill('SIGTERM');
   else process.exit(0);
 }
@@ -39,9 +44,43 @@ function writeJSON(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 }
 
+// The demo's own sign-in, made in its throwaway HOME: a device cookie its hub accepts. The try relay never passes the
+// owner's cookie to a card's app, so this front port, which the relay serves, gives every request the demo's own.
+async function demoCookie() {
+  const device = await redeemSignIn(await makeSignInLink({ home }), { home });
+  return `${SIGN_IN_COOKIE}=${device}`;
+}
+
+// Listens on port and passes each request and upgrade to the demo hub on hubPort, the demo's cookie its only one.
+function startFront(port, hubPort, cookie) {
+  const withCookie = (headers) => ({ ...headers, cookie });
+  front = http.createServer((req, res) => {
+    const up = http.request({ host: '127.0.0.1', port: hubPort, method: req.method, path: req.url, headers: withCookie(req.headers) }, (answer) => {
+      res.writeHead(answer.statusCode, answer.headers);
+      answer.pipe(res);
+    });
+    up.on('error', () => { if (res.headersSent) res.destroy(); else res.writeHead(502).end(); });
+    req.pipe(up);
+  });
+  front.on('upgrade', (req, socket, head) => {
+    const up = net.connect(hubPort, '127.0.0.1', () => {
+      const headers = Object.entries(withCookie(req.headers)).map(([name, value]) => `${name}: ${value}\r\n`).join('');
+      up.write(`${req.method} ${req.url} HTTP/1.1\r\n${headers}\r\n`);
+      up.write(head);
+      socket.pipe(up);
+      up.pipe(socket);
+    });
+    up.on('error', () => socket.destroy());
+    socket.on('error', () => up.destroy());
+  });
+  return new Promise((resolve, reject) => { front.once('error', reject); front.listen(port, '127.0.0.1', resolve); });
+}
+
 async function main() {
   const port = await freePort();
-  const sitePort = await freePort(port);
+  const hubPort = await freePort(port);
+  const sitePort = await freePort(hubPort);
+  await startFront(port, hubPort, await demoCookie());
   const root = path.join(home, '.claude', 'kickflip');
   const dir = path.join(root, 'sites', 'demo');
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
@@ -83,7 +122,7 @@ async function main() {
     cwd: worktree,
     env: {
       ...process.env, HOME: home, PATH: bin + path.delimiter + (process.env.PATH || ''),
-      KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false',
+      KICKFLIP_HUB_PORT: String(hubPort), KICKFLIP_CLAUDE: '/usr/bin/false',
       KICKFLIP_TAILSCALE: path.join(bin, 'tailscale'), KICKFLIP_CODE_RESTARTS: 'off',
     },
     stdio: ['ignore', 'pipe', 'pipe'],

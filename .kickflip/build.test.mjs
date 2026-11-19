@@ -57,6 +57,16 @@ test('the repo build script announces a private working hub that never runs the 
   assert.equal(response.status, 200);
   await response.text();
   assert.equal(closed, false, stderr);
+  // The demo hub is signed in on its own: its pages open with no cookie, or with the owner's real one, which is replaced
+  // by the demo's own and never reaches the hub.
+  for (const cookie of [undefined, 'kickflip_owner=the-owners-real-cookie']) {
+    const page = await fetch(`http://127.0.0.1:${port}/`, { headers: { accept: 'text/html', ...(cookie && { cookie }) } });
+    assert.equal(page.status, 200, `cookie ${cookie}`);
+    assert.doesNotMatch(await page.text(), /Sign in to open this kickflip/);
+  }
+  const signedOut = await fetch(`http://127.0.0.1:${port}/_hub/sign-in?t=`, { headers: { accept: 'text/html' }, redirect: 'manual' });
+  assert.equal(signedOut.status, 302);
+  await signedOut.text();
   // The hub prints `hub on` only after it has initialised its tries (hub/hub.mjs awaits initializeTries before it
   // listens), so its startup calls to tailscale are over by the port line.
   assert.equal(fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : '', '');
