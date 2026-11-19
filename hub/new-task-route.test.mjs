@@ -24,6 +24,8 @@ test("the hub page's upload stores a file on the hub, and its route call queues 
 
   assert.equal((await post(hub, '/_hub/route', JSON.stringify({ text: 'plan it', request: 'grill' }))).status, 202);
   assert.deepEqual(queue()[1].fields, { request: 'grill' });
+  assert.equal((await post(hub, '/_hub/route', JSON.stringify({ text: 'check it', request: 'reviewer' }))).status, 202);
+  assert.deepEqual(queue()[2].fields, { request: 'reviewer' });
   assert.equal((await post(hub, '/_hub/route', JSON.stringify({ text: 'x', request: 'nope' }))).status, 400);
   assert.equal((await post(hub, '/_hub/route', JSON.stringify({ text: '  ' }))).status, 400);
   assert.equal((await post(hub, '/_hub/route', '{}', { 'content-type': 'text/plain' })).status, 403);

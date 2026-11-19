@@ -193,10 +193,9 @@ for (const file of ['ui-icon-text.js', 'ui.js', 'ui-links.js', 'ui-enums.js', 'u
 const ui = context.BoardUI;
 const textOf = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 
-test('/review is a thread request word, never a New task one', () => {
-  assert.deepEqual({ ...ui.slashOf('/review the races', { thread: true }) }, { flag: 'review', text: 'the races' });
-  assert.deepEqual({ ...ui.slashOf('/review the races') }, { flag: null, text: '/review the races' });
-  assert.equal(ui.slashOf('/grill it', { thread: true }).flag, 'grill');
+test('/review is a request word in every box', () => {
+  assert.deepEqual({ ...ui.slashOf('/review the races') }, { flag: 'review', text: 'the races' });
+  assert.equal(ui.slashOf('/grill it').flag, 'grill');
   assert.ok(ui.MARK_ICONS['Review requested']);
 });
 

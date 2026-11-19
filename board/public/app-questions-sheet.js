@@ -292,7 +292,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   // choice, sendId}` for that question in the outbox, its note box the note and its pick so far the choice. The question
   // reads its request and sending… at once; once the board has it the prototype's question leaves the sheet, the
   // grill's reads Grilling deeper and the visual's stays open.
-  const REQUEST = { prototype: ['prototype-request', 'Prototype requested.'], grill: ['grill-more', 'Grill requested.'], visual: ['visual-request', 'Visual requested.'] };
+  const REQUEST = { prototype: ['prototype-request', 'Prototype requested.'], grill: ['grill-more', 'Grill requested.'], visual: ['visual-request', 'Visual requested.'], review: ['review-request', 'Review requested.'] };
   function ask(q, flag) {
     const [kind, said] = REQUEST[flag];
     const key = keyOf(q.topic);
@@ -329,7 +329,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     if (BoardUI.onBackdrop(ev, sheet) || ev.target.closest?.('[data-qs="close"]')) { close(); return; }
     const again = ev.target.closest?.('section.q [data-resend], section.q [data-unsend]');
     if (again) { if (again.hasAttribute('data-resend')) retry(again.dataset.resend); else drop(again.dataset.unsend); return; }
-    const request = ev.target.closest?.('section.q [data-proto], section.q [data-grill], section.q [data-visual]');
+    const request = ev.target.closest?.('section.q [data-proto], section.q [data-grill], section.q [data-visual], section.q [data-review]');
     if (!request || request.disabled) return;
     const q = questionsOf(topic).find((x) => x.id === request.closest('section.q').dataset.q);
     if (q) ask(q, BoardUI.requestOf(request));

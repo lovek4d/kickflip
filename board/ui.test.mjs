@@ -984,16 +984,14 @@ test('an open question has its Prototype on and nothing locked, a resolved one h
   const card = ui.questionCard(question);
   assert.match(card, /<div class="dz"><textarea class="note"[^>]*><\/textarea><button[^>]*data-paste[^>]*>Paste<\/button><label class="attach"[\s\S]*<div class="dz-hint"/);
   assert.ok(card.includes(`<div class="note-tools"><div class="pending-files" data-files></div>${ui.requestRow('q:q1', { protoLabel: 'Ask for a prototype instead' })}</div>`));
-  assert.deepEqual([...ui.requestRow('q:q1').matchAll(/data-(proto|grill|visual|attach)/g)].map((m) => m[1]), ['proto', 'grill', 'visual']);
+  assert.deepEqual([...ui.requestRow('q:q1').matchAll(/data-(proto|grill|visual|review|attach)/g)].map((m) => m[1]), ['proto', 'grill', 'visual', 'review']);
   assert.match(ui.requestRow('q:q1'), /^<span class="request-row">/);
   // Each word carries its key hint, ⌥ on a Mac and Alt+ elsewhere (style.css shows it where there is a keyboard).
-  assert.doesNotMatch(ui.requestRow('q:q1', { review: true }), /data-quick|What's left/);
+  assert.doesNotMatch(ui.requestRow('q:q1'), /data-quick|What's left/);
   // Each word is in its own span that clips with an ellipsis, beside the hint (style.css .req-word).
   assert.match(ui.requestRow('q:q1'), /<span class="req-word">Grill<\/span><span class="key-hint" aria-hidden="true">(⌥|Alt\+)G<\/span>/);
-  // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: Review is a thread's fifth word, after Visual; a question's and the New task's row has none.
-  assert.deepEqual([...ui.requestRow('q:q1', { review: true }).matchAll(/data-(proto|grill|visual|review)/g)].map((m) => m[1]), ['proto', 'grill', 'visual', 'review']);
-  assert.doesNotMatch(ui.requestRow('q:q1'), /data-review/);
-  assert.match(ui.requestRow('q:q1', { review: true }), /Review<\/span><span class="key-hint" aria-hidden="true">(⌥|Alt\+)R<\/span>/);
+  // docs/adr/2026-11-16-2300-review-in-a-thread-launches-a-reviewer.md: Review is the fifth word of every request row, after Visual.
+  assert.match(ui.requestRow('q:q1'),/Review<\/span><span class="key-hint" aria-hidden="true">(⌥|Alt\+)R<\/span>/);
   assert.equal(ui.requestOf({ hasAttribute: (a) => a === 'data-review' }), 'review');
   // Alt+letter presses its word's button within a scope: not with Ctrl or ⌘, not a button that is disabled or absent.
   const grill = { disabled: false };

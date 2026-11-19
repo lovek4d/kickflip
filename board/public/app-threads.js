@@ -238,7 +238,7 @@ BoardView.part((B) => {
       // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`)}
         <div class="pending-files" data-files></div>
-        <div class="row">${requestRow(key, { review: true })}${sends('one')}</div></form>`;
+        <div class="row">${requestRow(key)}${sends('one')}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncSends(el, key);
@@ -454,7 +454,7 @@ BoardView.part((B) => {
   async function post(f, flag, button) {
     const ta = f.querySelector('textarea');
     ta.blur();
-    const text = flag ? slashOf(ta.value, { thread: true }).text : ta.value.trim();
+    const text = flag ? slashOf(ta.value).text : ta.value.trim();
     const id = f.dataset.composer;
     const attached = BoardAttach.list(id, B.site.root).length > 0;
     // An empty box still sends Implement, the card's build action: the board server stages the card for the
@@ -475,7 +475,7 @@ BoardView.part((B) => {
     ev.preventDefault();
     // Block, Unblock, Done or Reopen on ⌥↵ (app-asks.js) does what its tap does (app-cards.js confirmTap).
     if (ev.submitter?.dataset.confirm) { B.confirmTap(ev.submitter); return; }
-    post(f, slashOf(f.querySelector('textarea').value, { thread: true }).flag, ev.submitter);
+    post(f, slashOf(f.querySelector('textarea').value).flag, ev.submitter);
   });
   // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
   // A script offer's Run sends only after a hold of HOLD_MS, its bar filling meanwhile; letting go sooner sends nothing.

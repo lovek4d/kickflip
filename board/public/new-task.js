@@ -77,13 +77,16 @@ globalThis.BoardNewTask = (function () {
     // and the task goes through the outbox (app-threads.js enqueue), its New strip row reading sending… until the board
     // has it. docs/adr/2026-11-15-0040-a-new-tasks-media-shows-as-thumbnails-and-sends-atomically.md: the box's files go
     // with the task, uploads still running, and it is sent once every one is up; its row shows them meanwhile.
-    // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: the Prototype, Grill and Visual under the box send
-    // the task at once with request prototype, grill or visual, as /prototype, /grill or /visual in its text does on
-    // either button; a request takes the place of Implement's quick, as a thread's request takes the place of its intent.
+    // docs/adr/2026-11-15-0730-each-question-has-the-threads-request-row.md: the Prototype, Grill, Visual and Review under the box send
+    // the task at once with request prototype, grill, visual or reviewer, as /prototype, /grill, /visual or /review in its
+    // text does on either button; a Review's reviewer brief is the orchestrator's next step
+    // (docs/adr/2026-11-19-0930-review-sits-in-every-request-row.md); a request takes the place of Implement's quick, as a thread's request takes the place of its intent.
     async function sendAsk(button, flag = null) {
       $('#askText').blur();
       const slash = BoardUI.slashOf($('#askText').value);
-      const request = flag || slash.flag;
+      // The ask's request is a brief kind (domain.mjs BRIEF_KINDS): a Review is a reviewer.
+      const asked = flag || slash.flag;
+      const request = asked === 'review' ? 'reviewer' : asked;
       const text = request ? slash.text : $('#askText').value.trim();
       const quick = !request && button?.dataset.intent === 'quick';
       const attached = BoardAttach.list('ask', B.site.root).length > 0;
@@ -97,7 +100,7 @@ globalThis.BoardNewTask = (function () {
       sendAsk(ev.submitter);
     });
     B.on(B.root, 'click', (ev) => {
-      const b = ev.target.closest('#askForm button[data-proto], #askForm button[data-grill], #askForm button[data-visual]');
+      const b = ev.target.closest('#askForm button[data-proto], #askForm button[data-grill], #askForm button[data-visual], #askForm button[data-review]');
       if (b) sendAsk(null, BoardUI.requestOf(b));
     });
     // X on a New task the board didn't take (app-threads.js) puts its text back in the box, before whatever is typed

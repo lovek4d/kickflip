@@ -1772,7 +1772,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       const text = typeof input.text === 'string' ? input.text.trim() : '';
       const files = (Array.isArray(input.files) ? input.files : []).filter((f) => /^uploads\/\d+-[\w.-]+$/.test(f?.url)).map(({ name, url, type, size }) => ({ name, url, type, size }));
       if (!text && !files.length) return sendJSON(400, { error: 'Send some text or a file.' });
-      if (input.request !== undefined && !['prototype', 'grill', 'visual'].includes(input.request)) return sendJSON(400, { error: 'request is prototype, grill or visual.' });
+      if (input.request !== undefined && !['prototype', 'grill', 'visual', 'reviewer'].includes(input.request)) return sendJSON(400, { error: 'request is prototype, grill, visual or reviewer.' });
       const fields = input.request ? { request: input.request } : input.quick === true ? { quick: true } : null;
       const sendId = typeof input.sendId === 'string' && /^[\w-]{1,64}$/.test(input.sendId) ? input.sendId : undefined;
       await queueRequest({ text, files, ...(fields ? { fields } : {}), ...(sendId ? { sendId } : {}), from: { via: 'hub', by: 'love' } });

@@ -3605,8 +3605,8 @@ test("the New task box has the thread's request words spread under its text box,
   await b.settle();
   const form = b.root.querySelector('#askForm');
   assert.deepEqual(form.querySelector('.note-tools').children.map((c) => c.getAttribute('class')), ['pending-files', 'request-row']);
-  assert.deepEqual(form.querySelector('.note-tools .request-row').children.map((c) => c.getAttribute('title')), ['Ask for prototypes', 'Ask for a grill', 'Ask for a visual']);
-  assert.deepEqual(form.querySelector('.request-row').children.slice(0, 3).map((c) => c.textContent), ['Prototype⌥P', 'Grill⌥G', 'Visual⌥V']);
+  assert.deepEqual(form.querySelector('.note-tools .request-row').children.map((c) => c.getAttribute('title')), ['Ask for prototypes', 'Ask for a grill', 'Ask for a visual', 'Ask for a review']);
+  assert.deepEqual(form.querySelector('.request-row').children.slice(0, 4).map((c) => c.textContent), ['Prototype⌥P', 'Grill⌥G', 'Visual⌥V', 'Review⌥R']);
   assert.ok(form.querySelector('.dz .attach'));
   assert.equal(form.querySelector('.request-row .attach'), null);
   const tap = async (text, sel) => {
@@ -3621,13 +3621,14 @@ test("the New task box has the thread's request words spread under its text box,
   assert.equal(b.root.querySelector('#sheet').open, false);
   await tap('Ask me about the footer', '[data-grill]');
   await tap('Draw the queue', '[data-visual]');
+  await tap('Check the plan', '[data-review]');
   await tap('', '[data-visual]');
   b.root.querySelector('#askText').value = 'Pick a colour /grill';
   b.page.fire(form, 'submit', { target: form, submitter: form.querySelector('button[data-intent="discuss"]') });
   await b.settle();
   assert.deepEqual(sentNoIds(b), [
     ['ask', { text: 'Show the header', request: 'prototype' }], ['ask', { text: 'Ask me about the footer', request: 'grill' }],
-    ['ask', { text: 'Draw the queue', request: 'visual' }], ['ask', { text: 'Pick a colour', request: 'grill' }],
+    ['ask', { text: 'Draw the queue', request: 'visual' }], ['ask', { text: 'Check the plan', request: 'reviewer' }], ['ask', { text: 'Pick a colour', request: 'grill' }],
   ]);
   b.view.unmount();
 });
