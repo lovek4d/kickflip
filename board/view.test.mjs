@@ -6940,7 +6940,7 @@ const said = (text) => streamLine({ type: 'assistant', message: { role: 'assista
 const called = (name, input, id = 't1') => streamLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } });
 const answered = (content, id = 't1') => streamLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] } });
 
-test("a run's View transcript opens its transcript in a sheet over the board: Claude's words, each call one line with its output on tap, read on from where it left off, following new lines while read at the end, a raw toggle, and Escape, a tap outside or Back closes it", async () => {
+test("a run's View transcript opens its transcript in a sheet over the board: Claude's words, each call one line with its output on tap, read on from where it left off, following new lines while read at the end, a raw toggle, and Escape or a tap outside closes it", async () => {
   const r = readerOnDom(streamLine({ type: 'system', subtype: 'init', model: 'claude-sonnet-5-5', cwd: '/wt/A1' }) + said('Reading the notes first.')
     + called('Bash', { command: 'node --test board/view.test.mjs', description: 'Run the tests' }) + answered([{ type: 'text', text: 'ℹ pass 6' }]));
   await r.settle();
@@ -6949,7 +6949,7 @@ test("a run's View transcript opens its transcript in a sheet over the board: Cl
   assert.equal(r.tap(link).defaultPrevented, true, 'the link opens the sheet in place of the log page');
   await r.settle();
   assert.equal(r.sheet().open, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(r.moves)), [['push', { idx: 4, sheets: 1 }, 'https://mac.ts.net/']], 'Back has an entry to close it with');
+  assert.deepEqual(JSON.parse(JSON.stringify(r.moves)), [], 'the sheet makes no history entry');
   assert.deepEqual(r.gets.filter((g) => /api\/(log|transcript)/.test(g)), ['/board-a/api/transcript?file=builder-A1-1.log&from=0']);
   assert.equal(r.inSheet('#readerTitle').textContent, 'builder transcript');
   assert.equal(r.inSheet('.reader-ref').textContent, 'builder-A1-1.log');
@@ -7010,23 +7010,13 @@ test("a run's View transcript opens its transcript in a sheet over the board: Cl
   r.page.fire(r.sheet(), 'cancel', { target: r.sheet() });
   r.page.runTimers();
   assert.equal(r.sheet().open, false);
-  assert.deepEqual(r.moves.at(-1), ['back'], 'Escape takes back the entry it pushed');
-  r.land();
+  assert.deepEqual(r.moves, [], 'Escape spends no history entry');
 
   r.tap(link);
   await r.settle();
   r.page.fire(r.sheet(), 'click', { target: r.sheet() });
   r.page.runTimers();
-  assert.deepEqual([r.sheet().open, r.moves.at(-1)], [false, ['back']], 'a tap on the dim area closes it');
-  r.land();
-
-  r.tap(link);
-  await r.settle();
-  const backs = r.moves.filter(([m]) => m === 'back').length;
-  r.ownerBack();
-  r.page.runTimers();
-  assert.equal(r.sheet().open, false, 'Back closes it');
-  assert.equal(r.moves.filter(([m]) => m === 'back').length, backs, 'and Back already took the entry');
+  assert.deepEqual([r.sheet().open, r.moves], [false, []], 'a tap on the dim area closes it, spending no history entry');
   r.view.unmount();
 });
 
@@ -7074,10 +7064,10 @@ test("a question link tapped in the reader, in a card's notes or a page it frame
     r.page.runTimers();
     assert.deepEqual([r.sheet().open, questions.open, top(questions), r.inSheet('.reader-md'), shown], [true, true, true, notes, []], `${width}: the questions sheet stacks on the notes, which stay as they were`);
     assert.deepEqual(questions.querySelectorAll('section.q').map((q) => q.dataset.q), ['q1']);
-    assert.deepEqual(JSON.parse(JSON.stringify(r.moves.map(([m, state]) => [m, state?.sheets]))), [['push', 1], ['push', 2]], 'one entry for each layer');
-    r.ownerBack();
+    assert.deepEqual(r.moves, [], 'neither layer makes a history entry');
+    r.page.fire(questions, 'click', { target: questions.querySelector('[data-qs="close"]') });
     r.page.runTimers();
-    assert.deepEqual([questions.open, r.sheet().open, top(r.sheet()), r.inSheet('.reader-md')], [false, true, true, notes], 'Back closes the questions sheet, back on the notes');
+    assert.deepEqual([questions.open, r.sheet().open, top(r.sheet()), r.inSheet('.reader-md')], [false, true, true, notes], 'its ✕ closes the questions sheet, back on the notes');
 
     // A question linked from a page the reader frames stacks the same way, and its ✕ returns to the page.
     r.view.B.openPage('https://mac.ts.net/board-a/visuals/A1/flow.html');
@@ -7088,7 +7078,6 @@ test("a question link tapped in the reader, in a card's notes or a page it frame
     r.page.fire(doc, 'click', { button: 0, target: { closest: (sel) => (sel === 'a[href]' ? { href: 'https://mac.ts.net/board-a/questions.html#q1', target: '', hasAttribute: () => false } : null) } });
     assert.deepEqual([questions.open, top(questions), r.inSheet('iframe.reader-frame'), shown], [true, true, frame, []]);
     r.page.fire(questions, 'click', { target: questions.querySelector('[data-qs="close"]') });
-    r.land();
     r.page.runTimers();
     assert.deepEqual([questions.open, r.sheet().open, top(r.sheet()), r.inSheet('iframe.reader-frame')], [false, true, true, frame], 'its ✕ returns to the visual');
     r.view.unmount();
@@ -7124,7 +7113,7 @@ test("a visual in its opaque origin gives the reader its title and its link taps
 });
 
 // docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md
-test("a visual or a transcript linked in the reader opens over the page it shows with an entry of its own; ✕, Escape or Back shows the page beneath as it was, the last closes the sheet; and a page opened from a questions sheet stacked on the reader goes back under it", async () => {
+test("a visual or a transcript linked in the reader opens over the page it shows, making no history entry; ✕ or Escape shows the page beneath as it was, the last closes the sheet; and a page opened from a questions sheet stacked on the reader goes back under it", async () => {
   for (const width of [390, 1280]) {
     const visual = 'https://mac.ts.net/board-a/visuals/A1/flow.html';
     const r = readerOnDom('plain log text', { width, topics: [openQuestion('q1', 'item:w/A1')], notes: { 'w/A1': '# The plan\n\nSee [the flow](/board-a/visuals/A1/flow.html), [the run](/board-a/log.html?file=builder-A1-1.log) and [the question](/board-a/questions.html#q1).' } });
@@ -7144,20 +7133,14 @@ test("a visual or a transcript linked in the reader opens over the page it shows
     assert.deepEqual([r.sheet().open, head(), r.inSheet('iframe.reader-frame')?.getAttribute('src'), notesBody.hidden], [true, 'visual', visual, true], `${width}: the visual opens over the notes, kept hidden`);
     r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
     assert.deepEqual([r.sheet().open, head(), shownBody(), notesBody.scrollTop, r.inSheet('iframe.reader-frame')], [true, 'notes', notesBody, 120, null], "its ✕ shows the notes again where they were");
-    assert.deepEqual(r.moves.map(([m, state]) => [m, state?.sheets]), [['push', 1], ['push', 2], ['back', undefined]], 'the visual had an entry of its own, spent on its ✕');
-    r.land();
+    assert.deepEqual(r.moves, [], 'the visual makes no history entry');
 
     r.page.fire(r.sheet(), 'click', { target: linkTo('/board-a/log.html?file=builder-A1-1.log'), button: 0 });
     await r.settle();
     assert.deepEqual([head(), notesBody.hidden], ['builder transcript', true], 'a transcript linked in the notes opens over them');
     if (width < 900) r.page.fire(r.sheet(), 'cancel', { cancelable: true });
     else r.page.fire(r.page.win.document, 'keydown', { key: 'Escape' });
-    assert.deepEqual([r.sheet().open, head(), shownBody()], [true, 'notes', notesBody], 'Escape shows the notes again');
-    r.land();
-
-    r.page.fire(r.sheet(), 'click', { target: linkTo('/board-a/visuals/A1/flow.html'), button: 0 });
-    r.ownerBack();
-    assert.deepEqual([r.sheet().open, head(), shownBody(), r.sheet().querySelectorAll('.reader-body').length], [true, 'notes', notesBody, 1], 'Back shows the notes again, the visual gone');
+    assert.deepEqual([r.sheet().open, head(), shownBody(), r.sheet().querySelectorAll('.reader-body').length], [true, 'notes', notesBody, 1], 'Escape shows the notes again');
 
     // Notes, then the question stacked on them, then a page the questions sheet opens: the reader comes on top with it,
     // and its ✕ puts the reader back under the questions sheet, on the notes.
@@ -7166,19 +7149,14 @@ test("a visual or a transcript linked in the reader opens over the page it shows
     r.view.B.openPage(visual);
     assert.deepEqual([top(r.sheet()), questions.open, head()], [true, true, 'visual'], 'a page from the questions sheet opens on top');
     r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
-    r.land();
     assert.deepEqual([top(questions), r.sheet().open, head(), shownBody(), notesBody.scrollTop], [true, true, 'notes', notesBody, 120], 'its ✕ returns to the questions sheet, the notes under it as they were');
-    assert.equal(r.page.win.history.state.sheets, 2, 'an entry each for the reader and the questions sheet');
     r.view.B.openPage(visual);
     r.page.fire(r.sheet(), 'reader-leave', { detail: 'https://mac.ts.net/board-a/questions.html#q1' });
-    r.land();
-    assert.deepEqual([top(questions), r.sheet().open, head(), shownBody(), r.page.win.history.state.sheets], [true, true, 'notes', notesBody, 2], 'Choose this closes only its page, back on the question');
+    assert.deepEqual([top(questions), r.sheet().open, head(), shownBody()], [true, true, 'notes', notesBody], 'Choose this closes only its page, back on the question');
     r.page.fire(questions, 'click', { target: questions.querySelector('[data-qs="close"]') });
-    r.land();
     r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
     r.page.runTimers();
-    r.land();
-    assert.deepEqual([r.sheet().open, questions.open, r.page.win.history.state.sheets], [false, false, undefined], 'the last ✕ closes the sheet, its entry spent');
+    assert.deepEqual([r.sheet().open, questions.open, r.moves], [false, false, []], 'the last ✕ closes the sheet, with no history entry made');
     r.view.unmount();
   }
 });
@@ -7205,9 +7183,7 @@ test("a card's Notes open, rendered, in the same sheet, and a link in them close
   assert.equal(link.getAttribute('href'), 'prototype-reader.html');
   assert.equal(r.page.fire(r.sheet(), 'click', { target: link, button: 0 }).defaultPrevented, true);
   r.page.runTimers();
-  assert.deepEqual([r.sheet().open, r.moves.at(-1)[0], shown], [false, 'back', []], 'the sheet closes and takes its entry back first');
-  r.land();
-  assert.deepEqual(shown, ['https://mac.ts.net/prototype-reader.html'], 'then the link opens through the shell');
+  assert.deepEqual([r.sheet().open, r.moves, shown], [false, [], ['https://mac.ts.net/prototype-reader.html']], 'the sheet closes, making no history entry, and the link opens through the shell');
   r.view.unmount();
 });
 
@@ -8075,12 +8051,12 @@ test("a questions URL or push on an open question of a card opens the card with 
 });
 
 // docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md
-test("a prototype or a visual opens in the reader sheet: the page framed under its kind, the card's ref and the page's title, the Round pill and Open alone ↗; opened again it stays put, a round or a card page it links opens over it with an entry of its own, which its ✕ or Back peels back to the page beneath as it was, and any other link or Choose this closes it with every page first", async () => {
+test("a prototype or a visual opens in the reader sheet: the page framed under its kind, the card's ref and the page's title, the Round pill and Open alone ↗; opened again it stays put, a round or a card page it links opens over it, which its ✕ peels back to the page beneath as it was, and any other link or Choose this closes it with every page first", async () => {
   const round = (n, q, state) => ({ n, q, url: `prototype-x${n}.html?q=${q}`, confirm: false, state });
   const board = { ...questionsBoard([openQuestion('q1', 'item:w/T1'), openQuestion('q2', 'item:w/P1', { url: 'prototype-x2.html?q=q2' })], []),
     items: [workCard('T1'), workCard('P1', { ref: '#287', questions: { topic: 'item:w/P1' }, prototypes: { open: true, rounds: [round(1, 'q0', 'resolved'), round(2, 'q2', 'open')] } })] };
   const b = boardOnDom({ board, threads: {}, width: 1280 });
-  const { moves, land: landBack, ownerBack } = stackHistory(b.page, { idx: 3 });
+  const { moves } = stackHistory(b.page, { idx: 3 });
   const shown = [];
   b.page.win.AppShell = { open: (href) => { shown.push(href); return true; } };
   await b.settle();
@@ -8119,25 +8095,21 @@ test("a prototype or a visual opens in the reader sheet: the page framed under i
   assert.equal(linkOut('https://mac.ts.net/board-a/visuals/T1/flow.html').defaultPrevented, true);
   assert.deepEqual([frame().getAttribute('src'), head()], ['https://mac.ts.net/board-a/visuals/T1/flow.html', ['visual', 'T1']], "a visual it links opens over it, under its card's ref");
   assert.deepEqual(sheet.querySelectorAll('.reader-body').map((el) => el.hidden), [false, true, true], 'the pages beneath keep their frames, hidden');
-  assert.deepEqual(moves.map(([m, state]) => [m, state?.sheets]), [['push', 1], ['push', 2], ['push', 3]], 'one history entry for each page');
+  assert.deepEqual(moves, [], 'no history entry for any page');
 
   await tap(sheet.querySelector('[data-reader="close"]'));
-  assert.deepEqual([sheet.open, frame(), head(), moves.at(-1)], [true, roundFrame, ['prototype', '#287 · Round 1'], ['back']], "the visual's ✕ shows the round again as it was, its entry spent");
-  landBack();
-  ownerBack();
-  assert.deepEqual([sheet.open, frame(), head(), sheet.querySelectorAll('.reader-body').length], [true, first, ['prototype', '#287 · Snooze takes'], 1], 'Back shows the first page again');
+  assert.deepEqual([sheet.open, frame(), head()], [true, roundFrame, ['prototype', '#287 · Round 1']], "the visual's ✕ shows the round again as it was");
+  await tap(sheet.querySelector('[data-reader="close"]'));
+  assert.deepEqual([sheet.open, frame(), head(), sheet.querySelectorAll('.reader-body').length], [true, first, ['prototype', '#287 · Snooze takes'], 1], "the round's ✕ shows the first page again");
   assert.equal(linkIn('https://mac.ts.net/board-a/prototype-x2.html?q=q2#take-b').defaultPrevented, false, 'a link within the page is its own');
 
   assert.equal(linkIn('https://mac.ts.net/board-a/#selectedCard=w%2FT1').defaultPrevented, true);
   b.page.runTimers();
-  assert.deepEqual([sheet.open, moves.at(-1), shown, frame()], [false, ['back'], [], null], 'any other link closes the sheet and drops the page first');
-  landBack();
-  assert.deepEqual(shown, ['https://mac.ts.net/board-a/#selectedCard=w%2FT1'], 'then opens through the shell');
+  assert.deepEqual([sheet.open, moves, shown, frame()], [false, [], ['https://mac.ts.net/board-a/#selectedCard=w%2FT1'], null], 'any other link closes the sheet, drops the page and opens through the shell');
 
   b.view.B.openPage(proto);
   b.page.fire(sheet, 'reader-leave', { detail: 'https://mac.ts.net/board-a/questions.html#q2' });
   b.page.runTimers();
-  landBack();
   assert.deepEqual([sheet.open, sheet.classList.contains('reader-page'), shown.at(-1)], [false, false, 'https://mac.ts.net/board-a/questions.html#q2'], "Choose this with no questions sheet under it leaves through the sheet");
   b.view.unmount();
 
@@ -8151,7 +8123,7 @@ test("a prototype or a visual opens in the reader sheet: the page framed under i
 });
 
 // docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md
-test("a prototype or a visual opened from the questions sheet stacks on it, with one history entry; Choose this closes only the prototype, leaving the question with the take picked, and Back or a close returns to the question", async () => {
+test("a prototype or a visual opened from the questions sheet stacks on it, with no history entry; Choose this closes only the prototype, leaving the question with the take picked, and a close returns to the question", async () => {
   const round = { n: 1, q: 'q2', url: 'prototype-x2.html?q=q2', confirm: false, state: 'open' };
   const board = { ...questionsBoard([openQuestion('q2', 'item:w/P1', { url: 'prototype-x2.html?q=q2' })], []),
     items: [workCard('P1', { ref: '#287', questions: { topic: 'item:w/P1', first: 'q2', open: 1, state: 'open' }, prototypes: { open: true, rounds: [round] } })] };
@@ -8160,7 +8132,7 @@ test("a prototype or a visual opened from the questions sheet stacks on it, with
   for (const width of [390, 1280]) {
     const b = boardOnDom({ board, threads: {}, width });
     await b.settle();
-    const { moves, land, ownerBack } = stackHistory(b.page, { idx: 3 });
+    const { moves } = stackHistory(b.page, { idx: 3 });
     const shown = [];
     b.page.win.AppShell = { open: (href) => { shown.push(href); return true; } };
     const questions = b.root.querySelector('#questionsSheet');
@@ -8174,29 +8146,21 @@ test("a prototype or a visual opened from the questions sheet stacks on it, with
     // The question's View prototypes, which the shell hands to the board's reader sheet (shell.js go).
     b.view.B.openPage(proto);
     assert.deepEqual([questions.open, reader.open, top(reader), reader.modal, questions.modal], [true, true, true, width < 900, width < 900], `${width}: the prototype stacks on the questions sheet, which stays open`);
-    assert.deepEqual(JSON.parse(JSON.stringify(moves)), [['push', { idx: 4, sheets: 1 }, 'https://mac.ts.net/']], 'one entry for the layer');
+    assert.deepEqual(moves, [], 'the stacked layer makes no entry');
 
     // Choose this: prototype-switcher.js drafts the pick, then hands the question's URL to the sheet.
     b.page.win.BoardUI.setDraft('q2', { choice: 'B', note: '' });
     b.page.fire(reader, 'reader-leave', { detail: 'https://mac.ts.net/board-a/questions.html#q2' });
-    assert.deepEqual([top(questions), picked(), moves.at(-1)], [true, true, ['back']], 'the questions sheet is on top again, the take picked, and the entry spent');
-    land();
+    assert.deepEqual([top(questions), picked()], [true, true], 'the questions sheet is on top again, the take picked');
     b.page.runTimers();
     assert.deepEqual([reader.open, reader.querySelector('iframe.reader-frame'), questions.open, shown], [false, null, true, []], 'only the prototype closed: nothing navigates');
 
-    // A visual linked in the question stacks the same way, and Back peels it off.
+    // A visual linked in the question stacks the same way, and its ✕ peels it off.
     b.view.B.openPage(visual);
     assert.deepEqual([reader.open, questions.open, top(reader)], [true, true, true]);
-    ownerBack();
-    b.page.runTimers();
-    assert.deepEqual([reader.open, questions.open, top(questions), moves.filter(([m]) => m === 'back').length], [false, true, true, 1], 'Back closes the visual, back on the question; Back took the entry itself');
-
-    // Its ✕ does too.
-    b.view.B.openPage(visual);
     b.page.fire(reader, 'click', { target: reader.querySelector('[data-reader="close"]'), button: 0 });
-    land();
     b.page.runTimers();
-    assert.deepEqual([reader.open, questions.open, top(questions)], [false, true, true]);
+    assert.deepEqual([reader.open, questions.open, top(questions), moves], [false, true, true, []]);
     b.view.unmount();
   }
 });

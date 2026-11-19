@@ -120,117 +120,93 @@ test('no sheet keeps its own copy of the closing class dance', () => {
 
 // docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md
 const { openSheet, pushPage, popPage, isTopSheet, afterSheets } = context.BoardUI;
-// A new page: every sheet a test left open shut, and the history of one entry.
+// A new page: every sheet a test left open shut, and a history of one entry.
 const fresh = async () => {
   for (const el of made) el.close();
   await tick();
   Object.assign(history, { entries: [{ idx: 0 }], at: 0, backs: 0 });
-  popstate();
   timers.length = 0;
 };
+const noHistory = () => assert.deepEqual([history.entries.length, history.at, history.backs], [1, 0, 0], 'no entry pushed, none stepped back');
 
-test('a sheet opened over another stacks on it with one history entry; closing it returns to the one beneath, which hears sheet-return', async () => {
+test('a sheet opened over another stacks on it; closing it returns to the one beneath, which hears sheet-return; no history entry is made or spent', async () => {
   await fresh();
   const questions = sheetEl('questions'), reader = sheetEl('reader');
   openSheet(questions);
-  assert.deepEqual([questions.open, history.entries.length, questions.layer], [true, 1, 0], 'a sheet alone has no entry of its own');
   openSheet(reader);
   assert.deepEqual([questions.open, reader.open, isTopSheet(reader), reader.layer], [true, true, true, 1], 'both open, the new on top');
-  assert.deepEqual({ ...history.state }, { idx: 1, sheets: 1 }, 'one entry for the layer, at the same URL');
   closeSheet(reader);
-  assert.deepEqual([questions.open, isTopSheet(questions), questions.got, history.backs], [true, true, ['sheet-return'], 1], 'the one beneath is back on top, and the entry is spent');
-  land();
+  assert.deepEqual([questions.open, isTopSheet(questions), questions.got], [true, true, ['sheet-return']]);
   timers[0].fn();
   await tick();
-  assert.deepEqual([reader.open, questions.open, history.backs], [false, true, 0]);
+  assert.deepEqual([reader.open, questions.open], [false, true]);
+  noHistory();
 });
 
-test('Back peels one layer at a time, each dismissed through its own cancel', async () => {
+test('opening A then B and closing A then B never steps history, so no older address can come back', async () => {
   await fresh();
-  const a = sheetEl('a'), b = sheetEl('b'), c = sheetEl('c');
-  for (const s of [a, b, c]) s.addEventListener('cancel', (e) => { e.preventDefault(); closeSheet(s); });
-  openSheet(a, { modal: false, entry: true });
-  openSheet(b, { modal: false });
-  openSheet(c, { modal: false });
-  assert.deepEqual([history.state.sheets, [a, b, c].map((s) => s.layer)], [3, [0, 1, 2]], 'an opener may ask an entry for the base; non-modal sheets stack by --layer');
-  pop();
-  assert.deepEqual([c.got, c.classList.contains('closing'), b.open, isTopSheet(b), history.backs], [['cancel'], true, true, true, 0], 'the top one closes as Escape would; no further back');
-  pop();
-  assert.deepEqual([b.got, a.open, isTopSheet(a)], [['cancel'], true, true]);
-  pop();
-  assert.deepEqual([a.got, history.at], [['cancel'], 0]);
+  const a = sheetEl('a'), b = sheetEl('b');
+  openSheet(a);
+  openSheet(b);
+  closeSheet(a);
+  closeSheet(b);
+  noHistory();
+  assert.deepEqual([isTopSheet(a), isTopSheet(b)], [false, false]);
 });
 
-test('a sheet shut by its own close() leaves the stack and spends its entry; one under another closing leaves the top as it is', async () => {
+test('a sheet shut by its own close() leaves the stack; one under another closing leaves the top as it is', async () => {
   await fresh();
   const a = sheetEl('a'), b = sheetEl('b'), c = sheetEl('c');
   openSheet(a); openSheet(b); openSheet(c);
   b.close();
   await tick();
-  assert.deepEqual([isTopSheet(c), c.got, history.backs], [true, [], 1], 'b goes, c stays on top, one entry spent');
-  land();
+  assert.deepEqual([isTopSheet(c), c.got], [true, []], 'b goes, c stays on top');
   c.close();
   await tick();
-  assert.deepEqual([isTopSheet(a), a.got, history.backs], [true, ['sheet-return'], 1]);
-  land();
-  assert.equal(history.at, 0);
+  assert.deepEqual([isTopSheet(a), a.got], [true, ['sheet-return']]);
+  noHistory();
 });
 
-test('two layers closing at once go back one entry at a time, and afterSheets waits for the last', async () => {
-  await fresh();
-  const a = sheetEl('a'), b = sheetEl('b');
-  openSheet(a, { entry: true }); openSheet(b);
-  const ran = [];
-  closeSheet(b); closeSheet(a);
-  afterSheets(() => ran.push(history.at));
-  assert.deepEqual([history.backs, ran], [1, []], 'one back under way');
-  land();
-  assert.deepEqual([history.backs, ran], [1, []], 'then the next');
-  land();
-  assert.deepEqual(ran, [0], 'and then what waited runs');
-  afterSheets(() => ran.push('now'));
-  assert.deepEqual(ran, [0, 'now'], 'with nothing to spend it runs at once');
-});
-
-test('a sheet opened again while under another comes back on top, keeping the entries; one open on top stays put', async () => {
+test('a sheet opened again while under another comes back on top; one open on top stays put', async () => {
   await fresh();
   const reader = sheetEl('reader'), questions = sheetEl('questions');
-  openSheet(reader, { entry: true });
+  openSheet(reader);
   openSheet(questions);
   openSheet(questions);
-  assert.equal(history.entries.length, 3, 'opened again on top: nothing');
   openSheet(reader);
   await tick();
-  assert.deepEqual([reader.open, questions.open, isTopSheet(reader), reader.layer, questions.layer, history.entries.length], [true, true, true, 1, 0, 3], 'raised over the questions sheet; the late close event leaves it in the stack');
+  assert.deepEqual([reader.open, questions.open, isTopSheet(reader), reader.layer, questions.layer], [true, true, true, 1, 0], 'raised over the questions sheet; the late close event leaves it in the stack');
   closeSheet(reader);
-  assert.deepEqual([isTopSheet(questions), history.backs], [true, 1]);
+  assert.equal(isTopSheet(questions), true);
+  noHistory();
 });
 
-test('a page a sheet stacks on itself has a layer and an entry of its own, which Back or popPage takes off; raised over another sheet with it, the sheet goes back under it, which shows again where it was', async () => {
+test('a page a sheet stacks on itself is a layer of its own, which popPage takes off; raised over another sheet with it, the sheet goes back under it, which shows again where it was', async () => {
   await fresh();
   const reader = sheetEl('reader'), questions = sheetEl('questions');
-  openSheet(reader, { entry: true });
+  openSheet(reader);
   pushPage(reader);
-  assert.deepEqual([history.state.sheets, isTopSheet(reader), showing], [2, true, [reader]], 'one more entry, the sheet as it was');
-  pop();
-  assert.deepEqual([reader.got, reader.open, history.backs], [['page-back'], true, 0], 'Back takes the page off: page-back, no cancel');
+  assert.deepEqual([isTopSheet(reader), showing], [true, [reader]]);
+  popPage(reader);
+  assert.deepEqual([reader.got, reader.open], [[], true]);
 
   openSheet(questions);
   questions.scrollTop = 40;
   pushPage(reader);
-  assert.deepEqual([isTopSheet(reader), showing, history.state.sheets, reader.layer, questions.layer], [true, [questions, reader], 3, 1, 0], 'a page over the questions sheet raises the sheet');
+  assert.deepEqual([isTopSheet(reader), showing, reader.layer, questions.layer], [true, [questions, reader], 1, 0], 'a page over the questions sheet raises the sheet');
   popPage(reader);
   await tick();
-  assert.deepEqual([isTopSheet(questions), showing, questions.scrollTop, questions.got, reader.open, history.backs], [true, [reader, questions], 40, ['sheet-return'], true, 1], 'popPage puts it back under the questions sheet, shown again where it was');
-  land();
-  assert.equal(history.state.sheets, 2);
+  assert.deepEqual([isTopSheet(questions), showing, questions.scrollTop, questions.got, reader.open], [true, [reader, questions], 40, ['sheet-return'], true], 'popPage puts it back under the questions sheet, shown again where it was');
 
   pushPage(reader);
   closeSheet(reader);
-  assert.deepEqual([isTopSheet(questions), history.backs], [true, 1], 'the sheet closing takes its pages with it');
-  land();
-  land();
-  assert.equal(history.state.sheets, 1);
+  assert.equal(isTopSheet(questions), true, 'the sheet closing takes its pages with it');
+  noHistory();
+});
+
+test('the sheet stack never touches the browser history', () => {
+  assert.doesNotMatch(src('ui.js'), /history\.|popstate|afterSheets/);
+  assert.doesNotMatch(src('app-reader.js'), /afterSheets|entry: true|page-back/);
 });
 
 test('swapSheet is gone: a sheet opened from another stacks on it', () => {

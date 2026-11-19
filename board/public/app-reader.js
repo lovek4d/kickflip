@@ -1,9 +1,9 @@
 // The reader sheet (docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md): a thread's "View transcript"
 // (ui-threads.js) and a card's or a wave's Notes (app-cards.js, app-lanes.js) open over the board in one sheet in
 // place of log.html and notes.html, which still open on their own. It closes on its ✕, Escape, a tap on the dim area
-// and Back (from 900px it is not modal: no dim area, and the left pane stays live), through a history entry of its own that carries the board's URL, so the router's pop keeps the board.
+// (from 900px it is not modal: no dim area, and the left pane stays live). It makes no history entry.
 // A link in it to a card page, a transcript or notes opens over what it shows, a page of its own (ui.js pushPage) with its
-// own history entry: its ✕, Escape, a swipe, a tap on the dim area and Back show the page beneath again as it was, and
+// layer: its ✕, Escape, a swipe and a tap on the dim area show the page beneath again as it was, and
 // only the last closes the sheet. A question of the board opens the questions sheet stacked on it; any other link
 // closes it first, then opens through the shell.
 // A log written as a stream (headless.mjs: one stream-json event per line) reads as the run's transcript, the whole of
@@ -164,8 +164,8 @@ BoardView.part((B) => {
     more.hidden = true;
     body.innerHTML = '<p class="muted">Loading…</p>';
     if (!sheet.open) modal = !matchMedia('(min-width: 900px)').matches;
-    // One entry for the open sheet, and one for each page over its first. Opened from another sheet it stacks on it.
-    if (over) BoardUI.pushPage(sheet); else BoardUI.openSheet(sheet, { modal, entry: true });
+    // Opened from another sheet it stacks on it; a page over the first stacks on the sheet.
+    if (over) BoardUI.pushPage(sheet); else BoardUI.openSheet(sheet, { modal });
     return opened;
   }
   function openLog(file) {
@@ -297,7 +297,7 @@ BoardView.part((B) => {
     else frame.src = to.href;
   }
   B.on(window, 'message', previewMessage);
-  // Closes the sheet with every page in it, then opens href through the shell once its entries are spent. A question
+  // Closes the sheet with every page in it, then opens href through the shell. A question
   // the questions sheet under it shows (a prototype's Choose this) is already open there: the page closes, and that is all.
   function leave(href) {
     const to = new URL(href, location.href).href;
@@ -305,7 +305,7 @@ BoardView.part((B) => {
     const shows = view?.kind === 'questions' && view.id && B.questionsSheetShows?.(state.board?.owner.find((q) => q.id === view.id)?.topic ?? view.id);
     if (shows) { close(); return; }
     closeAll();
-    BoardUI.afterSheets(() => { if (!AppShell.open(to)) location.assign(to); });
+    if (!AppShell.open(to)) location.assign(to);
   }
   // A link tapped in the sheet: a card page, a transcript or notes opens over the page shown; a question of this board
   // opens the questions sheet stacked on this one (ui.js openSheet), which closing returns to; any other link leaves.
@@ -410,8 +410,6 @@ BoardView.part((B) => {
   // The view going takes its sheet out of the sheet stack (ui.js openSheet).
   B.atUnmount(() => sheet.close());
   B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
-  // Back to the entry under a page's: the page beneath shows again.
-  B.on(sheet, 'page-back', unstackView);
   function scrolled() {
     if (!log?.stream) return;
     log.following = atEnd();
