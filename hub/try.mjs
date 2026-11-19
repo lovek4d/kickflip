@@ -17,7 +17,7 @@ import { servedRoundsOpen } from '../board/questions.mjs';
 import { readServes } from '../shared/hub-settings.mjs';
 import { inTurns, turnAfter } from '../shared/turns.mjs';
 import { backgroundArgv } from '../board/background.mjs';
-import { recordedWorktree } from '../board/runs.mjs';
+import { recordedWorktree, landFirst } from '../board/runs.mjs';
 import { readMachineState } from '../shared/machine-gate.mjs';
 import { BASE_KEY, baseWorktreeOf } from '../board/prototype-base.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
@@ -945,7 +945,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
             // host for a later tick.
             if (wanted && !starting.has(id)) {
               if (resume || !takesSlot(board, id)) await autoServe(board, key, entry, manifest);
-              else if (!busy()) waiters.push({ site: board.dir, first: null, board, key, entry });
+              else if (!busy()) waiters.push({ site: board.dir, first: await landFirst(board.dir, key), board, key, entry });
             }
           } catch (e) { log(`try /${board.route} ${key}: ${e.message}`); }
         }

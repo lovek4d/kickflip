@@ -341,6 +341,31 @@ test('Auto serve counts every board’s serves against the hub’s number, and t
   assert.equal(serving(site).length + serving(other).length, 2, 'two serves fill the hub');
 });
 
+// docs/adr/2026-11-19-1300-a-bumped-cards-serve-goes-first.md
+test('a bumped card’s serve takes the free slot before the boards’ turns', async (t) => {
+  fakeRelays(t);
+  t.after(() => setServes(MAX_SERVES));
+  t.after(() => { delete manifest.sites.other; });
+  setManager(tryManager({ now: () => clock, answers: async () => true, log() {} }));
+  const other = fs.mkdtempSync(path.join(home, 'site-'));
+  write(path.join(other, 'board.json'), { items: 'data/items.json', slug: 'w', auto_build: true });
+  write(path.join(other, 'data/items.json'), { items: [{ id: 'B1' }] });
+  write(path.join(other, 'data/agents/B1.json'), { worktree: { path: worktree, repo } });
+    manifest.sites.other = { ...manifest.sites.orch, dir: other };
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A1' }, { id: 'A2' }] });
+  write(path.join(site, 'data/agents/A2.json'), { worktree: { path: worktree, repo } });
+  fs.writeFileSync(path.join(site, 'data/events.jsonl'), JSON.stringify({ id: 'e1', ts: '2026-11-19T10:00:00.000Z', kind: 'card-bump', data: { key: 'w/A2' } }) + '\n');
+  config({ auto_build: true });
+  await setServes(1);
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  commit(worktree);
+  await tick();
+  await manager.settled();
+  const serving = (dir) => Object.entries(read(path.join(dir, 'data', 'try.json')).cards).filter(([, card]) => card.state).map(([key]) => key);
+  assert.deepEqual(serving(site), ['w/A2'], 'the bumped card takes the one slot');
+  assert.equal(serving(other).length, 0);
+});
+
 test('Kill stops a running or ready serve, frees its port, and Auto serve leaves it until its head moves, across a hub restart', async (t) => {
   fakeRelays(t);
   let answering = false;
