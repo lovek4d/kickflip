@@ -19,7 +19,7 @@ import { landRetry } from './hub-lines.mjs';
 import { threadFile, messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, appendWaitOver, setItem, appendMessage, builderModel, cardTitleOf } from './cards.mjs';
 import { checkClose } from './questions.mjs';
 import { readBoardSettings } from './settings.mjs';
-import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase } from './runs.mjs';
+import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase, endFixRun } from './runs.mjs';
 import { blockWordsOf } from './domain.mjs';
 import { affectedRun, builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
 import { readPermissions } from './permissions.mjs';
@@ -196,6 +196,7 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
     // Rebase-only: no more commits on base than the PR had, so the run replayed the PR's commits and added none of its own.
     const ahead = (tip) => Number(git(dir, 'rev-list', '--count', `refs/remotes/origin/${base}..${tip}`).out);
     await recordRebase(site, key, { from, to: git(dir, 'rev-parse', 'HEAD').out, replayed: ahead('HEAD') <= ahead(from) });
+    await endFixRun(site, key);
     const set = await setItem(site, key, { pr: open });
     await appendMessage(site, key, { text });
     return { said: `pushed ${branch} to PR #${open}`, lines: set.lines };

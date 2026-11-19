@@ -134,6 +134,9 @@ export const HUB_LINES = {
   'builder-resumed': { tone: 'orange', mark: BUILD, text: () => 'Builder resumed' },
   // docs/adr/2026-11-18-2000-builder-start-takes-up-a-launch.md: a card In Progress with nothing building it (runs.mjs restartStuckBuilds).
   'builder-restarted': { tone: 'orange', mark: BUILD, text: () => 'Restarted its builder in place: nothing was building it.' },
+  // docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md: the fix run on a red PR (runs.mjs launchFixes).
+  'fix-run-started': { tone: 'orange', mark: BUILD, text: ({ pr, failing }) => fit(`PR #${pr} has red CI, so its builder starts a fix: `, failing), longest: { pr: 100000 } },
+  'fix-run-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ pr, error }) => fit(`PR #${pr} has red CI, but its fix run couldn't start: `, error), longest: { pr: 100000 } },
   // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md: the orchestrator's
   // builder resume, to a running builder (told) or a handed-back one the board resumed (rerun).
   'builder-told': { tone: 'orange', mark: BUILD, detail: ({ text }) => text, text: ({ text }) => fit('Passed to the builder: ', text) },

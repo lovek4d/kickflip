@@ -84,7 +84,7 @@ export async function withReply(site, e, index) {
 // the hub has checked it. limited is when GitHub's limit on the check's GraphQL resets while it holds, else null, for the
 // badges to dim (docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md).
 const prViewOf = (s, limited) => (s ? { title: s.title, url: s.url, state: s.state, isDraft: s.isDraft, reviewDecision: s.reviewDecision, mergeStateStatus: s.mergeStateStatus,
-  mergeable: s.mergeable, checks: s.checks, mergedAt: s.mergedAt, headRefName: s.headRefName, headRefOid: s.headRefOid, updatedAt: s.updatedAt,
+  mergeable: s.mergeable, checks: s.checks, failing: s.failing, mergedAt: s.mergedAt, headRefName: s.headRefName, headRefOid: s.headRefOid, updatedAt: s.updatedAt,
   reviews: s.reviews, limited } : null);
 
 async function latestReply(site) {

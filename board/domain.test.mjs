@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
 import { queuedPlannerKey, queuedPlannerCard, byBump, bumpIn } from './domain.mjs';
-import { footerOf, REQUEST_KINDS, REQUEST_REWAKE_AFTER, buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, rowAlerts, ALERT_KINDS, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone, tapPlan, TAP_KINDS } from './domain.mjs';
+import { footerOf, REQUEST_KINDS, REQUEST_REWAKE_AFTER, buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, fixesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, rowAlerts, ALERT_KINDS, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone, tapPlan, TAP_KINDS } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -3567,4 +3567,24 @@ test("a land's test run reads Testing while it runs, and red Land failed with it
   assert.deepEqual(read(builder(start, failed, fixing)), ['Landing · fixing hub/views.test.mjs', null, 'landing', false]);
   // A builder's own test run in building is no land's.
   assert.deepEqual(read(builder({ ...start, phase: 'building', text: 'Building: 3 test files' })), ['Building · 3 test files', null, 'building', false]);
+});
+
+// docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md
+test('fixesDue lists each card whose ready PR has red CI and no builder, once per head and failing checks', () => {
+  const red = (extra) => ({ ...greenDraft, isDraft: false, headRefOid: 'aaaaaaaaaa', headRefName: 'feat-a', checks: { state: 'fail' }, failing: ['lint', 'unit'], ...extra });
+  const items = (p, extra = {}) => board({ pr: p, ...extra }).items;
+  assert.deepEqual(fixesDue(items(red()), {}), [{ key: 'w/A1', pr: 7, branch: 'feat-a', failing: ['lint', 'unit'], fix: 'aaaaaaaaaa:lint,unit' }]);
+  assert.deepEqual(fixesDue(items(red()), { 'w/A1': 'aaaaaaaaaa:lint,unit' }), [], 'one run per head and failing set');
+  assert.deepEqual(fixesDue(items(red({ headRefOid: 'bbbbbbbbbb' })), { 'w/A1': 'aaaaaaaaaa:lint,unit' }).map((d) => d.fix), ['bbbbbbbbbb:lint,unit'], 'a new head gone red again');
+  assert.deepEqual(fixesDue(items(red({ failing: ['e2e'] })), { 'w/A1': 'aaaaaaaaaa:lint,unit' }).map((d) => d.fix), ['aaaaaaaaaa:e2e'], 'another check failing');
+  assert.deepEqual(fixesDue(items(red({ isDraft: true })), {}), [], 'a red draft waits for the owner unless the board skips the draft');
+  assert.deepEqual(fixesDue(board({ pr: red({ isDraft: true }), skipDraft: true }).items, {}).map((d) => d.key), ['w/A1'], 'a red draft on a board that skips the draft');
+  for (const [why, p, extra] of [
+    ['green', red({ checks: { state: 'pass' } })],
+    ['pending', red({ checks: { state: 'pending' } })],
+    ['merged', red({ state: 'MERGED' })],
+    ['running', red(), { agents: { A1: { main: { kind: 'claude', started: '2026-11-05T10:00:00Z' } } } }],
+    ['checking', red(), { agents: { A1: { main: { kind: 'claude', started: '2026-11-05T10:00:00Z', done: '2026-11-05T10:20:00Z', handed_back: '2026-11-05T10:20:00Z' } } } }],
+    ['done', red(), { item: { lane: 'done' } }],
+  ]) assert.deepEqual(fixesDue(items(p, extra), {}), [], why);
 });

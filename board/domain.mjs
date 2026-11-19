@@ -394,6 +394,8 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
     merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), filedHeld: Boolean(it.filed_held), next: changing || lane === 'done' || waitsOn === 'checking' ? null : idle && ownerPending ? REPLY_WAITS : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
+    // docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md: a red PR waiting for a builder, which fixesDue lists.
+    redCI: idle && redReady && !ownerPending ? { pr: prs[least].number, head: pr.headRefOid || null, branch: pr.headRefName || null, failing: [...(pr.failing || [])].sort() } : null,
     rebaseFailed,
     commit: lane === 'done' && it.landed_sha ? { sha: it.landed_sha.slice(0, 7), url: repo ? `https://github.com/${repo}/commit/${it.landed_sha}` : null } : null,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' || stepWaits ? null : pushed,
@@ -1916,6 +1918,19 @@ export function rebasesDue(items, sent, base) {
     const p = (i.prs || []).find((v) => v.state === 'OPEN' && v.mergeable === 'CONFLICTING' && v.repo === i.repo && v.headRefOid);
     const conflict = p && `${p.headRefOid}@${base}`;
     return p && routeRecord(sent, i.key) !== conflict ? [{ key: i.key, pr: p.number, branch: p.headRefName, conflict }] : [];
+  });
+}
+
+// docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md
+// For built items: the open work cards whose open PR has red CI and no builder on it (a card reading Fix the failing CI
+// in In Review), not blocked and with no reply of the owner's unanswered, each keyed on the PR's head and its failing
+// checks ({key: fix} in sent is the run already started for it, so a head is fixed once).
+// → [{key, pr, branch, failing, fix}]
+export const fixOf = ({ head, failing }) => `${head ?? ''}:${failing.join(',')}`;
+export function fixesDue(items, sent) {
+  return items.filter((i) => i.kind === 'work' && i.redCI && !i.blocked && !closedLane(i)).flatMap((i) => {
+    const fix = fixOf(i.redCI);
+    return routeRecord(sent, i.key) === fix ? [] : [{ key: i.key, pr: i.redCI.pr, branch: i.redCI.branch, failing: i.redCI.failing, fix }];
   });
 }
 

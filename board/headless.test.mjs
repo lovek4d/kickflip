@@ -133,6 +133,19 @@ test("a rebase run's brief takes up the card, rebases its PR's branch onto origi
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'a failure is a call, before the finishing step');
 });
 
+// docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md
+test("a fix run's brief is the builder's with the PR's failing checks as its next, a Fix CI label, and no new PR", () => {
+  const b = `node ${BOARD_CLI} --site shop`;
+  const brief = builderBrief({ ...card, fix: { pr: 31, failing: ['lint', 'unit'] } });
+  for (const want of [
+    'This run fixes red CI', 'PR #31 is open and failing the checks lint, unit', 'gh run view <run id> --log-failed', 'Not caused by this change',
+    `${b} builder start w/A1 --kind build --label "Fix CI"`, `${b} builder done w/A1 --risk`, 'opens no new PR', 'Never push',
+  ]) assert.ok(brief.includes(want), `the fix brief has ${want}`);
+  assert.ok(builderBrief({ ...card, fix: { pr: 31, failing: [] } }).includes('failing a check'), 'a PR with no named check');
+  const plain = builderBrief(card);
+  assert.ok(!plain.includes('red CI') && plain.includes(`${b} builder start w/A1 --kind build\``), 'a plain build is as before');
+});
+
 test("a resumed builder's land brief speaks to the builder, says why the land needs it, and keeps the lander's steps and label", () => {
   const brief = landerBrief({ ...card, resumed: true, why: 'rebasing A1 onto main conflicts in a.txt' });
   const b = `node ${BOARD_CLI} --site shop`;
@@ -491,6 +504,63 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
   assert.deepEqual(lines.map((m) => m.text), ['Its rebase run exited twice unfinished; it waits on the orchestrator.'], 'one fault line');
   const { items: after } = await fetch(`${board.base}/api/board`).then((r) => r.json());
   assert.equal(after.find((c) => c.key === 't/R1').orchestrator?.kind, 'stale', 'its card waits on the orchestrator');
+});
+
+// docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md
+test("the server launches a card's builder on the PR's branch when its ready PR's CI goes red, naming the failing check, once per red head", async (t) => {
+  const home = emptyHome();
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'threads'), { recursive: true });
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  const origin = path.join(home, 'origin');
+  fs.mkdirSync(origin);
+  git(origin, 'init', '--quiet', '-b', 'main');
+  git(origin, 'config', 'user.name', 'Test');
+  git(origin, 'config', 'user.email', 'test@example.com');
+  fs.writeFileSync(path.join(origin, 'a.txt'), 'a\n');
+  git(origin, 'add', '-A');
+  git(origin, 'commit', '--quiet', '-m', 'base');
+  const clone = path.join(home, 'clone');
+  git(home, 'clone', '--quiet', origin, clone);
+  const built = path.join(home, 'wt-F1');
+  git(clone, 'worktree', 'add', '--quiet', '-b', 'F1', built, 'origin/main');
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  fs.mkdirSync(path.join(data, 'agents'));
+  fs.writeFileSync(path.join(data, 'agents', 'F1.json'), JSON.stringify({ label: 'Builder', kind: 'claude', model: 'opus', started: '2026-11-05T01:00:00.000Z', done: '2026-11-05T02:00:00.000Z', worktree: { path: built, branch: 'F1', repo: clone } }));
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [
+    { id: 'F1', title: 'feat: red', pr: 5 },
+    { id: 'F2', title: 'feat: green', pr: 6 },
+    { id: 'F3', title: 'feat: red draft', pr: 7 },
+  ] }));
+  const view = (n, over) => ({ state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', checks: { total: 1, fail: 0, pending: 0, state: 'pass' }, failing: [], reviews: {}, headRefName: `F${n - 4}`, headRefOid: String(n).repeat(40), ...over });
+  const write = (over) => fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'github-state.json'), JSON.stringify({ prs: {
+    'owner/project#5': view(5, { checks: { total: 1, fail: 1, pending: 0, state: 'fail' }, failing: ['unit', 'lint'], ...over }),
+    'owner/project#6': view(6),
+    'owner/project#7': view(7, { isDraft: true, checks: { total: 1, fail: 1, pending: 0, state: 'fail' }, failing: ['unit'] }),
+  } }));
+  write();
+  const { runs, launch } = launcher(t);
+  const read = (file) => JSON.parse(fs.readFileSync(path.join(data, file), 'utf8'));
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 1, "only the ready red PR's card gets a fix run: not the green one, nor the red draft");
+  assert.equal(runs[0].cwd, built);
+  for (const want of ['builder start t/F1 --kind build --label "Fix CI"', 'PR #5 is open and failing the checks lint, unit']) assert.ok(runs[0].prompt.includes(want), `the fix brief has ${want}`);
+  const record = read('agents/F1.json');
+  assert.deepEqual([record.label, record.dispatched, record.done], ['Fix CI', 'hub', undefined]);
+  assert.deepEqual(read('fixes.json'), { 't/F1': `${'5'.repeat(40)}:lint,unit` });
+  assert.deepEqual(read('items.json').items[0].fix_run.failing, ['lint', 'unit']);
+  const thread = fs.readFileSync(threadFile(site, 't/F1'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(thread.some((m) => m.line === 'fix-run-started'), 'its thread says the fix run started');
+  const { items: cards } = await fetch(`${board.base}/api/board`).then((r) => r.json());
+  assert.equal(cards.find((c) => c.key === 't/F1').lane, 'progress', 'the fix builder takes it to In Progress');
+
+  await wrote(board);
+  assert.equal(runs.length, 1, 'each red head gets one run');
 });
 
 // docs/adr/2026-11-04-2230-a-lander-the-pause-stopped-starts-again.md

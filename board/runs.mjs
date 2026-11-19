@@ -39,7 +39,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
 import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, launchLives, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, sessionIdOf, stopRuns } from './headless.mjs';
-import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
+import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, fixesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
 import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree } from './worktree.mjs';
 import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
 import { readClaudeModel } from '../shared/hub-settings.mjs';
@@ -62,6 +62,8 @@ const fileOf = (site, name) => path.join(site, 'data', name);
 const TRACKED = 'headless-builders.json';
 const LANDERS = 'landers.json';
 const REBASES = 'rebases.json';
+// {<key>: fix}: the red head and failing checks each fix run was started for (domain.mjs fixOf).
+const FIXES = 'fixes.json';
 const QUEUED = 'queued-planners.json';
 
 const quiet = { log: () => {}, stale: () => {}, event: async () => {} };
@@ -549,6 +551,43 @@ async function launchRebases(site, items, stopped, io, pass) {
   }
 }
 
+// docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md
+// Each card whose open PR has red CI and no builder (domain.mjs fixesDue) gets its builder launched on the PR's branch,
+// in the worktree its last build kept or one made from the PR's branch (startFix), once per red head and failing set,
+// recorded in fixes.json. A start that fails leaves a thread line and keeps its entry, so it isn't retried until the
+// PR's head or its failing checks change. The run is the card's builder after that, tracked and relaunched as any
+// build is, and takes the slot the card already holds.
+async function launchFixes(site, items, io, pass) {
+  const file = fileOf(site, FIXES);
+  const sent = await readJSON(file, {});
+  const bump = bumpIn(items);
+  const due = byBump(fixesDue(items, sent), (d) => bump(d.key));
+  if (!due.length) return;
+  try {
+    for (const d of due) {
+      if (heldNow(site, pass, 'claude', Boolean(bump(d.key)))) break;
+      const id = d.key.split('/')[1];
+      const entry = { call: 'fix-run', key: d.key, reason: `Its PR #${d.pr} has red CI.`, inputs: { pr: d.pr, fix: d.fix, before: sent[d.key] ?? null } };
+      sent[d.key] = d.fix;
+      let started;
+      try {
+        started = await startFix(site, d.key, d, () => prWorktree(site, id, d.branch));
+      } catch (e) {
+        if (!(e instanceof BoardError)) throw e;
+        io.log({ ...entry, result: 'refused', reason: `${entry.reason} The start refused: ${e.message}` });
+        await appendStatus(site, d.key, 'fix-run-failed', { pr: d.pr, error: e.message });
+        continue;
+      } finally { io.stale(); }
+      io.log({ ...entry, result: 'started', inputs: { ...entry.inputs, kind: started.kind, model: started.model, worktree: started.worktree } });
+      await appendStatus(site, d.key, 'fix-run-started', { pr: d.pr, failing: d.failing.join(', ') || 'a check' });
+      await handOff(site, started, io);
+    }
+  } finally {
+    // Written even when a start throws, so a run already started in this pass isn't started again.
+    await writeJSON(file, sent);
+  }
+}
+
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
 // A paused build nothing pauses any more resumes: its pause comes off with a "Resumed: …" line
 // (resumePaused), and a build the board launched resumes in its own session (headless.mjs resumeBuilder), tracked as a
@@ -619,6 +658,7 @@ export async function tick(site, built, io, { resumes = [], helpers = [] } = {})
     () => launchBriefs(site, built, io, pass),
     () => launchLanders(site, built, stopped, io, pass),
     () => launchRebases(site, built, stopped, io, pass),
+    () => launchFixes(site, built, io, pass),
     // pauseWork orders the resumes.
     async () => { for (const key of resumes) { if (held(key)) return; await resumeBuild(site, key, io); } },
     async () => { for (const key of byBump(reruns, bump)) { if (held(key)) return; await rerunBuild(site, key, io); } },
@@ -991,6 +1031,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: any other main build, not the
   // rebase run nor the lander of its hand-back, ends the card's rebase run, so its push isn't counted as one.
   if (was?.rebase_run && agent === 'main' && ![REBASE_LABEL, LANDER].includes(record.label)) await endRebaseRun(site, key);
+  // A fix run ends the same way: any other main build than the fix run or its lander briefs as a plain build.
+  if (was?.fix_run && agent === 'main' && ![FIX_LABEL, LANDER].includes(record.label)) await endFixRun(site, key);
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: the pick a build
   // started on, with what it read; a start taking up a dispatched record reuses the pick its dispatch recorded.
   if (pick?.inputs && site) {
@@ -1072,6 +1114,31 @@ export const REBASE_LABEL = 'Rebase';
 async function endRebaseRun(site, key) {
   const { source, itemFile, item } = await loadItem(site, key);
   delete item.rebase_run;
+  await writeJSON(source.file, itemFile);
+}
+// docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md
+// The board server's fix run on a card whose open PR has red CI ({pr, fix, failing}, domain.mjs fixesDue): the card's
+// main builder record opens dispatched 'hub', labelled Fix CI, in the worktree its last build kept, else the one worktree
+// makes from the PR's branch, and the card records fix_run {pr, fix, failing, at} until the run pushes or another build
+// starts. → {key, kind, model, worktree}, as startTappedBuild's
+export async function startFix(site, key, { pr, fix, failing }, worktree) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  item.fix_run = { pr, fix, failing, at: new Date().toISOString() };
+  await writeJSON(source.file, itemFile);
+  try {
+    const started = await startBuilder(site, key, { kind: 'build', label: FIX_LABEL, dispatch: 'hub', ownWorktree: worktree });
+    return { key, kind: started.kind, ...(started.model ? { model: started.model } : {}), worktree: started.worktree };
+  } catch (e) {
+    await endFixRun(site, key);
+    throw e;
+  }
+}
+// The label a fix run's builder record carries.
+export const FIX_LABEL = 'Fix CI';
+export async function endFixRun(site, key) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  if (!item.fix_run) return;
+  delete item.fix_run;
   await writeJSON(source.file, itemFile);
 }
 // The number of the card's PR in its board's repo, which a finish pushes to instead of opening one, or null.
@@ -1850,7 +1917,7 @@ export async function briefFacts(site, key) {
   const said = (q, a) => [(q.options || []).find((o) => o.id === a.choice)?.label, a.note].filter(Boolean).join(': ') || 'answered';
   const answers = (await cardQuestions(site, key)).asked.filter((q) => q.ask && q.answers.length).map((q) => ({ ask: q.ask, question: q.question, answer: said(q, q.answers.at(-1)) }));
   return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, thread: threadFile(site, key), worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key),
-    rebasePR: item.rebase_run?.pr ?? null, prototype: item.gates?.prototype ?? null };
+    rebasePR: item.rebase_run?.pr ?? null, fixRun: item.fix_run ?? null, prototype: item.gates?.prototype ?? null };
 }
 
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md

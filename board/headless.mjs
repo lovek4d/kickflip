@@ -67,12 +67,17 @@ const helperSteps = (b, key) => [
 ];
 
 // The standard brief for a card's headless builder. card: {route, key, ref, title, notes, worktree, base, rules, links}.
-export function builderBrief({ route, key, ref, title, notes, thread, worktree, base, rules = [], links = [] }) {
+// With fix, {pr, failing: [check name]}, it is the fix run of a PR whose CI is red (docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md).
+export function builderBrief({ route, key, ref, title, notes, thread, worktree, base, rules = [], links = [], fix = null }) {
   const b = cli(route);
   return [
     `You are the headless builder for task ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person. Work only in ${worktree}. Never restart the hub or a board server, and never push.`,
     '',
-    `1. Run \`${b} builder start ${key} --kind build\`. If it refuses, stop.`,
+    ...(fix ? [
+      `This run fixes red CI. The task's PR #${fix.pr} is open and failing ${fix.failing.length ? `the check${fix.failing.length === 1 ? '' : 's'} ${fix.failing.join(', ')}` : 'a check'}: your Next is to make it pass. Read the failing run's log (\`gh pr checks ${fix.pr}\`, then \`gh run view <run id> --log-failed\`), reproduce the failure locally where you can, and fix its cause on the PR's branch in ${worktree}. A failure the change didn't cause (a flake, an outage, main's own broken test) is not yours to fix: record it as a call "Not caused by this change: <check>, <why>" and finish. builder done pushes your commits to the PR's branch and opens no new PR.`,
+      '',
+    ] : []),
+    `1. Run \`${b} builder start ${key} --kind build${fix ? ' --label "Fix CI"' : ''}\`. If it refuses, stop.`,
     `2. Report progress with \`${b} builder progress ${key} --phase reading|building|checking|landing "<plain, 80 characters or fewer>"\`, at least every 10 minutes. The board adds the phase word; don't start the text with it. The phases:`,
     '   - reading: the notes and the code, until the first test is written.',
     '   - building: the tests and the code, the runs of the tests you write or change, the ADR and docs, and the commit.',
@@ -423,7 +428,7 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const visual = kind === VISUAL;
   const cwd = planner ? repo : helper ? worktree ?? facts.worktree ?? repo : facts.worktree;
   const reviewer = kind === REVIEWER;
-  const card = { ...facts, route, base, repo, rules, kind, agent, brief, text, files, asks, task, writes, cwd, target, pr: facts.rebasePR };
+  const card = { ...facts, route, base, repo, rules, kind, agent, brief, text, files, asks, task, writes, cwd, target, pr: facts.rebasePR, fix: facts.fixRun };
   const role = visual ? 'Visual agent' : reviewer ? 'Reviewer' : helper ? `Helper ${agent}` : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
   const roleBrief = visual ? visualBrief(card) : reviewer ? reviewerBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
   const prompt = handoff
