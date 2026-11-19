@@ -44,16 +44,16 @@ test('tickets link or are made in the board source through the CLI and an inject
   assert.deepEqual(calls, [
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
-    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: seven', '--body', 'Why this matters']],
-    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: eight', '--body', '# Full notes']],
-    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'From ask', '--body', 'Asked why']],
-    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: another follow', '--body', 'Notes.']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: seven', '--body', 'Why this matters', '--assignee', '@me']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: eight', '--body', '# Full notes', '--assignee', '@me']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'From ask', '--body', 'Asked why', '--assignee', '@me']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: another follow', '--body', 'Notes.', '--assignee', '@me']],
   ]);
   assert.equal(read(waveFile).items.at(-1).ticket, '#42');
   assert.equal(await cli('item', 'set', 'audit/F6', '--next', 'Then this'), 0);
   assert.equal(out.at(-1), '#41: next line set');
   assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: ten', '--notes', 'From the source', '--new-ticket'), 0);
-  assert.deepEqual(calls.at(-1), ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: ten', '--body', 'From the source']]);
+  assert.deepEqual(calls.at(-1), ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: ten', '--body', 'From the source', '--assignee', '@me']]);
   assert.equal(out.at(-1), '#42 added as audit/GH-42');
   assert.deepEqual(['id', 'ticket', 'ticket_created'].map((k) => read(waveFile).items.at(-1)[k]), ['GH-42', '#42', true]);
   const items = read(waveFile).items.length;
@@ -77,16 +77,22 @@ test('tickets link or are made in the board source through the CLI and an inject
   assert.equal(linked.status, 0, linked.stderr);
 });
 
-test("a Linear board creates and checks issues through Hub's key, and each card moves only its owner's or kickflip's ticket, one way", async (t) => {
+// docs/adr/2026-11-19-1430-a-ticket-moves-when-it-is-yours-and-says-so-in-its-thread.md
+test("a Linear board creates and checks issues through Hub's key, and each card moves only its owner's ticket, one way, assigning an unassigned one on start, with a thread line for each move", async (t) => {
   const { saveBoardSettings, main, out, err, world, linear, gh, ghAnswers, cli, item } = await ticketCli(t);
   await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' } });
   write(path.join(home, 'notes.md'), '# Why it matters');
   assert.equal(await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: two', '--notes-from', path.join(home, 'notes.md'), '--new-ticket'), 0);
   assert.deepEqual([item('B2').ticket, item('B2').ticket_created], ['ENG-101', true]);
-  assert.deepEqual(world.issues['ENG-101'].input, { teamId: 'team-eng', projectId: 'proj-audit', title: 'feat: two', description: '# Why it matters' });
+  // A ticket kickflip makes is the owner's from the start.
+  assert.deepEqual(world.issues['ENG-101'].input, { teamId: 'team-eng', projectId: 'proj-audit', title: 'feat: two', description: '# Why it matters', assigneeId: 'user-me' });
+  assert.equal(world.issues['ENG-101'].assignee, 'user-me');
+  const thread = (id) => lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)).filter((m) => /^ticket-/.test(m.line ?? '')).map((m) => [m.line, m.text]);
   world.issues['ENG-8'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };
   world.issues['ENG-9'] = { team: 'ENG', assignee: 'someone', state: 's-todo' };
   world.issues['ENG-10'] = { team: 'ENG', assignee: 'user-me', state: 's-todo' };
+  world.issues['ENG-11'] = { team: 'ENG', assignee: null, state: 's-todo' };
+  world.issues['ENG-12'] = { team: 'ENG', assignee: null, state: 's-todo' };
   for (const [ticket, message] of [['ENG-50', 'Linear has no issue ENG-50.'], ['ENG-8', "ENG-8 is in Linear's OPS team, not ENG."], ['OPS-1', 'Ticket must match ENG-<number>.']]) {
     assert.equal(await cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: three', '--ticket', ticket), 1);
     assert.equal(err.at(-1), message);
@@ -100,22 +106,40 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   const start = (id) => { launched('audit', `audit/${id}`); return cli('builder', 'start', `audit/${id}`, '--kind', 'claude'); };
   const said = (line) => out.slice(-4).includes(line);
   const moves = [
-    ['B2', null, 'ENG-101', 'In Progress'], ['B2', ['--pr', '5'], 'ENG-101', 'In Review'], ['B2', ['--done', '--text', 'Done.'], 'ENG-101', 'Done'],
-    ['D4', null, 'ENG-10', 'In Progress'], ['D4', ['--done', '--text', 'Merged.'], 'ENG-10', 'Done'],
+    ['B2', null, 'ENG-101', 'In Progress', 'Moved ENG-101 to In Progress.'], ['B2', ['--pr', '5'], 'ENG-101', 'In Review', 'Moved ENG-101 to In Review.'],
+    ['B2', ['--done', '--text', 'Done.'], 'ENG-101', 'Done', 'Closed ENG-101: moved to Done.'],
+    ['D4', null, 'ENG-10', 'In Progress', 'Moved ENG-10 to In Progress.'], ['D4', ['--done', '--text', 'Merged.'], 'ENG-10', 'Done', 'Closed ENG-10: moved to Done.'],
+    // An unassigned ticket becomes the owner's when its task starts, and moves from then on.
+    ['F11', null, 'ENG-11', 'In Progress', 'Assigned ENG-11 to you and moved it to In Progress.'], ['F11', ['--done', '--text', 'Done.'], 'ENG-11', 'Done', 'Closed ENG-11: moved to Done.'],
   ];
-  for (const [id, flags, ticket, state] of moves) {
+  assert.equal(await cli('item', 'add', 'audit/F11', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: eleven', '--ticket', 'ENG-11'), 0);
+  for (const [id, flags, ticket, state, line] of moves) {
     assert.equal(await (flags ? await cli('item', 'set', `audit/${id}`, ...flags) : await start(id)), 0);
-    assert.ok(said(`ticket ${ticket}: moved to ${state}`), out.slice(-4).join('\n'));
+    assert.ok(said(line), out.slice(-4).join('\n'));
     assert.equal(stateOf(ticket), state);
   }
+  assert.equal(world.issues['ENG-11'].assignee, 'user-me');
+  assert.deepEqual(thread('B2'), [['ticket-moved', 'Moved ENG-101 to In Progress.'], ['ticket-moved', 'Moved ENG-101 to In Review.'], ['ticket-closed', 'Closed ENG-101: moved to Done.']]);
+  // A reopened or re-handed card leaves its closed ticket closed, and says nothing.
   assert.equal(await cli('item', 'set', 'audit/B2', '--pr', '6'), 0);
   assert.equal(stateOf('ENG-101'), 'Done');
+  assert.equal(thread('B2').length, 3);
   assert.equal(await start('C3'), 0);
-  assert.ok(said('ticket ENG-9: left as it is, not assigned to you'), out.slice(-4).join('\n'));
-  assert.deepEqual([item('C3').lane, stateOf('ENG-9')], ['progress', 'Todo']);
+  assert.ok(said('Left ENG-9 as it is: assigned to someone else.'), out.slice(-4).join('\n'));
+  assert.deepEqual([item('C3').lane, stateOf('ENG-9'), world.issues['ENG-9'].assignee], ['progress', 'Todo', 'someone']);
+  assert.deepEqual(thread('C3'), [['ticket-left', 'Left ENG-9 as it is: assigned to someone else.']]);
   const before = linear.calls.length;
   for (const flags of [['--blocked'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
   assert.equal(linear.calls.length, before);
+  // An unassigned ticket whose task never started stays where it is, and its skipped close writes no line.
+  assert.equal(await cli('item', 'add', 'audit/G12', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: twelve', '--ticket', 'ENG-12'), 0);
+  assert.equal(await cli('item', 'set', 'audit/G12', '--done', '--text', 'Done.'), 0);
+  assert.deepEqual([stateOf('ENG-12'), world.issues['ENG-12'].assignee, thread('G12')], ['Todo', null, []]);
+  // A closed ticket stays as it is when its task starts again, unassigned and unmoved.
+  world.issues['ENG-13'] = { team: 'ENG', assignee: null, state: 's-done' };
+  assert.equal(await cli('item', 'add', 'audit/H13', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: thirteen', '--ticket', 'ENG-13'), 0);
+  assert.equal(await start('H13'), 0);
+  assert.deepEqual([stateOf('ENG-13'), world.issues['ENG-13'].assignee, thread('H13')], ['Done', null, []]);
   assert.equal(await cli('item', 'add', 'audit/E5', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: five', '--new-ticket'), 0);
   assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: named in linear', '--new-ticket'), 0);
   assert.equal(out.at(-1), 'ENG-103 added as audit/ENG-103');
@@ -123,31 +147,57 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   const offline = async () => { throw new Error('offline'); };
   globalThis.fetch.mock.mockImplementation(offline);
   assert.equal(await start('E5'), 0);
-  assert.ok(said('ticket ENG-102: could not move to In Progress (Could not reach Linear: offline)'), out.slice(-4).join('\n'));
+  assert.ok(said("Couldn't move ENG-102 to In Progress: Could not reach Linear: offline"), out.slice(-4).join('\n'));
+  assert.deepEqual(lines(site('audit', 'data', 'threads', 'audit__E5.jsonl')).filter((m) => m.line === 'ticket-failed').map((m) => [m.text, m.detail]),
+    [["Couldn't move ENG-102 to In Progress: Could not reach Linear: offline", 'Could not reach Linear: offline']]);
   assert.equal(item('E5').lane, 'progress');
 
   const waveFile = site('audit', 'data', 'items.json');
   write(waveFile, { ...read(waveFile), repo: 'o/r' });
   await saveBoardSettings(site('audit'), { tickets: { source: 'github' } });
+  gh.length = 0;
   assert.equal(await cli('item', 'add', 'audit/F6', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: six', '--new-ticket'), 0);
+  assert.deepEqual(gh, [['issue', 'create', '--repo', 'o/r', '--title', 'feat: six', '--body', 'Notes.', '--assignee', '@me']]);
   assert.equal(await cli('item', 'add', 'audit/G7', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: seven', '--ticket', '#41'), 0);
   assert.equal(await cli('item', 'add', 'audit/H8', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: eight', '--ticket', '#43', '--blocked-by', 'audit/F6'), 0);
   gh.length = 0;
-  for (const id of ['F6', 'G7']) assert.equal(await start(id), 0);
+  // kickflip's own ticket is the owner's already, so its start asks nothing of GitHub, nor does a handover: an issue has
+  // no In Progress or In Review.
+  assert.equal(await start('F6'), 0);
   assert.equal(await cli('item', 'set', 'audit/G7', '--pr', '7'), 0);
   assert.deepEqual(gh, []);
+  // builder start runs gh itself, not the CLI's injected runner, so a linked issue's start reaches fake-gh on PATH,
+  // whose issues no one is assigned: it becomes the owner's.
+  const fake = path.join(home, 'fake-gh-start');
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeGh(fake)}:${oldPath}`;
+  t.after(() => { process.env.PATH = oldPath; });
+  assert.equal(await cli('item', 'add', 'audit/I9', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: nine', '--ticket', '#44'), 0);
+  assert.equal(await start('I9'), 0);
+  assert.equal(out.at(-1), 'Assigned #44 to you.');
+  assert.deepEqual(calls(fake).filter((a) => a[0] === 'issue'), [['issue', 'view', '44', '--repo', 'o/r', '--json', 'state,assignees'], ['issue', 'edit', '44', '--repo', 'o/r', '--add-assignee', '@me']]);
+  assert.deepEqual(thread('I9'), [['ticket-assigned', 'Assigned #44 to you.']]);
+  process.env.PATH = oldPath;
   assert.equal(await cli('item', 'set', 'audit/F6', '--done', '--text', 'Done.'), 0);
-  assert.equal(out.at(-1), 'ticket #42: closed');
-  assert.deepEqual(gh, [['issue', 'close', '42', '--repo', 'o/r']]);
+  assert.equal(out.at(-1), 'Closed #42.');
+  assert.deepEqual(gh.at(-1), ['issue', 'close', '42', '--repo', 'o/r']);
+  assert.deepEqual(thread('F6'), [['ticket-closed', 'Closed #42.']]);
   // The line on the card it unblocked names the finished card by its ticket, not its id.
   assert.deepEqual(lines(site('audit', 'data', 'threads', 'audit__H8.jsonl')).map((m) => m.text).slice(-1), ['Unblocked: #42 is done.']);
   assert.equal(await cli('item', 'set', 'audit/G7', '--done', '--text', 'Merged.'), 0);
-  assert.equal(out.at(-1), 'ticket #41: left as it is, not assigned to you');
+  assert.equal(out.at(-1), 'Left #41 as it is: assigned to someone else.');
   assert.equal(gh.some((argv) => argv[1] === 'close' && argv[2] === '41'), false);
   ghAnswers.view = { state: 'OPEN', assignees: [{ login: 'Love' }] };
   assert.equal(await cli('item', 'set', 'audit/G7', '--done', '--text', 'Done.'), 0);
-  assert.equal(out.at(-1), 'ticket #41: closed');
+  assert.equal(out.at(-1), 'Closed #41.');
   assert.deepEqual(gh.at(-1), ['issue', 'close', '41', '--repo', 'o/r']);
+  // An unassigned issue whose task never started stays open, and its skipped close writes no line.
+  ghAnswers.view = { state: 'OPEN', assignees: [] };
+  assert.equal(await cli('item', 'add', 'audit/J10', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: ten', '--ticket', '#45'), 0);
+  gh.length = 0;
+  assert.equal(await cli('item', 'set', 'audit/J10', '--done', '--text', 'Done.'), 0);
+  assert.equal(gh.some((argv) => argv[1] === 'close' || argv[1] === 'edit'), false);
+  assert.deepEqual(thread('J10'), []);
 });
 
 test("a board still on Linear after Hub's key went refuses new tickets and links, changing nothing, and its moves say the key is missing", async (t) => {
@@ -169,9 +219,10 @@ test("a board still on Linear after Hub's key went refuses new tickets and links
   }
   assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
   launched('audit', 'audit/B2');
-  for (const args of [['builder', 'start', 'audit/B2', '--kind', 'claude'], ['item', 'set', 'audit/B2', '--pr', '9'], ['item', 'set', 'audit/B2', '--done', '--text', 'Done.']]) {
+  for (const [args, said] of [[['builder', 'start', 'audit/B2', '--kind', 'claude'], "Couldn't move ENG-101 to In Progress: Hub has no Linear key"],
+    [['item', 'set', 'audit/B2', '--pr', '9'], "Couldn't move ENG-101 to In Review: Hub has no Linear key"], [['item', 'set', 'audit/B2', '--done', '--text', 'Done.'], "Couldn't close ENG-101: Hub has no Linear key"]]) {
     assert.equal(await cli(...args), 0);
-    assert.ok(out.slice(-4).includes('ticket ENG-101: not moved, Hub has no Linear key'), out.slice(-4).join('\n'));
+    assert.ok(out.slice(-4).includes(said), out.slice(-4).join('\n'));
   }
   assert.equal(linear.calls.length, calls);
 });
@@ -189,7 +240,7 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   assert.equal((await cli('settings', 'set', 'github-login', 'owner')).code, 0);
   assert.equal((await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: two', '--new-ticket')).code, 0);
   assert.equal((await cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: three', '--ticket', '#9')).code, 0);
-  assert.equal(await last('item', 'set', 'audit/B2', '--done', '--text', 'Done.'), 'ticket #1: closed');
+  assert.equal(await last('item', 'set', 'audit/B2', '--done', '--text', 'Done.'), 'Closed #1.');
   assert.equal((await cli('item', 'set', 'audit/C3', '--pr', '7')).code, 0);
   const report = await cli('pr', 'audit/C3');
   assert.equal(report.code, 0, report.err);
@@ -204,7 +255,7 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   const issueCalls = () => calls(dir).filter((a) => a[0] === 'issue').length;
   const before = issueCalls();
   assert.deepEqual(await cli('item', 'add', 'audit/D4', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: four', '--new-ticket'), { code: 1, out: '', err: 'gh has no nobody account; run gh auth login\n' });
-  assert.equal(await last('item', 'set', 'audit/C3', '--done', '--text', 'Done.'), 'ticket #9: could not move to Done (gh has no nobody account; run gh auth login)');
+  assert.equal(await last('item', 'set', 'audit/C3', '--done', '--text', 'Done.'), "Couldn't close #9: gh has no nobody account; run gh auth login");
   assert.equal(issueCalls(), before);
   assert.equal((await cli('settings', 'set', 'tickets', '{"source":"github","account":"-bad"}')).code, 1);
 });

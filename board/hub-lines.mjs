@@ -36,6 +36,7 @@ const HELD = 'Held', RESUMED = 'Resumed', BLOCKED = 'Blocked', FAULT = 'Fault', 
 const BUILD = 'Implementation requested', PROTOTYPE = 'Prototype requested', DONE = 'Marked done';
 // The longest of a few inputs several kinds take: a planner kind, a PR in another repo and a time.
 const KIND = 'prototype', PR = 'owner/a-long-repo-name#10000', AT = 'Wed, 11/30, 12:00 PM', VERSION = '10.100.1000-rc.100';
+const TICKET = 'ABCDEFGHIJ-1000000';
 
 // A line's tone, by the colour rule (AGENTS.md): red a fault, orange build work, blue for the owner to read or a planner,
 // green done, purple merged, grey idle, held or a relation. A fault kind has no tone of its own: its fault flag is red,
@@ -80,6 +81,12 @@ export const HUB_LINES = {
   'prototype-round': { tone: 'blue', mark: PROTOTYPE, text: () => 'You asked for a prototype round, so the board moved the task to prototyping.' },
   'discussing-start': { tone: 'blue', mark: 'Marked as discussing', text: ({ from }) => (from ? fit('Filed from ', from, ': it starts discussing.') : 'Filed with no phase: it starts discussing.') },
   'ticket-made': { tone: 'blue', mark: 'Created ticket', text: ({ ticket }) => fit('Created ticket ', ticket, '') },
+  // docs/adr/2026-11-19-1430-a-ticket-moves-when-it-is-yours-and-says-so-in-its-thread.md: what a card's move did to its
+  // ticket (tickets.mjs moveTicket), state being the Linear state it moved to. A ticket id is #n or TEAM-n.
+  'ticket-assigned': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Assigned ${ticket} to you.`, longest: { ticket: TICKET } },
+  'ticket-moved': { tone: 'blue', mark: MOVE, text: ({ ticket, state, assigned }) => fit(assigned ? `Assigned ${ticket} to you and moved it to ` : `Moved ${ticket} to `, state, '.'), longest: { ticket: TICKET, assigned: true } },
+  'ticket-left': { tone: 'blue', mark: MOVE, text: ({ ticket }) => `Left ${ticket} as it is: assigned to someone else.`, longest: { ticket: TICKET } },
+  'ticket-closed': { tone: 'green', mark: DONE, text: ({ ticket, state }) => (state ? fit(`Closed ${ticket}: moved to `, state, '.') : `Closed ${ticket}.`), longest: { ticket: TICKET } },
   // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: one per batch published on a
   // card, holding its question ids; orange while any of them is open (domain.mjs threadOf), grey once none is.
   'questions-added': { tone: 'grey', mark: QUESTIONS, text: ({ count }) => `${count} question${count === 1 ? '' : 's'} added`, longest: { count: 1000 } },
@@ -134,6 +141,7 @@ export const HUB_LINES = {
   // docs/adr/2026-11-15-0040-a-cold-resume-past-150k-starts-a-fresh-agent-with-a-handoff.md: cap, in thousands of tokens.
   'fresh-builder': { tone: 'orange', mark: BUILD, text: ({ cap }) => `Fresh builder: its session was over ${cap}k.`, longest: { cap: 1000 } },
   // Faults.
+  'ticket-failed': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ ticket, to, why }) => fit(to ? `Couldn't move ${ticket} to ${to}: ` : `Couldn't close ${ticket}: `, why), longest: { ticket: TICKET, to: 'In Progress' } },
   // brief, when the refusal has one, is its reason in a line's room (commit-message.mjs startTitleBrief); why is whole.
   'build-refused': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why, brief }) => fit("Couldn't start implementing: ", brief ?? why) },
   'planner-unasked': { mark: FAULT, fault: true, detail: ({ kind }) => kind, text: ({ kind }) => `Its ${kind} planner ended without posting a question, so it waits on the orchestrator.`, longest: { kind: 'prototype' } },

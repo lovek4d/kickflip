@@ -68,16 +68,16 @@ async function issueRunner(source, run) {
 
 const linearCall = async (fn) => { try { return await fn(); } catch (e) { refuse(e.message); } };
 
-// → {ticket, created}: created when kickflip made the ticket rather than linking one (cards.mjs keeps it as
-// ticket_created, which lets moveTicket move it). A Linear board without Hub's key is refused, so a card never goes
-// with a ticket it couldn't make (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
+// → {ticket, created}: created when kickflip made the ticket rather than linking one, assigned to the owner (cards.mjs
+// keeps it as ticket_created, which moveTicket counts as the owner's). A Linear board without Hub's key is refused, so
+// a card never goes with a ticket it couldn't make (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
 export async function resolveTicket(source, { ticket, title, body = '', repo }, { run = runRepo, linearFetch } = {}) {
   if (source.source === 'linear') {
     if (ticket !== undefined && !ticketIn(source, ticket)) refuse(`Ticket must match ${source.team}-<number>.`);
     const linear = savedClient({ fetch: linearFetch });
     if (!linear) refuse('Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub › Integrations › Linear, or pick another ticket source.');
     if (ticket === undefined) {
-      const issue = await linearCall(() => linear.createIssue({ team: source.team, project: source.project, title, description: body }));
+      const issue = await linearCall(() => linear.createIssue({ team: source.team, project: source.project, title, description: body, assignee: linear.saved.viewer?.id }));
       return { ticket: issue.identifier, created: true };
     }
     const issue = await linearCall(() => linear.issue(ticket));
@@ -89,7 +89,7 @@ export async function resolveTicket(source, { ticket, title, body = '', repo }, 
   const n = ticket === undefined ? null : issueNumber(ticket);
   if (ticket !== undefined && !n) refuse('GitHub ticket must be an issue number such as #41.');
   const argv = n ? ['issue', 'view', String(n), '--repo', repo, '--json', 'number,url']
-    : ['issue', 'create', '--repo', repo, '--title', title, '--body', body];
+    : ['issue', 'create', '--repo', repo, '--title', title, '--body', body, '--assignee', '@me'];
   const out = await (await issueRunner(source, run))('gh', argv);
   if (out.status !== 0) refuse((out.stderr || 'GitHub refused the issue.').trim().split('\n')[0]);
   let url;
@@ -124,40 +124,60 @@ export function ticketTarget({ start, done, handover }) {
 
 const TARGET_WORDS = { started: 'In Progress', review: 'In Review', done: 'Done' };
 
-// Moves a card's ticket toward target, one way, and only a ticket the owner is assigned or kickflip created
-// (docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md). GitHub issues only close, on done. → a line to print, or null when nothing was asked of the source. Never throws.
+// docs/adr/2026-11-19-1430-a-ticket-moves-when-it-is-yours-and-says-so-in-its-thread.md
+// Moves a card's ticket toward target, one way, and only a ticket that is the owner's: one kickflip created (assigned to
+// the owner at creation) or one assigned to the owner (the key's viewer, or gh's user). A build's start makes an
+// unassigned ticket the owner's first; at review or done an unassigned one stays as it is, with no line. A GitHub issue
+// has no In Progress or In Review, so its start only assigns it and its done closes it.
+// → {kind, inputs} of the status line (hub-lines.mjs ticket-*) the move writes in the card's thread, or null when there
+// is nothing to say. Never throws.
 export async function moveTicket(source, item, target, { repo, run = runRepo, linearFetch } = {}) {
-  const id = item.ticket;
-  if (!source || !target || !id || !ticketIn(source, id)) return null;
-  if (source.source === 'github' && target !== 'done') return null;
-  if (source.source === 'github' && !repo) return `ticket ${id}: not closed, the board has no GitHub repo`;
-  const why = (e) => `ticket ${id}: could not move to ${TARGET_WORDS[target]} (${String(e.message || e).split('\n')[0]})`;
+  const ticket = item.ticket;
+  if (!source || !target || !ticket || !ticketIn(source, ticket)) return null;
+  if (source.source === 'github' && (target === 'review' || (target === 'started' && item.ticket_created))) return null;
+  const failed = (why) => ({ kind: 'ticket-failed', inputs: { ticket, ...(target === 'done' ? {} : { to: TARGET_WORDS[target] }), why: String(why?.message || why).split('\n')[0] } });
+  const left = { kind: 'ticket-left', inputs: { ticket } };
+  if (source.source === 'github' && !repo) return failed('the board has no GitHub repo');
   try {
     if (source.source === 'linear') {
       const linear = savedClient({ fetch: linearFetch });
-      if (!linear) return `ticket ${id}: not moved, Hub has no Linear key`;
+      if (!linear) return failed('Hub has no Linear key');
+      const me = linear.saved.viewer?.id;
+      let assign = false;
       if (!item.ticket_created) {
-        const issue = await linear.issue(id);
-        if (!issue) return `ticket ${id}: not moved, Linear has no such issue`;
-        if (issue.assignee !== linear.saved.viewer?.id) return `ticket ${id}: left as it is, not assigned to you`;
+        const issue = await linear.issue(ticket);
+        if (!issue) return failed('Linear has no such issue');
+        if (['completed', 'canceled'].includes(issue.state.type)) return null;
+        if (issue.assignee && issue.assignee !== me) return left;
+        if (!issue.assignee && target !== 'started') return null;
+        assign = !issue.assignee;
       }
-      const moved = await linear.moveIssue(id, target);
-      return moved ? `ticket ${id}: moved to ${moved}` : null;
+      if (assign) await linear.assignIssue(ticket, me);
+      const moved = await linear.moveIssue(ticket, target);
+      if (!moved) return assign ? { kind: 'ticket-assigned', inputs: { ticket } } : null;
+      return target === 'done' ? { kind: 'ticket-closed', inputs: { ticket, state: moved } } : { kind: 'ticket-moved', inputs: { ticket, state: moved, assigned: assign } };
     }
-    const n = id.slice(1);
+    const n = ticket.slice(1);
     const gh = await issueRunner(source, run);
+    const call = async (argv) => {
+      const out = await gh('gh', argv);
+      if (out.status !== 0) throw new Error(out.stderr || `gh ${argv.slice(0, 2).join(' ')} failed`);
+      return out.stdout;
+    };
     if (!item.ticket_created) {
-      const view = await gh('gh', ['issue', 'view', n, '--repo', repo, '--json', 'state,assignees']);
-      if (view.status !== 0) throw new Error(view.stderr || 'gh issue view failed');
-      const me = await gh('gh', ['api', 'user', '--jq', '.login']);
-      if (me.status !== 0) throw new Error(me.stderr || 'gh api user failed');
-      const issue = JSON.parse(view.stdout);
+      const issue = JSON.parse(await call(['issue', 'view', n, '--repo', repo, '--json', 'state,assignees']));
       if (issue.state !== 'OPEN') return null;
-      if (!(issue.assignees || []).some((a) => a.login?.toLowerCase() === me.stdout.trim().toLowerCase())) return `ticket ${id}: left as it is, not assigned to you`;
+      const assignees = issue.assignees || [];
+      if (!assignees.length) {
+        if (target !== 'started') return null;
+        await call(['issue', 'edit', n, '--repo', repo, '--add-assignee', '@me']);
+        return { kind: 'ticket-assigned', inputs: { ticket } };
+      }
+      const login = (await call(['api', 'user', '--jq', '.login'])).trim().toLowerCase();
+      if (!assignees.some((a) => a.login?.toLowerCase() === login)) return left;
+      if (target === 'started') return null;
     }
-    const closed = await gh('gh', ['issue', 'close', n, '--repo', repo]);
-    if (closed.status !== 0) throw new Error(closed.stderr || 'gh issue close failed');
-    return `ticket ${id}: closed`;
-  } catch (e) { return why(e); }
+    await call(['issue', 'close', n, '--repo', repo]);
+    return { kind: 'ticket-closed', inputs: { ticket } };
+  } catch (e) { return failed(e); }
 }
-

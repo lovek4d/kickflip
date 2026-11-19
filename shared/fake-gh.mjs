@@ -96,7 +96,7 @@ if (args[0] === 'issue' && args.includes('--repo')) {
     const n = fs.readFileSync(path.join(dir, 'calls.jsonl'), 'utf8').split('\\n').filter((l) => l.startsWith('["issue","create"')).length;
     console.log('https://github.com/' + repo + '/issues/' + n);
   } else if (args[1] === 'view') console.log(JSON.stringify(args[6] === 'number,url' ? { number: Number(args[2]), url: 'https://github.com/' + repo + '/issues/' + args[2] } : { state: 'OPEN', assignees: [] }));
-  else if (args[1] !== 'close') fail();
+  else if (args[1] !== 'close' && args[1] !== 'edit') fail();
   process.exit(0);
 }
 if (args.length >= 6 && args[0] === 'pr' && args[1] === 'merge' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--squash') {

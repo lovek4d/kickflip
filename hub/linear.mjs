@@ -85,10 +85,10 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
       if (!d.projectCreate.success) throw new LinearError('Linear did not create the project.');
       return { ...d.projectCreate.project, team: t.key };
     },
-    // project is the source's project, by id or name. → {identifier, url}
-    async createIssue({ team: teamKey, project, title, description }) {
+    // project is the source's project, by id or name; assignee a user id the issue is assigned to. → {identifier, url}
+    async createIssue({ team: teamKey, project, title, description, assignee }) {
       const t = await team(teamKey);
-      const input = { teamId: t.id, projectId: projectOf(t, project).id, title, ...(description ? { description } : {}) };
+      const input = { teamId: t.id, projectId: projectOf(t, project).id, title, ...(description ? { description } : {}), ...(assignee ? { assigneeId: assignee } : {}) };
       const d = await call('mutation($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { identifier url } } }', { input });
       if (!d.issueCreate.success) throw new LinearError('Linear did not create the issue.');
       return d.issueCreate.issue;
@@ -108,6 +108,10 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
       const d = await call('mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }', { id: identifier, stateId: state.id });
       if (!d.issueUpdate.success) throw new LinearError('Linear did not move the issue.');
       return state.name;
+    },
+    async assignIssue(identifier, assignee) {
+      const d = await call('mutation($id: String!, $assigneeId: String!) { issueUpdate(id: $id, input: { assigneeId: $assigneeId }) { success } }', { id: identifier, assigneeId: assignee });
+      if (!d.issueUpdate.success) throw new LinearError('Linear did not assign the issue.');
     },
     // → the state's name when the issue moved, else null (already there, closed, or no state fits the target).
     async moveIssue(identifier, target) {

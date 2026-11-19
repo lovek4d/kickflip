@@ -105,11 +105,13 @@ export function fakeLinear(world) {
     if (query.includes('issueCreate')) {
       const team = teamOf((t) => t.id === variables.input.teamId);
       const identifier = `${team.key}-${++next}`;
-      world.issues[identifier] = { team: team.key, assignee: null, state: team.states[0].id, input: variables.input };
+      world.issues[identifier] = { team: team.key, assignee: variables.input.assigneeId ?? null, state: team.states[0].id, input: variables.input };
       return ok({ issueCreate: { success: true, issue: { identifier, url: `https://linear.app/${world.org.urlKey}/issue/${identifier}` } } });
     }
     if (query.includes('issueUpdate')) {
-      world.issues[variables.id].state = variables.stateId;
+      const issue = world.issues[variables.id];
+      if (variables.stateId) issue.state = variables.stateId;
+      if (variables.assigneeId) issue.assignee = variables.assigneeId;
       return ok({ issueUpdate: { success: true } });
     }
     if (query.includes('issue(id')) {

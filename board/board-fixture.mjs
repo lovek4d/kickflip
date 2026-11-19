@@ -116,7 +116,7 @@ export async function ticketCli(t) {
     if (argv[0] === 'api') return { status: 0, stdout: `${ghAnswers.login}\n` };
     if (argv[1] === 'view' && argv.includes('state,assignees')) return { status: 0, stdout: JSON.stringify(ghAnswers.view) };
     if (argv[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: Number(argv[2]), url: `https://github.com/${repo}/issues/${argv[2]}` }) };
-    if (argv[1] === 'close') return { status: 0, stdout: '' };
+    if (argv[1] === 'close' || argv[1] === 'edit') return { status: 0, stdout: '' };
     return { status: 0, stdout: `https://github.com/${repo}/issues/42\n` };
   };
   const cli = (...args) => main(withNotes(['--site', 'audit', ...args]), { linearFetch: linear.fetch, run });

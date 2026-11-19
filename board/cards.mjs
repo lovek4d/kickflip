@@ -1100,7 +1100,10 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   // The ticket stays open while the card waits on its owner step or its release.
   const target = (item.owner_step || item.release) && done ? null : ticketTarget({ start, done, handover });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo });
-  if (moved) resolved.push(moved);
+  if (moved) {
+    const { line, lines } = await appendStatus(site, key, moved.kind, moved.inputs);
+    resolved.push(...lines, line.text);
+  }
   // A builder that forgot builder done would keep the card In Progress after it was handed back; a hand-back's records
   // close marked handed_back, and a handover or a close ends the hand-back.
   if (handover || done || handBack) {
