@@ -12,7 +12,7 @@
 
 import { routeRecord } from '../hub/routes.mjs';
 import fs from 'node:fs';
-import { ticketBadge, ticketIn } from './tickets.mjs';
+import { linkedTickets, ticketBadge, ticketIn } from './tickets.mjs';
 import { prLinks, reviewLinks, reviewTime, reviewersOf } from './review.mjs';
 import { remoteFromInput } from '../hub/repos.mjs';
 import { reviewsOf, reviewNeeds, reviewActions, pendingReviewAsks, failedReviewAnswers } from './auto-review.mjs';
@@ -72,8 +72,6 @@ const closedLane = (i) => i.lane === 'done';
 // A PR in review longer than this reads stale, still In Review (docs/adr/2026-10-29-1639-a-pr-in-review-shows-its-age-and-goes-stale-after-seven-days.md).
 const STALE_AFTER = 7 * DAY;
 
-// board/public/ui-links.js links Linear ids in text from these urls, so a board with no workspace links none.
-const linearRef = (id, tickets) => ({ id, url: tickets?.workspace ? `https://linear.app/${tickets.workspace}/issue/${id}` : null });
 // An old card's S<n> id reads INT-<n>; its stored id keys threads, builder records and events.
 const internalRef = (id) => String(id).replace(/^S(\d+)$/, 'INT-$1');
 // A card reads as its ticket when the ticket is from the board's source (#n or TEAM-n), else by its id, T-<n> for a
@@ -407,10 +405,9 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     stale: lane !== 'done' && (staleReview || Boolean(builder?.stale)), stalled: it.stalled?.reason || null, ownerWait: ownerWaitOf(it),
     landStopped: lane === 'review' && mergeReady && it.merge_ready.stopped && String(it.merge_ready.stopped) > String(it.merge_ready.tapped || '')
       ? { words: stoppedWords('land'), at: it.merge_ready.stopped } : null,
-    ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
-      : ticketOf(tickets, it.ticket, { repo }),
+    ticket: ticketOf(tickets, it.ticket, { repo }),
     ticketSource: tickets?.source || null,
-    linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
+    linear: linkedTickets(tickets, it),
     pr: views[least] || null, prs: views,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr || prs[least]?.kept, sentAt),
     otherReviews: otherReviewsOf(reviewers, pr || prs[least]?.kept), inReviewSince,

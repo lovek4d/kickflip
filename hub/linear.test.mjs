@@ -48,15 +48,16 @@ test("a card's target maps to the team's workflow state by type and name, and a 
   world.issues['ENG-1'] = { team: 'ENG', assignee: 'user-me', state: 's-todo' };
   world.issues['OPS-2'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };
   const client = linearClient(world.key, { fetch: fakeLinear(world).fetch });
-  assert.equal(await client.moveIssue('ENG-1', 'started'), 'In Progress');
-  assert.equal(await client.moveIssue('ENG-1', 'started'), null);
-  assert.equal(await client.moveIssue('ENG-1', 'review'), 'In Review');
-  assert.equal(await client.moveIssue('ENG-1', 'done'), 'Done');
-  assert.equal(await client.moveIssue('ENG-1', 'started'), null);
+  const move = async (id, target) => client.moveIssue(await client.issue(id), target);
+  assert.equal(await move('ENG-1', 'started'), 'In Progress');
+  assert.equal(await move('ENG-1', 'started'), null);
+  assert.equal(await move('ENG-1', 'review'), 'In Review');
+  assert.equal(await move('ENG-1', 'done'), 'Done');
+  assert.equal(await move('ENG-1', 'started'), null);
   assert.equal(world.issues['ENG-1'].state, 's-done');
-  assert.equal(await client.moveIssue('OPS-2', 'review'), null);
+  assert.equal(await move('OPS-2', 'review'), null);
   assert.equal(world.issues['OPS-2'].state, 'o-todo');
-  await assert.rejects(client.moveIssue('ENG-404', 'done'), /no issue ENG-404/);
+  assert.equal(await client.issue('ENG-404'), null);
 });
 
 test('the stage order treats review as later than started and completed or canceled as done', () => {
@@ -68,23 +69,23 @@ test('the stage order treats review as later than started and completed or cance
   assert.deepEqual(states.map(stageOf), [0, 0, 0, 1, 2, 3, 3]);
 });
 
-test('advanceIssue reads once and skips missing, unowned or later issues before looking up team states', async () => {
+test('moveIssue skips an issue already there or past the target without a call, and a team with no such state before mutating', async () => {
   const world = linearWorld();
   const linear = fakeLinear(world);
   const client = linearClient(world.key, { fetch: linear.fetch });
-  world.issues['ENG-1'] = { team: 'ENG', assignee: 'someone-else', state: 's-todo' };
   world.issues['ENG-2'] = { team: 'ENG', assignee: 'user-me', state: 's-rev' };
   world.issues['ENG-3'] = { team: 'ENG', assignee: 'user-me', state: 's-cancel' };
-  for (const id of ['ENG-404', 'ENG-1', 'ENG-2', 'ENG-3']) {
+  for (const id of ['ENG-2', 'ENG-3']) {
+    const issue = await client.issue(id);
     linear.calls.length = 0;
-    assert.equal(await client.advanceIssue(id, 'started', { owner: world.viewer.id }), null);
-    assert.equal(linear.calls.length, 1);
-    assert.ok(linear.calls[0].query.includes('issue(id'));
+    assert.equal(await client.moveIssue(issue, 'started'), null);
+    assert.equal(linear.calls.length, 0);
   }
   world.issues['OPS-1'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };
+  const issue = await client.issue('OPS-1');
   linear.calls.length = 0;
-  assert.equal(await client.advanceIssue('OPS-1', 'review', { owner: world.viewer.id }), null);
-  assert.equal(linear.calls.length, 2);
+  assert.equal(await client.moveIssue(issue, 'review'), null);
+  assert.equal(linear.calls.length, 1);
   assert.ok(!linear.calls.some((c) => c.query.includes('issueUpdate')));
 });
 

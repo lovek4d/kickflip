@@ -23,5 +23,5 @@ task leaves its issue closed.
 - **One way.** A closed or completed ticket never reopens, and a move that changes nothing writes nothing, so a task
   reopened from Done leaves its issue closed.
 
-The hub's Linear poll (`hub/github.mjs` `advanceLinear`) keeps its own copy of the assignee rule until the ticket
-seam (T-781) routes it through `moveTicket`'s policy.
+Amended by [one ticket layer arbitrates every ticket action](2026-11-19-1700-one-ticket-layer-arbitrates-every-ticket-action.md):
+the hub's poll moves tickets through this same rule, and a Linear ticket's move is one way at every target.

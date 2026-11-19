@@ -17,19 +17,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { savedClient } from './linear.mjs';
 import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { overnightOn } from './overnight.mjs';
 import { githubStateFile, wakeStateFile, wavesDir, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
 import { appendMessage, appendStatus, setItem, mergeCard } from '../board/cards.mjs';
 import { boardBranch } from '../board/worktree.mjs';
+import { followPRs } from '../board/tickets.mjs';
+import { storedTickets } from '../board/settings.mjs';
 import { allLanded, cardPRs, leastReady, prNames } from '../shared/card-prs.mjs';
 
 const PR_ENDED = ['MERGED', 'CLOSED'];
 import { runOwnerChecks } from './owner-checks.mjs';
 import { runReleaseWatch } from './release-watch.mjs';
-import { audit, boardAudit, hubAudit } from '../shared/audit.mjs';
+import { audit, boardAudit } from '../shared/audit.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'linked'];
 
@@ -93,7 +94,7 @@ function writeChecked(dir, every) {
 
 // One check. every: the most minutes until the next check, for checked.json. manifest: the hub's manifest.
 // → {at, watched, failed: [message], changes: [{repo, pr, changes}], events: [{route, id}], checked: [route], merged: [route],
-// linear: {moved, failed}, rate: GitHub's {remaining, resetAt} after the query, null when no PR made one}. merged names each board where this check recorded a card merged, for the hub to refresh its Main
+// tickets: {moved, failed} of the ticket layer's PR poll (board/tickets.mjs followPRs), rate: GitHub's {remaining, resetAt} after the query, null when no PR made one}. merged names each board where this check recorded a card merged, for the hub to refresh its Main
 // (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
 // watched counts distinct PRs; github-state.json's lastCheck also names the boards the check reached, for
 // boards.mjs linksOf.
@@ -214,11 +215,8 @@ export async function checkGitHub({ every, manifest }) {
   await runReleaseWatch(boards, failed);
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
   saveJSON(githubStateFile(), state);
-  const linear = { moved: [], failed: [] };
-  // docs/adr/2026-11-02-0023-the-hubs-poll-moves-the-owners-linear-tickets.md
-  try { await advanceLinear(boards, fetched, fetchKey, linear); }
-  catch (e) { linear.failed.push(`linear: ${e.message}`); }
-  return { at, watched: prs.size, failed, changes, events, checked, merged: [...mergedRoutes], linear, rate: query?.rate ?? null };
+  const tickets = await followPRs(ticketCards(boards, fetched, fetchKey));
+  return { at, watched: prs.size, failed, changes, events, checked, merged: [...mergedRoutes], tickets, rate: query?.rate ?? null };
 }
 
 const repoList = (board) => (board.github ? [board.github] : [...new Set(board.files.map((w) => w.itemFile.repo).filter(Boolean))]);
@@ -332,58 +330,29 @@ async function mergeApproved(board, { p }, view, tried, failed) {
   }
 }
 
-async function advanceLinear(boards, fetched, fetchKey, result) {
-  const client = savedClient();
-  if (!client) return;
-  const tickets = new Map();
+// Every card on every board with its PRs as this check read them, for the ticket layer's PR poll (board/tickets.mjs
+// followPRs). key names a waves card once however many boards show it; the card's least-ready PR stands for it, as on
+// the board (shared/card-prs.mjs leastReady).
+function ticketCards(boards, fetched, fetchKey) {
+  const cards = [];
   for (const board of boards) {
     const prs = Map.groupBy(board.prs, (p) => JSON.stringify([p.file, p.id]));
-    const source = board.kind === 'waves' ? wavesDir() : board.dir;
+    const dir = board.kind === 'waves' ? wavesDir() : board.dir;
+    const source = storedTickets(board.tickets);
     for (const { slug, itemFile } of board.files) {
       for (const item of itemFile.items) {
-        const ids = new Set(item.linear || []);
-        if (board.tickets?.source === 'linear' && item.ticket) ids.add(item.ticket);
-        // The card's least-ready PR stands for it, as on the board (shared/card-prs.mjs leastReady).
         const summaries = (prs.get(JSON.stringify([slug, item.id])) || []).map((p) => fetched[fetchKey(p, board.me)] || null);
         const summary = summaries[leastReady(summaries)];
         const merged = item.lane === 'done' || allLanded(summaries);
-        const carrying = {
-          merged, ready: summary?.state === 'OPEN' && !summary.isDraft,
-          hasPR: summaries.length > 0 && (merged || summaries.some((s) => s?.state === 'OPEN')), failed: summaries.some((s) => !s),
-        };
-        const key = JSON.stringify([source, slug, item.id]);
-        for (const id of ids) {
-          if (!tickets.has(id)) tickets.set(id, { items: new Map(), scoped: false, created: false, cards: [] });
-          const ticket = tickets.get(id);
-          const previous = ticket.items.get(key);
-          ticket.items.set(key, { ...carrying, failed: carrying.failed || previous?.failed });
-          ticket.scoped ||= summaries.some(Boolean);
-          ticket.created ||= item.ticket === id && Boolean(item.ticket_created);
-          ticket.cards.push(`${board.route}:${slug}/${item.id}`);
-        }
+        cards.push({
+          source, item, key: JSON.stringify([dir, slug, item.id]), card: `${board.route}:${slug}/${item.id}`,
+          scoped: summaries.some(Boolean), failed: summaries.some((s) => !s), merged, ready: summary?.state === 'OPEN' && !summary.isDraft,
+          hasPR: summaries.length > 0 && (merged || summaries.some((s) => s?.state === 'OPEN')),
+        });
       }
     }
   }
-  for (const [id, ticket] of tickets) {
-    const items = [...ticket.items.values()];
-    if (!ticket.scoped || items.some((item) => item.failed)) continue;
-    const target = items.every((item) => item.merged) ? 'done'
-      : items.every((item) => item.merged || item.ready) ? 'review'
-      : items.some((item) => item.hasPR) ? 'started' : null;
-    if (!target) continue;
-    const reason = { done: 'Every task on it has merged.', review: 'Every task on it has merged or has a PR ready for review.', started: 'A task on it has a PR.' }[target];
-    const entry = { call: 'linear-move', key: id, reason, inputs: { target, cards: ticket.cards, items } };
-    try {
-      const state = await client.advanceIssue(id, target, { owner: client.saved.viewer.id, created: ticket.created });
-      if (state) {
-        result.moved.push({ id, state });
-        audit(hubAudit(), { ...entry, result: `moved to ${state}` });
-      }
-    } catch (e) {
-      audit(hubAudit(), { ...entry, result: 'failed', reason: `${reason} ${e.message}` }, { once: true });
-      result.failed.push(`linear ${id}: ${e.message}`);
-    }
-  }
+  return cards;
 }
 
 // The wake due at `now` (schedule.mjs wakesDue): every board gets one `check-github {reason: "morning"}`

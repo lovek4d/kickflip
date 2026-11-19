@@ -11,7 +11,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { BoardError } from './checks.mjs';
 import { opensPRs, settingsOf, storedTickets } from './settings.mjs';
-import { ticketIn } from './tickets.mjs';
+import { ticketSlug } from './tickets.mjs';
 import { readLandTests } from '../shared/hub-settings.mjs';
 import { inTurns, turnAfter } from '../shared/turns.mjs';
 import { boardAt, readJSON, readManifest, samePath } from '../hub/boards.mjs';
@@ -137,8 +137,7 @@ export function branchName(site, id) {
 export function boardBranch(board, id) {
   const item = board.files.flatMap(({ itemFile }) => itemFile.items).find((it) => it?.id === id);
   const tickets = storedTickets(board.tickets);
-  const n = tickets && item ? ticketIn(tickets, item.ticket) : null;
-  const ticket = !n ? id : tickets.source === 'github' ? String(n) : `${tickets.team}-${n}`;
+  const ticket = (item && ticketSlug(tickets, item.ticket)) || id;
   const login = board.githubLogin ?? signedInLogin();
   return [login, board.title.trim().replace(/\s+/g, '_'), ticket].filter(Boolean).join('/').toLowerCase();
 }

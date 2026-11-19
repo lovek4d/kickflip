@@ -373,3 +373,12 @@ test('a card going ready with no ticket gets one, with the board-made line; one 
   assert.equal(await cli('none-ready', 'item', 'set', 'none-ready/T-1', '--phase', 'ready', '--text', 'checked'), 0);
   assert.deepEqual([none.item('T-1').ticket, none.item('T-1').phase], [undefined, 'ready']);
 });
+
+// docs/adr/2026-11-19-1700-one-ticket-layer-arbitrates-every-ticket-action.md
+test('only the ticket layer reaches GitHub or Linear for a ticket: no other module runs gh issue or calls a Linear issue', () => {
+  const sources = fs.readdirSync(root, { recursive: true }).filter((f) => /\.mjs$/.test(f) && !/(^|\/)node_modules\//.test(f) && !/\.test\.mjs$/.test(f));
+  const reaching = sources.filter((f) => !['board/tickets.mjs', 'hub/linear.mjs'].includes(f) && !f.startsWith('shared/fake-'))
+    .filter((f) => /\['issue', '|\b(?:createIssue|moveIssue|assignIssue)\(|\.issue\(/.test(fs.readFileSync(path.join(root, f), 'utf8')));
+  assert.deepEqual(reaching, []);
+  assert.ok(!/linear\.mjs/.test(fs.readFileSync(path.join(root, 'hub/github.mjs'), 'utf8')), 'the hub poll moves tickets only through board/tickets.mjs');
+});

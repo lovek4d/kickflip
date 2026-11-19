@@ -245,8 +245,9 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   const report = await cli('pr', 'audit/C3');
   assert.equal(report.code, 0, report.err);
   const issues = tokens(dir).filter((c) => c.args[0] === 'issue').map(({ args, token }) => [args[1], args[args.indexOf('--repo') + 1], token]);
+  // C3's link views #9; B2's close reads #1 first, as every move does, then closes it.
   assert.deepEqual(issues, [
-    ['create', 'someone/fork', 'token-lovek4d'], ['view', 'someone/fork', 'token-lovek4d'], ['close', 'someone/fork', 'token-lovek4d'],
+    ['create', 'someone/fork', 'token-lovek4d'], ['view', 'someone/fork', 'token-lovek4d'], ['view', 'someone/fork', 'token-lovek4d'], ['close', 'someone/fork', 'token-lovek4d'],
   ]);
   const prs = tokens(dir).filter((c) => c.args[0] === 'pr');
   assert.deepEqual(prs.map((c) => c.args[4]), ['someone/fork']);

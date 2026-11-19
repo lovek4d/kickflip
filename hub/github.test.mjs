@@ -369,7 +369,7 @@ async function linearPoll(t, { key = true } = {}) {
   const manifest = { sites: {} };
   const board = (route, items, cfg = {}) => {
     const dir = path.join(root, route);
-    const settings = { items: 'data/items.json', slug: 'linear', tickets: { source: 'linear' }, ...cfg };
+    const settings = { items: 'data/items.json', slug: 'linear', tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' }, ...cfg };
     write(path.join(dir, 'board.json'), settings);
     const file = settings.items === 'waves' ? path.join(home, '.claude', 'waves', 'linear', 'wave.json') : path.join(dir, settings.items);
     const set = (items) => write(file, { repo: 'o/r', items });
@@ -384,7 +384,8 @@ async function linearPoll(t, { key = true } = {}) {
 
 test('the poll advances a draft to In Progress, a ready PR to In Review and a merge to Done, idempotently', async (t) => {
   const { board, issue, poll, world, linear, updates } = await linearPoll(t);
-  board('draft', [{ id: 'A1', pr: 31, ticket: 'ENG-1' }]);
+  // A linked Linear issue, not the card's ticket, which the card's own close at the merge would move first.
+  board('draft', [{ id: 'A1', pr: 31, linear: ['ENG-1'] }]);
   issue('ENG-1');
   for (const [pr, state] of [
     [{ isDraft: true }, 'In Progress'], [{ isDraft: false }, 'In Review'], [{ state: 'MERGED' }, 'Done'],
@@ -392,9 +393,9 @@ test('the poll advances a draft to In Progress, a ready PR to In Review and a me
     writePR(home, 31, prView(pr));
     const moved = await poll();
     assert.deepEqual(moved.failed, []);
-    assert.deepEqual(moved.linear, { moved: [{ id: 'ENG-1', state }], failed: [] });
+    assert.deepEqual(moved.tickets,{ moved: [{ id: 'ENG-1', state }], failed: [] });
     const count = updates().length;
-    assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+    assert.deepEqual((await poll()).tickets, { moved: [], failed: [] });
     assert.equal(updates().length, count);
   }
   assert.equal(world.issues['ENG-1'].state, 's-done');
@@ -408,10 +409,32 @@ test("the poll leaves someone else's ticket alone without looking up states or m
   board('unowned', [{ id: 'A1', pr: 32, linear: ['ENG-2'] }], { tickets: { source: 'internal' } });
   issue('ENG-2', 's-todo', 'someone-else');
   writePR(home, 32, prView());
-  assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+  assert.deepEqual((await poll()).tickets, { moved: [], failed: [] });
   assert.equal(world.issues['ENG-2'].state, 's-todo');
   assert.equal(linear.calls.length, 1);
   assert.equal(updates().length, 0);
+});
+
+// docs/adr/2026-11-19-1700-one-ticket-layer-arbitrates-every-ticket-action.md: the poll's moves take a card's move's
+// policy, so a PR starting an unassigned ticket makes it the owner's, while an unassigned one at review stays as it is.
+test("the poll moves tickets through the board's assignee policy: a start assigns an unassigned ticket, review leaves one alone", async (t) => {
+  const { board, issue, poll, world, updates } = await linearPoll(t);
+  board('policy', [{ id: 'A1', pr: 43, ticket: 'ENG-16' }, { id: 'A2', pr: 44, ticket: 'ENG-17' }]);
+  issue('ENG-16', 's-todo', null);
+  issue('ENG-17', 's-todo', null);
+  writePR(home, 43, prView({ isDraft: true }));
+  writePR(home, 44, prView());
+  assert.deepEqual((await poll()).tickets, { moved: [{ id: 'ENG-16', state: 'In Progress' }], failed: [] });
+  assert.deepEqual([world.issues['ENG-16'].assignee, world.issues['ENG-17'].assignee, world.issues['ENG-17'].state], [world.viewer.id, null, 's-todo']);
+  assert.equal(updates().length, 2);
+});
+
+test("the poll leaves a GitHub board's issues to its cards' own moves, reaching no ticket for them", async (t) => {
+  const { board, poll, linear } = await linearPoll(t);
+  board('issues', [{ id: 'A1', pr: 45, ticket: '#45' }], { tickets: { source: 'github' } });
+  writePR(home, 45, prView());
+  assert.deepEqual((await poll()).tickets, { moved: [], failed: [] });
+  assert.equal(linear.calls.length, 0);
 });
 
 test('the poll never moves an In Review or Done ticket backwards for a draft PR', async (t) => {
@@ -420,7 +443,7 @@ test('the poll never moves an In Review or Done ticket backwards for a draft PR'
   issue('ENG-3', 's-rev');
   issue('ENG-4', 's-done');
   writePR(home, 33, prView({ isDraft: true }));
-  assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+  assert.deepEqual((await poll()).tickets, { moved: [], failed: [] });
   assert.deepEqual([world.issues['ENG-3'].state, world.issues['ENG-4'].state], ['s-rev', 's-done']);
   assert.equal(linear.calls.length, 2);
   assert.equal(updates().length, 0);
@@ -429,20 +452,21 @@ test('the poll never moves an In Review or Done ticket backwards for a draft PR'
 test('a shared ticket waits for both cards across file boards to be ready and then merged', async (t) => {
   const { board, issue, poll, world, updates } = await linearPoll(t);
   const logged = readAudit(hubAudit()).length;
-  const first = board('shared-first', [{ id: 'A1', pr: 34, ticket: 'ENG-5' }]);
-  board('shared-second', [{ id: 'A1', pr: 35, ticket: 'ENG-5' }, { id: 'dropped', lane: 'done', ticket: 'ENG-5' }]);
+  // Linked Linear issues, not the cards' tickets, which the first card's own close at its merge would move.
+  const first = board('shared-first', [{ id: 'A1', pr: 34, linear: ['ENG-5'] }]);
+  board('shared-second', [{ id: 'A1', pr: 35, linear: ['ENG-5'] }, { id: 'dropped', lane: 'done', linear: ['ENG-5'] }]);
   issue('ENG-5');
   writePR(home, 34, prView());
   writePR(home, 35, prView({ isDraft: true }));
-  assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-5', state: 'In Progress' }]);
+  assert.deepEqual((await poll()).tickets.moved, [{ id: 'ENG-5', state: 'In Progress' }]);
   writePR(home, 35, prView());
-  assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-5', state: 'In Review' }]);
+  assert.deepEqual((await poll()).tickets.moved, [{ id: 'ENG-5', state: 'In Review' }]);
   writePR(home, 34, prView({ state: 'MERGED' }));
-  assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+  assert.deepEqual((await poll()).tickets, { moved: [], failed: [] });
   assert.equal(world.issues['ENG-5'].state, 's-rev');
-  first([{ id: 'A1', lane: 'done', prs: [{ number: 34, merged_at: '2026-11-04T10:00:00Z' }], ticket: 'ENG-5' }]);
+  first([{ id: 'A1', lane: 'done', prs: [{ number: 34, merged_at: '2026-11-04T10:00:00Z' }], linear: ['ENG-5'] }]);
   writePR(home, 35, prView({ state: 'MERGED' }));
-  assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-5', state: 'Done' }]);
+  assert.deepEqual((await poll()).tickets.moved, [{ id: 'ENG-5', state: 'Done' }]);
   assert.equal(updates().length, 3);
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: each move goes
   // in the hub's audit log, naming the cards on the ticket; a poll that moves nothing logs nothing.
@@ -469,7 +493,7 @@ test('the poll combines Linear lists and Linear-source tickets once across waves
   issue('ENG-8');
   issue('ENG-9');
   writePR(home, 36, prView());
-  assert.deepEqual((await poll()).linear, { moved: [
+  assert.deepEqual((await poll()).tickets, { moved: [
     { id: 'ENG-6', state: 'In Review' }, { id: 'ENG-7', state: 'In Review' }, { id: 'ENG-8', state: 'In Review' },
   ], failed: [] });
   assert.deepEqual(linear.calls.filter((c) => c.query.includes('issue(id')).map((c) => c.variables.id), ['ENG-6', 'ENG-7', 'ENG-8']);
@@ -480,13 +504,13 @@ test('an unstarted carrying card blocks review and a closed unmerged PR does not
   const { board, issue, poll, linear } = await linearPoll(t);
   board('unstarted', [
     { id: 'A1', pr: 37, ticket: 'ENG-10' }, { id: 'A2', ticket: 'ENG-10' },
-    { id: 'A3', pr: 38, ticket: 'ENG-11' }, { id: 'A4', lane: 'done', ticket: 'ENG-10' },
+    { id: 'A3', pr: 38, linear: ['ENG-11'] }, { id: 'A4', lane: 'done', ticket: 'ENG-10' },
   ]);
   issue('ENG-10');
   issue('ENG-11');
   writePR(home, 37, prView());
   writePR(home, 38, prView({ state: 'CLOSED' }));
-  assert.deepEqual((await poll()).linear, { moved: [{ id: 'ENG-10', state: 'In Progress' }], failed: [] });
+  assert.deepEqual((await poll()).tickets, { moved: [{ id: 'ENG-10', state: 'In Progress' }], failed: [] });
   assert.deepEqual(linear.calls.filter((c) => c.query.includes('issue(id')).map((c) => c.variables.id), ['ENG-10']);
 });
 
@@ -498,11 +522,11 @@ test('a failed PR fetch skips a shared ticket even when its other card was fetch
   writePR(home, 40, { fail: true });
   const result = await poll();
   assert.equal(result.failed.length, 1);
-  assert.deepEqual(result.linear, { moved: [], failed: [] });
+  assert.deepEqual(result.tickets, { moved: [], failed: [] });
   assert.equal(linear.calls.length, 0);
   assert.equal(updates().length, 0);
   writePR(home, 40, prView());
-  assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-12', state: 'In Review' }]);
+  assert.deepEqual((await poll()).tickets.moved, [{ id: 'ENG-12', state: 'In Review' }]);
 });
 
 test('Linear failures stay separate from GitHub and retry on an unchanged PR', async (t) => {
@@ -514,22 +538,22 @@ test('Linear failures stay separate from GitHub and retry on an unchanged PR', a
   world.key = 'refused';
   const failed = await poll();
   assert.deepEqual(failed.failed, []);
-  assert.deepEqual(failed.linear, { moved: [], failed: ['linear ENG-13: Linear refused the key.'] });
+  assert.deepEqual(failed.tickets, { moved: [], failed: ['ticket ENG-13: Linear refused the key.'] });
   const state = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'github-state.json'), 'utf8'));
   assert.equal(state.lastCheck.at, failed.at);
   assert.equal(state.lastCheck.failed, 0);
   world.key = key;
-  assert.deepEqual((await poll()).linear, { moved: [{ id: 'ENG-13', state: 'In Review' }], failed: [] });
+  assert.deepEqual((await poll()).tickets, { moved: [{ id: 'ENG-13', state: 'In Review' }], failed: [] });
 });
 
 test('without a saved key the poll makes no Linear request and keeps GitHub changes and checked boards', async (t) => {
   const { board, poll, linear } = await linearPoll(t, { key: false });
   board('no-key', [{ id: 'A1', pr: 42, ticket: 'ENG-14', linear: ['ENG-15'] }]);
   writePR(home, 42, prView());
-  assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
+  assert.deepEqual((await poll()).tickets, { moved: [], failed: [] });
   writePR(home, 42, prView({ isDraft: true }));
   const result = await poll();
-  assert.deepEqual(result.linear, { moved: [], failed: [] });
+  assert.deepEqual(result.tickets, { moved: [], failed: [] });
   assert.deepEqual(result.failed, []);
   assert.equal(result.watched, 1);
   assert.deepEqual(result.changes, [{ repo: 'o/r', pr: 42, changes: ['draft'] }]);

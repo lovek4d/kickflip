@@ -100,15 +100,6 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
         return d.issue ? { identifier: d.issue.identifier, team: d.issue.team.key, assignee: d.issue.assignee?.id ?? null, state: d.issue.state } : null;
       } catch (e) { if (e.notFound) return null; throw e; }
     },
-    async advanceIssue(identifier, target, { owner, created } = {}) {
-      const issue = await api.issue(identifier);
-      if (!issue || (issue.assignee !== owner && !created) || stageOf(issue.state) >= { started: 1, review: 2, done: 3 }[target]) return null;
-      const state = stateFor((await team(issue.team)).states.nodes, target);
-      if (!state) return null;
-      const d = await call('mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }', { id: identifier, stateId: state.id });
-      if (!d.issueUpdate.success) throw new LinearError('Linear did not move the issue.');
-      return state.name;
-    },
     async commentIssue(identifier, body) {
       const d = await call('mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success } }', { input: { issueId: identifier, body } });
       if (!d.commentCreate.success) throw new LinearError('Linear did not post the comment.');
@@ -117,14 +108,13 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
       const d = await call('mutation($id: String!, $assigneeId: String!) { issueUpdate(id: $id, input: { assigneeId: $assigneeId }) { success } }', { id: identifier, assigneeId: assignee });
       if (!d.issueUpdate.success) throw new LinearError('Linear did not assign the issue.');
     },
-    // → the state's name when the issue moved, else null (already there, closed, or no state fits the target).
-    async moveIssue(identifier, target) {
-      const issue = await api.issue(identifier);
-      if (!issue) throw new LinearError(`Linear has no issue ${identifier}.`, 400);
-      if (['completed', 'canceled'].includes(issue.state.type)) return null;
+    // Moves issue, as issue() read it, toward target, one way: its team's states are looked up only for a move forward.
+    // → the state's name when the issue moved, else null (there or past it, or no state fits the target).
+    async moveIssue(issue, target) {
+      if (stageOf(issue.state) >= STAGES[target]) return null;
       const state = stateFor((await team(issue.team)).states.nodes, target);
-      if (!state || state.id === issue.state.id) return null;
-      const d = await call('mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }', { id: identifier, stateId: state.id });
+      if (!state) return null;
+      const d = await call('mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }', { id: issue.identifier, stateId: state.id });
       if (!d.issueUpdate.success) throw new LinearError('Linear did not move the issue.');
       return state.name;
     },
@@ -132,6 +122,7 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
   return api;
 }
 
+const STAGES = { started: 1, review: 2, done: 3 };
 export function stageOf(state) {
   if (['completed', 'canceled'].includes(state.type)) return 3;
   if (state.type === 'started') return /review/i.test(state.name) ? 2 : 1;

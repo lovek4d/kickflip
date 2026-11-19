@@ -739,7 +739,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   const ERROR_LOG_MS = 60 * 60_000;
   // running: the poll in progress; startedAt: when the last one began; last: its result; remaining: GitHub's points left
   // after its query, null when it made none.
-  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0, slackErrorLoggedAt: 0, slackIntakeErrorLoggedAt: 0, slackFollowErrorLoggedAt: 0, slackRepliesErrorLoggedAt: 0 };
+  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, ticketErrorLoggedAt: 0, slackErrorLoggedAt: 0, slackIntakeErrorLoggedAt: 0, slackFollowErrorLoggedAt: 0, slackRepliesErrorLoggedAt: 0 };
   const owner = ownerTracker();
 
   const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
@@ -784,10 +784,10 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         log(`github check: ${result.failed.length} step${result.failed.length === 1 ? '' : 's'} failed, first: ${result.failed[0]} (logged at most hourly)`);
       }
       if (result.changes.length) log(`github check: ${result.changes.map((c) => `#${c.pr} ${c.changes.join(',')}`).join('; ')} → ${result.events.map((e) => e.route).join(', ') || 'no board'}`);
-      for (const { id, state } of result.linear.moved) log(`linear: ${id} → ${state}`);
-      if (result.linear.failed.length && clock() - polls.linearErrorLoggedAt > ERROR_LOG_MS) {
-        polls.linearErrorLoggedAt = clock();
-        log(`linear check: ${result.linear.failed.length} step${result.linear.failed.length === 1 ? '' : 's'} failed, first: ${result.linear.failed[0]} (logged at most hourly)`);
+      for (const { id, state } of result.tickets.moved) log(`ticket: ${id} → ${state}`);
+      if (result.tickets.failed.length && clock() - polls.ticketErrorLoggedAt > ERROR_LOG_MS) {
+        polls.ticketErrorLoggedAt = clock();
+        log(`ticket check: ${result.tickets.failed.length} step${result.tickets.failed.length === 1 ? '' : 's'} failed, first: ${result.tickets.failed[0]} (logged at most hourly)`);
       }
       // docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md
       try { result.slack = await sendReviews({ boards: listBoards(loadManifest()) }); }

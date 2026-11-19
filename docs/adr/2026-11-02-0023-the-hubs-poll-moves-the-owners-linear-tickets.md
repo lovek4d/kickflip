@@ -8,6 +8,8 @@ Each ticket is read once per check. Only an issue assigned to the saved key's vi
 
 Linear moves and failures have their own poll result. Moves are logged; failures are logged at most hourly with their own timestamp and never make a successful GitHub check look unreachable. Linear failures never discard the saved GitHub results.
 
+Amended by [one ticket layer arbitrates every ticket action](2026-11-19-1700-one-ticket-layer-arbitrates-every-ticket-action.md): the poll hands its cards to `board/tickets.mjs` `followPRs`, which moves each ticket through a card's move's assignee rule, so a PR starting an unassigned ticket assigns it to the owner; the result is the check's `tickets`.
+
 Considered:
 - leaving it to monitor: an optional skill would still own a step needed on every board;
 - moving only `item.ticket`: existing `linear` links would be missed;
