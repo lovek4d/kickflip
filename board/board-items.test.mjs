@@ -597,9 +597,11 @@ test('a write that would leave a built card In Progress with nothing building an
   assert.equal((await board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Land it')).code, 0);
   assert.deepEqual([typeof read(main).done, items()[0].next], ['string', 'Land it']);
 
+  // Clearing the Next is allowed: the board's restart takes a card owing one (runs.mjs stuckBuilds).
   for (const args of [['--clear-next'], ['--next', '']]) {
-    const r = await board('item', 'set', 'w/A1', '--site', 'orch', ...args);
-    assert.deepEqual([r.code, r.err.trim()], [1, 'that leaves w/A1 In Progress with nothing building and no Next; pass --next "<what happens next>"'], args.join(' '));
+    assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', ...args)).code, 0, args.join(' '));
+    assert.equal('next' in items()[0], false, args.join(' '));
+    assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'Land it')).code, 0);
   }
   assert.equal(items()[0].next, 'Land it');
   // A handed-back card waits on the orchestrator's check, so it needs no Next of its own.

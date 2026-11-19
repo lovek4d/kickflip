@@ -1041,7 +1041,8 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (built) item.install = built;
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: a build's start goes with its record.
-  if (!owedBefore && !start && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
+  // docs/adr/2026-11-19-1200-clearing-a-next-hands-the-card-to-the-restart.md: clearing a Next is the way to the restart.
+  if (!owedBefore && !start && !clearNext && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md: a block on a card In
   // Progress keeps it there, and asks its running build, the board's or a session's, to pause at its next stopping
   // point (requestPause); one already landing lands, since land refuses a blocked card.
