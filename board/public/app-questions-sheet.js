@@ -347,7 +347,12 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
   on(sheet, 'close', () => { if (!sheet.open) unfitted(); });
   atUnmount(unfitted);
 
-  return { open, followCard, leaveCard, shows, close, redraw, resend, retry, drop, holds, linkChanged, isOpen: () => sheet.open };
+  // The topic the open sheet shows and whether it follows the opened card, else null.
+  const save = () => (topic && sheet.open && !sheet.classList.contains('closing') ? { topic, auto: autoOpen } : null);
+  // A topic whose questions were all answered while the board was away stays closed.
+  const reopen = (s) => { if (board() && questionsOf(s.topic).some((q) => q.state === 'open')) open(s.topic, { auto: s.auto }); };
+
+  return { save, reopen, open, followCard, leaveCard, shows, close, redraw, resend, retry, drop, holds, linkChanged, isOpen: () => sheet.open };
 };
 // docs/adr/2026-11-17-2000-the-questions-sheets-send-is-a-fixed-footer.md
 // The sheet's dialog: the reader sheet's head, the cards scrolling in its body, and under them a footer with the status
@@ -374,5 +379,6 @@ BoardView.part((B) => {
     const button = ev.target.closest?.('button[data-questions]');
     if (button) qs.open(button.dataset.questions);
   });
+  B.keepSheet('questions', $('#questionsSheet'), qs.save, qs.reopen);
   Object.assign(B, { openQuestionsSheet: qs.open, followCardQuestions: qs.followCard, leaveCardQuestions: qs.leaveCard, questionsSheetShows: qs.shows, closeQuestionsSheet: qs.close, resendAnswers: qs.resend, answersLinkChanged: qs.linkChanged, retryAnswer: qs.retry, dropAnswer: qs.drop, holdsAnswer: qs.holds });
 });

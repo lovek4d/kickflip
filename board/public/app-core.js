@@ -157,12 +157,23 @@ BoardView.part((B) => {
     const selector = field && boxOf(field);
     return { y: scrollNow(), box: selector ? { selector, selection: [field.selectionStart, field.selectionEnd, field.selectionDirection], top: field.scrollTop } : null };
   });
+  // The sheets open as the board unmounts, in stack order: a part registers its sheet with keepSheet(name, sheet, save,
+  // reopen), save() → what it shows or null, reopen(that) opens it again; restorePlace reopens each in the same order.
+  const sheetParts = new Map();
+  B.keepSheet = (name, sheet, save, reopen) => sheetParts.set(name, { sheet, save, reopen });
+  B.keep(() => {
+    if (place) return { sheets: place.sheets };
+    const open = BoardUI.openSheets();
+    const parts = [...sheetParts].filter(([, p]) => open.includes(p.sheet)).sort(([, a], [, b]) => open.indexOf(a.sheet) - open.indexOf(b.sheet));
+    return { sheets: parts.flatMap(([name, p]) => { const state = p.save(); return state ? [{ name, state }] : []; }) };
+  });
   // Only the first call restores, and none when the URL names a card (linked). A phone's keyboard would open for the
   // focus, so only a mouse or trackpad gets the box back (sidebar.js DESKTOP).
   function restorePlace({ linked = false } = {}) {
     const p = place;
     place = null;
     if (!p || linked) return;
+    for (const { name, state } of p.sheets || []) sheetParts.get(name)?.reopen(state);
     if (column()) column().scrollTop = p.y; else scrollTo(0, p.y);
     const box = p.box && $(p.box.selector);
     if (!box || box.closest('details:not([open])') || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;

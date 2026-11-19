@@ -9366,3 +9366,34 @@ test("a landing card's glance row and live line read what its land waits on: Wai
   assert.match(line('L3').textContent, /^Land failed: 6 tests/);
   wide.view.unmount();
 });
+
+// docs/adr/2026-11-19-1100-a-board-keeps-its-open-sheets-while-another-shows.md
+test("a board left with sheets open reopens them in stack order when it mounts again in the page, and a questions sheet whose questions were answered while away stays closed", async () => {
+  const topics = [openQuestion('qa', 'item:w/A1')];
+  const r = readerOnDom('plain log text', { topics });
+  await r.settle();
+  r.tap(r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]'));
+  await r.settle();
+  r.view.B.openQuestionsSheet('item:w/A1');
+  await r.settle();
+  const remount = async (board) => {
+    r.view.unmount();
+    const root = r.page.win.document.body.appendChild(new r.root.constructor('div'));
+    root.innerHTML = r.page.win.BoardView.markup({ title: 'A' });
+    const view = r.page.win.BoardView.create(root, 'https://mac.ts.net/board-a', { signal: () => () => {} });
+    Object.assign(r.server, board && { board });
+    view.mount();
+    await r.settle();
+    return { root, view, sheet: (id) => root.querySelector(id) };
+  };
+  const again = await remount();
+  assert.deepEqual([again.sheet('#readerSheet').open, again.sheet('#questionsSheet').open], [true, true], 'both sheets are back');
+  assert.equal(again.sheet('#readerSheet').querySelector('.reader-ref').textContent, 'builder-A1-1.log', 'the reader shows its transcript');
+  assert.equal(again.view.B.questionsSheetShows('item:w/A1'), true);
+  assert.equal(r.page.win.BoardUI.openSheets().at(-1), again.sheet('#questionsSheet'), 'the questions sheet is on top, as it was');
+  r.view = again.view;
+  const answered = { ...r.server.board, owner: r.server.board.owner.map((q) => ({ ...q, state: 'answered' })), version: 'v9' };
+  const last = await remount(answered);
+  assert.deepEqual([last.sheet('#readerSheet').open, last.sheet('#questionsSheet').open], [true, false], 'answered while away: only the reader returns');
+  last.view.unmount();
+});

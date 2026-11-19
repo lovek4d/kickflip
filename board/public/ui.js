@@ -547,6 +547,8 @@
   // it stacked {sheet, page: true}.
   const layers = [];
   const isTopSheet = (sheet) => layers.at(-1)?.sheet === sheet;
+  // The open sheets, bottom first, each once.
+  const openSheets = () => layers.map((l) => l.sheet).filter((sheet, i, all) => sheet.open && all.indexOf(sheet) === i);
   // The stacked sheets as they show, bottom first, and those showing again in their place (restack), whose close is
   // no leaving.
   let shown = [];
@@ -727,7 +729,7 @@
   // After ui-icon-text.js, whose iconText, ICON_SHAPES and ICON_COLOURS stay on BoardUI.
   globalThis.BoardUI = {
     ...globalThis.BoardUI,
-    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, pushPage, popPage, isTopSheet, cutClose, swipeToDismiss, swipeVerdict,
+    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, pushPage, popPage, isTopSheet, openSheets, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, SENDING, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, cardBumpItem, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };

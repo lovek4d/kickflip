@@ -367,6 +367,26 @@ BoardView.part((B) => {
     stopReading?.();
   }
 
+  // The views the open sheet shows, bottom first: each a card page's URL, a transcript's file or a card's notes.
+  function save() {
+    if (!sheet.open || sheet.classList.contains('closing')) return null;
+    const views = [...under, { log, notesKey, page }].map((v, i, all) => {
+      if (v.page) return { page: v.page.url };
+      if (v.log) return { log: v.log.file };
+      return v.notesKey ? { notes: v.notesKey, auto: autoNotes && i === all.length - 1 } : null;
+    }).filter(Boolean);
+    return views.length ? views : null;
+  }
+  // A notes view whose card is gone from the board stays out.
+  function reopen(views) {
+    for (const v of views) {
+      if (v.page) openPage(v.page);
+      else if (v.log) openLog(v.log);
+      else if (state.board?.items.some((i) => i.key === v.notes)) openNotes(`?item=${encodeURIComponent(v.notes)}`, { auto: v.auto });
+    }
+  }
+  B.keepSheet('reader', sheet, save, reopen);
+
   Object.assign(B, { closeReader: closeAll, takeNotes, fillNotes, openPage, followCardNotes, leaveCardNotes });
 
   const plainTap = (ev) => !ev.defaultPrevented && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey;
