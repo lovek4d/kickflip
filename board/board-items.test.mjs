@@ -256,6 +256,18 @@ test('item notes appends a section, starting the notes of a card that has none, 
   assert.equal((await board('item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'Two\nlines', '--file', path.join(home, 'more.md'))).code, 1);
 });
 
+// docs/adr/2026-11-18-2330-agents-read-the-cards-thread-and-notes-stop-copying-it.md
+test("item thread prints the owner's message and the board's lines in order, which no notes section carries", async () => {
+  addEvents({ id: 'm1', ts: '2026-11-19T10:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Use the blue' } });
+  fs.mkdirSync(site('orch', 'data', 'threads'), { recursive: true });
+  fs.writeFileSync(site('orch', 'data', 'threads', 'w__A1.jsonl'), JSON.stringify({ ts: '2026-11-19T10:05:00Z', who: 'claude', text: 'Blue it is.' }) + '\n');
+  const r = await board('item', 'thread', 'w/A1', '--site', 'orch');
+  assert.equal(r.code, 0, r.err);
+  const out = r.out.trim().split('\n');
+  assert.deepEqual(out.map((l) => l.replace(/^\S+ /, '')), ['love: Use the blue', 'claude: Blue it is.']);
+  assert.equal((await board('item', 'thread', 'w/A1')).code, 2, 'it needs --site');
+});
+
 test('item notes --file - and item add --notes-from - read the draft from stdin', async () => {
   const notes = run('board.mjs', ['item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'Piped', '--file', '-'], 'From stdin.\n');
   assert.equal(notes.code, 0, notes.err);

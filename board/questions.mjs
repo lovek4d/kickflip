@@ -486,8 +486,8 @@ async function resolveGate(site, key, kind, note) {
 // docs/adr/2026-11-07-0700-staging-then-ready.md, docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
 // The owner's Send acted on with no orchestrator step. A gate question resolves and its answer becomes the card's gate
 // fact (keepGate). A prototype yes while another of its card's questions is open has a thread line say the card waits
-// for them. A no marks the card waiting on its Implement ask. Every answer on a card goes into the card's notes verbatim, and the card then moves on once nothing is left
-// open (moveOnAnswered).
+// for them. A no marks the card waiting on its Implement ask. The answers stay in the thread (docs/adr/2026-11-18-2330-agents-read-the-cards-thread-and-notes-stop-copying-it.md),
+// and the card moves on once nothing is left open (moveOnAnswered).
 // → {prototype: [keys]}: the cards whose prototype planner the server starts.
 export async function settleAnswers(site, answers) {
   const asked = new Map(((await readJSON(ownerFile(site), { items: [] })).items || []).map((q) => [q.id, q]));
@@ -508,12 +508,7 @@ export async function settleAnswers(site, answers) {
       await appendStatus(site, key, 'prototype-after');
     }
   }
-  const byCard = new Map();
-  for (const a of answers) {
-    const q = asked.get(String(a.id));
-    const key = cardOfTopic(q?.topic);
-    if (key) byCard.set(key, [...(byCard.get(key) || []), answerLine(q, a)]);
-  }
+  const answered = new Set(answers.map((a) => cardOfTopic(asked.get(String(a.id))?.topic)).filter(Boolean));
   const takes = new Map();
   for (const a of answers) {
     const q = asked.get(String(a.id));
@@ -521,10 +516,9 @@ export async function settleAnswers(site, answers) {
     if (key && picksTake(q, a.choice)) takes.set(key, { question: String(a.id), choice: String(a.choice), ...(a.note ? { note: String(a.note) } : {}) });
   }
   const prototype = [];
-  for (const [key, said] of byCard) {
+  for (const key of answered) {
     if (!(await loadItem(site, key).catch(() => null))) continue;
-    await followUp(site, key, 'writing them into its notes', async () => {
-      await appendNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
+    await followUp(site, key, 'moving the card on', async () => {
       const moved = await moveOnAnswered(site, key, takes.get(key));
       if (moved === 'prototyping') prototype.push(key);
     });
@@ -594,12 +588,6 @@ export const cardOfTopic = (topic) => (typeof topic === 'string' && topic.starts
 const pad2 = (n) => String(n).padStart(2, '0');
 // The owner's time on a notes heading, MM/DD HH:MM in the host's local time.
 export const noteStamp = (d = new Date()) => `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-// One answer as its notes line: the question, the option picked by its label, and the owner's note verbatim.
-function answerLine(q, a) {
-  const picked = a.choice === null || a.choice === undefined || a.choice === '' ? null : (q.options || []).find((o) => o.id === a.choice)?.label ?? String(a.choice);
-  const note = String(a.note || '').trim();
-  return `- ${q.id} (${q.question}): ${picked ? `${picked}.` : 'no option picked.'}${note ? ` Note, verbatim: "${note}"` : ''}`;
-}
 // docs/adr/2026-11-09-1100-the-board-owns-a-cards-notes-file.md
 // A card's notes file is written here and nowhere else. The board names it <id>-notes.md beside the card's item file,
 // every write after the first is an appended section under the card's lock, written to a temp file then renamed, and
@@ -831,13 +819,12 @@ async function endPlanners(site, key) {
 }
 
 // An Implement message on a Todo card, in the board server before its event: a card the owner blocked, or that waits on a task,
-// stays blocked (docs/adr/2026-11-16-1030-implement-stages-a-blocked-card-and-keeps-the-block.md); its planners end (endPlanners); its words go into the notes; and it is staged in Todo.
+// stays blocked (docs/adr/2026-11-16-1030-implement-stages-a-blocked-card-and-keeps-the-block.md); its planners end (endPlanners); its words stay in the thread; and it is staged in Todo.
 // → the planners it closed, for the board server to stop.
 export async function stageImplement(site, key, message) {
   await clearOwnerWait(site, key);
   const stopped = await endPlanners(site, key);
   const words = messageWords(message);
-  if (words) await appendNotes(site, key, `Implement (owner, ${noteStamp()}), verbatim`, words);
   // A bare tap's staging line is the tap's own line, so it carries the tap's sendId; a message already holds it.
   await stage(site, key, words ? undefined : message.sendId);
   return stopped;
@@ -882,10 +869,8 @@ export function readiedText(said) {
   if (long) fail(`--text ${long}: it is ${shape}, which holds ${BRIEF_LINE_LIMIT}; rewrite it to fit`);
   return READIED_LEAD + words;
 }
-// A Reply on a ready Todo card: its words go into the notes, and it is staged again.
-export async function stageReply(site, key, message) {
-  const words = messageWords(message);
-  if (words) await appendNotes(site, key, `Reply (owner, ${noteStamp()}), verbatim`, words);
+// A Reply on a ready Todo card: its words stay in the thread, and it is staged again.
+export async function stageReply(site, key) {
   await stage(site, key);
 }
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md

@@ -208,7 +208,7 @@ test("the owner's Grill or Prototype tap on a discussing card moves it to that p
   await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
   await s.stageImplement(audit(), 'audit/T-1', { text: 'Go with the sidebar.' });
   assert.equal(t1().phase, 'staging');
-  assert.match(fs.readFileSync(path.join(audit('data'), t1().plan), 'utf8'), /Go with the sidebar\./);
+  assert.doesNotMatch(fs.readFileSync(path.join(audit('data'), t1().plan), 'utf8'), /Go with the sidebar\./, 'the owner\'s words stay in the thread');
 });
 
 // docs/adr/2026-11-12-0800-a-written-brief-wakes-the-board-and-going-discussing-drops-owed-briefs.md

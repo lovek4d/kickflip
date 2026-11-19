@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { squashBody, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { COMMANDS, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, builds, mergeBlockers, owesNext, pushTag, refOf, HELPER, implementAsk } from './domain.mjs';
+import { COMMANDS, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, threadOf, builds, mergeBlockers, owesNext, pushTag, refOf, HELPER, implementAsk } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { reviseQueued, pushKindError } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
@@ -19,7 +19,7 @@ import { resolveTicket, ticketNamed, ticketTarget, moveTicket, cardIdOf } from '
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { appendLine, boardConfig, itemSources, readJSON, readLog, remove, replace, sitesDir, wavesDir, writeJSON } from './files.mjs';
-import { builtCards } from './snapshot.mjs';
+import { builtCards, shownEvents } from './snapshot.mjs';
 import { SCRIPT_LIMIT, runsAs, scriptLogName, scriptSha } from './scripts.mjs';
 import { HUB, WAIT_OVER, MESSAGE_LIMIT, hubLineOf, hubText, detailOf } from './hub-lines.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
@@ -491,6 +491,25 @@ export async function appendCommand(site, key, { command, text: words = COMMANDS
 export const askLinksFile = (site) => path.join(site, 'data', 'ask-links.json');
 export async function readAskLinks(site) {
   return (await readJSON(askLinksFile(site), {})).links || {};
+}
+
+// docs/adr/2026-11-18-2330-agents-read-the-cards-thread-and-notes-stop-copying-it.md
+// A card's thread as the page shows it, read from the board's files: the card's thread lines with the owner's messages
+// and answers, and the asks it came from or folded in, in order (domain.mjs threadOf), one "<time> <who>: <text>" line
+// each. The owner's words live in the events log and are copied nowhere else.
+export async function readThread(site, key) {
+  const { item } = await loadItem(site, key);
+  const links = await readAskLinks(site);
+  const moved = Object.entries(links).filter(([, k]) => k === key).map(([id]) => id);
+  const askIds = [item.from_ask, ...moved].filter(Boolean);
+  const keys = new Set([key, ...askIds.map((id) => `ask:${id}`)]);
+  const owner = await readJSON(ownerFile(site), { items: [] });
+  const asked = new Set((owner.items || []).filter((q) => q.topic === `item:${key}`).map((q) => q.id));
+  const events = (await shownEvents(site)).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))
+    || (e.kind === 'owner-answer' && asked.has(e.data?.id)) || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
+  const lines = (await Promise.all([...keys].map((k) => readLog(threadFile(site, k))))).flat();
+  const thread = threadOf(key, { lines, events, owner, fromAsk: item.from_ask || null, moved });
+  return thread.map((m) => `${m.ts} ${m.who}: ${String(m.text ?? '').trim()}`);
 }
 
 // A card as the board labels it, for the one-line summaries board/bin/board.mjs and bin/wait-events.mjs print: a work

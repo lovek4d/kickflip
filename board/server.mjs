@@ -123,9 +123,9 @@
 //                                Implement with no text or files on a Todo or ready card writes no line of its own
 //                                and stages the card for the orchestrator's review, with no event
 //                                (runs.mjs implementAsIs). One with text or files on a Todo card stages it
-//                                there, its open questions skipped and its words in its notes (questions.mjs stageImplement),
-//                                and appends the message. Any other message on a ready Todo card stages it again with its
-//                                words in the notes (questions.mjs stageReply; docs/adr/2026-11-07-0700-staging-then-ready.md)
+//                                there, its open questions skipped and (questions.mjs stageImplement),
+//                                and appends the message. Any other message on a ready Todo card stages it again
+//                                (questions.mjs stageReply; docs/adr/2026-11-07-0700-staging-then-ready.md)
 //                                An owner-answer with a note and no take resolves its question (questions.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
 //                                recorded with prototype_again: true: the card reads prototyping with Next "Prototype
@@ -218,7 +218,7 @@
 //                                starts bin/script-run.mjs detached, which posts script-result
 //                                {key, id, exit, output, timedOut, ms, log} when the script ends
 //                                (docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md).
-//                                An owner-answer goes into its card's notes verbatim, and one that leaves an unstarted
+//                                An owner-answer stays in the thread, and one that leaves an unstarted
 //                                card with nothing open goes to discussing, its Implement ask waiting (questions.mjs settleAnswers).
 //                                What waits on the owner (domain.mjs ownerActions) is one live notification per board,
 //                                tagged board-<route> (domain.mjs ownerRow), tracked in data/action-pushes.json: its
@@ -999,7 +999,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       else if (effect.do === 'passNews') await passNews(here, key, { from: 'owner', text: effect.text });
       else if (effect.do === 'stage' && effect.as === 'asIs') stopAgents(await implementAsIs(here, key, sendId));
       else if (effect.do === 'stage' && effect.as === 'implement') stopAgents(await stageImplement(here, key, body));
-      else if (effect.do === 'stage' && effect.as === 'reply') await stageReply(here, key, body);
+      else if (effect.do === 'stage' && effect.as === 'reply') await stageReply(here, key);
       else if (effect.do === 'record') await recordTap(key, kind, body, effect);
       else if (effect.do === 'resume') heldIf(await runs.resume(here, key, runIo));
       else if (effect.do === 'merge' && effect.held) {

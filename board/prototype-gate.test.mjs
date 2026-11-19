@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addQuestions, resolveQuestion, settleAnswers } from './store.mjs';
+import { addQuestions, followUp, readThread, resolveQuestion, settleAnswers } from './store.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
@@ -175,43 +175,38 @@ test('a Send that leaves an unstarted grilling card with nothing open sends it t
   assert.equal(started.card(), 'grilling');
 });
 
-test('every answer on a card goes into its notes verbatim, in a file the board makes when the card has none', async () => {
-  const { site, answer, notes } = world();
+// docs/adr/2026-11-18-2330-agents-read-the-cards-thread-and-notes-stop-copying-it.md
+test('an answer on a card stays out of its notes, which item thread still shows with the owner\'s note', async () => {
+  const { site, answer, notes, read } = world();
   await addQuestions(site, [other, gate]);
   await settleAnswers(site, [answer('q-other', 'a', 'Bigger, "please"'), answer('q-gate', 'no')]);
-  const added = notes('notes.md').split('\n## ')[1];
-  assert.match(added, /^Answers \(owner, \d\d\/\d\d \d\d:\d\d\)\n/);
-  assert.deepEqual(added.split('\n').slice(1).filter(Boolean), ['- q-other (Which?): A. Note, verbatim: "Bigger, "please""', '- q-gate (Prototype round first?): No.']);
+  assert.equal(notes('notes.md'), 'q-other: A\n');
+  assert.match((await readThread(site, 't/A1')).join('\n'), /Bigger, "please"/);
 
   const bare = world();
   bare.item({ plan: undefined });
   await addQuestions(bare.site, other);
   await settleAnswers(bare.site, [bare.answer('q-other', null, 'Only a note')]);
-  assert.equal(bare.read().plan, 'a1-notes.md');
-  assert.match(bare.notes('a1-notes.md'), /^# Card\n\n## Answers \(owner, .*\)\n- q-other \(Which\?\): no option picked\. Note, verbatim: "Only a note"\n$/);
+  assert.equal(bare.read().plan, undefined);
+  assert.equal(read().plan, 'notes.md');
 });
 
-// docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
-test('a card whose notes file is gone gets a fresh one at the same path with its answers, and a thread line says so', async () => {
-  const gone = world('grilling');
-  fs.rmSync(path.join(gone.site, 'data', 'notes.md'));
-  await settleAnswers(gone.site, [(await addQuestions(gone.site, other), gone.answer('q-other', 'a', 'Bigger'))]);
-  assert.equal(gone.read().plan, 'notes.md');
-  assert.match(gone.notes('notes.md'), /^# Card\n[\s\S]*## Answers \(owner, [^)]*\)\n- q-other \(Which\?\): A\. Note, verbatim: "Bigger"/);
-  assert.ok(gone.thread().some((m) => /^Its notes file was missing, so the board started a new one\.$/.test(m.text)));
+test("a follow-up that fails, whatever the error, posts its reason to its card as a fault line", async () => {
+  const w = world('grilling');
+  await followUp(w.site, 't/A1', 'moving the card on', async () => { throw new Error('boom'); });
+  assert.match(w.thread().at(-1).text, /^Answers recorded, but moving the card on failed: boom/);
 });
 
-test('a follow-up that fails on one card posts its reason to that card and leaves the other cards settled', async () => {
+test('answers on two cards each move their card on', async () => {
   const w = world('grilling');
   const wave = JSON.parse(fs.readFileSync(path.join(w.site, 'data', 'items.json'), 'utf8'));
-  fs.writeFileSync(path.join(w.site, 'data', 'items.json'), JSON.stringify({ items: [{ ...wave.items[0], plan: '../escaped.md' }, { id: 'A2', title: 'Second', phase: 'grilling', size: 'small', plan: 'notes.md' }] }));
+  fs.writeFileSync(path.join(w.site, 'data', 'items.json'), JSON.stringify({ items: [wave.items[0], { id: 'A2', title: 'Second', phase: 'grilling', size: 'small', plan: 'notes.md' }] }));
   await addQuestions(w.site, other);
   await addQuestions(w.site, { ...other, id: 'q-second', topic: 'item:t/A2' });
   const result = await settleAnswers(w.site, [w.answer('q-other', 'a'), w.answer('q-second', 'a')]);
-  assert.match(w.thread().at(-1).text, /^Answers recorded, but writing them into its notes failed: a notes file is/);
-  assert.match(w.notes('notes.md'), /q-second/);
   assert.equal(result.prototype.length, 0);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(w.site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'A2').phase, 'discussing');
+  const phases = JSON.parse(fs.readFileSync(path.join(w.site, 'data', 'items.json'), 'utf8')).items.map((i) => i.phase);
+  assert.deepEqual(phases, ['discussing', 'discussing']);
 });
 
 // docs/adr/2026-11-17-1800-a-take-pick-owes-a-final-visual-brief.md
@@ -235,7 +230,7 @@ test("a take pick on a prototyped card leaves it discussing and owes the orchest
   assert.equal(plain.read().briefs, undefined, 'a question that is no prototype take owes no visual');
 });
 
-test('a take pick on a card Implement already staged or readied keeps it there: its answer in the notes, no visual owed', async () => {
+test('a take pick on a card Implement already staged or readied keeps it there: no visual owed', async () => {
   const take = { id: 'q-take', topic: 'item:t/A1', question: 'Which take?', url: 'prototype-look.html?q=q-take', options: [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }] };
   for (const phase of ['staging', 'ready']) {
     const held = world(phase);
@@ -243,6 +238,5 @@ test('a take pick on a card Implement already staged or readied keeps it there: 
     await settleAnswers(held.site, [held.answer('q-take', 'B', 'Round the corners')]);
     assert.equal(held.card(), phase);
     assert.equal(held.read().briefs, undefined);
-    assert.match(held.notes('notes.md'), /Round the corners/);
   }
 });

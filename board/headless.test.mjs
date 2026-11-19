@@ -73,7 +73,7 @@ test("a grill's, a prototype's and a visual agent's brief open with the orchestr
   const briefs = [plannerBrief({ ...card, kind: 'grill', repo: '/r/shop' }), plannerBrief({ ...card, kind: 'prototype', repo: '/r/shop' }), visualBrief({ ...card, repo: '/r/shop', agent: 'visual-1' })];
   for (const [brief, what] of briefs.map((b, i) => [b, ['questions', 'takes', 'page'][i]])) {
     assert.ok(brief.includes(`Start from the orchestrator's brief, its notes section "Brief for grill round 1": what the discussion settled, what is still open, and what your ${what} should cover, with the files that matter. Read it before the thread and the notes:\n\nSettled: the footer folds.\nOpen: the phone layout.\n`), what);
-    assert.ok(brief.indexOf('Settled: the footer folds.') < brief.indexOf('1. Run') && brief.indexOf('1. Run') < brief.indexOf(card.thread), what);
+    assert.ok(brief.indexOf('Settled: the footer folds.') < brief.indexOf('1. Run') && brief.indexOf('1. Run') < brief.indexOf('item thread w/A1'), what);
   }
   for (const write of [() => plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', brief: undefined }), () => visualBrief({ ...card, repo: '/r/shop', agent: 'v', brief: null })]) {
     assert.throws(write, /no orchestrator's brief/);
@@ -254,19 +254,19 @@ test("a headless planner's brief names its card and its notes so far, spells its
   assert.ok(builderBrief({ ...card, rules: ['x'] }).includes('Rules from the hub and this board:\n- x'), "a builder's rules aren't relabelled");
 });
 
-// docs/adr/2026-11-11-1100-every-agent-brief-names-the-cards-thread-file.md
-test("every brief names the card's thread file, and a builder reads it with the notes, asks when it contradicts them, and reads it again in checking", () => {
-  const t = '/s/data/threads/w__A1.jsonl';
+// docs/adr/2026-11-18-2330-agents-read-the-cards-thread-and-notes-stop-copying-it.md
+test("every brief tells its agent to read the card's thread with item thread, and a builder lets a later owner message beat the notes and reads it again in checking", () => {
+  const t = 'item thread w/A1';
   const briefs = {
     builder: builderBrief(card), lander: landerBrief(card), rebase: rebaseBrief({ ...card, pr: 3 }), helper: helperBrief({ ...card, agent: 'h', task: 'x', cwd: '/wt/A1' }),
     grill: plannerBrief({ ...card, kind: 'grill', repo: '/r/shop' }), visual: visualBrief({ ...card, repo: '/r/shop', agent: 'v' }),
   };
-  for (const [name, brief] of Object.entries(briefs)) assert.ok(brief.includes(t), `the ${name} brief names the thread file`);
+  for (const [name, brief] of Object.entries(briefs)) assert.ok(brief.includes(t), `the ${name} brief names the thread command`);
   const builder = briefs.builder;
-  assert.ok(builder.includes('who: love') && builder.includes('the notes win') && builder.includes('that contradiction counts as blocked'), 'the notes win over the thread and the builder asks');
+  assert.ok(builder.includes('who: love') && builder.includes("the owner's message wins") && !builder.includes('the notes win'), 'a later owner message beats the notes');
   assert.ok(builder.includes('Ask it only when you are blocked') && builder.includes('builder asks w/A1 --wait') && builder.includes('Found: <what>'), 'the brief asks only when blocked, waits with --wait, and files findings as calls');
   assert.ok(builder.includes('Read the thread again in checking'));
-  assert.ok(!briefs.grill.includes('data/threads folder'), 'a planner gets the exact file, not the folder');
+  assert.ok(briefs.grill.includes('never quotes of the owner'), 'a planner writes findings, never quotes of the thread');
 });
 
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md

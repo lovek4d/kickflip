@@ -370,7 +370,11 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          adds reads New
          Without /<id>, a task is keyed T-<n>, the next on the board, and a ticketed task takes its ticket's
          id (GH-<n> for issue #n); pass an id only to import a task. Prints "<label> added as <key>": use the key in later commands
-  item notes <file>/<id> --heading <h>                 appends "## <h>" and the draft to the task's notes, making
+  item thread <file>/<id>                              prints the task's thread in order, one line each: the owner's
+                                                         messages, Implement and Reply words and answers, and the
+                                                         board's and agents' lines. The owner's record: notes never
+                                                         copy it
+  item notes <file>/<id> --heading <h>              appends "## <h>" and the draft to the task's notes, making
          (--file <draft.md> | --from <file>/<id>)        its <id>-notes.md when it has none; the only way to write
                                                          notes (--notes-file and --plan are gone). Write the draft
                                                          outside the board's data; one that is any task's notes
@@ -1177,6 +1181,8 @@ const COMMANDS = {
     if ((f.file === undefined) === (f.from === undefined)) throw new UsageError('item notes takes --file <draft.md> or --from <file>/<id>');
     return store.addNotes(site, key, f);
   }],
+  // docs/adr/2026-11-18-2330-agents-read-the-cards-thread-and-notes-stop-copying-it.md
+  'item thread': [['file/id'], [], async (site, [key]) => ({ lines: await store.readThread(needSite(site, 'item thread'), key) })],
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
   'item triage': [['file/id'], ['title', 'phase', 'relate', 'parent', 'split', 'blocked-by', 'ticket', 'text', 'fold-into', 'reply-on'], async (site, [key], f, options) => {
     await store.refuseUnreadEdit(needSite(site, 'item triage'), key);

@@ -154,7 +154,7 @@ export const HUB_LINES = {
   'push-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ base, error }) => fit(`Landed, but ${base} didn't reach origin: `, error), longest: { base: 'a-long-base-branch' } },
   // docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
   'slack-post-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ what, error }) => fit(`Couldn't post ${what} to its Slack thread, retrying each poll: `, error), longest: { what: 'its end line' } },
-  'answers-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ what, error }) => fit(`Answers recorded, but ${what} failed: `, error), longest: { what: 'writing them into its notes' } },
+  'answers-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ what, error }) => fit(`Answers recorded, but ${what} failed: `, error), longest: { what: 'planning the prototype again' } },
   'notes-missing': { mark: FAULT, fault: true, text: () => 'Its notes file was missing, so the board started a new one.' },
   'notes-shared': { mark: FAULT, fault: true, text: ({ card }) => fit('It shared its notes file with ', card, ', so the board gave it its own copy.') },
   'release-failed': { mark: FAULT, fault: true, detail: ({ failure }) => failure, text: ({ version, failure }) => (failure ? fit(`Release ${version} failed: `, failure) : `Release ${version} failed: its run failed.`), longest: { version: VERSION } },

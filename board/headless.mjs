@@ -45,8 +45,10 @@ const STANDALONE = "A question stands alone: its context and each option's label
 // docs/adr/2026-11-18-2200-a-board-asks-a-board-on-another-of-your-hubs-while-its-online.md: or a board on another of
 // the owner's hubs, as <hub>/<route>.
 const askBoardLine =(b, key) => `When this repo doesn't explain why something is the way it is and another board in the hub owns that part, ask that board's orchestrator with \`${b} ask <route> "<question>" --from ${key}\` and carry on; a board on another of your hubs is <hub>/<route>, and \`${b} boards\` lists every one. \`${b} asks\` prints its answer, and \`${b} asks --wait\` waits for it.`;
-// docs/adr/2026-11-11-1100-every-agent-brief-names-the-cards-thread-file.md: the card's thread, by its exact file.
-const threadLine = (thread) => `The task's thread, which holds the owner's messages (who: love): ${thread}. Read it live.`;
+// docs/adr/2026-11-18-2330-agents-read-the-cards-thread-and-notes-stop-copying-it.md: the thread is the owner's record,
+// read with item thread; the notes hold the orchestrator's and planners' decisions and never quote it.
+const threadCommand = (b, key) => `\`${b} item thread ${key}\``;
+const threadLine = (b, key) => `The task's thread is the owner's record: ${threadCommand(b, key)} prints it in order, the owner's messages (who: love), their Implement and Reply words, their answers, and the board's and agents' lines. Read it first, and live; the notes never quote it.`;
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md: builder done finishes the card.
 const finishSteps = ({ route, key, worktree, base }) => [
@@ -81,7 +83,7 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     ...helperSteps(b, key),
     '',
     notes ? `Spec: the task's notes, ${notes}, all sections, where later sections override earlier ones.` : `The task has no notes file: build from its title, and record what you had to decide as calls.`,
-    `${threadLine(thread)} Read it with the notes: a message of the owner's is an instruction, but where it contradicts the notes, the notes win; that contradiction counts as blocked (step 3), so ask with \`${b} builder ask ${key} "<question>"\` and wait as step 3 says. Read the thread again in checking, before you finish, for anything the owner wrote during the build. What reaches the task while you build (the orchestrator's words, the owner's messages, a new notes section) prints after a command or tool call as "New on ${key} while you build: …": take it in before you hand back.`,
+    `${threadLine(b, key)} Read it with the notes: a message of the owner's is an instruction, and where a later one contradicts the notes, the owner's message wins. Read the thread again in checking, before you finish, for anything the owner wrote during the build. What reaches the task while you build (the orchestrator's words, the owner's messages, a new notes section) prints after a command or tool call as "New on ${key} while you build: …": take it in before you hand back.`,
     `In checking, list the deliverables the card asks for (the notes and the thread name them: a table, a before/after timing, a doc, a test) and tick each against evidence in your diff or output. A deliverable you could not produce, such as one that needs a local stack a headless run lacks, is a call "Missing: <deliverable>, <why>" (\`${b} builder call ${key} "<call>"\`), never a quiet gap.`,
     `A timing you measure while the host is busy (other builds, tests or lands running) is provisional: say so wherever you report it, and record the call as "Provisional: <timing>, taken while the host was busy".`,
     askBoardLine(b, key),
@@ -118,7 +120,7 @@ export function landerBrief({ route, key, ref, title, thread, worktree, base, an
       ...answers.map((a) => `- ${a.ask} "${a.question}": ${a.answer}`),
     ] : []),
     '',
-    threadLine(thread),
+    threadLine(b, key),
     `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape, so reword a commit the build left in another.`,
     '',
     `To finish, run ${finishCommand({ route, key })}.`,
@@ -143,7 +145,7 @@ export function rebaseBrief({ route, key, ref, title, thread, worktree, base, pr
     "3. Run no tests yourself: the finish step runs the tests the change affects. Fix what the rebase or a failing test broke, and commit each fix with `git -c core.commentChar=';' commit -F <file>`. A push with commits of its own is no longer rebase-only, so a merge after an approval won't count it as trivial.",
     `4. If a conflict or a failing test is past what you can resolve with confidence, run \`git -c core.commentChar=';' rebase --abort\` if a rebase is under way, record it with \`${b} builder call ${key} "Rebase failed in <the files or tests> · <why>"\`, and run the finish step: with the call it hands the task to the orchestrator.`,
     '',
-    threadLine(thread),
+    threadLine(b, key),
     '',
     `To finish, run ${finishCommand({ route, key })}, the text saying what you resolved. It runs the tests the change affects once before it pushes the branch to PR #${pr} with --force-with-lease; the PR stays as it is.`,
     `- If it refuses because someone pushed to the branch since your fetch, fetch and rebase again (step 2), then run done again.`,
@@ -184,7 +186,7 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
     '',
     ...orchestratorsBrief(brief, grill ? 'questions' : 'takes'),
     `1. Run \`${b} builder start ${key} --kind ${kind}\`. If it refuses, stop.`,
-    `2. Gather the context yourself: ${notes ? `the task's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the task has no notes file yet; '}its thread, ${thread}, the repo's docs/adr and CONTEXT.md, and the tasks its notes and thread link. ${askBoardLine(b, key)}`,
+    `2. Gather the context yourself: ${notes ? `the task's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the task has no notes file yet; '}its thread, ${threadCommand(b, key)} (the owner's record, which the notes never quote), the repo's docs/adr and CONTEXT.md, and the tasks its notes and thread link. ${askBoardLine(b, key)}`,
     `3. Report progress with \`${b} builder progress ${key} "<plain, 80 characters or fewer>"\` at least every 10 minutes.`,
     grill
       ? `4. Find every decision the task leaves open: read the code it touches and answer what the code answers yourself. Post each decision left as a question for the owner with \`${b} question add --file <json>\` on topic item:${key}, one per decision, your recommendation first. ${STANDALONE} Once you finish, the orchestrator screens them before the owner sees them, settling the ones the board already answers and passing the owner the rest.`
@@ -199,7 +201,7 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
     ...(grill && text ? [`   The owner asked for this grill, writing: "${text}"`] : []),
     ...(grill && files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     ...(!grill && asks.length ? ["   The owner's requests, one round each:", ...asks.map(requestLine)] : []),
-    `5. Record what you learned in the task's notes, naming each answered question's id: write it in ${DRAFT}, then run ${notesCommand(b, key, `${grill ? 'Grill' : 'Prototype'} (<MM/DD>)`)}, which appends it as a section. The notes file is read-only; never write into it. Anything you leave open becomes a question with question add, never only a line in the notes, so the task can't go ready past it. A question's text is one line of at most ${BRIEF_LINE_LIMIT} characters (question add refuses a longer one); put the detail in its context and the options' details, which take markdown.`,
+    `5. Record what you learned in the task's notes, naming each answered question's id: write it in ${DRAFT}, then run ${notesCommand(b, key, `${grill ? 'Grill' : 'Prototype'} (<MM/DD>)`)}, which appends it as a section. The notes file is read-only; never write into it. Notes hold what you found and decided, never quotes of the owner's words: they stay in the thread. Anything you leave open becomes a question with question add, never only a line in the notes, so the task can't go ready past it. A question's text is one line of at most ${BRIEF_LINE_LIMIT} characters (question add refuses a longer one); put the detail in its context and the options' details, which take markdown.`,
     ...(grill ? [
       `6. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end the task \`${b} item set ${key} --phase prototyping\` instead and skip the Implement ask. Otherwise ${prototype === 'yes' ? 'the board' : "the owner's Implement tap"} is what moves the task on: never set it ready yourself, and never leave a Next that asks the owner to mark it ready.`,
     ] : []),
@@ -225,7 +227,7 @@ export function visualBrief({ route, key, ref, title, notes, thread, repo, agent
     '',
     ...orchestratorsBrief(brief, 'page'),
     `1. Run \`${b} builder start ${key} --kind visual --agent ${agent}\`. If it refuses, stop.`,
-    `2. Gather what the page needs: ${notes ? `the task's notes, ${notes}; ` : ''}its thread, ${thread}, and the code or docs it is about.`,
+    `2. Gather what the page needs: ${notes ? `the task's notes, ${notes}; ` : ''}its thread, ${threadCommand(b, key)}, and the code or docs it is about.`,
     ...(text ? [`   The owner wrote, asking for it: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     '3. Write one HTML file outside the repo, such as in a temporary folder. Keep its own CSS and script inline; it may load a library such as Mermaid or D3 from a CDN. Make it read well at phone width (390px) and on a desktop, in the dark and the light theme (prefers-color-scheme).',
@@ -255,7 +257,7 @@ export function reviewerBrief({ route, key, ref, title, notes, thread, repo, age
     '',
     ...orchestratorsBrief(brief, 'review'),
     `1. Run \`${b} builder start ${key} --kind ${REVIEWER} --agent ${agent}\`. If it refuses, stop.`,
-    `2. Read what the task is for: ${notes ? `its notes, ${notes}, all sections, where later sections override earlier ones; ` : ''}its thread, ${thread}, and the repo's CONTEXT.md and docs/adr where they bear on it.`,
+    `2. Read what the task is for: ${notes ? `its notes, ${notes}, all sections, where later sections override earlier ones; ` : ''}its thread, ${threadCommand(b, key)}, and the repo's CONTEXT.md and docs/adr where they bear on it.`,
     ...(text ? [`   The owner wrote, asking for it: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     diff
@@ -293,7 +295,7 @@ export function helperBrief({ route, key, ref, title, notes, thread, agent, task
     `2. Report progress with \`${b} builder progress ${key} --agent ${agent} --phase reading|building|checking "<plain, 80 characters or fewer>"\` at least every 10 minutes; the board adds your name and the phase word.`,
     "3. Do only the task. Don't ask the orchestrator or the owner, record no judgment calls and post no questions: put any decision you had to make in your hand-back.",
     notes ? `   The task's notes, for context: ${notes}.` : '',
-    `   ${threadLine(thread)}`,
+    `   ${threadLine(b, key)}`,
     '',
     ...linkLines(links),
     ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, restart the hub or a board server, or do the orchestrator's work, it isn't yours; you never push or restart:"),

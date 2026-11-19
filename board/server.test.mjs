@@ -11,7 +11,6 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, fakeSlack, slackWorld, startBoard, untilTestEnds, putWave as sharedPutWave } from '../shared/test-helpers.mjs';
 import { fakeGh, writeGithubUser } from '../shared/fake-gh.mjs';
-import { withFileLock } from '../hub/locks.mjs';
 import { writeBrief } from './store.mjs';
 
 import { watch as watchEvents } from '../bin/wait-events.mjs';
@@ -437,7 +436,7 @@ test("one owner-answers request records every answer as one-by-one answers would
 });
 
 // docs/adr/2026-11-16-0300-send-answers-once-the-answers-are-written.md
-test("Send answers once the answers are written and their questions resolved: the notes and the move to discussing follow, held up here by the card's notes lock", async () => {
+test("Send answers once the answers are written and their questions resolved: the move to discussing follows, and the notes stay untouched", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const itemsFile = path.join(site, 'data', 'items.json');
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -445,33 +444,14 @@ test("Send answers once the answers are written and their questions resolved: th
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'fast', topic: 'item:t/FAST1', question: 'fast?', options: [{ id: 'A', label: 'This' }] }] }));
   const card = () => JSON.parse(fs.readFileSync(itemsFile, 'utf8')).items.find((i) => i.id === 'FAST1');
   try {
-    // The follow-up writes the answer into the card's notes under this lock, so it waits here while the POST still answers.
-    await withFileLock(path.join(site, 'data', '.fast1-notes'), async () => {
-      const r = await post({ kind: 'owner-answers', answers: [{ id: 'fast', question: 'fast?', choice: 'A', label: 'A. This', note: '' }] });
-      await ok200(r);
-      assert.equal((await r.json()).ids.length, 1);
-      assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items[0].resolved, 'Answered');
-      assert.equal(card().plan, undefined, 'no notes are written yet');
-      assert.equal(card().phase, 'grilling');
-    });
+    const r = await post({ kind: 'owner-answers', answers: [{ id: 'fast', question: 'fast?', choice: 'A', label: 'A. This', note: '' }] });
+    await ok200(r);
+    assert.equal((await r.json()).ids.length, 1);
+    assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items[0].resolved, 'Answered');
     await board.settled();
-    assert.match(fs.readFileSync(path.join(site, 'data', card().plan), 'utf8'), /Answers \(owner/);
+    assert.equal(card().plan, undefined, 'no notes are written');
     assert.equal(card().phase, 'discussing');
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
-});
-
-test("a follow-up that fails after Send's 200, whatever the error, is a fault line on its card", async () => {
-  const ownerFile = path.join(site, 'data', 'owner.json');
-  // The card's notes are a directory, so reading them throws a plain Error, not a BoardError.
-  fs.mkdirSync(path.join(site, 'data', 'notes-dir'), { recursive: true });
-  await putWave(JSON.stringify({ items: [{ id: 'FAIL1', title: 'Fails', plan: 'notes-dir' }] }));
-  fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'fail', topic: 'item:t/FAIL1', question: 'fail?', options: [{ id: 'A', label: 'This' }] }] }));
-  try {
-    await ok200(await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answers', answers: [{ id: 'fail', question: 'fail?', choice: 'A', label: 'A. This', note: '' }] }) }));
-    await board.settled();
-    const lines = fs.readFileSync(path.join(site, 'data', 'threads', 't__FAIL1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    assert.match(lines.find((l) => l.line === 'answers-failed')?.text ?? '', /Answers recorded, but writing them into its notes failed/);
-  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); fs.rmSync(path.join(site, 'data', 'notes-dir'), { recursive: true, force: true }); }
 });
 
 test('a Send of answers already recorded adds nothing and answers as sent', async () => {
@@ -748,22 +728,20 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
-test("an Implement message stages a Todo card where it is, its words in the notes and its open questions skipped; a Reply stages a ready card and leaves any other", async () => {
+test("an Implement message stages a Todo card where it is, its words left out of the notes and its open questions skipped; a Reply stages a ready card and leaves any other", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   await putWave(JSON.stringify({ items: [{ id: 'IMP1', title: 'Implement', held: true }, { id: 'IMPR1', title: 'Reply', phase: 'grilling' }, { id: 'IMPR2', title: 'Ready reply', phase: 'ready' }, { id: 'IMPG1', title: 'Ready grill', phase: 'ready' }, { id: 'IMPP1', title: 'Staged prototype', phase: 'staging' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'impq1', topic: 'item:t/IMP1', question: 'Which?', options: [{ id: 'A', label: 'This' }] }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const item = (id) => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === id);
   const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  const notes = (id) => fs.readFileSync(path.join(site, 'data', item(id).plan), 'utf8');
   const footer = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).filter((m) => m.eventId).map((m) => [m.text, m.status]);
   try {
     const sent = await post({ kind: 'item-message', key: 't/IMP1', text: 'Use the blue', intent: 'build' });
     const card = sent.board.items.find((i) => i.id === 'IMP1');
     const staged = item('IMP1').staged_at;
     assert.ok(staged);
-    assert.deepEqual([card.lane, card.ownerBlock !== null, card.staging, item('IMP1').held, item('IMP1').phase, item('IMP1').plan], ['todo', true, true, true, 'staging', 'imp1-notes.md']);
-    assert.match(notes('IMP1'), /^# Implement\n\n## Implement \(owner, \d\d\/\d\d \d\d:\d\d\), verbatim\nUse the blue\n$/);
+    assert.deepEqual([card.lane, card.ownerBlock !== null, card.staging, item('IMP1').held, item('IMP1').phase, item('IMP1').plan], ['todo', true, true, true, 'staging', undefined]);
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items[0].resolved, 'Skipped: you tapped Implement');
     assert.deepEqual(log().filter((e) => e.kind === 'item-message').at(-1).data, { key: 't/IMP1', text: 'Use the blue', intent: 'build' });
     assert.deepEqual(await footer('t/IMP1'), [['Use the blue', 'Implement']]);
@@ -774,14 +752,14 @@ test("an Implement message stages a Todo card where it is, its words in the note
     // A second Implement while it is staging keeps the first time, and adds its words.
     await post({ kind: 'item-message', key: 't/IMP1', text: 'And the red', intent: 'build' });
     assert.equal(item('IMP1').staged_at, staged);
-    assert.match(notes('IMP1'), /\nAnd the red\n$/);
+    assert.equal(item('IMP1').plan, undefined, 'the owner\'s words are in the thread, never copied into notes');
 
     const replied = await post({ kind: 'item-message', key: 't/IMPR1', text: 'Why blue?', intent: 'reply' });
     assert.deepEqual([replied.board.items.find((i) => i.id === 'IMPR1').lane, item('IMPR1').phase], ['todo', 'grilling']);
     assert.deepEqual(await footer('t/IMPR1'), [['Why blue?', undefined]]);
     const back = await post({ kind: 'item-message', key: 't/IMPR2', text: 'Also the weekend', intent: 'reply' });
     assert.deepEqual([back.board.items.find((i) => i.id === 'IMPR2').staging, item('IMPR2').phase], [true, 'staging']);
-    assert.match(notes('IMPR2'), /## Reply \(owner, .*\), verbatim\nAlso the weekend\n$/);
+    assert.equal(item('IMPR2').plan, undefined);
     // A Grill or Prototype tap takes a ready or staging card out of it.
     await post({ kind: 'grill-more', key: 't/IMPG1' });
     await post({ kind: 'prototype-request', key: 't/IMPP1' });
@@ -849,7 +827,7 @@ test("a Prototype, Grill or Visual tap ends the orchestrator's Implement or Clos
 });
 
 // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
-test("a thread message sent again with the same send id records once: the resend answers with the first event's id, and an Implement resent stages and notes once", async () => {
+test("a thread message sent again with the same send id records once: the resend answers with the first event's id, and an Implement resent stages once", async () => {
   await putWave(JSON.stringify({ items: [{ id: 'SID1', title: 'Resent' }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === 'item-message' && e.data.key === 't/SID1');
@@ -860,7 +838,7 @@ test("a thread message sent again with the same send id records once: the resend
   assert.equal(again.id, first.id);
   assert.ok(again.board);
   assert.deepEqual(log().map((e) => e.data), [{ key: 't/SID1', text: 'Use the blue', intent: 'build', sendId: 's-1' }]);
-  assert.equal(fs.readFileSync(path.join(site, 'data', item().plan), 'utf8').match(/Use the blue/g).length, 1);
+  assert.equal(item().plan, undefined);
   const other = await post({ kind: 'item-message', key: 't/SID1', text: 'Use the blue', sendId: 's-2' });
   assert.notEqual(other.id, first.id);
   assert.equal(log().length, 2);

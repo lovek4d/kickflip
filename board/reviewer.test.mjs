@@ -169,7 +169,7 @@ test("a reviewer's brief opens with the orchestrator's, reviews the worktree's d
   const b = `node ${BOARD_CLI} --site shop`;
   const diff = reviewerBrief({ ...card, target: 'diff', worktree: '/wt/A1', text: 'Look at the races' });
   assert.ok(diff.indexOf('Attack the land path.') < diff.indexOf('1. Run'));
-  for (const want of [`${b} builder start w/A1 --kind reviewer --agent reviewer-1`, 'git -C /wt/A1 diff main', `${b} reviewer post w/A1 --file`, `${b} builder done w/A1 --agent reviewer-1`, 'Look at the races', '/s/waves/w/a1.md', card.thread]) {
+  for (const want of [`${b} builder start w/A1 --kind reviewer --agent reviewer-1`, 'git -C /wt/A1 diff main', `${b} reviewer post w/A1 --file`, `${b} builder done w/A1 --agent reviewer-1`, 'Look at the races', '/s/waves/w/a1.md', `${b} item thread w/A1`]) {
     assert.ok(diff.includes(want), want);
   }
   const plan = reviewerBrief({ ...card, target: 'plan' });
