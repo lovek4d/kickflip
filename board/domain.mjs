@@ -2035,7 +2035,7 @@ function waitFirst(it, wait) {
 function screenWaits(items, screening) {
   for (const it of items) {
     const s = routeRecord(screening, it.key);
-    if (s) waitFirst(it, { kind: 'screen', since: s.since, picked: null, next: `Screen the grill's questions ${s.ids.join(', ')}: question settle <id> --note for each the task's notes and thread, merged code or another task already answer, never the prototype question, then question publish ${it.key}; left 15 minutes unscreened, they reach the owner as they are` });
+    if (s) waitFirst(it, { kind: 'screen', since: s.since, picked: null, next: `Screen the grill's questions ${s.ids.join(', ')}: question publish ${it.key} passes them to the owner, which is all screening is; settle one first only where its answer already lives in the task's notes and thread, merged code or another task: question settle <id> --answered-by <T-N|commit|notes heading> --note <the answer>, never the prototype question; left 15 minutes unscreened, they reach the owner as they are` });
   }
 }
 

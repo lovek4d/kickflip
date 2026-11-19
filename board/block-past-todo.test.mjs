@@ -115,12 +115,12 @@ test("the staging re-judge answers a stale question again with question settle, 
   write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'staging', staged_at: now(), size: 'small', plan: 'a1-notes.md' }, { id: 'ENG-1', title: 'Later', lane: 'done' }] });
   const asked = { id: 'q1', topic: 'item:w/A1', question: 'Which API?', asked_at: '2026-11-08T10:00:00Z', resolved: "Recorded in the task's notes", resolved_at: '2026-11-08T11:00:00Z' };
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [asked, { ...asked, id: 'q2', topic: 'item:w/ENG-1' }] });
-  const settled = await onOrch('question', 'settle', 'q1', '--note', 'ENG-1 landed the v2 API: use it.');
+  const settled = await onOrch('question', 'settle', 'q1', '--answered-by', 'ENG-1', '--note', 'ENG-1 landed the v2 API: use it.');
   assert.equal(settled.code, 0, settled.err);
   const q = read(site('orch', 'data', 'owner.json')).items.find((x) => x.id === 'q1');
-  assert.equal(q.resolved, 'Settled by the orchestrator: ENG-1 landed the v2 API: use it.');
-  assert.match(fs.readFileSync(at('waves', 'w', 'a1-notes.md'), 'utf8'), /- q1 \(Which API\?\): settled by the orchestrator\. "ENG-1 landed the v2 API: use it\."/);
-  const other = await onOrch('question', 'settle', 'q2', '--note', 'x');
+  assert.equal(q.resolved, 'Settled by the orchestrator, answered in ENG-1: ENG-1 landed the v2 API: use it.');
+  assert.match(fs.readFileSync(at('waves', 'w', 'a1-notes.md'), 'utf8'), /- q1 \(Which API\?\): settled by the orchestrator, answered in ENG-1\. "ENG-1 landed the v2 API: use it\."/);
+  const other = await onOrch('question', 'settle', 'q2', '--answered-by', 'ENG-1', '--note', 'x');
   assert.equal(other.code, 1);
   assert.match(other.err, /w\/ENG-1 isn't staged/);
 });

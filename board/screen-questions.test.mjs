@@ -24,13 +24,15 @@ test("a finished grill's questions wait on the orchestrator; settle publishes on
   const screening = await readScreening(site('orch'));
   assert.deepEqual(screening['w/A1'].ids, ['q1', 'q2', 'q-gate']);
 
-  assert.match((await board('question', 'settle', 'q-gate', '--site', 'orch', '--note', 'No.')).err, /prototype question, which is the owner's/);
-  assert.match((await board('question', 'settle', 'nope', '--site', 'orch', '--note', 'x')).err, /no staged question "nope"/);
-  const settled = await board('question', 'settle', 'q1', '--site', 'orch', '--note', 'The board already keeps one list.');
+  assert.match((await board('question', 'settle', 'q-gate', '--site', 'orch', '--answered-by', 'T-1', '--note', 'No.')).err, /prototype question, which is the owner's/);
+  assert.match((await board('question', 'settle', 'nope', '--site', 'orch', '--answered-by', 'T-1', '--note', 'x')).err, /no staged question "nope"/);
+  assert.match((await board('question', 'settle', 'q1', '--site', 'orch', '--note', 'The board already keeps one list.')).err, /--answered-by/);
+  assert.deepEqual(owner(), []);
+  const settled = await board('question', 'settle', 'q1', '--site', 'orch', '--answered-by', 'T-9', '--note', 'The board already keeps one list.');
   assert.equal(settled.code, 0, settled.err);
-  assert.deepEqual(owner().map((q) => [q.id, q.resolved]), [['q1', 'Settled by the orchestrator: The board already keeps one list.']]);
+  assert.deepEqual(owner().map((q) => [q.id, q.resolved]), [['q1', 'Settled by the orchestrator, answered in T-9: The board already keeps one list.']]);
   const notes = fs.readFileSync(at('waves', 'w', read(at('waves', 'w', 'wave.json')).items[0].plan), 'utf8');
-  assert.match(notes, /## Answers \(orchestrator, \d\d\/\d\d \d\d:\d\d\)\n- q1 \(.*\): settled by the orchestrator\. "The board already keeps one list\."/);
+  assert.match(notes, /## Answers \(orchestrator, \d\d\/\d\d \d\d:\d\d\)\n- q1 \(.*\): settled by the orchestrator, answered in T-9\. "The board already keeps one list\."/);
 
   const published = await board('question', 'publish', 'w/A1', '--site', 'orch');
   assert.equal(published.code, 0, published.err);

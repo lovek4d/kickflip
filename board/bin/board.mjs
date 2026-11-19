@@ -158,7 +158,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          the card's thread and the card is marked waiting on the
                                                          owner's Done or Implement (as thread --close or --implement
                                                          does), so no state between reads Implement
-  question settle <id> --note <text>                    a question a finished grill left for the orchestrator to screen
+  question settle <id> --answered-by <T-N|commit|notes heading> --note <text>
+                                                        a question the board already answers; screening alone is question publish
          (a screen wait), which the board already answers: it is published resolved "Settled by the
          orchestrator: <text>", and the answer goes into the task's notes. Refuses the prototype question,
          which is the owner's. On a staged task, as one whose block ended is staged again, it answers
@@ -1140,7 +1141,7 @@ const COMMANDS = {
     if (f.implement && f.close) throw new UsageError('question resolve takes --implement or --close, not both');
     return store.resolveQuestion(site, id, f.note, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined });
   }],
-  'question settle': [['id'], ['note'], (site, [id], f) => store.settleQuestion(site, id, f.note)],
+  'question settle': [['id'], ['answered-by', 'note'], (site, [id], f) => store.settleQuestion(site, id, f.note, f['answered-by'])],
   'question publish': [['key'], [], async (site, [key]) => ({ ids: await store.publishScreened(site, key) })],
   'question move': [['ids'], ['to', 'block'], (site, [ids], f) => store.moveQuestions(site, ids.split(',').filter(Boolean), f.to, (f.block || '').split(',').filter(Boolean))],
   'prototype add': [['topic'], ['title', '...take', 'card', 'served', '...state'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take, served: f.served, states: f.state })],

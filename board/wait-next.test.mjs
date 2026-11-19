@@ -68,7 +68,8 @@ test("a refused build's wait says to fix it and start it, or say why it waits", 
 
 test("a grill's screen wait settles only what the board answers, never the prototype question", () => {
   const next = wait('screen', { items: [card({ state: 'grilling' })], screening: { 'w/A1': { since: at(5), ids: ['q1'] } } });
-  assert.match(next, /question settle <id> --note for each the task's notes and thread, merged code or another task already answer, never the prototype question, then question publish w\/A1/);
+  assert.match(next, /^Screen the grill's questions q1: question publish w\/A1 passes them to the owner, which is all screening is; settle one first only where its answer already lives/);
+  assert.match(next, /question settle <id> --answered-by <T-N\|commit\|notes heading> --note <the answer>, never the prototype question/);
 });
 
 test('a prototype brief wait says each prototype, and each owner request, is a round of its own', () => {

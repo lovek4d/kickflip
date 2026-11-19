@@ -3024,7 +3024,7 @@ test("a finished grill's screened questions are the card's screen wait, ahead of
   const items = [{ id: 'A1', title: 'One', state: 'grilling' }, { id: 'A2', title: 'Two', state: 'grilling' }];
   const built = (screening) => buildBoard({ fromWaves: false, now: Date.parse('2026-11-07T10:05:00Z'), files: [{ slug: 'w', agents: {}, itemFile: { items } }], events: [], screening });
   assert.deepEqual(orchestratorWaits(built({ 'w/A1': { since, ids: ['q1', 'q-gate'] } })).map(({ key, kind, since: s, picked, next }) => [key, kind, s, picked, next]),
-    [['w/A1', 'screen', since, null, "Screen the grill's questions q1, q-gate: question settle <id> --note for each the task's notes and thread, merged code or another task already answer, never the prototype question, then question publish w/A1; left 15 minutes unscreened, they reach the owner as they are"]]);
+    [['w/A1', 'screen', since, null, "Screen the grill's questions q1, q-gate: question publish w/A1 passes them to the owner, which is all screening is; settle one first only where its answer already lives in the task's notes and thread, merged code or another task: question settle <id> --answered-by <T-N|commit|notes heading> --note <the answer>, never the prototype question; left 15 minutes unscreened, they reach the owner as they are"]]);
   assert.deepEqual(orchestratorWaits(built({})), []);
   assert.deepEqual(orchestratorWaits(built(undefined)), []);
 });

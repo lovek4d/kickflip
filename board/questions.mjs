@@ -336,41 +336,43 @@ export async function readScreening(site) {
   return Object.fromEntries(Object.entries(screening).filter(([key]) => staged[key]).map(([key, since]) => [key, { since, ids: staged[key].map((q) => q.id) }]));
 }
 
-// The orchestrator settles one screened question the board already answers: it publishes resolved, "Settled by the
-// orchestrator: <note>", and its answer goes into the card's notes as an owner's answer does. The prototype question
-// is the owner's, so it is never settled.
-export async function settleQuestion(site, id, note) {
+// The orchestrator settles one screened question the board already answers, naming where the answer lives (a task, a
+// commit or a notes heading): it publishes resolved, "Settled by the orchestrator, answered in <where>: <note>", and its
+// answer goes into the card's notes as an owner's answer does. The prototype question is the owner's, so it is never
+// settled. Screening alone, with nothing settled, is publishScreened.
+export async function settleQuestion(site, id, note, answeredBy) {
   needSite(site);
   const said = text(note, '--note');
+  const where = text(answeredBy, '--answered-by');
   const staged = await readJSON(stagedFile(site), {});
   const screening = await readJSON(screeningFile(site), {});
   const key = Object.keys(staged).find((k) => staged[k].some((q) => q.id === id));
-  if (!key) return settleStale(site, id, said);
+  if (!key) return settleStale(site, id, said, where);
   if (!screening[key]) fail(`${id} waits for ${key}'s planner to finish`);
   const q = staged[key].find((x) => x.id === id);
   if (q.prototype_gate) fail(`${id} is the task's prototype question, which is the owner's; question publish ${key} passes it on`);
   const at = new Date().toISOString();
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...(owner.items || []), { ...q, asked_at: at, resolved: `Settled by the orchestrator: ${said}`, resolved_at: at }] });
+  await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...(owner.items || []), { ...q, asked_at: at, resolved: `Settled by the orchestrator, answered in ${where}: ${said}`, resolved_at: at }] });
   const left = staged[key].filter((x) => x.id !== id);
   await writeJSON(stagedFile(site), left.length ? { ...staged, [key]: left } : withoutKey(staged, key));
   if (!left.length) await writeJSON(screeningFile(site), withoutKey(screening, key));
-  await appendNotes(site, key, `Answers (orchestrator, ${noteStamp()})`, `- ${id} (${q.question}): settled by the orchestrator. "${said}"`);
+  await appendNotes(site, key, `Answers (orchestrator, ${noteStamp()})`, `- ${id} (${q.question}): settled by the orchestrator, answered in ${where}. "${said}"`);
   return ownerFile(site);
 }
 
 // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: while judging a staged card, as a ready one
 // whose block ended is judged again, the orchestrator answers a question that what landed made stale again, in its
 // notes, as it settles a screened one.
-async function settleStale(site, id, said) {
+async function settleStale(site, id, said, where) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id && x.topic?.startsWith('item:'));
   if (!q) fail(`no staged question "${id}"; question settle takes a question a finished grill left for you to screen, or a staged task's question`);
   const key = q.topic.slice('item:'.length);
   if ((await loadItem(site, key)).item.phase !== 'staging') fail(`${key} isn't staged, so its question ${id} stays answered as it is`);
   const at = new Date().toISOString();
-  await writeJSON(ownerFile(site), { ...owner, items: owner.items.map((x) => x === q ? { ...x, resolved: `Settled by the orchestrator: ${said}`, resolved_at: at } : x) });
-  await appendNotes(site, key, `Answers (orchestrator, ${noteStamp()})`, `- ${id} (${q.question}): settled by the orchestrator. "${said}"`);
+  await writeJSON(ownerFile(site), { ...owner, items: owner.items.map((x) => x === q ? { ...x, resolved: `Settled by the orchestrator, answered in ${where}: ${said}`, resolved_at: at } : x) });
+  await appendNotes(site, key, `Answers (orchestrator, ${noteStamp()})`, `- ${id} (${q.question}): settled by the orchestrator, answered in ${where}. "${said}"`);
   return ownerFile(site);
 }
 
