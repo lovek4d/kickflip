@@ -763,19 +763,14 @@ export async function checkNextDeps(site, key, item, next) {
 }
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
-// Ready means a builder can start from the card alone: it has a size, a notes file, and that file names the id of every
-// question on the card the owner answered, bar a gate question (prototype_gate, or the next_gate an older grill closed on) answered with no note (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+// docs/adr/2026-11-19-1500-readying-no-longer-needs-answers-copied-into-the-notes.md
+// Ready means a builder can start from the card alone: it has a size and a notes file. The owner's answers stay in the
+// card's thread, which the builder reads, so the notes need not name them.
 const NOTES_COMMAND = (key) => `item notes ${key} --heading "<heading>" --file <draft.md>`;
 function checkSizeAndNotes(key, item) {
   const starts = 'a builder starts from it, so pass';
   if (!item.size) fail(`${key} has no size; ${starts} --size small or large with --phase ready`);
   if (!item.plan) fail(`${key} has no notes file; a builder starts from it, so add its notes with ${NOTES_COMMAND(key)} before --phase ready`);
-}
-async function checkNotesComplete(site, key, dir, item) {
-  checkSizeAndNotes(key, item);
-  const notes = await fs.readFile(await planPath(dir, item.plan), 'utf8');
-  const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id) && !((q.prototype_gate || q.next_gate) && !q.answers.at(-1).note)).map((q) => q.id);
-  if (left.length) fail(`${key}'s notes leave out the answered question${left.length === 1 ? '' : 's'} ${left.join(', ')}; record each answer in its notes, naming its id, with ${NOTES_COMMAND(key)} before it is ready`);
 }
 
 // docs/adr/2026-10-29-1729-a-device-app-card-carries-an-install-link.md
@@ -1006,7 +1001,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (phase === 'ready' && site) {
     const open = (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id);
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
-    await checkNotesComplete(site, key, source.dir, item);
+    checkSizeAndNotes(key, item);
     // A title builder start would refuse is caught here, when the orchestrator readies the card, not at the pull.
     const untitled = startTitleFault(key, item.title);
     if (untitled) fail(untitled);

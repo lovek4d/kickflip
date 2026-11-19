@@ -139,7 +139,7 @@ test('item set --phase sets ready, grilling or prototyping, with --from-ask too,
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
-test('ready refuses a card without a size, without a notes file, or whose notes leave out an answered question, and resolves the answered questions its notes carry', async () => {
+test('ready refuses a card without a size, without a notes file, and resolves an answered question its notes never name', async () => {
   const state = () => read(at('waves', 'w', 'wave.json')).items[0].phase;
   const staged = read(at('waves', 'w', 'wave.json'));
   staged.items[0].phase = 'staging';
@@ -155,13 +155,10 @@ test('ready refuses a card without a size, without a notes file, or whose notes 
   // The question moved the card to grilling; the owner's Send stages it again.
   write(at('waves', 'w', 'wave.json'), staged);
   write(at('waves', 'w', 'wave.json'), { ...staged, items: [{ ...staged.items[0], plan: 'a1-notes.md' }, ...staged.items.slice(1)] });
-  assert.deepEqual(await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small'), { code: 1, out: '', err: "w/A1's notes leave out the answered question q1; record each answer in its notes, naming its id, with item notes w/A1 --heading \"<heading>\" --file <draft.md> before it is ready\n" });
-  // Notes written before the board owned the file carry the answer, so ready alone resolves it.
+  // The answer is in the thread, not the notes, so ready alone resolves it.
   const wave = read(at('waves', 'w', 'wave.json'));
   Object.assign(wave.items[0], { size: 'small', phase: 'staging' });
   write(at('waves', 'w', 'wave.json'), wave);
-  fs.chmodSync(notesOf('A1'), 0o644);
-  fs.appendFileSync(notesOf('A1'), '\n- q1: keep it.\n');
   const ready = await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--text', 'Checked.');
   assert.equal(ready.code, 0, ready.err);
   assert.match(ready.out, /resolved: q1/);
