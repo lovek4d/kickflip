@@ -10,7 +10,7 @@ import { boardRepo, githubFromOrigin, mainRefOf } from './board-repo.mjs';
 import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { tailscaleDaemon, tailscaleArgv, recordedFault } from '../shared/tailscale.mjs';
-import { tailnetOn } from '../shared/tailnet.mjs';
+import { tailnetOn, hubUrl, localUrl } from '../shared/tailnet.mjs';
 import { buildNameOf, buildScriptError, scriptFileOf, scriptsDirOf } from '../board/build-script.mjs';
 import { appendStatus, setItem } from '../board/cards.mjs';
 import { servedRoundsOpen } from '../board/questions.mjs';
@@ -195,7 +195,7 @@ export async function installWorktree(board, key, manifest, { run = execFileAsyn
 // before SIGKILL. tailnet: whether the tailnet is on (../shared/tailnet.mjs), read on each call; while it's off nothing
 // runs tailscale. relayPort(port): the port a run's relay listens on for its try port, that port itself. signedIn(req):
 // whether a request carries a signed-in device's cookie (../shared/owner-sign-in.mjs signedIn).
-export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy', run: exec = execFileAsync, grace = 4000, daemon: daemonOf = tailscaleDaemon, tailnet = () => tailnetOn(), relayPort = (port) => port, signedIn = (req) => ownerSignedIn(req) } = {}) {
+export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy', run: exec = execFileAsync, grace = 4000, daemon: daemonOf = tailscaleDaemon, tailnet = () => tailnetOn(), relayPort = (port) => port, signedIn = (req) => ownerSignedIn(req), hubAddress = () => { try { return hubUrl(''); } catch { return localUrl(''); } } } = {}) {
   const git = gitBy(exec);
   const boards = new Map();
   const runs = new Map();
@@ -392,7 +392,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     run.relay = http.createServer(async (req, res) => {
       const verdict = await gate(req);
       if (verdict !== 'owner') { refuse(req, res, verdict); return; }
-      if (!signedIn(req)) { refuse(req, res, 'signed-out'); return; }
+      if (!signedIn(req)) { refuse(req, res, 'signed-out', { hub: hubAddress() }); return; }
       run.visited = now();
       const headers = appHeaders(req);
       const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers }, (answer) => {

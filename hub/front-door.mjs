@@ -51,6 +51,7 @@ body { display: grid; place-content: center; justify-items: center; gap: 10px; p
 .rf-status { height: 24px; margin: 0; font-weight: 600; line-height: 24px; }
 .rf-status.bad { color: var(--bad); }
 .rf-status.info { color: var(--accent); }
+body a { color: var(--accent); }
 body code { background: var(--chip); padding: 2px 6px; border-radius: 6px; font: .92em ui-monospace, "SF Mono", Menlo, monospace; }`;
 
 const escAttr = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -79,9 +80,15 @@ i.addEventListener('input', () => {
 paint();`;
 
 // options: next, the path a sign-in lands on, which the form posts to the hub's /_hub/sign-in with the PIN; left, the
-// wrong PINs a 'pin-wrong' client has left.
-export function refusalPage(verdict, { next = '/', left = 0 } = {}) {
-  const { line, hint, form } = REFUSALS[verdict];
+// wrong PINs a 'pin-wrong' client has left; hub, the hub's own address, given by a try port, which has no sign-in route:
+// its page links there in place of the PIN form (the cookie the hub sets there is sent to every port of the host).
+export function refusalPage(verdict, { next = '/', left = 0, hub = '' } = {}) {
+  let { line, hint, form } = REFUSALS[verdict];
+  if (form && hub) {
+    line = 'Sign in on the hub first.';
+    hint = `Open <a href="${escAttr(hub)}">the hub</a>, sign in there, then reload this page.`;
+    form = false;
+  }
   const colors = fs.readFileSync(path.join(ROOT, 'shared', 'colors.css'), 'utf8');
   const mark = fs.readFileSync(path.join(ROOT, 'board', 'public', 'kickflip.png')).toString('base64');
   const wrong = verdict === 'pin-wrong';

@@ -749,7 +749,7 @@ test('the relay hands the app an owner’s request without tailscale serve’s i
 // docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
 test("the relay needs the owner's sign-in cookie, and the app never gets it", async () => {
   const signedIn = (req) => String(req.headers.cookie || '').includes('kickflip_owner=good');
-  setManager(tryManager({ now: () => clock, log() {}, gate: async () => 'owner', signedIn }));
+  setManager(tryManager({ now: () => clock, log() {}, gate: async () => 'owner', signedIn, hubAddress: () => 'https://mac.ts.net/' }));
   const server = http.createServer();
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
@@ -761,7 +761,10 @@ test("the relay needs the owner's sign-in cookie, and the app never gets it", as
   await manager.settled();
   const signedOut = await fetch(relayOf(8500) + '/', { headers: { accept: 'text/html' } });
   assert.equal(signedOut.status, 401);
-  assert.match(await signedOut.text(), /Sign in to open this kickflip\./);
+  const page = await signedOut.text();
+  assert.match(page, /Sign in on the hub first\./);
+  assert.match(page, /href="https:\/\/mac\.ts\.net\/"/);
+  assert.doesNotMatch(page, /<form|\/_hub\/sign-in/);
   assert.equal(await (await fetch(relayOf(8500) + '/', { headers: { cookie: 'a=1; kickflip_owner=good' } })).text(), 'cookie=a=1');
   const upgrade = (cookie) => new Promise((resolve, reject) => {
     const request = http.request(relayOf(8500) + '/socket', { headers: { connection: 'Upgrade', upgrade: 'test', ...(cookie ? { cookie } : {}) } });
