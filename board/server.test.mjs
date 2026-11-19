@@ -1864,6 +1864,28 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   }
 });
 
+test('a reply written after an event\'s Working mark clears it for /api/working and the card, even when its change signal never arrived', async () => {
+  const at = new Date().toISOString();
+  await putWave(JSON.stringify({ internal: true, items: [{ id: 'R1', title: 'Reply', lane: 'progress' }] }));
+  const sent = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/R1', text: 'Question' }) })).json();
+  const triage = 'tt-reply';
+  fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: triage, ts: at, kind: 'overnight-triage', data: { date: '2026-11-03', topic: 'x', cards: [] } }) + '\n');
+  fs.writeFileSync(path.join(site, 'data', 'working.json'), JSON.stringify({ events: { [sent.id]: at, [triage]: at } }));
+  await heard(path.join(site, 'data', 'events.jsonl'), path.join(site, 'data', 'working.json'));
+  const ids = async () => (await (await fetch(`${base}/api/working`)).json()).working.map((w) => w.id);
+  assert.deepEqual((await ids()).sort(), [sent.id, triage].sort());
+  for (const id of [sent.id, triage]) {
+    const f = path.join(site, 'data', 'replies', `${id}.md`);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, 'Answered');
+    fs.utimesSync(f, new Date(Date.now() + 5000), new Date(Date.now() + 5000));
+  }
+  // No change signal came with the writes (a lost POST from the writing process): the reply folder's own stamp moved.
+  assert.deepEqual(await ids(), []);
+  const card = (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === 'R1');
+  assert.equal(card.working, false);
+});
+
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 test("a message in a stalled card's thread clears the orchestrator's stall, and reaches the orchestrator like any message", async () => {
   const at = new Date().toISOString();

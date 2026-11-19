@@ -646,7 +646,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // (docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md).
   async function sharedBoard() {
     const outside = await outsideData();
-    const key = JSON.stringify([dataVersion, outside]);
+    // A reply is a new file in data/replies, so the folder's own stamp moves with it: a reply whose change signal never
+    // arrived (a lost POST from the writing process) still ends its event's Working mark here.
+    const key = JSON.stringify([dataVersion, outside, await fs.stat(replies).then((st) => st.mtimeMs, () => 0)]);
     if (shared?.key !== key) {
       const built = snapshot(outside).then(async (s) => ({ ...buildBoard(s), cardNotes: await cardNotesOf(s.files) }));
       shared = { key, built };
