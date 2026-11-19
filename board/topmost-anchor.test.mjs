@@ -58,6 +58,17 @@ function scenario() {
   // Scrolls card id to just past the top of the screen, as the owner would, so the card above, whose border it may
   // share, is off it, and lets the board take its anchor. → the topmost card on screen then, and its top.
   const scrollTo = async (id) => { scrollBy(0, top(id) + 2); await settle(); return [topmost(), top(topmost())]; };
+  // Loads a 200px image into host and waits on its load event, never on time, as the stub server answers /tall.svg only
+  // once asked. → the image and its height at the load, before the board's next draw could replace the card it is in.
+  const grow = async (host) => {
+    const img = new Image();
+    const loaded = new Promise((ok, no) => { img.onload = ok; img.onerror = () => no(new Error('the image failed to load')); });
+    img.src = '/tall.svg';
+    host.append(img);
+    await loaded;
+    await img.decode();
+    return [img, img.getBoundingClientRect().height];
+  };
   const out = {};
   const report = (name, id, before, extra = {}) => { out[name] = { id, before, after: top(id), ...extra }; };
 
@@ -65,12 +76,9 @@ function scenario() {
     await drawn(() => el('t39'));
     // A 200px image loads in the card just above the topmost one.
     let [id, before] = await scrollTo('t20');
-    const img = new Image();
-    img.src = '/tall.svg';
-    el('t19').querySelector('summary').append(img);
-    await new Promise((r) => { img.onload = r; });
+    const [, grew] = await grow(el('t19').querySelector('summary'));
     await settle();
-    report('image', id, before, { grew: img.getBoundingClientRect().height });
+    report('image', id, before, { grew });
 
     // The card just above the topmost one, open, collapses.
     const above = el('t24');
@@ -98,12 +106,9 @@ function scenario() {
     if (!document.hasFocus()) box.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     await settle();
     const boxBefore = box.getBoundingClientRect().top;
-    const img2 = new Image();
-    img2.src = '/tall.svg';
-    el('t11').querySelector('summary').append(img2);
-    await new Promise((r) => { img2.onload = r; });
+    const [, grew2] = await grow(el('t11').querySelector('summary'));
     await settle();
-    out.field = { grew: img2.getBoundingClientRect().height, before: boxBefore, after: box.getBoundingClientRect().top };
+    out.field = { grew: grew2, before: boxBefore, after: box.getBoundingClientRect().top };
     box.remove();
     await settle();
 
@@ -126,12 +131,9 @@ function scenario() {
     boxNow().blur();
     boxNow().dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
     await settle();
-    const img3 = new Image();
-    img3.src = '/tall.svg';
-    el('t35').querySelector('summary').append(img3);
-    await new Promise((r) => { img3.onload = r; });
+    const [img3, grew3] = await grow(el('t35').querySelector('summary'));
     await settle();
-    out.blurred = { was: boxWas, grew: img3.getBoundingClientRect().height, before: placed, after: boxNow().getBoundingClientRect().top };
+    out.blurred = { was: boxWas, grew: grew3, before: placed, after: boxNow().getBoundingClientRect().top };
     img3.remove();
     open.open = false;
     await settle();
