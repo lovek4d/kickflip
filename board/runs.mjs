@@ -38,7 +38,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
-import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, launchLives, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, stopRuns } from './headless.mjs';
+import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, launchLives, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, sessionIdOf, stopRuns } from './headless.mjs';
 import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
 import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree } from './worktree.mjs';
 import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
@@ -123,6 +123,13 @@ export async function alive(site) {
 
 // What a start came to, for the audit log: started, bumped behind its blockers, or refused.
 export const startResult = (started) => (!started ? 'refused' : started.bumped ? 'bumped' : 'started');
+
+// A launch whose claim another process holds is tracked when that process is the record's own earlier spawn (a restart
+// cut the first launch off after it spawned): its pid and log come from the record.
+async function trackSpawned(site, key, entry) {
+  const { session } = (await readJSON(await builderFile(site, key), null)) ?? {};
+  if (session?.pid && pidAlive(session.pid)) await trackLaunch(site, key, { ...entry, pid: session.pid, log: path.join(os.homedir(), '.claude', 'kickflip', 'logs', session.log ?? '') });
+}
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
 // A build started ({key, kind, model, worktree}, startTappedBuild's) launches its builder, Claude or Codex. A
@@ -562,7 +569,7 @@ async function resumeBuild(site, key, io) {
   const kind = providerOf(record.kind) ?? 'claude';
   try {
     const why = `The board paused this build, and the pause has cleared: ${cleared}.`;
-    const launched = await resumeBuilder(site, { key, kind, model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => resumeBrief({ ...facts, cleared }), why, launch: io.launch });
+    const launched = await resumeBuilder(site, { key, kind, model: record.model, session: { id: sessionIdOf(record.session), log: record.session.log }, brief: (facts) => resumeBrief({ ...facts, cleared }), why, launch: io.launch });
     if (!launched) return io.log({ ...entry, result: 'claimed elsewhere' });
     await trackLaunch(site, key, { kind, model: record.model, pid: launched.pid, log: launched.log, relaunched: false });
     io.log({ ...entry, result: launched.resumed ? 'resumed' : 'fresh builder' });
@@ -583,7 +590,7 @@ async function rerunBuild(site, key, io) {
   io.stale();
   const entry = { call: 'rerun', key, reason: "The orchestrator's builder resume on its handed-back build.", inputs: { news } };
   try {
-    const launched = await resumeBuilder(site, { key, kind: 'claude', model: record.model, session: { id: record.session.id, log: record.session.log }, brief: (facts) => rerunBrief({ ...facts, news }), why: news.join(' '), launch: io.launch });
+    const launched = await resumeBuilder(site, { key, kind: 'claude', model: record.model, session: { id: sessionIdOf(record.session), log: record.session.log }, brief: (facts) => rerunBrief({ ...facts, news }), why: news.join(' '), launch: io.launch });
     if (!launched) return io.log({ ...entry, result: 'claimed elsewhere' });
     await trackLaunch(site, key, { kind: 'claude', model: record.model, pid: launched.pid, log: launched.log, relaunched: false });
     io.log({ ...entry, result: launched.resumed ? 'resumed' : 'fresh builder' });
@@ -1229,7 +1236,7 @@ export async function builderResume(site, key, said) {
     await appendStatus(site, key, 'builder-told', { text: words });
     return { running: true };
   }
-  if (providerOf(record.kind ?? 'claude') !== 'claude' || !record.session?.id) fail(`${name}'s build has no Claude session the board launched to resume; start a new build instead`);
+  if (providerOf(record.kind ?? 'claude') !== 'claude' || !sessionIdOf(record.session)) fail(`${name}'s build has no Claude session the board launched to resume; start a new build instead`);
   if (record.rerun) fail(`${name} already waits on the board to resume its builder`);
   await passNews(site, key, { from: 'orchestrator', text: words });
   await writeJSON(file, { ...(await readJSON(file, null)), rerun: { at: new Date().toISOString(), text: words } });
@@ -1689,9 +1696,9 @@ export async function recordedWorktree(site, key, { dir } = {}) {
 // both, a past lander's or resumed session's included, so a second land continues the newest one. Null when none has.
 export async function recordedSession(site, key) {
   const { source } = await loadItem(site, key);
-  const records = (await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)))).filter((r) => r?.session?.id && r.worktree?.path && r.kind !== HELPER);
+  const records = (await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)))).filter((r) => sessionIdOf(r?.session) && r.worktree?.path && r.kind !== HELPER);
   const newest = records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
-  return newest ? { id: newest.session.id, worktree: newest.worktree.path, log: newest.session.log ?? null } : null;
+  return newest ? { id: sessionIdOf(newest.session), worktree: newest.worktree.path, log: newest.session.log ?? null } : null;
 }
 
 export async function builderProgress(site, key, progress, { phase, dir, agent = 'main', eta, clearEta }) {

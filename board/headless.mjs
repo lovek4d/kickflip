@@ -386,11 +386,11 @@ export const launchLives = (site, key, agent = 'main') => claimed(claimsDir(site
 // Launches through launch, with args, only if this process wins the exclusive claim on the card's agent, so two servers
 // or passes deciding to launch the same run launch it once. The claim holds the launched process's pid from its spawn.
 // → launch's answer, or null when another process holds the claim; a launch that rejects frees the claim.
-async function launchClaimed(site, key, agent, launch, args) {
+async function launchClaimed(site, key, agent, launch, args, { spawned } = {}) {
   const claim = claimLaunch(claimsDir(site), claimName(key, agent));
   if (!claim) return null;
   try {
-    const launched = await launch({ ...args, onSpawn: claim.settle });
+    const launched = await launch({ ...args, onSpawn: (pid) => { claim.settle(pid); spawned?.(pid); } });
     claim.settle(launched.pid);
     return launched;
   } catch (e) {
@@ -427,10 +427,28 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const prompt = handoff
     ? [roleBrief, ...handoffLines({ ...handoff, commits: git(cwd, 'log', '--oneline', `${base}..HEAD`).out, stat: git(cwd, 'diff', '--stat', `${base}...HEAD`).out })].join('\n')
     : roleBrief;
-  const launched = await launchClaimed(site, key, agent, launch, { kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
+  const log = logFile(key.split('/')[1], role.split(' ')[0].toLowerCase());
+  // The record names the process and its log from the spawn, before the session id arrives, so a restart in that gap
+  // still finds what resume needs (sessionIdOf reads the id from the log).
+  let atSpawn = Promise.resolve();
+  const launched = await launchClaimed(site, key, agent, launch, { kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log }, { spawned: (pid) => { atSpawn = recordSession(site, key, null, pid, agent, path.basename(log)); } });
   if (!launched) return null;
+  await atSpawn;
   await recordSession(site, key, launched.sessionId, launched.pid, agent, path.basename(launched.log));
   return launched;
+}
+
+// The Claude session id a record's session names: its id, else the id its log's init line gave, which a launch cut off
+// before it recorded the id still has. null when neither.
+export function sessionIdOf(session) {
+  if (session?.id) return session.id;
+  if (!session?.log) return null;
+  let text;
+  try { text = fs.readFileSync(path.join(logsDir(), session.log), 'utf8'); } catch { return null; }
+  for (const line of text.split('\n')) {
+    try { const e = JSON.parse(line); if (e.session_id) return e.session_id; } catch { /* not a stream-json line */ }
+  }
+  return null;
 }
 
 // Why a Claude run whose process is gone failed, read from its stream-json log: null when its last result event is a

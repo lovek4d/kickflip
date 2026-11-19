@@ -216,3 +216,30 @@ test('a launch that rejects frees its claim, so the next pass tries again', asyn
   assert.ok(await launchBuilder(site, { key: 't/C3' }, { launch }));
   assert.equal(launched.length, 1);
 });
+
+// docs/adr/2026-11-19-0500-a-launch-records-its-process-at-spawn.md
+test('a launch cut off before its session id arrives leaves the process and log on the record, and builder resume on the hand-back reads the session from the log', async (t) => {
+  const { site, data } = board([{ id: 'S1', title: 'fix(board): spawned', lane: 'progress', phase: 'building' }]);
+  const file = path.join(data, 'agents', 'S1.json');
+  fs.writeFileSync(file, JSON.stringify({ started: '2026-11-17T09:00:00.000Z', kind: 'claude', worktree: { path: data, branch: 'x', repo: data } }));
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { detached: true, stdio: 'ignore' });
+  t.after(() => child.kill('SIGKILL'));
+  await once(child, 'spawn');
+  let logged;
+  // The server dies after the spawn: this launch never resolves.
+  const cutOff = async ({ log, onSpawn }) => {
+    logged = log;
+    fs.mkdirSync(path.dirname(log), { recursive: true });
+    fs.appendFileSync(log, JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-cut' }) + '\n');
+    onSpawn(child.pid);
+    return new Promise(() => {});
+  };
+  launchBuilder(site, { key: 't/S1' }, { launch: cutOff });
+  while (!readJSON(file).session?.pid) await new Promise((resolve) => setImmediate(resolve));
+  const record = readJSON(file);
+  assert.deepEqual([record.session.id, record.session.pid, record.session.log], [null, child.pid, path.basename(logged)]);
+
+  fs.writeFileSync(file, JSON.stringify({ ...record, done: '2026-11-17T10:00:00.000Z', handed_back: '2026-11-17T10:00:00.000Z' }));
+  assert.deepEqual(await runs.builderResume(site, 't/S1', 'Change it'), { running: false });
+  assert.equal((await runs.recordedSession(site, 't/S1')).id, 'sess-cut');
+});
