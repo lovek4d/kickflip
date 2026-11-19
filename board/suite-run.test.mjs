@@ -195,6 +195,11 @@ test('a test run waits while the host reads busy, saying so on its line, and sta
   await passTests('/wt', { say: (l) => steps.push(`said: ${l}`), runTests, outcome: 'nothing landed', report, wait });
   assert.deepEqual(steps, [`said: ${HOST_BUSY}`, `line: ${HOST_BUSY}`, 'waited', 'waited', 'ran', 'said: tests passed: 1']);
   assert.equal(HOST_BUSY, 'waiting: the host is busy');
+  // docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md: a bumped card's land tests at once.
+  keep({ state: 'busy', reason: 'memory pressure critical', since: '2026-11-14T10:00:00.000Z' });
+  steps.length = 0;
+  await passTests('/wt', { say: (l) => steps.push(`said: ${l}`), runTests, outcome: 'nothing landed', report, wait, bumped: true });
+  assert.deepEqual(steps, ['ran', 'said: tests passed: 1']);
 });
 
 test('a test run on a host that is not busy starts at once, without a waiting line', async (t) => {

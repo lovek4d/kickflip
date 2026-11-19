@@ -31,3 +31,5 @@ The owner wanted lands parallel but bounded (T-211); one at a time is the Mac's 
 
 The machine-budget count against builders ("not start while the host is past its load line") is not built: builders and
 lands share no budget here; the queue alone removes the pile. Hub tests that fail under load are not fixed here.
+
+Superseded in part by [a bump goes first in every queue](2026-11-19-0242-a-bump-goes-first-in-every-queue.md): the test-slot queue takes the earliest bump first, not the latest.

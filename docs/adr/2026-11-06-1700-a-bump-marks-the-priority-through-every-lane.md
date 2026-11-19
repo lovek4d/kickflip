@@ -24,3 +24,5 @@ Card #327. A bump counted only in Todo and In Progress: one made before the firs
 - Stale and stalled were split to their own card (#378).
 
 Superseded in part by [a card pause stops its builder at its next stopping point](2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md): the bump-out pauses the newest unbumped build In Progress instead of sending it back to Todo.
+
+Superseded in part by [a bump goes first in every queue](2026-11-19-0242-a-bump-goes-first-in-every-queue.md): a busy host holds no bumped card's launch, so "A busy host holds a bump too" and the "held while host recovers" word no longer hold.

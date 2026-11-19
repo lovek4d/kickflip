@@ -100,7 +100,7 @@ button.chip { border: 0; }
 .card-stalled { color: var(--color-danger); }
 /* A bumped ready card's footer status while the host holds new work, and a paused build's (ui-cards.js timeLine);
    a build still pausing reads orange. */
-.card-host-held, .card-paused { color: var(--muted); }
+.card-paused { color: var(--muted); }
 .card-pausing { color: var(--color-notice); }
 .sub.next.idle { color: var(--muted); }
 .sub.refused { color: var(--color-danger); }

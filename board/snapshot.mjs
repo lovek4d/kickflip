@@ -27,15 +27,16 @@ const repliesOf = (site) => path.join(dataOf(site), 'replies');
 
 // What the board reads from outside data/ and the item files' folder, whose writes signal changes: board.json, this
 // board's entry in the hub's manifest (its GitHub repo, git remote and branch) and the Slack bridge's topic items.
-// hostBusy: whether the host holds new work (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md), which a bumped
-// ready card reads (domain.mjs hostHeld). landHeld {<kind>: words or null}: what holds the server's launches of each
-// kind, which a verified card's land step reads (domain.mjs landStep).
+// hostBusy: whether the host holds new work (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md), which a card's
+// try reads. landHeld {<kind>: words or null, bumped: {<kind>: words or null}}: what holds the server's launches of each
+// kind, and of a bumped card's, which a verified card's land step reads (domain.mjs landStep).
 export async function outsideData(site) {
   const here = path.resolve(site);
   const self = boardAt(here);
   const gate = readUsageGate({ dir: here });
   return { cfg: await boardConfig(here), github: self?.github, local: self?.local, hub: self?.hub, remote: self?.remote, branch: self?.branch, topicItems: topicItems(),
-    hostBusy: gate.machine.state === 'busy', landHeld: { claude: launchHeldWords(gate, 'claude'), codex: launchHeldWords(gate, 'codex') } };
+    hostBusy: gate.machine.state === 'busy', landHeld: { claude: launchHeldWords(gate, 'claude'), codex: launchHeldWords(gate, 'codex'),
+      bumped: { claude: launchHeldWords(gate, 'claude', true), codex: launchHeldWords(gate, 'codex', true) } } };
 }
 
 // The last 40 lines of a hub run's log, data/try/<name>.log, from at most its last 64 KiB; [] with no log.

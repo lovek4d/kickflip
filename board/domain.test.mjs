@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { queuedPlannerKey, queuedPlannerCard } from './domain.mjs';
+import { queuedPlannerKey, queuedPlannerCard, byBump, bumpIn } from './domain.mjs';
 import { footerOf, REQUEST_KINDS, REQUEST_REWAKE_AFTER, buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, ownerRow, rowAlerts, ALERT_KINDS, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep, waitTone, tapPlan, TAP_KINDS } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
@@ -53,6 +53,10 @@ test("a verified card's status line and its wait on the orchestrator print its l
   const dead = { 'w/A1': { verified: v, pid: 7, alive: false, limited: false } };
   assert.deepEqual(read({ landers: dead, landHeld: { claude: 'host busy' } }),
     { land: 'held', words: 'Landing held: host busy', waits: [['checking', 'Landing held: host busy; the board launches a lander once that clears']] }, 'the stale "relaunches" Next no longer speaks');
+  // docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md: a bumped card reads the bumped holds, which a busy host is not.
+  const busy = { claude: 'host busy', bumped: { claude: null } };
+  assert.equal(read({ landers: dead, landHeld: busy }).land, 'held');
+  assert.equal(read({ landers: dead, landHeld: busy, events: [{ id: 'cb', ts: '2026-11-14T05:00:00Z', kind: 'card-bump', data: { key: 'w/A1' } }] }).land, 'launch', 'the bump passes the busy host');
   assert.deepEqual(read({ landers: { 'w/A1': { ...dead['w/A1'], alive: true } } }).land, 'running');
   const faulted = read({ landers: { 'w/A1': { ...dead['w/A1'], relaunched: 1 } } });
   assert.equal(faulted.land, 'fault');
@@ -1982,18 +1986,13 @@ test("the orchestrator's waits run the owner's words, New, Todo, In Progress, In
   assert.deepEqual(orchestratorWaits({ items }).map((w) => w.key), ['w/T2', 'w/P2', 'w/N1', 'w/T1', 'w/P0', 'w/P1', 'w/R1', 'w/L1']);
 });
 
-// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-test('a bumped ready card the host holds reads so, and only the bump', () => {
-  const at = (m) => `2026-11-06T10:${String(m).padStart(2, '0')}:00.000Z`;
-  const items = [
-    { id: 'B1', title: 'Bump', phase: 'ready', created: at(5), lane: 'progress' },
-    { id: 'O1', title: 'Older', phase: 'ready', created: at(1) },
-    { id: 'T1', title: 'Bumped', phase: 'ready', created: at(4) },
-  ];
-  const built = (more = {}) => buildBoard({ fromWaves: false, now: Date.parse(at(30)), events: [{ id: 'cb', ts: at(10), kind: 'card-bump', data: { key: 'w/T1' } }],
-    files: [{ slug: 'w', agents: runningBuilders('B1'), itemFile: { internal: true, items } }], ...more });
-  assert.deepEqual(built().items.filter((i) => i.lane === 'todo').map((i) => [i.id, i.hostHeld]), [['T1', false], ['O1', false]]);
-  assert.deepEqual(built({ hostBusy: true }).items.filter((i) => i.lane === 'todo').map((i) => i.hostHeld), [true, false], 'only the bump reads held: the rest wait their turn anyway');
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md
+test('byBump puts the bumped entries first, the earliest bump first, and keeps the rest in their order', () => {
+  const items = [{ key: 'w/A' }, { key: 'w/B', bumpedAt: '2026-11-18T11:00:00.000Z' }, { key: 'w/C' }, { key: 'w/D', bumpedAt: '2026-11-18T10:00:00.000Z' }];
+  const bump = bumpIn(items);
+  assert.deepEqual(byBump(['w/C', 'w/B', 'w/A', 'w/D'], bump), ['w/D', 'w/B', 'w/C', 'w/A']);
+  assert.deepEqual(byBump([{ key: 'w/A', n: 1 }, { key: 'w/B' }], (e) => bump(e.key)).map((e) => e.key), ['w/B', 'w/A']);
+  assert.equal(bump('w/Z'), null);
 });
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
@@ -3328,13 +3327,12 @@ test("a ready Todo card whose refused start is its newest line isn't pulled unti
 });
 
 // docs/adr/2026-11-16-1200-the-server-sends-a-cards-footer-and-builder-words.md
-test("a card's footer is one ordered list of words from the server: the owner's block, what else blocks it, held, stale, then a pause", () => {
+test("a card's footer is one ordered list of words from the server: the owner's block, what else blocks it, stale, then a pause", () => {
   const deps = [{ key: 'w/B1', ref: '#61', lane: 'progress' }];
-  const card = { lane: 'todo', ownerBlock: { until: '2026-11-16T09:00:00.000Z' }, blockedBy: deps, blockedUntil: 'CI is green', blockReason: 'the suite is red', hostHeld: true, stale: true, phase: 'ready' };
+  const card = { lane: 'todo', ownerBlock: { until: '2026-11-16T09:00:00.000Z' }, blockedBy: deps, blockedUntil: 'CI is green', blockReason: 'the suite is red', stale: true, phase: 'ready' };
   assert.deepEqual(footerOf(card), [
     { kind: 'owner-block', until: '2026-11-16T09:00:00.000Z', then: 'It starts on its own then, once nothing else blocks it.' },
     { kind: 'blocked', lead: 'blocked by ', deps, tail: ' and until CI is green, the suite is red' },
-    { kind: 'host-held', words: 'held while host recovers' },
     { kind: 'stale', words: 'stale' },
   ]);
   assert.deepEqual(footerOf({ lane: 'todo', blockedBy: [], blockedUntil: 'CI is green', blockReason: 'x' }).map((e) => [e.kind, e.tail]), [['blocked', 'blocked until CI is green, x']]);

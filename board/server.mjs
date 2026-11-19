@@ -357,7 +357,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { REQUEST_KINDS, TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { REQUEST_KINDS, TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, bumpIn, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { alertsOf, localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -1466,7 +1466,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // slots with Todo's top ready cards, bumped first (domain.mjs pullOf, docs/adr/2026-11-05-0802-todo-has-no-queue.md,
   // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).  // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
   // board. An unanswered triage holds only the cards it names, until quiet hours end, and a card pulled and not yet started holds the
-  // review. None goes out while usage is paused or the Mac is busy (shared/usage-gate.mjs heldFor), each launch checking
+  // review. None goes out while usage is paused, nor while the Mac is busy unless its card is bumped (shared/usage-gate.mjs heldFor), each launch checking
   // again (runs.mjs heldNow); the minute check runs the jobs again once the hold lifts, since it lives outside the board's
   // data. Near the line the pull's cap is halved (tasksInProgressCap). A grill or prototype asked for during a hold launches first. A check asked for while one runs runs again after it.
   let checkingAuto = null;
@@ -1522,9 +1522,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       const { started } = await runs.start(here, key, 'build', runIo);
       logCall({ call: 'pull', key, result: runs.startResult(started), reason: 'An implementer slot was free and it was the top ready task in Todo.', inputs: { cap, pullable, waiting } });
     };
-    // A card that already has a builder, as a pass an instant earlier left it, is not started again.
+    // A card that already has a builder, as a pass an instant earlier left it, is not started again. A hold keeps the
+    // pulls, a busy host only the unbumped ones (docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md).
     const unstarted = [];
-    for (const key of heldByPause ? [] : pulls) {
+    const bump = bumpIn(items);
+    for (const key of pulls.filter((k) => !heldFor(gate, 'claude', Boolean(bump(k))))) {
       if (await runs.unstarted(here, key)) { unstarted.push(key); continue; }
       logCall({ call: 'pull', key, result: 'skipped', reason: 'It already has a builder.', inputs: {} });
     }

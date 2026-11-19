@@ -358,9 +358,10 @@ function tapFailures(tap, dir) {
 // One land at a time on the host: ~/.claude/kickflip/land.lock
 // {card, pid, at} names the card landing. A land that finds it held waits its turn across every process, in a file per
 // ask in ~/.claude/kickflip/land.queue, named <asked ms>-<count>-<pid> and holding {card, site, key, first}, calling
-// onWait(card) with the card it waits for. The queue goes bumped first, the latest bump (first) ahead, then first in
+// onWait(card) with the card it waits for. The queue goes bumped first, the earliest bump (first) ahead, then first in
 // first out by asked, when the land was asked for, so a land that lets go of the lock to test again keeps its place
-// (docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md). A bump never stops the land holding the
+// (docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md,
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md). A bump never stops the land holding the
 // lock. A waiter wakes when its own ask is moved or the one file it waits on goes: the lock, or the nearest ask ahead
 // of it. A lock or ask whose process is gone is taken over, found by a slow recheck since a process that dies removes
 // neither.
@@ -395,8 +396,8 @@ async function untilGone(files) {
 const queueDir = (name) => path.join(kickflipDir(), `${name}.queue`);
 const ticketPid = (ticket) => Number(ticket.split('-')[2]);
 const readTicket = (queue, ticket) => { try { return JSON.parse(fs.readFileSync(path.join(queue, ticket), 'utf8')); } catch { return {}; } };
-// Where an ask stands in the queue: bumped asks first, the latest bump ahead, then by name, which starts with asked.
-const rank = (ticket, { first }) => `${first ? `0${String(1e15 - Date.parse(first)).padStart(16, '0')}` : '1'}-${ticket}`;
+// Where an ask stands in the queue: bumped asks first, the earliest bump ahead, then by name, which starts with asked.
+const rank = (ticket, { first }) => `${first ? `0${String(Date.parse(first)).padStart(16, '0')}` : '1'}-${ticket}`;
 // The live asks of queue name, in queue order, each {ticket, card, site, key, first}.
 function queuedAsks(name) {
   const queue = queueDir(name);
@@ -483,7 +484,8 @@ export async function holdingTestSlot(card, fn, { slots, onWait, onTurn, asked =
 }
 
 // A bump of the card key on the board at site moves its queued lands and their test runs: first, the bump's time,
-// puts them ahead of every ask not bumped since; null puts them back in ask order. → how many asks it moved
+// puts them ahead of every ask not bumped and behind the ones bumped earlier; null puts them back in ask order.
+// → how many asks it moved
 export function moveQueuedLand(site, key, first) {
   let moved = 0;
   for (const name of ['land', 'landtest']) {
@@ -648,7 +650,8 @@ export async function untilHostEases({ say = console.log, report, wait = sleep }
   do await wait(HOST_RECHECK_MS); while (readMachineState().state === 'busy');
 }
 
-// Runs the worktree's tests (runTests, else the full suite) once the host eases (untilHostEases), refusing on a failure with each failing test, or on a run cut off at its time limit
+// Runs the worktree's tests (runTests, else the full suite) once the host eases (untilHostEases), at once for a bumped
+// card's land (docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md), refusing on a failure with each failing test, or on a run cut off at its time limit
 // with the files still running, and outcome, what the refusal left undone.
 // report, when given, is told the run's start, progress and result ({start, update, end}, each taking words; nodeTests).
 // onBaseRun, when given, runs the failing test files on base (failingOnBase's answer) once the run fails
@@ -658,8 +661,8 @@ export async function untilHostEases({ say = console.log, report, wait = sleep }
 // failure left to a Found: call, not the card.
 // When every one fails there too but a touched one fails differently, the refusal carries failsOnBase, the failing
 // files, so the land waits on main's fix rather than the card's.
-export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report, onBaseRun, wait }) {
-  await untilHostEases({ say, report, wait });
+export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report, onBaseRun, wait, bumped = false }) {
+  if (!bumped) await untilHostEases({ say, report, wait });
   const tests = await runTests(dir, { report });
   let failsOnBase;
   if (!tests.ok && !tests.hung && onBaseRun && tests.failedFiles?.length) {
@@ -690,7 +693,7 @@ export async function passTests(dir, { say = console.log, runTests = nodeTests, 
 // the change affects (affectedRun).
 // title is the builder's --title, the squash commit's subject. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
 // still it, with base not moved past it, is not tested again. site is the card's board, whose release script the check runs.
-export async function prepareLand({ path: dir, branch, repo, base, ref, title, site }, { say = console.log, runTests = affectedRun(base, say), report, found = () => {} } = {}) {
+export async function prepareLand({ path: dir, branch, repo, base, ref, title, site }, { say = console.log, runTests = affectedRun(base, say), report, found = () => {}, bumped = false } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
@@ -717,7 +720,7 @@ export async function prepareLand({ path: dir, branch, repo, base, ref, title, s
     say(`${branch} was tested on ${base} as it is now; not testing it again`);
     return head;
   }
-  const passed = await passTests(dir, { say, runTests, outcome: 'nothing landed', report, onBaseRun: (files) => failingOnBase(repo, base, files) });
+  const passed = await passTests(dir, { say, runTests, outcome: 'nothing landed', report, bumped, onBaseRun: (files) => failingOnBase(repo, base, files) });
   if (passed?.failingOnBase) await found(`Found: ${passed.failingOnBase.join(', ')} fails on ${base} too (flaky or already broken); the land went on`);
   git(repo, 'update-ref', testedRef(branch), head);
   return head;
@@ -732,7 +735,8 @@ function onBase(repo, base) {
 // branch was prepared, the lock is let go and the branch is prepared again. hold stops once the tests pass, before the
 // fast-forward: the verified branch waits in its worktree for the owner's Merge
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). sync runs under the lock before the fast-forward. queue
-// {site, key, first} names the board card the land is for and its standing bump, for its place in the land queue.
+// {site, key, first} names the board card the land is for and its standing bump, for its place in the land queue, and
+// a bumped land's tests don't wait for a busy host (passTests).
 // → landPrepared's {release, commit} once it landed.
 // The whole turn runs in a test slot (holdingTestSlot): the rebase onto base as it is when the turn starts, the tests
 // and the fast-forward, so with one slot nothing else moves base in between and each land tests once, in queue order
@@ -747,7 +751,7 @@ export async function landInTurn(tree, { hold = false, onWait, onTurn, onTestWai
   const card = tree.ref ?? tree.branch;
   return holdingTestSlot(card, async () => {
     for (;;) {
-      const tested = await prepareLand(tree, opts);
+      const tested = await prepareLand(tree, { ...opts, bumped: Boolean(queue.first) });
       if (hold) return;
       const landed = await holdingLandLock(card, () => { sync(); return landPrepared(tree, tested, opts); }, { onWait, asked, ...queue });
       if (landed) return landed;

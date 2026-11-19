@@ -187,18 +187,19 @@ const usagePauseReason = (gate) => `Work is paused: Claude's ${windowWord(gate.w
 
 // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
 // Whether gate holds an agent of kind: Codex while past its line, any other kind (Claude, and the planners, which run
-// as Claude) while Claude's work is paused; every kind while the owner paused it by hand or the Mac is busy, with no
-// override. pauseReasonFor words the hold.
-export const heldFor = (gate, kind) => Boolean(gate.manual) || gate.machine.state === 'busy' || (kind === 'codex' ? gate.codex.past : gate.state === 'paused');
+// as Claude) while Claude's work is paused; every kind while the owner paused it by hand, and while the host is busy
+// unless the launch is a bumped card's (docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md). pauseReasonFor
+// words the hold.
+export const heldFor = (gate, kind, bumped = false) => Boolean(gate.manual) || (gate.machine.state === 'busy' && !bumped) || (kind === 'codex' ? gate.codex.past : gate.state === 'paused');
 // docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md,
 // docs/adr/2026-11-16-0300-near-the-usage-line-tasks-in-progress-drop-to-half-the-cap.md
 // The board's Maximum tasks in progress under gate: near the line, half of cap rounded up, until a Keep going near the
 // line covers the window. Cards already In Progress above it keep running; only new pulls wait.
 export const tasksInProgressCap = (gate, cap) => (gate.near && !gate.near.going ? Math.ceil(cap / 2) : cap);
 // What holds the board server's launch of kind, in a card line's room: its pause, a busy host or the usage line.
-// → the words, or null when heldFor doesn't hold it.
-export const launchHeldWords = (gate, kind) => (!heldFor(gate, kind) ? null : gate.manual ? `${gate.manual} paused`
-  : gate.machine.state === 'busy' ? 'host busy' : 'usage paused');
+// → the words, or null when heldFor doesn't hold it, bumped as it reads it.
+export const launchHeldWords = (gate, kind, bumped = false) => (!heldFor(gate, kind, bumped) ? null : gate.manual ? `${gate.manual} paused`
+  : gate.machine.state === 'busy' && !bumped ? 'host busy' : 'usage paused');
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
 // Whether gate pauses a running build of kind at its next stopping point: the pause line on its usage, Pause board or
 // Pause hub. A busy Mac holds only new work, and lets running work finish. pausedWords names it on the card.

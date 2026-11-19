@@ -684,6 +684,17 @@ test('builder start refuses every kind while the host is busy, and starts once i
   assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1')).code, 0);
 });
 
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md
+test("a bumped card's builder start passes a busy host, and an unbump puts the hold back", async () => {
+  write(at('kickflip', 'machine-state.json'), { state: 'busy', reason: 'load high' });
+  assert.equal((await board('--site', 'orch', 'item', 'bump', 'w/A1')).code, 0);
+  assert.equal((await board('--site', 'orch', 'item', 'unbump', 'w/A1')).code, 0);
+  assert.match((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'grill')).err, /the host is busy/);
+  assert.equal((await board('--site', 'orch', 'item', 'bump', 'w/A1')).code, 0);
+  const r = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'grill');
+  assert.equal(r.code, 0, r.err);
+});
+
 // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
 test('builder start on a record its dispatch already opened is not held, while a fresh start still is', async () => {
   assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'grill')).code, 0);

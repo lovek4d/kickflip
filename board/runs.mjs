@@ -39,7 +39,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
 import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, stopRuns } from './headless.mjs';
-import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
+import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
 import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree } from './worktree.mjs';
 import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
 import { readClaudeModel } from '../shared/hub-settings.mjs';
@@ -67,12 +67,15 @@ const QUEUED = 'queued-planners.json';
 const quiet = { log: () => {}, stale: () => {}, event: async () => {} };
 const ioOf = (io) => ({ ...quiet, home: os.homedir(), ...io });
 
-// The board's launches of kind are held now (shared/usage-gate.mjs heldFor), marked on the pass.
-function heldNow(site, pass, kind = 'claude') {
-  const held = heldFor(readUsageGate({ dir: site }), kind);
+// The board's launches of kind, a bumped card's when bumped, are held now (shared/usage-gate.mjs heldFor), marked on
+// the pass.
+function heldNow(site, pass, kind = 'claude', bumped = false) {
+  const held = heldFor(readUsageGate({ dir: site }), kind, bumped);
   if (held) pass.held = true;
   return held;
 }
+// Whether gate holds a launch of kind on the card key, reading its standing bump (landFirst) only when a hold stands.
+const heldOn = async (gate, site, key, kind) => heldFor(gate, kind) && heldFor(gate, kind, Boolean(await landFirst(site, key)));
 
 // ---- The run-state files ----
 
@@ -125,14 +128,15 @@ export const startResult = (started) => (!started ? 'refused' : started.bumped ?
 // A build started ({key, kind, model, worktree}, startTappedBuild's) launches its builder, Claude or Codex. A
 // launch that fails puts the card back in Todo with the reason (abandonLaunch). A pause on its kind or a busy
 // host that began after the pull or the tap holds the launch, tracked with pid null; revive launches it once the hold
-// lifts. A busy Mac says so on the card (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
+// lifts. A busy Mac says so on the card (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md), and holds no bumped
+// card's launch (heldOn).
 async function handOff(site, started, io) {
   io.stale();
   if (!started || started.bumped) return;
   const entry = { kind: started.kind, model: started.model, relaunched: false };
   try {
     const gate = readUsageGate({ dir: site });
-    if (heldFor(gate, started.kind)) {
+    if (await heldOn(gate, site, started.key, started.kind)) {
       io.log({ call: 'launch-held', key: started.key, result: 'held', reason: pauseReasonFor(gate, started.kind), inputs: { kind: started.kind, model: started.model ?? null, gate } });
       if (gate.machine.state === 'busy') await appendStatus(site, started.key, 'host-busy');
       await trackLaunch(site, started.key, { ...entry, pid: null });
@@ -149,11 +153,11 @@ async function handOff(site, started, io) {
 // run a Block stopped, and launches headless in the board's repo (startPlanner), unless an agent already works
 // on it. One that can't start or launch leaves a thread line and its record closed. One due while the board's launches
 // are held waits in queued-planners.json, with a thread line saying so, and launches when the hold lifts
-// (launchQueuedPlanners); another of the same kind on the card replaces it.
+// (launchQueuedPlanners); another of the same kind on the card replaces it. A busy host holds no bumped card's (heldOn).
 // (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md)
 async function launchPlanner(site, key, kind, kept, io, pass) {
   const gate = readUsageGate({ dir: site });
-  if (heldFor(gate, 'claude')) {
+  if (await heldOn(gate, site, key, 'claude')) {
     pass.held = true;
     await queuePlanner(site, key, kind, kept ? { kept } : {});
     io.log({ call: 'planner-queued', key, result: kind, reason: pauseReasonFor(gate, 'claude'), inputs: { kind, gate } });
@@ -329,10 +333,9 @@ export async function restartLander(site, key) {
 
 // ---- The launch passes ----
 
-// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-// The due runs [{key}] with the bumped cards' first, the earliest bump first, the rest in their order.
-const bumpOf = (items, key) => items.find((i) => i.key === key)?.bumpedAt || '';
-const byBump = (items, due) => [...due.filter((d) => bumpOf(items, d.key)).sort((a, b) => bumpOf(items, a.key).localeCompare(bumpOf(items, b.key))), ...due.filter((d) => !bumpOf(items, d.key))];
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md
+// Every pass below walks its runs in the one bump order (domain.mjs byBump) and stops at the first a hold keeps, so a
+// busy host, which holds no bumped card's launch, lets the bumped ones through and holds the rest.
 
 // The cards whose run the orchestrator stopped (domain.mjs builderOf), which nothing relaunches.
 const stoppedKeys = (items) => new Set(items.filter((c) => c.builder?.stopped).map((c) => c.key));
@@ -357,11 +360,13 @@ export async function closeGone(site, io) {
   return gone.length > 0;
 }
 
-// The planners launchPlanner queued during a hold, oldest asked first, each once, until a launch is held again.
-async function launchQueuedPlanners(site, io, pass) {
-  for (const [queuedKey, { kind, kept, until }] of Object.entries(await queuedPlanners(site))) {
-    const key = queuedPlannerCard(queuedKey);
-    if (heldNow(site, pass)) return;
+// The planners launchPlanner queued during a hold on built items, the bumped cards' first, then oldest asked first,
+// each once, until a launch is held again.
+async function launchQueuedPlanners(site, items, io, pass) {
+  const bump = bumpIn(items);
+  const queued = Object.entries(await queuedPlanners(site)).map(([queuedKey, entry]) => ({ queuedKey, key: queuedPlannerCard(queuedKey), ...entry }));
+  for (const { queuedKey, key, kind, kept, until } of byBump(queued, (q) => bump(q.key))) {
+    if (heldNow(site, pass, 'claude', Boolean(bump(key)))) return;
     if (until && Date.parse(until) > Date.now()) continue;
     await editJSON(fileOf(site, QUEUED), (queued) => { delete queued[queuedKey]; });
     io.log({ call: 'planner-queued', key, result: 'launching', reason: 'The hold it waited on has lifted.', inputs: { kind } });
@@ -372,8 +377,8 @@ async function launchQueuedPlanners(site, io, pass) {
 }
 
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
-// Each agent due from a written brief (domain.mjs briefsDue) launches: a grill or prototype planner, or a visual agent
-// or reviewer beside whatever else runs on the card, so an agent's finish, which changes its record, brings in the
+// Each agent due from a written brief (domain.mjs briefsDue), the bumped cards' first, launches: a grill or prototype
+// planner, or a visual agent or reviewer beside whatever else runs on the card, so an agent's finish, which changes its record, brings in the
 // card's next brief. Passes on a site run one at a time, and the starts read the card again, so a brief opens one record
 // however stale items is.
 const briefsPasses = new Map();
@@ -383,8 +388,9 @@ function launchBriefs(site, items, io, pass) {
   return next;
 }
 async function launchBriefed(site, items, io, pass) {
-  for (const { key, kind } of briefsDue(items)) {
-    if (heldNow(site, pass)) return;
+  const bump = bumpIn(items);
+  for (const { key, kind } of byBump(briefsDue(items), (d) => bump(d.key))) {
+    if (heldNow(site, pass, 'claude', Boolean(bump(key)))) return;
     io.stale();
     if (beside({ kind })) await launchBeside(site, key, kind, io);
     else await launchPlanner(site, key, kind, null, io, pass);
@@ -428,8 +434,9 @@ async function launchLanders(site, items, stopped, io, pass) {
   const gate = readUsageGate({ dir: site });
   const cards = new Map(items.map((i) => [i.key, i]));
   const due = (await landable(site)).filter((c) => cards.has(c.key) && !cards.get(c.key).finished);
-  for (const c of byBump(items, due)) {
-    const step = landStep({ verified: c.verified, entry: sent[c.key], alive: sent[c.key]?.alive, limited: sent[c.key]?.limited, skip: landSkipOf(cards.get(c.key), c.skip), held: launchHeldWords(gate, c.kind ?? 'claude') });
+  const bump = bumpIn(items);
+  for (const c of byBump(due, (d) => bump(d.key))) {
+    const step = landStep({ verified: c.verified, entry: sent[c.key], alive: sent[c.key]?.alive, limited: sent[c.key]?.limited, skip: landSkipOf(cards.get(c.key), c.skip), held: launchHeldWords(gate, c.kind ?? 'claude', Boolean(bump(c.key))) });
     const inputs = { verified: c.verified, before: kept[c.key] ?? null };
     if (step.step === 'held') pass.held = true;
     if (step.step === 'fault' && !kept[c.key].handedBack) {
@@ -468,6 +475,7 @@ async function launchRebases(site, items, stopped, io, pass) {
   const file = fileOf(site, REBASES);
   const sent = await readJSON(file, {});
   const was = JSON.stringify(sent);
+  const bump = bumpIn(items);
   const { base } = builderRepo(site);
   const gate = readUsageGate({ dir: site });
   for (const [key, run] of Object.entries(sent)) {
@@ -476,7 +484,7 @@ async function launchRebases(site, items, stopped, io, pass) {
     if (!open) continue;
     const limited = Boolean(run.limited) || (Boolean(run.log) && Boolean(runLimit(run.log)));
     // landStep reads a run's conflict where it reads a lander's verification.
-    const step = landStep({ verified: run.conflict, entry: { ...run, verified: run.conflict }, limited, held: launchHeldWords(gate, open.kind ?? 'claude') });
+    const step = landStep({ verified: run.conflict, entry: { ...run, verified: run.conflict }, limited, held: launchHeldWords(gate, open.kind ?? 'claude', Boolean(bump(key))) });
     const inputs = { conflict: run.conflict, before: run };
     if (step.step === 'fault') {
       io.log({ call: 'rebase-run', key, result: 'handed back', reason: 'Its rebase run was relaunched and exited again with its record open.', inputs });
@@ -498,7 +506,7 @@ async function launchRebases(site, items, stopped, io, pass) {
       }
     }
   }
-  const due = byBump(items, rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base));
+  const due = byBump(rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base), (d) => bump(d.key));
   if (!due.length) {
     // A card's alive reads it.
     if (JSON.stringify(sent) !== was) await writeJSON(file, sent);
@@ -506,7 +514,7 @@ async function launchRebases(site, items, stopped, io, pass) {
   }
   try {
     for (const d of due) {
-      if (heldNow(site, pass)) break;
+      if (heldNow(site, pass, 'claude', Boolean(bump(d.key)))) break;
       const id = d.key.split('/')[1];
       const entry = { call: 'rebase-run', key: d.key, reason: `Its PR #${d.pr} conflicts with ${base}.`, inputs: { pr: d.pr, conflict: d.conflict, before: sent[d.key] ?? null } };
       sent[d.key] = { conflict: d.conflict, pid: null };
@@ -589,29 +597,34 @@ async function rerunBuild(site, key, io) {
 // The board's launch passes on built, the built board's items, as one call on each Auto check, while no hold stands:
 // the planners a hold queued, the agents due from briefs, the landers, the rebase runs, then due's resumes (the paused
 // builds domain.mjs pauseWork lets resume), the reruns the orchestrator asked for, and due's helpers (domain.mjs
-// pullOf's). A launch found held marks the pass held, and the passes after it wait for the next tick. → {held}
+// pullOf's). Each pass takes its bumped cards' launches first and stops at the first launch a hold keeps, marking the
+// pass held so the minute check runs the passes again once it lifts; a hold that keeps bumped cards' launches too (a
+// pause, not a busy host) ends the tick. → {held}
 export async function tick(site, built, io, { resumes = [], helpers = [] } = {}) {
   io = ioOf(io);
   const pass = { held: false };
   const stopped = stoppedKeys(built);
-  const reruns = built.filter((i) => i.kind === 'work' && i.lane === 'progress' && i.agents?.some((a) => a.name === 'main' && a.rerun));
+  const bump = bumpIn(built);
+  const held = (key) => heldNow(site, pass, 'claude', Boolean(bump(key)));
+  const reruns = built.filter((i) => i.kind === 'work' && i.lane === 'progress' && i.agents?.some((a) => a.name === 'main' && a.rerun)).map((i) => i.key);
   const passes = [
-    () => launchQueuedPlanners(site, io, pass),
+    () => launchQueuedPlanners(site, built, io, pass),
     () => launchBriefs(site, built, io, pass),
     () => launchLanders(site, built, stopped, io, pass),
     () => launchRebases(site, built, stopped, io, pass),
-    async () => { for (const key of resumes) await resumeBuild(site, key, io); },
-    async () => { for (const it of reruns) await rerunBuild(site, it.key, io); },
+    // pauseWork orders the resumes.
+    async () => { for (const key of resumes) { if (held(key)) return; await resumeBuild(site, key, io); } },
+    async () => { for (const key of byBump(reruns, bump)) { if (held(key)) return; await rerunBuild(site, key, io); } },
     async () => {
-      for (const { key, name } of helpers) {
-        if (heldNow(site, pass)) return;
+      for (const { key, name } of byBump(helpers, (h) => bump(h.key))) {
+        if (held(key)) return;
         io.stale();
         await launchHelper(site, key, name, io);
       }
     },
   ];
   for (const run of passes) {
-    if (pass.held || heldNow(site, pass)) break;
+    if (heldNow(site, pass, 'claude', true)) break;
     await run();
   }
   return pass;
@@ -634,23 +647,26 @@ export async function unstarted(site, key) {
 // whose build reads paused) waits as it is, since the board resumes it
 // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md). One whose process exited on
 // the usage limit (limitedUntil(entry), its reset, else null) doesn't spend its relaunch: atLimit(card, until) pauses it,
-// pid null. launch({key, kind, model}) → {pid, log}.
+// pid null. launch({key, kind, model}) → {pid, log}. The bumped cards' builds (bumpOf(key), the card's bump or null)
+// go first, the earliest bump first, and held(kind, bumped) reads whether a hold keeps a bumped card's
+// (docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md).
 // → the tracked map as it now stands.
-export async function reviveBuilders(tracked, open, { launch, handBack, alive: lives = pidAlive, held = () => false, stopped = new Set(), paused = new Set(), limitedUntil = () => null, atLimit = async () => {} }) {
+export async function reviveBuilders(tracked, open, { launch, handBack, alive: lives = pidAlive, held = () => false, stopped = new Set(), paused = new Set(), limitedUntil = () => null, atLimit = async () => {}, bumpOf = () => null }) {
   const next = {};
-  for (const [key, entry] of Object.entries(tracked)) {
+  for (const [key, entry] of byBump(Object.entries(tracked), ([k]) => bumpOf(k))) {
     if (!open.has(key)) continue;
     if (stopped.has(key)) { next[key] = { ...entry, handedBack: true }; continue; }
     if (paused.has(key) || (entry.pid !== null && lives(entry.pid)) || entry.handedBack) { next[key] = entry; continue; }
     const card = { key, ...(entry.kind ? { kind: entry.kind } : {}), ...(entry.model ? { model: entry.model } : {}) };
     const until = entry.pid !== null ? limitedUntil(entry) : null;
     if (until) { await atLimit(card, until); next[key] = { ...entry, pid: null }; continue; }
-    if (held(entry.kind ?? 'claude')) { next[key] = entry; continue; }
+    if (held(entry.kind ?? 'claude', Boolean(bumpOf(key)))) { next[key] = entry; continue; }
     if (entry.pid !== null && entry.relaunched) { await handBack(card); next[key] = { ...entry, handedBack: true }; continue; }
     const { key: _, ...kept } = card;
     next[key] = { ...kept, ...(await launch(card)), relaunched: entry.pid !== null || Boolean(entry.relaunched) };
   }
-  return next;
+  // In tracked's own order, so the launch order alone is no change to write.
+  return Object.fromEntries(Object.keys(tracked).filter((key) => Object.hasOwn(next, key)).map((key) => [key, next[key]]));
 }
 
 // Once a minute: a headless builder whose usage isn't held and whose process exited with its record open launches again
@@ -694,8 +710,8 @@ async function reviveHeadless(site, built, io) {
       io.stale();
     };
     const paused = new Set(items.filter((c) => c.builder?.pause?.paused).map((c) => c.key));
-    const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind) => heldFor(readUsageGate({ dir: site }), kind), stopped: stoppedKeys(items), paused,
-      limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit });
+    const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind, bumped) => heldFor(readUsageGate({ dir: site }), kind, bumped), stopped: stoppedKeys(items), paused,
+      limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit, bumpOf: bumpIn(items) });
     if (JSON.stringify(next) !== JSON.stringify(tracked)) await writeJSON(file, next, { from: tracked });
   } finally {
     reviving.delete(site);
@@ -716,12 +732,18 @@ async function launchCutOffBuilds(site, io) {
 // docs/adr/2026-11-15-1630-a-pulled-card-whose-launch-was-lost-launches-again.md
 // A card In Progress that has no agent record (lostLaunches) had its pull cut off after the card moved and
 // before its build started: it starts as the pull would have, at boot and each minute. A card moved within the last
-// LOST_GRACE_MS may be a start still under way, so only boot, which has none, takes it at once.
+// LOST_GRACE_MS may be a start still under way, so only boot, which has none, takes it at once. Bumped cards start
+// first, and a busy host holds only the rest.
 const LOST_GRACE_MS = 120000;
 async function launchLostBuilds(site, built, io, grace) {
-  if (heldFor(readUsageGate({ dir: site }), 'claude')) return;
-  const blocked = new Set((await built()).filter((c) => c.blockedBy?.length).map((c) => c.key));
-  for (const key of (await lostLaunches(site, new Date(Date.now() - grace).toISOString())).filter((k) => !blocked.has(k))) {
+  const gate = readUsageGate({ dir: site });
+  if (heldFor(gate, 'claude', true)) return;
+  const items = await built();
+  const bump = bumpIn(items);
+  const blocked = new Set(items.filter((c) => c.blockedBy?.length).map((c) => c.key));
+  const lost = (await lostLaunches(site, new Date(Date.now() - grace).toISOString())).filter((k) => !blocked.has(k));
+  for (const key of byBump(lost, bump)) {
+    if (heldFor(gate, 'claude', Boolean(bump(key)))) return;
     const { started } = await start(site, key, 'build', io);
     io.log({ call: 'launch-lost', key, result: startResult(started), reason: 'It was In Progress with no agent record: its pull was cut off before its build started.', inputs: {} });
   }
@@ -898,7 +920,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: each kind is held by its own usage.
   const gate = readUsageGate({ dir: site });
   // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md: a start that takes up a dispatched record isn't held, the dispatch was the gate.
-  if (!(takeUp && !dispatch) && heldFor(gate, k)) throw new BoardError(pauseReasonFor(gate, k));
+  // A busy host holds no bumped card's start (heldOn); a --dir record has no board card to be bumped.
+  if (!(takeUp && !dispatch) && (dir ? heldFor(gate, k) : await heldOn(gate, site, key, k))) throw new BoardError(pauseReasonFor(gate, k));
   const line = asLine && forAgent(asLine, plans({ kind: k }), '--progress');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
@@ -1318,8 +1341,9 @@ export async function clearStall(site, key) {
   delete item.stalled;
   await writeJSON(source.file, itemFile);
 }
-// The bump the card's land queues with: its latest card-bump when no card-unbump came after it and it was made after
-// the card last closed, Done or merged, as the board reads a bump (domain.mjs workItem), else null.
+// The card's standing bump, which its land queues with and lets its starts pass a busy host (heldOn): its latest
+// card-bump when no card-unbump came after it and it was made after the card last closed, Done or merged, as the
+// board reads a bump (domain.mjs workItem), else null.
 export async function landFirst(site, key) {
   const { item } = await loadItem(site, key);
   const events = await readLog(path.join(site, 'data', 'events.jsonl'));

@@ -69,6 +69,23 @@ test('a bumped land test run goes ahead of the ones asked before it', async (t) 
   assert.deepEqual(order, ['#3', '#2']);
 });
 
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md
+test('bumped land test runs go earliest bump first, as every queue takes them', async (t) => {
+  home(t);
+  const order = [];
+  const first = held('#1', { slots: 1 });
+  await first.started;
+  const runs = [];
+  for (const [card, bump] of [['#2', null], ['#3', '2026-11-16T11:00:00.000Z'], ['#4', '2026-11-16T10:00:00.000Z']]) {
+    const run = waiting(card, { slots: 1, site: '/s', key: `w/${card.slice(1)}`, first: bump }, order);
+    await run.waits;
+    runs.push(run);
+  }
+  first.release();
+  await Promise.all([first.done, ...runs.map((r) => r.done)]);
+  assert.deepEqual(order, ['#4', '#3', '#2']);
+});
+
 test('a slot held by a process that is gone is taken over', async (t) => {
   const dir = home(t);
   const running = path.join(dir, '.claude', 'kickflip', 'landtest.running');

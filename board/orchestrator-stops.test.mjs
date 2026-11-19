@@ -208,7 +208,8 @@ test("land stop on a headless builder's land stops that builder, and refuses a l
   assert.equal(read(recordFile()).stopped.run, 'land');
 });
 
-test('a bump orders the land queue: a bumped land goes ahead of the ones asked before it, a later bump first, and a running land is never stopped', async (t) => {
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md: the earliest bump first, as every queue takes it.
+test('a bump orders the land queue: a bumped land goes ahead of the ones asked before it, the earliest bump first, and a running land is never stopped', async (t) => {
   const old = process.env.HOME;
   process.env.HOME = home;
   t.after(() => { process.env.HOME = old; });
@@ -222,13 +223,13 @@ test('a bump orders the land queue: a bumped land goes ahead of the ones asked b
     queued.push(holdingLandLock(card, async () => { order.push(card); }, { site: '/s', key: `w/${card.slice(1)}`, first }));
   }
   await until(() => landQueue().length === 5, 'every land is queued');
-  assert.deepEqual(landQueue().map((q) => [q.card, q.running, Boolean(q.first)]), [['#1', true, false], ['#5', false, true], ['#3', false, true], ['#2', false, false], ['#4', false, false]]);
-  // The orchestrator's bump of a land already waiting moves it first; #1 keeps running.
+  assert.deepEqual(landQueue().map((q) => [q.card, q.running, Boolean(q.first)]), [['#1', true, false], ['#3', false, true], ['#5', false, true], ['#2', false, false], ['#4', false, false]]);
+  // The orchestrator's bump of a land already waiting moves it ahead of the unbumped, behind the earlier bumps; #1 keeps running.
   assert.equal(moveQueuedLand('/s', 'w/4', '2026-11-05T12:00:00.000Z'), 1);
   assert.equal(moveQueuedLand('/s', 'w/9', '2026-11-05T12:00:00.000Z'), 0);
   release();
   await Promise.all([hold, ...queued]);
-  assert.deepEqual(order, ['#1', '#4', '#5', '#3', '#2']);
+  assert.deepEqual(order, ['#1', '#3', '#5', '#4', '#2']);
 });
 
 test('item bump moves a queued land first with a thread line, item unbump puts it back in ask order, and land queue lists the queue', async (t) => {

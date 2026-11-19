@@ -1940,15 +1940,6 @@ test("a ready card's time line reads ready in green ahead of its block and befor
   assert.doesNotMatch(workLines(card), />New</);
 });
 
-// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-test('a bumped ready card the host holds reads held while host recovers, in grey', () => {
-  const sortAt = ago(24 * 2);
-  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, ready: true, phase: 'ready' };
-  const held = workLines({ ...card, bumpedAt: ago(1), hostHeld: true });
-  assert.equal(lines(held).at(-1), `${ui.cardTime(sortAt)} · ready · held while host recovers`);
-  assert.match(held, /<span class="card-host-held">held while host recovers<\/span>/);
-  assert.doesNotMatch(workLines(card), /host/);
-});
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
 test('a paused build reads "pausing · <cause>" in orange, then "paused · <cause>" in grey, its bars dimmed at the phase it stopped at, in place of the block it names', () => {
@@ -3399,10 +3390,10 @@ test("an unsent thread reply's line draws its box's tiles in the uploads wrapper
 // docs/adr/2026-11-16-1200-the-server-sends-a-cards-footer-and-builder-words.md
 test("the footer draws the server's words as sent, comparing none of the card's fields, and the builder line draws its words with the age", () => {
   const sortAt = ago(24 * 2);
-  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, stale: false, hostHeld: false, ownerBlock: null, blockedBy: [], blockedUntil: 'ignored' };
-  const footer = [{ kind: 'stale', words: 'stale' }, { kind: 'host-held', words: 'held while host recovers' }, { kind: 'blocked', lead: 'blocked by ', deps: [{ key: 'w/B1', ref: '#61', lane: 'progress' }], tail: ', waiting' },
+  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, stale: false, ownerBlock: null, blockedBy: [], blockedUntil: 'ignored' };
+  const footer = [{ kind: 'stale', words: 'stale' }, { kind: 'blocked', lead: 'blocked by ', deps: [{ key: 'w/B1', ref: '#61', lane: 'progress' }], tail: ', waiting' },
     { kind: 'pause', paused: true, words: 'paused · usage pause' }];
-  assert.match(lines(ui.workLines({ ...card, footer })).at(-1), /^.* · stale · held while host recovers · blocked by #61 ?, waiting · paused · usage pause$/);
+  assert.match(lines(ui.workLines({ ...card, footer })).at(-1), /^.* · stale · blocked by #61 ?, waiting · paused · usage pause$/);
   assert.equal(lines(ui.workLines({ ...card, footer: [] })).at(-1), ui.cardTime(sortAt));
   const at = new Date(NOW - 4 * 60000).toISOString();
   assert.equal(ui.builderLine({ words: 'stopped · Running tests', alive: true, progress: null, at }), 'stopped · Running tests (4m)');

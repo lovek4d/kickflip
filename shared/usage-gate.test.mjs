@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, tasksInProgressCap, pauseReasonFor, pauseReason, pausedLine } from './usage-gate.mjs';
+import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, launchHeldWords, tasksInProgressCap, pauseReasonFor, pauseReason, pausedLine } from './usage-gate.mjs';
 import { readClaudeModel, setClaudeModel, readOrchestratorModel, setOrchestratorModel } from './hub-settings.mjs';
 import { tempDir } from './temp-dir.mjs';
 
@@ -125,6 +125,10 @@ test('a busy host holds every kind of new work, with no override, and words it a
   assert.deepEqual(['claude', 'codex', 'grill'].map((k) => heldFor(held, k)), [true, true, true]);
   assert.deepEqual([holdsWork(held), holdsWork(gate(calm)), holdsWork(gate())], [true, false, true]);
   assert.equal(heldFor(gate({ machine: busy, keepGoing: { window: 'five_hour', until } }), 'claude'), true, 'Keep going lifts only the usage pause');
+  // docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md: a bumped card's launch passes a busy host, never a pause.
+  assert.deepEqual(['claude', 'codex', 'grill'].map((k) => heldFor(held, k, true)), [false, false, false], 'a bump passes a busy host');
+  assert.equal(heldFor(gate({ machine: busy }), 'claude', true), true, 'a usage pause holds a bump');
+  assert.deepEqual([launchHeldWords(held, 'claude', true), launchHeldWords(gate({ machine: busy }), 'claude', true), launchHeldWords(held, 'claude')], [null, 'usage paused', 'host busy']);
   const words = 'Work is held: the host is busy (memory pressure critical). It starts again when the host eases.';
   assert.equal(pauseReason(held), words);
   assert.equal(pauseReasonFor(held, 'claude'), words);

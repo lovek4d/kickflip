@@ -186,6 +186,26 @@ test('a card In Progress blocked by any task takes no slot; its ready blockers p
   assert.deepEqual(pullOf([{ ...blocked, blockedBy: [] }, running, todo('w/T1')], { cap: 2 }).pulls, [], 'unblocked it holds its slot again');
 });
 
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md
+test('the pull takes bumped cards first, the earliest bump first, ahead of a card blocking one In Progress', () => {
+  const todo = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', title: 'feat: task', buildable: true, phase: 'ready', blocked: false, blockedBy: [], agents: [], ...more });
+  const blocked = card('w/B', { blocked: true, blockedBy: [{ key: 'w/T2' }] });
+  const items = [blocked, todo('w/T1'), todo('w/T2'), todo('w/T3', { bumpedAt: '2026-11-18T11:00:00.000Z' }), todo('w/T4', { bumpedAt: '2026-11-18T10:00:00.000Z' })];
+  assert.deepEqual(pullOf(items, { cap: 5 }).pulls, ['w/T4', 'w/T3', 'w/T2', 'w/T1']);
+  assert.deepEqual(pullOf(items, { cap: 1 }).pulls, ['w/T4'], 'one slot: the earliest bump, not the blocker');
+});
+
+test('paused builds resume bumped first, the earliest bump first, then the oldest pause', () => {
+  const pause = (paused) => ({ pause: { cause: 'held', at: paused, paused } });
+  const items = [
+    card('w/A', {}, pause('2026-11-09T10:00:00.000Z')),
+    card('w/B', { bumpedAt: '2026-11-09T11:30:00.000Z' }, pause('2026-11-09T11:00:00.000Z')),
+    card('w/C', { bumpedAt: '2026-11-09T11:20:00.000Z' }, pause('2026-11-09T11:10:00.000Z')),
+    card('w/D', {}, pause('2026-11-09T10:30:00.000Z')),
+  ];
+  assert.deepEqual(pauseWork(items, { now: Date.parse('2026-11-09T12:00:00.000Z'), cap: 20, usageHeld: () => false }).resume, ['w/C', 'w/B', 'w/A', 'w/D']);
+});
+
 test('a blocked build resumes once its blocker lands only while the cards holding a slot are fewer than the cap, the oldest pause first', () => {
   const pause = (paused) => ({ pause: { cause: 'blocked', at: paused, paused } });
   const resuming = [card('w/B', {}, pause('2026-11-09T11:00:00.000Z')), card('w/C', {}, pause('2026-11-09T11:05:00.000Z'))];

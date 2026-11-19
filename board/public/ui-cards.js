@@ -347,12 +347,10 @@
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
   // A paused build's word and cause, which stand in for the block that caused it: "pausing · blocked by #61" in
   // orange while its builder runs on to its stopping point, then "paused · blocked by #61" in grey.
-  // A card's footer words, each drawn by its kind from the entry the server sends (domain.mjs footerOf), which is also what
-  // a bumped ready card a busy host holds reads (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md).
+  // A card's footer words, each drawn by its kind from the entry the server sends (domain.mjs footerOf).
   const footerWord = (e) => ({
     'owner-block': ownerBlockWords,
     blocked: blockedWords,
-    'host-held': (x) => `<span class="card-host-held">${esc(x.words)}</span>`,
     stale: (x) => `<span class="card-stale">${esc(x.words)}</span>`,
     pause: (x) => `<span class="card-${x.paused ? 'paused' : 'pausing'}">${esc(x.words)}</span>`,
   })[e.kind](e);

@@ -776,7 +776,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          status log, its progress every 2 minutes on the live status only
   item bump <file>/<id>                                  the task's bump, as the owner's Bump sends it (card-bump;
   item unbump <file>/<id>                                card-unbump). A bumped task's land goes ahead in the land queue
-                                                         of every land not bumped since, the latest bump first, without
+                                                         of every land not bumped, the earliest bump first, without
                                                          stopping the one running; a bump of a queued land says so in
                                                          its thread ("land moved first by orchestrator")
   lander <file>/<id>                                     restart a task's land, as after its lander faulted: an open

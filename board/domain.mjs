@@ -363,13 +363,14 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // A reviewer's owed brief is the orchestrator's wait alone: the card's status line stays what its work says.
   const briefing = BRIEF_KINDS.find((k) => k !== REVIEWER && (it.briefs || []).some((b) => b.kind === k && !b.brief)) ?? null;
   // A checked card with nothing left to verify waits to land: its land step (landStep), read from the server's lander
-  // for it (landers {<key>: {...entry, alive, limited}}), what holds a launch of its kind (landHeld {<kind>: words}) and
+  // for it (landers {<key>: {...entry, alive, limited}}), what holds a launch of its kind (landHeld {<kind>: words}, a
+  // bumped card's from landHeld.bumped) and
   // what runs.mjs landable skips it for (landSkips {<key>: skip}), as runs.mjs launchLanders reads them.
   const verifiedAt = agents.map((a) => a.verified?.at).filter(Boolean).map(String).sort().at(-1) ?? null;
   const lander = routeRecord(landers, key);
   // The step itself is taken once the board knows what blocks the card (buildBoard landOf).
   const landFrom = waitsOn === 'checking' && verifiedAt && !unverifiedOf(agents)
-    ? { verified: verifiedAt, entry: lander, alive: lander?.alive, limited: lander?.limited, skip: routeRecord(landSkips, key) ?? null, held: routeRecord(landHeld, providerOf(newestBuild(agents)?.kind) ?? 'claude') ?? null } : null;
+    ? { verified: verifiedAt, entry: lander, alive: lander?.alive, limited: lander?.limited, skip: routeRecord(landSkips, key) ?? null, held: routeRecord(bumpable && bumpStands ? landHeld.bumped ?? {} : landHeld, providerOf(newestBuild(agents)?.kind) ?? 'claude') ?? null } : null;
   return {
     land: null,
     landFrom,
@@ -630,7 +631,7 @@ const RESOLVED_BY = Object.freeze({
 // mergeBlocked its tooltip naming what blocks it, with no Action needed.
 const MERGE_BLOCKED_NEXT = 'Merges once unblocked';
 // A work card's footer words between its phase and its bars, in the order they draw: the owner's block, what else blocks it, a
-// bumped ready card a busy host holds, a stale build or review, and a paused build's words. The browser draws each entry by its
+// stale build or review, and a paused build's words. The browser draws each entry by its
 // kind and compares none of the card's fields (docs/adr/2026-11-16-1200-the-server-sends-a-cards-footer-and-builder-words.md).
 // A pause stands in for the block that caused it, so its cause's block is left out.
 export function footerOf(it) {
@@ -644,7 +645,6 @@ export function footerOf(it) {
     const tail = until + (it.blockReason && (it.blockedBy.length || until) ? `, ${it.blockReason}` : '');
     if (it.blockedBy.length || tail) footer.push({ kind: 'blocked', lead: 'blocked by ', deps: it.blockedBy, tail });
   }
-  if (it.hostHeld) footer.push({ kind: 'host-held', words: 'held while host recovers' });
   if (!it.stalled && it.stale && it.phase !== 'stale') footer.push({ kind: 'stale', words: 'stale' });
   if (pause) footer.push({ kind: 'pause', paused: Boolean(pause.paused), words: `${pause.paused ? 'paused' : 'pausing'} · ${pause.words}` });
   return footer;
@@ -887,7 +887,8 @@ const stillPaused = (it, pause, kind, { now, usageHeld }) => it.blocked || usage
 // One pass of the board's card pauses over built items. → {ask, drop, stop, resume}, each a list of keys: ask the
 // running builds a usage pause on their kind (usageHeld(kind)) now holds, neither pausing already nor landing; drop
 // the pauses whose cause cleared before their builder stopped; stop the builds still running PAUSE_HARD_STOP after
-// they were asked; resume the paused builds nothing pauses any more, oldest pause first, each on its card's own slot.
+// they were asked; resume the paused builds nothing pauses any more, bumped cards' first (byBump), then the oldest
+// pause first, each on its card's own slot.
 export function pauseWork(items, { now = Date.now(), usageHeld, cap = MAX_IMPLEMENTERS }) {
   const out = { ask: [], drop: [], stop: [], resume: [] };
   const resumes = [];
@@ -912,7 +913,8 @@ export function pauseWork(items, { now = Date.now(), usageHeld, cap = MAX_IMPLEM
     if (!still) out.drop.push(it.key);
     else if (now - Date.parse(pause.at) >= PAUSE_HARD_STOP) out.stop.push(it.key);
   }
-  for (const { key } of resumes.sort((a, b) => String(a.at).localeCompare(String(b.at)))) {
+  const bump = bumpIn(items);
+  for (const { key } of byBump(resumes.sort((a, b) => String(a.at).localeCompare(String(b.at))), (r) => bump(r.key))) {
     if (!waits(items.find((i) => i.key === key))) out.resume.push(key);
     else if (held < cap) { held++; out.resume.push(key); }
   }
@@ -1576,12 +1578,7 @@ export function buildBoard(snapshot) {
     it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.action;
     // docs/adr/2026-11-07-0700-staging-then-ready.md
     it.staging = unstarted && it.phase === 'staging';
-    // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped ready card a busy host holds
-    // reads held.
-    if (it.kind === 'work') {
-      it.hostHeld = Boolean(snapshot.hostBusy) && it.ready && Boolean(it.bumpedAt);
-      it.footer = footerOf(it);
-    }
+    if (it.kind === 'work') it.footer = footerOf(it);
   }
   linkCards(items, byKey, storedLinks);
   // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that
@@ -1832,6 +1829,19 @@ export const MAX_IMPLEMENTERS = 5;
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md
+// The one order every queue on the board takes: list's entries whose card is bumped first, the earliest bump first,
+// then the rest in the order they came. bumpOf(entry) → its card's bump time, or null. bumpIn(items) is the bumpOf
+// of built items, for a list of their keys; a list of {key} entries passes (e) => bump(e.key).
+export function byBump(list, bumpOf) {
+  const at = (e) => bumpOf(e) || '';
+  return [...list.filter(at).sort((a, b) => at(a).localeCompare(at(b))), ...list.filter((e) => !at(e))];
+}
+export const bumpIn = (items) => {
+  const bumps = new Map(items.map((i) => [i.key, i.bumpedAt]));
+  return (key) => bumps.get(key) ?? null;
+};
+
 // For built items in board order, cap the board's Maximum tasks in progress and pulled the cards the pull started
 // builds on: each open card In Progress takes one slot until it lands, whatever runs on it, building, in Orchestrator
 // review, landing, waiting on the owner, paused or stalled, and however many agents, unless a task blocks it
@@ -1840,7 +1850,7 @@ export const MAX_IMPLEMENTERS = 5;
 // pullable lists the cards ready to build, in board order, so bumped first and the
 // rest newest first (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
 // waiting lists the pulled cards not yet started that still hold a slot: the pullable ones. free is the slots left, the cap less the cards In Progress and waiting. pulls lists the pullable
-// cards not pulled that fit them, the bumped ones first (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md,
+// cards not pulled that fit them, the bumped ones first (byBump), then the ones blocking a card In Progress (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md,
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md). helpers lists every requested helper, {key, name}: a card's helpers
 // run on its slot. hold lists the cards an unanswered overnight triage names, which the pull leaves. retitle lists the
 // cards ready to build whose title isn't a Conventional subject, which are left out of pullable until retitled. idle
@@ -1868,10 +1878,8 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] }
   const waiting = open.filter((i) => pulled.includes(i.key) && pullable.includes(i.key)).map((i) => i.key);
   const helpers = open.flatMap((i) => (i.agents || []).filter((a) => a.kind === HELPER && !a.started && !a.done).map((a) => ({ key: i.key, name: a.name })));
   const free = Math.max(0, cap - inProgress - waiting.length);
-  const bumped = new Set(open.filter((i) => i.bumpedAt).map((i) => i.key));
   const fresh = pullable.filter((k) => !waiting.includes(k) && !hold.includes(k));
-  const ordered = (ks) => [...ks.filter((k) => bumped.has(k)), ...ks.filter((k) => !bumped.has(k))];
-  const pulls = [...ordered(fresh.filter((k) => blockers.has(k))), ...ordered(fresh.filter((k) => !blockers.has(k)))].slice(0, free);
+  const pulls = byBump([...fresh.filter((k) => blockers.has(k)), ...fresh.filter((k) => !blockers.has(k))], bumpIn(open)).slice(0, free);
   return { idle: !busy && !open.some((i) => i.waitsOn === 'checking'), pullable, retitle, waiting, pulls, helpers, free };
 }
 

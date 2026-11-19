@@ -597,6 +597,38 @@ test('a lander that exited without landing on a checked card is relaunched once 
   assert.deepEqual([faulted.land.step, faulted.orchestrator.kind], ['fault', 'stale']);
 });
 
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md
+test("a bumped card's lander launches while the host is busy, and the unbumped one beside it waits", async (t) => {
+  const home = emptyHome();
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  const clone = path.join(home, 'clone');
+  fs.mkdirSync(clone);
+  execFileSync('git', ['-C', clone, 'init', '--quiet', '-b', 'main']);
+  const kickflip = path.join(home, '.claude', 'kickflip');
+  fs.mkdirSync(kickflip, { recursive: true });
+  fs.writeFileSync(path.join(kickflip, 'manifest.json'), JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  const verified = '2026-11-14T03:54:50.052Z';
+  for (const id of ['H5', 'H6']) {
+    const worktree = path.join(home, `wt-${id}`);
+    fs.mkdirSync(worktree);
+    fs.writeFileSync(path.join(data, 'agents', `${id}.json`), JSON.stringify({ started: '2026-11-13T20:00:00.000Z', done: '2026-11-13T21:00:00.000Z', kind: 'claude', model: 'opus', calls: [{ at: '2026-11-13T20:30:00.000Z', text: 'Kept it small' }], handed_back: '2026-11-13T21:00:00.000Z', verified: { at: verified }, worktree: { path: worktree, branch: id, repo: clone } }));
+  }
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [{ id: 'H5', title: 'fix: unbumped', lane: 'progress' }, { id: 'H6', title: 'fix: bumped', lane: 'progress' }] }));
+  fs.writeFileSync(path.join(data, 'events.jsonl'), `${JSON.stringify({ id: 'cb1', ts: '2026-11-14T04:00:00.000Z', kind: 'card-bump', data: { key: 't/H6' } })}\n`);
+  fs.writeFileSync(path.join(kickflip, 'machine-state.json'), JSON.stringify({ state: 'busy', reason: 'load high' }));
+  const card = async (key) => (await fetch(`${board.base}/api/board`).then((r) => r.json())).items.find((c) => c.key === key);
+  const { runs, launch } = launcher(t);
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 1, 'only the bumped card lands');
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))), ['t/H6']);
+  assert.equal((await card('t/H5')).land.words, 'Landing held: host busy');
+  assert.equal((await card('t/H6')).land.step, 'running');
+});
+
 // A handed-back build with no calls has nothing to land until builder verified marks it; a gone worktree reads so on
 // the card and launches nothing, and once it is back the next pass launches the lander.
 test('builder verified on a no-call handed-back build lets the next pass launch its lander, which a gone worktree skips', async (t) => {
@@ -673,6 +705,22 @@ test("a tracked builder whose kind its usage holds waits, launched or not, while
   const next = await reviveBuilders(tracked, new Set(Object.keys(tracked)), { launch, handBack: async () => assert.fail('nothing is handed back'), alive: () => false, held: (kind) => kind === 'codex' });
   assert.deepEqual(launched, ['w/C']);
   assert.deepEqual(next, { 'w/A': tracked['w/A'], 'w/B': tracked['w/B'], 'w/C': { kind: 'claude', model: 'opus', pid: 901, relaunched: false } });
+});
+
+// docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md
+test('held builders launch bumped first, the earliest bump first, and a busy host holds only the unbumped ones', async () => {
+  const launched = [];
+  const launch = async ({ key }) => { launched.push(key); return { pid: 900 + launched.length }; };
+  const tracked = Object.fromEntries(['w/A', 'w/B', 'w/C', 'w/D'].map((k) => [k, { kind: 'claude', model: 'opus', pid: null, relaunched: false }]));
+  const bumps = { 'w/C': '2026-11-18T11:00:00.000Z', 'w/D': '2026-11-18T10:00:00.000Z' };
+  const opts = { launch, handBack: async () => assert.fail('nothing is handed back'), alive: () => false, bumpOf: (key) => bumps[key] ?? null };
+  const busy = await reviveBuilders(tracked, new Set(Object.keys(tracked)), { ...opts, held: (_, bumped) => !bumped });
+  assert.deepEqual(launched, ['w/D', 'w/C']);
+  assert.deepEqual(Object.keys(busy), ['w/A', 'w/B', 'w/C', 'w/D'], 'the map keeps its own order');
+  assert.deepEqual([busy['w/A'], busy['w/D'].pid], [tracked['w/A'], 901]);
+  launched.length = 0;
+  await reviveBuilders(tracked, new Set(Object.keys(tracked)), opts);
+  assert.deepEqual(launched, ['w/D', 'w/C', 'w/A', 'w/B']);
 });
 
 // docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md,

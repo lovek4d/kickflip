@@ -12,3 +12,5 @@ Card #805. With the cap at 3, T-462 sat In Progress blocked by T-469, which sat 
 
 - The cap can briefly be exceeded by a card whose blocker lands while every slot is taken; it resumes when the next slot frees.
 - A lost launch is a separate card (T-473).
+
+Superseded in part by [a bump goes first in every queue](2026-11-19-0242-a-bump-goes-first-in-every-queue.md): bumped cards pull ahead of the blockers, which go ahead of the rest.

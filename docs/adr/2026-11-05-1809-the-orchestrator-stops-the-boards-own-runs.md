@@ -17,3 +17,5 @@ Card #290. On 11/05 frozen test runs held the host's test slot and lands without
 - No board view of the land queue and no owner Stop button. The thread line and the status word are what the card shows (owner, `gh290-card-shows`).
 - The bump icon still shows only on Todo and In Progress cards. A bump on an In Review card, which only the orchestrator can make, orders its land without showing on the card.
 - The 30-minute push to the owner for a card waiting on the orchestrator stays. It covers an orchestrator that is down or stuck, which its own scan can't catch.
+
+Superseded in part by [a bump goes first in every queue](2026-11-19-0242-a-bump-goes-first-in-every-queue.md): the land queue takes the earliest bump first, not the latest.
