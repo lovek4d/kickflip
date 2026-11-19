@@ -1,4 +1,4 @@
-// Shared by hub/try.test.mjs and hub/try-main.test.mjs: a scratch home with stand-in tools, a board in a git repo with a
+// Shared by hub/try.test.mjs and the hub/try-*.test.mjs files: a scratch home with stand-in tools, a board in a git repo with a
 // card worktree, and a try manager over it, made fresh for each test.
 import { home, bin, inProcessHub } from './hub-fixture.mjs';
 import { beforeEach, afterEach } from 'node:test';

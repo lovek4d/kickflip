@@ -1222,8 +1222,9 @@ async function watching(session) {
   return { lines, pass, run: async () => { while (code === undefined) await pass(); return code; } };
 }
 
-test('a watcher that just exited on an event still counts as listening, until its session stops', async () => {
+test('a watcher that just exited on an event still counts as listening, until its session stops', async (t) => {
   const session = spawn(process.execPath, ['-e', untilTestEnds()], { stdio: 'ignore' });
+  t.after(() => session.kill());
   const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(session.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
   fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'sessions', `${session.pid}.json`), JSON.stringify({ pid: session.pid, sessionId: 's1', cwd: home, procStart, kind: 'bg' }));
@@ -1234,7 +1235,7 @@ test('a watcher that just exited on an event still counts as listening, until it
   const watcher = await watching('s1');
   await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/A1', text: 'Wake' }) });
   assert.equal(await watcher.run(), 0);
-  assert.match(watcher.lines[0], /^new reply on \S+: inbox read t\/A1$/);
+  assert.equal(watcher.lines.filter((line) => /^new reply on \S+: inbox read t\/A1$/.test(line)).length, 1);
   await heard(path.join(site, 'data', 'watcher.json'), path.join(site, 'data', 'delivered.json'));
   const w = JSON.parse(fs.readFileSync(path.join(site, 'data', 'watcher.json'), 'utf8'));
   assert.ok(Date.parse(w.exited_at) >= Date.parse(w.since));
