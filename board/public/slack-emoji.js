@@ -30,7 +30,7 @@
     function paint() {
       if (!on) { root.innerHTML = ''; return; }
       if (!view) { root.innerHTML = flash ? HubUI.flash(flash) : '<p class="note">Loading the workspace’s emoji…</p>'; return; }
-      root.innerHTML = `<h2 class="label">${esc(view.label)}</h2>${HubUI.flash(flash)}<div class="group se-rows">${view.rows.map(row).join('')}</div><p class="note">${esc(view.note)}</p>`;
+      root.innerHTML = `<h2 class="label">${esc(view.label)}</h2>${HubUI.flash(flash)}${view.warning ? HubUI.flash({ text: view.warning, error: true }) : ''}<div class="group se-rows">${view.rows.map(row).join('')}</div><p class="note">${esc(view.note)}</p>`;
       if (!open) return;
       Popup.open(root.querySelector('.se-pop'), root.querySelector(`[data-se-open="${open}"]`), { align: 'end', onClose: close });
       root.querySelector('.se-q').focus({ preventScroll: true });

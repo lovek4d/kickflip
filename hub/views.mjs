@@ -196,7 +196,7 @@ const EMOJI_TITLES = { approved: 'Approved', merged: 'Merged', closed: 'Closed',
 // it is its standard default, and what it is: the workspace's own, the standard one (and which custom one the workspace
 // lacks), or a pick, changed from its default; then the picker's emoji, the workspace's own and the standard ones.
 // picks: readPREmoji's; signOff: readSignOff's; customs: the workspace's own emoji {name: url}.
-export function prEmojiView({ picks, signOff, customs }) {
+export function prEmojiView({ picks, signOff, customs, scopeMissing = false }) {
   const emoji = (name) => (customs[name] ? { name, url: customs[name] } : { ...STANDARD_EMOJI.find((e) => e.name === name), name });
   const kinds = { ...PR_EMOJI, signature: { standard: SIGN_OFF_DEFAULT } };
   const chosen = { ...picks, ...(signOff === SIGN_OFF_DEFAULT ? {} : { signature: signOff }) };
@@ -211,6 +211,7 @@ export function prEmojiView({ picks, signOff, customs }) {
   return {
     label: 'Reactions and signature',
     note: "One set for every board. A PR's Slack messages get its state's reaction, and every message the hub posts ends with the signature. A standard emoji stands in while the workspace lacks a custom one.",
+    warning: scopeMissing ? 'Slack’s token lacks the emoji:read user scope, so the workspace’s own emoji aren’t listed. Add emoji:read under User Token Scopes, reinstall the app, and paste the token again.' : null,
     rows,
     customs: Object.entries(customs).map(([name, url]) => ({ name, url })),
     standard: STANDARD_EMOJI,

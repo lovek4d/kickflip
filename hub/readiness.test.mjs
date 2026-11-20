@@ -38,11 +38,11 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   assert.equal(await reader.waiting('linear'), null);
 });
 
-test('Slack is ready while Hub’s token is saved and Slack has not refused it, and its button opens its key modal: Add key or Change key', () => {
+test('Slack is ready while Hub’s token is saved and Slack has not refused it, and its button opens its key modal: Add key or Configure', () => {
   const row = (slack) => readinessRows({ slack })[0];
   assert.deepEqual(row({ set: false }), { id: 'slack', name: 'Slack', ready: false, missing: 'No Slack token set', keyButton: 'Add key', waits: null });
-  assert.deepEqual([row({ set: true, refused: true, team: 'Acme', user: 'love' }).missing, row({ set: true, refused: true }).keyButton], ['Slack refused the token', 'Change key']);
-  assert.equal(row({ set: true, team: 'Acme', user: 'love' }).keyButton, 'Change key');
+  assert.deepEqual([row({ set: true, refused: true, team: 'Acme', user: 'love' }).missing, row({ set: true, refused: true }).keyButton], ['Slack refused the token', 'Configure']);
+  assert.equal(row({ set: true, team: 'Acme', user: 'love' }).keyButton, 'Configure');
   assert.equal(row({ set: true, team: 'Acme', user: 'love' }).detail, 'Token set · Acme workspace, sending as love');
 });
 
@@ -103,7 +103,7 @@ test('file-backed checks see changes immediately while gh and tailscale stay cac
   assert.ok((await r.rows()).every((r) => r.ready));
   write(path.join(state, 'secrets.json'), { linear: { key: 'secret', workspace: 'Office', refused_at: new Date(now).toISOString() }, slack });
   const refused = (await r.rows())[2];
-  assert.deepEqual([refused.ready, refused.refused, refused.missing, refused.keyButton], [false, true, 'Linear refused the key', 'Change key']);
+  assert.deepEqual([refused.ready, refused.refused, refused.missing, refused.keyButton], [false, true, 'Linear refused the key', 'Configure']);
   fs.rmSync(path.join(home, '.codex', 'auth.json'));
   write(path.join(state, 'secrets.json'), {});
   write(path.join(state, 'push', 'subs.json'), []);

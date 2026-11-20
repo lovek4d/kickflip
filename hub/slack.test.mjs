@@ -139,6 +139,10 @@ test("the hub serves Hub › Slack's PR state emoji and signature from the works
   write(kf('secrets.json'), { slack: { token: world.token, team: 'Acme', user: 'love', user_id: 'U0' } });
   const view = await (await fetch(`${base}/_hub/api/slack-emoji`)).json();
   assert.deepEqual([names(view), view.customs.map((e) => e.name)], [['git_approved', 'git_merged', 'x', 'robot_face'], ['claude_kickflip', 'git_approved', 'git_merged']]);
+  assert.equal(view.warning, null);
+  world.emojiMissingScope = true;
+  assert.match((await (await fetch(`${base}/_hub/api/slack-emoji`)).json()).warning, /lacks the emoji:read user scope/);
+  world.emojiMissingScope = false;
   const pick = (body) => fetch(`${base}/_hub/settings/slack-emoji`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
   const picked = await (await pick('state=approved&emoji=tada')).json();
   assert.deepEqual([picked.rows[0].emoji, picked.rows[0].sub], [{ name: 'tada', char: '🎉' }, ':tada: · changed from :git_approved:']);
@@ -193,6 +197,7 @@ test("a PR state's reaction is the custom git_approved and git_merged when the w
     assert.deepEqual(await client.prEmojis(), want, name);
     assert.deepEqual(Object.keys(await client.workspaceEmoji()), change.noEmoji || change.emojiMissingScope ? [] : ['claude_kickflip', 'git_approved', 'git_merged'], name);
     assert.equal(slack.calls.filter((c) => c.method === 'emoji.list').length, 1, name);
+    assert.equal(await client.emojiScopeMissing(), Boolean(change.emojiMissingScope), name);
   }
 });
 

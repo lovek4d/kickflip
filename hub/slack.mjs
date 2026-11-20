@@ -151,9 +151,10 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     if (!out.ok) throw new SlackError(`Slack: ${out.error}`);
     return out;
   }
-  // The workspace's custom emoji, asked once per client; no emoji:read scope or any failure reads as none.
-  let emojis;
-  const customEmoji = () => (emojis ??= call('emoji.list').then((out) => out.emoji || {}, () => ({})));
+  // The workspace's custom emoji, asked once per client; any failure reads as none, and missing_scope is kept for
+  // emojiScopeMissing.
+  let emojis, emojiScope = true;
+  const customEmoji = () => (emojis ??= call('emoji.list').then((out) => out.emoji || {}, (e) => { emojiScope = !missingScope(e); return {}; }));
   // A message's {text, attachments?} with the sign-off line ended on, the last attachment's text taking it when there
   // are attachments; edited: an edit's time, which the line then names.
   const signedOff = ({ text, attachments }, edited) => {
@@ -204,6 +205,11 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     // The workspace's own emoji, {name: image url}, its aliases left out; none without the emoji:read scope.
     async workspaceEmoji() {
       return Object.fromEntries(Object.entries(await customEmoji()).filter(([, url]) => !String(url).startsWith('alias:')));
+    },
+    // Whether Slack answered the emoji list with missing_scope: the token lacks the emoji:read user scope.
+    async emojiScopeMissing() {
+      await customEmoji();
+      return !emojiScope;
     },
     // A reaction already there counts as added.
     async react({ channel, ts, name }) {

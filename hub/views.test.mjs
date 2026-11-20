@@ -565,8 +565,8 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     { id: 'github', name: 'GitHub', ready: false, missing: "gh isn't logged in <img>", fix: { command: 'gh auth login <img>' }, waits: 'GitHub polling and PR reports wait on this.' },
     { id: 'codex', name: 'Codex', ready: true, detail: 'Installed and logged in <img>' },
     { id: 'linear', name: 'Linear', ready: false, missing: 'No Linear key set', keyButton: 'Add key', waits: null },
-    { id: 'slack', name: 'Slack', ready: true, detail: 'Token set · Acme workspace, sending as love', keyButton: 'Change key', waits: null },
-    { id: 'tailscale', name: 'Tailnet', ready: false, off: true, detail: 'The hub serves this host only', fix: { command: 'kickflip tailnet on' }, waits: null },
+    { id: 'slack', name: 'Slack', ready: true, detail: 'Token set · Acme workspace, sending as love', keyButton: 'Configure', waits: null },
+{ id: 'tailscale', name: 'Tailnet', ready: false, off: true, detail: 'The hub serves this host only', fix: { command: 'kickflip tailnet on' }, waits: null },
     { id: 'notifications', name: 'Notifications', ready: true, detail: 'Pushes on · 2 devices', devices: [
       { id: 'mine', kind: 'Mac', browser: 'Chrome', added: new Date(Date.now() - 2 * 3600_000).toISOString() },
       { id: 'other', kind: 'iPhone', browser: '', added: new Date(Date.now() - 5 * 60_000).toISOString() }] },
@@ -617,7 +617,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.match(codex.querySelector('.icon').getAttribute('style'), /var\(--color-quiet\)/);
   // Linear's and Slack's rows end in a button that opens their key modal, whichever state they are in.
   assert.equal(linear.querySelector('[data-settings-open="linear"]').textContent, 'Add key');
-  assert.equal(slack.querySelector('[data-settings-open="slack"]').textContent, 'Change key');
+  assert.equal(slack.querySelector('[data-settings-open="slack"]').textContent, 'Configure');
   assert.equal(slack.querySelector('.rd-waits'), null);
   assert.equal(linear.querySelector('.rd-fix'), null);
   assert.equal(github.querySelector('[data-settings-open]'), null);
@@ -685,7 +685,7 @@ test('an integration missing a permission reads amber degraded, and tapping the 
   const fix = 'Add these scopes to the Slack app, reinstall it, paste the new token';
   const unheard = { scope: 'im:history', effect: "Review-thread replies aren't heard" };
   const unsearched = { scope: 'search:read', effect: "@kickflip in your DMs isn't found" };
-  const slack = { id: 'slack', name: 'Slack', ready: true, detail: 'Token set · Acme workspace, sending as love', keyButton: 'Change key', waits: null };
+  const slack = { id: 'slack', name: 'Slack', ready: true, detail: 'Token set · Acme workspace, sending as love', keyButton: 'Configure', waits: null };
   const data = hubView({ now, st: status(now, DEFAULTS), integrations: [],
     sidebar: { pause: CALM_GATE, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' }, notifications: {}, total: 0, usage: { claude: null, codex: null } }, rows: [] });
   const paint = (...integrations) => live.paint({ ...data, version: '0.4.2', integrations });
@@ -707,16 +707,16 @@ test('an integration missing a permission reads amber degraded, and tapping the 
   assert.match(row.querySelector('.sub').textContent, /^degraded · Token set · Acme workspace, sending as love$/);
   assert.match(row.querySelector('.icon').getAttribute('style'), /var\(--color-notice\)/);
   assert.doesNotMatch(row.textContent, /im:history/);
-  assert.equal(row.querySelector('[data-settings-open="slack"]').textContent, 'Change key');
+  assert.equal(row.querySelector('[data-settings-open="slack"]').textContent, 'Configure');
   assert.equal(sheet.open, false);
   click(word);
   assert.equal(sheet.open, true);
   assert.equal(sheet.querySelector('h2').textContent, 'Slack is missing permissions');
   assert.deepEqual(sheet.querySelectorAll('.mp-list li').map((li) => [li.querySelector('span').textContent, li.querySelector('code').textContent]), [["Review-thread replies aren't heard", 'im:history']]);
   assert.equal(sheet.querySelector('.mp-fix').textContent, fix);
-  // Change key closes the sheet and opens Slack's key modal.
+  // Configure closes the sheet and opens Slack's key modal.
   const change = sheet.querySelector('[data-settings-open="slack"]');
-  assert.equal(change.textContent, 'Change key');
+  assert.equal(change.textContent, 'Configure');
   click(change);
   assert.equal(sheet.open, false);
   assert.deepEqual(plain(opened.at(-1)[0]), { hash: '#slack' });
@@ -730,12 +730,12 @@ test('an integration missing a permission reads amber degraded, and tapping the 
   assert.equal(sheet.open, false);
 
   // Token refused stays red, with no degraded word.
-  paint({ id: 'slack', name: 'Slack', ready: false, missing: 'Slack refused the token', keyButton: 'Change key', waits: null });
+  paint({ id: 'slack', name: 'Slack', ready: false, missing: 'Slack refused the token', keyButton: 'Configure', waits: null });
   assert.equal(rows()[0].querySelector('[data-permissions]'), null);
 
   // The same helper draws GitHub's and Linear's rows and sheets, escaped, under their own names and buttons.
   paint({ id: 'github', name: 'GitHub', ready: true, detail: 'gh logged in as love', permissions: { missing: [{ scope: 'read:org <img>', effect: 'Org repos <img> aren’t listed' }], fix: 'Run gh auth refresh' } },
-    { id: 'linear', name: 'Linear', ready: true, detail: 'Key set · Work workspace', keyButton: 'Change key', permissions: { missing: [{ scope: 'write', effect: 'Issues aren’t created' }], fix: 'Make a key with write access' } });
+    { id: 'linear', name: 'Linear', ready: true, detail: 'Key set · Work workspace', keyButton: 'Configure', permissions: { missing: [{ scope: 'write', effect: 'Issues aren’t created' }], fix: 'Make a key with write access' } });
   const [github, linear] = rows();
   assert.equal(github.querySelector('button.st.wait').textContent, 'degraded');
   click(github.querySelector('[data-permissions="github"]'));
@@ -747,7 +747,7 @@ test('an integration missing a permission reads amber degraded, and tapping the 
   click(linear.querySelector('[data-permissions="linear"]'));
   assert.equal(sheet.querySelector('h2').textContent, 'Linear is missing permissions');
   assert.equal(sheet.querySelector('.mp-fix').textContent, 'Make a key with write access');
-  assert.equal(sheet.querySelector('[data-settings-open="linear"]').textContent, 'Change key');
+  assert.equal(sheet.querySelector('[data-settings-open="linear"]').textContent, 'Configure');
 });
 
 // docs/adr/2026-11-03-1638-the-hub-restarts-itself-from-its-stale-code-notice.md

@@ -53,11 +53,11 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
       case 'codex': return value.usable ? { ready: true, detail: 'Installed and logged in' }
         : { ready: false, missing: value.words, fix: { command: value.fix } };
       case 'linear': return !value.set ? { ready: false, missing: 'No Linear key set', keyButton: 'Add key' }
-        : value.refused ? { ready: false, refused: true, missing: 'Linear refused the key', keyButton: 'Change key' }
-        : { ready: true, detail: `Key set · ${value.workspace} workspace`, keyButton: 'Change key' };
+        : value.refused ? { ready: false, refused: true, missing: 'Linear refused the key', keyButton: 'Configure' }
+        : { ready: true, detail: `Key set · ${value.workspace} workspace`, keyButton: 'Configure' };
       case 'slack': return !value.set ? { ready: false, missing: 'No Slack token set', keyButton: 'Add key' }
-        : value.refused ? { ready: false, refused: true, missing: 'Slack refused the token', keyButton: 'Change key' }
-        : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}`, keyButton: 'Change key' };
+        : value.refused ? { ready: false, refused: true, missing: 'Slack refused the token', keyButton: 'Configure' }
+        : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}`, keyButton: 'Configure' };
       // value: {off: true} while the tailnet is off (../shared/tailnet.mjs), a grey row nothing waits on; else tailscaleState.
       case 'tailscale': {
         if (value.off) return { ready: false, off: true, detail: 'The hub serves this host only', fix: { command: 'kickflip tailnet on' }, waits: null };

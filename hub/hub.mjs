@@ -1291,7 +1291,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil, overnight: overnightJobs(), alerts: readAlerts() }), closed: closedBoards() };
   };
 
-  const slackEmojiData = async () => prEmojiView({ picks: readPREmoji(), signOff: readSignOff(), customs: await savedSlack()?.workspaceEmoji() || {} });
+  const slackEmojiData = async () => prEmojiView({ picks: readPREmoji(), signOff: readSignOff(), customs: await savedSlack()?.workspaceEmoji() || {}, scopeMissing: await savedSlack()?.emojiScopeMissing() });
 
   const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
 
