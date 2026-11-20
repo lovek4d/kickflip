@@ -23,15 +23,16 @@ BoardView.part((B) => {
   // The glance under the chips, in three blocks. Lanes: a line per lane in board order, its count the lane header's
   // own (app-lanes.js laneCards), a short breakdown and a mark in the highest colour among its cards; a tap opens the
   // lane and scrolls the board to it. Building: the In Progress cards, red first, then orange, then grey, each colour
-  // by when its build started, so a row holds its place while it builds; each reads its phase, its block or its fault,
-  // capped at BUILDING_CAP with a +N more line that scrolls to the lane. Landed: the last three cards landed (green) or
-  // merged (purple) today on this device's clock, newest first, a Done card's sortAt being when it closed (domain.mjs
+  // by when its build started, so a row holds its place while it builds; each reads its phase, its block or its fault.
+  // Every one is listed, and the whole pane scrolls. Landed: the last LANDED_SHOWN cards landed (green) or
+  // merged (purple) today on this device's clock, newest first, a Show more row opening that many more in place and
+  // Show less folding back once open (landedShown, the pane's own, not saved), a Done card's sortAt being when it closed (domain.mjs
   // SORT_AT) and its commit what it landed. A building or landed row selects its card. Building
   // and Landed show the whole board, whatever the filter hides: they are its activity. Each block with nothing to
   // show keeps its heading and one grey line. Rows are keyed by card (ui.js setHTML), so one that stays is untouched;
   // one new since the last paint washes orange in Building and green in Landed for WASH_MS.
-  const BUILDING_CAP = 6;
-  const LANDED_SHOWN = 3;
+  const LANDED_SHOWN = 5;
+  let landedShown = LANDED_SHOWN;
   const WASH_MS = 1600;
   const RANK = ['danger', 'notice', 'info', 'success', 'merged', 'quiet'];
   const highest = (tones) => tones.reduce((top, t) => (RANK.indexOf(t) < RANK.indexOf(top) ? t : top), 'quiet');
@@ -109,14 +110,15 @@ BoardView.part((B) => {
     const started = (it) => String(it.builder?.at || it.sortAt || '');
     const building = items.filter((it) => it.lane === 'progress').map((it) => ({ it, state: buildState(it) }))
       .sort((a, b) => RANK.indexOf(a.state[0]) - RANK.indexOf(b.state[0]) || started(a.it).localeCompare(started(b.it)));
-    const landed = items.filter(landedToday).sort((a, b) => String(b.sortAt).localeCompare(String(a.sortAt))).slice(0, LANDED_SHOWN);
-    const shownBuilding = building.slice(0, BUILDING_CAP);
-    const fresh = washed([...shownBuilding.map(({ it }) => `b:${it.key}`), ...landed.map((it) => `l:${it.key}`)]);
+    const landedAll = items.filter(landedToday).sort((a, b) => String(b.sortAt).localeCompare(String(a.sortAt)));
+    const landed = landedAll.slice(0, landedShown);
+    const fresh = washed([...building.map(({ it }) => `b:${it.key}`), ...landed.map((it) => `l:${it.key}`)]);
     const row = (block, it, tone, word, cls = '') => `<button type="button" class="glance-row${cls}${fresh(`${block}:${it.key}`) ? ' fresh' : ''}" id="glance-${block}-${esc(it.key)}" data-glance-open="${esc(it.key)}">${mark(tone)}<span class="glance-text"><b>${esc(it.ref || '')}</b>${esc(it.title || '')}</span><span class="glance-end ${tone}">${esc(word)}</span></button>`;
-    const more = building.length - shownBuilding.length;
-    const buildingRows = shownBuilding.map(({ it, state: [tone, word] }) => row('b', it, tone, word)).join('')
-      + (more > 0 ? `<button type="button" class="glance-row glance-more" id="glance-more" data-glance-lane="progress"><span class="glance-text">+${more} more in In Progress</span></button>` : '');
-    const landedRows = landed.map((it) => row('l', it, merged(it) ? 'merged' : 'success', `${merged(it) ? 'merged' : 'landed'} ${BoardUI.ago(it.sortAt)}`, ' landed')).join('');
+    const buildingRows = building.map(({ it, state: [tone, word] }) => row('b', it, tone, word)).join('');
+    const moreRow = (id, words) => `<button type="button" class="glance-row glance-more" id="${id}" data-glance-landed="${id}"><span class="glance-text">${words}</span></button>`;
+    const landedRows = landed.map((it) => row('l', it, merged(it) ? 'merged' : 'success', `${merged(it) ? 'merged' : 'landed'} ${BoardUI.ago(it.sortAt)}`, ' landed')).join('')
+      + (landedAll.length > landed.length ? moreRow('glance-show-more', `Show more (${landedAll.length - landed.length} more today)`) : '')
+      + (landedShown > LANDED_SHOWN && landedAll.length > LANDED_SHOWN ? moreRow('glance-show-less', 'Show less') : '');
     const none = (words) => `<div class="glance-none">${words}</div>`;
     return `<div class="glance"><h3>Lanes</h3><div class="glance-lanes">${lanes}</div>`
       + `<h3>Building</h3><div class="glance-building">${buildingRows || none('Nothing is building')}</div>`
@@ -126,6 +128,8 @@ BoardView.part((B) => {
   B.on(B.root, 'click', (ev) => {
     const chip = ev.target.closest?.('[data-pane-show]');
     if (chip) { if (B.showsOnly(chip.dataset.paneShow)) B.clearFilter(); else B.showOnly([chip.dataset.paneShow]); return; }
+    const landedMore = ev.target.closest?.('[data-glance-landed]');
+    if (landedMore) { landedShown = landedMore.dataset.glanceLanded === 'glance-show-more' ? landedShown + LANDED_SHOWN : LANDED_SHOWN; B.render(); return; }
     const lane = ev.target.closest?.('[data-glance-lane]');
     if (lane) { B.openLane(lane.dataset.glanceLane); return; }
     const open = ev.target.closest?.('[data-glance-open]');

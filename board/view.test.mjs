@@ -7450,7 +7450,7 @@ const glanceOf = (root) => {
   };
 };
 
-test("under the pane landing's chips the glance lists each lane with its count and its mark in board order, the cards In Progress red first then by when they started with their phase or block, and the last three landed today newest first, green landed and purple merged", async () => {
+test("under the pane landing's chips the glance lists each lane with its count and its mark in board order, the cards In Progress red first then by when they started with their phase or block, and the last five landed today newest first, green landed and purple merged", async () => {
   const wide = boardOnDom({ board: glanceBoard(), threads: {}, width: 1280 });
   await wide.settle();
   const g = glanceOf(wide.root);
@@ -7471,11 +7471,12 @@ test("under the pane landing's chips the glance lists each lane with its count a
     ['w/D1', 'success', 'D1Work D1', 'landed 14m ago'],
     ['w/D2', 'merged', 'D2Work D2', 'merged 45m ago'],
     ['w/D3', 'success', 'D3Work D3', 'landed 1h ago'],
-  ], "three at most; yesterday's and one closed without landing aren't listed");
+    ['w/D4', 'success', 'D4Work D4', 'landed 2h ago'],
+  ], "yesterday's and one closed without landing aren't listed");
   wide.view.unmount();
 });
 
-test("a glance lane line opens its lane if shut and scrolls the board to it, its count reading x of y as the lane header's does; a building or landed row selects its card; over six building rows cap with +N more, which scrolls to In Progress", async () => {
+test("a glance lane line opens its lane if shut and scrolls the board to it, its count reading x of y as the lane header's does; a building or landed row selects its card; a long building list has no cap", async () => {
   const board = glanceBoard();
   for (let i = 5; i <= 8; i++) board.items.push(workCard(`P${i}`, { lane: 'progress', builder: { phase: 'building', at: minsAgo(i) } }));
   const wide = boardOnDom({ board, threads: {}, width: 1280, filter: ['ready'] });
@@ -7483,8 +7484,7 @@ test("a glance lane line opens its lane if shut and scrolls the board to it, its
   const g = glanceOf(wide.root);
   assert.equal(g.lanes.find((l) => l[0] === 'todo')[3], '1 of 4', "only the blocked card matches a checked box, as Todo's header says");
   assert.equal(wide.root.querySelector('details.lane[data-lane="todo"] .count').textContent, '1 of 4');
-  assert.equal(g.building.length, 7);
-  assert.deepEqual(g.building[6], ['progress', '', '+2 more in In Progress', '']);
+  assert.equal(g.building.length, 8, 'every In Progress card is listed, with no +N more row');
   // The rows below select cards the filter hides, so it is cleared first.
   wide.view.B.clearFilter();
   await wide.settle();
@@ -7495,9 +7495,6 @@ test("a glance lane line opens its lane if shut and scrolls the board to it, its
   wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('[data-glance-lane="done"] .glance-text') });
   await wide.settle();
   assert.deepEqual([done().open, scrolled.at(-1), JSON.parse(wide.page.win.localStorage.getItem('site:board-a:lanes')).done], [true, 'done', true]);
-  wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('#glance-more') });
-  await wide.settle();
-  assert.equal(scrolled.at(-1), 'progress');
   wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('[data-glance-open="w/P1"]') });
   await wide.settle();
   assert.equal(wide.page.win.location.hash, '#selectedCard=w%2FP1');
@@ -7522,11 +7519,35 @@ test("the glance repaints with the board's stream: a card that starts building j
   const landed = started.map((it) => (it.key === 'w/P2' ? { ...it, lane: 'done', builder: null, sortAt: minsAgo(0), phase: 'closed', commit: { sha: 'def5678', url: null } } : it));
   await wide.change({ board: { ...board, items: landed, version: 'v3' } });
   const g = glanceOf(wide.root);
-  assert.deepEqual(g.landed.map((r) => r[0]), ['w/P2', 'w/D1', 'w/D2']);
+  assert.deepEqual(g.landed.map((r) => r[0]), ['w/P2', 'w/D1', 'w/D2', 'w/D3', 'w/D4']);
   const row = pane.querySelector('.glance-landed [data-glance-open="w/P2"]');
   assert.deepEqual([row.classList.contains('fresh'), row.classList.contains('landed')], [true, true], 'the landed wash is green');
   assert.equal(pane.querySelector('.glance-building [data-glance-open="w/P2"]'), null);
   assert.equal(g.lanes.find((l) => l[0] === 'done')[2], 'Done5 landed today');
+  wide.view.unmount();
+});
+
+test("Landed shows five, then a Show more row opening five more in place and Show less folding back; the count survives a repaint, and Show more is gone once every landed card shows", async () => {
+  const board = glanceBoard();
+  for (let i = 0; i < 8; i++) board.items.push(workCard(`L${i}`, { lane: 'done', sortAt: minsAgo(100 + i), phase: 'closed', commit: { sha: 'abc1234', url: null } }));
+  const wide = boardOnDom({ board, threads: {}, width: 1280 });
+  await wide.settle();
+  const landedRows = () => glanceOf(wide.root).landed;
+  assert.equal(landedRows().length, 6);
+  assert.equal(landedRows()[5][2], 'Show more (7 more today)');
+  wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('#glance-show-more .glance-text') });
+  await wide.settle();
+  assert.equal(landedRows().length, 12, 'ten cards, Show more, Show less');
+  assert.deepEqual(landedRows().slice(-2).map((r) => r[2]), ['Show more (2 more today)', 'Show less']);
+  wide.view.B.render();
+  await wide.settle();
+  assert.equal(landedRows().length, 12, 'a repaint keeps the opened count');
+  wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('#glance-show-more') });
+  await wide.settle();
+  assert.deepEqual(landedRows().slice(-2).map((r) => r[2]), ['L7Work L7', 'Show less'], 'every landed card shows and Show more is gone');
+  wide.page.fire(wide.root, 'click', { target: wide.root.querySelector('#glance-show-less') });
+  await wide.settle();
+  assert.equal(landedRows().length, 6);
   wide.view.unmount();
 });
 
