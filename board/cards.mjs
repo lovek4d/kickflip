@@ -632,6 +632,18 @@ export async function shownCard(site, key) {
   await loadItem(site, key);
   return (await builtCards(site)).get(key);
 }
+// Whether another open card on the board carries ticket.
+async function sharedOpen(site, key, ticket) {
+  if (!ticket) return false;
+  const open = await openKeys(site);
+  for (const s of await itemSources(site)) {
+    for (const it of (await readJSON(s.file, null))?.items || []) {
+      const own = `${s.slug}/${it.id}`;
+      if (own !== key && it.ticket === ticket && open.has(own)) return true;
+    }
+  }
+  return false;
+}
 // The keys of the open cards the board draws: not finished (domain.mjs workItem's finished).
 export const openKeys = async (site) => new Set([...(await builtCards(site)).values()].filter((c) => !c.finished).map((c) => c.key));
 // Whether the card has left Todo: it is stored in another lane. A command writing the card's stored lane reads it; a
@@ -1092,8 +1104,10 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     resolved.push(...written.lines);
   }
   if (title !== undefined && site && item.lane === 'todo') await clearRefusal(site, key);
-  // The ticket stays open while the card waits on its owner step or its release.
-  const target = (item.owner_step || item.release) && done ? null : ticketTarget({ start, done, handover });
+  // The ticket stays open while the card waits on its owner step or its release, while another open card shares it, and
+  // when the card closed on a PR closed unmerged.
+  const keepsTicket = done && (item.owner_step || item.release || closing?.[0] === 'prs-closed' || await sharedOpen(site, key, item.ticket));
+  const target = keepsTicket ? null : ticketTarget({ start, done, handover });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo });
   if (moved) {
     const { line, lines } = await appendStatus(site, key, moved.kind, moved.inputs);
