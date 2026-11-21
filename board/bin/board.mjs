@@ -423,6 +423,12 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          task is no longer New.
                                                          Refuses a route that isn't another board, and an ask
                                                          that isn't New
+  ask move <eventId> --next <why>                        passes a New ask the hub's router filed here, which
+                                                         doesn't fit this board, to the next board in Haiku's
+                                                         ranking: a New task there reading "Passed on by
+                                                         /<this board>: <why>" (76 characters at most). Past the
+                                                         last board it goes back to the hub, where Haiku answers
+                                                         it. Refuses an ask the router didn't file
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
   handoff (<file>/<id> | <eventId>) --to <route>         hands work to another board in the hub's manifest. A New
@@ -1194,7 +1200,11 @@ const COMMANDS = {
     return store.relateAsk(site, id, key, f.summary);
   }],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
-  'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
+  // docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md
+  'ask move': [['eventId'], ['to', 'next'], (site, [id], f) => {
+    if (f.next !== undefined && f.to !== undefined) throw new UsageError('ask move takes --to <route> or --next <why>, not both');
+    return f.next !== undefined ? store.passAsk(site, id, f.next) : store.moveAsk(site, id, f.to);
+  }],
   // docs/adr/2026-11-15-0200-a-board-asks-another-board-and-its-orchestrator-answers.md
   ask: [['route', '...question'], ['from'], (site, [route, ...words], f) => store.askBoard(needSite(site, 'ask'), route, words.join(' '), { from: f.from })],
   asks: [[], ['wait', 'timeout'], (site, _, f) => store.listBoardAsks(needSite(site, 'asks'), f)],
@@ -1460,7 +1470,7 @@ const SAID = {
   'item triage': async (site, [key], f) => (f['fold-into'] !== undefined ? `${key} folded into ${await card(site, f['fold-into'])}` : `${await card(site, key)}: triaged ${f.phase ?? 'staging'}`),
   'item relate-ask': async (site, [id, key]) => `ask ${id} folded into ${await card(site, key)}`,
   'ask unfold': (site, [id]) => `ask ${id} back on a task of its own`,
-  'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
+  'ask move': (site, [id], f) => (f.next !== undefined ? `task ${id} passed on` : `task ${id} moved to /${f.to}`),
   ask: (site, [route], f, { id }) => `asked ${route.includes('/') ? route : `/${route}`}: ${id}`,
   answer: (site, [id], f, { route }) => `answered ${route.includes('/') ? route : `/${route}`}'s question ${id}`,
   'review record': (site, [pr], f) => `review of PR #${pr} recorded: ${f.state === 'needs' ? 'needs you' : 'posted'}`,

@@ -9,6 +9,7 @@ import { appendEvent, isListening, listBoards, samePath } from '../hub/boards.mj
 import { routeRecord } from '../hub/routes.mjs';
 import { appendLine, boardConfig, eventId as newEventId, itemSources, readJSON, readLog, remove, replace, writeJSON } from './files.mjs';
 import { readOutbox } from '../hub/peers.mjs';
+import { notePassed } from '../hub/routed-log.mjs';
 import { HUB, hubText } from './hub-lines.mjs';
 import { postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { hasPR } from '../shared/card-prs.mjs';
@@ -461,6 +462,56 @@ export async function moveAsk(site, eventId, route, { note, command = 'ask move'
   }
   return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
 }
+// docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md
+// Passes a New ask the hub's router filed here (its `routed {id, next}`) on to the next board in Haiku's ranking, for
+// reason: there, an `ask` event with the owner's latest text, intent and copies of its uploads, its routed carrying the
+// rest of the ranking and passed, the boards that passed it, so its thread reads "Passed on by /<this board>: <reason>";
+// here, an ask-moved line linking to it, and its unstarted cards dropped, as moveAsk does. With no board left in the
+// ranking (or none still in the manifest) it goes back to the hub, its line reading "Moved to the hub.", where Haiku
+// answers it (hub/router.mjs answerUnplaced). Either way the hub's routed log follows it (notePassed).
+const PASS_REASON_LIMIT = 76;
+export async function passAsk(site, eventId, reason, { boards = listBoards() } = {}) {
+  needSite(site);
+  domId(eventId, 'the event id');
+  const why = String(reason || '').replace(/\s+/g, ' ').trim();
+  if (!why) fail('ask move --next needs "<why this board passes>"; the next board and the hub page show it');
+  if (why.length > PASS_REASON_LIMIT) fail(`--next runs to ${why.length} characters, past ${PASS_REASON_LIMIT}`);
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
+  const ask = events.find((e) => e.id === eventId && e.kind === 'ask') || fail(`no ask "${eventId}" in this site's data/events.jsonl`);
+  const routed = ask.data?.routed;
+  if (!routed?.id) fail(`ask "${eventId}" wasn't routed by the hub, so it has no next board; send it on with ask move ${eventId} --to <route>`);
+  const state = await askNotNew(site, eventId, events);
+  if (state?.why) fail(state.why);
+  const here = boards.find((b) => samePath(b.dir, site))?.route || path.basename(site);
+  const passed = { route: here, reason: why };
+  const next = (routed.next || []).filter((n) => n.route !== here && boards.some((b) => b.route === n.route));
+  let link = '/';
+  let lines;
+  if (next.length) {
+    const target = boards.find((b) => b.route === next[0].route);
+    const edits = events.filter((e) => e.kind === 'ask-edited' && e.data?.id === eventId && typeof e.data?.text === 'string')
+      .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+    const files = [];
+    for (const f of [...(ask.data?.files || []), ...edits.flatMap((e) => e.data.files || [])]) files.push(await copyUpload(site, target.dir, f));
+    const intent = Object.fromEntries(['request', 'quick'].filter((k) => ask.data[k] !== undefined).map((k) => [k, ask.data[k]]));
+    const id = await appendEvent(target, 'ask', { text: edits.at(-1)?.data.text ?? ask.data.text ?? '', ...(files.length ? { files } : {}), ...intent,
+      routed: { ...routed, reason: next[0].reason, at: new Date().toISOString(), next: next.slice(1), passed: [...(routed.passed || []), passed] } });
+    link = `/${target.route}/#selectedCard=${encodeURIComponent(`ask:${id}`)}`;
+    await appendStatus(site, `ask:${eventId}`, 'ask-moved', { board: target.title }, { link });
+    await notePassed(routed.id, passed, { route: target.route, eventId: id });
+    lines = [`passed on to ${link}`];
+  } else {
+    await appendStatus(site, `ask:${eventId}`, 'ask-moved', { board: 'the hub' }, { link });
+    await notePassed(routed.id, passed, null);
+    lines = ['no board left in the ranking: back on the hub, where Haiku answers it'];
+  }
+  for (const key of state?.items || []) {
+    const { source, itemFile, item } = await loadItem(site, key);
+    await ticketWrite(site, () => dropCard(site, { source, itemFile, item, key }));
+  }
+  return { file: path.join(site, 'data', 'events.jsonl'), lines: [...lines, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
+}
+
 // The board at route in the hub's manifest, other than this one, that command sends work to. named is how a refusal
 // names the route the command was given.
 function targetBoard(site, route, command, named = `--to ${route}`) {

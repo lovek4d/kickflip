@@ -135,7 +135,9 @@
 //                     saveDraft) → {at}; /_hub/api/hub carries it as drafts. 400 {error} for any other box or a bad body
 //   /_hub/api/dismiss-row POST {id} hides that New row from /_hub/api/hub's routed for good (router.mjs dismissRow) → {dismissed};
 //                     400 {error} for no id
-//   /_hub/route       POST {text, files?, quick? | request?} (application/json) from that box: queues the task for the router
+//   /_hub/api/place-row POST {id, route} puts the New row's ask no board took on the board at route (router.mjs placeRow)
+//                     → {placed}; 409 {error} for a row that isn't waiting for a board, 404 {error} for no such board
+//   /_hub/route     POST {text, files?, quick? | request?} (application/json) from that box: queues the task for the router
 //                     (from.via hub) and answers 202 {queued} at once; 400 {error} for no text or file, or another request
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`kickflip poll-now`)
@@ -229,7 +231,8 @@
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
 // deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, auto-restarts.jsonl, prompts.json, secrets.json,
 // and the router's route-queue.json and routed.json: every 15 seconds the router files the requests still queued
-// (router.mjs drainRoutes; docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md), and
+// (router.mjs drainRoutes; docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md) and Haiku
+// answers each ask every board passed (router.mjs answerUnplaced), and
 // slack-intake.json, where each poll's @kickflip DM search starts (slack-intake.mjs).
 import { sweepStaleTempsUnder } from './stale-tmp.mjs';
 import http from 'node:http';
@@ -255,7 +258,7 @@ import { checkGitHub, sendWakes } from './github.mjs';
 import { migrateTriage, overnightJobs, setOvernight } from './overnight.mjs';
 import { runNightlySuite } from './nightly-suite.mjs';
 import { checkIncoming } from './incoming.mjs';
-import { dismissRow, drainRoutes, queueRequest, routedRows } from './router.mjs';
+import { answerUnplaced, dismissRow, drainRoutes, placeRow, queueRequest, routedRows } from './router.mjs';
 import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubCodeState, readJSON, migrateCellarNode, servedSites } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
@@ -943,13 +946,17 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   }
 
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: routes the requests that waited
-  // out a usage pause or a failed call, one drain at a time.
+  // out a usage pause or a failed call, one drain at a time, then has Haiku answer the asks every board passed
+  // (docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md).
   let routing = null;
   function runRoutes() {
-    routing ||= drainRoutes({ manifest: loadManifest() }).then((r) => {
+    routing ||= drainRoutes({ manifest: loadManifest() }).then(async (r) => {
       for (const e of r.routed) log(`router: ${e.via} request from ${e.by || 'someone'} → /${e.route}: ${e.reason}`);
       for (const why of r.failed) log(`router: could not file a request on ${why}`);
-      if (r.routed.length) stream.refresh();
+      const a = await answerUnplaced();
+      for (const id of a.answered) log(`router: Haiku answered ${id}, which no board took`);
+      for (const why of a.failed) log(`router: could not answer ${why}`);
+      if (r.routed.length || a.answered.length) stream.refresh();
     }).catch((e) => log('router failed:', e.message)).finally(() => { routing = null; });
     return track(routing);
   }
@@ -1789,6 +1796,15 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       await dismissRow(id);
       stream.refresh();
       return sendJSON(200, { dismissed: id });
+    }
+    if (p === '/_hub/api/place-row' && req.method === 'POST') {
+      let input;
+      try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the row id and route as JSON.' }); }
+      if (typeof input?.id !== 'string' || !input.id || typeof input.route !== 'string' || !input.route) return sendJSON(400, { error: 'Send the row id and route as JSON.' });
+      try { await placeRow(input.id, input.route, { manifest: loadManifest() }); } catch (e) { if (e.status) return sendJSON(e.status, { error: e.message }); throw e; }
+      log(`router: you put ${input.id} on /${input.route}`);
+      stream.refresh();
+      return sendJSON(200, { placed: input.route });
     }
     if (p === '/_hub/poll' && req.method === 'POST') {
       const body = await readJSONBody(req);

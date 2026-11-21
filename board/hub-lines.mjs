@@ -110,6 +110,9 @@ export const HUB_LINES = {
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: drawn from a routed ask's own
   // event (domain.mjs threadOf), never written, above the ask; blue, as the owner reads it and may move the ask.
   'ask-routed': { tone: 'blue', mark: 'ask-link', text: ({ via, reason }) => fit(`Routed here from ${via}: `, reason), longest: { via: 'a handoff' } },
+  // docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md: in its place on an ask
+  // another board passed on (asks.mjs passAsk), the last board that passed it and why.
+  'ask-passed-on': { tone: 'blue', mark: 'ask-link', text: ({ route, reason }) => fit(`Passed on by ${route}: `, reason), longest: { route: '/a-long-board-route-name' } },
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: on the ask's thread, the card it
   // became merged into another (asks.mjs relateAsk), which hides the ask's own row and feeds the top banner.
   'card-merged': { tone: 'grey', mark: MOVE, text: ({ card }) => fit('Merged into ', card, '.') },

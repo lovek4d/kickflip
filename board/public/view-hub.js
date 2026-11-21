@@ -256,6 +256,20 @@ ${BoardNewTask.markup()}`,
         last = { ...last, routed: last.routed.filter((r) => r.id !== id) };
         B.later(0, paint);
       });
+      // docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md: a board picked on a row
+      // no board took puts its ask there (router.mjs placeRow); the row repaints from the hub, reading Placed on it, or a
+      // toast says why it couldn't.
+      B.on(root, 'change', async (ev) => {
+        const s = ev.target.closest('.routed select[data-place-row]');
+        if (!s?.value) return;
+        const route = s.value;
+        s.disabled = true;
+        const refused = await fetch('/_hub/api/place-row', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify({ id: s.dataset.placeRow, route }) })
+          .then(async (r) => (r.ok ? null : (await r.json().catch(() => null))?.error || `the hub answered ${r.status}`), () => 'the hub is out of reach');
+        if (!B.alive()) return;
+        if (refused) { B.toast(`Couldn’t put it on /${route}: ${refused}`); s.disabled = false; s.value = ''; }
+        load();
+      });
       // Retry sends a failed task again in place, X drops it and puts its text and files back in the New task box
       // (new-task.js reopenAsk), each after a confirm.
       B.on(root, 'click', async (ev) => {

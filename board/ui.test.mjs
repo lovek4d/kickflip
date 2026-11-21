@@ -1797,6 +1797,42 @@ test("the hub's Routed section is the New strip under its own head: each row lin
   assert.match(ui.newStrip([], { label: 'Routed', empty: 'Nothing routed yet.' }), /<span class="count">0<\/span>[^]*<div class="new-entry new-empty">Nothing routed yet\.<\/div>/);
 });
 
+// docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md
+test("the hub's New strip: an ask still routing reads trying with each pass; one no board took shows the passes, Haiku's answer and a board picker; a placed one links where you put it", () => {
+  const at = ago(3);
+  const passed = [{ route: 'flight-control', reason: 'not this repo' }];
+  const three = [...passed, { route: 'kickflip-site', reason: 'a website' }, { route: 'hub-orchestrator', reason: 'a macOS question' }];
+  const places = [{ route: 'kickflip-site', title: 'Kickflip site' }, { route: 'hub-orchestrator', title: 'Hub <orchestrator>' }];
+  const rows = [
+    { id: 't1', at, text: 'which Mac?', via: 'hub', by: 'love', reason: 'site', trying: true, passed, to: { route: 'kickflip-site', ref: 'T-1', title: 'which Mac?', href: '/kickflip-site/#selectedCard=items%2FT-1' } },
+    { id: 'u1', at, text: 'keep my Mac awake?', via: 'hub', by: 'love', reason: 'hub', unplaced: true, passed, answer: { text: 'Run it under caffeinate -i.', at, slack: false }, places, to: { route: 'hub-orchestrator', ref: null, title: null, href: '/hub-orchestrator/#selectedCard=ask%3Ae4' } },
+    { id: 'u2', at, text: 'same, from Slack', via: 'slack', by: 'Maya', link: 'https://slack.com/x', reason: 'hub', unplaced: true, passed: three, answer: { text: 'Run it under caffeinate -i.', at, slack: true }, places, to: { route: 'hub-orchestrator', ref: null, title: null, href: '/hub-orchestrator/#selectedCard=ask%3Ae5' } },
+    { id: 'u3', at, text: 'answering', via: 'hub', by: 'love', reason: 'hub', unplaced: true, passed, answer: null, places, to: { route: 'hub-orchestrator', ref: null, title: null, href: '/x' } },
+    { id: 'u4', at, text: 'no answer', via: 'hub', by: 'love', reason: 'hub', unplaced: true, passed, answer: null, answerError: 'claude -p timed out', places, to: { route: 'hub-orchestrator', ref: null, title: null, href: '/x' } },
+    { id: 'p1', at, text: 'placed', via: 'hub', by: 'love', reason: 'you put it here after no board took it', placed: true, passed, to: { route: 'kickflip-site', ref: 'T-7', title: 'placed', href: '/kickflip-site/#selectedCard=items%2FT-7' } },
+  ];
+  const html = ui.newStrip(rows.map((routed) => ({ id: routed.id, routed })), { label: 'New', empty: '' });
+  const entry = (id) => html.split('<div class="new-entry"').find((e) => e.includes(`data-new="${id}"`));
+  assert.match(text(entry('t1')), /Trying \/kickflip-site…/);
+  assert.match(entry('t1'), /class="routed-trying"/, 'trying reads orange, as work does');
+  assert.match(text(entry('t1')), /\/flight-control passed: not this repo/);
+  assert.doesNotMatch(entry('t1'), /data-dismiss-row/, 'no X while it routes');
+  assert.match(text(entry('u1')), /Answered by Haiku/);
+  assert.match(text(entry('u1')), /No board took this · \/flight-control: not this repo/);
+  assert.match(entry('u1'), /<div class="routed-reply"><div class="routed-reply-from">Router · Haiku<\/div><p>Run it under caffeinate -i\.<\/p><\/div>/);
+  assert.match(entry('u1'), /<select class="routed-place" data-place-row="u1" aria-label="Put on a board"><option value="" selected disabled>Put on a board…<\/option><option value="kickflip-site">\/kickflip-site<\/option><option value="hub-orchestrator">\/hub-orchestrator<\/option><\/select>/);
+  assert.match(entry('u1'), /data-dismiss-row="u1" aria-label="Dismiss"/);
+  assert.doesNotMatch(entry('u1'), /Slack thread/);
+  assert.match(entry('u2'), /<details class="routed-passes"><summary>No board took this · 3 passed<\/summary>/, 'three passes or more fold to a count');
+  assert.match(entry('u2'), /<a class="routed-slack" href="https:\/\/slack.com\/x" target="_blank" rel="noopener">Answer also posted in its Slack thread<\/a>/);
+  assert.match(text(entry('u3')), /Haiku is answering…/);
+  assert.match(entry('u3'), /data-place-row="u3"/, 'it can be placed before the answer comes');
+  assert.match(text(entry('u4')), /Haiku couldn't answer: claude -p timed out/);
+  assert.match(entry('u4'), /class="routed-fault"/);
+  assert.deepEqual([...entry('p1').matchAll(/class="new-link" href="([^"]+)"[^>]*>(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])]), [['/kickflip-site/#selectedCard=items%2FT-7', 'Placed on /kickflip-site T-7 · placed']]);
+  assert.match(text(entry('p1')), /love · hub — you put it here after no board took it/);
+});
+
 test("the hub's New strip draws an incoming ask: who asked whom, queued or answered with a link to the asking card", () => {
   const at = ago(3);
   const asks = [

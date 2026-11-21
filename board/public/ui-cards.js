@@ -509,15 +509,40 @@
   const VIA = { slack: 'Slack' };
   const dismissRow = (id) => `data-dismiss-row="${esc(id)}"`;
   const rowActions = (id) => `<div class="ask-actions"><button type="button" class="ghost icon new-dismiss" ${dismissRow(id)} aria-label="Dismiss" title="Dismiss">${globalThis.BoardUI.DISMISS}</button></div>`;
+  // docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md: one its board hasn't
+  // taken reads an orange "Trying /<board>…", with no X, each board that passed it a muted line under it. One no board
+  // took (unplaced) reads Answered by Haiku, or Haiku is answering… until it does, or the red fault when it can't; then
+  // the passes (folded to a count past two), Haiku's answer in a blue reply block, that it went to the Slack thread too,
+  // and a board picker that puts it on a board (view-hub.js). One the owner placed links where it went.
+  const who = (r) => esc([r.by, VIA[r.via] || r.via].filter(Boolean).join(' · '));
+  const passEach = (p) => `<b>/${esc(p.route)}:</b> ${esc(p.reason)}`;
+  function passes(passed) {
+    if (passed.length > 2) return `<details class="routed-passes"><summary>No board took this · ${passed.length} passed</summary><ul>${passed.map((p) => `<li>${passEach(p)}</li>`).join('')}</ul></details>`;
+    return `<div class="routed-pass"><span class="routed-nobody">No board took this</span>${passed.map((p) => ` · ${passEach(p)}`).join('')}</div>`;
+  }
+  function unplacedEntry(r) {
+    const a = r.answer;
+    const state = a ? 'Answered by Haiku' : r.answerError ? `<span class="routed-fault">Haiku couldn't answer: ${esc(r.answerError)}</span>` : `<span class="routed-trying">${DOT}Haiku is answering…</span>`;
+    const reply = a ? `<div class="routed-reply"><div class="routed-reply-from">Router · Haiku</div><p>${esc(a.text)}</p></div>` : '';
+    const slack = !a ? '' : a.slack ? (r.link ? `<a class="routed-slack" href="${esc(r.link)}" target="_blank" rel="noopener">Answer also posted in its Slack thread</a>` : '<span class="routed-slack">Answer also posted in its Slack thread</span>')
+      : a.slackError ? `<div class="routed-fault">Couldn't post the answer in its Slack thread: ${esc(a.slackError)}</div>` : '';
+    const place = `<select class="routed-place" data-place-row="${esc(r.id)}" aria-label="Put on a board"><option value="" selected disabled>Put on a board…</option>${(r.places || []).map((p) => `<option value="${esc(p.route)}">/${esc(p.route)}</option>`).join('')}</select>`;
+    return `<div class="new-entry" data-new="${esc(r.id)}">${rowActions(r.id)}<div class="new-msg">${esc(r.text)}</div><div class="new-line sub${a ? ' new-done' : ''}">${newTime(r.at)} · ${state}</div>`
+      + `${passes(r.passed || [])}${reply}<div class="routed-actions">${place}${slack}</div><div class="new-line sub new-why">${who(r)}</div></div>`;
+  }
   function routedEntry(r) {
     if (r.asked) return askedEntry(r);
+    if (r.unplaced) return unplacedEntry(r);
     const to = r.moved || r.to;
-    const words = r.moved ? 'Moved to' : to?.into ? 'Added to' : 'Routed to';
+    const words = r.moved ? 'Moved to' : r.placed ? 'Placed on' : to?.into ? 'Added to' : 'Routed to';
+    const quiet = r.waiting || r.trying;
     const line = r.waiting ? PICKUP_WAIT
+      : r.trying ? `<span class="routed-trying">${DOT}Trying /${esc(to.route)}…</span>`
       : `<a class="new-link" href="${esc(to.href)}" ${dismissRow(r.id)}>${words} <b>/${esc(to.route)}${to.ref ? ` ${esc(to.ref)}` : ''}</b>${to.title ? ` · ${esc(to.title)}` : ''}</a>`;
     const why = r.waiting ? '' : r.moved ? ` — was routed to /${r.to.route}: ${r.reason}` : ` — ${r.reason}`;
-    return `<div class="new-entry" data-new="${esc(r.id)}">${r.waiting ? '' : rowActions(r.id)}<div class="new-msg">${esc(r.text)}</div><div class="new-line sub${r.waiting ? '' : ' new-done'}">${newTime(r.at)} · ${line}</div>`
-      + `<div class="new-line sub new-why">${esc([r.by, VIA[r.via] || r.via].filter(Boolean).join(' · '))}${esc(why)}</div></div>`;
+    const passedLines = r.trying ? (r.passed || []).map((p) => `<div class="routed-pass"><b>/${esc(p.route)}</b> passed: ${esc(p.reason)}</div>`).join('') : '';
+    return `<div class="new-entry" data-new="${esc(r.id)}">${quiet ? '' : rowActions(r.id)}<div class="new-msg">${esc(r.text)}</div><div class="new-line sub${quiet ? '' : ' new-done'}">${newTime(r.at)} · ${line}</div>`
+      + `${passedLines}<div class="new-line sub new-why">${who(r)}${esc(why)}</div></div>`;
   }
   // An incoming board ask (router.mjs askedRows): a link to its entry on the answering board, then queued, or Answered
   // linking the asking card, where the answer landed; a muted line names the asking board and card. Once answered it has

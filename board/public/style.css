@@ -543,6 +543,25 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .new-why { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .new-entry .new-why { margin-top: 2px; }
 .new-empty { font-size: 13px; color: var(--muted); }
+/* docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md: a routed row still trying
+   boards reads orange, as work does, each pass a muted line; one no board took shows the passes, Haiku's answer in the
+   blue reply block the owner reads, and the board picker. */
+.routed-trying { color: var(--color-notice); font-size: 12px; font-weight: 600; }
+.routed-fault { color: var(--color-danger); font-size: 12px; font-weight: 600; }
+.routed-pass, .routed-passes { font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+.routed-pass b, .routed-passes b { color: var(--text); font-weight: 600; }
+.routed-nobody { font-weight: 600; }
+.routed-passes > summary { cursor: pointer; list-style: none; }
+.routed-passes > summary::-webkit-details-marker { display: none; }
+.routed-passes > summary::after { content: " ▸"; }
+.routed-passes[open] > summary::after { content: " ▾"; }
+.routed-passes ul { margin: 3px 0 0; padding: 0 0 0 14px; }
+.routed-reply { clear: both; margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--color-info); border-radius: 0 8px 8px 0; background: color-mix(in srgb, var(--color-info) 10%, var(--panel)); font-size: 14px; }
+.routed-reply p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.routed-reply-from { margin-bottom: 3px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--color-info); }
+.routed-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.routed-place { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); }
+.routed-slack { color: var(--color-info); font-size: 12px; font-weight: 600; text-decoration: none; }
 /* Each lane's sort icon and its menu, grey (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md) */
 /* A script offer (ui-threads.js scriptCard; docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md):
    Run fills while held (app-threads.js), and only a full hold sends it. */

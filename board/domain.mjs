@@ -1136,10 +1136,14 @@ const numbered = (asked, q) => `Question ${numberOf(asked, q.id)} · ${q.questio
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: a routed ask's status line, at its
 // routing time, just before the ask arrived, linked to the message it came from.
 const VIA_NAMES = { slack: 'Slack', handoff: 'a handoff', hub: 'the hub' };
+// docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md: one another board passed
+// on names that board and its reason instead.
 function routedLine(e) {
   const r = e.data?.routed;
   if (!r) return [];
-  const m = { ts: r.at, who: 'claude', kind: HUB, line: 'ask-routed', text: hubText('ask-routed', { via: VIA_NAMES[r.via] || r.via, reason: r.reason }) };
+  const last = r.passed?.at(-1);
+  const m = last ? { ts: r.at, who: 'claude', kind: HUB, line: 'ask-passed-on', text: hubText('ask-passed-on', { route: `/${last.route}`, reason: last.reason }) }
+    : { ts: r.at, who: 'claude', kind: HUB, line: 'ask-routed', text: hubText('ask-routed', { via: VIA_NAMES[r.via] || r.via, reason: r.reason }) };
   return [{ ...m, ...hubLineOf(m), html: null, link: r.link || null, via: null }];
 }
 // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md

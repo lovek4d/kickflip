@@ -932,6 +932,10 @@ test("a routed ask's thread opens with a blue status line naming where it came f
   assert.equal(threadOf('w/T-2', { events: [handed], fromAsk: 'b3' })[0].text, 'Routed here from a handoff: checkout fix named this board');
   const typed = askAt('b4', '2026-10-23T09:42:00Z', { data: { text: 'Retry checkout', routed: { reason: 'checkout is the shop', via: 'hub', by: 'love', at: '2026-10-23T09:41:59Z' } } });
   assert.equal(threadOf('w/T-3', { events: [typed], fromAsk: 'b4' })[0].text, 'Routed here from the hub: checkout is the shop');
+  // docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md
+  const passed = askAt('b5', '2026-10-23T09:43:00Z', { data: { text: 'Retry checkout', routed: { reason: 'next best', via: 'slack', by: 'Maya', at: '2026-10-23T09:42:59Z', passed: [{ route: 'shop', reason: 'not checkout' }, { route: 'web', reason: 'not this repo' }] } } });
+  const [line] = threadOf('w/T-4', { events: [passed], fromAsk: 'b5' });
+  assert.deepEqual([line.line, line.text, line.tone], ['ask-passed-on', 'Passed on by /web: not this repo', 'blue'], 'a passed-on ask names the last board that passed and why');
 });
 
 test("the owner's reply on a Done ask's card, sent on the card or the ask's old key, waits and works like a work item's thread message, and leaves the card in Done", () => {
