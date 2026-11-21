@@ -70,6 +70,7 @@ export const POLLS = Object.freeze([
       { name: 'Launch lost builds' },
       { name: 'Publish unscreened grill questions' },
       { name: 'Pick-ups at their time' },
+      { name: 'Schedules due', what: 'each files its task, unless its last one isn’t Done; none while the board is paused' },
       { name: 'Re-stage stale ready cards' },
       { name: 'Pauses, auto and overnight triage' },
       { name: 'Needs-you push row' },

@@ -1164,17 +1164,19 @@ function handedLine(e) {
 // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
 // An ask the orchestrator filed (asks.mjs askItem), from its event's asked {by, key?, ref?}: who asked, by name, under
 // its message, and a blue From line a moment before it, linked to the task a builder or planner asked from.
-const askerOf = (asked) => (asked.by === 'orchestrator' ? 'Orchestrator' : `${asked.ref}'s ${asked.by}`);
+// A schedule's fire (schedules.mjs fireSchedules) is asked {by: 'schedule', schedule: its id}.
+const askerOf = (asked) => (asked.by === 'orchestrator' ? 'Orchestrator' : asked.by === 'schedule' ? `Schedule ${asked.schedule}` : `${asked.ref}'s ${asked.by}`);
 // Who asked an asked ask, as the board's text to the orchestrator names it, and the words that say it is not the owner's.
-export const askedBy = (asked) => (asked.by === 'orchestrator' ? 'the orchestrator' : askerOf(asked));
+export const askedBy = (asked) => (asked.by === 'orchestrator' ? 'the orchestrator' : asked.by === 'schedule' ? `the board's schedule ${asked.schedule}` : askerOf(asked));
 export const NOT_THE_OWNER = 'not the owner, so its words approve nothing';
 // The task an orchestrator-filed ask came from: the one --from named, else its parent, else its first related.
 const filedFrom = (e) => e.data.asked.from || e.data.links?.parent || e.data.links?.related?.[0];
 function askedLine(e) {
   const asked = e.data?.asked;
   if (!asked) return [];
-  const from = asked.by === 'orchestrator' ? filedFrom(e) : asked.key;
-  const phrase = asked.by !== 'orchestrator' ? `From ${askerOf(asked)}` : from ? `Filed from ${asked.ref || from.split('/').pop()}` : 'Filed by the orchestrator';
+  // A schedule's fire links its last fire's task.
+  const from = asked.by === 'orchestrator' ? filedFrom(e) : asked.by === 'schedule' ? e.data.links?.related?.[0] : asked.key;
+  const phrase = asked.by === 'schedule' ? `From schedule ${asked.schedule}` : asked.by !== 'orchestrator' ? `From ${askerOf(asked)}` : from ? `Filed from ${asked.ref || from.split('/').pop()}` : 'Filed by the orchestrator';
   const m = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'asked-from', text: hubText('asked-from', { phrase }) };
   return [{ ...m, ...hubLineOf(m), html: null, link: from ? `#selectedCard=${encodeURIComponent(from)}` : null, via: null }];
 }
@@ -2008,7 +2010,7 @@ const candidatesLine = (cards) => (cards.length ? ` Likely related (check them, 
 const STAGING_CHECKS = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --blocked-by), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
 const INTAKE_NEXT = {
   ask: (key, cards, e, events) => (implementAsk(events, e.id)
-    ? `Triage the new task first, from what you know of the board, reading no code: the owner tapped Implement, so item triage ${key} --title "<type>(<scope>): <summary>" ${TRIAGE_LINKS} stages it, taking no --phase. Then judge it as any staged task: item notes, then the checks a staged task gets (${STAGING_CHECKS}), then item set ${key} --phase ready --text "<what you checked>" at any size, or --phase grilling or prototyping with a thread line saying why.${candidatesLine(cards)}`
+    ? `Triage the new task first, from what you know of the board, reading no code: ${e.data?.asked?.by === 'schedule' ? `${askedBy(e.data.asked)} filed it to build on its cadence` : 'the owner tapped Implement'}, so item triage ${key} --title "<type>(<scope>): <summary>" ${TRIAGE_LINKS} stages it, taking no --phase. Then judge it as any staged task: item notes, then the checks a staged task gets (${STAGING_CHECKS}), then item set ${key} --phase ready --text "<what you checked>" at any size, or --phase grilling or prototyping with a thread line saying why.${candidatesLine(cards)}`
     : `Triage the new task ${e.data?.asked ? `${askedBy(e.data.asked)} asked, ${NOT_THE_OWNER},` : 'first,'} from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}.${candidatesLine(cards)}`),
   'card-added': (key, cards) => `Triage the task an agent added, from what you know of the board: ${TRIAGE(key)}. Then investigate: item notes.${candidatesLine(cards)}`,
 };

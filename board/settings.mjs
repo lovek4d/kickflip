@@ -92,13 +92,14 @@ export function removeReviewers(site, names) {
 
 // Rules: the hub's in settings.json and this board's in board.json `rules` (../hub/rules.mjs;
 // docs/adr/2026-10-29-1639-rules-live-on-settings-at-hub-and-board-level.md). The settings page and the CLI both write board.json,
-// so board rule, setting and reviewer writes run one at a time.
+// so board rule, setting, reviewer and schedule writes (schedules.mjs) run one at a time.
 const ruleCall = (fn) => { try { return fn(); } catch (e) { if (e instanceof RuleError) fail(e.message); throw e; } };
 export const readBoardRules = async (site) => rulesOf(await readJSON(path.join(site, 'board.json'), {}));
 
 let boardWrites = Promise.resolve();
+export const readBoardJSON = (site) => readJSON(path.join(needSite(site), 'board.json'), {});
 // change(cfg) → {keys to set in board.json, ...anything else to return}
-function writeBoardJSON(site, change) {
+export function writeBoardJSON(site, change) {
   const write = boardWrites.then(async () => {
     const file = path.join(needSite(site), 'board.json');
     const cfg = await readJSON(file, {});

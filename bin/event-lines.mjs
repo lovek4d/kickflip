@@ -102,7 +102,10 @@ export const ON_CARD = {
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: c is the New card the board filed
   // for the ask; its waits line carries its key and the cards it likely relates to.
   // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
-  ask: (c, e) => `new task ${e.id}${e.data?.asked ? `, asked by ${askedBy(e.data.asked)}, ${NOT_THE_OWNER},` : ''} received as ${c}: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate`,
+  // docs/adr/2026-11-21-2300-a-schedule-files-a-quick-build-on-a-cadence.md: a schedule's fire comes with Implement.
+  ask: (c, e) => (e.data?.asked?.by === 'schedule'
+    ? `new task ${e.id} from ${askedBy(e.data.asked)} received as ${c}, to build: item triage <its key> --title and its links and no --phase, which stages it; then judge and size it as any staged task`
+    : `new task ${e.id}${e.data?.asked ? `, asked by ${askedBy(e.data.asked)}, ${NOT_THE_OWNER},` : ''} received as ${c}: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate`),
 };
 
 // One plain line per event line, from its kind and card (data.key, data.id for an ask-* event, or an ask's own id), or null for a

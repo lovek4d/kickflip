@@ -226,6 +226,8 @@
 //                                its queued push, or closes the one already on the owner's devices (hub/push.mjs withdraw).
 //                                Within a minute of an owner block's until or pick_up_at the server unblocks it
 //                                (cards.mjs pickUp), at most once per time even across a restart.
+//                                Each minute, unless the board is paused, it fires the board's schedules that are due
+//                                (schedules.mjs fireSchedules).
 //                                The Auto jobs below run on every board change and once at start, and on the minute
 //                                check only once a usage pause lifts, while an overnight triage is due or when a hub build slot is due to the board (build-turns.mjs turnDue). The server always starts and launches the build of the top pullable Todo cards, one per
 //                                hub build slot the turns give the board (build-turns.mjs), each card In Progress taking
@@ -280,6 +282,10 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (settings.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
+//   GET  /api/schedules          {schedules: [{id, text, cadence, due_at, last?, last_ref, fired_at?, skipped?}]}: board.json's
+//                                schedules (schedules.mjs), last_ref the ref of the task the last fire filed, or null
+//   POST /api/schedules          {id, text?, cadence?} rewords or re-cadences one, or {id, remove: true} removes it, waking
+//                                no session → the same answer; an unknown id or a bad cadence → 400 {error}
 //   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_review, idle_notification, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets), or in its site's scripts/ while its scripts are in kickflip
@@ -370,12 +376,13 @@ import { launchAgent } from './agents.mjs';
 import { BOARD_CLI, pidAlive, stopAgents, stopRuns } from './headless.mjs';
 import { BoardError } from './checks.mjs';
 import { draftOf, pruneDrafts, readDrafts, saveDraft } from './drafts.mjs';
-import { readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
+import { cardName, readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
 import { heldReview, applyReviewAnswer, dropAskCard, withdrawRefused, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
 import { finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf } from './settings.mjs';
 import { noteLoggedOut, dropPause, markPaused, passNews, requestPause, openAgents, implementAsIs, clearStall } from './runs.mjs';
 import { runMigrations } from './migrations.mjs';
+import { fireSchedules, readSchedules, setSchedule, removeSchedule } from './schedules.mjs';
 import { appendEvents as appendBoardEvents, appendLine, boardConfig, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, startingAt, listenState, sessionBusy, linksOf } from '../hub/boards.mjs';
@@ -1245,6 +1252,19 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const id = rulesChanged(saved.changes) ? await appendEvent('rules', { scope: 'board', ...saved.changes }) : null;
         return json(res, 200, { rules: saved.rules, id });
       }
+      // Board Settings' Schedules (schedules.mjs): the list, each last task with its ref; an edit or removal answers
+      // with the list again.
+      if (p === '/api/schedules') {
+        if (req.method === 'POST') {
+          const body = await readBody(req);
+          try {
+            if (body.remove === true) await removeSchedule(here, String(body.id ?? ''));
+            else await setSchedule(here, String(body.id ?? ''), { text: body.text, cadence: body.cadence });
+          } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        }
+        const list = await Promise.all((await readSchedules(here)).map(async (s) => ({ ...s, last_ref: s.last ? await cardName(here, s.last) : null })));
+        return json(res, 200, { schedules: list });
+      }
       if (p === '/api/settings' && req.method === 'GET') {
         const settings = await readBoardSettings(here);
         return json(res, 200, { settings, paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES });
@@ -1427,6 +1447,19 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         else res.writeHead(err.status || (err.code === 'ENOENT' ? 404 : 400)).end();
       }
     }
+  }
+
+  // docs/adr/2026-11-21-2300-a-schedule-files-a-quick-build-on-a-cadence.md: each minute the board's schedules that are
+  // due fire (schedules.mjs fireSchedules), none while the board is paused (a usage pause, Pause board or Pause hub), so
+  // the fires a pause held come as one when it lifts.
+  let checkingSchedules = false;
+  async function checkSchedules() {
+    if (checkingSchedules || readUsageGate({ dir: here }).state === 'paused') return;
+    checkingSchedules = true;
+    try {
+      const { lines } = await fireSchedules(here, (await sharedBoard()).items, now());
+      for (const line of lines) logCall({ call: 'schedule', result: line });
+    } finally { checkingSchedules = false; }
   }
 
   // docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
@@ -1980,6 +2013,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
     track(publishUnscreened(here).then((keys) => { if (keys.length) dataVersion++; }, (err) => console.error('Screen publish failed:', err.message)));
     track(checkPickUps());
+    track(checkSchedules().catch((err) => console.error('Schedule check failed:', err.message)));
     track(checkReadyExpiry());
     // A pause standing, or a usage pause or Pause board or hub starting, runs the pause pass (checkPauses).
     const gate = readUsageGate({ dir: here });

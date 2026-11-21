@@ -6,6 +6,26 @@
 // asks before closing the modal then.
 (globalThis.AppViews ||= {}).settings = {
   className: 'view-settings',
+  // The Schedules list (GET api/schedules, board/schedules.mjs): each schedule's text, then its cadence, next fire, last
+  // task and a skipped fire; editing, the id of the row open with its text and cadence boxes. It wears the rules
+  // editor's rows.
+  schedulesHtml(list, { editing = null } = {}) {
+    const { esc } = BoardUI;
+    if (!list.length) return '<p class="muted small rule-empty">No schedules on this board yet.</p>';
+    const when = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    return list.map((s) => {
+      if (s.id === editing) {
+        return `<div class="rule editing" data-schedule="${esc(s.id)}"><textarea class="schedule-text" rows="3" aria-label="What it asks">${esc(s.text)}</textarea>
+          <input class="schedule-cadence" value="${esc(s.cadence)}" aria-label="Cadence" placeholder="every 4h, or at 09:00 weekdays" autocomplete="off" spellcheck="false">
+          <div class="rule-actions"><button type="button" class="primary" data-act="save">Save</button><button type="button" data-act="cancel">Cancel</button></div></div>`;
+      }
+      const meta = [esc(s.cadence), `next ${esc(when(s.due_at))}`,
+        s.last ? `last <a href="#selectedCard=${encodeURIComponent(s.last)}">${esc(s.last_ref || s.last)}</a>` : 'not fired yet',
+        s.skipped ? `skipped ${esc(when(s.skipped.at))}: its last task wasn’t Done` : ''].filter(Boolean);
+      return `<div class="rule" data-schedule="${esc(s.id)}"><div class="rule-body"><div class="rule-text">${esc(s.text)}</div><div class="rule-meta">${meta.map((m) => `<span>${m}</span>`).join('')}</div></div>
+        <div class="rule-actions"><button type="button" data-act="edit" aria-label="Edit schedule ${esc(s.id)}">Edit</button><button type="button" class="ghost" data-act="remove" aria-label="Remove schedule ${esc(s.id)}">✕</button></div></div>`;
+    }).join('');
+  },
   title: () => 'Board Settings',
   markup: (view, { siteTitle = '' } = {}) => `<dialog class="settings-modal" id="boardSettingsModal" aria-labelledby="boardSettingsTitle"><div class="settings-head"><div><h2 id="boardSettingsTitle" tabindex="-1">Board settings</h2><p class="muted small">${BoardUI.esc(siteTitle)}</p></div><button type="button" class="ghost" data-settings-dismiss aria-label="Close board settings">✕</button></div>
 <div class="set settings-body">
@@ -87,6 +107,10 @@
   <p class="muted small">Standing instructions for this board's Claude session. It sees them each time it wakes, and says what changes when you save.</p>
   <div id="rules"><p class="muted small">Loading…</p></div>
   <div class="replies" id="rulesReplies"></div>
+  <h2>Schedules</h2>
+  <p class="muted small">Instructions this board files as a task on a cadence. Each fire waits until the last one’s task is Done. Ask Claude to add one.</p>
+  <div id="schedules" class="rules-editor"><p class="muted small">Loading…</p></div>
+  <p class="muted small" id="schedulesStatus" role="status"></p>
   <h2>Board</h2>
   <button class="who close-board-row" id="closeBoard" disabled aria-haspopup="dialog"><span>Close board<span class="muted small sub">Stop its session and server. Keep its tasks, threads and notes.</span></span><span aria-hidden="true">›</span></button>
   <p class="muted small" id="closeBoardReason" role="status">Loading…</p>
@@ -846,5 +870,43 @@
     }, () => {});
     readReplies();
     if (ctx.signal) B.own(ctx.signal(readReplies));
+
+    // Schedules: the CLI adds them; here each is edited (Save sends its text and cadence) or removed, through POST
+    // api/schedules, whose answer redraws the list. An open edit marks [data-dirty].
+    const schedulesEl = $('#schedules');
+    const schedulesStatus = $('#schedulesStatus');
+    let schedules = [];
+    let editingSchedule = null;
+    function drawSchedules() {
+      schedulesEl.innerHTML = AppViews.settings.schedulesHtml(schedules, { editing: editingSchedule });
+      if (editingSchedule) schedulesEl.dataset.dirty = ''; else delete schedulesEl.dataset.dirty;
+    }
+    async function sendSchedule(body) {
+      schedulesStatus.textContent = 'Saving…';
+      try {
+        const r = await fetch(site.url('api/schedules'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.error || 'Could not save. Is the host awake?');
+        if (!B.alive()) return;
+        schedules = out.schedules;
+        editingSchedule = null;
+        schedulesStatus.textContent = body.remove ? 'Removed.' : 'Saved.';
+        drawSchedules();
+      } catch (e) { if (B.alive()) schedulesStatus.textContent = e.message || 'Could not save. Is the host awake?'; }
+    }
+    get(site.url('api/schedules'), waitIn('#schedules')).then(({ body }) => {
+      if (!B.alive()) return;
+      schedules = body.schedules;
+      drawSchedules();
+    }).catch(() => { schedulesEl.innerHTML = '<p class="muted">Offline. Is the host awake?</p>'; });
+    B.on(schedulesEl, 'click', (e) => {
+      const btn = e.target.closest?.('button[data-act]');
+      const id = btn?.closest('[data-schedule]').dataset.schedule;
+      if (!id) return;
+      const act = btn.dataset.act;
+      if (act === 'edit' || act === 'cancel') { editingSchedule = act === 'edit' ? id : null; schedulesStatus.textContent = ''; drawSchedules(); return; }
+      if (act === 'remove') { sendSchedule({ id, remove: true }); return; }
+      sendSchedule({ id, text: $('.schedule-text').value, cadence: $('.schedule-cadence').value });
+    });
   }),
 };

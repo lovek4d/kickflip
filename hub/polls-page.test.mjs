@@ -28,7 +28,7 @@ test('the Polls page lists every poll under its group, fastest first, with its c
   assert.match(plain, /Review digest .* quiet hours’ end/);
   // Tick and Board minute open into their steps; back-offs are greyed.
   assert.match(html, /<details class="poll-steps"><summary>[\s\S]*?Tick[\s\S]*?11 steps/);
-  assert.match(html, /<details class="poll-steps"><summary>[\s\S]*?Board minute[\s\S]*?12 steps/);
+  assert.match(html, /<details class="poll-steps"><summary>[\s\S]*?Board minute[\s\S]*?13 steps/);
   assert.match(html, /<details class="poll-group muted" open><summary><h2>Back-offs, not polls<\/h2>/);
   assert.doesNotMatch(plain, /Board stream ping|End unshared/);
 });

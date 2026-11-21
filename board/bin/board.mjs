@@ -7,6 +7,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
 import * as slackStore from '../slack-store.mjs';
+import * as schedules from '../schedules.mjs';
 import { waitsHistory, waitsHistoryLines } from '../domain.mjs';
 import { cardTiming, cardTimingLines, timingDays, timingDaysLines } from '../timing.mjs';
 import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, worktreesDir } from '../worktree.mjs';
@@ -563,6 +564,15 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          --by claude when you codify one on the owner's word
   rules edit <id> --text <t> [--hub]                     rewords a rule, keeping who added it
   rules remove <id> [--hub]                              refuses an id the list doesn't have
+  schedule list                                          the board's schedules, one "<id> · <cadence> · next <time> ·
+                                                         last <task> · <text>" line each
+  schedule add <id> --cadence <c> --text <t>             a schedule in board.json: each fire files <t> as a task to
+                                                         build, staged for you to judge and size, related to its
+                                                         last fire's task, and skipped while that task isn't Done.
+                                                         <c> is "every <n>m|h" (at least 15m; the first fire comes
+                                                         at once) or "at HH:MM [daily|weekdays|mon,wed,…]"
+  schedule set <id> [--cadence <c>] [--text <t>]         rewords it or changes its cadence, which counts from now
+  schedule rm <id>                                       refuses an id the board doesn't have
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false,
@@ -1299,6 +1309,10 @@ const COMMANDS = {
   'rules add': [[], ['text', 'hub', 'by'], (site, _, f) => store.addRuleTo(site, f)],
   'rules edit': [['id'], ['text', 'hub'], (site, [id], f) => store.editRuleIn(site, id, f)],
   'rules remove': [['id'], ['hub'], (site, [id], f) => store.removeRuleFrom(site, id, f)],
+  'schedule list': [[], [], (site) => schedules.listSchedules(needSite(site, 'schedule list'))],
+  'schedule add': [['id'], ['text', 'cadence'], (site, [id], f) => schedules.addSchedule(needSite(site, 'schedule add'), id, f)],
+  'schedule set': [['id'], ['text', 'cadence'], (site, [id], f) => schedules.setSchedule(needSite(site, 'schedule set'), id, f)],
+  'schedule rm': [['id'], [], (site, [id]) => schedules.removeSchedule(needSite(site, 'schedule rm'), id)],
   settings: [[], [], async (site) => ({ lines: [JSON.stringify(await store.readBoardSettings(site))] })],
   description: [[], [], async (site) => ({ lines: [JSON.stringify(await store.describeBoard(needSite(site, 'description')))] })],
   'description checked': [[], [], async (site) => ({ lines: [JSON.stringify(await store.checkedDescription(needSite(site, 'description checked')))] })],
@@ -1480,6 +1494,9 @@ const SAID = {
   'rules add': (site, _, f) => `${f.hub ? 'hub' : 'board'} rule added`,
   'rules edit': (site, [id], f) => `${f.hub ? 'hub' : 'board'} rule ${id} reworded`,
   'rules remove': (site, [id], f) => `${f.hub ? 'hub' : 'board'} rule ${id} removed`,
+  'schedule add': (site, [id], f, { schedules: list }) => `schedule ${id} added: ${f.cadence}, first fire ${list.find((s) => s.id === id).due_at}`,
+  'schedule set': (site, [id], f, { schedules: list }) => `schedule ${id} changed: ${list.find((s) => s.id === id).cadence}, next fire ${list.find((s) => s.id === id).due_at}`,
+  'schedule rm': (site, [id]) => `schedule ${id} removed`,
   'builder start': async (site, [key], f, result) => `${await card(site, key)}: ${result.alreadyOpen ? 'already open: the Implement tap opened its record; launch the agent, whose own builder start takes it up' : `${builderOf(f)} started`}`,
   'builder progress': async (site, [key]) => `progress line on ${await card(site, key)}`,
   'builder done': async (site, [key], f, result) => `${await card(site, key)}: ${result?.said ?? `${builderOf(f)} done${f['owner-step'] === undefined ? '' : `; owner step "${f['owner-step'].trim()}"`}`}`,
