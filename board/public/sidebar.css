@@ -154,21 +154,33 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 #newBoardSheet .nb-form { min-width: 0; }
 #newBoardSheet .sheet-head { margin-bottom: 8px; }
 #newBoardSheet .sheet-head h2 { font-size: 17px; }
-#newBoardSheet .nb-field { display: block; padding: 8px 0; margin: 0; }
-/* New's Board | Course switch and its repo sources, hub.css's segments. */
-#newBoardSheet :is(.nb-kind, .nb-source) { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: 0 0 8px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--chip); }
-#newBoardSheet .nb-source { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-#newBoardSheet :is(.nb-kind, .nb-source) button { min-width: 0; min-height: 44px; padding: 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
-#newBoardSheet :is(.nb-kind, .nb-source) button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-/* A folder's found line, and its Make it a git repo toggle. */
-#newBoardSheet .nb-found { margin: 4px 0 8px; font-size: 13px; overflow-wrap: anywhere; }
+#newBoardSheet .nb-field { display: block; padding: 0 0 16px; margin: 0; }
+/* New's Board | Course switch, hub.css's segments. */
+#newBoardSheet .nb-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: 0 0 16px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--chip); }
+#newBoardSheet .nb-kind button { min-width: 0; min-height: 44px; padding: 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+#newBoardSheet .nb-kind button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+/* The one source field (dialogs.js sourceField): its line under it, a dot in the colour of what it says, and its
+   suggestions grouped by kind. */
+#newBoardSheet .nb-field.nb-source { padding-bottom: 8px; }
+#newBoardSheet .nb-optional { margin-left: 6px; font-weight: 400; font-size: 12px; color: var(--muted); }
+#newBoardSheet .nb-line { display: flex; gap: 8px; align-items: baseline; margin: 0 0 8px; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+#newBoardSheet .nb-line > span:last-child { min-width: 0; }
+#newBoardSheet .nb-line small { display: block; color: var(--muted); font-size: 13px; }
+#newBoardSheet .nb-line-red { color: var(--color-danger); }
+#newBoardSheet .nb-line .nb-spin { align-self: center; }
+#newBoardSheet input.nb-bad { border-color: var(--color-danger); }
+#newBoardSheet .nb-group { margin: 12px 0 0; }
+#newBoardSheet .nb-group h4 { margin: 0 0 6px; font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+#newBoardSheet .nb-group > .nb-help:first-of-type { margin: 0 0 6px; }
+/* Make it a git repo, under a folder's line. */
 #newBoardSheet .nb-init { justify-content: space-between; align-items: center; margin-bottom: 8px; cursor: pointer; }
 #newBoardSheet .nb-init input.toggle { flex: none; width: 1.4rem; height: 1.4rem; min-height: 0; padding: 0; margin: 0; accent-color: var(--accent); }
 #newBoardSheet .nb-field > span:first-child { display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; }
-#newBoardSheet :is(input, select) { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px;
+#newBoardSheet :is(input, select, textarea) { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px;
   color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 16px; text-align: left; box-sizing: border-box; }
 #newBoardSheet select { text-overflow: ellipsis; }
-#newBoardSheet :is(input, select):focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+#newBoardSheet textarea { min-height: 72px; line-height: 1.4; }
+#newBoardSheet :is(input, select, textarea):focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 #newBoardSheet .sheet-head { display: flex; align-items: center; justify-content: space-between; }
 #newBoardSheet .nb-repo-list { display: grid; gap: 8px; }
 #newBoardSheet .nb-repo { display: block; width: 100%; text-align: left; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); }
@@ -188,9 +200,23 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 #newBoardSheet .nb-clone { display: block; margin-top: 6px; overflow-wrap: anywhere; font-size: 12px; }
 #newBoardSheet [hidden] { display: none; }
 #newBoardSheet .nb-help { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 400; }
-#newBoardSheet .nb-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; padding-bottom: 2px; }
+/* The pinned footer: why a disabled Next or Start is off, above the buttons. */
+#newBoardSheet .nb-foot { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+#newBoardSheet .nb-reason { margin: 0 0 8px; color: var(--muted); font-size: 13px; text-align: right; }
+#newBoardSheet .nb-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; padding-bottom: 2px; }
 #newBoardSheet .nb-actions button { min-height: 44px; }
+#newBoardSheet .nb-actions .primary { min-width: 120px; }
 #newBoardSheet .nb-next { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+#newBoardSheet .nb-step { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+#newBoardSheet .nb-back { padding: 0; margin: 0 0 10px; min-height: 32px; border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; cursor: pointer; }
+/* A phone's New sheet is full height (style.css), its body taking the room, so the footer sits at the bottom; Start is
+   full width with Cancel under it. */
+@media (max-width: 699px) {
+  #newBoardSheet .nb-body { flex: 1 0 auto; }
+  #newBoardSheet .nb-reason { text-align: center; }
+  #newBoardSheet .nb-actions { flex-direction: column-reverse; align-items: stretch; }
+  #newBoardSheet .nb-actions button { min-height: 48px; }
+}
 #newBoardSheet .nb-error { color: var(--color-danger); font-size: 13px; }
 @media (min-width: 900px) {
   #newBoardSheet { inset: 0; margin: auto; height: fit-content; max-height: calc(100dvh - 48px); }

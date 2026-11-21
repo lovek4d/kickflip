@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runRepo, githubFromOrigin, remoteFromInput, defaultBranch, validateBranch } from './repos.mjs';
+import { runRepo, githubFromOrigin, remoteFromInput, defaultBranch, validateBranch, repoName } from './repos.mjs';
 import { routeRecord } from './routes.mjs';
 import { storedPath } from '../bin/install.mjs';
 
@@ -97,4 +97,36 @@ export function folderSuggestions(input, { home = os.homedir(), limit = 12 } = {
     .filter((e) => e.isDirectory() && (start.startsWith('.') || !e.name.startsWith('.')) && e.name.toLowerCase().startsWith(start) && !(dir === realHome && e.name === '.claude'))
     .map((e) => e.name).sort((a, b) => a.localeCompare(b)).slice(0, limit)
     .map((name) => shownFolder(path.join(dir, name), realHome));
+}
+
+// docs/adr/2026-11-21-2300-new-board-and-new-course-share-one-source-field.md
+// A typed folder a New course reads: any folder folderPath allows, a board's repo or a folder inside a repo too, since a
+// course only reads it. → {folder, path, git}: git when the folder is in a git repo
+export function readableFolder(input, home = os.homedir()) {
+  const dir = folderPath(input, home);
+  let inRepo = false;
+  for (let at = dir; at !== path.dirname(at) && !inRepo; at = path.dirname(at)) inRepo = fs.existsSync(path.join(at, '.git'));
+  return { folder: shownFolder(dir, fs.realpathSync(home)), path: dir, git: inRepo };
+}
+
+// The sources the New sheet's one field suggests besides the owner's GitHub repos: the other git remotes and the folders
+// on this Mac that the hub's boards (open, starting, then closed) and starting courses use, each once in that order, by
+// the titles of who uses it. A folder that is a board's repo names that board's route.
+// → {remotes: [{remote, name, by}], folders: [{folder, path, by, board?}]}
+export function recentSources(manifest, home = os.homedir()) {
+  const remotes = new Map(), folders = new Map();
+  const add = (map, key, entry, title) => { const seen = map.get(key); if (seen) seen.by.push(title); else map.set(key, { ...entry, by: [title] }); };
+  const records = [
+    ...Object.entries(manifest.sites || {}).map(([route, s]) => [route, s, s.local ? s.owner?.repo : null]),
+    ...Object.entries(manifest.starting || {}).filter(([route]) => !routeRecord(manifest.sites, route)).map(([route, rec]) => [route, rec, rec.folder ? rec.repo : null]),
+    ...Object.entries(manifest.closed || {}).map(([route, rec]) => [route, rec.site || {}, rec.site?.local ? rec.site.owner?.repo : null]),
+  ];
+  for (const [route, rec, boardFolder] of records) {
+    const title = rec.title || route;
+    const remote = rec.remote || rec.source?.remote;
+    if (remote) add(remotes, repoName(remote), { remote, name: repoName(remote) }, title);
+    const dir = boardFolder || rec.source?.folder;
+    if (typeof dir === 'string') add(folders, dir, { folder: shownFolder(dir, home), path: dir, ...(boardFolder ? { board: route } : {}) }, title);
+  }
+  return { remotes: [...remotes.values()], folders: [...folders.values()] };
 }

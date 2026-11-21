@@ -1,5 +1,7 @@
 # A New board can anchor on a folder on this Mac
 
+The three source tabs below became one field shared with New course ([New board and New course share one source field](2026-11-21-2300-new-board-and-new-course-share-one-source-field.md)); what a folder means for a board is unchanged.
+
 The owner asked (T-518, 11/16): "Can a new board anchor on an existing directory? Could even offer to make it a git repo if it is not already." Until now New board took only a GitHub repo or another host's git link and cloned it under the clone home, so a folder already on the Mac could be a board's repo only through `kickflip join` in a terminal, or by pushing it somewhere first. The owner picked prototype take C (two steps, a folder then the details), a "Make it a git repo" toggle that applies on Start, and, for a folder that is a clone of a GitHub repo, a GitHub board working in that folder.
 
 - **Three sources.** New's Board step 1 opens on GitHub · Other git host · Folder on this Mac. GitHub is today's search-or-paste list; Other git host is the paste-a-link field alone. Change repo has no sources: it still clones.

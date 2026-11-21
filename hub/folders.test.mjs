@@ -13,7 +13,7 @@ process.env.CLAUDE_CONFIG_DIR = path.join(home, 'claude-config');
 fs.mkdirSync(process.env.CLAUDE_CONFIG_DIR);
 const claudeConfig = path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
 fs.writeFileSync(claudeConfig, '{}');
-const { folderInfo, folderSuggestions, makeRepo } = await import('./folders.mjs');
+const { folderInfo, folderSuggestions, makeRepo, readableFolder, recentSources } = await import('./folders.mjs');
 const { requestBoard, retryBoard } = await import('./new-board.mjs');
 const { boardRepo } = await import('./board-repo.mjs');
 const { saveJSON, readManifest, listBoards } = await import('./boards.mjs');
@@ -180,4 +180,46 @@ test('a folder that is not a repo needs Make it a git repo; with it the board st
   await (await retryBoard('poems', { run, live, stop: async () => {}, repos })).started;
   assert.deepEqual(calls.map((c) => c.cwd), [dir]);
   assert.equal(readManifest().starting.poems.repo, dir);
+});
+
+// docs/adr/2026-11-21-2300-new-board-and-new-course-share-one-source-field.md
+test("a course reads any folder in home: a board's repo, a plain folder or a folder inside a repo, but folderPath's refusals still hold", () => {
+  const shop = repo('dev/course-shop');
+  folder('dev/course-shop/src');
+  folder('Documents/course-notes');
+  assert.deepEqual(readableFolder('~/dev/course-shop'), { folder: '~/dev/course-shop', path: shop, git: true });
+  assert.deepEqual(readableFolder('~/dev/course-shop/src'), { folder: '~/dev/course-shop/src', path: path.join(shop, 'src'), git: true });
+  assert.deepEqual(readableFolder('~/Documents/course-notes'), { folder: '~/Documents/course-notes', path: path.join(home, 'Documents/course-notes'), git: false });
+  assert.throws(() => readableFolder('~/.claude'), /Claude’s own/);
+  assert.throws(() => readableFolder('~/dev/none-here'), { status: 404 });
+});
+
+test("recent sources are the remotes and folders the hub's boards and courses use, each once, with who uses it", () => {
+  const manifest = {
+    sites: {
+      deploy: { title: 'Deploy', remote: 'git@git.acme.dev:infra/deploy.git', owner: { repo: '/clones/deploy' } },
+      kit: { title: 'Kit', github: 'acme/kit', owner: { repo: '/clones/kit' } },
+      notes: { title: 'Notes', local: true, owner: { repo: path.join(home, 'dev/notes-site') } },
+    },
+    starting: {
+      ops: { title: 'Ops', remote: 'ssh://git@git.acme.dev/infra/deploy.git', repo: '/clones/deploy' },
+      diary: { title: 'Diary', folder: true, repo: path.join(home, 'dev/diary') },
+      rust: { kind: 'course', title: 'Rust', repo: '/pages/rust', source: { folder: path.join(home, 'Documents/rust-book') } },
+      hono: { kind: 'course', title: 'Hono', repo: '/pages/hono', source: { remote: 'https://git.sr.ht/~a/b' } },
+    },
+    closed: { old: { site: { title: 'Old', remote: 'https://gitlab.com/o/r.git', owner: { repo: '/clones/r' } } } },
+  };
+  assert.deepEqual(recentSources(manifest), {
+    remotes: [
+      { remote: 'git@git.acme.dev:infra/deploy.git', name: 'git.acme.dev/infra/deploy', by: ['Deploy', 'Ops'] },
+      { remote: 'https://git.sr.ht/~a/b', name: 'git.sr.ht/~a/b', by: ['Hono'] },
+      { remote: 'https://gitlab.com/o/r.git', name: 'gitlab.com/o/r', by: ['Old'] },
+    ],
+    folders: [
+      { folder: '~/dev/notes-site', path: path.join(home, 'dev/notes-site'), by: ['Notes'], board: 'notes' },
+      { folder: '~/dev/diary', path: path.join(home, 'dev/diary'), by: ['Diary'], board: 'diary' },
+      { folder: '~/Documents/rust-book', path: path.join(home, 'Documents/rust-book'), by: ['Rust'] },
+    ],
+  });
+  assert.deepEqual(recentSources({}), { remotes: [], folders: [] });
 });

@@ -102,11 +102,9 @@ const clonePercents = new Map();
 export const clonePercent = (route) => clonePercents.get(route);
 const PROGRESS_EVERY_MS = 1000;
 
-// Prepares the clone, which a start on a folder has none of, and starts the route's session, recording the outcome on its
-// Starting row. The clone's percent calls changed at most once a second. → a promise that settles once the outcome is
-// recorded, as {session} or {error}, and never rejects.
-async function start(route, { purpose, repo, github, remote, folder, branch }, { run, live, repos, changed }) {
-  let outcome;
+// Prepares the clone of repo (repos.ensure) for the route's start, a New board's or a New course's
+// (new-course.mjs), its percent in hub memory while it runs, calling changed at most once a second. → the clone's path
+export async function cloneFor(route, repo, branch, { repos, changed }) {
   let sent = -Infinity;
   const progress = (percent) => {
     clonePercents.set(route, percent);
@@ -114,8 +112,15 @@ async function start(route, { purpose, repo, github, remote, folder, branch }, {
     sent = Date.now();
     changed();
   };
+  try { return await repos.ensure(repo, branch, { progress }); } finally { clonePercents.delete(route); }
+}
+
+// Prepares the clone, which a start on a folder has none of, and starts the route's session, recording the outcome on its
+// Starting row. → a promise that settles once the outcome is recorded, as {session} or {error}, and never rejects.
+async function start(route, { purpose, repo, github, remote, folder, branch }, { run, live, repos, changed }) {
+  let outcome;
   try {
-    if (!folder) try { await repos.ensure(github || remote, branch, { progress }); } finally { clonePercents.delete(route); }
+    if (!folder) await cloneFor(route, github || remote, branch, { repos, changed });
     await serveStart(route);
     await recordStart(route, { phase: 'starting' });
     changed();

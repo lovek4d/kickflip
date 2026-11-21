@@ -67,7 +67,7 @@ test('a name a site, a start or a closed board holds is refused as taken, and th
     [{ name: '', learn: 'Go' }, /Name/],
     [{ name: '!!!', learn: 'Go' }, /letter or digit/],
     [{ name: 'Go', learn: ' ' }, /learn/],
-    [{ name: 'Go', learn: 'Go', github: 'a/b' }, /Send only name and learn/],
+    [{ name: 'Go', learn: 'Go', model: 'opus' }, /Send only name, learn and one source/],
   ]) await assert.rejects(requestCourse(input, { run: claude().run, live }), { status: 400, message });
   assert.equal(readManifest().starting, undefined);
 });
@@ -177,4 +177,97 @@ test('only a course page under pages can be resumed', async () => {
   saveJSON(manifestFile, { sites: { plain: { dir: path.join(home, 'elsewhere'), title: 'Plain' } } });
   await assert.rejects(resumeCourse('plain', { run: claude().run, live }), { status: 404 });
   await assert.rejects(resumeCourse('nope', { run: claude().run, live }), { status: 404 });
+});
+
+// docs/adr/2026-11-21-2300-new-board-and-new-course-share-one-source-field.md
+// A repo service that records what a course asks of it: a clone in the shared clone home, on the repo's default branch.
+const fakeRepos = ({ cloned = false, fail } = {}) => {
+  const asked = [];
+  const base = path.join(home, '.claude', 'kickflip', 'repos');
+  const at = (repo) => path.join(base, ...repo.replace(/^git@|\.git$/g, '').replace(':', '/').split('/'));
+  return {
+    asked, base, path: at, cloned: () => cloned,
+    async branches(repo) { asked.push(['branches', repo]); return { defaultBranch: 'trunk', branches: ['trunk'] }; },
+    async ensure(repo, branch, { progress } = {}) {
+      asked.push(['ensure', repo, branch]);
+      if (fail) throw new Error(fail);
+      progress?.(40);
+      fs.mkdirSync(at(repo), { recursive: true });
+      return at(repo);
+    },
+  };
+};
+
+test('a course that learns from a GitHub repo clones it into the shared clone home, and /teach reads it there while lessons stay in the pages folder', async () => {
+  saveJSON(manifestFile, { sites: {} });
+  const { calls, run } = claude();
+  const repos = fakeRepos();
+  const { route, started } = await requestCourse({ name: 'Hono inside', learn: 'How its router works', github: 'honojs/hono' }, { run, live, repos });
+  const rec = readManifest().starting[route];
+  assert.deepEqual([rec.phase, rec.source], ['cloning', { github: 'honojs/hono' }], 'a repo not cloned yet starts on cloning');
+  assert.ok((await started).session);
+  const clone = repos.path('honojs/hono');
+  assert.deepEqual(repos.asked, [['branches', 'honojs/hono'], ['ensure', 'honojs/hono', 'trunk']]);
+  const dir = path.join(pagesHome(), 'hono-inside');
+  assert.equal(calls[0].cwd, dir, 'the session runs in the course folder, never in the repo');
+  const argv = calls[0].argv;
+  assert.equal(argv[argv.indexOf('--add-dir') + 1], clone, 'the session may read the clone');
+  assert.ok(argv.indexOf('--add-dir') < argv.indexOf('--name'), '--add-dir takes values until the next flag, so it never sits before the prompt');
+  const prompt = argv.at(-1);
+  assert.match(prompt, /^\/teach How its router works\n/);
+  assert.ok(prompt.includes(`Learn from honojs/hono, cloned at ${clone}`), prompt);
+  assert.match(prompt, /never write to it/);
+  assert.equal(readManifest().starting[route].phase, 'starting');
+});
+
+test('a course on a repo already cloned starts on starting, and a remote on another host is read the same way', async () => {
+  saveJSON(manifestFile, { sites: {} });
+  const { calls, run } = claude();
+  const repos = fakeRepos({ cloned: true });
+  const remote = 'git@git.acme.dev:infra/deploy.git';
+  const { route, started } = await requestCourse({ name: 'Deploy', learn: 'The deploy scripts', remote }, { run, live, repos });
+  assert.deepEqual([readManifest().starting[route].phase, readManifest().starting[route].source], ['starting', { remote }]);
+  await started;
+  assert.ok(calls[0].argv.at(-1).includes(`Learn from git.acme.dev/infra/deploy, cloned at ${repos.path(remote)}`), calls[0].argv.at(-1));
+});
+
+test('a course that learns from a folder on this Mac reads it in place: no clone, its path under --add-dir, lessons in the pages folder', async () => {
+  saveJSON(manifestFile, { sites: {} });
+  const notes = path.join(home, 'Documents', 'rust-book');
+  fs.mkdirSync(notes, { recursive: true });
+  const { calls, run } = claude();
+  const repos = fakeRepos();
+  const { route, started } = await requestCourse({ name: 'Rust book', learn: 'Chapter 4', folder: '~/Documents/rust-book' }, { run, live, repos });
+  assert.deepEqual(readManifest().starting[route].source, { folder: notes });
+  assert.equal(readManifest().starting[route].phase, 'starting');
+  await started;
+  assert.deepEqual(repos.asked, [], 'a folder is never cloned');
+  assert.equal(calls[0].argv[calls[0].argv.indexOf('--add-dir') + 1], notes);
+  assert.ok(calls[0].argv.at(-1).includes(`Learn from the folder ~/Documents/rust-book at ${notes}`), calls[0].argv.at(-1));
+});
+
+test('a course with no source passes no --add-dir; a source is one of github, remote or folder, and a bad one is refused before anything is reserved', async () => {
+  saveJSON(manifestFile, { sites: {} });
+  const { calls, run } = claude();
+  await (await requestCourse({ name: 'Plain topic', learn: 'Bread' }, { run, live, repos: fakeRepos() })).started;
+  assert.equal(calls[0].argv.includes('--add-dir'), false);
+  assert.doesNotMatch(calls[0].argv.at(-1), /Learn from/);
+  saveJSON(manifestFile, { sites: {} });
+  for (const [input, message] of [
+    [{ name: 'Go', learn: 'Go', github: 'a/b', folder: '~/x' }, /one source/],
+    [{ name: 'Go', learn: 'Go', github: 'not a repo' }, /owner\/name/],
+    [{ name: 'Go', learn: 'Go', folder: '~/nowhere' }, /No folder there/],
+    [{ name: 'Go', learn: 'Go', folder: '~/.claude' }, /Claude’s own/],
+    [{ name: 'Go', learn: 'Go', branch: 'main' }, /Send only name, learn and one source/],
+  ]) await assert.rejects(requestCourse(input, { run, live, repos: fakeRepos() }), { message });
+  assert.equal(readManifest().starting, undefined);
+});
+
+test("a course whose clone fails reads failed on its Starting row with git's line, and never starts claude", async () => {
+  saveJSON(manifestFile, { sites: {} });
+  const { calls, run } = claude();
+  const { route, started } = await requestCourse({ name: 'Private one', learn: 'x', github: 'acme/private' }, { run, live, repos: fakeRepos({ fail: 'Not found, or you don\'t have access.' }) });
+  assert.match((await started).error, /don't have access/);
+  assert.equal(calls.length, 0);
+  assert.equal(startingBoards(readManifest()).find((r) => r.route === route).failed, true);
 });

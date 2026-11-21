@@ -318,7 +318,9 @@ const quote = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 const boardLine = (route, title) => `/kickflip board ${quote(joinName(route, title))}`;
 const notYours = (id) => `If your session id (the folder above your scratchpad) isn't ${id}, rejoin with yours and --force.`;
 // first, when given, is the whole first prompt in place of the board line and prompt (a course's /teach, new-course.mjs).
-export const startArgv = ({ route, name, prompt, first }) => ['--bg', ...common({ name }), first || `${boardLine(route, name)}${prompt ? ` ${prompt}` : ''}`];
+// dirs are more folders the session may read (a course's source, new-course.mjs): --add-dir takes values until the next
+// flag, so it goes before common's.
+export const startArgv = ({ route, name, prompt, first, dirs = [] }) => ['--bg', ...dirs.flatMap((dir) => ['--add-dir', dir]), ...common({ name }), first || `${boardLine(route, name)}${prompt ? ` ${prompt}` : ''}`];
 export const resumePrompt = (route, id, title) => `${boardLine(route, title)}\nThe hub resumed this session because /${route} had nobody listening. Rejoin the board as session ${id} and relaunch its watcher as a background task, then go on with what its events ask. ${notYours(id)}`;
 // A background session resumed with any flag starts as a copy under a new id, so one goes without them and keeps the
 // options it started with; a session that never ran in the background gets them (Claude Code's `note:` line says which).
@@ -424,10 +426,10 @@ async function moveOwner(route, { from, to, mark }) {
 }
 
 // A new background session for the route, in repo (else the recorded session's folder, else the cwd), whose first
-// prompt is `/kickflip board '<board name>'` plus prompt, or first in full. Refuses while the route's recorded session is live. Writes nothing to the
+// prompt is `/kickflip board '<board name>'` plus prompt, or first in full, and dirs are more folders it may read. Refuses while the route's recorded session is live. Writes nothing to the
 // manifest. A folder that is a clone under clones (repos.mjs isClone), or any folder with trust (a folder the owner picked in New), is first marked trusted for Claude Code (trust.mjs).
 // → {route, session, confirmed, repo, name, argv, output}
-export async function startSession(route, { manifest = readManifest(), repo, prompt, first, run = runClaude, live = liveSessions, clones = reposDir(), trust = false } = {}) {
+export async function startSession(route, { manifest = readManifest(), repo, prompt, first, dirs, run = runClaude, live = liveSessions, clones = reposDir(), trust = false } = {}) {
   if (routeRecord(manifest.closed, route)) throw new SessionError(`/${route} is closed; use kickflip reopen ${route}`, 'none');
   const rec = sessionOf(manifest, route);
   refuseLive(rec, live);
@@ -437,7 +439,7 @@ export async function startSession(route, { manifest = readManifest(), repo, pro
     try { trustFolder(dir); } catch (e) { throw new SessionError(`Couldn't trust this folder for Claude Code: ${e.message}`, 'failed'); }
   }
   const name = routeRecord(manifest?.sites, route)?.title || routeRecord(manifest?.starting, route)?.title || route;
-  const argv = startArgv({ route, name, prompt, first });
+  const argv = startArgv({ route, name, prompt, first, dirs });
   const r = await run(argv, { cwd: dir });
   if (r.status !== 0) {
     const output = (r.stderr || '').trim() || (r.stdout || '').trim();

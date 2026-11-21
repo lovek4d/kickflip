@@ -2374,7 +2374,8 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.match(sheet.textContent, /Newest push first/);
     assert.match(sheet.querySelector('[data-repo="owner/project"]').textContent, /Private.*Pushed.*Not cloned/);
     assert.match(sheet.querySelector('[data-repo="org/tools"]').textContent, /Public.*✓ Cloned · shared with Tools board/);
-    const search = sheet.querySelector('[name="search"]');
+    assert.match(sheet.textContent, /Step 1 of 2 · Choose a source.*Source.*No source yet: pick a repo, a remote or a folder\..*Your repos.*Folders on this Mac/s);
+    const search = sheet.querySelector('[name="source"]');
     search.value = 'org/';
     page.fire(sheet.querySelector('form'), 'input', { target: search });
     assert.equal(sheet.querySelectorAll('[data-repo]').length, 1);
@@ -2385,7 +2386,13 @@ test('New board chooses a searchable repo before board details, defaults its bra
     tapNew();
     await tick();
     sheet = doc.getElementById('newBoardSheet');
+    const nextButton = sheet.querySelector('[data-nb-next]');
+    assert.deepEqual([nextButton.hidden, nextButton.disabled, sheet.querySelector('[data-nb-reason]').textContent], [false, true, 'Choose a repo, a remote or a folder to continue.'], 'a disabled Next says why');
     click('[data-repo="owner/project"]');
+    assert.equal(sheet.querySelector('[name="source"]').value, 'owner/project', 'a tapped suggestion fills the field');
+    assert.equal(sheet.querySelector('[data-source-line]').textContent, 'owner/projectGitHub repo · Private · not cloned yetBoard clones owner/project into the shared clone home.');
+    assert.deepEqual([nextButton.disabled, sheet.querySelector('[data-nb-reason]').hidden], [false, true]);
+    click('[data-nb-next]');
     await tick();
     const form = sheet.querySelector('form');
     const field = (name) => sheet.querySelector(`[name="${name}"]`);
@@ -2398,9 +2405,11 @@ test('New board chooses a searchable repo before board details, defaults its bra
     field('name').value = '';
     page.fire(form, 'input', { target: field('name') });
     assert.equal(start.disabled, true);
+    assert.equal(sheet.querySelector('[data-nb-reason]').textContent, 'Name the board to start.');
     field('name').value = 'Backend audit';
     page.fire(form, 'input', { target: field('name') });
     assert.equal(start.disabled, true, 'Start waits for a Description');
+    assert.equal(sheet.querySelector('[data-nb-reason]').textContent, 'Add a description to start.');
     assert.match(sheet.textContent, /Description/);
     assert.match(sheet.textContent, /Used by the hub for request routing/);
     assert.match(sheet.innerHTML, /name="purpose"[^>]* required=""/);
@@ -2491,15 +2500,18 @@ test('New board chooses a searchable repo before board details, defaults its bra
 });
 
 // docs/adr/2026-11-18-0600-new-starts-a-board-or-a-teach-course.md
-test('New opens on Board, and its Course posts a name and what to learn to the hub, showing the course starting at the end of Pages; a taken name stays in the sheet', async () => {
+test('New opens on Board, and its Course posts a name, what to learn and an optional source to the hub, showing the course starting at the end of Pages; a taken name stays in the sheet', async () => {
   const page = repoPage();
   const { win, doc } = page;
   let data = { sites: [{ route: 'learn', title: 'Learn', board: false, icon: '' }], starting: [] };
   let refusal = 'That name is taken: a board or page already has its route. Pick another name.';
   const posted = [];
+  const hono = { github: 'honojs/hono', private: false, pushedAt: '', description: '', clone: '/clone/.repos/honojs/hono', cloned: false, shared: [], listed: false };
   win.fetch = async (url, options = {}) => {
     if (url === '/_hub/sidebar.json') return repoResponse(data);
-    if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList });
+    if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList, recent: { remotes: [], folders: [{ folder: '~/dev/shop', path: '/home/o/dev/shop', by: ['Shop'], board: 'shop' }, { folder: '~/Documents/rust-book', path: '/home/o/Documents/rust-book', by: ['Rust'] }] } });
+    if (url === '/_hub/repo?github=honojs%2Fhono') return repoResponse(hono);
+    if (url === '/_hub/repo?github=acme%2Fgone') return { ok: false, json: async () => ({ error: "Not found, or you don't have access." }) };
     posted.push([url, options.method, JSON.parse(options.body), options.headers?.['content-type']]);
     if (refusal) return { ok: false, text: async () => refusal };
     data = { ...data, starting: [{ route: 'rust-ownership', title: 'Rust ownership', course: true, step: 'starting', stepAt: new Date().toISOString(), failed: false }] };
@@ -2517,12 +2529,15 @@ test('New opens on Board, and its Course posts a name and what to learn to the h
   assert.equal(sheet.querySelector('h2').textContent, 'New');
   assert.equal(pressed(), 'Board');
   assert.match(sheet.textContent, /Newest push first/);
+  assert.equal(sheet.querySelector('[data-source-list]').textContent.includes('~/dev/shop'), false, 'Board never suggests a folder that is already a board’s repo');
   click('[data-nb-kind="course"]');
   assert.equal(pressed(), 'Course');
-  assert.equal(sheet.querySelector('[data-repo]'), null, 'Course drops the repo picker');
   const start = sheet.querySelector('[type="submit"]');
-  assert.deepEqual([start.hidden, start.disabled], [false, true]);
-  assert.match(sheet.textContent, /Name \(becomes the route\).*What do you want to learn\?.*Start runs \/teach and writes lesson 1\./s);
+  assert.deepEqual([start.hidden, start.disabled, sheet.querySelector('[data-nb-reason]').textContent], [false, true, 'Name the course to start.']);
+  assert.match(sheet.textContent, /Name.*What do you want to learn\?.*Start runs \/teach and writes lesson 1\..*Learn from… Optional.*Lessons stay in the course’s pages folder/s);
+  assert.doesNotMatch(sheet.textContent, /becomes the route/);
+  assert.ok(sheet.querySelector('[data-repo="owner/project"]'), 'Course suggests the same repos');
+  assert.match(sheet.querySelector('[data-source-list]').textContent, /~\/dev\/shopUsed by Shop.*~\/Documents\/rust-bookUsed by Rust/s, 'a course may read a board’s folder');
   const name = sheet.querySelector('[name="course-name"]');
   name.value = 'Rust ownership';
   page.fire(form, 'input', { target: name });
@@ -2532,11 +2547,23 @@ test('New opens on Board, and its Course posts a name and what to learn to the h
   learn.value = ' Borrowing, from scratch ';
   page.fire(form, 'input', { target: learn });
   assert.equal(start.disabled, false);
+  const source = (value) => { const input = sheet.querySelector('[name="source"]'); input.value = value; page.fire(form, 'input', { target: input }); };
+  source('https://github.com/acme/gone');
+  await tick();
+  assert.equal(sheet.querySelector('[data-source-line]').textContent, "Can’t reach acme/gone: Not found, or you don't have access.");
+  assert.deepEqual([start.disabled, sheet.querySelector('[data-nb-reason]').textContent], [true, 'Fix the source, or clear it, to start.']);
+  source('');
+  assert.equal(start.disabled, false, 'a course starts with no source');
+  source('https://github.com/honojs/hono');
+  await tick();
+  assert.equal(sheet.querySelector('[data-source-line]').textContent, 'honojs/honoGitHub repo · Public · not in your list · not cloned yet/teach reads honojs/hono (cloned into the shared clone home to be read); lessons stay in the course’s pages folder.');
+  assert.equal(start.disabled, false);
   click('[data-nb-kind="board"]');
   await tick();
   assert.match(sheet.textContent, /Newest push first/);
   click('[data-nb-kind="course"]');
-  assert.deepEqual([sheet.querySelector('[name="course-name"]').value, sheet.querySelector('[name="learn"]').value], ['Rust ownership', ' Borrowing, from scratch '], 'the course draft survives a switch');
+  await tick();
+  assert.deepEqual([sheet.querySelector('[name="course-name"]').value, sheet.querySelector('[name="learn"]').value, sheet.querySelector('[name="source"]').value], ['Rust ownership', ' Borrowing, from scratch ', 'https://github.com/honojs/hono'], 'the course draft survives a switch');
   page.fire(form, 'submit');
   await tick();
   assert.equal(sheet.querySelector('[role="alert"]').textContent, refusal);
@@ -2544,7 +2571,7 @@ test('New opens on Board, and its Course posts a name and what to learn to the h
   refusal = null;
   page.fire(form, 'submit');
   await tick(); await tick();
-  assert.deepEqual(posted.at(-1), ['/_hub/new-course', 'POST', { name: 'Rust ownership', learn: 'Borrowing, from scratch' }, 'application/json']);
+  assert.deepEqual(posted.at(-1), ['/_hub/new-course', 'POST', { name: 'Rust ownership', learn: 'Borrowing, from scratch', github: 'honojs/hono' }, 'application/json']);
   assert.equal(doc.getElementById('newBoardSheet'), null);
   const pages = aside.querySelector('.sb-pages');
   assert.match(pages.textContent, /Learn.*Rust ownership.*writing lesson 1 · \d+s/s);
@@ -2566,20 +2593,27 @@ test('the repo sheet names gh auth login when signed out, retries authentication
   const form = sheet.querySelector('form');
   const click = (sel) => page.fire(form, 'click', { target: sheet.querySelector(sel) });
   assert.match(sheet.textContent, /GitHub isn’t connected.*gh auth login/);
-  assert.ok(sheet.querySelector('[data-nb-source="folder"]'), 'the signed-out sheet offers a folder on this Mac too');
+  assert.match(sheet.querySelector('[data-source-list]').textContent, /Folders on this Mac.*Or type a folder’s path/, 'the signed-out sheet offers a folder on this Mac too');
   assert.equal(sheet.querySelector('[data-repo]'), null);
   signedIn = true;
   click('[data-check-auth]');
   await tick();
   assert.ok(urls.includes('/_hub/repos?fresh=1'));
   click('[data-repo="owner/project"]');
+  click('[data-nb-next]');
   await tick();
+  assert.match(sheet.textContent, /‹ BackStep 2 of 2 · Board details/);
   const name = sheet.querySelector('[name="name"]');
   name.value = 'Custom board';
   page.fire(form, 'input', { target: name });
   click('[data-back-repos]');
   await tick();
-  click('[data-repo="org/tools"]');
+  assert.equal(sheet.querySelector('[name="source"]').value, 'owner/project', 'Back keeps the source');
+  assert.equal(sheet.querySelector('[data-nb-next]').disabled, false);
+  const source = sheet.querySelector('[name="source"]');
+  source.value = 'org/tools';
+  page.fire(form, 'input', { target: source });
+  click('[data-nb-next]');
   await tick();
   assert.equal(sheet.querySelector('[name="name"]').value, 'Custom board');
   assert.match(sheet.textContent, /Shared with Tools board/);
@@ -2604,16 +2638,22 @@ test('pasted unlisted repos use the normal branch and save steps in New board an
     await tick();
     const sheet = doc.getElementById('newBoardSheet');
     const form = sheet.querySelector('form');
-    assert.equal(sheet.querySelector('[data-nb-source][aria-pressed="true"]')?.textContent ?? null, current ? null : 'GitHub', 'only New picks a source');
-    const input = sheet.querySelector('[name="search"]');
+    assert.equal(sheet.querySelector('.nb-source > span').textContent, current ? 'Repo' : 'Source');
+    const input = sheet.querySelector('[name="source"]');
+    if (current) {
+      input.value = '~/dev/shop';
+      page.fire(form, 'input', { target: input });
+      assert.equal(sheet.querySelector('[data-source-line]').textContent, 'Paste the repo’s remote link. Local folders don’t work here.', 'Change repo takes no folder');
+      assert.equal(sheet.querySelector('[data-source-list]').textContent, '');
+    }
     input.value = 'https://github.com/outside/project/tree/canary';
     page.fire(form, 'input', { target: input });
-    assert.match(sheet.querySelector('[data-repo-results]').textContent, /Checking…/);
+    assert.equal(sheet.querySelector('[data-source-line]').textContent, 'Checking the hub can reach outside/project…');
+    assert.equal(sheet.querySelector('[data-nb-reason]').textContent, 'Checking the source…');
     finish();
     await tick();
-    assert.match(sheet.querySelector('[data-repo-results]').textContent, /From your link.*outside\/project.*Not in your list.*Public/);
-    const row = sheet.querySelector('[data-repo="outside/project"]');
-    page.fire(form, 'click', { target: row });
+    assert.equal(sheet.querySelector('[data-source-line]').textContent, `outside/projectGitHub repo · Public · not in your list · not cloned yet${current ? 'New implementers and GitHub links will use outside/project.' : 'Board clones outside/project into the shared clone home.'}`);
+    page.fire(form, 'click', { target: sheet.querySelector('[data-nb-next]') });
     await tick();
     assert.equal(sheet.querySelector('[name="branch"]').value, 'canary');
     if (!current) {
@@ -2630,7 +2670,7 @@ test('pasted unlisted repos use the normal branch and save steps in New board an
   }
 });
 
-test('repo links highlight listed rows, check other hosts on the hub, refuse local paths, and lookup failures replace the list', async () => {
+test('repo links pick listed repos with no lookup, check other hosts on the hub, and a failed lookup turns the field red with why', async () => {
   const page = repoPage();
   const { win, doc } = page;
   const urls = [];
@@ -2644,37 +2684,38 @@ test('repo links highlight listed rows, check other hosts on the hub, refuse loc
   const sheet = doc.getElementById('newBoardSheet');
   const form = sheet.querySelector('form');
   const search = (value) => {
-    const input = sheet.querySelector('[name="search"]');
+    const input = sheet.querySelector('[name="source"]');
     input.value = value;
     page.fire(form, 'input', { target: input });
   };
+  const line = () => sheet.querySelector('[data-source-line]').textContent;
   for (const link of ['https://github.com/OWNER/project', 'https://github.com/owner/project.git', 'git@github.com:owner/project.git',
     'ssh://git@github.com/owner/project.git', 'https://github.com/owner/project/tree/main',
     'https://github.com/owner/project/pull/12', 'https://github.com/owner/project/blob/main/a?plain=1#L2']) {
     search(link);
-    assert.match(sheet.textContent, /Already in your list/);
-    assert.ok(sheet.querySelector('.nb-repo-highlight[data-repo="owner/project"]'));
-  }
-  for (const link of ['/srv/git/r.git', 'file:///srv/git/r.git', '../r']) {
-    search(link);
-    assert.equal(sheet.querySelector('[data-repo-results] [role="alert"] .nb-why').textContent, 'That’s a folder. Pick Folder on this Mac above.');
+    assert.equal(line(), 'owner/projectGitHub repo · Private · not cloned yetBoard clones owner/project into the shared clone home.', 'a link to a listed repo picks it with no lookup');
+    assert.equal(sheet.querySelector('[data-nb-next]').disabled, false);
   }
   assert.deepEqual(urls, ['/_hub/repos']);
   for (const [link, name] of [['https://gitlab.com/o/r.git', 'gitlab.com/o/r'], ['git@bitbucket.org:o/r.git', 'bitbucket.org/o/r'], ['ssh://git@git.example.com:2222/o/r', 'git.example.com/o/r']]) {
     search(link);
     await tick();
     assert.equal(urls.at(-1), `/_hub/repo?remote=${encodeURIComponent(link)}`);
-    assert.equal(sheet.querySelector('[data-repo-results] [role="alert"]').textContent, `${name}Not found, or you don't have access.`);
+    assert.equal(sheet.querySelector('[data-source-line] [role="alert"]').textContent, `Can’t reach ${name}: Not found, or you don't have access.`);
+    assert.ok(sheet.querySelector('[name="source"]').classList.contains('nb-bad'), 'the field goes red');
+    assert.deepEqual([sheet.querySelector('[data-nb-next]').disabled, sheet.querySelector('[data-nb-reason]').textContent], [true, 'Fix the source to continue.']);
     assert.equal(sheet.querySelector('[data-repo]'), null);
   }
   urls.length = 1;
   search('https://github.com/outside/missing');
   await tick();
-  assert.equal(sheet.querySelector('[data-repo-results] [role="alert"]').textContent, "outside/missingNot found, or you don't have access.");
-  assert.equal(sheet.querySelector('[data-repo]'), null);
+  assert.equal(line(), "Can’t reach outside/missing: Not found, or you don't have access.");
+  search('https://github.com/justowner');
+  assert.equal(line(), 'That link doesn’t name a repo. Use github.com/owner/name.');
   search('project');
   assert.ok(sheet.querySelector('[data-repo="owner/project"]'));
-  assert.doesNotMatch(sheet.textContent, /From your link|Not in your list/);
+  assert.equal(sheet.querySelector('[name="source"]').classList.contains('nb-bad'), false);
+  assert.deepEqual([sheet.querySelector('[data-nb-next]').disabled, line()], [true, ''], 'text that names no source yet filters the suggestions');
   sheet.close();
 });
 
@@ -2695,13 +2736,12 @@ test('a pasted git link on another host picks its host-labelled row, lists branc
   const sheet = doc.getElementById('newBoardSheet');
   const form = sheet.querySelector('form');
   assert.match(sheet.textContent, /GitHub isn’t connected/);
-  const input = sheet.querySelector('[name="search"]');
+  const input = sheet.querySelector('[name="source"]');
   input.value = link;
   page.fire(form, 'input', { target: input });
   await tick();
-  const row = sheet.querySelector(`[data-repo="${link}"]`);
-  assert.match(row.textContent, /^gitlab\.com\/acme\/firmwareNot in your listgitlab\.com · Last push unknown.*Not cloned yet$/);
-  page.fire(form, 'click', { target: row });
+  assert.equal(sheet.querySelector('[data-source-line]').textContent, 'gitlab.com/acme/firmwareGit remote · gitlab.com · not in your list · not cloned yetBoard clones gitlab.com/acme/firmware into the shared clone home.');
+  page.fire(form, 'click', { target: sheet.querySelector('[data-nb-next]') });
   await tick();
   assert.match(sheet.querySelector('.nb-selected').textContent, /gitlab\.com\/acme\/firmwaregitlab\.com.*\/clone\/\.repos\/gitlab\.com\/acme\/firmware/);
   assert.equal(sheet.querySelector('[name="name"]').value, 'firmware');
@@ -2719,7 +2759,7 @@ test('a pasted git link on another host picks its host-labelled row, lists branc
 });
 
 // docs/adr/2026-11-18-0724-a-new-board-can-anchor-on-a-folder-on-this-mac.md
-test('Folder on this Mac suggests folders as you type, shows what the hub found, holds Next for a non-repo until Make it a git repo, and starts with the folder', async () => {
+test('a path in the source field suggests folders as you type, shows what the hub found, holds Next for a non-repo until Make it a git repo, and starts with the folder', async () => {
   const page = repoPage();
   const { win, doc } = page;
   const urls = [], saved = [];
@@ -2745,43 +2785,39 @@ test('Folder on this Mac suggests folders as you type, shows what the hub found,
   const form = sheet.querySelector('form');
   const click = (sel) => page.fire(form, 'click', { target: sheet.querySelector(sel) });
   const type = async (value) => {
-    const input = sheet.querySelector('[name="folder-path"]');
+    const input = sheet.querySelector('[name="source"]');
     input.value = value;
     page.fire(form, 'input', { target: input });
     await tick(); await tick();
   };
-  const results = () => sheet.querySelector('[data-folder-results]').textContent;
-  const next = sheet.querySelector('[data-folder-next]');
-  assert.deepEqual([...sheet.querySelectorAll('[data-nb-source]')].map((b) => b.textContent), ['GitHub', 'Other git host', 'Folder on this Mac']);
-  click('[data-nb-source="git"]');
-  assert.equal(sheet.querySelector('[name="search"]').getAttribute('placeholder'), 'https://host/path or user@host:path');
-  assert.equal(sheet.querySelector('[data-repo]'), null, 'Other git host lists no GitHub repos');
-  click('[data-nb-source="folder"]');
-  assert.equal(next.hidden, false);
-  assert.match(results(), /Start typing a path under ~/);
+  const line = () => sheet.querySelector('[data-source-line]').textContent;
+  const listed = () => sheet.querySelector('[data-source-list]').textContent;
+  const next = sheet.querySelector('[data-nb-next]');
+  assert.equal(sheet.querySelector('[data-nb-source]'), null, 'one field, no source tabs');
   await type('~/dev/');
-  assert.deepEqual([...sheet.querySelectorAll('[data-folder]')].map((b) => b.dataset.folder), ['~/dev/shop', '~/dev/diary', '~/dev/poems']);
+  assert.deepEqual([...sheet.querySelectorAll('[data-source-pick]')].map((b) => b.dataset.sourcePick), ['~/dev/shop', '~/dev/diary', '~/dev/poems']);
+  assert.match(listed(), /^Folders on this Mac/);
   assert.equal(urls.some((u) => u.startsWith('/_hub/folder?')), false, 'a path ending in a slash is still being typed');
   await type('~');
-  assert.match(results(), /That’s your whole home folder/);
+  assert.equal(line(), 'That’s your whole home folder. Pick a folder inside it.');
   assert.equal(next.disabled, true);
   await type('~/dev/nothing');
-  assert.match(results(), /No folder there\. Keep typing, or tap a suggestion\./);
+  assert.match(line(), /No folder there\. Keep typing, or tap a suggestion\./);
   await type('~/dev/d');
-  click('[data-folder="~/dev/diary"]');
+  page.fire(form, 'click', { target: sheet.querySelector('[data-source-pick="~/dev/diary"]') });
   await tick(); await tick();
-  assert.equal(sheet.querySelector('[name="folder-path"]').value, '~/dev/diary');
-  assert.equal(results(), 'Git repo · no remote · lands won’t push');
+  assert.equal(sheet.querySelector('[name="source"]').value, '~/dev/diary');
+  assert.equal(line(), '~/dev/diaryFolder · Git repo · no remote · lands won’t pushBoard joins ~/dev/diary in place: no clone, nothing copied.');
   assert.equal(next.disabled, false);
   await type('~/dev/poems');
-  assert.match(results(), /^Not a git repoMake it a git repogit init, and commit what’s there as the first commit\. Applies when you tap Start\./);
-  assert.equal(next.disabled, true, 'Next waits for Make it a git repo');
+  assert.match(line(), /^~\/dev\/poemsFolder · Not a git repoMake it a git repogit init, and commit what’s there as the first commit\. Applies when you tap Start\./);
+  assert.deepEqual([next.disabled, sheet.querySelector('[data-nb-reason]').textContent], [true, 'Turn on Make it a git repo to continue.']);
   const toggle = sheet.querySelector('[name="git-init"]');
   toggle.checked = true;
   page.fire(form, 'change', { target: toggle });
   assert.equal(sheet.querySelector('[data-folder-line]').textContent, 'Will be a git repo · no remote · lands won’t push');
   assert.equal(next.disabled, false);
-  click('[data-folder-next]');
+  click('[data-nb-next]');
   assert.match(sheet.querySelector('.nb-selected').textContent, /^~\/dev\/poemsWill be a git repo/);
   assert.equal(sheet.querySelector('[name="branch"]').disabled, true);
   assert.match(sheet.textContent, /A new repo starts on main\..*On this board, lands fast-forward main and never push\./s);
@@ -2796,25 +2832,68 @@ test('Folder on this Mac suggests folders as you type, shows what the hub found,
   win.BoardDialogs.repoSheet({ save: async (input) => saved.push(JSON.parse(JSON.stringify(input))) });
   await tick();
   const again = doc.getElementById('newBoardSheet');
-  page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-nb-source="folder"]') });
-  const input = again.querySelector('[name="folder-path"]');
+  const input = again.querySelector('[name="source"]');
   input.value = '~/dev/shop';
   page.fire(again.querySelector('form'), 'input', { target: input });
   await tick(); await tick();
-  assert.equal(again.querySelector('[data-folder-results]').textContent, 'Git repo · github.com/acme/shop · trunk');
-  page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-folder-next]') });
+  assert.equal(again.querySelector('[data-folder-line]').textContent, 'Git repo · github.com/acme/shop · trunk');
+  page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-nb-next]') });
   assert.deepEqual([...again.querySelectorAll('[name="branch"] option')].map((o) => o.value), ['trunk', 'alpha']);
   assert.match(again.textContent, /Read from the folder\. New implementers branch from trunk\..*On this board, lands fast-forward trunk in this folder\./s);
   assert.notEqual(again.querySelector('[data-tk-source="github"]').getAttribute('aria-disabled'), 'true', 'a GitHub clone can file GitHub issues');
   page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-back-repos]') });
   await tick(); await tick();
-  assert.equal(again.querySelector('[name="folder-path"]').value, '~/dev/shop', 'Back keeps the folder');
-  page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-folder-next]') });
+  assert.equal(again.querySelector('[name="source"]').value, '~/dev/shop', 'Back keeps the folder');
+  page.fire(again.querySelector('form'), 'click', { target: again.querySelector('[data-nb-next]') });
   again.querySelector('[name="purpose"]').value = 'Shop';
   page.fire(again.querySelector('form'), 'input', { target: again.querySelector('[name="purpose"]') });
   page.fire(again.querySelector('form'), 'submit');
   await tick();
   assert.deepEqual(saved.at(-1), { name: 'shop', purpose: 'Shop', folder: '/home/o/dev/shop', branch: 'trunk', tickets: { source: 'none' } });
+});
+
+// docs/adr/2026-11-21-2300-new-board-and-new-course-share-one-source-field.md
+test("a course's Learn from… reads a folder through read=1, a plain folder included, and posts its path; a missing folder holds Start until it is cleared", async () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  const urls = [], posted = [];
+  win.setTimeout = (fn) => { fn(); return 1; };
+  win.fetch = async (url) => {
+    urls.push(url);
+    const q = new URL(url, 'https://test').searchParams;
+    if (url === '/_hub/repos') return repoResponse({ signedIn: true, repos: repoList, recent: { remotes: [{ remote: 'git@git.acme.dev:infra/deploy.git', name: 'git.acme.dev/infra/deploy', by: ['Deploy'] }], folders: [] } });
+    if (url.startsWith('/_hub/folders?')) return repoResponse({ folders: [] });
+    if (q.get('path') === '~/Documents/rust-book') return repoResponse({ folder: '~/Documents/rust-book', path: '/home/o/Documents/rust-book', git: false });
+    return { ok: false, status: 404, json: async () => ({ error: 'No folder there.' }) };
+  };
+  win.BoardDialogs.repoSheet({ save: async () => {}, course: async (input) => posted.push(JSON.parse(JSON.stringify(input))) });
+  await tick();
+  const sheet = doc.getElementById('newBoardSheet');
+  const form = sheet.querySelector('form');
+  page.fire(form, 'click', { target: sheet.querySelector('[data-nb-kind="course"]') });
+  assert.match(sheet.querySelector('[data-source-list]').textContent, /Other remotes.*git\.acme\.dev\/infra\/deployUsed by Deploy/s);
+  for (const [name, value] of [['course-name', 'Rust book'], ['learn', 'Chapter 4']]) {
+    sheet.querySelector(`[name="${name}"]`).value = value;
+    page.fire(form, 'input', { target: sheet.querySelector(`[name="${name}"]`) });
+  }
+  const type = async (value) => {
+    const input = sheet.querySelector('[name="source"]');
+    input.value = value;
+    page.fire(form, 'input', { target: input });
+    await tick(); await tick();
+  };
+  const start = sheet.querySelector('[type="submit"]');
+  await type('~/dev/rust-notes');
+  assert.equal(urls.at(-1), '/_hub/folder?path=~%2Fdev%2Frust-notes&read=1');
+  assert.match(sheet.querySelector('[data-source-line]').textContent, /No folder there/);
+  assert.deepEqual([start.disabled, sheet.querySelector('[data-nb-reason]').textContent], [true, 'Fix the source, or clear it, to start.']);
+  await type('~/Documents/rust-book');
+  assert.equal(sheet.querySelector('[data-source-line]').textContent, '~/Documents/rust-bookFolder · plain folder/teach reads ~/Documents/rust-book; lessons are written to the course’s pages folder.');
+  assert.equal(sheet.querySelector('[name="git-init"]'), null, 'a course never makes the folder a repo');
+  assert.equal(start.disabled, false);
+  page.fire(form, 'submit');
+  await tick();
+  assert.deepEqual(posted, [{ name: 'Rust book', learn: 'Chapter 4', folder: '/home/o/Documents/rust-book' }]);
 });
 
 test('bare repo lookups debounce, cancel when edited or closed, and ignore stale success and failure responses', async () => {
@@ -2834,7 +2913,7 @@ test('bare repo lookups debounce, cancel when edited or closed, and ignore stale
   const sheet = doc.getElementById('newBoardSheet');
   const form = sheet.querySelector('form');
   const search = (value) => {
-    const input = sheet.querySelector('[name="search"]');
+    const input = sheet.querySelector('[name="source"]');
     input.value = value;
     page.fire(form, 'input', { target: input });
   };
@@ -2853,14 +2932,14 @@ test('bare repo lookups debounce, cancel when edited or closed, and ignore stale
   await tick();
   pending.get('outside/second')({ ok: false, json: async () => ({ error: 'stale failure' }) });
   await tick();
-  assert.match(sheet.textContent, /From your link.*outside\/third/);
+  assert.match(sheet.querySelector('[data-source-line]').textContent, /^outside\/thirdGitHub repo/);
   assert.doesNotMatch(sheet.textContent, /stale failure/);
   search('https://github.com/outside/late');
   search('tools');
   pending.get('outside/late')(repoResponse({ ...repoList[0], github: 'outside/late', listed: false }));
   await tick();
   assert.ok(sheet.querySelector('[data-repo="org/tools"]'));
-  assert.doesNotMatch(sheet.textContent, /From your link/);
+  assert.doesNotMatch(sheet.textContent, /outside\/late/);
   search('outside/cancel');
   assert.equal(timers.size, 1);
   sheet.close();

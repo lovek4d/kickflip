@@ -30,21 +30,23 @@
 //                     key, {set: false} without one, {set: true, refused: true, …} once Linear refused it, or with
 //                     error when Linear can't be reached
 //   /_hub/linear/projects POST {team, name} creates a Linear project in that team → {id, name, team}
-//   /_hub/repos      GET the signed-in owner's and orgs' repos with clone/share metadata
+//   /_hub/repos      GET the signed-in owner's and orgs' repos with clone/share metadata, and recent: the remotes and
+//                     folders the hub's boards and courses use (folders.mjs recentSources)
 //   /_hub/repo       GET ?github=owner/repo checks a pasted GitHub repo, including one outside the list, or
 //                     ?remote=<git link> another host's repo; returns one repo row with listed: false, or 404 when
 //                     unreachable (repos.mjs)
 //   /_hub/branches   GET ?github=owner/repo or ?remote=<git link> lists branches and the repo default
 //   /_hub/folders    GET ?q=<path as typed> → {folders: [~/ paths]} under home for New's folder source (folders.mjs)
 //   /_hub/folder     GET ?path=<folder> what New board finds there: {folder, path, git, github?, remote?, branch,
-//                     branches}, or {error} when it can't be a board's repo (folders.mjs folderInfo)
+//                     branches}, or {error} when it can't be a board's repo (folders.mjs folderInfo); with &read=1
+//                     what New course finds: {folder, path, git}, or {error} (folders.mjs readableFolder)
 //   /_hub/board-repo/<route> GET repo and branch; POST {github | remote, branch} prepares the clone and sends
 //                     repo-changed (board-repo.mjs); the hub board's GET names kickflip's clone and its POST is refused
 //   /_hub/new-board  POST {name, github | remote, branch, purpose, tickets} → {route}: a starting reservation, then the board's session starts
 //                     without holding the response; DELETE /_hub/new-board/<route> dismisses a start that failed
 //                     or timed out, and POST /_hub/new-board/<route>/retry (application/json) starts it again → {route}
 //                     (new-board.mjs)
-//   /_hub/new-course POST {name, learn} → {route}: a course's Starting row, then its /teach session starts without holding
+//   /_hub/new-course POST {name, learn, github | remote | folder?} → {route}: a course's Starting row, then its /teach session starts without holding
 //                     the response (new-course.mjs); Dismiss is New board's DELETE
 //   /_hub/resume-course POST {route} from the confirm on a course's row whose session is down: resumes that session in the
 //                     course's folder for the next lesson, or starts a fresh /teach there; its row reads starting till it runs
@@ -268,7 +270,7 @@ import { changeOrchestratorModel, checkSessions, compactFullContexts, freshIdleS
 import { codeRestartHeld, logRestart, restartHeld, restartLines } from './auto-restarts.mjs';
 import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
-import { folderInfo, folderSuggestions } from './folders.mjs';
+import { folderInfo, folderSuggestions, readableFolder, recentSources } from './folders.mjs';
 import { boardRepo, changeBoardRepo } from './board-repo.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
 import { requestCourse, resumeCourse, courseLessons } from './new-course.mjs';
@@ -1429,7 +1431,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     // The Polls page (polls-page.mjs), a page of its own the hub settings' Polls row links, outside the app shell.
     if (p === '/_hub/polls' && req.method === 'GET') return send(200, 'text/html; charset=utf-8', `${head('Polls')}${pollsPage()}</main></body></html>`);
     if (p === '/_hub/repos' && req.method === 'GET') {
-      try { return sendJSON(200, await repos.list(loadManifest(), { fresh: url.searchParams.get('fresh') === '1' })); }
+      try { const manifest = loadManifest(); return sendJSON(200, { ...await repos.list(manifest, { fresh: url.searchParams.get('fresh') === '1' }), recent: recentSources(manifest) }); }
       catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
     }
     if (p === '/_hub/branches' && req.method === 'GET') {
@@ -1439,7 +1441,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     if (p === '/_hub/repo' && req.method === 'GET') return repoLookupRoute(url, { repos, manifest: loadManifest(), sendJSON });
     if (p === '/_hub/folders' && req.method === 'GET') return sendJSON(200, { folders: folderSuggestions(url.searchParams.get('q')) });
     if (p === '/_hub/folder' && req.method === 'GET') {
-      try { return sendJSON(200, await folderInfo(url.searchParams.get('path'), { manifest: loadManifest() })); }
+      try { return sendJSON(200, url.searchParams.get('read') === '1' ? readableFolder(url.searchParams.get('path')) : await folderInfo(url.searchParams.get('path'), { manifest: loadManifest() })); }
       catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
     }
     const repoRoute = /^\/_hub\/board-repo\/([a-z0-9-]+)$/.exec(p);
@@ -1461,7 +1463,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name and learn as application/json.');
       let input;
       try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name and learn as JSON.'); }
-      try { return starting(await requestCourse(input, { changed: () => stream.refresh() })); }
+      try { return starting(await requestCourse(input, { repos, changed: () => stream.refresh() })); }
       catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
     }
     if (p === '/_hub/resume-course' && req.method === 'POST') {

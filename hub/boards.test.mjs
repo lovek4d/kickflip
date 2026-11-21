@@ -799,7 +799,7 @@ test('New course refuses over HTTP before any session starts, and a course page 
   const post = (input, headers = sameOrigin) => fetch(`${base}/_hub/new-course`, { method: 'POST', headers, body: JSON.stringify(input) });
   try {
     assert.equal((await post({ name: 'Rust', learn: 'Borrowing' }, { ...sameOrigin, 'content-type': 'text/plain' })).status, 403);
-    for (const input of [{ name: '', learn: 'x' }, { name: 'Rust' }, { name: 'Rust', learn: 'x', github: 'a/b' }, null]) {
+    for (const input of [{ name: '', learn: 'x' }, { name: 'Rust' }, { name: 'Rust', learn: 'x', branch: 'main' }, { name: 'Rust', learn: 'x', github: 'a/b', folder: '~/x' }, null]) {
       const refused = await post(input);
       assert.equal(refused.status, 400, JSON.stringify(input));
       assert.match(refused.headers.get('content-type'), /^text\/plain/);
@@ -838,7 +838,9 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
     const sidebarData = await sidebar();
     assert.equal(sidebarData.home, canonicalHome);
     assert.equal(sidebarData.repos, undefined);
-    assert.deepEqual(await (await fetch(`${base}/_hub/repos`)).json(), { signedIn: false, repos: [] });
+    const { recent, ...listed } = await (await fetch(`${base}/_hub/repos`)).json();
+    assert.deepEqual(listed, { signedIn: false, repos: [] });
+    assert.deepEqual(Object.keys(recent), ['remotes', 'folders'], 'the answer carries the recent remotes and folders (folders.mjs recentSources)');
     const missingRepo = await fetch(`${base}/_hub/repo?github=outside/missing`);
     assert.equal(missingRepo.status, 404);
     assert.deepEqual(await missingRepo.json(), { error: "Not found, or you don't have access." });

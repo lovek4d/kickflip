@@ -201,13 +201,14 @@
           aside.querySelector(`[data-starting="${route}"]`)?.scrollIntoView({ block: 'nearest' });
           refresh().catch(() => {});
         },
-        // A course's Starting row ends Pages (ui-sidebar.js), shown at once and then from the hub's answer.
-        async course(input) {
+        // A course's Starting row ends Pages (ui-sidebar.js), shown at once and then from the hub's answer; a source repo
+        // not cloned yet starts it on cloning.
+        async course(input, repo) {
           const response = await fetch('/_hub/new-course', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
           if (!response.ok) throw new Error(await response.text());
           const { route } = await response.json();
           const now = new Date().toISOString();
-          setData({ ...data, starting: [...(data?.starting || []).filter((s) => s.route !== route), { route, title: input.name, course: true, step: 'starting', stepAt: now, askedAt: now, failed: false }] });
+          setData({ ...data, starting: [...(data?.starting || []).filter((s) => s.route !== route), { route, title: input.name, course: true, step: repo && !repo.cloned ? 'cloning' : 'starting', stepAt: now, askedAt: now, failed: false }] });
           if (rail.matches) collapse(false); else open();
           aside.querySelector(`[data-starting="${route}"]`)?.scrollIntoView({ block: 'nearest' });
           refresh().catch(() => {});
