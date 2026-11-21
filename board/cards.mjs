@@ -12,6 +12,7 @@ import { squashBody, startTitleFault, subjectFault } from './commit-message.mjs'
 import { fileURLToPath } from 'node:url';
 import { COMMANDS, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, threadOf, builds, mergeBlockers, owesNext, pushTag, refOf, HELPER, implementAsk } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
+import { builderRepo } from './worktree.mjs';
 import { reviseQueued, pushKindError } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
@@ -850,7 +851,7 @@ const RISKS = ['low', 'medium', 'high'];
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
 // change, low, medium or high, which builder done records and the PR's Slack link shows (slack-store.mjs prLink). replyOn (--reply-on)
 // is the orchestrator's reply on a card this call links or unlinks while its owner waits on that reply (replyFirst).
-async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, landedFiles, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, command, ownerStep, ownerDone, check, finishAsk, triaged, release }, options) {
+async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, landedFiles, start, handBack, next, clearNext, pr, pushed, base, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, command, ownerStep, ownerDone, check, finishAsk, triaged, release }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -872,7 +873,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ block, unblock, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check, risk].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --blocked, --unblocked, --pick-up-at, --blocked-by, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
+  if ([done, start, handBack, next, clearNext, pr, pushed, base, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check, risk].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --base, --gh-since, --from-ask, --phase, --blocked, --unblocked, --pick-up-at, --blocked-by, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   if (ask) await refuseFiled(site, ask, key);
@@ -990,6 +991,15 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     try { validateBranch(pushed); } catch { fail('--pushed takes the name of the branch you pushed'); }
     item.pushed = { branch: pushed, at: new Date().toISOString() };
     item.branch = pushed;
+  }
+  // docs/adr/2026-11-21-2333-a-task-can-keep-its-own-pr-base.md: the branch the card's PR targets, which builderRepo
+  // reads for its worktree, its brief, its finish and its rebase runs.
+  if (base !== undefined) {
+    if (base !== '') {
+      try { validateBranch(base); } catch { fail('--base takes the name of the branch its PR targets'); }
+    }
+    if (!builderRepo(needSite(site)).remote) fail(`--base is for a board whose finish pushes its task's branch (a PR or a remote); this board lands in its own folder`);
+    if (base === '') delete item.base; else item.base = base;
   }
   // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: a verified branch that waits for the owner's Merge.
   if (mergeReady !== undefined) {

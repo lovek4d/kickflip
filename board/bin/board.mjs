@@ -225,6 +225,12 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          <branch>). The hub's repo fetch moves it to Done once the
                                                          branch is merged into the board's branch or gone from the
                                                          remote. Moves it to In Review as --pr does
+         [--base <branch> | --base ""]                   the branch the task's PR targets instead of the board's,
+                                                         on a board whose finish pushes (a PR or a remote): its
+                                                         builder branches from origin's copy, the finish opens
+                                                         its PR against it, and a rebase run rebases onto it.
+                                                         A build already started keeps the branch it made from
+                                                         the old base; "" clears it
          [--gh-since <ISO time>]                         records the last handled GitHub event, an ISO-8601 UTC
                                                          time such as 2026-10-23T11:00:00Z, stored as given
          [--from-ask <eventId> --text <t>]               the ask it came from, for an ask from before asks
@@ -1096,6 +1102,7 @@ export const ITEM_SET_SAYS = {
   'clear-next': () => 'next line cleared',
   pr: (f) => `PR #${f.pr}`,
   pushed: (f) => `pushed ${f.pushed}`,
+  base: (f) => (f.base ? `base ${f.base}` : "base cleared, the board's"),
   'gh-since': (f) => `GitHub read to ${f['gh-since']}`,
   'from-ask': (f) => `from task ${f['from-ask']}`,
   phase: (f) => f.phase,
@@ -1124,7 +1131,7 @@ export const ITEM_SET_SAYS = {
   check: (f) => (f.check.trim() ? `check ${f.check.trim().split(/\s+/).join(' ')}` : 'check removed'),
   'reply-on': null,
 };
-export const ITEM_SET_FLAGS = ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check', 'reply-on'];
+export const ITEM_SET_FLAGS = ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'base', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check', 'reply-on'];
 const unsaid = ITEM_SET_FLAGS.map((flag) => flag.replace('...', '')).filter((flag) => !(flag in ITEM_SET_SAYS));
 if (unsaid.length) throw new Error(`item set takes ${unsaid.map((flag) => `--${flag}`).join(', ')} but ITEM_SET_SAYS does not name it`);
 const COMMANDS = {
@@ -1180,7 +1187,7 @@ const COMMANDS = {
     await store.refuseUnborn(site, f.text);
     if (f.done && site) await store.checkNotReopened(site, key);
     if (site && [f.phase, f.title, f.ticket, f['new-ticket']].some((v) => v !== undefined)) await store.refuseUnreadEdit(site, key);
-    return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f['blocked-by'], blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
+    return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, base: f.base, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f['blocked-by'], blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check, replyOn: f['reply-on'] }, options);
   }],
   'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'blocks', 'blocked-by', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'split', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by', 'reply-on', 'from', 'implement'], async (site, [key], f, options) => {

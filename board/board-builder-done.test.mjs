@@ -7,7 +7,7 @@ import { once } from 'node:events';
 import { until, untilTestEnds } from '../shared/test-helpers.mjs';
 import { opensPRs, settingsOf } from './store.mjs';
 import { SUMMARY_HINT } from './domain.mjs';
-import { fakeGh, writeLimit, calls } from '../shared/fake-gh.mjs';
+import { fakeGh, writeLimit, writeOpen, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
 import { boardWith, bin, home, at, site, write, read, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, land, branches, onOrch, launched, record, itemOf, threadOf, remoteBoard, tapMerge, onHome } from './board-fixture.mjs';
 
@@ -191,10 +191,59 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\nA1: draft PR #100 opened\n'), r.out);
   assert.deepEqual([git(origin, 'rev-parse', 'me/orch/a1'), git(origin, 'rev-parse', 'main')], [git(worktree(), 'rev-parse', 'HEAD'), main]);
-  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr'), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', 'me/orch/a1', '--title', 'feat(board): the work, as one PR', '--body', 'Checked it on the phone.']);
+  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr' && a[1] === 'create'), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', 'me/orch/a1', '--title', 'feat(board): the work, as one PR', '--body', 'Checked it on the phone.']);
   assert.deepEqual([itemOf().prs, itemOf().lane, typeof record().done], [[{ number: 100 }], 'review', 'string']);
   assert.equal(threadOf().at(-1).text, 'Checked it on the phone.');
   assert.equal(fs.existsSync(worktree()), true);
+});
+
+// docs/adr/2026-11-21-2333-a-task-can-keep-its-own-pr-base.md
+test("a task's own base (item set --base) is where its builder branches from on origin and what its draft PR targets; --base \"\" clears it", async () => {
+  const ghDir = path.join(home, 'gh');
+  const origin = remoteBoard(() => ({ github: 'owner/project' }));
+  git(origin, 'checkout', '--quiet', '-b', 'agent-main');
+  commit(origin, 'agent.txt', 'agent code\n', 'agent base');
+  const agentTip = git(origin, 'rev-parse', 'agent-main');
+  git(origin, 'checkout', '--quiet', 'main');
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  launched('orch', 'w/A1');
+  const bad = await b('item', 'set', 'w/A1', '--base', 'not a branch');
+  assert.deepEqual([bad.code, bad.err], [1, '--base takes the name of the branch its PR targets\n']);
+  const set = await b('item', 'set', 'w/A1', '--base', 'agent-main');
+  assert.deepEqual([set.code, set.out], [0, 'A1: base agent-main\n'], set.err);
+  assert.equal(itemOf().base, 'agent-main');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  assert.equal(git(worktree(), 'merge-base', 'HEAD', 'refs/remotes/origin/agent-main'), agentTip);
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
+  const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--title', 'feat(board): the agent work');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr' && a[1] === 'create').slice(5, 7), ['--base', 'agent-main']);
+  const cleared = await b('item', 'set', 'w/A1', '--base', '');
+  assert.deepEqual([cleared.code, cleared.out, itemOf().base], [0, "A1: base cleared, the board's\n", undefined], cleared.err);
+});
+
+test('--base is refused on a board that lands in its own folder, where no PR opens', async () => {
+  const r = await onOrch('item', 'set', 'w/A1', '--base', 'agent-main');
+  assert.deepEqual([r.code, r.err], [1, "--base is for a board whose finish pushes its task's branch (a PR or a remote); this board lands in its own folder\n"]);
+  assert.equal(itemOf().base, undefined);
+});
+
+test('a finish on a card with no PR recorded moves it to the open PR GitHub already has from its branch, whatever that PR targets, and opens none', async () => {
+  const ghDir = path.join(home, 'gh');
+  const origin = remoteBoard(() => ({ github: 'owner/project' }));
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  launched('orch', 'w/A1');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
+  writeOpen(ghDir, 'owner/project', [{ number: 7, headRefName: 'me/orch/a1', isCrossRepository: false }]);
+  const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--title', 'feat(board): the work');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.out.includes('\nA1: pushed me/orch/a1 to PR #7\n'), r.out);
+  assert.equal(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'create').length, 0);
+  assert.equal(git(origin, 'rev-parse', 'me/orch/a1'), git(worktree(), 'rev-parse', 'HEAD'));
+  assert.deepEqual([itemOf().prs, itemOf().lane], [[{ number: 7 }], 'review']);
 });
 
 // docs/adr/2026-11-19-1600-a-tasks-pr-is-commented-on-its-ticket.md
@@ -242,7 +291,8 @@ test("while GitHub's limit holds, builder done pushes the branch but opens no PR
   fs.rmSync(path.join(home, '.claude', 'kickflip', 'gh-limit.json'));
   const again = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
   assert.equal(again.code, 0, again.err);
-  assert.ok(again.out.includes('\nA1: draft PR #101 opened\n'), again.out);
+  // The limited open-PR lookup put the limit on the gate, which refused the create before gh ran.
+  assert.ok(again.out.includes('\nA1: draft PR #100 opened\n'), again.out);
   // With no --title, the PR takes the card's title, not a commit subject.
   assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'create').at(-1).slice(9, 11), ['--title', 'feat: one']);
 });

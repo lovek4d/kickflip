@@ -485,7 +485,7 @@ async function launchRebases(site, items, stopped, io, pass) {
   const sent = await readJSON(file, {});
   const was = JSON.stringify(sent);
   const bump = bumpIn(items);
-  const { base } = builderRepo(site);
+  const baseOf = (key) => builderRepo(site, { id: key.split('/')[1] }).base;
   const gate = readUsageGate({ dir: site });
   for (const [key, run] of Object.entries(sent)) {
     if (!Number.isInteger(run.pid) || run.handedBack || stopped.has(key) || pidAlive(run.pid)) continue;
@@ -515,7 +515,7 @@ async function launchRebases(site, items, stopped, io, pass) {
       }
     }
   }
-  const due = byBump(rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base), (d) => bump(d.key));
+  const due = byBump(rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), baseOf), (d) => bump(d.key));
   if (!due.length) {
     // A card's alive reads it.
     if (JSON.stringify(sent) !== was) await writeJSON(file, sent);
@@ -525,11 +525,11 @@ async function launchRebases(site, items, stopped, io, pass) {
     for (const d of due) {
       if (heldNow(site, pass, 'claude', Boolean(bump(d.key)))) break;
       const id = d.key.split('/')[1];
-      const entry = { call: 'rebase-run', key: d.key, reason: `Its PR #${d.pr} conflicts with ${base}.`, inputs: { pr: d.pr, conflict: d.conflict, before: sent[d.key] ?? null } };
+      const entry = { call: 'rebase-run', key: d.key, reason: `Its PR #${d.pr} conflicts with ${d.base}.`, inputs: { pr: d.pr, conflict: d.conflict, before: sent[d.key] ?? null } };
       sent[d.key] = { conflict: d.conflict, pid: null };
       let started;
       try {
-        started = await startRebase(site, d.key, { pr: d.pr, conflict: d.conflict, base }, () => prWorktree(site, id, d.branch));
+        started = await startRebase(site, d.key, { pr: d.pr, conflict: d.conflict, base: d.base }, () => prWorktree(site, id, d.branch));
       } catch (e) {
         if (!(e instanceof BoardError)) throw e;
         io.log({ ...entry, result: 'refused', reason: `${entry.reason} The start refused: ${e.message}` });

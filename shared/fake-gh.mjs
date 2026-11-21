@@ -159,6 +159,17 @@ if (args[0] === 'pr' && args[1] === 'create' && args.includes('--repo')) {
   console.log('https://github.com/' + args[args.indexOf('--repo') + 1] + '/pull/' + (99 + n));
   process.exit(0);
 }
+// gh pr list --repo <repo> --head <branch> --state open --json number --jq '.[0].number': the first of writeOpen's
+// open PRs for repo from that branch, whatever its base; no fixture lists none.
+if (args[0] === 'pr' && args[1] === 'list' && args.includes('--repo') && args.includes('--head')) {
+  const repo = args[args.indexOf('--repo') + 1];
+  const head = args[args.indexOf('--head') + 1];
+  let open = [];
+  try { open = JSON.parse(fs.readFileSync(path.join(dir, 'open', repo.replace(/[/#]/g, '__') + '.json'), 'utf8')); } catch {}
+  const found = open.find((p) => p.headRefName === head && !p.isCrossRepository);
+  if (found) console.log(found.number);
+  process.exit(0);
+}
 if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === 'title,body,commits') {
   // A PR fixture's own title stands over the squash source's.
   let own = {};

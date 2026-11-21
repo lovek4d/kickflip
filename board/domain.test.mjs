@@ -2751,13 +2751,15 @@ test("a card whose PR a rebase run fixes stays in In Review with the run's line,
   assert.equal(next({ ...conflicting, headRefOid: 'cccccccccc3333', mergeable: 'MERGEABLE' }).next, 'Waiting for PR reviewers', 'a later push leaves the run behind');
 });
 
-test('rebasesDue lists each open card whose PR, draft or ready, conflicts, once per head and base, while nothing runs on it', () => {
+test('rebasesDue lists each open card whose PR, draft or ready, conflicts, once per head and the card\'s base, while nothing runs on it', () => {
   const pr = (extra) => ({ ...greenDraft, mergeable: 'CONFLICTING', headRefOid: 'aaaaaaaaaa', headRefName: 'by-hand', ...extra });
   const items = (p, extra = {}) => board({ pr: p, ...extra }).items;
-  assert.deepEqual(rebasesDue(items(pr()), {}, 'main'), [{ key: 'w/A1', pr: 7, branch: 'by-hand', conflict: 'aaaaaaaaaa@main' }], 'a draft too');
-  assert.deepEqual(rebasesDue(items(pr({ isDraft: false })), {}, 'main').map((d) => d.key), ['w/A1']);
-  assert.deepEqual(rebasesDue(items(pr()), { 'w/A1': 'aaaaaaaaaa@main' }, 'main'), [], 'one run per conflict');
-  assert.deepEqual(rebasesDue(items(pr({ headRefOid: 'bbbbbbbbbb' })), { 'w/A1': 'aaaaaaaaaa@main' }, 'main').map((d) => d.conflict), ['bbbbbbbbbb@main'], 'a new head conflicting again');
+  assert.deepEqual(rebasesDue(items(pr()), {}, () => 'main'), [{ key: 'w/A1', pr: 7, branch: 'by-hand', base: 'main', conflict: 'aaaaaaaaaa@main' }], 'a draft too');
+  // docs/adr/2026-11-21-2333-a-task-can-keep-its-own-pr-base.md: a card with its own base conflicts with that one.
+  assert.deepEqual(rebasesDue(items(pr()), { 'w/A1': 'aaaaaaaaaa@main' }, (key) => (key === 'w/A1' ? 'agent-main' : 'main')).map((d) => [d.base, d.conflict]), [['agent-main', 'aaaaaaaaaa@agent-main']], "the card's own base");
+  assert.deepEqual(rebasesDue(items(pr({ isDraft: false })), {}, () => 'main').map((d) => d.key), ['w/A1']);
+  assert.deepEqual(rebasesDue(items(pr()), { 'w/A1': 'aaaaaaaaaa@main' }, () => 'main'), [], 'one run per conflict');
+  assert.deepEqual(rebasesDue(items(pr({ headRefOid: 'bbbbbbbbbb' })), { 'w/A1': 'aaaaaaaaaa@main' }, () => 'main').map((d) => d.conflict), ['bbbbbbbbbb@main'], 'a new head conflicting again');
   for (const [why, p, extra] of [
     ['mergeable', pr({ mergeable: 'MERGEABLE' })],
     ['unknown', pr({ mergeable: 'UNKNOWN' })],
@@ -2765,7 +2767,7 @@ test('rebasesDue lists each open card whose PR, draft or ready, conflicts, once 
     ['running', pr(), { agents: { A1: { main: { kind: 'claude', started: '2026-11-05T10:00:00Z' } } } }],
     ['checking', pr(), { agents: { A1: { main: { kind: 'claude', started: '2026-11-05T10:00:00Z', done: '2026-11-05T10:20:00Z', handed_back: '2026-11-05T10:20:00Z' } } } }],
     ['done', pr(), { item: { lane: 'done' } }],
-  ]) assert.deepEqual(rebasesDue(items(p, extra), {}, 'main'), [], why);
+  ]) assert.deepEqual(rebasesDue(items(p, extra), {}, () => 'main'), [], why);
 });
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md

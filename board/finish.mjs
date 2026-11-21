@@ -40,7 +40,7 @@ export async function finishCard(site, key, { text, closing, ownerStep, check, r
   messageText(text);
   const id = key.split('/')[1];
   const recorded = await recordedWorktree(site, key);
-  const { repo, base, remote } = builderRepo(site, { repo: given ?? recorded?.repo });
+  const { repo, base, remote } = builderRepo(site, { repo: given ?? recorded?.repo, id });
   const tree = { path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base };
   const ref = await cardName(site, key);
   const settings = await readBoardSettings(site);
@@ -133,7 +133,7 @@ export async function landHeld(site, key, { launch = landByBuilder } = {}) {
   const held = await heldMerge(site, key);
   if (!held?.tapped) fail(`${key} isn't waiting on a Merge tap`);
   try {
-    const { base } = builderRepo(site, { repo: (await recordedWorktree(site, key))?.repo });
+    const { base } = builderRepo(site, { repo: (await recordedWorktree(site, key))?.repo, id: key.split('/')[1] });
     const waits = waitLines(site, key, 'land-waiting');
     try {
       return await finishCard(site, key, { text: `Landed on ${base} on your Merge.`, closing: ['landed-on-merge', { base }], onWait: waits.onWait, onTurn: waits.over, merge: true });
@@ -185,7 +185,12 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
   if (Number(git(dir, 'rev-list', '--count', `refs/remotes/origin/${base}..HEAD`).out) === 0) fail(`${branch} has no commits beyond ${base}; nothing to send for review`);
   const { github } = boardRepo(boardAt(site).route);
-  const open = github ? await cardPR(site, key) : null;
+  // docs/adr/2026-11-21-2333-a-task-can-keep-its-own-pr-base.md: with none recorded, the PR GitHub has open from the
+  // branch, whatever its base, is the card's: one opened against the board's branch and retargeted with gh pr edit
+  // --base gets no second PR beside it.
+  const recorded = github ? await cardPR(site, key) : null;
+  const found = github && !recorded ? openPROf(github, branch, dir) : null;
+  const open = recorded ?? found;
   // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: a new PR's title is a
   // Conventional subject, the builder's --title, else the card's title
   // (docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md).
@@ -196,8 +201,10 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   const report = await testReport(site, key, { phase: 'landing' });
   await passTests(dir, { runTests: affectedRun(`refs/remotes/origin/${base}`), outcome: 'nothing was pushed', report });
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: to a card's open PR, a rebased
-  // branch goes with a lease on origin's branch as the worktree last fetched it, and the PR stays as it is.
-  const from = open ? git(dir, 'rev-parse', `refs/remotes/origin/${branch}`).out : null;
+  // branch goes with a lease on origin's branch as the worktree last fetched it, and the PR stays as it is; a PR found
+  // open on GitHub has its branch fetched first.
+  if (found) git(dir, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+  const from = open ? git(dir, 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`).out : null;
   const pushed = open ? git(dir, 'push', '--quiet', `--force-with-lease=refs/heads/${branch}:${from}`, 'origin', `HEAD:refs/heads/${branch}`)
     : git(dir, 'push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`);
   if (!pushed.ok) fail(`could not push ${branch} to origin: ${pushed.err}`);
@@ -231,4 +238,10 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
     if (posted) set.lines.push((await appendStatus(site, key, posted.kind, posted.inputs)).line.text);
   }
   return { said: `draft PR #${number} opened`, lines: set.lines };
+}
+
+// The number of the PR open in github from branch, whatever its base, or null when there is none or gh can't say.
+function openPROf(github, branch, dir) {
+  const listed = ghSync(['pr', 'list', '--repo', github, '--head', branch, '--state', 'open', '--json', 'number', '--jq', '.[0].number'], { cwd: dir });
+  return (listed.status === 0 && Number(listed.stdout.trim())) || null;
 }

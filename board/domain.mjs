@@ -1917,12 +1917,15 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] }
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
 // For built items: the open work cards whose PR in the card's repo, draft or ready, GitHub reads CONFLICTING, with no
 // agent running on them and no hand-back waiting, each keyed on the PR's head and the base it conflicts with
-// ({key: conflict} in sent is the run already started for it). → [{key, pr, branch, conflict}], branch the PR's head branch
-export function rebasesDue(items, sent, base) {
+// ({key: conflict} in sent is the run already started for it); baseOf(key) is the card's base, its own or the board's
+// (worktree.mjs builderRepo). → [{key, pr, branch, base, conflict}], branch the PR's head branch
+export function rebasesDue(items, sent, baseOf) {
   return items.filter((i) => i.kind === 'work' && !closedLane(i) && i.waitsOn !== 'checking' && !(i.agents || []).some((a) => a.started && !a.done)).flatMap((i) => {
     const p = (i.prs || []).find((v) => v.state === 'OPEN' && v.mergeable === 'CONFLICTING' && v.repo === i.repo && v.headRefOid);
-    const conflict = p && `${p.headRefOid}@${base}`;
-    return p && routeRecord(sent, i.key) !== conflict ? [{ key: i.key, pr: p.number, branch: p.headRefName, conflict }] : [];
+    if (!p) return [];
+    const base = baseOf(i.key);
+    const conflict = `${p.headRefOid}@${base}`;
+    return routeRecord(sent, i.key) !== conflict ? [{ key: i.key, pr: p.number, branch: p.headRefName, base, conflict }] : [];
   });
 }
 

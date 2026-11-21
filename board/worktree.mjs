@@ -99,18 +99,22 @@ function removeLeftover(root, dir, branches, { ref, base, busy }) {
 // Landing is Merge; on Draft PR or Ready PR (settings.mjs opensPRs) it branches from origin's branch, fetched first, and
 // finishes with a PR, still in its folder (docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md).
 // With no site, or a site that isn't a board, the running kickflip clone's main. repo stands in for the board's folder.
+// id names a card: on a board whose finish pushes (remote), the card's own base (item set --base) stands over the
+// board's branch (docs/adr/2026-11-21-2333-a-task-can-keep-its-own-pr-base.md).
 // → {repo, base, remote}
-export function builderRepo(site, { repo, manifest = readManifest() } = {}) {
+export function builderRepo(site, { repo, id, manifest = readManifest() } = {}) {
   const board = site ? boardAt(site, manifest) : null;
   if (!board) return { repo: repo ?? skillRepo(), base: 'main', remote: false };
   const chosen = boardRepo(board.route, manifest);
   const folder = repo ?? (chosen.repo || fail(`/${board.route} has no folder recorded for its session; rejoin it from its repo folder`));
   const prs = opensPRs(chosen, settingsOf(readJSON(path.join(board.dir, 'board.json'), {}), chosen));
-  return { repo: folder, base: chosen.branch || 'main', remote: !chosen.local || prs };
+  const remote = !chosen.local || prs;
+  const own = remote && id ? board.files.flatMap(({ itemFile }) => itemFile.items).find((it) => it?.id === id)?.base : null;
+  return { repo: folder, base: own || chosen.branch || 'main', remote };
 }
 
 // The worktree of card id on the board at site, from builderRepo. → as makeWorktree
-export const boardWorktree = (site, id, { repo, busy } = {}) => makeWorktree(id, { ...builderRepo(site, { repo }), busy, branch: branchName(site, id) });
+export const boardWorktree = (site, id, { repo, busy } = {}) => makeWorktree(id, { ...builderRepo(site, { repo, id }), busy, branch: branchName(site, id) });
 
 // gh's signed-in user, read once per process: it can't change while a hub or board server runs. Null while gh has none,
 // which isn't kept, so a login made later is found.

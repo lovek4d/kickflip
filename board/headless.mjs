@@ -421,7 +421,7 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
-  const { base, repo } = builderRepo(site);
+  const { base, repo } = builderRepo(site, { id: key.split('/')[1] });
   const planner = plans({ kind });
   const helper = kind === HELPER;
   const rebase = !planner && !helper && !lander && facts.rebasePR !== null;
@@ -572,7 +572,7 @@ export async function landByBuilder(site, { key, kind = 'claude', model }, { why
   const rebase = facts.rebasePR !== null;
   const session = found && (!rebase || found.worktree === facts.worktree) ? found : null;
   const route = boardAt(site)?.route ?? path.basename(site);
-  const { base } = builderRepo(site);
+  const { base } = builderRepo(site, { id: key.split('/')[1] });
   const brief = (f) => (rebase ? rebaseBrief : landerBrief)({ ...f, route, base, pr: f.rebasePR, why, resumed: true });
   const freshLaunch = { lander: !rebase };
   let launched;
