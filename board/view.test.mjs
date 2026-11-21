@@ -659,7 +659,7 @@ function scriptsPage({ source = 'repo', repo = [], kickflip = {} } = {}) {
   s.scripts = { ...kickflip };
   s.scriptPosts = [];
   s.reads = { targets: 0, permissions: 0 };
-  const view = () => ({ source: s.saved.scripts || 'repo', repo, scripts: [...new Set(['build', ...Object.keys(s.scripts).sort(), 'release'])].map((name) => ({ name, text: s.scripts[name] ?? '' })) });
+  const view = () => ({ source: s.saved.scripts || 'repo', repo, scripts: [...new Set(['build', ...Object.keys(s.scripts).sort(), 'release', 'test'])].map((name) => ({ name, text: s.scripts[name] ?? '' })) });
   const answer = (body, ok = true) => ({ ok, status: ok ? 200 : 400, text: async () => JSON.stringify(body), json: async () => body });
   const base = s.page.win.fetch;
   s.page.win.fetch = async (url, opts = {}) => {
@@ -704,7 +704,7 @@ test("Board Settings' Scripts switch shows Repo only while main has the board's 
   await s.click(s.source('kickflip'));
   assert.deepEqual(s.posts.at(-1), { scripts: 'kickflip' });
   assert.deepEqual([s.source('kickflip').getAttribute('aria-pressed'), s.$('#scriptsBoxes').hidden], ['true', false]);
-  assert.deepEqual(s.boxes(), [['script-build', ''], ['script-release', '']]);
+  assert.deepEqual(s.boxes(), [['script-build', ''], ['script-release', ''], ['script-test', '']]);
   assert.match(s.$('#scriptsSourceStatus').textContent, /^Saved\. The hub runs kickflip’s scripts/);
   assert.match(s.$('#buildTargetSub').innerHTML, /kickflip’s <code>build<\/code>/);
   assert.deepEqual([s.reads.targets > reads.targets, s.reads.permissions > reads.permissions], [true, true], 'the targets and Run release script follow the source');
@@ -716,7 +716,7 @@ test("Board Settings' Scripts switch shows Repo only while main has the board's 
 test("Board Settings' Scripts code box shows each kickflip script, Save sends an edit and marks it saved, a refusal keeps the edit, and Add build target opens a new box", async () => {
   const s = await scriptsPage({ source: 'kickflip', kickflip: { 'build-web': '#!/bin/sh\necho web\n' } }).mount();
   await tick();
-  assert.deepEqual(s.boxes(), [['script-build', ''], ['script-build-web', '#!/bin/sh\necho web\n'], ['script-release', '']]);
+  assert.deepEqual(s.boxes(), [['script-build', ''], ['script-build-web', '#!/bin/sh\necho web\n'], ['script-release', ''], ['script-test', '']]);
   const save = (name) => s.$(`[data-script-save="${name}"]`);
   assert.equal(save('build').disabled, true, 'nothing to save yet');
   s.type('build', '#!/bin/sh\necho build\n');
@@ -738,17 +738,20 @@ test("Board Settings' Scripts code box shows each kickflip script, Save sends an
   s.$('#scriptTarget').value = 'a b';
   s.page.fire(s.$('#scriptAdd'), 'submit');
   await tick();
-  assert.deepEqual([s.boxes().length, s.$('#scriptAddStatus').textContent], [3, 'A target is letters, digits, “.”, “_” or “-”.']);
+  assert.deepEqual([s.boxes().length, s.$('#scriptAddStatus').textContent], [4, 'A target is letters, digits, “.”, “_” or “-”.']);
   s.$('#scriptTarget').value = 'ios';
   s.page.fire(s.$('#scriptAdd'), 'submit');
   await tick();
-  assert.deepEqual(s.boxes().map(([id]) => id), ['script-build', 'script-build-ios', 'script-build-web', 'script-release']);
+  assert.deepEqual(s.boxes().map(([id]) => id), ['script-build', 'script-build-ios', 'script-build-web', 'script-release', 'script-test']);
   assert.deepEqual([s.$('#scriptTarget').value, s.$('#scriptAddStatus').textContent], ['', '']);
   s.type('build-ios', '#!/bin/sh\necho ios\n');
   await s.save('build-ios');
   assert.deepEqual(s.scriptPosts.at(-1), { name: 'build-ios', text: '#!/bin/sh\necho ios\n' });
   assert.equal(s.$('#script-build-iosStatus').textContent, 'Saved. Pick it under Build target to run it.');
   assert.equal(s.$('#scriptsList').hasAttribute('data-dirty'), false);
+  s.type('test', '#!/bin/sh\nnpm test\n');
+  await s.save('test');
+  assert.equal(s.$('#script-testStatus').textContent, 'Saved. The next land runs it.');
   s.view.unmount();
 });
 

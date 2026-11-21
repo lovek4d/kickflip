@@ -9,6 +9,7 @@ import { tempDir } from '../shared/temp-dir.mjs';
 test("a board's scripts run from the worktree's .kickflip/ while its board.json says repo, and from its site's scripts/ while it says kickflip", () => {
   const site = tempDir('scripts-site-');
   assert.deepEqual(scriptsOf(site), { dir: site, scripts: 'repo' }, 'no board.json: the repo');
+  assert.deepEqual(scriptsOf(undefined), { dir: undefined, scripts: 'repo' }, 'no board: the repo');
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ scripts: 'repo' }));
   const repo = scriptsOf(site);
   assert.deepEqual([scriptFileOf(repo, 'build-web', '/w'), scriptShownOf(repo, 'release')], ['/w/.kickflip/build-web', '.kickflip/release']);
@@ -28,7 +29,7 @@ test('script set writes a kickflip-held script mode 0700, which the build script
   writeScript(site, 'build-web', '#!/bin/sh\necho port 2\n');
   assert.equal(readScript(site, 'build-web'), '#!/bin/sh\necho port 2\n');
   assert.deepEqual(fs.readdirSync(path.join(site, 'scripts')), ['build-web'], 'no history or temp file is left');
-  for (const bad of ['serve', '../build', 'build-', 'build-a/b']) assert.throws(() => writeScript(site, bad, 'x'), /a board's scripts are build, build-<target> and release/, bad);
+  for (const bad of ['serve', '../build', 'build-', 'build-a/b']) assert.throws(() => writeScript(site, bad, 'x'), /a board's scripts are build, build-<target>, release and test/, bad);
   assert.throws(() => writeScript(site, 'release', '  \n'), /needs the script's text/);
 });
 
@@ -59,22 +60,23 @@ test('listBuildTargets lists none when git cannot read the tree, or the board ha
   assert.deepEqual(await listBuildTargets(null, 'main', { run: async () => { throw new Error('never run'); } }), []);
 });
 
-// Board Settings' Scripts: a code box for each kickflip-held script, build and release always, and each build-<target>.
-test('kickflipScripts lists build, each build-<target> sorted and release with their text, build and release empty while missing', () => {
+// Board Settings' Scripts: a code box for each kickflip-held script, build, release and test always, and each build-<target>.
+test('kickflipScripts lists build, each build-<target> sorted, release and test with their text, build, release and test empty while missing', () => {
   const site = tempDir('scripts-site-');
-  assert.deepEqual(kickflipScripts(site), [{ name: 'build', text: '' }, { name: 'release', text: '' }]);
+  assert.deepEqual(kickflipScripts(site), [{ name: 'build', text: '' }, { name: 'release', text: '' }, { name: 'test', text: '' }]);
   writeScript(site, 'build-web', '#!/bin/sh\necho web\n');
   writeScript(site, 'build-iOS', '#!/bin/sh\necho ios\n');
   writeScript(site, 'release', '#!/bin/sh\necho ship\n');
+  writeScript(site, 'test', '#!/bin/sh\nnpm test\n');
   fs.writeFileSync(path.join(site, 'scripts', 'notes'), 'not a script');
   assert.deepEqual(kickflipScripts(site), [{ name: 'build', text: '' }, { name: 'build-iOS', text: '#!/bin/sh\necho ios\n' },
-    { name: 'build-web', text: '#!/bin/sh\necho web\n' }, { name: 'release', text: '#!/bin/sh\necho ship\n' }]);
+    { name: 'build-web', text: '#!/bin/sh\necho web\n' }, { name: 'release', text: '#!/bin/sh\necho ship\n' }, { name: 'test', text: '#!/bin/sh\nnpm test\n' }]);
 });
 
 // The Scripts source switch hides Repo while main has none of the board's scripts.
-test('listRepoScripts lists each executable build, build-<target> and release in the tree at ref, and none when git cannot read it', async () => {
-  const run = async () => ({ stdout: ['100755 blob a1\tbuild-web', '100644 blob b2\tbuild-docs', '100755 blob c3\trelease', '100755 blob d4\tbuild', '100755 blob e5\tsetup', ''].join('\n') });
-  assert.deepEqual(await listRepoScripts('/r', 'main', { run }), ['build', 'build-web', 'release']);
+test('listRepoScripts lists each executable build, build-<target>, release and test in the tree at ref, and none when git cannot read it', async () => {
+  const run = async () => ({ stdout: ['100755 blob a1\tbuild-web', '100644 blob b2\tbuild-docs', '100755 blob c3\trelease', '100755 blob d4\tbuild', '100755 blob e5\tsetup', '100755 blob f6\ttest', ''].join('\n') });
+  assert.deepEqual(await listRepoScripts('/r', 'main', { run }), ['build', 'build-web', 'release', 'test']);
   assert.deepEqual(await listRepoScripts('/r', 'main', { run: async () => { throw new Error('not a tree'); } }), []);
   assert.deepEqual(await listRepoScripts(null, 'main', { run }), []);
 });

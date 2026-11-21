@@ -8,7 +8,7 @@ import { appendEvent, listBoards, readJSON, saveJSON, suiteStateFile } from './b
 import { boardRepo, mainRefOf } from './board-repo.mjs';
 import { localDay, quietMiddleOf } from './schedule.mjs';
 import { overnightOn } from './overnight.mjs';
-import { git, nodeTests, onCheckout, untilHostEases } from '../board/worktree.mjs';
+import { git, onCheckout, repoRun, untilHostEases } from '../board/worktree.mjs';
 
 // The night (the localDay of its quiet hours' middle) whose suite is due at `now`, else null: due from the middle of
 // quiet hours until they end, unless state.night already names it. s: push.mjs readSettings.
@@ -23,7 +23,8 @@ const FAILURES_SHOWN = 10;
 // The New task a failed run files: its first line is its title.
 function failureText(base, sha, tests) {
   const total = tests.pass + tests.fail;
-  const what = tests.hung ? `it hung past ${tests.hung.after} in ${tests.hung.files.join(', ') || 'the test runner'}` : `${tests.fail} of ${total} tests failed`;
+  const what = tests.hung ? `it hung past ${tests.hung.after} in ${tests.hung.files.join(', ') || 'the test runner'}`
+    : total ? `${tests.fail} of ${total} tests failed` : tests.error;
   const failures = tests.failures || [];
   return [
     `Nightly full suite failed on ${base} at ${sha}: ${what}.`,
@@ -35,9 +36,10 @@ function failureText(base, sha, tests) {
 
 const cardHref = (route, eventId) => `/${route}/#selectedCard=${encodeURIComponent(`ask:${eventId}`)}`;
 
-// Runs the night's suite when it is due and Nightly full suite is on. runTests(dir) is nodeTests' full run; eases()
-// waits out a busy host. → {night, runs}, or null when nothing was due
-export async function runNightlySuite({ now = new Date(), settings, manifest, runTests = (dir) => nodeTests(dir), eases = () => untilHostEases({ say: () => {} }) }) {
+// Runs the night's suite when it is due and Nightly full suite is on. runTests(dir, board) is the board's repo's whole
+// run (worktree.mjs repoRun with no base: its test script handed nothing, else every node test file); eases() waits
+// out a busy host. → {night, runs}, or null when nothing was due
+export async function runNightlySuite({ now = new Date(), settings, manifest, runTests = (dir, board) => repoRun({ home: board, say: () => {} })(dir), eases = () => untilHostEases({ say: () => {} }) }) {
   if (!overnightOn('suite')) return null;
   const state = readJSON(suiteStateFile(), {});
   const night = suiteDue(now, settings, state);
@@ -55,7 +57,7 @@ export async function runNightlySuite({ now = new Date(), settings, manifest, ru
       ran.add(key);
       await eases();
       const base = source.branch || 'main';
-      const run = await onCheckout(source.repo, ref, 'for the nightly suite', async (dir) => ({ sha: git(dir, 'rev-parse', '--short', 'HEAD').out, tests: await runTests(dir) }));
+      const run = await onCheckout(source.repo, ref, 'for the nightly suite', async (dir) => ({ sha: git(dir, 'rev-parse', '--short', 'HEAD').out, tests: await runTests(dir, board) }));
       if (run.tests.ok) { runs.push({ route: board.route, ok: true }); continue; }
       const eventId = await appendEvent(board, 'ask', { text: failureText(base, run.sha, run.tests) });
       runs.push({ route: board.route, ok: false, href: cardHref(board.route, eventId) });

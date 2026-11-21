@@ -21,16 +21,13 @@ function git(cwd, ...args) {
   return { ok: r.status === 0, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
 }
 
-// The scripts' home of the board in site; a land with no board (board.mjs land without --site) runs the repo's.
-const homeOf = (site) => (site ? scriptsOf(site) : { scripts: 'repo' });
-
 // Whether the board in site has a release script: its kickflip-held one, or one in ref's tree in repo.
 export const hasReleaseScript = (repo, ref, site) => {
-  const home = homeOf(site);
+  const home = scriptsOf(site);
   return home.scripts === 'kickflip' ? fs.existsSync(scriptFileOf(home, 'release')) : git(repo, 'cat-file', '-e', `${ref}:${RELEASE_SCRIPT}`).ok;
 };
 // → how the board's messages name its release script
-export const releaseShownOf = (site) => scriptShownOf(homeOf(site), 'release');
+export const releaseShownOf = (site) => scriptShownOf(scriptsOf(site), 'release');
 
 const versionOf = (repo, commit) => {
   const subject = git(repo, 'log', '-1', '--format=%s', commit).out;
@@ -56,7 +53,7 @@ function runScript(home, dir, verb, version, commit) {
 export function checkRelease(repo, dir, commit, site) {
   const { subject, version } = versionOf(repo, commit);
   if (!version) return;
-  const home = homeOf(site);
+  const home = scriptsOf(site);
   const shown = scriptShownOf(home, 'release');
   if (!hasReleaseScript(repo, commit, site)) {
     fail(home.scripts === 'kickflip' ? `land: "${subject}" is a release. This board has no ${shown}, so land can't ship it; write one with board.mjs script set release and land again`
@@ -94,7 +91,7 @@ function tagOffer(repo, release, home, shown) {
 // repo's script must be the landed commit's, a kickflip-held one is the board's one copy.
 // → {line} for the land's output, and failed, what went wrong, when the release didn't ship.
 export function shipRelease(repo, release, { runRelease }, site) {
-  const home = homeOf(site);
+  const home = scriptsOf(site);
   const shown = scriptShownOf(home, 'release');
   const how = `run ${shown} ship ${release.version} ${release.commit} in ${repo}`;
   if (!runRelease) return { line: `release ${release.version} waits while Run release script is off; turn it on in Board Settings, then ${how}`, offer: tagOffer(repo, release, home, shown) };

@@ -291,7 +291,7 @@
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets), or in its site's scripts/ while its scripts are in kickflip
 //   GET  /api/scripts            {source: repo | kickflip, repo: [name], scripts: [{name, text}]}: where the board's scripts live, the
 //                                executable .kickflip/ scripts at its main tip (build-script.mjs listRepoScripts) and its
-//                                site's scripts/ build, each build-<target> and release (kickflipScripts, '' for one not written); 404 off the manifest
+//                                site's scripts/ build, each build-<target>, release and test (kickflipScripts, '' for one not written); 404 off the manifest
 //   POST /api/scripts            {name, text} → replaces the site's scripts/<name> (writeScript), waking no session. → the same
 //                                answer; a bad name or empty text → 400 {error}
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until

@@ -2013,14 +2013,14 @@ test('/api/scripts answers the scripts source, the repo’s scripts at main and 
   const save = (body) => fetch(`${base}/api/scripts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const read = async () => (await fetch(`${base}/api/scripts`)).json();
   try {
-    assert.deepEqual(await read(), { source: 'repo', repo: [], scripts: [{ name: 'build', text: '' }, { name: 'release', text: '' }] });
+    assert.deepEqual(await read(), { source: 'repo', repo: [], scripts: [{ name: 'build', text: '' }, { name: 'release', text: '' }, { name: 'test', text: '' }] });
     fs.writeFileSync(path.join(folder, '.kickflip', 'build'), '#!/bin/sh\n', { mode: 0o755 });
     git('add', '.');
     git('commit', '--quiet', '-m', 'build');
     assert.deepEqual((await read()).repo, ['build']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, scripts: 'kickflip' }));
     const saved = await (await save({ name: 'build-web', text: '#!/bin/sh\necho web\n' })).json();
-    assert.deepEqual(saved, { source: 'kickflip', repo: ['build'], scripts: [{ name: 'build', text: '' }, { name: 'build-web', text: '#!/bin/sh\necho web\n' }, { name: 'release', text: '' }] });
+    assert.deepEqual(saved, { source: 'kickflip', repo: ['build'], scripts: [{ name: 'build', text: '' }, { name: 'build-web', text: '#!/bin/sh\necho web\n' }, { name: 'release', text: '' }, { name: 'test', text: '' }] });
     assert.equal(fs.statSync(path.join(site, 'scripts', 'build-web')).mode & 0o777, 0o700);
     assert.deepEqual(await (await fetch(`${base}/api/build-targets`)).json(), { targets: ['web'] });
     for (const bad of [{ name: '../x', text: '#!/bin/sh\n' }, { name: 'setup', text: '#!/bin/sh\n' }, { name: 'build', text: '  ' }, { name: 'build' }]) {

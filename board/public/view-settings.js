@@ -619,7 +619,7 @@
     const scriptNames = () => {
       const added = [...scriptDrafts.keys()].filter((name) => !scriptsView.scripts.some((s) => s.name === name));
       const builds = [...scriptsView.scripts.map((s) => s.name), ...added].filter((name) => name.startsWith('build-')).sort(scriptOrder.compare);
-      return ['build', ...new Set(builds), 'release'];
+      return ['build', ...new Set(builds), 'release', 'test'];
     };
     const markScriptsDirty = () => {
       const dirty = [...scriptDrafts].some(([name, text]) => text !== savedText(name));
@@ -645,7 +645,7 @@
       }
       markScriptsDirty();
     };
-    const savedWords = (name) => (name === 'release' ? 'Saved. The next release task’s land runs it.'
+    const savedWords = (name) => (name === 'release' ? 'Saved. The next release task’s land runs it.' : name === 'test' ? 'Saved. The next land runs it.'
       : name === buildNameOf(buildTarget) ? 'Saved. Main rebuilds with it; each task takes it from its next build.' : 'Saved. Pick it under Build target to run it.');
     const reloadPermissions = () => get(site.url('api/permissions')).then(({ ok, body }) => { if (ok && B.alive()) drawPermissions(body); }, () => {});
     const scriptsChanged = () => { loadBuildTargets(); reloadPermissions(); };

@@ -50,7 +50,7 @@ import { appendEvent } from '../hub/boards.mjs';
 import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
 import { cardPRs, storedPRs } from '../shared/card-prs.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
-import { BRIEF_LINE_LIMIT, lineFault } from './hub-lines.mjs';
+import { DETAIL_CAP, lineFault } from './hub-lines.mjs';
 import { BoardError, fail, needSite, optional, pageUrl, text } from './checks.mjs';
 import { appendStatus, blockerNames, cardName, checkNextDeps, depCards, depKey, leftTodo, loadItem, openKeys, ownerFile, parseKey, placeIn, recordOwnerTap, setItem, shownCard, threadFile } from './cards.mjs';
 import { asksImplement, briefOn, cardQuestions, clearNext, dropBrief, hasOpenQuestion, markWaiting, moveOnAnswered, noBrief, publishStaged, resolveAnswered, restoreBrief, setNext, stagedFile, stageImplement, unpickedPrototype } from './questions.mjs';
@@ -829,12 +829,10 @@ async function builderFile(site, key, dir, agent = 'main') {
 }
 const isoTime = (v, name) => (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v) && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : fail(`${name} takes an ISO time such as 2026-10-23T16:30:00-07:00`));
 
-// A progress line is a phase and a detail of at most DETAIL_CAP characters, the room a status line leaves once its head
-// ("Codex checking: ") takes its part; a longer one is refused by lineFault, never cut
-// (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md). The phases are In Progress's
-// (domain.mjs PHASES).
+// A progress line is a phase and a detail of at most DETAIL_CAP characters (hub-lines.mjs); a longer one is refused by
+// lineFault, never cut (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md). The phases
+// are In Progress's (domain.mjs PHASES).
 const BUILD_PHASES = PHASES.progress;
-const DETAIL_CAP = BRIEF_LINE_LIMIT - 20;
 const PHASE_LIST = 'reading, building, checking or landing';
 // A planner's line takes no phase: it reads its kind's word, and a --phase passed for one is dropped
 // (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).

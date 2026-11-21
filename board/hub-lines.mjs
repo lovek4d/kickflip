@@ -15,6 +15,9 @@ import os from 'node:os';
 
 export const BRIEF_LINE_LIMIT = 100;
 export const MESSAGE_LIMIT = 2000;
+// The most a progress line's detail runs to: the room a status line leaves once its head ("Codex checking: ") takes
+// its part.
+export const DETAIL_CAP = BRIEF_LINE_LIMIT - 20;
 
 // The one length rule of a status line's words: → why words run past room, the part of BRIEF_LINE_LIMIT a line's fixed
 // lead leaves them ("Marked as ready · <text>"), naming their length and the room, or null when they fit.

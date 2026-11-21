@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { land as landWorktree } from './worktree.mjs';
 import { fakeGh, prView, writePR, writeReviews, writeMerge, writeLimit, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
-import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, worktree, land, branches, onOrch, launched, record, itemOf, threadOf, addEvents } from './board-fixture.mjs';
+import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, stubTests, worktree, land, branches, onOrch, launched, record, itemOf, threadOf, addEvents } from './board-fixture.mjs';
 
 test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and leaves its refusal off the card's thread", async () => {
   const dir = path.join(home, 'fake-gh');
@@ -286,6 +286,7 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
   git(project, 'init', '--quiet', '-b', 'main');
   git(project, 'config', 'user.name', 'Test');
   git(project, 'config', 'user.email', 'test@example.com');
+  stubTests(project);
   commit(project, 'project.txt', 'pushed');
   git(project, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
   git(project, 'update-ref', 'refs/remotes/origin/develop', 'HEAD');
@@ -326,6 +327,7 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   git(project, 'init', '--quiet', '-b', 'trunk');
   git(project, 'config', 'user.name', 'Test');
   git(project, 'config', 'user.email', 'test@example.com');
+  stubTests(project);
   commit(project, 'project.txt', 'trunk');
   const manifest = read(at('kickflip', 'manifest.json'));
   manifest.sites.orch = { dir: manifest.sites.orch.dir, port: 1, cmd: manifest.sites.orch.cmd, local: true, branch: 'trunk', owner: { repo: project } };
@@ -346,7 +348,7 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   const landed = await landTrunk();
   assert.equal(landed.code, 0, landed.err);
   const tip = git(project, 'rev-parse', '--short', 'trunk');
-  assert.deepEqual(landed.out.trim().split('\n').slice(0, 4), [`rebased me/orch/a1 onto trunk (${moved})`, 'testing every test file, as card.txt reaches no test', 'tests passed: 0', `trunk fast-forwarded to ${tip} in ${project}`]);
+  assert.deepEqual(landed.out.trim().split('\n').slice(0, 4), [`rebased me/orch/a1 onto trunk (${moved})`, 'testing with .kickflip/test, handed trunk', '.kickflip/test passed: no tests here', `trunk fast-forwarded to ${tip} in ${project}`]);
   assert.equal(fs.readFileSync(path.join(project, 'card.txt'), 'utf8'), 'card');
   assert.equal(git(project, 'rev-parse', 'trunk~1'), git(project, 'rev-parse', moved));
 });

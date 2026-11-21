@@ -10,7 +10,7 @@ import * as slackStore from '../slack-store.mjs';
 import * as schedules from '../schedules.mjs';
 import { waitsHistory, waitsHistoryLines } from '../domain.mjs';
 import { cardTiming, cardTimingLines, timingDays, timingDaysLines } from '../timing.mjs';
-import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, worktreesDir } from '../worktree.mjs';
+import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, repoRun, worktreesDir } from '../worktree.mjs';
 import { ownTests } from '../affected.mjs';
 import { pidAlive } from '../headless.mjs';
 import { fileFindings } from '../arch-review.mjs';
@@ -24,7 +24,7 @@ import { builtCards } from '../snapshot.mjs';
 import { briefLines, memoryFile } from '../brief.mjs';
 import { prototypeBase } from '../prototype-base.mjs';
 import { detachedIn } from '../detached.mjs';
-import { readScript, scriptsOf, writeScript } from '../build-script.mjs';
+import { readScript, scriptFileOf, scriptsOf, writeScript } from '../build-script.mjs';
 import { readInbox } from '../../bin/event-lines.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
@@ -633,13 +633,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   settings set build-target <target>|default            the script the hub runs for each task and main:
                                                          build-<target>, or build with default (unset).
                                                          Board Settings' Build target picks it
-  settings set scripts repo|kickflip                     where the board's build, build-<target> and release
-                                                         scripts live: repo (the default) runs each worktree's
+  settings set scripts repo|kickflip                     where the board's build, build-<target>, release and
+                                                         test scripts live: repo (the default) runs each worktree's
                                                          .kickflip/<name>; kickflip runs the board's own
                                                          ~/.claude/kickflip/sites/<route>/scripts/<name>, one
                                                          copy for every task and main, in the run's worktree
   script show <name>                                     prints the board's kickflip-held script <name>: build,
-                                                         build-<target> or release
+                                                         build-<target>, release or test
   script set <name> --file <script>|-                    replaces the board's kickflip-held script <name> with
                                                          the file, mode 0700. No earlier save is kept. A saved
                                                          build script rebuilds main
@@ -1427,16 +1427,22 @@ const COMMANDS = {
   'land stop': [['file/id'], [], (site, [key], f, { ps, grace }) => stopLand(needSite(site, 'land stop'), key, { ps, grace })],
   'land queue': [[], [], () => queueLines()],
   // docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md: a builder runs only
-  // its own tests; the land runs the tests the change affects, once, after its rebase.
+  // its own tests; the land runs the tests the change affects, once, after its rebase. A repo with a test script runs it
+  // whole here too, handed the base, so its failures show in the build
+  // (docs/adr/2026-11-21-2310-a-land-runs-its-repos-own-test-script.md).
   test: [[], ['dir', 'base'], async (site, args, f) => {
     const say = (line) => console.log(line);
     const dir = path.resolve(f.dir ?? '.');
-    const files = ownTests(dir, f.base ?? 'main');
-    if (!files.length) return say('the change adds or edits no test file; the land runs the tests it affects');
-    say(`testing the ${files.length} test file${files.length === 1 ? '' : 's'} the change adds or edits; the land runs the tests it affects`);
+    const base = f.base ?? 'main';
+    const home = scriptsOf(site);
+    const scripted = fs.existsSync(scriptFileOf(home, 'test', dir));
+    const files = scripted ? [] : ownTests(dir, base);
+    if (!scripted && !files.length) return say('the change adds or edits no test file; the land runs the tests it affects');
+    if (!scripted) say(`testing the ${files.length} test file${files.length === 1 ? '' : 's'} the change adds or edits; the land runs the tests it affects`);
     const card = site ? await store.cardOfWorktree(site, dir) : null;
     const report = card ? await store.testReport(site, card, { phase: 'building' }) : undefined;
-    await passTests(dir, { say, runTests: (at, opts) => nodeTests(at, { ...opts, files }), outcome: 'fix them and run board.mjs test again', report });
+    const runTests = scripted ? repoRun({ home, base, say }) : (at, opts) => nodeTests(at, { ...opts, files });
+    await passTests(dir, { say, runTests, outcome: 'fix them and run board.mjs test again', report });
   }],
   'item bump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item bump'), key, true)],
   'item unbump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item unbump'), key, false)],

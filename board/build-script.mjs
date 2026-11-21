@@ -25,18 +25,19 @@ export const validBuildTarget = (value) => typeof value === 'string' && /^[A-Za-
 export const buildNameOf = (target) => (target ? `build-${target}` : 'build');
 // → the repo's build script relative to a worktree, `.kickflip/build` or `.kickflip/build-<target>`
 export const buildScriptOf = (target) => `.kickflip/${buildNameOf(target)}`;
-// The scripts a board runs: build, build-<target> and release.
-export const validScriptName = (name) => name === 'build' || name === 'release' || (typeof name === 'string' && name.startsWith('build-') && validBuildTarget(name.slice(6)));
+// The scripts a board runs: build, build-<target>, release and test.
+export const validScriptName = (name) => name === 'build' || name === 'release' || name === 'test' || (typeof name === 'string' && name.startsWith('build-') && validBuildTarget(name.slice(6)));
 
 // Where a board's scripts live, board.json scripts
 // (docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md): 'kickflip' runs the board's own
 // <site>/scripts/<name>, one copy for every card and main; absent, each run's worktree or checkout's .kickflip/<name>.
 export const scriptsDirOf = (site) => path.join(site, 'scripts');
 export const kickflipHeld = (cfg) => cfg?.scripts === 'kickflip';
-// The scripts' home of the board in a site folder, from its board.json as it is now. → {dir: site, scripts: 'repo' | 'kickflip'}
+// The scripts' home of the board in a site folder, from its board.json as it is now; a run with no board (board.mjs
+// land or test without --site) runs the repo's. → {dir: site, scripts: 'repo' | 'kickflip'}
 export function scriptsOf(site) {
   let cfg = null;
-  try { cfg = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')); } catch {}
+  if (site) try { cfg = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')); } catch {}
   return { dir: site, scripts: kickflipHeld(cfg) ? 'kickflip' : 'repo' };
 }
 // home: {dir: the board's site, scripts}, scriptsOf's or a listBoards entry. → the absolute file a run in dir (a
@@ -46,7 +47,7 @@ export const scriptFileOf = (home, name, dir) => (home.scripts === 'kickflip' ? 
 export const scriptShownOf = (home, name) => (home.scripts === 'kickflip' ? path.join(scriptsDirOf(home.dir), name) : `.kickflip/${name}`);
 
 const checkName = (name) => {
-  if (!validScriptName(name)) throw new BoardError(`no script "${name}": a board's scripts are build, build-<target> and release`);
+  if (!validScriptName(name)) throw new BoardError(`no script "${name}": a board's scripts are build, build-<target>, release and test`);
 };
 // board.mjs script show: the text of the board's kickflip-held script name.
 export function readScript(site, name) {
@@ -69,17 +70,17 @@ export function writeScript(site, name, text) {
   return file;
 }
 
-// Board Settings' Scripts code boxes: build, each build-<target> in the site's scripts folder, sorted, then release.
-// → [{name, text}], text '' for a build or release not written yet
+// Board Settings' Scripts code boxes: build, each build-<target> in the site's scripts folder, sorted, then release and
+// test. → [{name, text}], text '' for a build, release or test not written yet
 export function kickflipScripts(site) {
   let names = [];
   try { names = fs.readdirSync(scriptsDirOf(site)).filter((name) => validScriptName(name) && name.startsWith('build-')).sort(collator.compare); } catch {}
-  return ['build', ...names, 'release'].map((name) => {
+  return ['build', ...names, 'release', 'test'].map((name) => {
     try { return { name, text: fs.readFileSync(path.join(scriptsDirOf(site), name), 'utf8') }; } catch (e) { if (e.code === 'ENOENT') return { name, text: '' }; throw e; }
   });
 }
 
-// The board's scripts in the repo: each executable build, build-<target> and release in `.kickflip/` of its tree at
+// The board's scripts in the repo: each executable build, build-<target>, release and test in `.kickflip/` of its tree at
 // ref, sorted. run runs git as execFile does; git reads a local tree with no time limit
 // (docs/adr/2026-11-13-2231-build-targets-wait-on-git.md). → [name], [] when the repo or ref can't be read
 export async function listRepoScripts(repo, ref, { run = execFileAsync } = {}) {

@@ -22,7 +22,8 @@ import { checkClose } from './questions.mjs';
 import { readBoardSettings } from './settings.mjs';
 import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase, endFixRun } from './runs.mjs';
 import { blockWordsOf } from './domain.mjs';
-import { affectedRun, builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
+import { builderRepo, git, joiningLand, landInTurn, passTests, repoRun, syncBase, worktreesDir } from './worktree.mjs';
+import { scriptsOf } from './build-script.mjs';
 import { readPermissions } from './permissions.mjs';
 import { shipRelease } from './release.mjs';
 import { landByBuilder } from './headless.mjs';
@@ -213,7 +214,7 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   const fault = opens && subjectFault(title);
   if (fault) fail(`${given === undefined ? "the task's title" : '--title'} "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 100 characters`);
   const report = await testReport(site, key, { phase: 'landing' });
-  await passTests(dir, { runTests: affectedRun(`refs/remotes/origin/${base}`), outcome: 'nothing was pushed', report });
+  await passTests(dir, { runTests: repoRun({ home: scriptsOf(site), base: `refs/remotes/origin/${base}` }), outcome: 'nothing was pushed', report });
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: to a card's open PR, a rebased
   // branch goes with a lease on origin's branch as the worktree last fetched it, and the PR stays as it is; a PR found
   // open on GitHub has its branch fetched first.

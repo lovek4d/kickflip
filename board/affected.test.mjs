@@ -165,6 +165,15 @@ test('board.mjs test with no test file changed runs nothing and passes', (t) => 
   assert.equal(testCommand(dir), 'the change adds or edits no test file; the land runs the tests it affects\n');
 });
 
+// docs/adr/2026-11-21-2310-a-land-runs-its-repos-own-test-script.md
+test("board.mjs test in a repo with a test script runs it whole, handed the base, in place of the test files the change adds", (t) => {
+  const dir = repo(t);
+  put(dir, 'lone.test.mjs', "import test from 'node:test';\ntest('lone breaks', () => { throw new Error('no'); });\n");
+  put(dir, '.kickflip/test', '#!/bin/sh\necho "handed $1"\n');
+  fs.chmodSync(path.join(dir, '.kickflip', 'test'), 0o755);
+  assert.equal(testCommand(dir), 'testing with .kickflip/test, handed main\n.kickflip/test passed: handed main\n');
+});
+
 test('board.mjs test fails naming each failing test', (t) => {
   const dir = repo(t);
   put(dir, 'a.test.mjs', "import test from 'node:test';\nimport { a } from './lib/a.mjs';\ntest('a holds', () => { throw new Error('no'); });\n");

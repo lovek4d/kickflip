@@ -23,6 +23,8 @@ import { checkRelease, landRelease } from './release.mjs';
 import { affectedTests } from './affected.mjs';
 import { readMachineState } from '../shared/machine-gate.mjs';
 import { backgroundArgv } from './background.mjs';
+import { buildScriptError, scriptFileOf, scriptsOf } from './build-script.mjs';
+import { DETAIL_CAP } from './hub-lines.mjs';
 
 export const skillRepo = cloneRoot;
 export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'worktrees');
@@ -241,7 +243,7 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
   // names no total before the run ends, so progress counts the tests that have run.
   const testsDone = (tap) => [...tap.matchAll(/^(not )?ok \d+ /gm)].map((m) => Boolean(m[1]));
   const ticker = report && setInterval(() => { // poll: test-progress
-    const done = testsDone(stdout);
+    const done = testsDone(run.stdout);
     said.push(report.update(`${done.length} tests run, ${done.filter(Boolean).length} failing`));
   }, every);
   const { NODE_TEST_CONTEXT: _, ...rest } = process.env;
@@ -249,43 +251,19 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
   const exitWithRun = `--import=${JSON.stringify(EXIT_WITH_RUN)}`;
   const options = rest.NODE_OPTIONS?.includes(exitWithRun) ? rest.NODE_OPTIONS : [rest.NODE_OPTIONS, exitWithRun].filter(Boolean).join(' ');
   const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), KICKFLIP_TEST_FILE_LIMIT: String(fileLimit), NODE_OPTIONS: options };
-  const [wrapper, ...wrapped] = backgroundArgv([nodeBin(), ...testArgs(testLimit, files)]);
-  const child = spawn(wrapper, wrapped, { cwd: dir, env, detached: true });
-  // macOS answers EPERM, not ESRCH, for a group whose processes have all died but aren't yet reaped.
-  child.once('exit', () => { try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { if (e.code !== 'ESRCH' && e.code !== 'EPERM') throw e; } });
-  let stdout = '';
-  let stderr = '';
-  child.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });
-  child.stderr.setEncoding('utf8').on('data', (d) => { stderr += d; });
-  let left = null;
-  const cutoff = setTimeout(() => {
-    left = spawnSync('ps', ['-A', '-o', 'pgid=,pid=,args='], { encoding: 'utf8' }).stdout.split('\n')
-      .filter((line) => Number(line.trim().split(/\s+/)[0]) === child.pid).map((line) => line.trim());
-    if (left.length) process.kill(-child.pid, 'SIGKILL');
-    // A process outside the group can still hold the output pipes open.
-    const release = () => { child.stdout.destroy(); child.stderr.destroy(); };
-    if (child.exitCode === null && child.signalCode === null) child.once('exit', release); else release();
-  }, limit);
-  return new Promise((resolve, reject) => child.on('close', async (status, signal) => {
-    clearTimeout(cutoff);
+  const run = inGroup([nodeBin(), ...testArgs(testLimit, files)], { cwd: dir, env, limit });
+  return run.closed.then(async ({ status, signal }) => {
+    const { stdout, stderr, left } = run;
     clearInterval(ticker);
     const count = (name) => Number(stdout.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] ?? 0);
     const result = { ok: status === 0, pass: count('pass'), fail: count('fail') };
     const seconds = Math.round((Date.now() - began) / 1000);
-    try {
-      said.push(report?.end(`${result.pass} passed, ${result.fail} failed in ${Math.floor(seconds / 60)}m ${seconds % 60}s`, { failed: result.fail }));
-      await Promise.all(said);
-    } catch (e) { reject(e); return; }
-    if (result.ok) { resolve(result); return; }
-    const logs = path.join(os.homedir(), '.claude', 'kickflip', 'logs');
-    try {
-      fs.mkdirSync(logs, { recursive: true });
-      const log = path.join(logs, `land-${randomUUID()}.tap`);
-      fs.writeFileSync(log, stdout + stderr + (left ? `\n# processes still running at the cutoff\n${left.join('\n')}\n` : ''), { mode: 0o600 });
-      result.log = log;
-    } catch (e) { result.logError = `Could not save the full test output: ${e.message}`; }
+    said.push(report?.end(`${result.pass} passed, ${result.fail} failed in ${minutes(seconds)}`, { failed: result.fail }));
+    await Promise.all(said);
+    if (result.ok) return result;
+    Object.assign(result, saveLog(stdout + stderr, left, 'tap'));
     // The runner's own args name every file, so only its children's name the files still running.
-    const children = left?.filter((line) => Number(line.split(/\s+/)[1]) !== child.pid);
+    const children = left?.filter((line) => Number(line.split(/\s+/)[1]) !== run.pid);
     if (left) result.hung = { after: duration(limit), files: files.filter((f) => children.some((p) => p.includes(f))).map((f) => path.relative(dir, f)) };
     const failed = tapFailures(stdout, dir);
     result.failures = failed.map((f) => f.text);
@@ -295,12 +273,100 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     result.signatures = Object.fromEntries(result.failedFiles.map((rel) => [rel, failed.filter((f) => f.location?.includes(`/${rel}:`)).map((f) => f.key)]));
     const firstErr = stderr.trim().split('\n')[0];
     result.error = `${signal ? `test runner killed by ${signal}` : `test runner exited ${status}`}${firstErr ? `: ${firstErr}` : ''}`;
-    resolve(result);
-  }));
+    return result;
+  });
 }
 // How often a run's progress is reported.
 const REPORT_EVERY = 2 * 60 * 1000;
 const duration = (ms) => ms % 60000 ? `${ms / 1000} seconds` : `${ms / 60000} minutes`;
+const minutes = (seconds) => `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+
+// argv run at background priority (background.mjs) in dir, in a process group of its own, killed with its group as it
+// exits, and at limit with whatever of the group still runs. → {pid, stdout, stderr, both, left, closed}: the output so
+// far, stdout and stderr each and both as they came; left, null unless the run hit limit, the group's processes then;
+// closed, a promise of {status, signal}.
+function inGroup(argv, { cwd, env, limit }) {
+  const [wrapper, ...wrapped] = backgroundArgv(argv);
+  const child = spawn(wrapper, wrapped, { cwd, env, detached: true });
+  // macOS answers EPERM, not ESRCH, for a group whose processes have all died but aren't yet reaped.
+  child.once('exit', () => { try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { if (e.code !== 'ESRCH' && e.code !== 'EPERM') throw e; } });
+  const run = { pid: child.pid, stdout: '', stderr: '', both: '', left: null };
+  child.stdout.setEncoding('utf8').on('data', (d) => { run.stdout += d; run.both += d; });
+  child.stderr.setEncoding('utf8').on('data', (d) => { run.stderr += d; run.both += d; });
+  const cutoff = setTimeout(() => {
+    run.left = spawnSync('ps', ['-A', '-o', 'pgid=,pid=,args='], { encoding: 'utf8' }).stdout.split('\n')
+      .filter((line) => Number(line.trim().split(/\s+/)[0]) === child.pid).map((line) => line.trim());
+    if (run.left.length) process.kill(-child.pid, 'SIGKILL');
+    // A process outside the group can still hold the output pipes open.
+    const release = () => { child.stdout.destroy(); child.stderr.destroy(); };
+    if (child.exitCode === null && child.signalCode === null) child.once('exit', release); else release();
+  }, limit);
+  run.closed = new Promise((resolve) => child.on('close', (status, signal) => { clearTimeout(cutoff); resolve({ status, signal }); }));
+  return run;
+}
+
+// A failed run's output, with the processes still running at its cutoff, saved to ~/.claude/kickflip/logs.
+// → {log: the file} or {logError}
+function saveLog(output, left, extension) {
+  const logs = path.join(os.homedir(), '.claude', 'kickflip', 'logs');
+  try {
+    fs.mkdirSync(logs, { recursive: true });
+    const log = path.join(logs, `land-${randomUUID()}.${extension}`);
+    fs.writeFileSync(log, output + (left ? `\n# processes still running at the cutoff\n${left.join('\n')}\n` : ''), { mode: 0o600 });
+    return { log };
+  } catch (e) { return { logError: `Could not save the full test output: ${e.message}` }; }
+}
+
+// docs/adr/2026-11-21-2310-a-land-runs-its-repos-own-test-script.md
+// A repo's tests as passTests' runTests, for a run in a worktree or checkout: the board's test script, found as its
+// release script is (home, build-script.mjs scriptsOf: the run's `.kickflip/test`, or its site's scripts/test), run
+// whole and handed base when there is one; else nodeRun, the node test files the change since base affects
+// (affectedRun), or every one with no base; else a refusal naming where the script goes. A script that exits 0 having
+// run nothing opts a repo out.
+export const repoRun = ({ home, base, say = console.log, limit, nodeRun = base ? affectedRun(base, say) : (dir, opts) => nodeTests(dir, opts) }) => (dir, opts = {}) => {
+  const file = scriptFileOf(home, 'test', dir);
+  if (fs.existsSync(file)) {
+    say(`testing with ${testShown(home)}${base ? `, handed ${base}` : ''}`);
+    return scriptTests(dir, { home, file, args: base ? [base] : [], limit, ...opts });
+  }
+  if (!testFiles(dir).length) {
+    const name = path.basename(path.dirname(git(dir, 'rev-parse', '--path-format=absolute', '--git-common-dir').out));
+    fail(`no test command for ${name}: ${home.scripts === 'kickflip' ? 'write one with board.mjs script set test' : 'add an executable .kickflip/test'}, handed the base; one that exits 0 lands untested`);
+  }
+  return nodeRun(dir, opts);
+};
+// How a run's lines name the board's test script.
+const testShown = (home) => (home.scripts === 'kickflip' ? 'scripts/test in kickflip' : '.kickflip/test');
+const SCRIPT_LINES = 20;
+
+// The board's test script file run in dir with args and no shell, checked as a build script is (build-script.mjs
+// buildScriptError), under nodeTests' limit and process-group kill. report, when given, is told its start and result,
+// the result ending with its last line. → {ok, pass: 0, fail: 0, passed: the words a pass says}, and on a failure
+// {failures: its exit and last lines, log, logError, hung: {after, files: [the script]}, error}. A failure names no
+// test file, so passTests never reruns it on the base.
+async function scriptTests(dir, { home, file, args, limit = 15 * 60 * 1000, report }) {
+  const shown = testShown(home);
+  const invalid = buildScriptError(file);
+  if (invalid) fail(invalid.replace(/^Build script( \S+(?= must))?/, shown));
+  const began = Date.now();
+  await report?.start(shown);
+  const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+  const run = inGroup([file, ...args], { cwd: dir, env, limit });
+  const { status, signal } = await run.closed;
+  const printed = run.both.split('\n').map((line) => line.trimEnd()).filter(Boolean);
+  const last = printed.at(-1) ?? '';
+  const ok = status === 0 && !run.left;
+  const head = `${shown} ${ok ? 'passed' : 'failed'} in ${minutes(Math.round((Date.now() - began) / 1000))}`;
+  const line = last ? `${head}: ${last}` : head;
+  await report?.end(line.length > DETAIL_CAP ? `${line.slice(0, DETAIL_CAP - 1)}…` : line, { failed: ok ? 0 : 1 });
+  if (ok) return { ok, pass: 0, fail: 0, passed: last ? `${shown} passed: ${last}` : `${shown} passed` };
+  const exit = signal ? `${shown} was killed by ${signal}` : `${shown} exited ${status}`;
+  return {
+    ok, pass: 0, fail: 0, error: exit, failures: [exit, ...printed.slice(-SCRIPT_LINES)],
+    ...(run.left ? { hung: { after: duration(limit), files: [shown] } } : {}),
+    ...saveLog(run.both, run.left, 'log'),
+  };
+}
 
 // Each failing test of a TAP run in dir: {text, the name, location and error excerpt a refusal shows; location; key,
 // its name and diagnostic without the location, duration and stack, and dir read as ".", so the same failure in another
@@ -362,7 +428,7 @@ function tapFailures(tap, dir) {
 // Brings a checked worktree's branch into the live repo's base branch (builderRepo's base), saying each step: refuses
 // unless the repo has base checked out, naming it, or while the worktree has uncommitted changes or the branch adds
 // nothing; squashes it into one commit and rebases that onto base when base moved, refusing on a conflict with the
-// rebase undone; runs the tests the change affects unless that commit passed them already (prepareLand); fast-forwards base
+// rebase undone; runs the repo's tests unless that commit passed them already (prepareLand); fast-forwards base
 // (landPrepared); removes the worktree and branch. It restarts nothing: the hub restarts what runs new code once idle
 // (docs/adr/2026-11-15-2221-new-server-code-waits-behind-a-restart-row-and-restarts-itself-once-idle.md).
 // Never pushes.
@@ -707,20 +773,20 @@ export async function passTests(dir, { say = console.log, runTests = nodeTests, 
   const log = tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : [];
   if (tests.hung) fail([`tests hung past ${tests.hung.after} in ${tests.hung.files.join(', ') || 'the test runner'}; ${outcome}`, ...log].join('\n'));
   if (!tests.ok) throw Object.assign(new BoardError([
-    `tests failed in ${dir} (${tests.fail} failing); ${outcome}`,
+    `tests failed in ${dir}${tests.fail ? ` (${tests.fail} failing)` : ''}; ${outcome}`,
     ...(tests.failures?.length ? tests.failures : [tests.error || 'test runner failed without test diagnostics']),
     ...log,
   ].join('\n')), failsOnBase ? { failsOnBase, log: tests.log } : {});
-  say(`tests passed: ${tests.pass}`);
+  say(tests.passed ?? `tests passed: ${tests.pass}`);
 }
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
 // The part of a land that runs outside the land lock: the checks, the squash of the branch into one commit (squash),
-// the rebase of that commit onto base when base moved, a release's check (release.mjs checkRelease), and the tests
-// the change affects (affectedRun).
+// the rebase of that commit onto base when base moved, a release's check (release.mjs checkRelease), and the repo's
+// tests (repoRun: its test script, else the node tests the change affects).
 // title is the builder's --title, the squash commit's subject. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
 // still it, with base not moved past it, is not tested again. site is the card's board, whose release script the check runs.
-export async function prepareLand({ path: dir, branch, repo, base, ref, title, site }, { say = console.log, runTests = affectedRun(base, say), report, found = () => {}, bumped = false } = {}) {
+export async function prepareLand({ path: dir, branch, repo, base, ref, title, site }, { say = console.log, runTests = repoRun({ home: scriptsOf(site), base, say }), report, found = () => {}, bumped = false } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);

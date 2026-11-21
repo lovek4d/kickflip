@@ -153,6 +153,12 @@ export const git = (cwd, ...args) => {
   return r.stdout.trim();
 };
 export const commit = (dir, file, text, subject = `change ${file}`) => { write(path.join(dir, file), text); git(dir, 'add', '-A'); git(dir, 'commit', '--quiet', '-m', subject); };
+// A test-less repo's stub .kickflip/test, which opts its lands out of tests
+// (docs/adr/2026-11-21-2310-a-land-runs-its-repos-own-test-script.md); the next commit takes it.
+export const stubTests = (dir) => {
+  write(path.join(dir, '.kickflip', 'test'), '#!/bin/sh\necho "no tests here"\n');
+  fs.chmodSync(path.join(dir, '.kickflip', 'test'), 0o755);
+};
 // The scratch repo's one base commit, made once per test file and copied into each test that asks for it.
 let baseRepo;
 function makeBaseRepo() {

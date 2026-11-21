@@ -104,3 +104,20 @@ test('with Nightly full suite off in Overnight work, nothing runs', async () => 
   assert.equal(overnightJobs().find((j) => j.id === 'suite').on, false);
   await setOvernight('suite', true);
 });
+
+// docs/adr/2026-11-21-2310-a-land-runs-its-repos-own-test-script.md
+test("each board's repo runs its own test script, handed no base so it runs whole; a failing one files its exit and last lines, and a repo with no tests at all can't run", async () => {
+  fs.rmSync(suiteStateFile(), { force: true });
+  const scripted = makeRepo('scripted');
+  fs.mkdirSync(path.join(scripted, '.kickflip'));
+  fs.writeFileSync(path.join(scripted, '.kickflip', 'test'), '#!/bin/sh\necho "args: $#"\necho "FAIL: login" >&2\nexit 3\n', { mode: 0o755 });
+  git(scripted, 'add', '.kickflip');
+  git(scripted, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'test script');
+  const sites = Object.fromEntries([board('scripted', scripted), board('bare')]);
+  const r = await runNightlySuite({ now: t(3), settings: DEFAULTS, manifest: { sites }, eases });
+  assert.deepEqual(r.runs.map((x) => [x.route, x.ok]), [['scripted', false], ['bare', false]]);
+  const [filed] = asks(sites.scripted.dir);
+  assert.match(filed.data.text, /^Nightly full suite failed on main at [0-9a-f]{7,}: \.kickflip\/test exited 3\.\n/);
+  assert.match(filed.data.text, /- args: 0\n- FAIL: login\n/);
+  assert.equal(r.runs[1].error, 'no test command for bare: add an executable .kickflip/test, handed the base; one that exits 0 lands untested');
+});
