@@ -318,6 +318,12 @@ test("item stall stops the card's run with everything under it, keeps its record
   assert.equal(read(recordFile()).stopped.run, 'build');
   assert.equal(read(waveFile()).items.find((i) => i.id === 'A1').stalled.reason, 'Gone twice');
 
+  setA1({ stalled: undefined });
+  const waiting = await cli('item', 'stall', 'w/A1', '--reason', 'rerun once the host is quiet');
+  assert.equal(waiting.code, 1);
+  assert.match(waiting.err, /--blocked-until/);
+  assert.equal(read(waveFile()).items.find((i) => i.id === 'A1').stalled, undefined);
+
   const bare = await cli('item', 'stall', 'w/A1');
   assert.equal(bare.code, 1);
   assert.match(bare.err, /--reason/);

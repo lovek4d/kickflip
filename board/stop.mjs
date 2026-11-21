@@ -16,12 +16,16 @@ import { ps as livePs } from '../hub/live.mjs';
 
 const fail = (msg) => { throw new BoardError(msg); };
 
+// A stall reason that names something to wait for (a quiet host, a landing task) is a block until a condition.
+const WAIT_CONDITION = /\bwaiting\b|\bwait(s)? (for|until|on)\b|\buntil\b|\bonce (the|it|a|all|they|its)\b/i;
+
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 // The orchestrator's stall of a card it can't restart (item stall): the card is flagged with the reason, each open build
 // record is marked stopped so nothing relaunches it (the card keeps its slot), and its board-launched run stops as builder stop
 // (runs.mjs stop) stops it. A run already gone, or one a session runs, has nothing the board can stop. Its worktree stays. → its lines
 export async function stallCard(site, key, reason, runner = {}) {
   const ref = await cardName(site, key);
+  if (WAIT_CONDITION.test(reason ?? '')) fail(`${ref}: "${reason}" is a wait for a condition, which waits on nobody: use item set ${ref} --blocked-until "<condition>". stall is for a stuck task you can't restart`);
   const words = await markStalled(site, key, reason);
   await markStopped(site, key, await isLanding(site, key) ? 'land' : 'build');
   const agent = (await launchedBuilds(site, key, runner))[0];

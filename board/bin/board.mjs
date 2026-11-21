@@ -774,7 +774,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          is gone), its record stays open and stopped and its worktree
                                                          stays, and it keeps its implementer slot. Its thread reads
                                                          "stalled by orchestrator: <why>". A message on the task
-                                                         clears it
+                                                         clears it. Refuses a reason that names a wait for a
+                                                         condition (waiting for, until, once the host is quiet): that
+                                                         is item set <key> --blocked-until "<condition>", which waits
+                                                         on nobody and lights no Reply
   land stop <file>/<id>                                  the orchestrator's stop of the task's land and its suite: one a
                                                          headless builder or lander runs stops that agent as builder
                                                          stop does; the land a held task's Merge tap started stops
