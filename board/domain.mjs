@@ -1185,7 +1185,9 @@ const byOf = (e) => (e.data?.asked ? { by: askerOf(e.data.asked) } : {});
 // docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md: a reply the hub copied
 // from a task's Slack thread as a message (hub/slack-intake.mjs followSlackAsks), its slack {by?, link}: under its
 // sender's name (the owner's own without one), via Slack, linking to the reply.
-const slackOf = (e) => (e.data?.slack ? { via: 'slack', link: e.data.slack.link, ...(e.data.slack.by ? { by: e.data.slack.by } : {}) } : {});
+// The routed ask a Slack @kickflip filed reads the same: its routed.by and routed.link.
+const slackOf = (e) => (e.data?.slack ? { via: 'slack', link: e.data.slack.link, ...(e.data.slack.by ? { by: e.data.slack.by } : {}) }
+  : slackSourced(e) ? { via: 'slack', link: e.data.routed.link, ...(e.data.routed.by ? { by: e.data.routed.by } : {}) } : {});
 // docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
 // A line that names a card carries its key (card) and the words before it (words); board/public/ui-links.js cardRef
 // draws the reference when the line shows, at the ref the card has then, linked, with its lane ring. Its text reads the
@@ -1332,7 +1334,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     }),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       // An ask the orchestrator filed (data.asked) is its message, under its From line; any other is the owner's.
-      .flatMap((e) => [...routedLine(e), ...handedLine(e), ...askedLine(e), { ts: e.ts, who: e.data?.asked ? 'claude' : 'love', via: 'ask', kind: e.kind, ...(e.data?.asked ? { asked: true } : {}), text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
+      .flatMap((e) => [...routedLine(e), ...handedLine(e), ...askedLine(e), { ts: e.ts, who: e.data?.asked ? 'claude' : 'love', via: 'ask', kind: e.kind, ...(e.data?.asked ? { asked: true } : {}), text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e), ...slackOf(e),
         ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}), ...(BRIEF_KINDS.includes(e.data?.request) ? { status: COMMANDS[e.data.request] } : {}) },
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));

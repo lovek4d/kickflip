@@ -917,6 +917,13 @@ test("a handed ticket's thread opens with a blue line naming its source board an
   assert.deepEqual([card.ask.from, card.ask.note], [{ words: '/paddock-web · PAD-3359', link }, 'Yours: the hub owns checkout']);
 });
 
+// docs/adr/2026-11-21-1700-a-replys-route-follows-the-message-it-names.md
+test("a Slack-filed ask reads as a Slack message from its sender, as a copied Slack reply does", () => {
+  const routed = { reason: 'the only board', via: 'slack', by: 'Pete', link: 'https://acme.slack.com/archives/D1/p1', slack: { channel: 'D1', thread_ts: '1.1', ts: '1.1' }, at: '2026-10-23T09:39:59Z' };
+  const ask = threadOf('w/T-1', { events: [askAt('s1', '2026-10-23T09:40:00Z', { data: { text: 'Look at my PR', routed } })], fromAsk: 's1' }).find((m) => m.kind === 'ask');
+  assert.deepEqual([ask.via, ask.by, ask.link], ['slack', 'Pete', 'https://acme.slack.com/archives/D1/p1']);
+});
+
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
 test("a routed ask's thread opens with a blue status line naming where it came from and the router's reason, above the ask", () => {
   const routed = { reason: 'checkout is the shop', via: 'slack', by: 'Maya', link: 'https://slack.com/archives/D1/p1', at: '2026-10-23T09:39:59Z' };

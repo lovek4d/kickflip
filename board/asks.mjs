@@ -291,9 +291,28 @@ export async function refuseFiled(site, eventId, key) {
   const card = await askCardOf(site, eventId);
   if (card && card.key !== key) fail(`ask "${eventId}" is already task ${card.key}: sort it with item set ${card.key} --phase, or merge it with item relate-ask ${eventId} <task>`);
 }
+// docs/adr/2026-11-21-1700-a-replys-route-follows-the-message-it-names.md
+// The messages on card key nobody has answered, each {id, from}: its ask and the owner's or Slack's messages on it,
+// with no reply file and no plain orchestrator message after it. from reads "Slack · <name>" or "board".
+export async function unansweredOn(site, key, item) {
+  const events = (await readLog(path.join(site, 'data', 'events.jsonl')))
+    .filter((e) => (e.kind === 'ask' && e.id === item.from_ask && !e.data?.asked) || (e.kind === 'item-message' && e.data?.key === key && !e.data?.intent));
+  const said = (await readLog(threadFile(site, key))).filter((m) => (m.who || 'claude') === 'claude' && !m.kind && !m.command).map((m) => String(m.ts)).sort().pop() || '';
+  const open = [];
+  for (const e of events) {
+    if (String(e.ts) < said || (await replyFilesOf(path.join(site, 'data', 'replies'), e.id)).length) continue;
+    const from = slackSourced(e) ? ['Slack', e.data.slack?.by || e.data.routed?.by].filter(Boolean).join(' · ') : 'board';
+    open.push({ id: e.id, from });
+  }
+  return open;
+}
 export async function answerCard(site, key, md, title, { waitsOn } = {}) {
   needSite(site);
   const { source, itemFile, item } = await loadItem(site, key);
+  // A reply by task key names no message, so it can't know whether to post to Slack: refused while a Slack message waits,
+  // with every unanswered message listed. A task with only board messages waiting has one route, the board.
+  const open = await unansweredOn(site, key, item);
+  if (open.some((m) => m.from !== 'board')) fail(`${key} has ${open.length === 1 ? 'a message' : 'messages'} nobody has answered, and a reply goes where the message it answers came from: name the one you answer with reply <id>: ${open.map((m) => `${m.id} (${m.from})`).join(', ')}`);
   const card = { source, itemFile, item, key };
   messageText(md);
   if (title !== undefined) cardTitle(title);

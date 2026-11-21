@@ -62,3 +62,14 @@ test('inbox read needs a site, and an event sent before the board kept stamps is
   write(site('orch', 'data', 'delivered.json'), { since: '2026-10-24T00:00:00.000Z', events: {} });
   assert.deepEqual(await board('--site', 'orch', 'inbox', 'read'), { code: 0, err: '', out: 'nothing unread\n' });
 });
+
+// docs/adr/2026-11-21-1700-a-replys-route-follows-the-message-it-names.md
+test('inbox read marks a Slack-filed ask as a Slack message and names the reply that posts to its thread', async () => {
+  write(site('orch', 'data', 'delivered.json'), { since: '2026-10-23T09:00:00.000Z', events: {} });
+  add('s1', 'ask', { text: 'Look at my PR', routed: { reason: 'r', via: 'slack', by: 'Pete', link: 'https://acme.slack.com/x', slack: { channel: 'D1', thread_ts: '1.1', ts: '1.1' }, at: new Date().toISOString() } });
+  const read = await board('--site', 'orch', 'inbox', 'read');
+  assert.equal(read.code, 0, read.err);
+  const lines = read.out.trimEnd().split('\n').filter((l) => !l.includes('"id":"e1"') && !l.includes('task e1'));
+  assert.equal(lines[0], 'Pete sent this via Slack: answer it with reply s1, which posts to its Slack thread.');
+  assert.match(lines[1], /^sent \S+Z, just now: new task s1 received/);
+});

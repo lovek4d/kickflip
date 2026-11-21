@@ -117,3 +117,20 @@ test('a task already Done when its thread was first polled posts no end line', a
   await post();
   assert.deepEqual(inThread(world, asked), []);
 });
+
+// docs/adr/2026-11-21-1700-a-replys-route-follows-the-message-it-names.md
+test('a reply by task key is refused while a message is unanswered, listing each with its source; naming a message routes by it', async () => {
+  const { world, asked, post } = filed();
+  addEvent({ id: 'es', ts: '2026-11-15T10:00:00Z', kind: 'item-message', data: { key: 'items/T-1', text: 'Also check the tests', slack: { by: 'Bob', link: 'https://acme.slack.com/x' } } });
+  addEvent({ id: 'eb', ts: '2026-11-15T10:05:00Z', kind: 'item-message', data: { key: 'items/T-1', text: 'Hold off until CI is green' } });
+  await assert.rejects(store.answerCard(site, 'items/T-1', 'On it.'), (e) => /ea \(Slack · Bob\), es \(Slack · Bob\), eb \(board\)/.test(e.message));
+  await post();
+  assert.deepEqual(inThread(world, asked), []);
+  // The Slack message's reply posts; the owner's board message's reply stays on the board.
+  await writeReply(site, 'es', 'Will do.');
+  await writeReply(site, 'eb', 'Waiting for CI.');
+  await post();
+  assert.deepEqual(inThread(world, asked), ['🤖 Will do.\n- :robot_face:']);
+  // The ask is still open, so the task key stays refused until it is answered.
+  await assert.rejects(store.answerCard(site, 'items/T-1', 'On it.'), /ea \(Slack · Bob\)/);
+});

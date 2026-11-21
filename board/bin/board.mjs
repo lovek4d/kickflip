@@ -62,6 +62,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--title <t>]                                   answer goes in its thread and the task reads
                                                          discussing in Todo, --title as its title. Refuses a
                                                          task sorted another way or that isn't one an ask became.
+                                                         A reply goes where the message it answers came from, so
+                                                         while a Slack message on the task is unanswered, reply
+                                                         <file>/<id> is refused and lists each unanswered message's
+                                                         id and source: answer one with reply <eventId>
                                                          reply, item set --phase, --title, --ticket and
                                                          --new-ticket, and item relate-ask refuse an ask (or the
                                                          task it became) the owner edited after its Working-on-it
