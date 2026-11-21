@@ -884,3 +884,17 @@ test("a PR's comment goes on a Linear ticket whoever it is assigned to, and a fa
   const down = await commentTicket(source, { ticket: 'ENG-9' }, pr, { linearFetch: async () => { throw new Error('offline'); } });
   assert.deepEqual([down.kind, down.inputs.comment], ['ticket-failed', true]);
 });
+
+test("a GitHub ticket's comment goes through the ticket layer's gh calls, and a board with no repo is a fault line", async () => {
+  const { commentTicket } = await import('./tickets.mjs');
+  const source = { source: 'github' };
+  const pr = { lead: 'PR opened', title: 'feat(board): one', url: 'https://github.com/o/r/pull/3' };
+  const calls = [];
+  const run = async (command, argv) => { calls.push([command, ...argv]); return { status: 0, stdout: '', stderr: '' }; };
+  assert.deepEqual(await commentTicket(source, { ticket: '#7' }, pr, { repo: 'o/r', run }), { kind: 'ticket-commented', inputs: { ticket: '#7' } });
+  assert.deepEqual(calls, [['gh', 'issue', 'comment', '7', '--repo', 'o/r', '--body', 'PR opened: [feat(board): one](https://github.com/o/r/pull/3)']]);
+  const none = await commentTicket(source, { ticket: '#7' }, pr, { run });
+  assert.deepEqual([none.kind, none.inputs.why, none.inputs.comment], ['ticket-failed', 'the board has no GitHub repo', true]);
+  const bad = await commentTicket(source, { ticket: '#7' }, pr, { repo: 'o/r', run: async () => ({ status: 1, stdout: '', stderr: 'boom\nmore' }) });
+  assert.deepEqual([bad.kind, bad.inputs.why], ['ticket-failed', 'boom']);
+});

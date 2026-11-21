@@ -87,6 +87,7 @@ async function issueRunner(source, run) {
 //   the owner;
 // - read(id) → {open, assignee: 'mine', 'none' or 'other'}, plus what move needs;
 // - assign(id) to the owner;
+// - comment(id, body) posts a comment;
 // - move(id, issue, target) → {state} it moved to, {} for a close with no state name, or null when the ticket is
 //   there or past it, or the source has no state for target.
 // targets: the targets the source has a state for. followsPRs: the hub's PR poll moves its tickets (followPRs).
@@ -128,6 +129,7 @@ const PROVIDERS = {
           return { open, assignee: assignees.some((a) => a.login?.toLowerCase() === login) ? 'mine' : 'other' };
         },
         assign: (id) => call(['issue', 'edit', id.slice(1), '--repo', repo, '--add-assignee', '@me']),
+        comment: (id, body) => call(['issue', 'comment', id.slice(1), '--repo', repo, '--body', body]),
         async move(id, issue, target) {
           if (target !== 'done') return null;
           await call(['issue', 'close', id.slice(1), '--repo', repo]);
@@ -159,6 +161,7 @@ const PROVIDERS = {
           return { ...issue, open: !['completed', 'canceled'].includes(issue.state.type), assignee: !issue.assignee ? 'none' : issue.assignee === me ? 'mine' : 'other' };
         },
         assign: (id) => linear.assignIssue(id, me),
+        comment: (id, body) => linear.commentIssue(id, body),
         async move(id, issue, target) {
           const state = await linear.moveIssue(issue, target);
           return state ? { state } : null;
@@ -216,17 +219,11 @@ export async function moveTicket(source, item, target, ctx = {}) {
 export async function commentTicket(source, item, { lead, title, url }, { repo, run = runRepo, linearFetch } = {}) {
   const ticket = item.ticket;
   if (!source || !ticket || !ticketIn(source, ticket)) return null;
-  const body = `${lead}: [${title}](${url})`;
+  const provider = PROVIDERS[source.source];
   try {
-    if (source.source === 'linear') {
-      const linear = savedClient({ fetch: linearFetch });
-      if (!linear) throw new Error('Hub has no Linear key');
-      await linear.commentIssue(ticket, body);
-    } else {
-      if (!repo) throw new Error('the board has no GitHub repo');
-      const out = await (await issueRunner(source, run))('gh', ['issue', 'comment', ticket.slice(1), '--repo', repo, '--body', body]);
-      if (out.status !== 0) throw new Error(out.stderr || 'gh issue comment failed');
-    }
+    const calls = await provider.open(source, { repo, run, linearFetch });
+    if (!calls) throw new Error(provider.unreached.move);
+    await calls.comment(ticket, `${lead}: [${title}](${url})`);
     return { kind: 'ticket-commented', inputs: { ticket } };
   } catch (e) { return { kind: 'ticket-failed', inputs: { ticket, why: String(e?.message || e).split('\n')[0], comment: true } }; }
 }
