@@ -14,6 +14,7 @@ import { readiness } from '../hub/readiness.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
 import { BoardError, domId, needSite, text } from './checks.mjs';
 import { addItem, appendMessage, askCardOf } from './cards.mjs';
+import { builtCards } from './snapshot.mjs';
 import { boardRepoOf, boardTarget, sameName, settingsOf, storedTickets } from './settings.mjs';
 
 const fail = (msg) => { throw new BoardError(msg); };
@@ -301,7 +302,7 @@ export async function boardPosts(site) {
   }
   for (const d of (await readJSON(digestFile(site), {})).digests || []) for (const m of [d, ...(d.replies || [])]) out.add(m.ts);
   const posted = await readJSON(slackThreadsFile(site), {});
-  for (const m of [...Object.values(posted.replies || {}), ...Object.values(posted.ends || {})]) out.add(m.ts);
+  for (const m of [...Object.values(posted.replies || {}), ...Object.values(posted.ends || {}), ...Object.values(posted.waits || {})]) out.add(m.ts);
   out.delete(undefined);
   return out;
 }
@@ -339,16 +340,32 @@ export const markSlackFollow = (site, thread, failing) => editJSON(slackThreadsF
 // the ts Slack gave it once posted and failed once a post failed and the card's fault line was written; and ends
 // {"<channel>:<thread_ts>": {ts?, failed?}}: each thread seen while its task was open, so its end line posts once.
 export const queueSlackReply = (site, key, name) => editJSON(slackThreadsFile(site), (all) => { all.replies = { ...all.replies, [name]: { key } }; });
+// docs/adr/2026-11-22-0100-a-slack-filed-task-tells-its-thread-when-it-waits-on-the-owner.md
+// What a card waits on the owner for, in words, or null: its open question's text, else its next step. A card waits
+// when it carries an owner action or waitsOn owner, the state that lights the owner's Reply (domain.mjs placeOwnerWait).
+async function ownerWaitWords(site, card) {
+  if (card.waitsOn !== 'owner' && !card.action) return null;
+  if (card.questions?.open > 0) {
+    const asked = ((await readJSON(path.join(site, 'data', 'owner.json'), { items: [] })).items || []).find((q) => q.id === card.questions.first);
+    if (asked?.question) return asked.question;
+  }
+  return card.action?.label || card.next;
+}
+// slack-threads.json's waits {"<channel>:<thread_ts>": {words, ts}}: the wait line posted for the wait a thread's task
+// has now, dropped once the task waits on nobody, so its next wait posts again.
 // What the hub posts to each Slack-filed task's thread: [{key, channel, thread_ts, replies: [{name, text, failed?}],
-// end: {text, failed?} | null}], its replies not yet posted, then, once the task is Done, its end line, "Closed: <title>"
-// or "Built and landed: <title>". Records each thread whose task is open, so a task Done before its thread was first read
-// posts no end line.
+// end: {text, failed?} | null, wait: words | null}], its replies not yet posted, then, once the task is Done, its end
+// line, "Closed: <title>" or "Built and landed: <title>", and while it is open, wait: what it waits on the owner for,
+// when no wait line was posted for that wait. Records each thread whose task is open, so a task Done before its thread
+// was first read posts no end line.
 export async function slackOutbox(site) {
   const asks = (await readLog(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'ask' && e.data?.routed?.via === 'slack' && e.data.routed.slack);
   if (!asks.length) return [];
-  const { replies = {}, ends = {} } = await readJSON(slackThreadsFile(site), {});
+  const { replies = {}, ends = {}, waits = {} } = await readJSON(slackThreadsFile(site), {});
   const out = [];
   const opened = [];
+  const cleared = [];
+  let cards;
   for (const e of asks) {
     const card = await askCardOf(site, e.id);
     if (!card) continue;
@@ -359,9 +376,20 @@ export async function slackOutbox(site) {
     const owed = await Promise.all(Object.entries(replies).filter(([, r]) => r.key === card.key && !r.ts)
       .map(async ([name, r]) => ({ name, text: await fs.readFile(path.join(site, 'data', 'replies', `${name}.md`), 'utf8'), ...(r.failed ? { failed: true } : {}) })));
     const end = done && ends[id] && !ends[id].ts ? { text: `${card.item.phase === 'merged' ? 'Built and landed' : 'Closed'}: ${card.item.title}`, ...(ends[id].failed ? { failed: true } : {}) } : null;
-    if (owed.length || end) out.push({ key: card.key, channel, thread_ts, replies: owed, end });
+    let wait = null;
+    if (!done) {
+      cards ??= await builtCards(site);
+      const words = await ownerWaitWords(site, cards.get(card.key));
+      if (!words) { if (waits[id]) cleared.push(id); } else if (waits[id]?.words !== words) wait = words;
+    }
+    if (owed.length || end || wait) out.push({ key: card.key, channel, thread_ts, replies: owed, end, wait });
   }
-  if (opened.length) await editJSON(slackThreadsFile(site), (all) => { all.ends = { ...all.ends, ...Object.fromEntries(opened.map((id) => [id, {}])) }; });
+  if (opened.length || cleared.length) {
+    await editJSON(slackThreadsFile(site), (all) => {
+      all.ends = { ...all.ends, ...Object.fromEntries(opened.map((id) => [id, {}])) };
+      all.waits = Object.fromEntries(Object.entries(all.waits || {}).filter(([id]) => !cleared.includes(id)));
+    });
+  }
   return out;
 }
 // Records a post of slackOutbox's: thread's end line when reply is null, else reply, a reply's name; ts, the ts Slack
@@ -370,6 +398,8 @@ export const markSlackPost = (site, thread, reply, { ts, failed }) => editJSON(s
   const [field, id] = reply ? ['replies', reply] : ['ends', slackThreadId(thread)];
   all[field] = { ...all[field], [id]: { ...all[field]?.[id], ...(ts ? { ts } : { failed }) } };
 });
+// Records thread's wait line, posted for words, with the ts Slack gave it.
+export const markSlackWait = (site, thread, words, ts) => editJSON(slackThreadsFile(site), (all) => { all.waits = { ...all.waits, [slackThreadId(thread)]: { words, ts } }; });
 // What the orchestrator posts in a day thread: its words, at most WORDS_LIMIT characters; the Slack client signs them off.
 const WORDS_LIMIT = 250;
 function orchestratorWords(words) {

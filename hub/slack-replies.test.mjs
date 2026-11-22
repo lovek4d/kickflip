@@ -134,3 +134,34 @@ test('a reply by task key is refused while a message is unanswered, listing each
   // The ask is still open, so the task key stays refused until it is answered.
   await assert.rejects(store.answerCard(site, 'items/T-1', 'On it.'), /ea \(Slack · Bob\)/);
 });
+
+// docs/adr/2026-11-22-0100-a-slack-filed-task-tells-its-thread-when-it-waits-on-the-owner.md
+const ask = (question) => write(path.join(site, 'data', 'owner.json'), { items: [{ id: 'q1', topic: 'item:items/T-1', question }] });
+const answer = () => write(path.join(site, 'data', 'owner.json'), { items: [{ id: 'q1', topic: 'item:items/T-1', question: 'x', resolved: 'Done.', resolved_at: '2026-11-15T11:00:00Z' }] });
+
+test('a Slack-filed task posts one "Waiting on owner" line when a question is asked, and nothing more until its next wait', async () => {
+  const { world, asked, post } = filed();
+  await post();
+  assert.deepEqual(inThread(world, asked), [], 'no wait, no line');
+  ask('How should I run the Simulator check?');
+  assert.deepEqual(await post(), { posted: ['orch items/T-1: a wait line'], failed: [] });
+  assert.deepEqual(inThread(world, asked), ['🤖 Waiting on owner: How should I run the Simulator check?\n- :robot_face:']);
+  await post();
+  assert.equal(inThread(world, asked).length, 1, 'the same wait posts once');
+  assert.ok((await boardPosts(site)).has(world.messages.at(-1).ts), 'the board own post is not copied back');
+  answer();
+  await post();
+  assert.equal(inThread(world, asked).length, 1, 'answering posts nothing');
+  ask('Which device?');
+  await post();
+  assert.deepEqual(inThread(world, asked).slice(1), ['🤖 Waiting on owner: Which device?\n- :robot_face:']);
+});
+
+test('a board-filed task posts nothing when it waits on the owner', async () => {
+  const { world, asked, post } = filed();
+  const events = fs.readFileSync(eventsFile, 'utf8').replace(/"via":"slack"/, '"via":"board"');
+  fs.writeFileSync(eventsFile, events);
+  ask('How should I run the Simulator check?');
+  await post();
+  assert.deepEqual(inThread(world, asked), []);
+});

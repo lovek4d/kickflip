@@ -15,7 +15,7 @@ import { appendEvent, listBoards, readJSON, saveJSON } from './boards.mjs';
 import { savedSlack, slackStatus, missingScope, setSearching, isSignedOff, slackUserId } from './slack.mjs';
 import { queueRequest } from './router.mjs';
 import { appendMessage, appendStatus } from '../board/cards.mjs';
-import { boardPosts, followedSlackThreads, markSlackPost, markSlackFollow, markSlackThreadHeard, slackOutbox } from '../board/slack-store.mjs';
+import { boardPosts, followedSlackThreads, markSlackPost, markSlackFollow, markSlackThreadHeard, markSlackWait, slackOutbox } from '../board/slack-store.mjs';
 
 export const INTAKE_FILE = path.join(os.homedir(), '.claude', 'kickflip', 'slack-intake.json');
 const NAMED = /\bkickflip\b/i;
@@ -156,7 +156,9 @@ export async function followSlackAsks({ boards = listBoards(), fetch } = {}) {
 // docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
 // The orchestrator's replies to a Slack-filed task's Slack messages (the @kickflip ask, or a Slack reply copied onto the
 // task) post into its Slack thread as the owner, "🤖 " first and signed off, in the order written; once the task is
-// Done, one end line follows and nothing more posts. A failed post writes one fault line on the card and is retried
+// Done, one end line follows and nothing more posts. While the task waits on the owner, one "🤖 Waiting on owner: <what>"
+// line posts per wait (slack-store.mjs ownerWaitWords), after the replies; a wait that clears and a new one post again.
+// A failed wait line is retried each poll with no fault line. A failed post writes one fault line on the card and is retried
 // each poll, holding back the thread's later posts; each posted one's ts is recorded, so none posts twice.
 // → {posted: ['<route> <key>: a reply' | 'its end line'], failed: [why]}, both empty without a saved working token.
 export async function postSlackReplies({ boards = listBoards(), fetch } = {}) {
@@ -168,15 +170,16 @@ export async function postSlackReplies({ boards = listBoards(), fetch } = {}) {
     let outbox;
     try { outbox = await slackOutbox(board.dir); } catch (e) { failed.push(`${board.route}: reading its Slack replies: ${e.message}`); continue; }
     for (const thread of outbox) {
-      const posts = [...thread.replies.map((r) => ({ ...r, what: 'a reply' })), ...(thread.end ? [{ ...thread.end, what: 'its end line' }] : [])];
+      const posts = [...thread.replies.map((r) => ({ ...r, what: 'a reply' })), ...(thread.end ? [{ ...thread.end, what: 'its end line' }] : []),
+        ...(thread.wait ? [{ text: `Waiting on owner: ${thread.wait}`, what: 'a wait line', wait: thread.wait }] : [])];
       for (const p of posts) {
         try {
           const ts = await slack.post({ channel: thread.channel, thread_ts: thread.thread_ts, text: `🤖 ${p.text}` });
-          await markSlackPost(board.dir, thread, p.name, { ts });
+          await (p.wait ? markSlackWait(board.dir, thread, p.wait, ts) : markSlackPost(board.dir, thread, p.name, { ts }));
           posted.push(`${board.route} ${thread.key}: ${p.what}`);
         } catch (e) {
           failed.push(`${board.route}: posting ${p.what} of ${thread.key} to Slack: ${e.message}`);
-          if (!p.failed) {
+          if (!p.failed && !p.wait) {
             await markSlackPost(board.dir, thread, p.name, { failed: true });
             await appendStatus(board.dir, thread.key, 'slack-post-failed', { what: p.what, error: e.message });
           }
