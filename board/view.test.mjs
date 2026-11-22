@@ -4527,14 +4527,14 @@ test("on the host's own page, served over http while the tailnet is off, Visit o
   const b = boardOnDom({ board: data, threads: {} });
   Object.assign(b.page.win.location, { protocol: 'http:', hostname: 'localhost', href: 'http://localhost:4500/' });
   await b.change({ board: { ...data, main: { ...data.main, sha: 'abcdef2' } } });
-  assert.equal(b.root.querySelector('#tryMain a').getAttribute('href'), 'http://127.0.0.1:8500/');
+  assert.equal(b.root.querySelector('#tryMain a.tone-ready').getAttribute('href'), 'http://127.0.0.1:8500/');
 });
 
 test('main paints above the lanes, card failures scroll to their thread and main failures open a log and retry sheet', async () => {
   const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date(NOW).toISOString(), url: null, port: 8500, script: '.kickflip/build-web' } };
   const b = boardOnDom({ open: ['w/R1'], board: data, threads: {} });
   await b.settle();
-  assert.equal(b.root.querySelector('#tryMain a').getAttribute('href'), 'https://mac.ts.net:8500/');
+  assert.equal(b.root.querySelector('#tryMain a.tone-ready').getAttribute('href'), 'https://mac.ts.net:8500/');
   assert.match(b.root.querySelector('#tryMain').textContent, /o\/rmain@abcdef1.*Visit/);
   assert.doesNotMatch(b.root.innerHTML, /\u2197/);
   const links = [...b.root.querySelectorAll('.external-links a, #tryMain a.tone-ready')];

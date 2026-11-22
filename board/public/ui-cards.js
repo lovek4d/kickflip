@@ -271,8 +271,10 @@
       : main.state === 'failed' ? badge('danger', 'Update failed', { button: true, attrs: { type: 'button', 'data-main-log': '', 'aria-haspopup': 'dialog' }, title: 'Read main’s build log and retry this tip.' }) : '';
     const visit = (main.state === 'ready' || old) && url ? badge('ready', `${words.done} ${LINK_ARROW}`, { href: url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
     const shown = old || main;
-    return `<div class="tb-main" role="region" aria-label="Main’s version"><div class="tb-main-left"><div class="tb-main-name">${BRANCH}<span>${esc(main.slug)}</span></div>`
-      + `<div class="tb-main-commit"><span class="tb-main-text"><strong>${esc(main.branch)}</strong>@<code>${esc(shown.sha)}</code> <span class="muted">${esc(lasted(shown.at))}</span></span>${mainPull(main.pull, pulling)}</div></div><div class="meta">${status}${visit}</div></div>`;
+    const repoURL = main.slug ? `https://github.com/${main.slug}` : null;
+    const plain = (href, inner) => repoURL ? `<a class="plain-link" href="${esc(href)}"${' target="_blank" rel="noopener"'}>${inner}</a>` : inner;
+    return `<div class="tb-main" role="region" aria-label="Main’s version"><div class="tb-main-left"><div class="tb-main-name">${BRANCH}${plain(repoURL, `<span>${esc(main.slug)}</span>`)}</div>`
+      + `<div class="tb-main-commit"><span class="tb-main-text"><strong>${esc(main.branch)}</strong>@${plain(`${repoURL}/commit/${shown.sha}`, `<code>${esc(shown.sha)}</code>`)} <span class="muted">${esc(lasted(shown.at))}</span></span>${mainPull(main.pull, pulling)}</div></div><div class="meta">${status}${visit}</div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, waiting while the
   // server records it (app-cards.js), and stays disabled with no spinner (ui.js SENDING) while the session merges it, or
