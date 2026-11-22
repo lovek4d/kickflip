@@ -313,11 +313,12 @@ test('the login item restarts under its label and reports when it does not start
   assert.equal(fs.existsSync(agents), false);
 
   await assert.rejects(installLoginItem(options(() => ({ status: 5, error: 'Bootstrap failed: 5' }))), { message: 'Bootstrap failed: 5' });
-  assert.deepEqual(calls, ['bootout gui/501/local.claude.kickflip-hub', `bootstrap gui/501 ${file}`]);
+  const id = 'gui/501/local.claude.kickflip-hub';
+  assert.deepEqual(calls, [`bootout ${id}`, `print ${id}`, ...Array(5).fill(`bootstrap gui/501 ${file}`)]);
 
   calls.length = 0;
   assert.deepEqual(await installLoginItem(options(() => ({ status: 0 }))), [`started gui/501/local.claude.kickflip-hub from ${file}`]);
-  assert.deepEqual(calls, ['bootout gui/501/local.claude.kickflip-hub', `bootstrap gui/501 ${file}`]);
+  assert.deepEqual(calls, [`print ${id}`, `bootout ${id}`, `print ${id}`, `bootstrap gui/501 ${file}`]);
   assert.deepEqual(fs.readdirSync(agents), [path.basename(file)]);
   assert.equal(fs.readFileSync(file, 'utf8'), 'new plist');
 });
@@ -875,6 +876,7 @@ test('the shared install steps run links, settings, launchd and Tailscale once w
       return { ok: true, json: async () => ({ sites: [] }) };
     },
     run: (command, argv) => {
+      if (command === 'launchctl' && argv[0] === 'print') return { status: 3, stdout: '', error: 'not loaded' };
       calls.push([command, ...argv]);
       assert.equal(fs.realpathSync(skillLinks()[0]), root);
       assert.equal(readSettings().statusLine.command, statusline());
@@ -890,7 +892,7 @@ test('the shared install steps run links, settings, launchd and Tailscale once w
     ['tailscale', 'serve', 'status', '--json'],
     ['tailscale', 'serve', '--https=443', '--set-path=/shop/', 'off'],
   ]);
-  assert.deepEqual(waits, [500, 300]);
+  assert.deepEqual(waits, [300]);
   assert.ok(logs.includes('added improve-codebase-architecture, codebase-design, grilling, prototype from mattpocock/skills'));
   const plist = fs.readFileSync(path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist'), 'utf8');
   assert.ok(plist.includes(path.join(skills, 'kickflip', 'hub', 'hub.mjs')));
@@ -1108,7 +1110,7 @@ test('install picks the daemon again and records it in the hub’s settings, and
   const calls = [];
   await runInstall({ home, cloneRoot: root, port: 19460, uid: 1000, platform: 'linux', tailnet: true, env: { PATH: bin }, wait: async () => {}, log: () => {},
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
-    run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
+    run: (command, argv) => { if (command === 'launchctl' && argv[0] === 'print') return { status: 3, stdout: '', error: 'not loaded' }; calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
   });
   const cli = path.join(bin, 'tailscale');
   assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), { claudeModel: 'auto', tailscale: { kind: 'cli', cli, node: 'nLinux' } });
@@ -1132,7 +1134,7 @@ test('with no tailscale, install still starts the hub and skips only the mapping
   const port = 19460;
   await runInstall({ home, cloneRoot: root, port, uid: 501, platform: 'darwin', tailnet: true, tailscale: null, wait: async () => {}, log: (line) => logs.push(line),
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
-    run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '' }; },
+    run: (command, argv) => { if (command === 'launchctl' && argv[0] === 'print') return { status: 3, stdout: '', error: 'not loaded' }; calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '' }; },
   });
   assert.ok(calls.includes(`launchctl bootstrap gui/501 ${path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist')}`));
   assert.ok(!calls.some((call) => /tailscale/i.test(call)));
@@ -1144,6 +1146,7 @@ test('with the app recorded and quit, install refuses to map / with the recorded
   await assert.rejects(runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailnet: true, tailscale: { ...APP, node: 'nApp' }, wait: async () => {}, log: () => {},
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
     run: (command, argv) => {
+      if (command === 'launchctl' && argv[0] === 'print') return { status: 3, stdout: '', error: 'not loaded' };
       calls.push([command, ...argv].join(' '));
       return { status: 0, stdout: argv.join(' ') === 'status --json' ? JSON.stringify({ BackendState: 'Running', Self: { ID: 'nBrew', HostName: 'brew-mac' } }) : '{}' };
     },
@@ -1156,7 +1159,7 @@ test('install maps the hub through the chosen daemon, the GUI app’s or brew’
     const calls = [];
     await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailnet: true, tailscale: daemon, wait: async () => {}, log: () => {},
       fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
-      run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
+      run: (command, argv) => { if (command === 'launchctl' && argv[0] === 'print') return { status: 3, stdout: '', error: 'not loaded' }; calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
     });
     assert.deepEqual(calls.filter((call) => /tailscale/i.test(call)), [`${prefix} serve --bg 19460`, `${prefix} serve status --json`]);
   }
@@ -1229,7 +1232,7 @@ test('install writes the node that owns the install into the service, and a clon
   const nvm = path.join(home, '.nvm', 'versions', 'node', 'v24');
   const pkg = npmInstall(nvm);
   const written = [];
-  const run = (command, argv) => ({ status: 0, stdout: '', error: '' });
+  const run = (command, argv) => (command === 'launchctl' && argv[0] === 'print' ? { status: 3, stdout: '', error: 'not loaded' } : { status: 0, stdout: '', error: '' });
   const wait = async () => {};
   const fetch = async () => ({ ok: true, json: async () => ({ sites: [] }) });
   await runInstall({ home, cloneRoot: pkg, platform: 'darwin', uid: 501, run, wait, fetch, tailscale: null, log: (line) => written.push(line) });
@@ -1245,7 +1248,7 @@ test('with the tailnet off, install starts the hub, runs no tailscale and leaves
   const logs = [];
   await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', wait: async () => {}, log: (line) => logs.push(line),
     fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }),
-    run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '' }; },
+    run: (command, argv) => { if (command === 'launchctl' && argv[0] === 'print') return { status: 3, stdout: '', error: 'not loaded' }; calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '' }; },
   });
   assert.ok(calls.includes(`launchctl bootstrap gui/501 ${path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist')}`));
   assert.ok(!calls.some((call) => /tailscale/i.test(call)));

@@ -153,6 +153,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
     import cp from 'node:child_process';
     import os from 'node:os';
     import { syncBuiltinESMExports } from 'node:module';
+    let bootedOut = false;
     cp.spawnSync = (bin, args, options) => {
       const command = bin === ${JSON.stringify(tailscale)} ? 'tailscale' : bin;
       // On macOS kickflip reaches brew's daemon as tailscale --socket <path> <args> (../shared/tailscale.mjs).
@@ -162,6 +163,10 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
       if (!${healthy}) return { status: 1, stdout: '', stderr: 'unavailable' };
       let stdout = command + ' version';
       if (command === 'launchctl') stdout = 'state = running';
+      // A booted-out login item is gone from launchd until bootstrap loads it again (install polls for that).
+      if (command === 'launchctl' && argv[0] === 'bootout') bootedOut = true;
+      if (command === 'launchctl' && argv[0] === 'bootstrap') bootedOut = false;
+      if (command === 'launchctl' && argv[0] === 'print' && bootedOut) return { status: 113, stdout: '', stderr: 'not found' };
       if (command === 'systemctl' && argv.join(' ') === '--user is-active kickflip-hub.service') stdout = 'active';
       if (command === 'loginctl' && argv.join(' ') === 'show-user ' + process.getuid() + ' --property=Linger') stdout = 'Linger=yes';
       if (command === 'tailscale' && argv[0] === 'status') stdout = JSON.stringify({ BackendState: 'Running', Self: { ID: 'n-doctor', HostName: 'doctor-host' } });

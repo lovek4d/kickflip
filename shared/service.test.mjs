@@ -24,7 +24,9 @@ const flag = (name) => fs.writeFileSync(path.join(home, name), '');
 
 test('on macOS the hub is a launchd login item that install, restart, status and remove drive through launchctl', async () => {
   stub('launchctl', [
-    `  'print gui/501/local.claude.kickflip-hub') echo 'state = running' ;;`,
+    `  'print gui/501/local.claude.kickflip-hub') [ -f "${home}/loaded" ] && echo 'state = running' || exit 113 ;;`,
+    `  'bootout gui/501/local.claude.kickflip-hub') /bin/rm -f "${home}/loaded" ;;`,
+    `  'bootstrap gui/501 '*) : > "${home}/loaded" ;;`,
     `  'kickstart -k gui/501/local.claude.kickflip-hub') [ -f "${home}/fail" ] && { echo 'Could not kickstart' >&2; exit 113; } ;;`,
   ].join('\n'));
   const s = service('darwin');
@@ -47,6 +49,7 @@ test('on macOS the hub is a launchd login item that install, restart, status and
   assert.deepEqual(calls(), [
     'launchctl print gui/501/local.claude.kickflip-hub',
     'launchctl bootout gui/501/local.claude.kickflip-hub',
+    'launchctl print gui/501/local.claude.kickflip-hub',
     `launchctl bootstrap gui/501 ${plist}`,
     'launchctl print gui/501/local.claude.kickflip-hub',
     'launchctl kickstart -k gui/501/local.claude.kickflip-hub',
@@ -75,6 +78,7 @@ test('on Linux the hub is a systemd user unit that install, restart, status and 
   assert.match(definition, /^WorkingDirectory=\/home\/me\/\.claude\/kickflip$/m);
   assert.match(definition, /^StandardOutput=append:\/home\/me\/50%%\/hub\.log$/m);
   assert.match(definition, /^Restart=always$/m);
+  assert.match(definition, /^KillMode=process$/m);
   assert.match(definition, /^WantedBy=default\.target$/m);
   assert.deepEqual(await s.install(definition), [`enabled and started kickflip-hub.service from ${unit}`]);
   assert.equal(fs.readFileSync(unit, 'utf8'), definition);
@@ -82,7 +86,7 @@ test('on Linux the hub is a systemd user unit that install, restart, status and 
   assert.equal(s.restart(), null);
   flag('fail');
   assert.equal(s.restart(), 'Job for kickflip-hub.service failed.');
-  await assert.rejects(s.install(definition), { message: 'systemctl --user restart kickflip-hub.service: Job for kickflip-hub.service failed.' });
+  await assert.rejects(s.install(`${definition}# changed\n`), { message: 'systemctl --user restart kickflip-hub.service: Job for kickflip-hub.service failed.' });
   s.remove();
   assert.equal(fs.existsSync(unit), false);
   assert.deepEqual(calls(), [
@@ -121,4 +125,49 @@ test('a service manager missing from PATH fails each step with its error, and an
   await assert.rejects(other.install('x'), /launchd on macOS or systemd on Linux, not on freebsd/);
   assert.match(other.restart(), /not on freebsd/);
   assert.equal(other.status().running, false);
+});
+
+test('a running login item whose plist is unchanged is left alone, and a changed one is replaced', async () => {
+  stub('launchctl', [
+    `  'print gui/501/local.claude.kickflip-hub') [ -f "${home}/loaded" ] && echo 'state = running' || exit 113 ;;`,
+    `  'bootout gui/501/local.claude.kickflip-hub') /bin/rm -f "${home}/loaded" ;;`,
+    `  'bootstrap gui/501 '*) : > "${home}/loaded" ;;`,
+  ].join('\n'));
+  const s = service('darwin');
+  await s.install('plist', { wait: async () => {} });
+  fs.rmSync(log);
+  const [note] = await s.install('plist', { wait: async () => {} });
+  assert.match(note, /left gui\/501\/local\.claude\.kickflip-hub running/);
+  assert.deepEqual(calls(), ['launchctl print gui/501/local.claude.kickflip-hub']);
+  assert.match((await s.install('plist 2', { wait: async () => {} }))[0], /^started /);
+  assert.equal(fs.readFileSync(s.file, 'utf8'), 'plist 2');
+});
+
+test('install polls until the old hub is gone and errors naming the command after 30 s', async () => {
+  stub('launchctl', `  'print gui/501/local.claude.kickflip-hub') echo 'state = running' ;;`);
+  const waits = [];
+  await assert.rejects(service('darwin').install('plist', { wait: async (ms) => { waits.push(ms); } }), {
+    message: 'the old hub did not exit within 30 s; run launchctl bootout gui/501/local.claude.kickflip-hub, then kickflip doctor --fix again',
+  });
+  assert.equal(waits.reduce((a, b) => a + b, 0), 30_000);
+  assert.equal(calls().includes(`launchctl bootstrap gui/501 ${service('darwin').file}`), false);
+});
+
+test('install retries a failed bootstrap until it succeeds', async () => {
+  stub('launchctl', [
+    `  'print gui/501/local.claude.kickflip-hub') exit 113 ;;`,
+    `  'bootstrap gui/501 '*) n=0; [ -f "${home}/n" ] && read n < "${home}/n"; echo $((n+1)) > "${home}/n"; [ $n -lt 2 ] && { echo 'Bootstrap failed: 5' >&2; exit 5; } ;;`,
+  ].join('\n'));
+  assert.match((await service('darwin').install('plist', { wait: async () => {} }))[0], /^started /);
+  assert.equal(calls().filter((c) => c.includes('bootstrap')).length, 3);
+});
+
+test('an active unit whose file is unchanged is not restarted', async () => {
+  const unit = path.join(home, '.config', 'systemd', 'user', 'kickflip-hub.service');
+  stub('systemctl', `  '--user is-active kickflip-hub.service') [ -f "${unit}" ] && echo active || { echo inactive; exit 3; } ;;`);
+  const s = service('linux');
+  await s.install('unit');
+  fs.rmSync(log);
+  assert.match((await s.install('unit'))[0], /^left kickflip-hub\.service running/);
+  assert.deepEqual(calls(), ['systemctl --user is-active kickflip-hub.service']);
 });

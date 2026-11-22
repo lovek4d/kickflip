@@ -40,6 +40,12 @@ export function hubService({ platform = process.platform, home = os.homedir(), u
 }
 
 const RESTART_TIMEOUT = 120_000;
+const EXIT_WAIT_MS = 30_000;
+const POLL_MS = 500;
+const BOOTSTRAP_TRIES = 5;
+
+// Whether the definition file already holds exactly these bytes.
+const unchanged = (file, text) => { try { return fs.readFileSync(file, 'utf8') === text; } catch { return false; } };
 
 function launchd({ home, uid, exec }) {
   const agents = path.join(home, 'Library', 'LaunchAgents');
@@ -79,14 +85,26 @@ function launchd({ home, uid, exec }) {
       const found = /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(text)?.[1];
       return found ? found.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&') : null;
     },
-    // Starts the login item in place of the running one. → note lines.
+    // Starts the login item in place of the running one: a running item whose plist is unchanged is left alone;
+    // otherwise it boots the old one out, polls until launchd no longer lists it (the old hub has exited) for up to
+    // 30 s, then bootstraps, retrying a failed bootstrap. → note lines.
     async install(plist, { wait = (ms) => new Promise((r) => setTimeout(r, ms)), dryRun = false } = {}) {
       if (dryRun) return [`would write ${file} and start ${domain}/${LOGIN_LABEL}`];
+      if (unchanged(file, plist) && this.status().running) return [`left ${domain}/${LOGIN_LABEL} running: ${file} is unchanged`];
       fs.mkdirSync(agents, { recursive: true });
       fs.writeFileSync(file, plist);
       launchctl(['bootout', `${domain}/${LOGIN_LABEL}`]);
-      await wait(500);
-      const started = launchctl(['bootstrap', domain, file]);
+      let gone = launchctl(['print', `${domain}/${LOGIN_LABEL}`]).status !== 0;
+      for (let waited = 0; !gone && waited < EXIT_WAIT_MS; waited += POLL_MS) {
+        await wait(POLL_MS);
+        gone = launchctl(['print', `${domain}/${LOGIN_LABEL}`]).status !== 0;
+      }
+      if (!gone) throw new Error(`the old hub did not exit within ${EXIT_WAIT_MS / 1000} s; run launchctl bootout ${domain}/${LOGIN_LABEL}, then kickflip doctor --fix again`);
+      let started = launchctl(['bootstrap', domain, file]);
+      for (let tries = 1; started.status !== 0 && tries < BOOTSTRAP_TRIES; tries++) {
+        await wait(POLL_MS);
+        started = launchctl(['bootstrap', domain, file]);
+      }
       if (started.status === 0) return [`started ${domain}/${LOGIN_LABEL} from ${file}`];
       throw new Error(started.error);
     },
@@ -137,6 +155,7 @@ Environment=${execWord(`PATH=${path.dirname(node)}:/usr/local/bin:/usr/bin:/bin:
 Environment=KICKFLIP_HUB_PORT=${port}
 Restart=always
 RestartSec=2
+KillMode=process
 StandardOutput=append:${unitValue(log)}
 StandardError=append:${unitValue(log)}
 
@@ -151,9 +170,12 @@ WantedBy=default.target
       const found = /^ExecStart="((?:[^"\\]|\\.)*)"/m.exec(text)?.[1];
       return found ? found.replace(/\\(.)/g, '$1').replaceAll('%%', '%').replaceAll('$$', '$') : null;
     },
-    // Writes the unit, enables it for the user's manager and restarts it, so a rerun replaces the running hub. → notes.
+    // Writes the unit, enables it for the user's manager and restarts it, so a rerun replaces the running hub; an
+    // active unit whose file is unchanged is left alone. KillMode=process makes a restart stop only the hub, not a
+    // detached Run-card script. → notes.
     async install(unit, { dryRun = false } = {}) {
       if (dryRun) return [`would write ${file}, enable and start ${UNIT}`];
+      if (unchanged(file, unit) && this.status().running) return [`left ${UNIT} running: ${file} is unchanged`];
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, unit);
       step(['daemon-reload']);
