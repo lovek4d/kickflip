@@ -13,7 +13,7 @@ import { reviewLinks, reviewTime, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
 import { BoardError, domId, needSite, text } from './checks.mjs';
-import { addItem, appendMessage, askCardOf } from './cards.mjs';
+import { addItem, appendMessage, askTaskOf } from './cards.mjs';
 import { builtCards } from './snapshot.mjs';
 import { boardRepoOf, boardTarget, sameName, settingsOf, storedTickets } from './settings.mjs';
 
@@ -321,7 +321,7 @@ export async function followedSlackThreads(site) {
   const { threads: heard = {}, follows = {} } = await readJSON(slackThreadsFile(site), {});
   const out = [];
   for (const e of asks) {
-    const card = await askCardOf(site, e.id);
+    const card = await askTaskOf(site, e.id);
     if (!card || card.item.lane === 'done') continue;
     const { slack, by, link } = e.data.routed;
     out.push({ key: card.key, ...slack, by, link, heard: heard[slackThreadId(slack)] || slack.ts, failing: Boolean(follows[slackThreadId(slack)]) });
@@ -339,7 +339,8 @@ export const markSlackFollow = (site, thread, failing) => editJSON(slackThreadsF
 // slack-threads.json's replies {"<reply file name>": {key, ts?, failed?}}, in the order written: each reply to post, with
 // the ts Slack gave it once posted and failed once a post failed and the card's fault line was written; and ends
 // {"<channel>:<thread_ts>": {ts?, failed?}}: each thread seen while its task was open, so its end line posts once.
-export const queueSlackReply = (site, key, name) => editJSON(slackThreadsFile(site), (all) => { all.replies = { ...all.replies, [name]: { key } }; });
+// thread, {channel, thread_ts}, is the Slack thread of the message it answers; none means the task's own ask's.
+export const queueSlackReply = (site, key, name, thread) => editJSON(slackThreadsFile(site), (all) => { all.replies = { ...all.replies, [name]: { key, ...(thread ? { thread } : {}) } }; });
 // docs/adr/2026-11-22-0100-a-slack-filed-task-tells-its-thread-when-it-waits-on-the-owner.md
 // What a card waits on the owner for, in words, or null: its open question's text, else its next step. A card waits
 // when it carries an owner action or waitsOn owner, the state that lights the owner's Reply (domain.mjs placeOwnerWait).
@@ -367,17 +368,18 @@ export async function slackOutbox(site) {
   const cleared = [];
   let cards;
   for (const e of asks) {
-    const card = await askCardOf(site, e.id);
+    const card = await askTaskOf(site, e.id);
     if (!card) continue;
     const { channel, thread_ts } = e.data.routed.slack;
     const id = slackThreadId({ channel, thread_ts });
     const done = card.item.lane === 'done';
-    if (!done && !ends[id]) opened.push(id);
-    const owed = await Promise.all(Object.entries(replies).filter(([, r]) => r.key === card.key && !r.ts)
+    if (!card.folded && !done && !ends[id]) opened.push(id);
+    // A reply goes to the thread it names, else to the task's own ask's thread.
+    const owed = await Promise.all(Object.entries(replies).filter(([, r]) => r.key === card.key && !r.ts && (r.thread ? slackThreadId(r.thread) === id : !card.folded))
       .map(async ([name, r]) => ({ name, text: await fs.readFile(path.join(site, 'data', 'replies', `${name}.md`), 'utf8'), ...(r.failed ? { failed: true } : {}) })));
-    const end = done && ends[id] && !ends[id].ts ? { text: `${card.item.phase === 'merged' ? 'Built and landed' : 'Closed'}: ${card.item.title}`, ...(ends[id].failed ? { failed: true } : {}) } : null;
+    const end = !card.folded && done && ends[id] && !ends[id].ts ? { text: `${card.item.phase === 'merged' ? 'Built and landed' : 'Closed'}: ${card.item.title}`, ...(ends[id].failed ? { failed: true } : {}) } : null;
     let wait = null;
-    if (!done) {
+    if (!done && !card.folded) {
       cards ??= await builtCards(site);
       const words = await ownerWaitWords(site, cards.get(card.key));
       if (!words) { if (waits[id]) cleared.push(id); } else if (waits[id]?.words !== words) wait = words;

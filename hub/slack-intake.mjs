@@ -131,7 +131,7 @@ export async function followSlackAsks({ boards = listBoards(), fetch } = {}) {
               const link = `${new URL(thread.link).origin}/archives/${thread.channel}/p${m.ts.replace('.', '')}?thread_ts=${thread.thread_ts}&cid=${thread.channel}`;
               const theirs = m.user === owner ? null : name(m.user);
               if (name(m.user) === thread.by || (!theirs && NAMED.test(m.text || ''))) {
-                await appendEvent(board, 'item-message', { key: thread.key, text, sendId: `slack:${thread.channel}:${m.ts}`, slack: { ...(theirs ? { by: theirs } : {}), link } });
+                await appendEvent(board, 'item-message', { key: thread.key, text, sendId: `slack:${thread.channel}:${m.ts}`, slack: { ...(theirs ? { by: theirs } : {}), link, thread: { channel: thread.channel, thread_ts: thread.thread_ts } } });
               } else await appendMessage(board.dir, thread.key, { text, who: theirs || 'love', via: 'slack', link });
               copied.push(`${board.route} ${thread.key}: ${name(m.user)}`);
             }

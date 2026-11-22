@@ -559,6 +559,15 @@ export async function askCardOf(site, eventId) {
   }
   return null;
 }
+// docs/adr/2026-11-22-2200-a-folded-slack-ask-keeps-its-thread-as-a-reply-target.md
+// The task an ask belongs to, {key, item, folded}: the card it became, or the task it was folded into (data/ask-links.json),
+// whose folded is true; null when it has neither.
+export async function askTaskOf(site, eventId) {
+  const card = await askCardOf(site, eventId);
+  if (card) return { key: card.key, item: card.item, folded: false };
+  const key = routeRecord(await readAskLinks(site), eventId);
+  return key ? { key, item: (await loadItem(site, key)).item, folded: true } : null;
+}
 // → the thread line a session's card run writes once the hub starts it; refuses words the owner didn't write here.
 export async function askedGate(site, key, asked) {
   needSite(site);

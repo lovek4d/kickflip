@@ -16,7 +16,7 @@ const { boardPosts, queueSlackReply } = await import('../board/slack-store.mjs')
 // What `board reply` does: write the reply, then queue it to its Slack thread when writeReply returns one to queue.
 const writeReply = async (...args) => {
   const written = await store.writeReply(...args);
-  if (written.slack) await queueSlackReply(args[0], written.slack.key, written.slack.name);
+  if (written.slack) await queueSlackReply(args[0], written.slack.key, written.slack.name, written.slack.thread);
   return written;
 };
 
@@ -164,4 +164,27 @@ test('a board-filed task posts nothing when it waits on the owner', async () => 
   ask('How should I run the Simulator check?');
   await post();
   assert.deepEqual(inThread(world, asked), []);
+});
+
+// docs/adr/2026-11-22-2200-a-folded-slack-ask-keeps-its-thread-as-a-reply-target.md
+test("a Slack ask folded into a task keeps its thread: its reply posts there, and a later message in it lands on the task", async () => {
+  const { world, slack, asked, post } = filed();
+  const second = slack.say({ channel: 'D2', user: 'U2', text: '@kickflip another round of changes' });
+  addEvent({ id: 'ef', ts: '2026-11-15T10:00:00Z', kind: 'ask', data: { text: 'Bob: @kickflip another round of changes', routed: { via: 'slack', by: 'Bob', link: `${world.url}archives/D2/p${second.replace('.', '')}`, slack: { channel: 'D2', thread_ts: second, ts: second } } } });
+  await store.relateAsk(site, 'ef', 'items/T-1', 'Triaged: folded in');
+  await writeReply(site, 'ef', 'Taking the new round.');
+  await writeReply(site, 'ea', 'Answering the first.');
+  await post();
+  assert.deepEqual(inThread(world, second), ['🤖 Taking the new round.\n- :robot_face:']);
+  assert.deepEqual(inThread(world, asked), ['🤖 Answering the first.\n- :robot_face:']);
+  // A later message in the folded thread lands on the task, and its reply goes back there.
+  const later = slack.say({ channel: 'D2', user: 'U2', text: 'and the tests too', thread_ts: second });
+  const { copied } = await followSlackAsks({ boards, fetch: slack.fetch });
+  assert.deepEqual(copied, ['orch items/T-1: Bob']);
+  const landed = jsonLines(eventsFile).find((e) => e.kind === 'item-message' && e.data.sendId === `slack:D2:${later}`);
+  assert.ok(landed);
+  await writeReply(site, landed.id, 'On it.');
+  await post();
+  assert.deepEqual(inThread(world, second).slice(2), ['🤖 On it.\n- :robot_face:']);
+  assert.equal(inThread(world, asked).length, 1);
 });

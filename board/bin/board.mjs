@@ -1050,7 +1050,7 @@ const renderCheck = () => (process.env.KICKFLIP_RENDER_CHECK === 'off' ? undefin
 // A reply to an event, queued to its Slack thread when the event came from Slack (docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md).
 async function replyToEvent(site, id, md, title) {
   const { slack, ...written } = await store.writeReply(site, id, md, title);
-  if (slack) await slackStore.queueSlackReply(site, slack.key, slack.name);
+  if (slack) await slackStore.queueSlackReply(site, slack.key, slack.name, slack.thread);
   return written;
 }
 async function withQuestions(site, f, post, task) {

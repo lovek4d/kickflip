@@ -184,9 +184,9 @@ test("each later reply in a Slack-filed task's thread lands on the task once: th
   world.messages.push({ channel: 'D2', user: 'U2', text: 'Here', thread_ts: asked, ts: shot, files: [{ name: 'trace.png', permalink: 'https://acme.slack.com/files/U2/F1/trace.png' }] });
   assert.deepEqual(await follow(slack), { copied: ['orch items/T-1: Bob', 'orch items/T-1: Love', 'orch items/T-1: Love', 'orch items/T-1: Bob'], failed: [] });
   assert.deepEqual(messageEvents().map((e) => e.data), [
-    { key: 'items/T-1', text: 'Still 500s for @Love after the deploy', sendId: `slack:D2:${theirs}`, slack: { by: 'Bob', link: link(world, 'D2', theirs, asked) } },
-    { key: 'items/T-1', text: '@kickflip check the logs too', sendId: `slack:D2:${named}`, slack: { link: link(world, 'D2', named, asked) } },
-    { key: 'items/T-1', text: 'Here\ntrace.png: https://acme.slack.com/files/U2/F1/trace.png', sendId: `slack:D2:${shot}`, slack: { by: 'Bob', link: link(world, 'D2', shot, asked) } },
+    { key: 'items/T-1', text: 'Still 500s for @Love after the deploy', sendId: `slack:D2:${theirs}`, slack: { by: 'Bob', link: link(world, 'D2', theirs, asked), thread: { channel: 'D2', thread_ts: asked } } },
+    { key: 'items/T-1', text: '@kickflip check the logs too', sendId: `slack:D2:${named}`, slack: { link: link(world, 'D2', named, asked), thread: { channel: 'D2', thread_ts: asked } } },
+    { key: 'items/T-1', text: 'Here\ntrace.png: https://acme.slack.com/files/U2/F1/trace.png', sendId: `slack:D2:${shot}`, slack: { by: 'Bob', link: link(world, 'D2', shot, asked), thread: { channel: 'D2', thread_ts: asked } } },
   ]);
   assert.deepEqual(threadLines().map((m) => [m.who, m.via, m.text, m.link]), [['love', 'slack', 'Seen, thanks', link(world, 'D2', plain, asked)]]);
   slack.calls.length = 0;

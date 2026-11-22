@@ -16,7 +16,7 @@ import { hasPR } from '../shared/card-prs.mjs';
 import { BoardError, fail, needSite, text, cardTitle, domId } from './checks.mjs';
 import { settingsOf, boardRepoOf, boardTarget } from './settings.mjs';
 import { freeNotesName, writeNotesFile, ownerMark, dropOwed, resolveAnsweredOn } from './questions.mjs';
-import { threadFile, ownerFile, parseKey, loadItemFile, loadItem, readAgents, replyFilesOf, freshenPush, uploadsDir, uploadMeta, STORED, appendStatus, appendMessage, messageText, askLinksFile, readAskLinks, cardName, askCardOf, checkAsk, placeIn, leftTodo, depKey, depList, parentKey, relatedKeys, UNSOURCED, SPLIT_NEEDS_PARENT, refuseAskedSplit, refuseUnborn, replyFirst, refuseUnlinked, askWordsOf, refuseUnplaced, linkedWith, linksOf, postLinkLines, nextTaskId, ticketWrite, setItem, blockLines } from './cards.mjs';
+import { threadFile, ownerFile, parseKey, loadItemFile, loadItem, readAgents, replyFilesOf, freshenPush, uploadsDir, uploadMeta, STORED, appendStatus, appendMessage, messageText, askLinksFile, readAskLinks, cardName, askCardOf, askTaskOf, checkAsk, placeIn, leftTodo, depKey, depList, parentKey, relatedKeys, UNSOURCED, SPLIT_NEEDS_PARENT, refuseAskedSplit, refuseUnborn, replyFirst, refuseUnlinked, askWordsOf, refuseUnplaced, linkedWith, linksOf, postLinkLines, nextTaskId, ticketWrite, setItem, blockLines } from './cards.mjs';
 
 const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
@@ -39,8 +39,13 @@ export async function writeReply(site, eventId, md, title) {
   await replace(file, text(md, 'the reply'));
   // docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md: slack is the reply for the caller to
   // queue to its Slack thread (slack-store.mjs queueSlackReply), or null.
-  const slack = key && !key.startsWith('ask:') && slackSourced(event) && (card || await loadItem(site, key)).item.lane !== 'done' ? { key, name: path.basename(file, '.md') } : null;
-  const lines = key ? await freshenPush(site, key, md) : [];
+  // A folded ask's task is the one it was folded into; its reply goes to the ask's own thread (thread).
+  const task = event.kind === 'ask' ? await askTaskOf(site, eventId) : null;
+  const taskKey = task ? task.key : key;
+  const thread = event.kind === 'ask' ? event.data?.routed?.slack : event.data?.slack?.thread;
+  const slack = taskKey && !taskKey.startsWith('ask:') && slackSourced(event) && (task?.item || (await loadItem(site, taskKey)).item).lane !== 'done'
+    ? { key: taskKey, name: path.basename(file, '.md'), ...(thread ? { thread: { channel: thread.channel, thread_ts: thread.thread_ts } } : {}) } : null;
+  const lines = taskKey ? await freshenPush(site, taskKey, md) : [];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   if (card) lines.push(...await resolveAnsweredOn(site, `item:${card.key}`, 'Acted on: replied'));
   return { file, lines, slack };
@@ -296,8 +301,9 @@ export async function refuseFiled(site, eventId, key) {
 // The messages on card key nobody has answered, each {id, from}: its ask and the owner's or Slack's messages on it,
 // with no reply file and no plain orchestrator message after it. from reads "Slack · <name>" or "board".
 export async function unansweredOn(site, key, item) {
+  const links = await readAskLinks(site);
   const events = (await readLog(path.join(site, 'data', 'events.jsonl')))
-    .filter((e) => (e.kind === 'ask' && e.id === item.from_ask && !e.data?.asked) || (e.kind === 'item-message' && e.data?.key === key && !e.data?.intent));
+    .filter((e) => (e.kind === 'ask' && (e.id === item.from_ask || routeRecord(links, e.id) === key) && !e.data?.asked) || (e.kind === 'item-message' && e.data?.key === key && !e.data?.intent));
   const said = (await readLog(threadFile(site, key))).filter((m) => (m.who || 'claude') === 'claude' && !m.kind && !m.command).map((m) => String(m.ts)).sort().pop() || '';
   const open = [];
   for (const e of events) {
