@@ -129,18 +129,17 @@
     const { iconText, GEAR, BULB } = globalThis.BoardUI;
     const s = JOIN_STATES[state];
     const row = (attrs, icon, name, right, tag = 'button') => `<${tag} role="menuitem" class="board-menu-item" ${attrs}>${icon}<span>${name}</span>${right}</${tag}>`;
-    const chevron = '<span class="it chev" aria-hidden="true">›</span>';
     const rows = [row('type="button" data-join-open', TERMINAL, 'Join in terminal', iconText('dot', s.colour, s.row || s.word))];
     if (arch) {
       const day = new Date(arch.at).toLocaleDateString([], { month: 'short', day: 'numeric' });
       rows.push(row('type="button" data-arch-sheet aria-haspopup="dialog"', BULB, 'Repo review', arch.running ? iconText('dot', 'orange', 'Running') : iconText('dot', 'grey', arch.at ? `Last review ${day}` : 'No review yet')));
     }
     if (pause) {
-      rows.push(!pause.paused ? row('type="button" data-pause-open aria-haspopup="dialog"', PAUSE, 'Pause', `${iconText('dot', 'green', 'Running')}${chevron}`)
+      rows.push(!pause.paused ? row('type="button" data-pause-open aria-haspopup="dialog"', PAUSE, 'Pause', iconText('dot', 'green', 'Running'))
         : pause.mine ? row('type="button" data-pause-resume', PLAY, 'Resume', iconText('dot', 'grey', `Paused ${pause.words}`))
         : row('type="button" aria-disabled="true" disabled', PAUSE, 'Pause', iconText('dot', 'grey', `Paused ${pause.words}`)));
     }
-    rows.push(row(`href="settings.html" id="settingsLink" aria-haspopup="dialog"${settings ? '' : ' aria-disabled="true" tabindex="-1"'}`, GEAR, 'Settings', chevron, 'a'));
+    rows.push(row(`href="settings.html" id="settingsLink" aria-haspopup="dialog"${settings ? '' : ' aria-disabled="true" tabindex="-1"'}`, GEAR, 'Settings', '', 'a'));
     return rows.join('');
   };
   // The sheet's inside: the state, the command with Copy (greyed with Wake while asleep, Wake's spinner with no text

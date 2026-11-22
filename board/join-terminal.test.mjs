@@ -109,6 +109,7 @@ test("the board menu lists Join in terminal, Repo review, Pause and Settings in 
   assert.match(menu, /<a role="menuitem" class="board-menu-item" href="settings\.html" id="settingsLink" aria-haspopup="dialog">/);
   assert.match(menu, /data-arch-sheet[\s\S]*it-grey[\s\S]*Last review Nov 12/);
   assert.match(menu, /data-pause-open[\s\S]*it-green[\s\S]*Running/);
+  assert.doesNotMatch(menu, /chev|›/);
 });
 
 test("the menu's Settings is greyed until the header's controls are on, Repo review is absent without a repo and reads Running in orange while a review runs", () => {
