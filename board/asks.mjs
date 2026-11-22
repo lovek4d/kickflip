@@ -16,7 +16,7 @@ import { hasPR } from '../shared/card-prs.mjs';
 import { BoardError, fail, needSite, text, cardTitle, domId } from './checks.mjs';
 import { settingsOf, boardRepoOf, boardTarget } from './settings.mjs';
 import { freeNotesName, writeNotesFile, ownerMark, dropOwed, resolveAnsweredOn } from './questions.mjs';
-import { threadFile, ownerFile, parseKey, loadItemFile, loadItem, readAgents, replyFilesOf, freshenPush, uploadsDir, uploadMeta, STORED, appendStatus, appendMessage, messageText, askLinksFile, readAskLinks, cardName, askCardOf, checkAsk, placeIn, leftTodo, depKey, depList, parentKey, relatedKeys, UNSOURCED, SPLIT_NEEDS_PARENT, refuseUnborn, replyFirst, refuseUnlinked, askWordsOf, refuseUnplaced, linkedWith, linksOf, postLinkLines, nextTaskId, ticketWrite, setItem, blockLines } from './cards.mjs';
+import { threadFile, ownerFile, parseKey, loadItemFile, loadItem, readAgents, replyFilesOf, freshenPush, uploadsDir, uploadMeta, STORED, appendStatus, appendMessage, messageText, askLinksFile, readAskLinks, cardName, askCardOf, checkAsk, placeIn, leftTodo, depKey, depList, parentKey, relatedKeys, UNSOURCED, SPLIT_NEEDS_PARENT, refuseAskedSplit, refuseUnborn, replyFirst, refuseUnlinked, askWordsOf, refuseUnplaced, linkedWith, linksOf, postLinkLines, nextTaskId, ticketWrite, setItem, blockLines } from './cards.mjs';
 
 const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
@@ -107,6 +107,7 @@ export async function askItem(site, file, { text: request, parent, split, relate
   await loadItemFile(site, file);
   const links = {};
   if (parent !== undefined) Object.assign(links, { parent: await parentKey(site, file, null, parent) || fail('--parent takes a task, such as <file>/<id>'), via: split ? 'split' : 'from' });
+  if (split) await refuseAskedSplit(site, file, links.parent);
   if (relate !== undefined) links.related = await relatedKeys(site, file, relate, '--relate');
   if (deps !== undefined) links.deps = (await depList(site, file, deps)).map((d) => depKey(file, d));
   if (before !== undefined) links.before = (await depList(site, file, before)).map((d) => depKey(file, d));

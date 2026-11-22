@@ -102,13 +102,15 @@ export async function setServes(value, home = os.homedir()) {
 }
 
 // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
-// Hub settings' Board defaults: Auto serve, Auto review, Auto-merge and Idle notification, settings.json's boardDefaults
-// keyed as board.json keys them. A board takes each unless its board.json sets that key (board/settings.mjs settingsOf).
-// A key unset here is off.
-export const BOARD_DEFAULT_KEYS = ['auto_build', 'auto_review', 'auto_merge', 'idle_notification'];
+// Hub settings' Board defaults: Auto serve, Auto review, Auto-merge, Idle notification and Automatically stage split
+// tickets, settings.json's boardDefaults keyed as board.json keys them. A board takes each unless its board.json sets
+// that key (board/settings.mjs settingsOf). A key unset here reads its built-in: stage_splits on
+// (docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md), the rest off.
+export const BOARD_DEFAULT_BUILT_INS = { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true };
+export const BOARD_DEFAULT_KEYS = Object.keys(BOARD_DEFAULT_BUILT_INS);
 export const readBoardDefaults = (home = os.homedir()) => {
   const stored = read(home).boardDefaults;
-  return Object.fromEntries(BOARD_DEFAULT_KEYS.map((k) => [k, stored?.[k] === true]));
+  return Object.fromEntries(BOARD_DEFAULT_KEYS.map((k) => [k, typeof stored?.[k] === 'boolean' ? stored[k] : BOARD_DEFAULT_BUILT_INS[k]]));
 };
 // value: on, off, or a boolean. Throws {status: 400} for another key or value.
 export async function setBoardDefault(key, value, home = os.homedir()) {

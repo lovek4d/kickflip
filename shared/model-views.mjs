@@ -47,6 +47,11 @@ const AUTO = {
     on: 'Pushes once when a board has been idle for 15 minutes, with what closed since the last one.',
     off: 'No push when a board goes idle.',
   }],
+  // docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md
+  stage_splits: ['Automatically stage split tickets', {
+    on: 'When the orchestrator splits a task you approved, each split lands in Todo as staged, skipping New.',
+    off: 'Each split of a task you approved comes in as an ask through New, which the orchestrator sorts.',
+  }],
 };
 // defaults: shared/hub-settings.mjs readBoardDefaults. → one view per Auto setting, named by its board.json key.
 export const autoViews = (defaults) => Object.entries(AUTO).map(([key, [label, words]]) => view(key, label, words, defaults[key] ? 'on' : 'off'));

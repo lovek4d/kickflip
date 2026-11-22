@@ -286,7 +286,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body,
       });
       const on = (hub, name) => hub.boardDefaults.auto.find((v) => v.name === name).value;
-      assert.deepEqual((await getHub()).boardDefaults.auto.map((v) => [v.label, v.value]), [['Auto serve', 'off'], ['Auto review', 'off'], ['Auto-merge', 'off'], ['Idle notification', 'off']]);
+      assert.deepEqual((await getHub()).boardDefaults.auto.map((v) => [v.label, v.value]), [['Auto serve', 'off'], ['Auto review', 'off'], ['Auto-merge', 'off'], ['Idle notification', 'off'], ['Automatically stage split tickets', 'on']]);
       const r = await post('auto-review', 'value=on');
       assert.equal(r.status, 200);
       assert.equal(on(await r.json(), 'auto_review'), 'on');

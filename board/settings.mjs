@@ -4,7 +4,7 @@
 import path from 'node:path';
 import { appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { pauseEnd } from '../shared/usage-gate.mjs';
-import { settingsFile as hubSettingsFile, BOARD_DEFAULT_KEYS, readBoardDefaults, setBoardDefault, read as readHubSettings, update as updateHubSettings } from '../shared/hub-settings.mjs';
+import { settingsFile as hubSettingsFile, BOARD_DEFAULT_KEYS, BOARD_DEFAULT_BUILT_INS, readBoardDefaults, setBoardDefault, read as readHubSettings, update as updateHubSettings } from '../shared/hub-settings.mjs';
 import { ticketSource } from './tickets.mjs';
 import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { itemSources, readJSON, readLog, writeJSON } from './files.mjs';
@@ -118,7 +118,8 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
 const validGithubLogin = (value) => typeof value === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value);
 export const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
 // A board's settings in board.json (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
-// auto_build, auto_review and idle_notification, each the board's override when board.json sets it, else defaults, Hub
+// auto_build, auto_review, idle_notification and stage_splits
+// (docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md), each the board's override when board.json sets it, else defaults, Hub
 // settings' Board defaults (docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md), skip_draft, off when
 // absent (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md), prs, on unless false, and on the hub board (board is its listBoards
 // entry, `hub: true`) off unless true (opensPRs; docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md,
@@ -132,7 +133,7 @@ export const settingsOf = (cfg, board, defaults = readBoardDefaults()) => {
   const tickets = storedTickets(cfg?.tickets);
   const auto = (k) => (typeof cfg?.[k] === 'boolean' ? cfg[k] : defaults[k]);
   return { auto_merge: auto('auto_merge'), auto_build: auto('auto_build'), auto_review: auto('auto_review'),
-    idle_notification: auto('idle_notification'), skip_draft: cfg?.skip_draft === true, prs: board?.hub ? cfg?.prs === true : cfg?.prs !== false,
+    idle_notification: auto('idle_notification'), stage_splits: auto('stage_splits'), skip_draft: cfg?.skip_draft === true, prs: board?.hub ? cfg?.prs === true : cfg?.prs !== false,
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}),
     ...(validBuildTarget(cfg?.build_target) ? { build_target: cfg.build_target } : {}),
     ...(kickflipHeld(cfg) ? { scripts: 'kickflip' } : {}) };
@@ -227,7 +228,7 @@ export async function refuseSecondProposal(site, title) {
 // listBoards entry or hub/board-repo.mjs boardRepo's answer, settings settingsOf's.
 export const opensPRs = (board, settings) => Boolean(board?.github) && (!board.local || board.hub === true) && settings.prs;
 
-// changes {auto_merge?: boolean | null, auto_build?: boolean | null, auto_review?: boolean | null, idle_notification?: boolean | null (null drops the
+// changes {auto_merge?: boolean | null, auto_build?: boolean | null, auto_review?: boolean | null, idle_notification?: boolean | null, stage_splits?: boolean | null (null drops the
 // override, so the board takes the hub's Board default), skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null, build_target?: target | null, scripts?: 'repo' | 'kickflip'} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
 // then pushes main (permissions.mjs pushMain). Each save drops tool_use, the retired Tool use setting, which nothing
@@ -238,7 +239,7 @@ export const opensPRs = (board, settings) => Boolean(board?.github) && (!board.l
 // hub's alone (docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md,
 // docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md).
 export async function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login', 'build_target', 'scripts'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_review', 'idle_notification', 'stage_splits', 'skip_draft', 'prs', 'tickets', 'github_login', 'build_target', 'scripts'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -297,7 +298,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets', 'build_target', 'scripts'];
+  const names = ['auto_merge', 'auto_build', 'auto_review', 'idle_notification', 'stage_splits', 'skip_draft', 'prs', 'github_login', 'tickets', 'build_target', 'scripts'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -324,10 +325,12 @@ export async function setBoardSetting(site, name, value) {
   return { file, lines: [`${name} ${value === 'default' ? `default (${word})` : word}`] };
 }
 // Hub settings' Board defaults row for key: saves the hub's value, then tells each board that takes it, with no override,
-// as Board Settings' toggle would (server.mjs POST /api/settings): a settings event, but none for idle_notification,
-// which only the board server acts on, and check-github when auto_merge turned on. A board whose value didn't move hears
+// as Board Settings' toggle would (server.mjs POST /api/settings): a settings event, but none for SILENT_DEFAULTS, and check-github when auto_merge turned on. A board whose value didn't move hears
 // nothing. → one `/<route>: <key> on|off` line per board that takes it, saying so when its events couldn't be added.
 // Throws setBoardDefault's {status: 400} for another key or value.
+// The Board defaults no session acts on, so a change wakes none: idle_notification, which only the board server acts on,
+// and stage_splits, which item add checks as it files (cards.mjs).
+export const SILENT_DEFAULTS = ['idle_notification', 'stage_splits'];
 export async function saveBoardDefault(key, value) {
   const before = readBoardDefaults();
   const on = await setBoardDefault(key, value);
@@ -336,7 +339,7 @@ export async function saveBoardDefault(key, value) {
     if (key in overridesOf(await readBoardJSON(board.dir))) continue;
     const line = `/${board.route}: ${key.replace(/_/g, '-')} ${on ? 'on' : 'off'}`;
     try {
-      if (before[key] !== on && key !== 'idle_notification') await appendEvent(board, 'settings', { [key]: on });
+      if (before[key] !== on && !SILENT_DEFAULTS.includes(key)) await appendEvent(board, 'settings', { [key]: on });
       if (before[key] !== on && key === 'auto_merge' && on) await appendEvent(board, 'check-github', { reason: 'auto-merge' });
       lines.push(line);
     } catch (e) { lines.push(`${line}, but its session wasn't told (${e.message})`); }
@@ -345,16 +348,17 @@ export async function saveBoardDefault(key, value) {
 }
 
 // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
-// Once, before settings.json has boardDefaults: the hub defaults start at the built-ins, all off, so each board in the
-// manifest drops the Board defaults keys it stores off, and keeps those it stores on as overrides. → one line per board changed
+// Once, before settings.json has boardDefaults: the hub defaults start at the built-ins, so each board in the manifest
+// drops the Board defaults keys it stores at their built-in, off, and keeps the rest as overrides. → one line per board changed
 export async function migrateBoardDefaults() {
   if (readHubSettings().boardDefaults) return [];
   const lines = [];
   for (const board of listBoards()) {
     const stored = await readBoardJSON(board.dir);
-    if (!BOARD_DEFAULT_KEYS.some((k) => stored[k] === false)) continue;
+    const atBuiltIn = (cfg) => BOARD_DEFAULT_KEYS.filter((k) => cfg[k] === false && BOARD_DEFAULT_BUILT_INS[k] === false);
+    if (!atBuiltIn(stored).length) continue;
     const { dropped } = await writeBoardJSON(board.dir, (cfg) => {
-      const dropped = BOARD_DEFAULT_KEYS.filter((k) => cfg[k] === false);
+      const dropped = atBuiltIn(cfg);
       return { set: Object.fromEntries(dropped.map((k) => [k, undefined])), dropped };
     });
     if (dropped.length) lines.push(`/${board.route}: ${dropped.map((k) => k.replace(/_/g, '-')).join(' and ')} follow${dropped.length > 1 ? '' : 's'} the hub default`);

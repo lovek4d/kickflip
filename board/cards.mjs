@@ -28,7 +28,7 @@ import { allLanded, cardPRs, hasPR, parsePRRef, prNames, storedPRs } from '../sh
 import { reviewersOf } from './review.mjs';
 import { parseCheck, checkText } from '../shared/owner-check.mjs';
 import { BoardError, fail, needSite, text, optional, cardTitle, pageUrl, domId } from './checks.mjs';
-import { storedTickets, settingsOf, markDescription, refuseSecondProposal, boardRepoOf, boardTarget } from './settings.mjs';
+import { storedTickets, settingsOf, readBoardSettings, markDescription, refuseSecondProposal, boardRepoOf, boardTarget } from './settings.mjs';
 import { leaveNew, refuseFiled, inIntake, IMPLEMENT_NOT_FILED, refuseMoved } from './asks.mjs';
 import { pageServed, publishStaged, cardOfTopic, noteStamp, freeNotesName, writeNotesFile, appendNotes, refuseCardNotes, DRAFT_HINT, markWaiting, readiedText, owe, dropOwed, cardQuestions, resolveAnswered, hasOpenQuestion, setNext, closeQuestions, unpickedPrototype, clip, ownerQuote, planPath, itemNotes } from './questions.mjs';
 import { onlyRebased, requestPause, isLanding, clearRefusal, builderFiles, closeBuilders } from './runs.mjs';
@@ -662,7 +662,7 @@ const AGENT_PHASE_LIST = 'ready, discussing, grilling or prototyping';
 const PLANNED = ['grilling', 'prototyping'];
 function checkPhase(phase, state) {
   if (state !== undefined) fail(`--state is now --phase: pass --phase ${AGENT_PHASES.includes(state) ? state : AGENT_PHASE_LIST}`);
-  if (phase === 'staging') fail(`--phase staging is set by the board, on an owner action; pass ${AGENT_PHASE_LIST}`);
+  if (phase === 'staging') fail(`--phase staging is set by the board, on an owner action, or with --parent --split on item add for a split of a staged task; pass ${AGENT_PHASE_LIST}`);
   if (phase !== undefined && !AGENT_PHASES.includes(phase)) fail(`--phase takes ${AGENT_PHASE_LIST}`);
 }
 const FROM_ASK_PHASE = '--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling or prototyping, or --blocked to file it for later';
@@ -1438,6 +1438,20 @@ export async function relatedKeys(site, key, value, flag) {
 
 // docs/adr/2026-11-16-1700-a-filed-task-links-where-it-came-from-and-the-tasks-it-names.md
 export const UNSOURCED = 'a task you file names where it came from';
+// docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md: a split of a staged task, one the owner
+// approved, files straight into Todo as staging while the board's Automatically stage split tickets is on (settings.mjs
+// settingsOf stage_splits); otherwise it comes in as an ask through New. parent is the split task's full key.
+const stagesSplits = async (site, parent) => (await loadItem(site, parent)).item.phase === 'staging' && (await readBoardSettings(site)).stage_splits;
+const ASK_SPLIT = (slug, parent) => `item add ${slug} --ask "<its slice>" --parent ${parent} --split, which triage titles, notes and sorts`;
+async function refuseUnstagedSplit(site, slug, parent) {
+  const { phase } = (await loadItem(site, parent)).item;
+  if (phase !== 'staging') fail(`${parent} reads ${phase || 'new'}, not staging, so its split files as an ask: ${ASK_SPLIT(slug, parent)}`);
+  if (!(await readBoardSettings(site)).stage_splits) fail(`Automatically stage split tickets is off on this board: ${ASK_SPLIT(slug, parent)}`);
+}
+// item add --ask --split of parent, refused while its split files staged.
+export async function refuseAskedSplit(site, slug, parent) {
+  if (await stagesSplits(site, parent)) fail(`${parent} is staged and Automatically stage split tickets is on: file it staged, item add ${slug} --title "<its title>" --notes-from <its slice.md> --parent ${parent} --split --phase staging`);
+}
 export const SPLIT_NEEDS_PARENT = "--split copies the Parent's gates, so it goes with --parent <the task split>";
 // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a split child keeps the answers its parent's grill got.
 async function copyGates(site, item) {
@@ -1844,7 +1858,9 @@ export async function blockLines(site, added, blocked, deps, options) {
 async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, block, parent, split, size, model, phase, state, relate, fromAsk, text: said, implement, intake = false, filed = false, replyOn }, options) {
   const { file: slug, id } = key.includes('/') ? parseKey(key) : { file: key };
   if (id !== undefined) domId(id, 'the item id');
-  checkPhase(phase, state);
+  // docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md: the one staging an agent files.
+  const stagedSplit = phase === 'staging' && split && parent !== undefined && intake && Boolean(site);
+  checkPhase(stagedSplit ? undefined : phase, state);
   if (said !== undefined) text(said, '--text');
   // docs/adr/2026-11-13-2050-a-task-filed-by-the-orchestrator-opens-with-its-first-message.md
   if (said !== undefined && fromAsk === undefined && phase !== 'discussing') fail('--text goes with --from-ask, or with --phase discussing');
@@ -1852,11 +1868,11 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   if (ticket !== undefined && newTicket) fail('pass --ticket <id> to link a ticket or --new-ticket to make one, not both');
   // docs/adr/2026-11-16-1100-a-task-the-orchestrator-files-comes-in-as-an-ask-through-new.md
   if (split && parent === undefined) fail(SPLIT_NEEDS_PARENT);
-  if (intake && site && parent !== undefined) fail(`a task filed from another comes in as an ask: item add ${slug} --ask "<the request>" --parent ${parent}${split ? ' --split' : ''}, which triage titles, notes and sorts`);
+  if (intake && site && parent !== undefined && !stagedSplit) fail(`a task filed from another comes in as an ask: item add ${slug} --ask "<the request>" --parent ${parent}${split ? ' --split' : ''}, which triage titles, notes and sorts`);
   // docs/adr/2026-11-16-1700-a-filed-task-links-where-it-came-from-and-the-tasks-it-names.md: a task of your own names
   // the tasks it touches; the owner's (an ask's filing, an imported ticket) need not.
   const imported = ticket !== undefined || (id !== undefined && Boolean(ticketNamed(await boardSource(site), id)));
-  if (filed && fromAsk === undefined && !imported && relate === undefined) fail(`${UNSOURCED}: pass --relate <the tasks it touches>, or file one from another task with item add ${slug} --ask "<the request>" --parent <that task>`);
+  if (filed && fromAsk === undefined && !imported && !stagedSplit && relate === undefined) fail(`${UNSOURCED}: pass --relate <the tasks it touches>, or file one from another task with item add ${slug} --ask "<the request>" --parent <that task>`);
   // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
@@ -1876,6 +1892,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   // An agent's card is titled Conventionally; the board's own (an architecture review's) waits for a retitle before its build.
   const item = { id, title: intake ? cardTitle(title) : text(title, '--title'), created, lane: 'todo', lane_at: created };
   if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a task, such as <file>/<id>');
+  if (stagedSplit) await refuseUnstagedSplit(site, slug, item.parent);
   // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a split child keeps the answers its parent's grill got.
   if (split) await copyGates(site, item);
   if (notes !== undefined && notesFrom !== undefined) fail('pass --notes or --notes-from, not both');
@@ -1899,6 +1916,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   const opened = phase === undefined && !ask && Boolean(site);
   if (phase !== undefined) item.phase = phase;
   else if (opened) item.phase = 'discussing';
+  if (phase === 'staging') item.staged_at = created;
   if (PLANNED.includes(phase)) owe(item, phase === 'grilling' ? 'grill' : 'prototype');
   // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: an id in the source's own form names the ticket to link.
   const named = id === undefined ? null : ticketNamed(await boardSource(site), id);
@@ -1923,6 +1941,13 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
     if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   }
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), { spunOut: true });
+  // Restaged after its link lines, so Marked as staged is its newest; the line and the wait share one moment, as stage
+  // writes them (domain.mjs markWaitStarts).
+  if (phase === 'staging') {
+    item.staged_at = new Date().toISOString();
+    await writeJSON(source.file, itemFile);
+    await appendCommand(site, added, { command: 'staged', ts: item.staged_at });
+  }
   if (said !== undefined && !ask) await appendMessage(site, added, { text: said });
   if (implement) await markWaiting(site, added, 'implement');
   if (proposes) await markDescription(site, { description_proposal: added, description_checked_at: created });

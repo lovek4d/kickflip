@@ -464,6 +464,9 @@
           : on ? 'Saved. Each verified task lands on the base branch by itself.' : 'Saved. Each verified task waits for your Merge.') },
       { key: 'idle_notification', label: 'Idle notification', sub: () => 'Pushes once when the board has been idle for 15 minutes, with what closed since the last one.',
         saved: (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.') },
+      // docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md
+      { key: 'stage_splits', label: 'Automatically stage split tickets', sub: () => 'When the orchestrator splits a task you approved, each split lands in Todo as staged, skipping New.',
+        saved: (on) => (on ? 'Saved. Splits of a task you approved land in Todo as staged.' : 'Saved. Splits of a task you approved come in through New.') },
     ];
     // auto: {settings, overrides, defaults} from api/settings, null until it answers.
     let auto = null;

@@ -349,7 +349,7 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set turns each on|off setting on and off in board.json, keeping its other keys", async () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
+  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_review":false,"idle_notification":false,"stage_splits":true,"skip_draft":false,"prs":true}\n', err: '' });
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
   for (const name of ['auto-merge', 'auto-build', 'auto-review', 'skip-draft', 'idle-notification']) {
     const before = cfg();
@@ -593,7 +593,7 @@ test('main set publishes an install with the same URL and sha checks as card ins
 
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting stage-splits on', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });
@@ -914,7 +914,7 @@ test("an Auto setting a board doesn't set follows Hub settings' Board defaults, 
   write(site('audit', 'board.json'), { title: 'Audit', items: 'waves', auto_merge: false });
   write(site('orch', 'data', 'events.jsonl'), '');
   write(site('audit', 'data', 'events.jsonl'), '');
-  assert.deepEqual(readBoardDefaults(home), { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false });
+  assert.deepEqual(readBoardDefaults(home), { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true });
 
   // A hub default reaches each board that doesn't override it, and tells its session as a settings change would.
   assert.deepEqual(await saveBoardDefault('auto_merge', 'on'), ['/orch: auto-merge on']);
@@ -941,6 +941,17 @@ test("an Auto setting a board doesn't set follows Hub settings' Board defaults, 
   const same = await saveBoardSettings(site('audit'), { auto_merge: true });
   assert.deepEqual([same.changed, cfg('audit').auto_merge], [[], true], 'an override equal to the default moves nothing, and stays an override');
   assert.match((await board('settings', 'set', 'skip-draft', 'default', '--site', 'orch')).err, /takes on or off/);
+
+  // docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md: Automatically stage split tickets is
+  // on until set, overrides as the others do, and wakes no session, since item add checks it as it files.
+  assert.equal((await settings()).stage_splits, true);
+  const told = lines(site('orch', 'data', 'events.jsonl')).length;
+  assert.deepEqual(await saveBoardDefault('stage_splits', 'off'), ['/orch: stage-splits off', '/audit: stage-splits off']);
+  assert.equal((await settings()).stage_splits, false);
+  assert.deepEqual(await board('settings', 'set', 'stage-splits', 'on', '--site', 'orch'), { code: 0, out: 'stage-splits on\n', err: '' });
+  assert.deepEqual([(await settings()).stage_splits, overridesOf(cfg())], [true, { stage_splits: true }]);
+  assert.deepEqual(await board('settings', 'set', 'stage-splits', 'default', '--site', 'orch'), { code: 0, out: 'stage-splits default (off)\n', err: '' });
+  assert.equal(lines(site('orch', 'data', 'events.jsonl')).length, told);
 });
 
 // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
@@ -951,10 +962,10 @@ test("the Board defaults migration keeps each board's Auto values that differ fr
   process.env.HOME = home;
   t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
   boardsManifest();
-  write(site('orch', 'board.json'), { title: 'Orch', auto_merge: true, auto_review: false, idle_notification: false, skip_draft: false });
+  write(site('orch', 'board.json'), { title: 'Orch', auto_merge: true, auto_review: false, idle_notification: false, stage_splits: false, skip_draft: false });
   write(site('audit', 'board.json'), { title: 'Audit' });
   assert.deepEqual(await migrateBoardDefaults(), ['/orch: auto-review and idle-notification follow the hub default']);
-  assert.deepEqual(read(site('orch', 'board.json')), { title: 'Orch', auto_merge: true, skip_draft: false });
+  assert.deepEqual(read(site('orch', 'board.json')), { title: 'Orch', auto_merge: true, stage_splits: false, skip_draft: false }, 'an Off differing from an On built-in stays an override');
   assert.deepEqual(read(site('audit', 'board.json')), { title: 'Audit' });
   assert.deepEqual(readHub(home).boardDefaults, {});
   write(site('orch', 'board.json'), { title: 'Orch', auto_review: false });

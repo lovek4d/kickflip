@@ -1674,15 +1674,15 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
-    const offs = { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false };
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true },
-      overrides: {}, defaults: offs, paused_until: null, pause_choices: [['1h', '1h', 3600_000], ['3h', '3h', 3 * 3600_000], ['6h', '6h', 6 * 3600_000], ['1d', '1d', 86400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms })) });
+    const builtIns = { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true };
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_review: false, idle_notification: false, stage_splits: true, skip_draft: false, prs: true },
+      overrides: {}, defaults: builtIns, paused_until: null, pause_choices: [['1h', '1h', 3600_000], ['3h', '3h', 3 * 3600_000], ['6h', '6h', 6 * 3600_000], ['1d', '1d', 86400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms })) });
     assert.deepEqual((await (await fetch(`${base}/api/settings`)).json()).pause_choices, (await (await fetch(`${base}/api/board`)).json()).holdChoices, "Pause board's chips are the Hold sheet's");
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true });
-    assert.deepEqual([out.overrides, out.defaults], [{ auto_merge: true }, offs]);
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_review: false, idle_notification: false, stage_splits: true, skip_draft: false, prs: true });
+    assert.deepEqual([out.overrides, out.defaults], [{ auto_merge: true }, builtIns]);
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
@@ -1866,10 +1866,10 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     const workingOn = async () => (await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w);
     assert.deepEqual(await workingOn(), [{ id: asked, kind: 'item-message', card: 'A1' }]);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
-    assert.deepEqual(lines.slice(-9, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
+    assert.deepEqual(lines.slice(-10, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting stage-splits on', 'setting skip-draft off', 'setting prs on']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(-7, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
+    assert.deepEqual((await watch('rules2')).slice(-8, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-review off', 'setting idle-notification off', 'setting stage-splits on', 'setting skip-draft off', 'setting prs on']);
     const ping = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'ping1', ts: new Date().toISOString(), kind: 'ping', data: { title: 'T' } }) + '\n');
     // A ping is record-only: the watcher acks it on its next pass and keeps running, and its line prints ahead of the
     // next event's lines.

@@ -922,8 +922,8 @@ test("the hub page's Board defaults section, right under Usage, opens with Build
   let refused = false;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1, tasksInProgress: 5, serves: 10, boardDefaults: { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false } };
-  const AUTO = { '/auto-build': 'auto_build', '/auto-review': 'auto_review', '/auto-merge': 'auto_merge', '/idle-notification': 'idle_notification' };
+  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1, tasksInProgress: 5, serves: 10, boardDefaults: { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false, stage_splits: true } };
+  const AUTO = { '/auto-build': 'auto_build', '/auto-review': 'auto_review', '/auto-merge': 'auto_merge', '/idle-notification': 'idle_notification', '/stage-splits': 'stage_splits' };
   const hub = (claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare: 'off', codex: USABLE, ...saved,
     sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
   const context = vm.createContext({
@@ -968,7 +968,7 @@ test("the hub page's Board defaults section, right under Usage, opens with Build
   assert.equal(claude().querySelectorAll('.model-label').length, 0, 'Usage keeps no model control');
   assert.equal(root.querySelector('section.usage').nextSibling, defaults());
   assert.equal(defaults().querySelector('h2').textContent, 'Board defaults');
-  assert.deepEqual(defaults().querySelectorAll('.model-label').map((el) => el.textContent), ['Builders', 'Orchestrators', 'Auto serve', 'Auto review', 'Auto-merge', 'Idle notification']);
+  assert.deepEqual(defaults().querySelectorAll('.model-label').map((el) => el.textContent), ['Builders', 'Orchestrators', 'Auto serve', 'Auto review', 'Auto-merge', 'Idle notification', 'Automatically stage split tickets']);
   assert.deepEqual([control('builders').getAttribute('aria-label'), control('builders').getAttribute('action')], ['Builders', '/_hub/settings/claude-model']);
   assert.deepEqual([control('orchestrators').getAttribute('aria-label'), control('orchestrators').getAttribute('action')], ['Orchestrators', '/_hub/settings/orchestrator-model']);
   assert.deepEqual(control('builders').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Auto', 'Sonnet']);
@@ -994,6 +994,11 @@ test("the hub page's Board defaults section, right under Usage, opens with Build
   assert.deepEqual([selected('auto_merge'), desc('auto_merge')], ['on', 'Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch.']);
   await submit('on', 'idle_notification');
   assert.deepEqual([posts.at(-1).url, selected('idle_notification'), selected('auto_build')], ['/_hub/settings/idle-notification', 'on', 'off']);
+  // docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md: on until the owner turns it off.
+  assert.deepEqual([selected('stage_splits'), desc('stage_splits')], ['on', 'When the orchestrator splits a task you approved, each split lands in Todo as staged, skipping New.']);
+  await submit('off', 'stage_splits');
+  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString(), selected('stage_splits'), desc('stage_splits')],
+    ['/_hub/settings/stage-splits', 'value=off', 'off', 'Each split of a task you approved comes in as an ask through New, which the orchestrator sorts.']);
   // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md: the hub's numbers step from the Capacity
   // section right below Board defaults.
   assert.equal(defaults().nextSibling, root.querySelector('section.capacity'));

@@ -5,7 +5,7 @@
 // the other files below through bin/board.mjs (store.mjs). Every write goes through files.mjs, as every process's does:
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_review, idle_notification, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, rules, auto_merge, auto_build, auto_review, idle_notification, stage_splits, skip_draft, prs, github_login, build_target, scripts}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // build_target names the script, build-<target>, else build; scripts, kickflip, runs the scripts from the site's scripts/,
 // else from the repo's .kickflip/ (build-script.mjs scriptFileOf).
@@ -291,7 +291,7 @@
 //                                schedules (schedules.mjs), last_ref the ref of the task the last fire filed, or null
 //   POST /api/schedules          {id, text?, cadence?} rewords or re-cadences one, or {id, remove: true} removes it, waking
 //                                no session → the same answer; an unknown id or a bad cadence → 400 {error}
-//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_review, idle_notification, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
+//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_review, idle_notification, stage_splits, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
 //                                overrides: the Board defaults board.json sets, {key: value} (settings.mjs overridesOf), defaults: Hub settings' Board defaults,
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets), or in its site's scripts/ while its scripts are in kickflip
@@ -303,8 +303,8 @@
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (settings.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
-//   POST /api/settings           {auto_merge?: boolean | null, auto_build?: boolean | null, auto_review?: boolean | null, idle_notification?: boolean | null (null takes the Board default), skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
-//                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
+//   POST /api/settings           {auto_merge?: boolean | null, auto_build?: boolean | null, auto_review?: boolean | null, idle_notification?: boolean | null, stage_splits?: boolean | null (null takes the Board default), skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
+//                                than a silent Board default (settings.mjs SILENT_DEFAULTS) moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, overrides, defaults, id}; a bad body → 400 {error}
 //   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused, unavailable}]}: the board's session
 //                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); unavailable
@@ -385,7 +385,7 @@ import { draftOf, pruneDrafts, readDrafts, saveDraft } from './drafts.mjs';
 import { cardName, readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
 import { heldReview, applyReviewAnswer, dropAskCard, withdrawRefused, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
-import { finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf, overridesOf, readBoardJSON } from './settings.mjs';
+import { SILENT_DEFAULTS, finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf, overridesOf, readBoardJSON } from './settings.mjs';
 import { noteLoggedOut, dropPause, markPaused, passNews, requestPause, openAgents, implementAsIs, clearStall } from './runs.mjs';
 import { runMigrations } from './migrations.mjs';
 import { fireSchedules, readSchedules, setSchedule, removeSchedule } from './schedules.mjs';
@@ -1389,8 +1389,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const body = await readBody(req);
         let saved;
         try { saved = await saveBoardSettings(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
-        // The board server alone acts on idle_notification (checkIdle), so it wakes no session.
-        const told = saved.changed.filter((k) => k !== 'idle_notification');
+        // A silent Board default, such as idle_notification, which the board server alone acts on (checkIdle), wakes no session.
+        const told = saved.changed.filter((k) => !SILENT_DEFAULTS.includes(k));
         // A setting cleared back to its default, such as build_target, reads null.
         const id = told.length ? await appendEvent('settings', Object.fromEntries(told.map((k) => [k, saved.settings[k] ?? null]))) : null;
         // An approved PR merges on the session's GitHub tick once auto-merge is on (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).

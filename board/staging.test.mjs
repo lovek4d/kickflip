@@ -13,7 +13,7 @@ const setState = (fields, id = 'A1') => {
 };
 
 test('only the board stages a card: item set and item add refuse --phase staging', async () => {
-  const refused = '--phase staging is set by the board, on an owner action; pass ready, discussing, grilling or prototyping\n';
+  const refused = '--phase staging is set by the board, on an owner action, or with --parent --split on item add for a split of a staged task; pass ready, discussing, grilling or prototyping\n';
   assert.deepEqual(await board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'staging'), { code: 1, out: '', err: refused });
   assert.deepEqual(await board('item', 'add', 'w/B1', '--site', 'orch', '--relate', 'w/A1', '--title', 'B', '--phase', 'staging'), { code: 1, out: '', err: refused });
   assert.equal(item().phase, undefined);

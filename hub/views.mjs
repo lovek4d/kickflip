@@ -6,7 +6,7 @@ import { clock, holdLine, quietMiddle, snoozeEnd } from './schedule.mjs';
 import { CHOICES as DURATIONS, FOREVER, durationEnd, endOf } from './duration.mjs';
 import { siteIcon } from './icons.mjs';
 import { codexStatus } from '../shared/codex.mjs';
-import { BOARD_DEFAULT_KEYS, MAX_LAND_TESTS, MAX_SERVES, MAX_TASKS_IN_PROGRESS } from '../shared/hub-settings.mjs';
+import { BOARD_DEFAULT_BUILT_INS, MAX_LAND_TESTS, MAX_SERVES, MAX_TASKS_IN_PROGRESS } from '../shared/hub-settings.mjs';
 import { autoViews, buildersView, orchestratorsView } from '../shared/model-views.mjs';
 import { PR_EMOJI, SIGN_OFF_DEFAULT } from './slack.mjs';
 
@@ -75,7 +75,7 @@ const boardDefaultsView = (model, orchestrator, defaults) => ({
 // restartLines, the line a board's row adds for its last automatic restart.
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', orchestratorModel = 'opus', boardDefaults = Object.fromEntries(BOARD_DEFAULT_KEYS.map((k) => [k, false])), landTests = MAX_LAND_TESTS, tasksInProgress = MAX_TASKS_IN_PROGRESS, serves = MAX_SERVES, codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [], restarts = new Map() }) {
+export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', orchestratorModel = 'opus', boardDefaults = BOARD_DEFAULT_BUILT_INS, landTests = MAX_LAND_TESTS, tasksInProgress = MAX_TASKS_IN_PROGRESS, serves = MAX_SERVES, codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [], restarts = new Map() }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const current = Boolean(code.running && code.running === code.onDisk);
   const codeLine = current ? ` · runs the code in its files (${code.onDisk})` : '';

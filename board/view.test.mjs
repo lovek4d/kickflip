@@ -504,7 +504,7 @@ test("the board's Settings and Notes views, mounted then unmounted, leave no lis
 // dom: a mini-dom.mjs root that parses what the view draws, for a test that reads inside it.
 // overrides and defaults are the board's Auto overrides and the hub's Board defaults, off unless given, which the
 // server's settings answer carries, its settings taking the override else the default.
-const AUTO_KEYS = ['auto_build', 'auto_review', 'auto_merge', 'idle_notification'];
+const AUTO_KEYS = ['auto_build', 'auto_review', 'auto_merge', 'idle_notification', 'stage_splits'];
 function settingsPage({ settings = {}, overrides = {}, defaults = {}, board = {}, routes = {}, ctx = {}, dom = false } = {}) {
   const page = fakePage(memoryStorage().localStorage);
   const Element = dom && miniDom(page.Target, page.win.document).Element;
@@ -577,7 +577,7 @@ test("Board Settings' collapsed Overrides group counts the board's overrides in 
   assert.equal($('#overrides').tagName, 'DETAILS');
   assert.equal($('#overrides').open, false, 'collapsed');
   assert.equal($('#overrides summary').textContent, 'Overrides · 1');
-  assert.deepEqual(s.root.querySelectorAll('#overrideRows .model-label').map((l) => l.textContent), ['Auto serve', 'Auto review', 'Auto-merge', 'Idle notification']);
+  assert.deepEqual(s.root.querySelectorAll('#overrideRows .model-label').map((l) => l.textContent), ['Auto serve', 'Auto review', 'Auto-merge', 'Idle notification', 'Automatically stage split tickets']);
   assert.deepEqual(row('auto_review'), [['Hub default (On)', 'true'], ['On', 'false'], ['Off', 'false']]);
   assert.deepEqual(row('auto_merge'), [['Hub default (Off)', 'false'], ['On', 'true'], ['Off', 'false']]);
   assert.match(s.root.querySelector('[data-override-row="auto_review"]').textContent, /May use a lot of usage\./);
@@ -605,6 +605,20 @@ test("Board Settings' collapsed Overrides group counts the board's overrides in 
   s.refuse = 'Cannot save';
   await tap('auto_build', 'on');
   assert.deepEqual([row('auto_build')[0][1], $('#auto_buildStatus').textContent], ['true', 'Cannot save']);
+  s.view.unmount();
+});
+
+// docs/adr/2026-11-22-2221-an-approved-tasks-splits-land-in-todo-as-staging.md
+test("Board Settings' Overrides draws Automatically stage split tickets with the hub's default, and an Off override saves at once with no question", async () => {
+  const s = await settingsPage({ dom: true, defaults: { stage_splits: true } }).mount();
+  const $ = (sel) => s.root.querySelector(sel);
+  const row = () => s.root.querySelectorAll('[data-override="stage_splits"]').map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  assert.deepEqual(row(), [['Hub default (On)', 'true'], ['On', 'false'], ['Off', 'false']]);
+  assert.match($('[data-override-row="stage_splits"]').textContent, /each split lands in Todo as staged, skipping New\./);
+  s.page.fire($('#overrideRows'), 'click', { target: $('[data-override="stage_splits"][value="off"]') });
+  await tick(); await tick();
+  assert.deepEqual([s.posts.at(-1), s.confirms, row()[2][1]], [{ stage_splits: false }, [], 'true']);
+  assert.deepEqual([$('#overrides summary').textContent, $('#stage_splitsStatus').textContent], ['Overrides · 1', 'Saved. Splits of a task you approved come in through New.']);
   s.view.unmount();
 });
 

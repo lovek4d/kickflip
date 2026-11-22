@@ -347,7 +347,11 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--blocks <id>,<file>/<id>]                     the tasks that wait on it, each gaining it as Blocked by
          [--pick-up-at <time> | --blocked]               blocks it until then, or until unblocked, as item set's
          [--size small|large] [--model opus|sonnet]      as item set's
-         On a board, --parent goes only with --ask: a task filed from another comes in as an ask
+         On a board, --parent goes only with --ask: a task filed from another comes in as an ask, bar
+         a split of a staged task while stage-splits is on, which takes --parent <key> --split
+         --phase staging and no --relate: it files into Todo as staging, with a Marked as staged
+         line, for your judgment. Off, or for a Parent not staging, it is refused for the --ask form,
+         and --ask --split of a staged task is refused for this one while it is on
   item add <file> --ask <request>                       a task you file comes in as an ask through New, as the
          [--parent <file>/<id> [--split]]                owner's do: an ask event, your plain-text request, filed at
          [--relate <ids>] [--blocked-by <ids>]           once as a New T-<n> task in <file>, born with the links it
@@ -587,12 +591,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   schedule set <id> [--cadence <c>] [--text <t>]         rewords it or changes its cadence, which counts from now
   schedule rm <id>                                       refuses an id the board doesn't have
   settings                                               the board's settings as JSON; auto-merge, auto-build,
-                                                         auto-review and idle-notification are the board's
-                                                         override, else Hub settings' Board default; other flags
-                                                         default off, optional
+                                                         auto-review, idle-notification and stage-splits are the
+                                                         board's override, else Hub settings' Board default; other
+                                                         flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false,
                                                          "auto_review": false, "idle_notification": false,
+                                                         "stage_splits": true,
                                                          "skip_draft": false, "prs": true,
                                                          "github_login": "owner"}
   description                                            the board's description as JSON, from the hub's manifest,
@@ -610,8 +615,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          most 240 characters, as from triage. Only on the owner's
                                                          Use this on the proposal's question, or their note's words
   settings set <auto setting> default                   drops the board's override of auto-merge, auto-build,
-                                                         auto-review or idle-notification, so it takes Hub
-                                                         settings' Board default; on or off sets an override
+                                                         auto-review, idle-notification or stage-splits, so it
+                                                         takes Hub settings' Board default; on or off sets an
+                                                         override
+  settings set stage-splits on|off                       Automatically stage split tickets, on by default: on, a
+                                                         split of a staged task files into Todo as staging
+                                                         (item add --title … --parent --split --phase staging);
+                                                         off, it comes in as an ask (item add --ask --split)
   settings set auto-merge on|off                        on: the hub's tick merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off: the task
                                                          shows the owner a Merge button, and the board server merges
