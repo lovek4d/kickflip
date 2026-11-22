@@ -574,7 +574,7 @@ export async function checkAsk(site, eventId, name = '--from-ask') {
 
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // A card's stored lane (todo, progress, review, done), written only here, with lane_at; a move to Done writes closed_at
-// and a move out of it reopened_at, which the next move to Done clears.
+// and a move out of it reopened_at, which the next move to Done clears; a move to Done drops the briefs it still owes.
 // docs/adr/2026-11-11-1200-every-lane-has-phases.md: the card's phase in the lane is written with it (setPhase), phase
 // when given, else what the move says: a card coming back to Todo from another lane is ready, as a build left it, one
 // staying in Todo keeps its phase, a build's start reads reading, a close merged when one of its PRs merged or it landed
@@ -586,7 +586,7 @@ export function placeIn(item, to, now = new Date().toISOString(), phase = movedP
   setPhase(item, to, phase);
   item.lane = to;
   item.lane_at = now;
-  if (to === 'done') { item.closed_at = now; delete item.reopened_at; }
+  if (to === 'done') { item.closed_at = now; delete item.reopened_at; dropOwed(item); }
   else if (from === 'done') item.reopened_at = now;
   return from;
 }

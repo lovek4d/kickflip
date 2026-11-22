@@ -1929,10 +1929,12 @@ test("a card owing a brief reads the brief's word, blue, and waits on the orches
   assert.deepEqual([written.briefing, written.planning, written.orchestrator?.kind], [null, null, undefined]);
   const drawing = one({ phase: 'discussing' }, { 'visual-1': { kind: 'visual', model: 'sonnet', started: at(7) } });
   assert.deepEqual([drawing.planning, drawing.builder], ['generating visual', null]);
-  for (const kind of ['grill', 'prototype', 'visual', 'reviewer']) for (const lane of ['progress', 'review', 'done']) {
+  for (const kind of ['grill', 'prototype', 'visual', 'reviewer']) for (const lane of ['progress', 'review']) {
     const it = one({ lane, briefs: [{ kind, at: at(5) }] });
     assert.deepEqual([it.orchestrator?.kind, it.orchestrator?.since], ['brief', at(5)], `${kind} in ${lane}`);
   }
+  // A closed, split or folded card owes no brief, even one its record still carries.
+  for (const kind of ['grill', 'prototype', 'visual', 'reviewer']) assert.equal(one({ lane: 'done', briefs: [{ kind, at: at(5) }] }).orchestrator, null, `${kind} in done`);
 });
 
 test('a card-unbump after a card-bump unbumps the card, and a later bump bumps it again', () => {

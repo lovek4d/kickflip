@@ -1665,8 +1665,8 @@ export function buildBoard(snapshot) {
     // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
     // Review (laneOf, workItem), and an owner's message on a Done card from Done; a card the orchestrator stalled waits on the owner alone.
     const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'done' && it.waitFacts.ownerWord) || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.waitFacts.scriptAt || it.briefs.some((b) => !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince })
-      // A requested brief is owed in every lane: Done owes that wait alone.
-      : it.briefs.some((b) => !b.brief) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince }).filter((w) => w.kind === 'brief') : [];
+      // A closed, split or folded card owes no brief: a Done card holds none, whatever its record still carries.
+      : [];
     // The card shows its first wait; the waits list (orchestratorWaits) names every one.
     it.orchestrator = waits[0] || null;
     it.moreWaits = waits.slice(1);
@@ -2356,8 +2356,8 @@ const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPha
 const HELD_BY_BLOCK = new Set(['staging', 'limbo', 'unblocked']);
 function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
-  // A requested brief not yet written is owed in every lane, Done included.
-  const owed = it.briefs.find((b) => b.kind === it.briefing && !b.brief) ?? it.briefs.find((b) => b.kind === REVIEWER && !b.brief) ?? null;
+  // A requested brief not yet written is owed in every lane a card is open in.
+  const owed = it.lane === 'done' ? null : it.briefs.find((b) => b.kind === it.briefing && !b.brief) ?? it.briefs.find((b) => b.kind === REVIEWER && !b.brief) ?? null;
   const briefed = (kind) => it.briefs.some((b) => b.kind === kind);
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
   const unasked = facts.unasked && it.storedPhase === { grill: 'grilling', prototype: 'prototyping' }[facts.unasked.kind]
