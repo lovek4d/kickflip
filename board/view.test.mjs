@@ -4729,8 +4729,8 @@ test("every bumpable card, closed or open, carries the \"…\" at its top right 
   const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
   const more = (key) => card(key).querySelector('summary .ask-actions button[data-card-menu]');
   const icon = (key) => bumpItem(b, key);
-  assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, more(c.key) ? [icon(c.key).textContent, more(c.key).classList.contains('bumped')] : null])), {
-    'w/T1': ['Unbump', true], 'w/T2': ['Unbump', true], 'w/T3': ['Bump', false], 'w/P1': ['Unbump', true], 'w/H1': null,
+  assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, more(c.key) ? [icon(c.key)?.textContent ?? null, more(c.key).classList.contains('bumped')] : null])), {
+    'w/T1': ['Unbump', true], 'w/T2': ['Unbump', true], 'w/T3': ['Bump', false], 'w/P1': ['Unbump', true], 'w/H1': [null, false],
   });
   for (const key of ['w/T1', 'w/T3', 'w/H1']) assert.equal(card(key).querySelector('.detail .actions [data-card-bump]'), null, key);
   assert.deepEqual(['w/T1', 'w/T3'].map((key) => card(key).querySelector('.detail .action-row.workflow')?.textContent.trim() ?? null), [null, 'Block']);
@@ -4741,6 +4741,57 @@ test("every bumpable card, closed or open, carries the \"…\" at its top right 
   await b.settle();
   assert.deepEqual(b.confirms, []);
   assert.deepEqual(sentNoIds(b), [['card-bump', { key: 'w/T3' }], ['card-unbump', { key: 'w/T2' }]]);
+});
+
+// docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md
+test("a Done card's \"…\" opens its menu, whose Tag… opens the picker of the board's tags; a tap puts a tag on or takes it off, New tag puts on the name typed, each a card-tag sent with no confirm, and the picker stays open", async () => {
+  const cards = [
+    workCard('D1', { lane: 'done', bumpable: false, tags: ['phone'] }),
+    workCard('T1', { bumpable: false, tags: ['phone', 'perf'] }),
+  ];
+  const b = boardOnDom({ board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const picker = b.root.querySelector('#tagPicker');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/D1"] button[data-card-menu]') });
+  const tagItem = b.root.querySelector('#cardMenu button[data-card-tag="w/D1"]');
+  assert.ok(tagItem, 'a Done card has Tag…');
+  b.page.fire(b.root, 'click', { target: tagItem });
+  assert.equal(b.root.querySelector('#cardMenu').hidden, true);
+  assert.equal(picker.hidden, false);
+  const rows = () => [...picker.querySelectorAll('button[data-tag-pick]')].map((r) => [r.dataset.tagPick, r.getAttribute('aria-checked')]);
+  assert.deepEqual(rows(), [['phone', 'true'], ['perf', 'false']]);
+  b.page.fire(b.root, 'click', { target: picker.querySelector('button[data-tag-pick="perf"]') });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: picker.querySelector('button[data-tag-pick="phone"]') });
+  await b.settle();
+  const field = picker.querySelector('[data-tag-field]');
+  field.value = 'dark mode';
+  b.page.fire(b.root, 'input', { target: field });
+  b.page.fire(b.root, 'click', { target: picker.querySelector('button[data-tag-new]') });
+  await b.settle();
+  assert.deepEqual(b.confirms, []);
+  assert.deepEqual(sentNoIds(b), [['card-tag', { key: 'w/D1', tag: 'perf', on: true }], ['card-tag', { key: 'w/D1', tag: 'phone', on: false }], ['card-tag', { key: 'w/D1', tag: 'dark mode', on: true }]]);
+  assert.equal(picker.hidden, false, 'the picker stays open for more picks');
+});
+
+test("an open card's Tags row sits above its Related to: its × takes a tag off and + Add tag opens the Tag… picker on that card, both sent with no confirm", async () => {
+  const cards = [workCard('T1', { bumpable: false, tags: ['phone', 'perf'], related: [{ key: 'w/T2', ref: 'T2', lane: 'todo' }] }), workCard('T2', { bumpable: false })];
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const detail = () => b.root.querySelector('details.item[data-key="w/T1"] .detail');
+  assert.deepEqual(detail().querySelectorAll('dt').map((dt) => dt.textContent).slice(0, 2), ['Tags', 'Related to']);
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-tag-remove="perf"]') });
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [['card-tag', { key: 'w/T1', tag: 'perf', on: false }]]);
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-tag-add="w/T1"]') });
+  const picker = b.root.querySelector('#tagPicker');
+  assert.equal(picker.hidden, false);
+  assert.match(picker.querySelector('.tag-head').textContent, /Tag T1/);
+  b.page.fire(b.root, 'click', { target: picker.querySelector('button[data-tag-pick="phone"]') });
+  await b.settle();
+  assert.deepEqual(sentNoIds(b).at(-1), ['card-tag', { key: 'w/T1', tag: 'phone', on: false }]);
+  assert.deepEqual(b.confirms, []);
+  assert.equal(picker.hidden, false);
 });
 
 // docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md
@@ -5778,8 +5829,10 @@ test("Done closes the card as the board moves it to Done and holds the cards sti
   // The tap's thread line grows the open card first, and the move then holds the cards that kept their lane still. layOut
   // counts 2px per element: the sending line's spinner is one element where its mark's icon was several (an svg and its
   // shapes), so the line is shorter here; the real .mark is a fixed 18x12 box, so the line's pixel height is the same.
+  // Every card's "…" (its actions box, button, svg and three dots) counts 12px more than its real height there too, and
+  // the open card's Tags row (its dt, dd and + Add tag) 6px more.
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-92]]);
+    ['done', false, '[]', [-110]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
@@ -9271,19 +9324,20 @@ function linkedOnDom(opts = {}) {
   return { ...b, menu, more, items, open, choose, banner };
 }
 
-test('a card\'s "…" opens its menu: Bump or Unbump when it can be bumped, Linked · 1 hop and Linked · all when it has links; a card with neither has no "…"; a tap elsewhere or Esc closes it', async () => {
+test('a card\'s "…" opens its menu: Bump or Unbump when it can be bumped, Tag… on every card, Linked · 1 hop and Linked · all when it has links; a tap elsewhere or Esc closes it', async () => {
   const b = linkedOnDom();
   await b.settle();
   assert.equal(b.items(), null);
   await b.open('T-601');
-  assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded'), b.menu().dataset.key], [['Bump', 'Linked · 1 hop', 'Linked · all'], 'true', 'w/T-601']);
+  assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded'), b.menu().dataset.key], [['Bump', 'Tag…', 'Linked · 1 hop', 'Linked · all'], 'true', 'w/T-601']);
   await b.open('T-601');
   assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded')], [null, 'false'], 'the "…" again closes it');
   await b.open('T-612');
-  assert.deepEqual([b.items(), b.more('T-612').classList.contains('bumped')], [['Unbump'], true]);
+  assert.deepEqual([b.items(), b.more('T-612').classList.contains('bumped')], [['Unbump', 'Tag…'], true]);
   await b.open('T-598');
-  assert.deepEqual(b.items(), ['Linked · 1 hop', 'Linked · all'], 'Done: not bumpable');
-  assert.equal(b.more('T-33'), null);
+  assert.deepEqual(b.items(), ['Tag…', 'Linked · 1 hop', 'Linked · all'], 'Done: not bumpable');
+  await b.open('T-33');
+  assert.deepEqual(b.items(), ['Tag…'], 'neither bumpable nor linked: Tag… alone');
   b.page.fire(b.doc, 'click', { target: b.root.querySelector('#lanes') });
   await b.settle();
   assert.equal(b.items(), null);

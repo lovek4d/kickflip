@@ -7,7 +7,8 @@ Implement.
 
 - **A "…" takes the bump arrow's place** at a card's top right. It opens a menu in one layer over the lanes, under the
   "…" or above it when there is no room below: **Bump** (or **Unbump**) when the card can be bumped, then
-  **Linked · 1 hop** and **Linked · all** when it has links. A card with neither has no "…". A card waiting on its
+  **Linked · 1 hop** and **Linked · all** when it has links. A card with neither has no "…" (since
+  [tags](2026-11-22-0200-a-card-carries-board-only-tags.md), every card has one, holding Tag…). A card waiting on its
   owner step keeps its Done check, before the "…". The "…" again, a tap elsewhere, Esc or a scroll closes the menu.
 - **A bumped card's "…" is filled orange**, as the bump arrow was, so the bump still shows on the card. The "…" follows
   the arrow's hover rule: always on a touch screen, and with a mouse only while the card's header is hovered, unless

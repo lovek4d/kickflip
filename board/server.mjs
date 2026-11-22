@@ -170,6 +170,9 @@
 //                                card-bump {key} and card-unbump {key} are a work card's Bump and Unbump, sent with no confirm;
 //                                a bump moves the card's queued lands first, an unbump back in ask order (worktree.mjs
 //                                moveQueuedLand), and each writes the owner's line, "Moved to the top" or "Unbumped".
+//                                card-tag {key, tag, on} is a Tag… pick, which puts the tag on the card or takes it off
+//                                in its item file with the owner's Tagged or Untagged line and records no event; one
+//                                that changes nothing or names no valid tag → 400 {error} (cards.mjs tagItem).
 //                                card-hold {key, hold: true, for} is a Block sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.

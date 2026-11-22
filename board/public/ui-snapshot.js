@@ -102,20 +102,27 @@
   const tapAct = (m) => (m.intent === 'build' ? 'build' : TAP_ACTS[m.kind]?.(m));
   const tapped = (items, outbox) => {
     const sending = new Map();
+    // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: a Tag… pick (card-tag) disables nothing; its card
+    // draws with the tag put on or taken off at once.
+    const picks = new Map();
     for (const m of outbox) {
+      const key = m.key ?? m.fields?.key;
+      if (m.kind === 'card-tag' && !m.failed) picks.set(key, [...(picks.get(key) || []), m.fields]);
       const act = !m.failed && tapAct(m);
       if (!act) continue;
-      const key = m.key ?? m.fields.key;
       sending.set(key, [...new Set([...(sending.get(key) || []), act])]);
     }
-    if (!sending.size) return items;
+    if (!sending.size && !picks.size) return items;
     const { BUTTON } = globalThis.BoardUI;
     const resolves = { finish: BUTTON.done, build: BUTTON.implement, merge: BUTTON.merge };
+    const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+    const picked = (tags, { tag, on }) => (on ? (tags.some((t) => same(t, tag)) ? tags : [...tags, tag]) : tags.filter((t) => !same(t, tag)));
     return items.map((it) => {
       const acts = sending.get(it.key);
-      if (!acts) return it;
+      const tags = picks.get(it.key)?.reduce(picked, it.tags || []);
+      if (!acts) return tags ? { ...it, tags } : it;
       const clears = it.resolvedBy && acts.some((act) => resolves[act] === it.resolvedBy);
-      return { ...it, sending: acts, ...(acts.includes('merge') ? { merging: true } : {}), ...(clears ? { action: null, resolvedBy: null } : {}) };
+      return { ...it, ...(tags ? { tags } : {}), sending: acts, ...(acts.includes('merge') ? { merging: true } : {}), ...(clears ? { action: null, resolvedBy: null } : {}) };
     });
   };
 

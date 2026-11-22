@@ -1209,12 +1209,54 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   await writeJSON(source.file, itemFile);
 }
 
+// docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md
+// A tag's name as stored: trimmed, its runs of spaces one space. A tag is free text of 1 to 48 characters with no comma
+// (item set --tag takes a comma list); two names differing only in case are the same tag.
+const TAG_MAX = 48;
+export function tagName(raw) {
+  const name = String(raw ?? '').trim().replace(/\s+/g, ' ');
+  if (!name) fail('a tag needs a name');
+  if (name.includes(',')) fail(`a tag takes no comma: "${name}"`);
+  if (name.length > TAG_MAX) fail(`a tag is ${TAG_MAX} characters at most: "${name}" is ${name.length}`);
+  return name;
+}
+const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
+// A card's tags with add put on (each it lacks, in order) and drop taken off, matched whatever their case. → [names]
+export function retagged(tags = [], { add = [], drop = [] }) {
+  const kept = tags.filter((t) => !drop.some((d) => sameTag(t, d)));
+  for (const t of add) if (!kept.some((k) => sameTag(k, t))) kept.push(t);
+  return kept;
+}
+// The tags --tag puts on card key and --untag takes off (comma lists, or the one name the owner's Tag… picker sends), each
+// change a Tagged or Untagged line in its thread from who, with the tap's sendId. A card in any lane takes them, Done
+// included. → {tagged, untagged} with the names changed, or null when nothing changed.
+export async function tagItem(site, key, { tag, untag, who = 'claude', sendId }) {
+  const names = (list) => (list === undefined ? [] : Array.isArray(list) ? list : String(list).split(',')).map(tagName);
+  const add = names(tag);
+  const drop = names(untag);
+  const { source, itemFile, item } = await loadItem(site, key);
+  const before = item.tags || [];
+  const after = retagged(before, { add, drop });
+  const tagged = after.filter((t) => !before.includes(t));
+  const untagged = before.filter((t) => !after.includes(t));
+  if (!tagged.length && !untagged.length) return null;
+  if (after.length) item.tags = after; else delete item.tags;
+  await writeJSON(source.file, itemFile);
+  // An item file off any board (no --site) has no thread.
+  if (!site) return { tagged, untagged };
+  for (const t of untagged) await appendCommand(site, key, { who, command: 'untagged', text: `${COMMANDS.untagged} ${t}`, sendId });
+  for (const t of tagged) await appendCommand(site, key, { who, command: 'tagged', text: `${COMMANDS.tagged} ${t}`, sendId });
+  return { tagged, untagged };
+}
+
 // The owner's Block, Unblock, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}),
+// or a Tag… pick (card-tag {key, tag, on}, tagItem),
 // recorded in the item file as the board server takes it, with a thread line; a Done closes the card and unblocks blocked cards as item set --done does
 // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). → the item set result, or null
 // when there is nothing to write.
 export async function recordOwnerTap(site, kind, data) {
   const key = String(data?.key || '');
+  if (kind === 'card-tag') return tagItem(site, key, { [data.on ? 'tag' : 'untag']: [String(data.tag ?? '')], who: 'love', sendId: data.sendId });
   const { file: slug, id } = parseKey(key);
   const { source, itemFile } = await loadItemFile(site, slug);
   // The owner's line, so it answers none of their messages that wait on Claude.

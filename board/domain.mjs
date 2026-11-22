@@ -388,7 +388,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
     // docs/adr/2026-11-07-0700-staging-then-ready.md: when the card was staged, and when it was last sent back for a round.
     stagedAt: lane === 'todo' && it.phase === 'staging' ? it.staged_at || null : null,
-    deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, ownerBlock, risk: it.risk || null, bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
+    deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, ownerBlock, risk: it.risk || null, tags: it.tags || [], bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
     merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), filedHeld: Boolean(it.filed_held), next: changing || lane === 'done' || waitsOn === 'checking' ? null : idle && ownerPending ? REPLY_WAITS : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
@@ -1102,6 +1102,8 @@ export const COMMANDS = {
   // line of their own otherwise: a Bump or Unbump, a held card's Merge, a Serve or Kill the hub took, a script's Run or Decline.
   bumped: 'Moved to the top', unbumped: 'Unbumped', merge: 'Merge requested', served: 'Serve started', killed: 'Serve killed',
   'script-ran': 'Ran the script', 'script-declined': 'Declined the script',
+  // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: a tag put on or taken off, its line naming the tag.
+  tagged: 'Tagged', untagged: 'Untagged',
 };
 // Each tap command's tone (hub-lines.mjs TONES): a request for a planner is blue like a planner's own lines.
 export const COMMAND_TONES = {
@@ -1109,6 +1111,7 @@ export const COMMAND_TONES = {
   discussing: 'grey', staged: 'orange', readied: 'green', related: 'grey', unrelated: 'grey', followup: 'grey', 'followup-of': 'grey',
   created: 'blue', 'created-from': 'blue', 'blocked-by': 'grey', unblocks: 'grey',
   bumped: 'grey', unbumped: 'grey', merge: 'orange', served: 'orange', killed: 'grey', 'script-ran': 'orange', 'script-declined': 'grey',
+  tagged: 'grey', untagged: 'grey',
 };
 const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'review-request': REVIEWER, 'reask-request': 'reask' };
 export const ACTION_LABELS = { 'mark-ready': 'Mark ready', ...Object.fromEntries(Object.entries(REQUEST_COMMANDS).map(([kind, key]) => [kind, COMMANDS[key]])) };
@@ -2089,7 +2092,7 @@ export const DONE_KEPT = 100;
 // ui-snapshot.js updateSign, and the pane glance's Landed rows (app-pane.js), which read commit and sortAt.
 // No page file reads `agents`, and the rest are set on a Done card only to be sent.
 export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fold','ticket', 'ticketSource', 'linear', 'pr', 'prs', 'commit',
-  'review', 'reviewers', 'risk', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
+  'review', 'reviewers', 'risk', 'tags', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'blocks', 'blockers', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
 
@@ -2155,7 +2158,7 @@ const CARD_TAPS = ['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-
 // A tap that asks for a planner, and the brief it owes.
 const REQUEST_BRIEFS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': VISUAL, 'review-request': REVIEWER };
 // The event kinds tapPlan decides.
-export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'card-unbump', ...Object.keys(REQUEST_BRIEFS)]);
+export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'card-unbump', 'card-tag', ...Object.keys(REQUEST_BRIEFS)]);
 
 // docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md
 // What the owner's tap of kind, with its event's data body, does to card (the built card its key names, or undefined
@@ -2223,6 +2226,12 @@ export function tapPlan(card, kind, body) {
   if (kind === 'card-build') return [{ do: 'build' }];
   // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bump moves the card's queued lands.
   if (kind === 'card-bump' || kind === 'card-unbump') return [event, { do: 'moveLand', first: kind === 'card-bump' }, { do: 'line', command: kind === 'card-bump' ? 'bumped' : 'unbumped' }];
+  // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: a Tag… pick (card-tag {key, tag, on}) is written to the
+  // item file with its line, a Done card's too, and wakes no session.
+  if (kind === 'card-tag') {
+    const tag = String(body.tag || '');
+    return [{ do: 'record', nothing: `${card?.ref || key} ${body.on ? 'already carries' : 'doesn’t carry'} the tag ${tag}, so nothing changed.`, stops: false }];
+  }
   // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a request owes the orchestrator's
   // brief, and ends an Implement or Close mark (docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md).
   if (!body.key) return [event];

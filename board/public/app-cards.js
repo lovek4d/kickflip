@@ -205,6 +205,9 @@ BoardView.part((B) => {
     // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md: each link row is comma-separated text links that open their cards, oldest first.
     // Blocked by lists every blocker, a Done one with its done ring, while the footer's "blocked by" names only the unfinished.
     for (const [label, list] of [['Parent', it.parent ? [it.parent] : []], ['Children', it.children], ['Related to', it.related], ['Blocked by', it.blockers], ['Blocks', it.blocks]]) {
+      // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: the Tags row, always shown for its + Add tag, sits
+      // above Related to.
+      if (label === 'Related to') rows.push(['Tags', BoardUI.tagRow(it)]);
       if (list?.length) rows.push([label, list.map(cardLink).join(', ')]);
     }
     // The builder's risk (builder done --risk), its word coloured as its PR's Slack bar.
@@ -514,7 +517,76 @@ BoardView.part((B) => {
     const linked = ev.target.closest('#cardMenu button[data-linked]');
     if (linked?.hasAttribute('data-on')) B.endLinked();
     else if (linked) B.showLinked(linked.dataset.linked, linked.dataset.depth);
+    const tag = ev.target.closest('#cardMenu button[data-card-tag]');
     if (ev.target.closest('#cardMenu button[role^="menuitem"]')) closeCardMenu();
+    if (tag) openTagPicker(tag.dataset.cardTag);
+  });
+
+  // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md
+  // A card's Tag… opens its picker (ui-cards.js tagPicker), a popup under the card's "…", and its open card's + Add tag
+  // opens it under that button (anchorOf); a Tags row × takes that tag off. The field narrows the board's
+  // tags, a tap on one puts it on the card or takes it off, and New tag puts on the name typed. Each is a card-tag
+  // {key, tag, on} through the card's outbox, drawn on the card at once (ui-snapshot.js tapped). The picker stays open
+  // for more picks, its field as typed, until Esc or a tap outside it; Enter picks the tag typed, or makes it.
+  let tagKey = null;
+  let tagAnchor = 'more';
+  const anchorOf = (key) => (tagAnchor === 'add' ? $(`details.item[data-key="${CSS.escape(key)}"] button[data-tag-add]`) : moreOf(key));
+  const picker = () => $('#tagPicker');
+  const tagField = () => picker().querySelector('[data-tag-field]');
+  const drawnItems = () => BoardUI.tapped(state.board.items, store.get('outbox', []));
+  function openTagPicker(key, from = 'more') {
+    tagAnchor = from;
+    const anchor = anchorOf(key);
+    if (!anchor) return;
+    tagKey = key;
+    BoardUI.setHTML(picker(), BoardUI.tagPicker(menuCard(key), BoardUI.boardTags(drawnItems())));
+    picker().hidden = false;
+    Popup.open(picker(), anchor, { align: 'end', onClose: closeTagPicker });
+    tagField().focus();
+  }
+  function drawTagRows() {
+    BoardUI.setHTML(picker().querySelector('.tag-rows'), BoardUI.tagRows(menuCard(tagKey), BoardUI.boardTags(drawnItems()), tagField().value));
+  }
+  function closeTagPicker() {
+    if (!tagKey) return;
+    Popup.close(picker());
+    picker().hidden = true;
+    tagKey = null;
+  }
+  // A repaint keeps the picker on its card's "…", its rows redrawn, or closes it once the card's "…" is gone.
+  function keepTagPicker() {
+    if (!tagKey) return;
+    const anchor = anchorOf(tagKey);
+    if (!anchor || !menuCard(tagKey)) { closeTagPicker(); return; }
+    drawTagRows();
+    Popup.open(picker(), anchor, { align: 'end', onClose: closeTagPicker });
+  }
+  function pickTag(tag, on) {
+    B.enqueue(tagKey, { kind: 'card-tag', fields: { tag, on } });
+    keepTagPicker();
+  }
+  B.on(B.root, 'click', (ev) => {
+    const add = ev.target.closest('button[data-tag-add]');
+    const remove = ev.target.closest('button[data-tag-remove]');
+    if (add) openTagPicker(add.dataset.tagAdd, 'add');
+    if (remove) B.enqueue(remove.dataset.key, { kind: 'card-tag', fields: { tag: remove.dataset.tagRemove, on: false } });
+    const pick = ev.target.closest('#tagPicker button[data-tag-pick]');
+    const fresh = ev.target.closest('#tagPicker button[data-tag-new]');
+    if (pick) pickTag(pick.dataset.tagPick, !pick.hasAttribute('data-on'));
+    if (fresh) {
+      tagField().value = '';
+      pickTag(fresh.dataset.tagNew, true);
+      tagField().focus();
+    }
+  });
+  B.on(B.root, 'input', (ev) => { if (ev.target.matches('#tagPicker [data-tag-field]')) drawTagRows(); });
+  B.on(B.root, 'keydown', (ev) => {
+    if (ev.key !== 'Enter' || !ev.target.matches('#tagPicker [data-tag-field]')) return;
+    ev.preventDefault();
+    const typed = ev.target.value.trim().replace(/\s+/g, ' ').toLowerCase();
+    const rows = picker().querySelector('.tag-rows');
+    const same = [...rows.querySelectorAll('button[data-tag-pick]')].find((b) => b.dataset.tagPick.toLowerCase() === typed);
+    (rows.querySelector('button[data-tag-new]') || same)?.click();
   });
   B.on(document, 'scroll', (ev) => { if (!$('#cardMenu').contains(ev.target)) closeCardMenu(); }, { capture: true, passive: true });
 
@@ -554,5 +626,5 @@ BoardView.part((B) => {
 
   function cardOf(key) { return state.board.items.find((i) => i.key === key); }
 
-  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap, keepCardMenu, paintMain });
+  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap, keepCardMenu, keepTagPicker, paintMain });
 });

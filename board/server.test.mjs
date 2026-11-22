@@ -1165,6 +1165,29 @@ test("a Cancel on a staged or ready Todo card moves it back to discussing with i
   assert.equal(cancelled().length, before);
 });
 
+// docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md
+test("a Tag… pick is one events POST that writes the tag to the card's item file, a Done card's included, with its line and no event; a pick that changes nothing is refused", async () => {
+  const wave = path.join(site, 'data', 'items.json');
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
+  const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean) : []);
+  await putWave(JSON.stringify({ items: [
+    { id: 'TG1', title: 'One', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z', lane_at: '2026-11-01T00:00:00.000Z' },
+  ] }));
+  await board.settled();
+  const before = logged().length;
+  const [status, out] = await post({ kind: 'card-tag', key: 't/TG1', tag: ' dark  mode ', on: true, sendId: 'tag-1' });
+  assert.equal(status, 200, out.error);
+  assert.deepEqual(out.board.items.find((i) => i.id === 'TG1').tags, ['dark mode']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(wave, 'utf8')).items.find((i) => i.id === 'TG1').tags, ['dark mode']);
+  const thread = fs.readFileSync(path.join(site, 'data', 'threads', 't__TG1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(thread.some((m) => m.command === 'tagged' && m.text === 'Tagged dark mode' && m.who === 'love' && m.sendId === 'tag-1'));
+  assert.equal(logged().length, before, 'a tag wakes no session');
+  assert.deepEqual(await post({ kind: 'card-tag', key: 't/TG1', tag: 'Dark Mode', on: true }), [400, { error: 'TG1 already carries the tag Dark Mode, so nothing changed.' }]);
+  const [off] = await post({ kind: 'card-tag', key: 't/TG1', tag: 'dark mode', on: false });
+  assert.equal(off, 200);
+  assert.equal('tags' in JSON.parse(fs.readFileSync(wave, 'utf8')).items.find((i) => i.id === 'TG1'), false);
+});
+
 test("deleting a New card is one events POST that records ask-withdrawn and hides the ask, and its board has the card gone", async () => {
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post({ kind: 'ask', text: 'Never mind' });

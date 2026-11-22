@@ -240,6 +240,7 @@ window.BoardView = (function () {
         B.renderLinked();
         B.renderFilterBanner();
         B.keepCardMenu();
+        B.keepTagPicker();
         B.renderNew(d);
       });
       lift();
@@ -606,6 +607,7 @@ window.BoardView = (function () {
 <aside id="boardPane" class="board-pane" aria-label="Pane"></aside>
 </div>
 <div id="cardMenu" class="card-menu" role="menu" hidden></div>
+<div id="tagPicker" class="card-menu tag-picker" role="dialog" aria-label="Tag" hidden></div>
 ${BoardNewTask.markup()}
 <dialog id="mainLogSheet" class="sheet" aria-labelledby="mainLogTitle">
   <div class="sheet-body">

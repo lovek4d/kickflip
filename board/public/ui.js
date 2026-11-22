@@ -162,6 +162,7 @@
     'Moved to the top': shape('move'), Unbumped: shape('move'), 'Merge requested': shape('move'),
     'Serve started': shape('play'), 'Serve killed': shape('pause'),
     'Ran the script': shape('play'), 'Declined the script': shape('x'),
+    Tagged: shape('tag'), Untagged: shape('tag'),
     Reply: shape('reply'),
     Implement: shape('code'),
     'answers submitted': shape('check'),

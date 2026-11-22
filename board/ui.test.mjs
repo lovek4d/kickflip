@@ -1083,7 +1083,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(NOW - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
-  assert.deepEqual(rows(pushed), [['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
+  assert.deepEqual(rows(pushed), [['Tags', '+ Add tag'], ['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
   assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
   // Notes is a button at the end of the workflow row, after Block, and has no ↗.
   assert.match(B.detail(open), /<div class="action-row workflow">.*<a class="button" href="notes\.html\?item=w%2FA1">Notes<\/a><\/div>/s);
@@ -1097,7 +1097,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   assert.deepEqual([copied, link.textContent, prevented], [['INT-12'], 'Copied the branch name', true]);
   later.at(-1)[1]();
   assert.equal(link.textContent, 'Pushed INT-12 to gitlab.com · 25m ago');
-  assert.deepEqual(rows(open), [['Next', 'Waiting for PR reviewers']]);
+  assert.deepEqual(rows(open), [['Tags', '+ Add tag'], ['Next', 'Waiting for PR reviewers']]);
   assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes/);
   assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes|notes\.html/);
   const install = { url: 'https://m/app.apk', older: false };
@@ -1126,10 +1126,10 @@ test("an open PR's card reads its merge state in a Merge row, after the card lin
   const pr = { ...openPR, mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', checks: { state: 'fail', fail: 2 } };
   const card = { ...workCard, key: 'w/A1', ref: 'A1', lane: 'review', action: null, deps: [], kind: 'work', pr, prs: [pr], reviewers: ['Jamie'], review: { Jamie: { state: 'approved' } },
     related: [{ key: 'w/A2', ref: 'A2' }], risk: 'medium', branch: 'A1', manualSteps: ['Restart the hub'] };
-  assert.deepEqual(rows(card).map(([label]) => label), ['Related to', 'Risk', 'Merge', 'Branch', 'Manual steps', 'Next', 'Links']);
+  assert.deepEqual(rows(card).map(([label]) => label), ['Tags', 'Related to', 'Risk', 'Merge', 'Branch', 'Manual steps', 'Next', 'Links']);
   assert.deepEqual(rows(card).find(([label]) => label === 'Merge'), ['Merge', 'blocked']);
   for (const unread of [{ ...pr, mergeStateStatus: undefined }, { ...pr, mergeStateStatus: undefined, reviewDecision: undefined, checks: null }]) {
-    assert.deepEqual(rows({ ...card, pr: unread, prs: [unread] }).map(([label]) => label), ['Related to', 'Risk', 'Branch', 'Manual steps', 'Next', 'Links']);
+    assert.deepEqual(rows({ ...card, pr: unread, prs: [unread] }).map(([label]) => label), ['Tags', 'Related to', 'Risk', 'Branch', 'Manual steps', 'Next', 'Links']);
   }
   for (const state of ['MERGED', 'CLOSED']) assert.equal(rows({ ...card, pr: { ...pr, state }, prs: [{ ...pr, state }] }).some(([label]) => label === 'Merge'), false);
 });
@@ -1187,7 +1187,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
     parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], blockers: [link('#80')], blocks: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  assert.deepEqual(rows(card), [['Parent', '#53'], ['Children', '#94 , #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Blocks', '#99']]);
+  assert.deepEqual(rows(card), [['Parent', '#53'], ['Children', '#94 , #95'], ['Tags', '+ Add tag'], ['Related to', '#75'], ['Blocked by', '#80'], ['Blocks', '#99']]);
   // The builder's risk is a Risk row under the card links, its word in the colour the PR's Slack bar has.
   for (const [risk, tone] of [['low', 'ready'], ['medium', 'notice'], ['high', 'danger']]) {
     assert.deepEqual(rows({ ...card, risk }).slice(-2), [['Blocks', '#99'], ['Risk', risk]]);
@@ -1197,14 +1197,15 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
     [['#selectedCard=w%2FGH-53', '#53'], ['#selectedCard=w%2FGH-94', '#94'], ['#selectedCard=w%2FGH-95', '#95'], ['#selectedCard=w%2FGH-75', '#75'], ['#selectedCard=w%2FGH-80', '#80'], ['#selectedCard=w%2FGH-99', '#99']]);
   // The links are text joined by a comma and a space, with nothing else between them.
   assert.match(B.detail(card), /<\/a>, <a class="card-link" href="#selectedCard=w%2FGH-95"/);
-  // No row repeats the card's status: a card with nothing to list has no rows, whatever its lane or agent.
+  // No row repeats the card's status: a card with nothing to list has only its Tags row, for its + Add tag, whatever its
+  // lane or agent (docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md).
   const bare = { ...card, parent: null, children: [], related: [], blockedBy: [], blockers: [], blocks: [] };
   for (const extra of [{ lane: 'todo' }, { lane: 'progress', builder: { progress: 'Building · x', words: 'Building · x', phase: 'building', at: null } }, { lane: 'review' }, { lane: 'done' }]) {
-    assert.deepEqual(rows({ ...bare, ...extra }), [], JSON.stringify(extra));
+    assert.deepEqual(rows({ ...bare, ...extra }), [['Tags', '+ Add tag']], JSON.stringify(extra));
   }
   // A blocker stays in Blocked by once it is Done, drawn with its done ring, while the footer drops it.
   const doneBlocker = { ...bare, blockers: [{ ...link('#80'), lane: 'done' }] };
-  assert.deepEqual(rows(doneBlocker), [['Blocked by', '#80']]);
+  assert.deepEqual(rows(doneBlocker), [['Tags', '+ Add tag'], ['Blocked by', '#80']]);
   assert.match(B.detail(doneBlocker), /<dt>Blocked by<\/dt><dd><a class="card-link" href="#selectedCard=w%2FGH-80">#80<span class="status link-lane done"><\/span><\/a><\/dd>/);
   assert.doesNotMatch(app.BoardUI.workLines({ ...doneBlocker, footer: footerOf(doneBlocker), linear: [], ticket: null }), /blocked by/);
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on/);
@@ -2938,10 +2939,9 @@ test("a card waiting on its owner step reads the step as its orange Next, with D
   assert.deepEqual(lines(workLines(waiting)).slice(0, 2), ['ENG-1 Five', `Next: ${step}`]);
   assert.match(workLines(waiting), /<div class="line3 sub next">Next: /);
   assert.match(workLines(waiting), /<div class="ask-actions"><button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="w\/B5" aria-label="Done" title="Done: Add the npm trusted publisher"><svg/);
-  assert.doesNotMatch(workLines(waiting), /data-card-menu/, 'no bump and no links: no "…"');
   assert.doesNotMatch(workLines({ ...waiting, ownerStep: null }), /owner-done/);
-  // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md: with a link, the "…" sits beside the check.
-  assert.match(workLines({ ...waiting, related: [{ key: 'w/B6', ref: 'ENG-2' }] }), /<div class="ask-actions"><button type="button" class="ghost icon owner-done"[^]*?<\/button><button type="button" class="ghost icon card-more" data-card-menu="w\/B5"/);
+  // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: every card has its "…", beside the check.
+  assert.match(workLines(waiting), /<div class="ask-actions"><button type="button" class="ghost icon owner-done"[^]*?<\/button><button type="button" class="ghost icon card-more" data-card-menu="w\/B5"/);
 });
 
 // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
@@ -2967,15 +2967,59 @@ test("a card's chain is its links walked both ways, depth first, stopping on a r
   assert.deepEqual([ui.hasLinks(cards[6]), ui.hasLinks(cards[4])], [false, true]);
 });
 
-test("a card's menu holds Bump or Unbump when it can be bumped, then Linked · 1 hop and Linked · all when it has links", () => {
+test("a card's menu holds Bump or Unbump when it can be bumped and Tag… on every card, then Linked · 1 hop and Linked · all when it has links", () => {
   const items = (html) => [...html.matchAll(/<button type="button" role="menuitem"([^>]*)>.*?<span>([^<]+)<\/span><\/button>/g)].map((m) => [m[2], m[1].trim()]);
   const related = [{ key: 'w/B6', ref: 'ENG-2' }];
   assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, related })), [
-    ['Bump', 'data-card-bump="w/B5"'], ['Linked · 1 hop', 'data-linked="w/B5" data-depth="hop"'], ['Linked · all', 'data-linked="w/B5" data-depth="all"']]);
-  assert.match(ui.cardMenu({ ...workCard, bumpable: true, related }), /<\/button><div class="sep" role="separator"><\/div><button/);
-  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, bumpedAt: ago(1) })), [['Unbump', 'data-card-bump="w/B5" data-bumped']]);
-  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: false, related })).map(([label]) => label), ['Linked · 1 hop', 'Linked · all']);
-  assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: false, related }), /class="sep"/);
+    ['Bump', 'data-card-bump="w/B5"'], ['Tag…', 'data-card-tag="w/B5"'], ['Linked · 1 hop', 'data-linked="w/B5" data-depth="hop"'], ['Linked · all', 'data-linked="w/B5" data-depth="all"']]);
+  assert.match(ui.cardMenu({ ...workCard, bumpable: true, related }), /Tag…<\/span><\/button><div class="sep" role="separator"><\/div><button/);
+  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, bumpedAt: ago(1) })), [['Unbump', 'data-card-bump="w/B5" data-bumped'], ['Tag…', 'data-card-tag="w/B5"']]);
+  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: false, related })).map(([label]) => label), ['Tag…', 'Linked · 1 hop', 'Linked · all']);
+  assert.deepEqual(items(ui.cardMenu({ ...workCard, lane: 'done', bumpable: false })).map(([label]) => label), ['Tag…'], 'a Done card with no links has Tag… alone');
+  assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: false }), /class="sep"/);
+});
+
+// docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md
+test("every work card has its \"…\", and its tags read as chips right of its ticket badge, two at most then +N", () => {
+  const head = (it) => workLines({ ...workCard, lane: 'todo', bumpable: false, ...it }).split('</div>')[1];
+  assert.match(workLines({ ...workCard, lane: 'done', bumpable: false }), /data-card-menu="w\/B5"/);
+  assert.doesNotMatch(head({}), /tag-chip/);
+  const chips = (html) => [...html.matchAll(/<span class="tag-chip( more)?" title="([^"]*)">([^<]*)<\/span>/g)].map((m) => [m[3], m[2]]);
+  assert.deepEqual(chips(head({ tags: ['phone'] })), [['phone', 'phone']]);
+  assert.deepEqual(chips(head({ tags: ['phone', 'sidebar', 'perf', 'docs'] })), [['phone', 'phone'], ['sidebar', 'sidebar'], ['+2', 'perf, docs']]);
+  // The chips sit after the ticket's badge and before the title.
+  assert.match(head({ tags: ['phone'] }), /ENG-1<\/a>.*tag-chip.*Five/s);
+  assert.match(head({ tags: ['<b>'] }), /title="&lt;b&gt;">&lt;b&gt;</);
+});
+
+test("the open card's Tags row lists every tag whole, each with a × that takes it off, then + Add tag", () => {
+  const row = ui.tagRow({ key: 'w/B5', ref: 'B5', tags: ['phone', 'a-very-long-tag-name', '<b>'] });
+  const removes = [...row.matchAll(/<span class="tag-chip whole">([^<]*)<button type="button" data-tag-remove="([^"]*)" data-key="w\/B5" aria-label="([^"]*)">×<\/button><\/span>/g)].map((m) => [m[1], m[2], m[3]]);
+  assert.deepEqual(removes, [['phone', 'phone', 'Remove the tag phone'], ['a-very-long-tag-name', 'a-very-long-tag-name', 'Remove the tag a-very-long-tag-name'], ['&lt;b&gt;', '&lt;b&gt;', 'Remove the tag &lt;b&gt;']]);
+  assert.match(row, /<button type="button" class="tag-add" data-tag-add="w\/B5">\+ Add tag<\/button>$/);
+  assert.equal(ui.tagRow({ key: 'w/B5', tags: [] }), '<button type="button" class="tag-add" data-tag-add="w/B5">+ Add tag</button>');
+});
+
+test("the Tag… picker lists the board's tags by use, ticked where the card has them, narrowed by the words typed, with a New tag row for a name no tag has", () => {
+  const board = [{ kind: 'work', tags: ['phone', 'perf'] }, { kind: 'work', tags: ['phone'] }, { kind: 'work', tags: ['docs', 'Phone'] }, { kind: 'ask' }];
+  assert.deepEqual(plain(ui.boardTags(board)), [{ name: 'phone', count: 3 }, { name: 'docs', count: 1 }, { name: 'perf', count: 1 }]);
+  const rows = (html) => [...html.matchAll(/<button type="button" role="menuitemcheckbox" aria-checked="(true|false)" data-tag-pick="([^"]+)"/g)].map((m) => [m[2], m[1]]);
+  const it = { key: 'w/B5', tags: ['perf'] };
+  assert.deepEqual(rows(ui.tagRows(it, ui.boardTags(board), '')), [['phone', 'false'], ['docs', 'false'], ['perf', 'true']]);
+  assert.match(ui.tagRows(it, ui.boardTags(board), ''), /3 cards/);
+  assert.deepEqual(rows(ui.tagRows(it, ui.boardTags(board), 'PH')), [['phone', 'false']]);
+  assert.doesNotMatch(ui.tagRows(it, ui.boardTags(board), 'phone'), /data-tag-new/, 'a typed name a tag has, in any case, is that tag');
+  assert.match(ui.tagRows(it, ui.boardTags(board), '  dark   mode '), /<button type="button" role="menuitem" data-tag-new="dark mode">.*New tag “dark mode”/s);
+  assert.match(ui.tagRows({ key: 'w/B5', tags: [] }, [], ''), /No tags on this board yet/);
+  assert.match(ui.tagRows(it, ui.boardTags(board), 'a,b'), /takes no comma/);
+});
+
+test("a Tag… pick in the outbox draws on its card at once, put on or taken off, until the board answers; a failed one leaves the card as the board has it", () => {
+  const items = [{ key: 'w/A1', tags: ['phone'] }, { key: 'w/B1' }];
+  const tap = (key, tag, on, extra = {}) => ({ kind: 'card-tag', key, fields: { tag, on }, ...extra });
+  const drawn = ui.tapped(items, [tap('w/A1', 'perf', true), tap('w/A1', 'PHONE', false), tap('w/B1', 'docs', true), tap('w/B1', 'x', true, { failed: true })]);
+  assert.deepEqual(plain(drawn.map((i) => i.tags)), [['perf'], ['docs']]);
+  assert.equal(drawn[0].sending, undefined, 'a tag pick disables no button');
 });
 
 test("a menu drawn while the board is narrowed to the card's chain marks the matching Linked item on, whose tap ends it", () => {

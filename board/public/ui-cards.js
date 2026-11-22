@@ -83,6 +83,60 @@
   // docs/adr/2026-11-17-0300-a-task-with-no-ticket-shows-its-t-n-on-the-badge.md: a card with no ticket is a task, its
   // T-<n> on the quiet badge.
   const taskChip = (it) => badge('quiet', esc(it.ref), { title: `${it.ref} · a task, no ticket` });
+  // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: a card's tags as chips right of its ticket badge, two at
+  // most, then +N naming the rest in its title. A long name cuts with an ellipsis; its title holds it whole.
+  const TAGS_SHOWN = 2;
+  const tagChip = (name) => `<span class="tag-chip" title="${esc(name)}">${esc(name)}</span>`;
+  function tagChips(it) {
+    const tags = it.tags || [];
+    const rest = tags.slice(TAGS_SHOWN);
+    return tags.slice(0, TAGS_SHOWN).map(tagChip).join('') + (rest.length ? `<span class="tag-chip more" title="${esc(rest.join(', '))}">+${rest.length}</span>` : '');
+  }
+  // The board's tags for the Tag… picker, each with the count of work cards carrying it, most used first, then by name.
+  // Names differing only in case are one tag, spelled as first met.
+  function boardTags(items) {
+    const byName = new Map();
+    for (const it of items) {
+      if (it.kind !== 'work') continue;
+      for (const name of it.tags || []) {
+        const tag = byName.get(name.toLowerCase()) || { name, count: 0 };
+        tag.count += 1;
+        byName.set(name.toLowerCase(), tag);
+      }
+    }
+    return [...byName.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }
+  // The Tag… picker's rows for card it (app-cards.js opens it from the card's menu) under the words typed: each of the
+  // board's tags (boardTags) whose name holds them, ticked where the card carries it, whose tap puts it on or takes it
+  // off; then, for a typed name no tag has, a New tag row that puts it on. The rules for a name are board/cards.mjs
+  // tagName's, which the board applies.
+  const TAG_MAX = 48;
+  const TAG_ICON = globalThis.BoardUI.iconText('tag', 'current', '');
+  const PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>';
+  const typedTag = (typed) => String(typed || '').trim().replace(/\s+/g, ' ');
+  function tagRows(it, tags, typed) {
+    const name = typedTag(typed);
+    const low = name.toLowerCase();
+    const carries = (tag) => (it.tags || []).some((t) => t.toLowerCase() === tag.toLowerCase());
+    const rows = tags.filter((t) => t.name.toLowerCase().includes(low)).map((t) => {
+      const on = carries(t.name);
+      return `<button type="button" role="menuitemcheckbox" aria-checked="${on}" data-tag-pick="${esc(t.name)}"${on ? ' data-on' : ''}><span class="tag-tick" aria-hidden="true">${on ? '✓' : ''}</span><span class="tag-name">${esc(t.name)}</span><span class="tag-count">${plural(t.count, 'card')}</span></button>`;
+    }).join('');
+    const fault = name.includes(',') ? 'A tag takes no comma.' : name.length > TAG_MAX ? `A tag is ${TAG_MAX} characters at most.` : '';
+    const fresh = name && !fault && !tags.some((t) => t.name.toLowerCase() === low)
+      ? `<button type="button" role="menuitem" data-tag-new="${esc(name)}">${PLUS}<span class="tag-name">New tag “${esc(name)}”</span><span class="tag-count">Create</span></button>` : '';
+    const empty = !tags.length && !name ? '<p class="tag-note">No tags on this board yet: type one.</p>' : '';
+    return rows + (fault ? `<p class="tag-note">${fault}</p>` : '') + fresh + empty;
+  }
+  // The open card's Tags row (app-cards.js detail): each tag whole, with a × that takes it off, then + Add tag, which
+  // opens the Tag… picker under it.
+  const tagRow = (it) => (it.tags || []).map((t) => `<span class="tag-chip whole">${esc(t)}<button type="button" data-tag-remove="${esc(t)}" data-key="${esc(it.key)}" aria-label="Remove the tag ${esc(t)}">×</button></span>`).join(' ')
+    + `${it.tags?.length ? ' ' : ''}<button type="button" class="tag-add" data-tag-add="${esc(it.key)}">+ Add tag</button>`;
+  // The picker as it opens: its card's name, the field to type in and the rows (tagRows), which app-cards.js redraws as
+  // the field changes and the card's tags do, leaving the field as typed.
+  const tagPicker = (it, tags) => `<div class="tag-head">${TAG_ICON}<span>Tag ${esc(it.ref)}</span></div>
+    <input type="text" data-tag-field placeholder="Type or pick a tag" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Tag ${esc(it.ref)}">
+    <div class="tag-rows" role="menu">${tagRows(it, tags, '')}</div>`;
   // docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: gray ● pending,
   // orange ● commented, red ✗ changes, green ✓ approved.
   const REVIEW = {
@@ -410,10 +464,10 @@
     }
     return seen;
   }
-  // The "…" at a card's top right, where it has a menu (cardMenu), filled orange while the card is bumped.
+  // The "…" at a card's top right, on every work card, opening its menu (cardMenu), filled orange while the card is bumped.
   const DOTS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
   const moreButton = (it) => `<button type="button" class="ghost icon card-more${it.bumpedAt ? ' bumped' : ''}" data-card-menu="${esc(it.key)}" aria-haspopup="menu" aria-expanded="false" aria-label="More" title="${it.bumpedAt ? 'Bumped · More' : 'More'}">${DOTS}</button>`;
-  // A card's menu (app-cards.js opens it): Bump or Unbump when it can be bumped, then Linked · 1 hop and Linked · all
+  // A card's menu (app-cards.js opens it): Bump or Unbump when it can be bumped, and Tag…, then Linked · 1 hop and Linked · all
   // when it has links, which narrow the board to its chain (app-search.js showLinked).
   const LINK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
   // While the board is narrowed to this card's chain at that depth (narrowed is app-search.js linkedTo), the item reads on
@@ -422,14 +476,16 @@
     const on = narrowed?.key === key && narrowed.depth === depth;
     return `<button type="button" role="${on ? 'menuitemcheckbox' : 'menuitem'}"${on ? ' aria-checked="true"' : ''} data-linked="${esc(key)}" data-depth="${depth}"${on ? ' data-on' : ''}>${LINK}<span>${label}</span></button>`;
   };
+  // Tag… is on every card's menu, Done included; it opens the Tag… picker (tagPicker).
   function cardMenu(it, narrowed = null) {
     const bump = it.bumpable ? cardBumpItem(it.key, Boolean(it.bumpedAt), it.sending?.includes('bump')) : '';
+    const tag = `<button type="button" role="menuitem" data-card-tag="${esc(it.key)}">${TAG_ICON}<span>Tag…</span></button>`;
     const linked = hasLinks(it) ? linkedItem(it.key, 'hop', 'Linked · 1 hop', narrowed) + linkedItem(it.key, 'all', 'Linked · all', narrowed) : '';
-    return [bump, linked].filter(Boolean).join('<div class="sep" role="separator"></div>');
+    return [bump + tag, linked].filter(Boolean).join('<div class="sep" role="separator"></div>');
   }
   function cardActions(it) {
-    const buttons = (it.ownerStep || it.release?.state === 'published' ? ownerDoneButton(it) : '') +(it.bumpable || hasLinks(it) ? moreButton(it) : '');
-    return buttons ? `<div class="ask-actions">${buttons}</div>` : '';
+    const buttons = (it.ownerStep || it.release?.state === 'published' ? ownerDoneButton(it) : '') + moreButton(it);
+    return `<div class="ask-actions">${buttons}</div>`;
   }
 
   // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
@@ -611,7 +667,8 @@
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
     const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${escText(`Check can't run: ${it.ownerCheck.broken}`)}</div>`
       : `<div class="line3 sub check">${escText(`Checks: ${it.ownerCheck.words}`)}</div>`;
-    return `${cardActions(it)}<div class="line1 title">${ids ? `${ids} ` : ''}${marked(it.title, words)}</div>
+    const tags = tagChips(it);
+    return `${cardActions(it)}<div class="line1 title">${ids ? `${ids} ` : ''}${tags ? `${tags} ` : ''}${marked(it.title, words)}</div>
       ${status}${releaseLine(it.release)}${reviewer}${check}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${timeLine(it, unread, progressBar(phaseStrip(it)))}`;
@@ -662,5 +719,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane, searchWords, cardMatches, FILTER_BOXES, filterHides, filterOnly, filterCounts, marked, linkedKeys, hasLinks, cardMenu, LINK });
+  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane, searchWords, cardMatches, FILTER_BOXES, filterHides, filterOnly, filterCounts, marked, linkedKeys, hasLinks, cardMenu, LINK, tagChips, boardTags, tagRows, tagRow, tagPicker });
 })();

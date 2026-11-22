@@ -298,6 +298,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--relate <id>,<file>/<id>]                     adds tasks to its Related to, keeping the rest
          [--unrelate <id>,<file>/<id>]                   takes tasks off its Related to, on both tasks; neither
                                                          goes with --related
+         [--tag <tag>,<tag>] [--untag <tag>,<tag>]       puts tags on it and takes them off, each a line in its
+                                                         thread; a tag is board-only free text, 48 characters
+                                                         at most, the same tag whatever its case
          [--install <url> [--install-sha <sha>]          a device build the owner installs from the task's Install
           [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=
                                                          download-manifest&url=https://…/manifest.plist for iOS,
@@ -1118,6 +1121,8 @@ export const ITEM_SET_SAYS = {
   related: (f) => (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),
   relate: (f) => `related to ${f.relate.split(',').join(', ')} added`,
   unrelate: (f) => `unrelated from ${f.unrelate.split(',').join(', ')}`,
+  tag: (f) => `tagged ${f.tag.split(',').map((t) => t.trim()).join(', ')}`,
+  untag: (f) => `untagged ${f.untag.split(',').map((t) => t.trim()).join(', ')}`,
   install: () => 'install published',
   'install-sha': null, 'install-label': null,
   'clear-install': () => 'install cleared',
@@ -1131,7 +1136,7 @@ export const ITEM_SET_SAYS = {
   check: (f) => (f.check.trim() ? `check ${f.check.trim().split(/\s+/).join(' ')}` : 'check removed'),
   'reply-on': null,
 };
-export const ITEM_SET_FLAGS = ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'base', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check', 'reply-on'];
+export const ITEM_SET_FLAGS = ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'base', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'tag', 'untag', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check', 'reply-on'];
 const unsaid = ITEM_SET_FLAGS.map((flag) => flag.replace('...', '')).filter((flag) => !(flag in ITEM_SET_SAYS));
 if (unsaid.length) throw new Error(`item set takes ${unsaid.map((flag) => `--${flag}`).join(', ')} but ITEM_SET_SAYS does not name it`);
 const COMMANDS = {
@@ -1187,6 +1192,13 @@ const COMMANDS = {
     await store.refuseUnborn(site, f.text);
     if (f.done && site) await store.checkNotReopened(site, key);
     if (site && [f.phase, f.title, f.ticket, f['new-ticket']].some((v) => v !== undefined)) await store.refuseUnreadEdit(site, key);
+    // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: --tag and --untag are the card's tags alone, set
+    // before the rest of the call's changes.
+    if (f.tag !== undefined || f.untag !== undefined) {
+      const changed = await store.tagItem(site, key, { tag: f.tag, untag: f.untag });
+      if (!changed) throw new store.BoardError(`${key} ${f.untag === undefined ? 'already carries every tag named' : f.tag === undefined ? 'carries none of the tags named' : 'keeps its tags as they are'}, so nothing changed`);
+      if (Object.keys(f).every((flag) => ['tag', 'untag', 'reply-on'].includes(flag))) return changed;
+    }
     return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, base: f.base, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f['blocked-by'], blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check, replyOn: f['reply-on'] }, options);
   }],
