@@ -72,6 +72,19 @@ test('builder resume on a handed-back build marks it for the board to resume, it
   assert.match((await onOrch('builder', 'resume', 'w/A1', '--text', 'Again')).err, /already waits on the board to resume its builder/);
 });
 
+test('builder resume on an open build whose process is gone marks it for the board to resume, not queueing to a dead session', async (t) => {
+  onHome(t);
+  building({ session: { id: 's1', pid: 2 ** 22 + 12345, log: 's1.log' } });
+  const r = await onOrch('builder', 'resume', 'w/A1', '--text', 'Carry on');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, 'A1: the board resumes its builder in its own session\n');
+  assert.equal(record().rerun.text, 'Carry on');
+  assert.equal(fs.existsSync(pointer()), false, 'no session runs to read it');
+  const taken = await store.takeRerun(site('orch'), 'w/A1');
+  assert.deepEqual(taken.news.slice(0, 1), ['New on w/A1 while you build: the orchestrator wrote: Carry on']);
+  assert.equal(record().done, undefined);
+});
+
 test('builder resume refuses a card not In Progress, one with no running or handed-back build, and a build with no session to resume', async () => {
   handedBack();
   setA1({ lane: 'todo' });

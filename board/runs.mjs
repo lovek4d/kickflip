@@ -1288,7 +1288,7 @@ export async function refuseNews(site, key) {
 
 // `builder resume <key> --text <t>`, the orchestrator's: on a running build the text is news for it, with a thread line
 // saying so; on a handed-back build it is news too, and the record is marked rerun {at, text} for the board server to
-// resume the builder's own session with it (takeRerun). → {running}
+// resume the builder's own session with it (takeRerun); so is an open build whose process is gone. → {running}
 export async function builderResume(site, key, said) {
   needSite(site);
   const words = text(said, '--text');
@@ -1298,7 +1298,9 @@ export async function builderResume(site, key, said) {
   const build = await newsBuild(site, key);
   if (!build) fail(`${name} has no running or handed-back build to resume`);
   const { file, record } = build;
-  if (!record.done) {
+  // An open record whose board-launched process is gone resumes in its own session, as a handed-back one does.
+  const gone = !record.done && Number.isInteger(record.session?.pid) && !pidAlive(record.session.pid);
+  if (!record.done && !gone) {
     await passNews(site, key, { from: 'orchestrator', text: words });
     await appendStatus(site, key, 'builder-told', { text: words });
     return { running: true };
@@ -1306,6 +1308,7 @@ export async function builderResume(site, key, said) {
   if (providerOf(record.kind ?? 'claude') !== 'claude' || !sessionIdOf(record.session)) fail(`${name}'s build has no Claude session the board launched to resume; start a new build instead`);
   if (record.rerun) fail(`${name} already waits on the board to resume its builder`);
   await passNews(site, key, { from: 'orchestrator', text: words });
+  if (record.session?.id) await remove(newsPointer(site, record.session.id));
   await writeJSON(file, { ...(await readJSON(file, null)), rerun: { at: new Date().toISOString(), text: words } });
   return { running: false };
 }
