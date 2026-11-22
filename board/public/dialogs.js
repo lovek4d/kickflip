@@ -190,6 +190,19 @@
       window.removeEventListener('scroll', pin);
     };
   }
+  // Focuses a sheet's field without the page scrolling, then scrolls the field into view once the keyboard is up: on the
+  // viewport's next resize, or after 400ms when the keyboard was already up and no resize comes. Once. Returns the cancel,
+  // for a view that unmounts first.
+  function focusField(field) {
+    field.focus({ preventScroll: true });
+    const vv = window.visualViewport;
+    let timer;
+    const cancel = () => { clearTimeout(timer); vv?.removeEventListener('resize', reveal); };
+    const reveal = () => { cancel(); field.scrollIntoView({ block: 'nearest' }); };
+    vv?.addEventListener('resize', reveal);
+    timer = setTimeout(reveal, 400);
+    return cancel;
+  }
   // docs/adr/2026-11-21-2300-new-board-and-new-course-share-one-source-field.md
   // New's one source field: Board's step 1, Course's optional "Learn from…" and Change repo's repo. It takes a GitHub
   // repo (listed, a link or owner/name), another git remote, or a folder on this Mac, its kind read from what is typed,
@@ -583,5 +596,5 @@
   }
   const confirm = (message, { signal } = {}) => Promise.resolve(!signal?.aborted && window.confirm(message));
   const notice = (message) => { window.alert(message); return Promise.resolve(); };
-  globalThis.BoardDialogs = { confirm, notice, fitSheet, repoSheet, ticketsControl };
+  globalThis.BoardDialogs = { confirm, notice, fitSheet, focusField, repoSheet, ticketsControl };
 })();

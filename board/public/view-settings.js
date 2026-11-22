@@ -201,7 +201,7 @@
         unfit?.();
         unfit = BoardDialogs.fitSheet(closeSheet);
         BoardUI.openSheet(closeSheet);
-        typed.focus({ preventScroll: true });
+        B.atUnmount(BoardDialogs.focusField(typed));
       } catch { $('#closeBoardReason').textContent = 'Could not load Close board. Is the host awake?'; closeRow.disabled = false; }
     });
     B.on(typed, 'input', () => { closeConfirm.disabled = closing || typed.value !== closure?.title; });
