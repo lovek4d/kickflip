@@ -91,6 +91,7 @@ test('a new task, a message in an ask thread and an agent-added card wake the se
   assert.equal(wakes(event('card-added', { key: 'w/A2' })), true);
   assert.equal(wakes(event('item-message', { key: 'ask:a1', text: 'More' })), true);
   assert.equal(ON_CARD.ask('T-4', { id: 'a1' }), 'new task a1 received as T-4: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate');
+  assert.equal(ON_CARD.ask('T-4', { id: 'a1', data: { quick: true } }), 'new task a1 received as T-4, to build: item triage <its key> --title and its links and no --phase, which stages it; then judge and size it as any staged task');
   assert.equal(ON_CARD['card-added']('#7'), '#7 added by an agent: triage it first with item triage <its key> --title --phase and its links, then item notes');
   assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1' })), "message received from the ask's thread: reply in its thread; ask open points with reply --questions <json>, not in prose");
   // docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
