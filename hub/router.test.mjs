@@ -7,7 +7,7 @@ import { tempDir } from '../shared/temp-dir.mjs';
 
 const home = tempDir('router-');
 process.env.HOME = home;
-const { routingBoards, routePrompt, parseRanking, routeRequest, drainRoutes, routedRows, dismissRow, answerUnplaced, answerPrompt, placeRow, ROUTE_QUEUE, ROUTED_LOG, ROUTED_DISMISSED, ROUTE_TRIES } = await import('./router.mjs');
+const { routingBoards, boardsListing, routePrompt, parseRanking, routeRequest, drainRoutes, routedRows, dismissRow, answerUnplaced, answerPrompt, placeRow, ROUTE_QUEUE, ROUTED_LOG, ROUTED_DISMISSED, ROUTE_TRIES } = await import('./router.mjs');
 const { passAsk } = await import('../board/asks.mjs');
 const { listBoards } = await import('./boards.mjs');
 
@@ -38,6 +38,16 @@ test('a board for routing is its route, title, description and its 15 most recen
   assert.equal(only.title, 'Paddock');
   assert.equal(only.description, 'The paddock shop');
   assert.deepEqual(only.recent, Array.from({ length: 15 }, (_, i) => `Card ${18 - i}`));
+});
+
+test('the board listing a session reads is the one inside the router prompt', async () => {
+  const boards = routingBoards(manifestOf(
+    board('shop', { description: 'The paddock shop', items: [item('T-1', 'Fix the basket', 'todo', '2026-11-01T00:00:00Z')], title: 'Paddock' }),
+    board('hub', { description: '', items: [], title: 'Hub' }),
+  ));
+  const listing = boardsListing(boards);
+  assert.match(listing, /^\/shop · Paddock\nDescription: The paddock shop\nRecent open tasks:\n- Fix the basket\n\n\/hub · Hub\nDescription: none\nRecent open tasks: none$/);
+  assert.ok(routePrompt('anything', boards).includes(listing));
 });
 
 test('the prompt names every board with its description and recent titles, and the request', async () => {

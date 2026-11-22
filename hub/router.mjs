@@ -58,8 +58,13 @@ export function routingBoards(manifest = readManifest()) {
   }));
 }
 
+// The boards as text, for the router's prompt and for a session choosing its own board (kickflip handoff with no objective).
+export function boardsListing(boards) {
+  return boards.map((b) => `/${b.route} · ${b.title}\nDescription: ${b.description || 'none'}\nRecent open tasks:${b.recent.length ? b.recent.map((t) => `\n- ${t}`).join('') : ' none'}`).join('\n\n');
+}
+
 export function routePrompt(text, boards) {
-  const listed = boards.map((b) => `/${b.route} · ${b.title}\nDescription: ${b.description || 'none'}\nRecent open tasks:${b.recent.length ? b.recent.map((t) => `\n- ${t}`).join('') : ' none'}`).join('\n\n');
+  const listed = boardsListing(boards);
   return `You route one incoming request to the boards whose work it may belong to. You only rank the boards; you don't answer the request.
 
 The boards:

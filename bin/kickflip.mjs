@@ -60,6 +60,8 @@
 //               join for a site that isn't a board: a plain page with --port, --dir or --cmd, or with --session one this
 //               session answers, with --watch. Exit 2 for neither, for --template, and for a route a board holds
 //   kickflip handoff [<route>] (--text <objective> | --file <file>) [--label <name>]
+//               with no route and no objective it prints the boards as the router reads them (../hub/router.mjs
+//               routingBoards: route, title, description, recent open tasks) for the session to pick from.
 //               files a session's objective on the board at route as an ask, which becomes a New task, carrying
 //               routed {via: handoff, by: --label (default "a session"), reason "<label> named this board"} for its
 //               thread's line, and prints "handed to <link>". With no route it queues the objective for the hub's router
@@ -757,6 +759,10 @@ const commands = {
     let text = String(args.text ?? '');
     if (args.file !== undefined) {
       try { text = fs.readFileSync(args.file, 'utf8'); } catch (e) { fail(`--file ${args.file}: ${e.message}`, 2); }
+    }
+    if (!text.trim() && !route) {
+      const { routingBoards, boardsListing } = await import(path.join(SKILL, 'hub', 'router.mjs'));
+      return out(boardsListing(routingBoards(readManifest())) || 'no boards');
     }
     text = text.trim() || fail('handoff needs the objective, as --text "<objective>" or --file <file>', 2);
     const by = String(args.label ?? '').trim() || 'a session';
