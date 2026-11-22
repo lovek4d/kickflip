@@ -311,24 +311,30 @@ export async function boardPosts(site) {
 const slackThreadsFile = (site) => path.join(site, 'data', 'slack-threads.json');
 const slackThreadId = (t) => `${t.channel}:${t.thread_ts}`;
 // The Slack threads this board's tasks follow: each ask routed from a Slack @kickflip whose card is not Done, as
-// {key, channel, thread_ts, ts, by, link, heard}: routed.slack, the @kickflip's sender and permalink, and heard, the
-// newest reply read, else the @kickflip's ts, since the replies up to it were its words.
+// {key, channel, thread_ts, ts, by, link, heard, failing}: routed.slack, the @kickflip's sender and permalink, heard, the
+// newest reply read, else the @kickflip's ts, since the replies up to it were its words, and failing, whether the last
+// read of the thread failed and the card says so.
 export async function followedSlackThreads(site) {
   const asks = (await readLog(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.kind === 'ask' && e.data?.routed?.via === 'slack' && e.data.routed.slack);
   if (!asks.length) return [];
-  const heard = (await readJSON(slackThreadsFile(site), {})).threads || {};
+  const { threads: heard = {}, follows = {} } = await readJSON(slackThreadsFile(site), {});
   const out = [];
   for (const e of asks) {
     const card = await askCardOf(site, e.id);
     if (!card || card.item.lane === 'done') continue;
     const { slack, by, link } = e.data.routed;
-    out.push({ key: card.key, ...slack, by, link, heard: heard[slackThreadId(slack)] || slack.ts });
+    out.push({ key: card.key, ...slack, by, link, heard: heard[slackThreadId(slack)] || slack.ts, failing: Boolean(follows[slackThreadId(slack)]) });
   }
   return out;
 }
 // Records ts as the newest reply the hub has read in thread, one of followedSlackThreads.
 export const markSlackThreadHeard = (site, thread, ts) => editJSON(slackThreadsFile(site), (all) => { all.threads = { ...all.threads, [slackThreadId(thread)]: ts }; });
 // docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
+// Records whether the last read of thread, one of followedSlackThreads, failed, so the card says so once per failing run.
+export const markSlackFollow = (site, thread, failing) => editJSON(slackThreadsFile(site), (all) => {
+  const { [slackThreadId(thread)]: _, ...rest } = all.follows || {};
+  all.follows = failing ? { ...rest, [slackThreadId(thread)]: true } : rest;
+});
 // slack-threads.json's replies {"<reply file name>": {key, ts?, failed?}}, in the order written: each reply to post, with
 // the ts Slack gave it once posted and failed once a post failed and the card's fault line was written; and ends
 // {"<channel>:<thread_ts>": {ts?, failed?}}: each thread seen while its task was open, so its end line posts once.

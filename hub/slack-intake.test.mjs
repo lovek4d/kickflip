@@ -216,3 +216,44 @@ test('a Done task reads its Slack thread no more', async () => {
   assert.deepEqual(slack.calls, []);
   assert.deepEqual(threadLines(), []);
 });
+
+test("a thread keeps landing on its open task after the owner's reply was copied and the orchestrator's posted: the asker's later reply lands too", async () => {
+  const { world, slack } = await started();
+  const { postSlackReplies } = await import('./slack-intake.mjs');
+  const { queueSlackReply } = await import('../board/slack-store.mjs');
+  const asked = slack.say({ channel: 'D2', user: 'U2', text: '@kickflip the export button 500s' });
+  slackFiled(world, { thread_ts: asked });
+  const owner = slack.say({ channel: 'D2', user: 'U0', text: 'Looking at it', thread_ts: asked });
+  assert.deepEqual(await follow(slack), { copied: ['orch items/T-1: Love'], failed: [] });
+  fs.mkdirSync(path.join(site, 'data', 'replies'), { recursive: true });
+  fs.writeFileSync(path.join(site, 'data', 'replies', 'r1.md'), 'It is fixed in the next build');
+  await queueSlackReply(site, 'items/T-1', 'r1');
+  assert.deepEqual(await postSlackReplies({ boards, fetch: slack.fetch }), { posted: ['orch items/T-1: a reply'], failed: [] });
+  assert.deepEqual(await follow(slack), { copied: [], failed: [] });
+  const later = slack.say({ channel: 'D2', user: 'U2', text: 'did one more pass Kickflip. any other concerns or are we good', thread_ts: asked });
+  assert.deepEqual(await follow(slack), { copied: ['orch items/T-1: Bob'], failed: [] });
+  assert.deepEqual(messageEvents().map((e) => e.data.sendId), [`slack:D2:${later}`]);
+  const slackThreads = read(path.join(site, 'data', 'slack-threads.json'), {});
+  assert.equal(slackThreads.threads[`D2:${asked}`], later);
+  assert.ok(owner);
+});
+
+test("a thread that can't be read says so once on its card, is read again each poll, and its replies land when Slack answers", async () => {
+  const { world, slack } = await started();
+  const asked = slack.say({ channel: 'D2', user: 'U2', text: '@kickflip the export button 500s' });
+  slackFiled(world, { thread_ts: asked });
+  const later = slack.say({ channel: 'D2', user: 'U2', text: 'Any news?', thread_ts: asked });
+  let down = true;
+  const fetch = async (url, init) => (down && String(url).includes('conversations.replies')
+    ? { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ ok: false, error: 'internal_error' }), text: async () => '' }
+    : slack.fetch(url, init));
+  for (let i = 0; i < 2; i++) assert.equal((await followSlackAsks({ boards, fetch })).failed.length, 1);
+  assert.deepEqual(threadLines().filter((m) => m.line === 'slack-follow-failed').map((m) => m.text),
+    ["Can't read its Slack thread, replies may be missing: Slack: internal_error"]);
+  down = false;
+  assert.deepEqual(await followSlackAsks({ boards, fetch }), { copied: ['orch items/T-1: Bob'], failed: [] });
+  assert.deepEqual(messageEvents().map((e) => e.data.sendId), [`slack:D2:${later}`]);
+  down = true;
+  await followSlackAsks({ boards, fetch });
+  assert.equal(threadLines().filter((m) => m.line === 'slack-follow-failed').length, 2, 'a recovered thread says so again when it fails anew');
+});

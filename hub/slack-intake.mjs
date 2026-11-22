@@ -15,7 +15,7 @@ import { appendEvent, listBoards, readJSON, saveJSON } from './boards.mjs';
 import { savedSlack, slackStatus, missingScope, setSearching, isSignedOff, slackUserId } from './slack.mjs';
 import { queueRequest } from './router.mjs';
 import { appendMessage, appendStatus } from '../board/cards.mjs';
-import { boardPosts, followedSlackThreads, markSlackPost, markSlackThreadHeard, slackOutbox } from '../board/slack-store.mjs';
+import { boardPosts, followedSlackThreads, markSlackPost, markSlackFollow, markSlackThreadHeard, slackOutbox } from '../board/slack-store.mjs';
 
 export const INTAKE_FILE = path.join(os.homedir(), '.claude', 'kickflip', 'slack-intake.json');
 const NAMED = /\bkickflip\b/i;
@@ -103,7 +103,7 @@ export async function fileSlackAsks({ boards = listBoards(), fetch, now = new Da
 // under the sender's name with Slack and the reply's permalink; every other reply is a thread line under its writer's
 // name, which wakes no one. A file in a reply is its name and permalink, since a Slack file opens only with a token.
 // Not copied: the boards' own posts, the owner's signed-off ones (the orchestrator's), Slack's bot and event messages,
-// and an empty one. Each reply is marked read once it is in, so a failure part way copies none twice.
+// and an empty one. A read that fails writes one fault line on the card, and the thread is read again each poll. Each reply is marked read once it is in, so a failure part way copies none twice.
 // → {copied: ['<route> <key>: <name>'], failed: [why]}, both empty without a saved working token.
 const COPIED_SUBTYPES = ['file_share', 'thread_broadcast'];
 export async function followSlackAsks({ boards = listBoards(), fetch } = {}) {
@@ -138,10 +138,15 @@ export async function followSlackAsks({ boards = listBoards(), fetch } = {}) {
           }
           await markSlackThreadHeard(board.dir, thread, m.ts);
         }
+        if (thread.failing) await markSlackFollow(board.dir, thread, false);
       } catch (e) {
         // A token without im:history reads no thread; hearing the day threads pushes that (review-send.mjs hear).
         if (missingScope(e)) return { copied, failed };
         failed.push(`${board.route}: following ${thread.key}'s Slack thread: ${e.message}`);
+        if (!thread.failing) {
+          await markSlackFollow(board.dir, thread, true);
+          await appendStatus(board.dir, thread.key, 'slack-follow-failed', { error: e.message });
+        }
       }
     }
   }
