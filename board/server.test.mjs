@@ -1658,13 +1658,15 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
+    const offs = { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false };
     assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true },
-      paused_until: null, pause_choices: [['1h', '1h', 3600_000], ['3h', '3h', 3 * 3600_000], ['6h', '6h', 6 * 3600_000], ['1d', '1d', 86400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms })) });
+      overrides: {}, defaults: offs, paused_until: null, pause_choices: [['1h', '1h', 3600_000], ['3h', '3h', 3 * 3600_000], ['6h', '6h', 6 * 3600_000], ['1d', '1d', 86400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms })) });
     assert.deepEqual((await (await fetch(`${base}/api/settings`)).json()).pause_choices, (await (await fetch(`${base}/api/board`)).json()).holdChoices, "Pause board's chips are the Hold sheet's");
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
     assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true });
+    assert.deepEqual([out.overrides, out.defaults], [{ auto_merge: true }, offs]);
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
@@ -1680,6 +1682,11 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
     assert.equal((await checks()).length, before + 1);
     await ok200(save({ auto_merge: true }));
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).auto_merge, true);
+    // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md: null drops the override, so
+    // the board takes the hub's Board default, off here.
+    const cleared = await (await save({ auto_merge: null })).json();
+    assert.deepEqual([cleared.settings.auto_merge, cleared.overrides, 'auto_merge' in JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'))], [false, { auto_build: true }, false]);
+    assert.equal((await save({ skip_draft: null })).status, 400, 'only a Board default clears');
     // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
     assert.deepEqual(await (await save({ skip_draft: true })).json().then((b) => [b.settings.skip_draft, Boolean(b.id)]), [true, true]);
     assert.deepEqual((await settingsEvents())[0], { skip_draft: true });

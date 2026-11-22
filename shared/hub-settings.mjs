@@ -101,6 +101,24 @@ export async function setServes(value, home = os.homedir()) {
   return n;
 }
 
+// docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+// Hub settings' Board defaults: Auto serve, Auto review, Auto-merge and Idle notification, settings.json's boardDefaults
+// keyed as board.json keys them. A board takes each unless its board.json sets that key (board/settings.mjs settingsOf).
+// A key unset here is off.
+export const BOARD_DEFAULT_KEYS = ['auto_build', 'auto_review', 'auto_merge', 'idle_notification'];
+export const readBoardDefaults = (home = os.homedir()) => {
+  const stored = read(home).boardDefaults;
+  return Object.fromEntries(BOARD_DEFAULT_KEYS.map((k) => [k, stored?.[k] === true]));
+};
+// value: on, off, or a boolean. Throws {status: 400} for another key or value.
+export async function setBoardDefault(key, value, home = os.homedir()) {
+  if (!BOARD_DEFAULT_KEYS.includes(key)) throw Object.assign(new Error(`no board default "${key}"`), { status: 400 });
+  const on = value === true || value === 'on' ? true : value === false || value === 'off' ? false : null;
+  if (on === null) throw Object.assign(new Error(`${key.replace(/_/g, '-')} takes on or off`), { status: 400 });
+  await update((file) => ({ ...file, boardDefaults: { ...file.boardDefaults, [key]: on } }), home);
+  return on;
+}
+
 // Which Claude model builds a card that Claude builds (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md),
 // Hub settings' Builders: opus or sonnet forces it, auto leaves it to the card (usage-gate.mjs builderPick), on every
 // board. A missing or unknown stored value is auto.

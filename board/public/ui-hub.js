@@ -91,8 +91,8 @@
       + `<p class="u-share-desc">${esc(codex.description)}</p>${codex.fix ? `<p class="u-share-fix"><code>${esc(codex.fix)}</code></p>` : ''}</div>`;
   }
 
-  // The Builders or Orchestrators control in Hub settings' Usage card, drawn as Codex share's: model is a
-  // shared/model-views.mjs view, and its form posts to action, which view-hub.js sends.
+  // A control in Hub settings' Board defaults section, drawn as Codex share's: model is a shared/model-views.mjs view,
+  // and its form posts to action, which view-hub.js sends.
   function modelControl(model, action) {
     const buttons = model.choices.map((c) => `<button type="submit" name="value" value="${esc(c.value)}" aria-pressed="${c.on}">${esc(c.label)}</button>`).join('');
     return `<div class="u-share model-control"><span class="model-label">${esc(model.label)}</span><form class="segments model-seg" method="post" action="${esc(action)}" data-model="${esc(model.name)}" role="group" aria-label="${esc(model.label)}">${buttons}</form>`
@@ -109,6 +109,14 @@
       + `<p class="u-share-desc">${desc}</p></div>`;
   }
 
+  // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+  // The Board defaults section, right under Usage: defaults is hub/views.mjs hubView's boardDefaults. Builders and
+  // Orchestrators every board takes; each Auto setting posts on or off to /_hub/settings/<its key, dashed>.
+  const boardDefaultsCard = (defaults) => `<section class="board-defaults"><h2 class="label">Board defaults</h2><div class="group"><div class="block">`
+    + modelControl(defaults.builders, '/_hub/settings/claude-model') + modelControl(defaults.orchestrators, '/_hub/settings/orchestrator-model')
+    + defaults.auto.map((v) => modelControl(v, `/_hub/settings/${v.name.replace(/_/g, '-')}`)).join('')
+    + '<p class="u-share-desc">A board takes each Auto setting unless its Board settings override it.</p></div></div></section>';
+
   // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md,
   // docs/adr/2026-11-19-0800-every-hub-limit-takes-the-same-turns.md
   // The Capacity section, right below Usage: the hub's numbers every board shares, capacity being hub/views.mjs
@@ -119,8 +127,7 @@
     + countControl('Maximum parallel land tests', capacity.landTests, '/_hub/settings/land-tests', 'Hub-wide. Lands run the tests their change affects. Boards take turns, one card each.')
     + '</div></section>';
 
-  // data is the usage reading; claude, when given, opens Claude's block with the Builders and Orchestrators controls,
-  // even without a reading; codex, when given, draws Codex's block even without a reading: the Codex share control
+  // data is the usage reading; claude, when given, draws Claude's block even without a reading; codex, when given, draws Codex's block even without a reading: the Codex share control
   // first, then Codex's bars while share isn't Off.
   function usageCard(data, codex, pause, claude) {
     const { usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords } = BoardUI;
@@ -134,7 +141,6 @@
       `<div class="u-tone-${usageTone(r[key])}${pause?.pause_at < 100 ? ' ub-marked' : ''}"><div class="u-win"><span>${label}</span><span>${usageWords(r, key)}</span></div>${usageBar(r[key]).replace('</span>', `${pause?.pause_at < 100 ? `<span class="ub-mark" style="left:${pause.pause_at}%"></span>` : ''}</span>`)}</div>`).join('');
     const blocks = products.map((p) => {
       const r = data?.[p] || { at: null };
-      if (p === 'claude' && claude) return `<div class="block u-block">${head(usageNames.claude, asof(r))}${modelControl(claude.builders, '/_hub/settings/claude-model')}${modelControl(claude.orchestrators, '/_hub/settings/orchestrator-model')}${windows(r)}</div>`;
       if (p !== 'codex' || !codex) return `<div class="block u-block">${head(usageNames[p], asof(r))}${windows(r)}</div>`;
       const bars = codex.usable && codex.share !== 'off';
       return `<div class="block u-block">${head(usageNames.codex, codex.tag || (bars ? asof(r) : ''))}${codexShare(codex)}${bars ? `<div class="u-codex-bars">${windows(r)}</div>` : ''}</div>`;
@@ -143,5 +149,5 @@
     return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}${buffer}</div></section>`;
   }
 
-  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, machineRow, deviceRow, usageCard, capacityCard };
+  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, machineRow, deviceRow, usageCard, boardDefaultsCard, capacityCard };
 })();

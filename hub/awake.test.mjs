@@ -75,5 +75,5 @@ test('the hub runs caffeinate -s while Keep awake is on, stops it when turned of
   write(settings, { keep_awake_until: new Date(Date.now() + 3_600_000).toISOString() });
   await startHub();
   assert.equal(runs.length, 4);
-  assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), {});
+  assert.deepEqual(JSON.parse(fs.readFileSync(settings, 'utf8')), { boardDefaults: {} }, 'only the Board defaults migration mark stays');
 });

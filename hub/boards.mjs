@@ -26,6 +26,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { githubFromOrigin } from './repos.mjs';
 import { prLinks, reviewLinks, topicItems } from '../board/review.mjs';
 import { cardPRs } from '../shared/card-prs.mjs';
+import { readBoardDefaults } from '../shared/hub-settings.mjs';
 import { appendEvent as appendBoardEvent } from '../board/files.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -157,13 +158,15 @@ export function prsOf(files, github) {
     .flatMap((it) => cardPRs(it, github || itemFile.repo).filter((p) => !p.merged_at).map((p) => ({ file: slug, id: it.id, pr: p.number, repo: p.repo, since: it.gh_since || NO_SINCE }))));
 }
 
-function boardOf(route, s) {
+// defaults: Hub settings' Board defaults, which a board.json key overrides (board/settings.mjs settingsOf).
+function boardOf(route, s, defaults = readBoardDefaults()) {
   const cfg = readJSON(path.join(s.dir, 'board.json'), {});
+  const auto = (k) => (typeof cfg[k] === 'boolean' ? cfg[k] : defaults[k]);
   const kind = typeof cfg.items === 'string' && cfg.items !== 'waves' ? 'file' : 'waves';
   const files = filesOf(s.dir, cfg, kind);
   const github = s.github;
   return {
-    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, files, prs: prsOf(files, github), github, ...(s.remote && !github ? { remote: s.remote } : {}), branch: s.branch, ...(buildsLocally(s) ? { local: true } : {}), ...(s.hub === true ? { hub: true } : {}), auto_build: cfg.auto_build === true, ...(validBuildTarget(cfg.build_target) ? { build_target: cfg.build_target } : {}), ...(kickflipHeld(cfg) ? { scripts: 'kickflip' } : {}), auto_review: cfg.auto_review === true, skipDraft: cfg.skip_draft === true, autoMerge: cfg.auto_merge === true,
+    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, files, prs: prsOf(files, github), github, ...(s.remote && !github ? { remote: s.remote } : {}), branch: s.branch, ...(buildsLocally(s) ? { local: true } : {}), ...(s.hub === true ? { hub: true } : {}), auto_build: auto('auto_build'), ...(validBuildTarget(cfg.build_target) ? { build_target: cfg.build_target } : {}), ...(kickflipHeld(cfg) ? { scripts: 'kickflip' } : {}), auto_review: auto('auto_review'), skipDraft: cfg.skip_draft === true, autoMerge: auto('auto_merge'),
     githubLogin: typeof cfg.github_login === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(cfg.github_login) ? cfg.github_login : null,
     tickets: cfg.tickets, reviewers: names(cfg.reviewers), reviewerLogins: reviewerLogins(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };
@@ -171,7 +174,8 @@ function boardOf(route, s) {
 
 // Every board site in the manifest (a site whose cmd runs board/server.mjs), in manifest order.
 export function listBoards(manifest = readManifest()) {
-  return Object.entries(manifest?.sites || {}).filter(([, s]) => isBoardSite(s)).map(([route, s]) => boardOf(route, s));
+  const defaults = readBoardDefaults();
+  return Object.entries(manifest?.sites || {}).filter(([, s]) => isBoardSite(s)).map(([route, s]) => boardOf(route, s, defaults));
 }
 
 // The board whose manifest entry has `hub: true`, which bin/kickflip.mjs `set --hub` and `join --hub` keep on at most one

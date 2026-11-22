@@ -266,7 +266,7 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       const post = (body, json = true) => fetch(`${base}/_hub/settings/orchestrator-model`, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
       });
-      const on = (hub) => hub.claude.orchestrators.choices.find((c) => c.on).value;
+      const on = (hub) => hub.boardDefaults.orchestrators.choices.find((c) => c.on).value;
       assert.equal(on(await getHub()), 'opus');
       const settingsBefore = JSON.parse(fs.readFileSync(file, 'utf8'));
       for (const value of ['sonnet', 'opus']) {
@@ -279,6 +279,21 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       assert.deepEqual([bad.status, await bad.json()], [400, { error: 'orchestrator-model takes opus or sonnet' }]);
       const redirect = await post('value=opus', false);
       assert.deepEqual([redirect.status, redirect.headers.get('location')], [303, '/_hub/']);
+    });
+    // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+    await t.test('each Board defaults Auto route saves on or off in boardDefaults and refuses anything else', async () => {
+      const post = (key, body) => fetch(`${base}/_hub/settings/${key}`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body,
+      });
+      const on = (hub, name) => hub.boardDefaults.auto.find((v) => v.name === name).value;
+      assert.deepEqual((await getHub()).boardDefaults.auto.map((v) => [v.label, v.value]), [['Auto serve', 'off'], ['Auto review', 'off'], ['Auto-merge', 'off'], ['Idle notification', 'off']]);
+      const r = await post('auto-review', 'value=on');
+      assert.equal(r.status, 200);
+      assert.equal(on(await r.json(), 'auto_review'), 'on');
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).boardDefaults.auto_review, true);
+      const bad = await post('auto-review', 'value=yes');
+      assert.deepEqual([bad.status, await bad.json()], [400, { error: 'auto-review takes on or off' }]);
+      assert.equal(on(await (await post('auto-review', 'value=off')).json(), 'auto_review'), 'off');
     });
     // docs/adr/2026-11-18-0800-models-and-land-tests-are-hub-settings-only.md
     // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md

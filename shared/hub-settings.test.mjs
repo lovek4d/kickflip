@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
-import { read, update, updateSync, settingsFile, readCodexShare, setCodexShare, readAutoUpdate, setAutoUpdate, readLandTests, setLandTests, MAX_LAND_TESTS } from './hub-settings.mjs';
+import { read, update, updateSync, settingsFile, readCodexShare, setCodexShare, readAutoUpdate, setAutoUpdate, readLandTests, setLandTests, MAX_LAND_TESTS, readBoardDefaults, setBoardDefault } from './hub-settings.mjs';
 import { setPauseAt } from './usage-gate.mjs';
 import { writeHubRules, readHubRules } from '../hub/rules.mjs';
 
@@ -42,6 +42,19 @@ test('the setters refuse a bad value with a status and write nothing', async () 
   assert.equal(readLandTests(h), MAX_LAND_TESTS);
   assert.equal(await setLandTests('3', h), 3);
   assert.equal(readCodexShare({ usable: true }, h), 'auto');
+});
+
+// docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+test("Board defaults read off until settings.json says on, and a hub's Auto setting saves on or off for the four keys only", async () => {
+  const h = home();
+  assert.deepEqual(readBoardDefaults(h), { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false });
+  await setBoardDefault('auto_review', 'on', h);
+  await setBoardDefault('auto_merge', 'off', h);
+  assert.deepEqual(read(h).boardDefaults, { auto_review: true, auto_merge: false });
+  assert.deepEqual(readBoardDefaults(h), { auto_build: false, auto_review: true, auto_merge: false, idle_notification: false });
+  await assert.rejects(setBoardDefault('auto_review', 'yes', h), { status: 400, message: 'auto-review takes on or off' });
+  await assert.rejects(setBoardDefault('prs', 'on', h), { status: 400, message: 'no board default "prs"' });
+  assert.deepEqual(read(h).boardDefaults, { auto_review: true, auto_merge: false });
 });
 
 test('a pause-at and a hub rules edit made at once both survive, in this process and across processes', async () => {

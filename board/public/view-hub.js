@@ -101,7 +101,7 @@
 
   function html(d, { flash, prompts, restarting, restartingHub, unsent, open }) {
     const { row, tile } = HubUI;
-    const usage = HubUI.usageCard(d.usage, d.codex, d.pause, d.claude) + HubUI.capacityCard(d.capacity);
+    const usage = HubUI.usageCard(d.usage, d.codex, d.pause, d.claude) + HubUI.boardDefaultsCard(d.boardDefaults) + HubUI.capacityCard(d.capacity);
     // The status word is plain text, except while the hub runs older code: then it opens the Restart hub confirm and waits like that button.
     const word = d.hub.restart
       ? `<button type="button" class="st ${esc(d.hub.tone)}" data-restart-hub${restartingHub ? BoardUI.BUSY : ''}>${esc(d.hub.word)}</button>`
@@ -517,10 +517,13 @@ ${BoardNewTask.markup()}`,
         notify(text) { flash = { text, error: true }; paint(); },
         after: () => load(),
       });
+      // The settings whose answer is /_hub/api/hub's JSON, which repaints the page in place.
+      const REPAINTS = ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/orchestrator-model', '/_hub/settings/auto-build', '/_hub/settings/auto-review', '/_hub/settings/auto-merge', '/_hub/settings/idle-notification',
+        '/_hub/settings/tasks-in-progress', '/_hub/settings/serves', '/_hub/settings/land-tests', '/_hub/settings/pause-at', '/_hub/settings/keep-going'];
       const forms = HubKit.forms(B, {
-        accepts: (action, form) => ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/orchestrator-model', '/_hub/settings/tasks-in-progress', '/_hub/settings/serves', '/_hub/settings/land-tests', '/_hub/settings/pause-at', '/_hub/settings/keep-going', '/_hub/settings/keep-awake'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
+        accepts: (action, form) => [...REPAINTS, '/_hub/settings/keep-awake'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
         answer(out, action) {
-          if (['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/orchestrator-model', '/_hub/settings/tasks-in-progress', '/_hub/settings/serves', '/_hub/settings/land-tests', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
+          if (REPAINTS.includes(action)) {
             last = out; flash = null; paint();
             if (action.endsWith('/keep-going')) {
               const { kind, until } = out.pause.banner;

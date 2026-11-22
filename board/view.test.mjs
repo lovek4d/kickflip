@@ -10,6 +10,7 @@ import { miniDom } from './mini-dom.mjs';
 import { footerOf, buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 import { freshSync, stamp, patchSince } from './sync.mjs';
 import { transcriptChunk } from './transcript.mjs';
+import { autoViews, buildersView, orchestratorsView } from '../shared/model-views.mjs';
 
 // The patch the server sends a page holding from once the board reads to, as board/sync.mjs makes it, between the
 // versions the two boards name. threads, {from, to}, are the cards' threads beside each board.
@@ -501,15 +502,18 @@ test("the board's Settings and Notes views, mounted then unmounted, leave no lis
 // into it, or answers s.refuse while that holds an error. Other URLs answer from routes by their ending. The board's
 // rules events answer s.rules, each read counted in s.rulesReads; ctx goes to the view.
 // dom: a mini-dom.mjs root that parses what the view draws, for a test that reads inside it.
-function settingsPage({ settings = {}, board = {}, routes = {}, ctx = {}, dom = false } = {}) {
+// overrides and defaults are the board's Auto overrides and the hub's Board defaults, off unless given, which the
+// server's settings answer carries, its settings taking the override else the default.
+const AUTO_KEYS = ['auto_build', 'auto_review', 'auto_merge', 'idle_notification'];
+function settingsPage({ settings = {}, overrides = {}, defaults = {}, board = {}, routes = {}, ctx = {}, dom = false } = {}) {
   const page = fakePage(memoryStorage().localStorage);
   const Element = dom && miniDom(page.Target, page.win.document).Element;
   const root = dom ? page.win.document.body.appendChild(new Element('div')) : new page.El();
-  const s = { page, root, posts: [], confirms: [], refuse: '', saved: { ...settings }, rules: [], rulesReads: 0,
+  const s = { page, root, posts: [], confirms: [], confirmAnswer: true, refuse: '', saved: { ...settings }, overrides: { ...overrides }, defaults: Object.fromEntries(AUTO_KEYS.map((k) => [k, defaults[k] === true])), rules: [], rulesReads: 0,
     descriptionPosts: [], description: { description: 'Sells shoes', source: 'new-board', at: '2026-11-12T12:00:00' } };
   const site = page.win.ClaudeSite.site;
   page.win.ClaudeSite.site = (r) => ({ ...site(r), events: async (opts) => { if (opts?.kind !== 'rules') return []; s.rulesReads++; return structuredClone(s.rules); } });
-  page.win.BoardDialogs.confirm = async (text) => { s.confirms.push(text); return true; };
+  page.win.BoardDialogs.confirm = async (text) => { s.confirms.push(text); return s.confirmAnswer; };
   page.win.fetch = async (url, opts = {}) => {
     let body = url.endsWith('/api/board') ? board : Object.entries(routes).find(([end]) => url.endsWith(end))?.[1] ?? {};
     if (url.endsWith('/api/description')) {
@@ -524,9 +528,13 @@ function settingsPage({ settings = {}, board = {}, routes = {}, ctx = {}, dom = 
       if (opts.method === 'POST') {
         s.posts.push(JSON.parse(opts.body));
         if (s.refuse) return { ok: false, status: 400, text: async () => JSON.stringify({ error: s.refuse }), json: async () => ({ error: s.refuse }) };
-        s.saved = { ...s.saved, ...JSON.parse(opts.body) };
+        for (const [k, v] of Object.entries(JSON.parse(opts.body))) {
+          if (!AUTO_KEYS.includes(k)) s.saved = { ...s.saved, [k]: v };
+          else if (v === null) delete s.overrides[k];
+          else s.overrides[k] = v;
+        }
       }
-      body = { settings: s.saved };
+      body = { settings: { ...s.saved, ...Object.fromEntries(AUTO_KEYS.map((k) => [k, k in s.overrides ? s.overrides[k] : s.defaults[k]])) }, overrides: { ...s.overrides }, defaults: s.defaults };
     }
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
   };
@@ -560,30 +568,45 @@ test("Board Settings reads Claude's replies to a rules change when it opens and 
   assert.equal(signalled, null, 'closing lets go of the signal');
 });
 
-// docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md, docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md,
-// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
-for (const [key, id] of [['auto_build', 'autoBuild'],['auto_review', 'autoReview'], ['idle_notification', 'idleNotification']]) {
-  test(`Board Settings saves ${key} at once with no confirmation, waits on its toggle, and puts the toggle back on refusal`, async () => {
-    const s = await settingsPage({ settings: { [key]: false } }).mount();
-    const toggle = s.root.querySelector(`#${id}`), status = s.root.querySelector(`#${id}Status`);
-    assert.deepEqual([toggle.disabled, toggle.checked], [false, false]);
-    const said = [];
-    for (const want of [true, false]) {
-      toggle.checked = want;
-      s.page.fire(toggle, 'change');
-      assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy')], [true, 'true'], 'the toggle waits, disabled with a spinner, while it saves');
-      await tick();
-      assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy'), toggle.checked, s.posts.at(-1)], [false, null, want, { [key]: want }]);
-      said.push(status.textContent);
-    }
-    assert.notEqual(said[0], said[1], 'the status says which way it saved');
-    assert.deepEqual(s.confirms, []);
-    s.refuse = 'Cannot save';
-    await s.set(toggle, true, 'checked');
-    assert.deepEqual([toggle.checked, status.textContent], [false, 'Cannot save']);
-    s.view.unmount();
-  });
-}
+// docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+test("Board Settings' collapsed Overrides group counts the board's overrides in its head and draws each Auto setting Hub default (its value), On, Off, saving a tap at once, Hub default as null", async () => {
+  const s = await settingsPage({ dom: true, overrides: { auto_merge: true }, defaults: { auto_review: true } }).mount();
+  const $ = (sel) => s.root.querySelector(sel);
+  const row = (key) => s.root.querySelectorAll(`[data-override="${key}"]`).map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  const tap = async (key, value) => { s.page.fire($('#overrideRows'), 'click', { target: $(`[data-override="${key}"][value="${value}"]`) }); await tick(); await tick(); };
+  assert.equal($('#overrides').tagName, 'DETAILS');
+  assert.equal($('#overrides').open, false, 'collapsed');
+  assert.equal($('#overrides summary').textContent, 'Overrides · 1');
+  assert.deepEqual(s.root.querySelectorAll('#overrideRows .model-label').map((l) => l.textContent), ['Auto serve', 'Auto review', 'Auto-merge', 'Idle notification']);
+  assert.deepEqual(row('auto_review'), [['Hub default (On)', 'true'], ['On', 'false'], ['Off', 'false']]);
+  assert.deepEqual(row('auto_merge'), [['Hub default (Off)', 'false'], ['On', 'true'], ['Off', 'false']]);
+  assert.match(s.root.querySelector('[data-override-row="auto_review"]').textContent, /May use a lot of usage\./);
+
+  await tap('auto_review', 'off');
+  assert.deepEqual(s.posts.at(-1), { auto_review: false });
+  assert.deepEqual(row('auto_review'), [['Hub default (On)', 'false'], ['On', 'false'], ['Off', 'true']]);
+  assert.deepEqual([$('#overrides summary').textContent, $('#auto_reviewStatus').textContent], ['Overrides · 2', 'Saved. Claude leaves incoming PRs alone.']);
+  await tap('auto_merge', 'default');
+  await tap('auto_review', 'default');
+  assert.deepEqual(s.posts.slice(-2), [{ auto_merge: null }, { auto_review: null }]);
+  assert.deepEqual([$('#overrides summary').textContent, row('auto_merge')[0]], ['Overrides · none', ['Hub default (Off)', 'true']]);
+  const posted = s.posts.length;
+  await tap('auto_review', 'default');
+  assert.equal(s.posts.length, posted, 'the pressed choice sends nothing');
+  assert.deepEqual(s.confirms, [], 'only turning Auto-merge on asks');
+
+  // Turning Auto-merge on asks first; No sends nothing.
+  s.confirmAnswer = false;
+  await tap('auto_merge', 'on');
+  assert.deepEqual([s.confirms.length, s.posts.length, row('auto_merge')[0][1]], [1, posted, 'true']);
+  s.confirmAnswer = true;
+  await tap('auto_merge', 'on');
+  assert.deepEqual([s.posts.at(-1), $('#auto_mergeStatus').textContent], [{ auto_merge: true }, 'Saved. Each verified task lands on the base branch by itself.']);
+  s.refuse = 'Cannot save';
+  await tap('auto_build', 'on');
+  assert.deepEqual([row('auto_build')[0][1], $('#auto_buildStatus').textContent], ['true', 'Cannot save']);
+  s.view.unmount();
+});
 
 // docs/adr/2026-11-19-1000-the-orchestrator-always-works-as-high.md
 test('Board Settings has no Tool use row', async () => {
@@ -856,7 +879,7 @@ test("Board Settings opens with Pause board: the snooze picker's chips, Forever 
   let sidebar = 0;
   page.win.fetch = async (url, opts = {}) => {
     let body = {};
-    if (url.endsWith('/api/settings')) body = { settings: {}, paused_until: paused, pause_choices: [{ value: '1h', label: '1h', ms: 3600_000 }, { value: '3h', label: '3h', ms: 3 * 3600_000 }, { value: 'forever', label: 'Forever', ms: null }] };
+    if (url.endsWith('/api/settings')) body = { settings: {}, overrides: {}, defaults: {}, paused_until: paused, pause_choices: [{ value: '1h', label: '1h', ms: 3600_000 }, { value: '3h', label: '3h', ms: 3 * 3600_000 }, { value: 'forever', label: 'Forever', ms: null }] };
     if (url.endsWith('/api/pause')) {
       posts.push(JSON.parse(opts.body));
       const { pause } = JSON.parse(opts.body);
@@ -895,9 +918,9 @@ test("Board Settings opens with Pause board: the snooze picker's chips, Forever 
 });
 
 // docs/adr/2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md
-test('Board Settings shows Landing above Auto only on a GitHub board that builds from its shared clone or the hub board, with Reviewers while it opens PRs, its choice read from prs and skip_draft', async () => {
+test('Board Settings shows Landing above Overrides only on a GitHub board that builds from its shared clone or the hub board, with Reviewers while it opens PRs, its choice read from prs and skip_draft', async () => {
   const markup = fakePage(memoryStorage().localStorage).win.AppViews.settings.markup({}, {});
-  assert.ok(markup.indexOf('<h2>Landing</h2>') > markup.indexOf('<h2>Tickets</h2>') && markup.indexOf('<h2>Landing</h2>') < markup.indexOf('<h2>Auto</h2>'));
+  assert.ok(markup.indexOf('<h2>Landing</h2>') > markup.indexOf('<h2>Tickets</h2>') && markup.indexOf('<h2>Landing</h2>') < markup.indexOf('<h2>Overrides'));
   assert.deepEqual([...markup.matchAll(/data-landing="(\w+)"/g)].map((m) => m[1]), ['draft', 'ready', 'merge']);
   assert.doesNotMatch(markup, /id="prs"|id="skipDraft"/);
   const cases = [
@@ -916,7 +939,7 @@ test('Board Settings shows Landing above Auto only on a GitHub board that builds
     const root = new page.El();
     const view = page.win.AppViews.settings.create(root, '/orch', {});
     page.win.fetch = async (url) => {
-      const body = url.includes('board-repo') ? repoBody : url.endsWith('/api/settings') ? { settings } : {};
+      const body = url.includes('board-repo') ? repoBody : url.endsWith('/api/settings') ? { settings, overrides: {}, defaults: {} } : {};
       return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
     };
     view.mount();
@@ -950,7 +973,7 @@ test('a Landing tap saves prs and skip_draft together with no confirmation, Merg
         if (refuse) { status = 400; body = { error: 'Merge lands each task on main and pushes it, so turn on Push main after a land first' }; }
         else saved = { ...saved, ...JSON.parse(opts.body) };
       }
-      if (status === 200) body = { settings: saved };
+      if (status === 200) body = { settings: saved, overrides: {}, defaults: {} };
     }
     return { ok: status === 200, status, text: async () => JSON.stringify(body), json: async () => body };
   };
@@ -1154,7 +1177,7 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'up · listening · every link passes', lines: [], remembered: [], restart });
-  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, capacity: { tasksInProgress: 5, landTests: 1 }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '2 sites', host: 'mac',
+  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, capacity: { tasksInProgress: 5, landTests: 1 }, boardDefaults: { builders: buildersView('auto'), orchestrators: orchestratorsView('opus'), auto: autoViews({}) }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '2 sites', host: 'mac',
     groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }], pause: { state: 'normal', machine: { state: 'normal', reason: null } } };
   const settings = { devices: [], blocked: [], on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, closed: [] };
   const confirms = [];
@@ -1213,7 +1236,7 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   page.win.document.getElementById = () => true;
   page.win.FormData = class { constructor(form) { return form.querySelectorAll('input[name]').filter((i) => !i.disabled && (i.getAttribute('type') !== 'checkbox' || i.checked)).map((i) => [i.getAttribute('name'), i.value]); } };
   const choices = (on) => ['half', 'auto', 'off'].map((value) => ({ value, label: value, on: value === on }));
-  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, capacity: { tasksInProgress: 5, landTests: 1 }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '0 sites', host: 'mac', groups: [],
+  const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, capacity: { tasksInProgress: 5, landTests: 1 }, boardDefaults: { builders: buildersView('auto'), orchestrators: orchestratorsView('opus'), auto: autoViews({}) }, integrations: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false }, sites: '0 sites', host: 'mac', groups: [],
     usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', builders: { name: 'builders', label: 'Builders', description: '', choices: choices('auto') }, orchestrators: { name: 'orchestrators', label: 'Orchestrators', description: '', choices: choices('auto') } },
     pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date(NOW).toISOString(), machine: { state: 'normal', reason: null } } };
   const settings = { devices: [], blocked: [], on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [], overnight: { starts: '', jobs: [] } }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off', choices: [] }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, alerts: { summary: 'Off', note: '', kinds: [] }, closed: [], snooze: { choices: [] } };
@@ -1665,7 +1688,7 @@ test("out of reach, Board Settings shows each part's last answer here, read only
   const page = fakePage(memoryStorage().localStorage);
   const idb = memoryIndexedDB();
   page.win.indexedDB = idb;
-  page.win.fetch = async (url) => { const body = url.endsWith('/api/board') ? { kind: 'web' } : url.endsWith('/api/settings') ? { settings: { auto_build: true } } : {}; return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body }; };
+  page.win.fetch = async (url) => { const body = url.endsWith('/api/board') ? { kind: 'web' } : url.endsWith('/api/settings') ? { settings: { auto_build: true }, overrides: { auto_build: true }, defaults: {} } : {}; return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body }; };
   const live = page.win.AppViews.settings.create(new page.El(), '/orch', {});
   live.mount();
   await drain(() => idb.pages?.has('https://mac.ts.net/orch/api/settings'), 'the answers saved');
@@ -1679,8 +1702,8 @@ test("out of reach, Board Settings shows each part's last answer here, read only
   let reloads = 0;
   const view = page.win.AppViews.settings.create(root, '/orch', { reload: () => { reloads++; } });
   view.mount();
-  const toggle = root.querySelector('#autoBuild');
-  await drain(() => toggle.checked === true, 'the copy fills the toggle');
+  const count = root.querySelector('#overridesCount');
+  await drain(() => count.textContent === ' · 1', 'the copy fills the Overrides head');
   assert.equal(root.querySelector('.settings-body').inert, true);
   assert.deepEqual(notes.map((h) => h.replace(/<[^>]+>/g, '')), ['Copy of Settings as of just now. Read only.']);
   page.runIntervals(5000);
@@ -2974,7 +2997,7 @@ test('Board Settings saves each Tickets change at once, shows the source and Hub
         if (refuse) return { ok: false, json: async () => ({ error: 'Try again.' }) };
         settings = { ...settings, ...JSON.parse(options.body) };
       }
-      return repoResponse({ settings });
+      return repoResponse({ settings, overrides: {}, defaults: {} });
     }
     if (url.includes('board-repo')) return repoResponse({ github: 'owner/project', branch: 'main' });
     return repoResponse({});
@@ -6875,17 +6898,13 @@ test('a slim Done card draws as the whole card does, closed and open', async () 
   assert.equal(await draw(built.items.map((i) => (i.lane === 'done' ? slimDone(i) : i))), whole);
 });
 
-// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
-test('Board Settings holds every automatic job in one Auto section, short labels in order, Auto review off until loaded on', () => {
+// docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+test('Board Settings holds every automatic job in one collapsed Overrides group, with no Auto section', () => {
   const page = fakePage(memoryStorage().localStorage);
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
-  const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
-  assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
-    ['idleNotification', 'Idle notification'],
-  ]);
-  assert.match(auto, /May use a lot of usage\./);
-  assert.doesNotMatch(html, /<h2>(Merging|Builds|Todo)<\/h2>/);
+  assert.match(html, /<details class="overrides" id="overrides"><summary><h2>Overrides<span class="count" id="overridesCount"><\/span><\/h2><\/summary>/);
+  assert.doesNotMatch(html, /<h2>(Auto|Merging|Builds|Todo)<\/h2>/);
+  assert.doesNotMatch(html, /type="checkbox" class="toggle" id="(autoBuild|autoReview|autoMerge|idleNotification)"/);
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md

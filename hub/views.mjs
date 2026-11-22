@@ -6,8 +6,8 @@ import { clock, holdLine, quietMiddle, snoozeEnd } from './schedule.mjs';
 import { CHOICES as DURATIONS, FOREVER, durationEnd, endOf } from './duration.mjs';
 import { siteIcon } from './icons.mjs';
 import { codexStatus } from '../shared/codex.mjs';
-import { MAX_LAND_TESTS, MAX_SERVES, MAX_TASKS_IN_PROGRESS } from '../shared/hub-settings.mjs';
-import { buildersView, orchestratorsView } from '../shared/model-views.mjs';
+import { BOARD_DEFAULT_KEYS, MAX_LAND_TESTS, MAX_SERVES, MAX_TASKS_IN_PROGRESS } from '../shared/hub-settings.mjs';
+import { autoViews, buildersView, orchestratorsView } from '../shared/model-views.mjs';
 import { PR_EMOJI, SIGN_OFF_DEFAULT } from './slack.mjs';
 
 export const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -54,26 +54,28 @@ const codexView = (share, status, claudeModel) => ({
   fix: status.fix,
 });
 
-// The Usage card's Claude block opens with the Builders and Orchestrators controls (shared/model-views.mjs): model is
-// push.mjs readClaudeModel, Builders, and orchestrator push.mjs readOrchestratorModel. builder is the word for who builds when Claude does,
-// which the Codex share and pause line descriptions use: the forced model, or Claude under Auto.
+// The Usage card's Claude block: model is push.mjs readClaudeModel, Builders. builder is the word for who builds when
+// Claude does, which the Codex share and pause line descriptions use: the forced model, or Claude under Auto.
 const BUILDER_WORDS = { opus: 'Opus', sonnet: 'Sonnet', auto: 'Claude' };
-const claudeView = (model, orchestrator) => ({
-  model,
-  builder: BUILDER_WORDS[model],
+const claudeView = (model) => ({ model, builder: BUILDER_WORDS[model] });
+// docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+// The Board defaults section, right under Usage (shared/model-views.mjs): Builders, Orchestrators (orchestrator is
+// push.mjs readOrchestratorModel), then the Auto settings, defaults being hub-settings.mjs readBoardDefaults.
+const boardDefaultsView = (model, orchestrator, defaults) => ({
   builders: buildersView(model),
   orchestrators: orchestratorsView(orchestrator),
+  auto: autoViews(defaults),
 });
 
 // sidebar: the /_hub/sidebar.json data, and hub.restart is true while the hub runs older code than its files, for the Hub row's Restart hub; rows: hub.mjs status() rows, whose restart (restart-board.mjs restartable) gives a board its Restart; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
-// (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; update: {latest: the newer version npm has or null, auto: the auto update box, clone: whether the hub is a clone, which never pulls}; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel; orchestratorModel: push.mjs readOrchestratorModel; landTests: push.mjs readLandTests; tasksInProgress: hub-settings.mjs readTasksInProgress; serves: hub-settings.mjs readServes, the three drawn in capacity;
+// (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; update: {latest: the newer version npm has or null, auto: the auto update box, clone: whether the hub is a clone, which never pulls}; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel; orchestratorModel: push.mjs readOrchestratorModel; boardDefaults: hub-settings.mjs readBoardDefaults; landTests: push.mjs readLandTests; tasksInProgress: hub-settings.mjs readTasksInProgress; serves: hub-settings.mjs readServes, the three drawn in capacity;
 // codex: a shared/codex.mjs codexStatus; awake: {on: awake.mjs awakeOn, unsupported: awake.mjs awakeUnsupported}, which Health's Keep awake row shows.
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js). routed: router.mjs routedRows, the New
 // strip under Boards (docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md). restarts: auto-restarts.mjs
 // restartLines, the line a board's row adds for its last automatic restart.
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', orchestratorModel = 'opus', landTests = MAX_LAND_TESTS, tasksInProgress = MAX_TASKS_IN_PROGRESS, serves = MAX_SERVES, codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [], restarts = new Map() }) {
+export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, update = { latest: null, auto: true, clone: false }, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', orchestratorModel = 'opus', boardDefaults = Object.fromEntries(BOARD_DEFAULT_KEYS.map((k) => [k, false])), landTests = MAX_LAND_TESTS, tasksInProgress = MAX_TASKS_IN_PROGRESS, serves = MAX_SERVES, codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [], restarts = new Map() }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const current = Boolean(code.running && code.running === code.onDisk);
   const codeLine = current ? ` · runs the code in its files (${code.onDisk})` : '';
@@ -94,7 +96,8 @@ export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, 
     usage: sidebar.usage,
     pause: sidebar.pause,
     codex: codexView(codexShare, codex, claudeModel),
-    claude: claudeView(claudeModel, orchestratorModel),
+    claude: claudeView(claudeModel),
+    boardDefaults: boardDefaultsView(claudeModel, orchestratorModel, boardDefaults),
     capacity: { tasksInProgress, serves, landTests },
     empty: rows.length === 0,
     notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: deviceLine(st, now) },

@@ -594,7 +594,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   live.paint({ ...data, version: '0.4.2', remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
   const labels = root.querySelectorAll('.hub-status .label').map((el) => el.textContent);
   assert.equal(data.integrations, integrations);
-  assert.deepEqual(labels.slice(0, 5), ['Usage', 'Capacity', 'Health', 'Integrations', 'Boards']);
+  assert.deepEqual(labels.slice(0, 6), ['Usage', 'Board defaults', 'Capacity', 'Health', 'Integrations', 'Boards']);
   const label = root.querySelectorAll('.label').find((el) => el.textContent === 'Integrations');
   const group = label.nextSibling;
   assert.deepEqual(group.querySelectorAll('.title').map((el) => el.textContent), ['GitHub', 'Codex', 'Linear', 'Slack', 'Tailnet', 'Notifications']);
@@ -910,8 +910,9 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
 });
 
 // docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md,
-// docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md
-test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto and Sonnet, whose helper says what Auto does, then Orchestrators, Opus and Sonnet, and saves each choice or shows a refusal", async () => {
+// docs/adr/2026-11-16-1030-builders-and-orchestrators-each-take-a-hub-default-a-board-can-override.md,
+// docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+test("the hub page's Board defaults section, right under Usage, opens with Builders, Opus, Auto and Sonnet, whose helper says what Auto does, then Orchestrators, Opus and Sonnet, then each Auto setting On or Off, and saves each choice or shows a refusal", async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
@@ -921,7 +922,8 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   let refused = false;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1, tasksInProgress: 5, serves: 10 };
+  const saved = { claudeModel: 'auto', orchestratorModel: 'opus', landTests: 1, tasksInProgress: 5, serves: 10, boardDefaults: { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false } };
+  const AUTO = { '/auto-build': 'auto_build', '/auto-review': 'auto_review', '/auto-merge': 'auto_merge', '/idle-notification': 'idle_notification' };
   const hub = (claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare: 'off', codex: USABLE, ...saved,
     sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
   const context = vm.createContext({
@@ -933,7 +935,9 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
     PromptAnswers: { wire: () => ({ shows: () => true }) },
     fetch: async (url, opts) => {
       posts.push({ url, opts });
-      if (!refused) Object.assign(saved, url.endsWith('/land-tests') ? { landTests: Number(opts.body.get('value')) } : url.endsWith('/tasks-in-progress') ? { tasksInProgress: Number(opts.body.get('value')) } : url.endsWith('/serves') ? { serves: Number(opts.body.get('value')) } : { [url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel']: opts.body.get('value') });
+      const auto = Object.keys(AUTO).find((tail) => url.endsWith(tail));
+      if (!refused && auto) saved.boardDefaults = { ...saved.boardDefaults, [AUTO[auto]]: opts.body.get('value') === 'on' };
+      else if (!refused) Object.assign(saved, url.endsWith('/land-tests') ? { landTests: Number(opts.body.get('value')) } : url.endsWith('/tasks-in-progress') ? { tasksInProgress: Number(opts.body.get('value')) } : url.endsWith('/serves') ? { serves: Number(opts.body.get('value')) } : { [url.endsWith('/claude-model') ? 'claudeModel' : 'orchestratorModel']: opts.body.get('value') });
       return { ok: !refused, json: async () => refused ? { error: 'claude-model takes opus, auto or sonnet' } : hub() };
     },
   });
@@ -942,7 +946,8 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
   context.AppViews.hub.create(root, '/_hub', {});
   const claude = () => root.querySelectorAll('.usage .u-block')[0];
-  const control = (name) => claude().querySelector(`[data-model="${name}"]`);
+  const defaults = () => root.querySelector('section.board-defaults');
+  const control = (name) => defaults().querySelector(`[data-model="${name}"]`);
   const selected = (name = 'builders') => control(name).querySelector('button[aria-pressed="true"]').value;
   const desc = (name) => control(name).parentNode.querySelector('.u-share-desc').textContent;
   const submit = (value, name = 'builders') => {
@@ -960,12 +965,16 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
 
   live.paint(hub());
   assert.equal(claude().querySelector('.u-head .title').textContent, 'Claude');
-  assert.deepEqual(claude().querySelectorAll('.model-label').map((el) => el.textContent), ['Builders', 'Orchestrators']);
+  assert.equal(claude().querySelectorAll('.model-label').length, 0, 'Usage keeps no model control');
+  assert.equal(root.querySelector('section.usage').nextSibling, defaults());
+  assert.equal(defaults().querySelector('h2').textContent, 'Board defaults');
+  assert.deepEqual(defaults().querySelectorAll('.model-label').map((el) => el.textContent), ['Builders', 'Orchestrators', 'Auto serve', 'Auto review', 'Auto-merge', 'Idle notification']);
   assert.deepEqual([control('builders').getAttribute('aria-label'), control('builders').getAttribute('action')], ['Builders', '/_hub/settings/claude-model']);
   assert.deepEqual([control('orchestrators').getAttribute('aria-label'), control('orchestrators').getAttribute('action')], ['Orchestrators', '/_hub/settings/orchestrator-model']);
   assert.deepEqual(control('builders').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Auto', 'Sonnet']);
   assert.deepEqual(control('orchestrators').querySelectorAll('button').map((b) => b.textContent), ['Opus', 'Sonnet']);
-  assert.match(claude().textContent, /^Claude.*BuildersOpusAutoSonnetAuto: small tasks get Sonnet, the rest get Opus\.OrchestratorsOpusSonnetEach board’s own session runs on Opus\..*5-hour42%/);
+  assert.match(claude().textContent, /^Claude.*5-hour42%/);
+  assert.match(defaults().textContent, /^Board defaultsBuildersOpusAutoSonnetAuto: small tasks get Sonnet, the rest get Opus\.OrchestratorsOpusSonnetEach board’s own session runs on Opus\..*Auto serveOnOffTasks wait for your Serve\./);
   assert.deepEqual([selected(), selected('orchestrators')], ['auto', 'opus']);
   for (const value of ['opus', 'sonnet', 'auto']) {
     await submit(value);
@@ -977,9 +986,17 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   await submit('sonnet', 'orchestrators');
   assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/orchestrator-model', 'value=sonnet']);
   assert.deepEqual([selected(), selected('orchestrators'), desc('orchestrators')], ['auto', 'sonnet', `Each board’s own session runs on Sonnet. ${SWITCH}`]);
+  // An Auto setting saves On or Off for every board that doesn't override it.
+  assert.deepEqual(control('auto_merge').querySelectorAll('button').map((b) => [b.textContent, b.getAttribute('aria-pressed')]), [['On', 'false'], ['Off', 'true']]);
+  assert.equal(control('auto_merge').getAttribute('action'), '/_hub/settings/auto-merge');
+  await submit('on', 'auto_merge');
+  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/auto-merge', 'value=on']);
+  assert.deepEqual([selected('auto_merge'), desc('auto_merge')], ['on', 'Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch.']);
+  await submit('on', 'idle_notification');
+  assert.deepEqual([posts.at(-1).url, selected('idle_notification'), selected('auto_build')], ['/_hub/settings/idle-notification', 'on', 'off']);
   // docs/adr/2026-11-19-0602-one-hub-wide-build-cap-boards-take-turns.md: the hub's numbers step from the Capacity
-  // section right below Usage.
-  assert.equal(root.querySelector('section.usage').nextSibling, root.querySelector('section.capacity'));
+  // section right below Board defaults.
+  assert.equal(defaults().nextSibling, root.querySelector('section.capacity'));
   const step = async (action, value) => {
     const form = root.querySelector(`.capacity form[action="${action}"]`);
     await listeners.find((l) => l.target === root && l.type === 'submit').fn({ target: form, submitter: { name: 'value', value }, preventDefault() {} });
@@ -994,7 +1011,7 @@ test("the hub page's Usage card opens Claude's block with Builders, Opus, Auto a
   assert.equal(selected(), 'auto');
   assert.equal(root.querySelector('[role="alert"]').textContent, 'claude-model takes opus, auto or sonnet');
 
-  // With no Claude reading yet, the block still opens with the controls.
+  // With no Claude reading yet, the Claude block still shows, and Board defaults keeps the controls.
   saved.claudeModel = 'sonnet';
   live.paint(hub(null));
   assert.deepEqual(root.querySelectorAll('.usage .u-head .title').map((el) => el.textContent), ['Claude', 'Codex']);
@@ -1064,7 +1081,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   const five_hour = { used_percentage: 91, resets_at, state: 'live' };
   const choice = { pauseAt: 90, going: false };
   const gateNow = () => usageGate({ claude: { five_hour }, pauseAt: choice.pauseAt, keepGoing: choice.going ? { window: 'five_hour', until: resets_at } : undefined, machine: CALM_GATE.machine });
-  const data = () => ({ integrations: [], capacity: { tasksInProgress: 5, serves: 10, landTests: 1 }, pause: gateNow(), usage: { claude: { at: new Date().toISOString(), five_hour } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
+  const data = () => ({ integrations: [], capacity: { tasksInProgress: 5, serves: 10, landTests: 1 }, boardDefaults: plain(hubView({ now: new Date(), st: status(new Date(), DEFAULTS), rows: [], sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0 } })).boardDefaults, pause: gateNow(), usage: { claude: { at: new Date().toISOString(), five_hour } }, hub: {}, groups: [], awake: { on: false, unsupported: null }, update: { latest: null, auto: true, clone: false } });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
     BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },

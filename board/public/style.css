@@ -798,6 +798,9 @@ main > * { transition: opacity .25s ease; }
 
 /* The board's other views (view-settings.js, view-notes.js, and the questions sheet's body, app-questions-sheet.js) each scope their rules by the class on their root. */
 .view-settings .set h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 0 6px; }
+/* view-settings.js Overrides: a collapsed group whose head is a section title with its count. */
+.view-settings .overrides > summary { cursor: pointer; }
+.view-settings .overrides > summary h2 { display: inline-block; }
 .view-settings .who { display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border: 1px solid var(--line);
   border-radius: 9px; margin: 6px 0; background: var(--panel); }
 .view-settings .who.gone { opacity: .5; text-decoration: line-through; }

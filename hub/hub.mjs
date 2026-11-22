@@ -101,6 +101,8 @@
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
 //                     fix while Codex isn't installed or logged in, checked afresh
 //   /_hub/settings/claude-model POST value=opus|auto|sonnet, Builders → /_hub/api/hub's JSON, or 400 {error}
+//   /_hub/settings/auto-build|auto-review|auto-merge|idle-notification POST value=on|off, a Board default
+//                     (board/settings.mjs saveBoardDefault) → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/orchestrator-model POST value=opus|sonnet, Orchestrators (sessions.mjs changeOrchestratorModel)
 //                     → /_hub/api/hub's JSON, or 400 {error}
 //   /_hub/settings/tasks-in-progress POST value=1..99, Maximum tasks in progress (hub-settings.mjs setTasksInProgress)
@@ -248,7 +250,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
 import { publicKey, reportPush, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, setAlert, readAlerts, deliver } from './push.mjs';
-import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readLandTests, setLandTests, readTasksInProgress, setTasksInProgress, readServes, setServes, readAutoUpdate, setAutoUpdate } from '../shared/hub-settings.mjs';
+import { readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, readOrchestratorModel, readLandTests, setLandTests, readTasksInProgress, setTasksInProgress, readServes, setServes, readAutoUpdate, setAutoUpdate, BOARD_DEFAULT_KEYS, readBoardDefaults } from '../shared/hub-settings.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, readPrompts, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
@@ -294,7 +296,7 @@ import { takePeerAsk, takePeerAnswer } from '../board/asks.mjs';
 import { BoardError } from '../board/checks.mjs';
 import { tailnetPeers, sendToPeer, retryOutbox, peerBoards } from './peers.mjs';
 import { draftOf, readDrafts, saveDraft } from '../board/drafts.mjs';
-import { fallBackFromLinear } from '../board/settings.mjs';
+import { fallBackFromLinear, migrateBoardDefaults, saveBoardDefault } from '../board/settings.mjs';
 import { runMigrations } from '../board/migrations.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { clientIdentity, hubGate } from '../board/on-host.mjs';
@@ -315,11 +317,12 @@ const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 // The version of the code this process started with; new files on disk run only after a restart.
 const VERSION = JSON.parse(fs.readFileSync(path.join(HUB_DIR, '..', 'package.json'), 'utf8')).version;
-// The Usage card's Claude block, Builders and Orchestrators, and the Capacity section's numbers, each saving one value
-// posted as a form.
+// The Board defaults section's Builders, Orchestrators and Auto settings, and the Capacity section's numbers, each saving
+// one value posted as a form.
 const VALUE_SETTINGS = {
   '/_hub/settings/claude-model': setClaudeModel,
   '/_hub/settings/orchestrator-model': changeOrchestratorModel,
+  ...Object.fromEntries(BOARD_DEFAULT_KEYS.map((key) => [`/_hub/settings/${key.replace(/_/g, '-')}`, async (value) => { for (const line of await saveBoardDefault(key, value)) stampedLog(`board defaults: ${line}`); }])),
   '/_hub/settings/tasks-in-progress': setTasksInProgress,
   '/_hub/settings/serves': setServes,
   '/_hub/settings/land-tests': setLandTests,
@@ -741,6 +744,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   // A board on Linear falls back to internal tickets while Hub has no Linear key (board/settings.mjs fallBackFromLinear).
   const linearFallback = async () => { try { for (const line of await fallBackFromLinear()) log(`linear: ${line}`); } catch (e) { log('linear fallback failed:', e.message); } };
   await linearFallback();
+  try { for (const line of await migrateBoardDefaults()) log(`board defaults: ${line}`); } catch (e) { log('board defaults migration failed:', e.message); }
 
   const FIRST_POLL_MS = 60_000;
   const ERROR_LOG_MS = 60 * 60_000;
@@ -1285,7 +1289,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     return {
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), landTests: readLandTests(), tasksInProgress: readTasksInProgress(), serves: readServes(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
+        code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), boardDefaults: readBoardDefaults(), landTests: readLandTests(), tasksInProgress: readTasksInProgress(), serves: readServes(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
         remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pendingFor(null).map(shown),

@@ -290,6 +290,7 @@
 //   POST /api/schedules          {id, text?, cadence?} rewords or re-cadences one, or {id, remove: true} removes it, waking
 //                                no session → the same answer; an unknown id or a bad cadence → 400 {error}
 //   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_review, idle_notification, skip_draft, prs, build_target?} (settings.mjs readBoardSettings),
+//                                overrides: the Board defaults board.json sets, {key: value} (settings.mjs overridesOf), defaults: Hub settings' Board defaults,
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets), or in its site's scripts/ while its scripts are in kickflip
 //   GET  /api/scripts            {source: repo | kickflip, repo: [name], scripts: [{name, text}]}: where the board's scripts live, the
@@ -300,9 +301,9 @@
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (settings.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
+//   POST /api/settings           {auto_merge?: boolean | null, auto_build?: boolean | null, auto_review?: boolean | null, idle_notification?: boolean | null (null takes the Board default), skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
-//                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id, builders}; a bad body → 400 {error}
+//                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, overrides, defaults, id}; a bad body → 400 {error}
 //   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused, unavailable}]}: the board's session
 //                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); unavailable
 //                                says why a switch can't be turned on; 404 off the manifest
@@ -382,7 +383,7 @@ import { draftOf, pruneDrafts, readDrafts, saveDraft } from './drafts.mjs';
 import { cardName, readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
 import { heldReview, applyReviewAnswer, dropAskCard, withdrawRefused, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
-import { finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf } from './settings.mjs';
+import { finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf, overridesOf, readBoardJSON } from './settings.mjs';
 import { noteLoggedOut, dropPause, markPaused, passNews, requestPause, openAgents, implementAsIs, clearStall } from './runs.mjs';
 import { runMigrations } from './migrations.mjs';
 import { fireSchedules, readSchedules, setSchedule, removeSchedule } from './schedules.mjs';
@@ -397,7 +398,7 @@ import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { readUsageGate, heldFor, tasksInProgressCap, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
-import { readTasksInProgress } from '../shared/hub-settings.mjs';
+import { readTasksInProgress, readBoardDefaults } from '../shared/hub-settings.mjs';
 import { claimBuilds, othersHeld, leaveTurns, turnDue, watchGrants } from './build-turns.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
@@ -1268,9 +1269,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const list = await Promise.all((await readSchedules(here)).map(async (s) => ({ ...s, last_ref: s.last ? await cardName(here, s.last) : null })));
         return json(res, 200, { schedules: list });
       }
+      // Board Settings' Overrides group: what this board sets and what it would take from Hub settings' Board defaults.
+      const autoOverrides = async () => ({ overrides: overridesOf(await readBoardJSON(here)), defaults: readBoardDefaults() });
       if (p === '/api/settings' && req.method === 'GET') {
         const settings = await readBoardSettings(here);
-        return json(res, 200, { settings, paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES });
+        return json(res, 200, { settings, ...(await autoOverrides()), paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES });
       }
       // Board Settings' Description: the hub's manifest entry, which the router reads (settings.mjs readBoardDescription).
       if (p === '/api/description' && req.method === 'GET') return json(res, 200, readBoardDescription(here));
@@ -1390,7 +1393,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const id = told.length ? await appendEvent('settings', Object.fromEntries(told.map((k) => [k, saved.settings[k] ?? null]))) : null;
         // An approved PR merges on the session's GitHub tick once auto-merge is on (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
         if (saved.changed.includes('auto_merge') && saved.settings.auto_merge) await appendEvent('check-github', { reason: 'auto-merge' });
-        return json(res, 200, { settings: saved.settings, id });
+        return json(res, 200, { settings: saved.settings, ...(await autoOverrides()), id });
       }
       if (p === '/api/arch-review' && req.method === 'POST') {
         await readBody(req);

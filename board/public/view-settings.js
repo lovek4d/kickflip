@@ -72,23 +72,10 @@
   </div>
   <p class="muted small" id="landingStatus" role="status"></p>
   </div>
-  <h2>Auto</h2>
-  <label class="who" for="autoBuild"><span><span>Auto serve</span>
-    <span class="muted small sub" id="autoBuildSub">${BoardUI.esc(BoardUI.tryWords('web').autoSub)}</span></span>
-    <input type="checkbox" class="toggle" id="autoBuild" disabled></label>
-  <p class="muted small" id="autoBuildStatus" role="status"></p>
-  <label class="who" for="autoReview"><span><span>Auto review</span>
-    <span class="muted small sub">Claude reviews teammates’ PRs that touch this board’s work. May use a lot of usage.</span></span>
-    <input type="checkbox" class="toggle" id="autoReview" disabled></label>
-  <p class="muted small" id="autoReviewStatus" role="status"></p>
-  <label class="who" for="autoMerge"><span><span>Auto-merge</span>
-    <span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch.</span></span>
-    <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
-  <p class="muted small" id="autoMergeStatus" role="status"></p>
-  <label class="who" for="idleNotification"><span><span>Idle notification</span>
-    <span class="muted small sub">Pushes once when the board has been idle for 15 minutes, with what closed since the last one.</span></span>
-    <input type="checkbox" class="toggle" id="idleNotification" disabled></label>
-  <p class="muted small" id="idleNotificationStatus" role="status"></p>
+  <details class="overrides" id="overrides"><summary><h2>Overrides<span class="count" id="overridesCount"></span></h2></summary>
+  <p class="muted small">This board takes Hub settings’ Board defaults. On or Off here sets one for this board alone.</p>
+  <div id="overrideRows"><p class="muted small" id="overridesStatus" role="status">Loading…</p></div>
+  </details>
   <h2>Permissions</h2>
   <div id="permissions"><p class="muted small">Loading…</p></div>
   <div id="reviewersSection" hidden>
@@ -366,7 +353,7 @@
     get(site.url('api/board'), waitIn('#list')).then(({ body: d }) => {
       if (!B.alive()) return;
       buildKind = d.kind || 'web';
-      $('#autoBuildSub').textContent = BoardUI.tryWords(buildKind).autoSub;
+      paintOverrides();
       current = d.reviewers || [];
       githubOf = d.reviewerGithub || {};
       render();
@@ -462,10 +449,63 @@
       } catch (e) { status.textContent = e?.reason || 'Could not send. Is the host awake?'; }
     });
 
-    // The toggle saves at once through POST api/settings, which writes board.json itself, so it takes effect with no
-    // session awake (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
-    const autoMerge = $('#autoMerge');
-    const autoMergeStatus = $('#autoMergeStatus');
+    // docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+    // Overrides: each Auto setting drawn as Hub settings' Board defaults draws it, with Hub default (its value) first,
+    // then On and Off, which override it for this board. A tap saves at once through POST api/settings, which writes
+    // board.json itself, so it takes effect with no session awake
+    // (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md); Hub default posts null. Only a tap
+    // that turns Auto-merge on asks first. The head counts the overrides.
+    const OVERRIDES = [
+      { key: 'auto_build', label: 'Auto serve', sub: () => BoardUI.tryWords(buildKind).autoSub, saved: (on) => BoardUI.tryWords(buildKind).saved(on) },
+      { key: 'auto_review', label: 'Auto review', sub: () => 'Claude reviews teammates’ PRs that touch this board’s work. May use a lot of usage.',
+        saved: (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.') },
+      { key: 'auto_merge', label: 'Auto-merge', sub: () => 'Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch.',
+        saved: (on) => (opensPRs() ? (on ? 'Saved. Claude merges approved, green PRs itself.' : 'Saved. Approved, green PRs wait for your Merge.')
+          : on ? 'Saved. Each verified task lands on the base branch by itself.' : 'Saved. Each verified task waits for your Merge.') },
+      { key: 'idle_notification', label: 'Idle notification', sub: () => 'Pushes once when the board has been idle for 15 minutes, with what closed since the last one.',
+        saved: (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.') },
+    ];
+    // auto: {settings, overrides, defaults} from api/settings, null until it answers.
+    let auto = null;
+    const choiceOf = (key) => (key in auto.overrides ? (auto.overrides[key] ? 'on' : 'off') : 'default');
+    function paintOverrides() {
+      if (!auto) return;
+      const rows = $('#overrideRows');
+      if (!rows.querySelector('[data-override]')) {
+        rows.innerHTML = OVERRIDES.map(({ key, label }) => `<div class="model-control" data-override-row="${key}"><span class="model-label">${esc(label)}</span>`
+          + `<div class="model-seg" role="group" aria-label="${esc(label)}">${['default', 'on', 'off'].map((v) => `<button type="button" data-override="${key}" value="${v}"></button>`).join('')}</div>`
+          + `<p class="u-share-desc" data-override-sub="${key}"></p><p class="muted small" id="${key}Status" role="status"></p></div>`).join('');
+      }
+      for (const { key, sub } of OVERRIDES) {
+        for (const button of rows.querySelectorAll(`[data-override="${key}"]`)) {
+          button.textContent = button.value === 'default' ? `Hub default (${auto.defaults[key] ? 'On' : 'Off'})` : button.value === 'on' ? 'On' : 'Off';
+          button.setAttribute('aria-pressed', String(button.value === choiceOf(key)));
+        }
+        rows.querySelector(`[data-override-sub="${key}"]`).textContent = sub();
+      }
+      const n = Object.keys(auto.overrides).length;
+      $('#overridesCount').textContent = ` · ${n || 'none'}`;
+    }
+    B.on($('#overrideRows'), 'click', async (e) => {
+      const button = e.target.closest?.('[data-override]');
+      if (!button || !auto || button.disabled) return;
+      const key = button.dataset.override, want = button.value;
+      if (want === choiceOf(key)) return;
+      const on = want === 'default' ? auto.defaults[key] : want === 'on';
+      const status = $(`#${key}Status`);
+      const ask = opensPRs() ? 'Turn on auto-merge? Claude merges each approved PR on this board once CI is green and it merges cleanly, without asking you.'
+        : 'Turn on auto-merge? Each verified task lands on the base branch without asking you.';
+      if (key === 'auto_merge' && on && !auto.settings.auto_merge && !(await BoardDialogs.confirm(ask))) return;
+      if (!B.alive()) return;
+      try {
+        auto = await postSettings(button, { [key]: want === 'default' ? null : on }, { group: $('#overrideRows').querySelectorAll(`[data-override="${key}"]`) });
+        if (!B.alive()) return;
+        paintOverrides();
+        status.textContent = OVERRIDES.find((o) => o.key === key).saved(auto.settings[key]);
+      } catch (err) {
+        if (B.alive()) status.textContent = err.message || 'Could not save. Is the host awake?';
+      }
+    });
     let buildTarget = null, buildTargets = null, scriptsSource = null;
     // Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): the hub's duration
     // picker (hub-kit.js) with the Block sheet's chips, Forever included, posting {pause} to api/pause at once. A Forever
@@ -501,7 +541,7 @@
         if (B.alive()) status.textContent = error.message || 'Could not save. Is the host awake?';
       }
     });
-    get(site.url('api/settings'), waitIn('#autoMergeStatus')).then(({ body: d }) => {
+    get(site.url('api/settings'), waitIn('#overridesStatus')).then(({ body: d }) => {
       pauseChoices = d.pause_choices || [];
       paintPause(d.paused_until);
       if (!B.alive()) return;
@@ -518,48 +558,25 @@
           if (!r.ok) throw new Error(out.error || 'Could not create the project. Is the host awake?');
           return out;
         } });
-      autoMergeStatus.textContent = '';
-      autoMerge.checked = d.settings?.auto_merge === true;
-      autoMerge.disabled = false;
-      $('#autoBuild').checked = d.settings?.auto_build === true;
-      $('#autoBuild').disabled = false;
+      auto = { settings: d.settings, overrides: d.overrides, defaults: d.defaults };
+      paintOverrides();
       buildTarget = d.settings?.build_target || '';
       scriptsSource = d.settings?.scripts || 'repo';
       showBuildTargets();
-      $('#autoReview').checked = d.settings?.auto_review === true;
-      $('#autoReview').disabled = false;
-      $('#idleNotification').checked = d.settings?.idle_notification === true;
-      $('#idleNotification').disabled = false;
       landing = landingOf(d.settings);
       for (const button of landingButtons()) button.disabled = false;
       syncPRs();
-    }).catch(() => { autoMergeStatus.textContent = ticketsStatus.textContent = 'Offline. Is the host awake?'; });
-    // An Auto toggle keeps its face, disabled with a spinner beside it (ui.js waitOn), while POST api/settings saves it.
-    // → the saved settings
-    const saveToggle = (toggle, body, wait) => BoardUI.waitOn(toggle, (async () => {
+    }).catch(() => { const status = $('#overridesStatus'); if (status) status.textContent = 'Offline. Is the host awake?'; ticketsStatus.textContent = 'Offline. Is the host awake?'; });
+    // A setting's control keeps its face, disabled with a spinner beside it (ui.js waitOn), while POST api/settings saves
+    // it. → {settings, overrides, defaults}
+    const postSettings = (toggle, body, wait) => BoardUI.waitOn(toggle, (async () => {
       const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       const out = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(out.error);
-      return out.settings;
+      return out;
     })(), wait);
-    B.on(autoMerge, 'change', async () => {
-      const want = autoMerge.checked;
-      const ask = opensPRs() ? 'Turn on auto-merge? Claude merges each approved PR on this board once CI is green and it merges cleanly, without asking you.'
-        : 'Turn on auto-merge? Each verified task lands on the base branch without asking you.';
-      if (want && !(await BoardDialogs.confirm(ask))) {
-        autoMerge.checked = false;
-        return;
-      }
-      if (!B.alive()) return;
-      try {
-        autoMerge.checked = (await saveToggle(autoMerge, { auto_merge: want })).auto_merge === true;
-        autoMergeStatus.textContent = opensPRs() ? (autoMerge.checked ? 'Saved. Claude merges approved, green PRs itself.' : 'Saved. Approved, green PRs wait for your Merge.')
-          : autoMerge.checked ? 'Saved. Each verified task lands on the base branch by itself.' : 'Saved. Each verified task waits for your Merge.';
-      } catch (e) {
-        autoMerge.checked = !want;
-        autoMergeStatus.textContent = e.message || 'Could not save. Is the host awake?';
-      }
-    });
+    // → the saved settings
+    const saveToggle = async (toggle, body, wait) => (await postSettings(toggle, body, wait)).settings;
 
     // Build target lists the repo's .kickflip/build-* scripts at main's tip and saves a pick at once, null for the
     // default .kickflip/build (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
@@ -715,40 +732,6 @@
       $(`[data-script="${name}"]`).focus?.();
     });
 
-    B.on($('#autoBuild'), 'change', async () => {
-      const toggle = $('#autoBuild');
-      const want = toggle.checked;
-      try {
-        const settings = await saveToggle(toggle, { auto_build: want });
-        if (!B.alive()) return;
-        toggle.checked = settings.auto_build === true;
-        $('#autoBuildStatus').textContent = BoardUI.tryWords(buildKind).saved(toggle.checked);
-      } catch (e) {
-        if (!B.alive()) return;
-        toggle.checked = !want;
-        $('#autoBuildStatus').textContent = e.message || 'Could not save. Is the host awake?';
-      }
-    });
-
-    // These Auto toggles save with no confirmation: docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md,
-    // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md and
-    // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md; Idle notification too:
-    // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md.
-    const autoToggle = (id, key, saved) => B.on($(`#${id}`), 'change', async () => {
-      const toggle = $(`#${id}`);
-      const want = toggle.checked;
-      try {
-        const settings = await saveToggle(toggle, { [key]: want });
-        if (!B.alive()) return;
-        toggle.checked = settings[key] === true;
-        $(`#${id}Status`).textContent = saved(toggle.checked);
-      } catch (e) {
-        if (!B.alive()) return;
-        toggle.checked = !want;
-        $(`#${id}Status`).textContent = e.message || 'Could not save. Is the host awake?';
-      }
-    });
-
     // Description saves on blur, with no Save or Cancel; an empty one is refused and the saved text comes back. The
     // source line says how it was last set (store.mjs readBoardDescription).
     const descriptionBox = $('#boardDescription');
@@ -779,8 +762,6 @@
         status.textContent = e.message || 'Could not save. Is the host awake?';
       }
     });
-    autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
-    autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
     // A Landing tap saves at once with no confirmation, its choice's settings in one POST. Merge needs Push main after a
     // land, which the server checks; its refusal shows in the status line and the saved choice stays pressed.
     for (const want of Object.keys(LANDING)) B.on($(`[data-landing="${want}"]`), 'click', async () => {

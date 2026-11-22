@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fakeGh, prView, writePR, writeIssueComments, writeReviews, writeUser, writeAccounts, calls, tokens } from '../shared/fake-gh.mjs';
-import { withNotes, boardWith, bin, home, at, site, write, read, lines, run, board, runAsync, wave, launched, ticketCli, record, annReviewer, bobReviewer, reviewState, slackToken, digestCommand } from './board-fixture.mjs';
+import { withNotes, boardWith, boardsManifest, bin, home, at, site, write, read, lines, run, board, runAsync, wave, launched, ticketCli, record, annReviewer, bobReviewer, reviewState, slackToken, digestCommand } from './board-fixture.mjs';
 
 test('tickets link or are made in the board source through the CLI and an injected GitHub runner, and a board with none has none', async (t) => {
   const { saveBoardSettings } = await import('./store.mjs');
@@ -897,4 +897,67 @@ test("a GitHub ticket's comment goes through the ticket layer's gh calls, and a 
   assert.deepEqual([none.kind, none.inputs.why, none.inputs.comment], ['ticket-failed', 'the board has no GitHub repo', true]);
   const bad = await commentTicket(source, { ticket: '#7' }, pr, { repo: 'o/r', run: async () => ({ status: 1, stdout: '', stderr: 'boom\nmore' }) });
   assert.deepEqual([bad.kind, bad.inputs.why], ['ticket-failed', 'boom']);
+});
+
+// docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+test("an Auto setting a board doesn't set follows Hub settings' Board defaults, a set one overrides it, and default clears the override", async (t) => {
+  const { saveBoardSettings, overridesOf, saveBoardDefault } = await import('./store.mjs');
+  const { listBoards } = await import('../hub/boards.mjs');
+  const { readBoardDefaults } = await import('../shared/hub-settings.mjs');
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
+  boardsManifest();
+  const cfg = (route = 'orch') => read(site(route, 'board.json'));
+  const settings = async (route = 'orch') => JSON.parse((await board('settings', '--site', route)).out);
+  write(site('orch', 'board.json'), { title: 'Orch', items: 'waves' });
+  write(site('audit', 'board.json'), { title: 'Audit', items: 'waves', auto_merge: false });
+  write(site('orch', 'data', 'events.jsonl'), '');
+  write(site('audit', 'data', 'events.jsonl'), '');
+  assert.deepEqual(readBoardDefaults(home), { auto_build: false, auto_review: false, auto_merge: false, idle_notification: false });
+
+  // A hub default reaches each board that doesn't override it, and tells its session as a settings change would.
+  assert.deepEqual(await saveBoardDefault('auto_merge', 'on'), ['/orch: auto-merge on']);
+  assert.equal(readBoardDefaults(home).auto_merge, true);
+  assert.equal((await settings()).auto_merge, true);
+  assert.equal((await settings('audit')).auto_merge, false, 'an Off override holds');
+  assert.deepEqual(lines(site('orch', 'data', 'events.jsonl')).map((e) => [e.kind, e.data]), [['settings', { auto_merge: true }], ['check-github', { reason: 'auto-merge' }]]);
+  assert.equal(fs.readFileSync(site('audit', 'data', 'events.jsonl'), 'utf8'), '');
+  assert.deepEqual(listBoards().map((b) => [b.route, b.autoMerge, b.auto_build]), [['orch', true, false], ['audit', false, false]]);
+  // Idle notification wakes no session: the board server alone acts on it.
+  assert.deepEqual(await saveBoardDefault('idle_notification', true), ['/orch: idle-notification on', '/audit: idle-notification on']);
+  assert.equal(lines(site('orch', 'data', 'events.jsonl')).length, 2);
+  assert.deepEqual(overridesOf(cfg()), {});
+  await assert.rejects(saveBoardDefault('skip_draft', true), /no board default "skip_draft"/);
+
+  // An override is a stored value; default, or null through the API, drops it back to the hub's.
+  assert.deepEqual(await board('settings', 'set', 'auto-merge', 'off', '--site', 'orch'), { code: 0, out: 'auto-merge off\n', err: '' });
+  assert.deepEqual([cfg().auto_merge, overridesOf(cfg())], [false, { auto_merge: false }]);
+  assert.deepEqual(await board('settings', 'set', 'auto-merge', 'default', '--site', 'orch'), { code: 0, out: 'auto-merge default (on)\n', err: '' });
+  assert.equal('auto_merge' in cfg(), false);
+  assert.equal((await settings()).auto_merge, true);
+  const saved = await saveBoardSettings(site('audit'), { auto_merge: null });
+  assert.deepEqual([saved.changed, saved.settings.auto_merge, 'auto_merge' in cfg('audit')], [['auto_merge'], true, false]);
+  const same = await saveBoardSettings(site('audit'), { auto_merge: true });
+  assert.deepEqual([same.changed, cfg('audit').auto_merge], [[], true], 'an override equal to the default moves nothing, and stays an override');
+  assert.match((await board('settings', 'set', 'skip-draft', 'default', '--site', 'orch')).err, /takes on or off/);
+});
+
+// docs/adr/2026-11-22-0130-the-auto-settings-are-hub-defaults-a-board-can-override.md
+test("the Board defaults migration keeps each board's Auto values that differ from the built-ins as overrides, drops the rest, and runs once", async (t) => {
+  const { migrateBoardDefaults } = await import('./store.mjs');
+  const { read: readHub } = await import('../shared/hub-settings.mjs');
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
+  boardsManifest();
+  write(site('orch', 'board.json'), { title: 'Orch', auto_merge: true, auto_review: false, idle_notification: false, skip_draft: false });
+  write(site('audit', 'board.json'), { title: 'Audit' });
+  assert.deepEqual(await migrateBoardDefaults(), ['/orch: auto-review and idle-notification follow the hub default']);
+  assert.deepEqual(read(site('orch', 'board.json')), { title: 'Orch', auto_merge: true, skip_draft: false });
+  assert.deepEqual(read(site('audit', 'board.json')), { title: 'Audit' });
+  assert.deepEqual(readHub(home).boardDefaults, {});
+  write(site('orch', 'board.json'), { title: 'Orch', auto_review: false });
+  assert.deepEqual(await migrateBoardDefaults(), [], 'a second run leaves an Off override alone');
+  assert.deepEqual(read(site('orch', 'board.json')), { title: 'Orch', auto_review: false });
 });

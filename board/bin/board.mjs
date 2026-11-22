@@ -586,7 +586,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          at once) or "at HH:MM [daily|weekdays|mon,wed,…]"
   schedule set <id> [--cadence <c>] [--text <t>]         rewords it or changes its cadence, which counts from now
   schedule rm <id>                                       refuses an id the board doesn't have
-  settings                                               the board's settings as JSON; flags default off, optional
+  settings                                               the board's settings as JSON; auto-merge, auto-build,
+                                                         auto-review and idle-notification are the board's
+                                                         override, else Hub settings' Board default; other flags
+                                                         default off, optional
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false,
                                                          "auto_review": false, "idle_notification": false,
@@ -606,8 +609,11 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   description set <text>                                 writes the description an overnight triage proposed, at
                                                          most 240 characters, as from triage. Only on the owner's
                                                          Use this on the proposal's question, or their note's words
+  settings set <auto setting> default                   drops the board's override of auto-merge, auto-build,
+                                                         auto-review or idle-notification, so it takes Hub
+                                                         settings' Board default; on or off sets an override
   settings set auto-merge on|off                        on: the hub's tick merges an approved PR once CI is green and
-                                                         the merge state is CLEAN. off (the default): the task
+                                                         the merge state is CLEAN. off: the task
                                                          shows the owner a Merge button, and the board server merges
                                                          when it is tapped. Board Settings' toggle writes it too
   settings set skip-draft on|off                         on: the hub's poll marks a task's draft PR ready for
@@ -631,7 +637,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          comments carrying <!-- claude-bridge --> are Claude’s own
                                                          and dropped; its other comments are the owner’s. Unset,
                                                          the hub asks gh api user. Pass "" to clear it
-  settings set auto-build on|off                         on: each push builds its task. Off by default.
+  settings set auto-build on|off                         on: each push builds its task.
                                                          Main builds after every merge either way
   settings set build-target <target>|default            the script the hub runs for each task and main:
                                                          build-<target>, or build with default (unset).
@@ -649,8 +655,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   settings set auto-review on|off                       on: while the board is idle and nothing is pulled, the board
                                                          server sends pr-review {pr, head, repo, title, author, url,
                                                          touches, asked} for one incoming PR at a time that touches
-                                                         this board's tasks or asks the owner for review. Off by
-                                                         default. Only on the owner's word
+                                                         this board's tasks or asks the owner for review. Only on
+                                                         the owner's word
   settings set tickets <json>                            the board's ticket source, as Board Settings' Tickets row
                                                          saves it: {"source":"internal","prefix":"OPS"},
                                                          {"source":"github","account":"<gh login>"} or
