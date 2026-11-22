@@ -227,9 +227,11 @@ export const testArgs = (testLimit, files) => ['--test', '--test-reporter=tap', 
 // would otherwise report to that test's runner instead of exiting with its own result. KICKFLIP_TAILSCALE is a failing
 // stub, so a test's hub never reaches the host's Tailscale; a test with its own stub names it. Every node process of the
 // run loads exit-with-run.mjs, which exits it once this process is gone. Each test fails once it runs past
-// testLimit; each test file's process ends once it runs past fileLimit, failed by name, whether a handle its tests left
-// holds it open or it is stuck before its tests start, which testLimit never bounds
-// (docs/adr/2026-11-19-2330-a-test-file-still-running-past-its-limit-fails-by-name.md); and the whole run is cut off
+// testLimit; each test file's process ends once it runs past fileLimit, or near the run's cutoff (FILE_END_MARGIN before
+// limit), failed by name with what holds it open and the commands it waits on, whether a handle its tests left holds it
+// open, a child it awaits runs on, or it is stuck before its tests start, which testLimit never bounds
+// (docs/adr/2026-11-19-2330-a-test-file-still-running-past-its-limit-fails-by-name.md,
+// docs/adr/2026-11-22-1400-a-test-file-still-running-near-the-runs-cutoff-ends-by-name.md); and the whole run is cut off
 // at limit: its process group is killed, so a hung file's child dies with it, and
 // → {hung: {after, files}} naming the files still running, with the partial output and those processes saved to the log
 // (docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md). Whatever the run's tests left
@@ -250,7 +252,8 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
   // A run started from inside a run's test has the import already, and watches its own starter.
   const exitWithRun = `--import=${JSON.stringify(EXIT_WITH_RUN)}`;
   const options = rest.NODE_OPTIONS?.includes(exitWithRun) ? rest.NODE_OPTIONS : [rest.NODE_OPTIONS, exitWithRun].filter(Boolean).join(' ');
-  const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), KICKFLIP_TEST_FILE_LIMIT: String(fileLimit), NODE_OPTIONS: options };
+  const ends = began + limit - Math.min(FILE_END_MARGIN, limit / 4);
+  const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), KICKFLIP_TEST_FILE_LIMIT: String(fileLimit), KICKFLIP_TEST_RUN_ENDS: String(ends), KICKFLIP_TEST_RUN_LIMIT: String(limit), NODE_OPTIONS: options };
   const run = inGroup([nodeBin(), ...testArgs(testLimit, files)], { cwd: dir, env, limit });
   return run.closed.then(async ({ status, signal }) => {
     const { stdout, stderr, left } = run;
@@ -276,6 +279,9 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     return result;
   });
 }
+// How long before the run's cutoff a test file still running ends, so the runner can report it and the rest; a quarter
+// of a run's limit when that is shorter.
+const FILE_END_MARGIN = 30 * 1000;
 // How often a run's progress is reported.
 const REPORT_EVERY = 2 * 60 * 1000;
 const duration = (ms) => ms % 60000 ? `${ms / 1000} seconds` : `${ms / 60000} minutes`;

@@ -19,6 +19,7 @@ function home(t) {
 }
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
+// The file blocks its own event loop, so its near-cutoff timer can't end it and only the run's cutoff does.
 test('a suite still running at the run cutoff is killed with its whole process group, and the land refuses naming the file that hung, saving the partial output and the processes left', async (t) => {
   const dir = home(t);
   const tree = path.join(dir, 'tree');
@@ -30,7 +31,7 @@ import { spawn } from 'node:child_process';
 test('hangs', () => {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   fs.writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
-  return new Promise(() => setInterval(() => {}, 1000));
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 });
 `);
   fs.writeFileSync(path.join(tree, 'a-quick.test.mjs'), "import test from 'node:test';\ntest('quick', () => {});\n");
@@ -88,6 +89,24 @@ test('a test file still running past the per-file limit, held open after its tes
   for (const [i, name] of ['held', 'stuck'].entries()) {
     assert.match(failures[i], new RegExp(`^\\S*${name}\\.test\\.mjs\\n.*${name}\\.test\\.mjs:\\d+:\\d+\\n  Error: test file still running after 4 seconds, held open by .*Timeout`));
   }
+});
+
+test("a test file still running near the run's cutoff ends before it, failing by name with what holds it and the commands it waits on, and the run still reports the rest", async (t) => {
+  const dir = home(t);
+  const tree = path.join(dir, 'tree');
+  fs.mkdirSync(tree);
+  fs.writeFileSync(path.join(tree, 'waits.test.mjs'), `import test from 'node:test';
+import { spawn } from 'node:child_process';
+test('waits on a child', () => new Promise((resolve) => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'slow-command'], { stdio: 'ignore' }).on('exit', resolve)));
+`);
+  fs.writeFileSync(path.join(tree, 'fine.test.mjs'), "import test from 'node:test';\ntest('fine', () => {});\n");
+  // The file limit is past the run's cutoff, so only the cutoff ends the waiting file.
+  const r = await nodeTests(tree, { limit: 16000, fileLimit: 60000 });
+  assert.equal(r.hung, undefined);
+  assert.equal(r.pass, 1);
+  assert.deepEqual(r.failedFiles, ['waits.test.mjs']);
+  assert.equal(r.failures.length, 1);
+  assert.match(r.failures[0], /^\S*waits\.test\.mjs\n.*waits\.test\.mjs:\d+:\d+\n  Error: test file still running near the run's 16-second cutoff after \d+ seconds, held open by .*ProcessWrap.*, waiting on .*-e setInterval\(\(\) => \{\}, 1000\) slow-command/);
 });
 
 test('a suite that passes resolves with its counts and saves no log', async (t) => {
