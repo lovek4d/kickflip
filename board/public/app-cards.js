@@ -539,13 +539,13 @@ BoardView.part((B) => {
     const anchor = anchorOf(key);
     if (!anchor) return;
     tagKey = key;
-    BoardUI.setHTML(picker(), BoardUI.tagPicker(menuCard(key), BoardUI.boardTags(drawnItems())));
+    BoardUI.setHTML(picker(), BoardUI.tagPicker(menuCard(key), BoardUI.boardTags(drawnItems(), state.board.archivedTags)));
     picker().hidden = false;
     Popup.open(picker(), anchor, { align: 'end', onClose: closeTagPicker });
     tagField().focus();
   }
   function drawTagRows() {
-    BoardUI.setHTML(picker().querySelector('.tag-rows'), BoardUI.tagRows(menuCard(tagKey), BoardUI.boardTags(drawnItems()), tagField().value));
+    BoardUI.setHTML(picker().querySelector('.tag-rows'), BoardUI.tagRows(menuCard(tagKey), BoardUI.boardTags(drawnItems(), state.board.archivedTags), tagField().value));
   }
   function closeTagPicker() {
     if (!tagKey) return;
@@ -570,6 +570,11 @@ BoardView.part((B) => {
     const remove = ev.target.closest('button[data-tag-remove]');
     if (add) openTagPicker(add.dataset.tagAdd, 'add');
     if (remove) B.enqueue(remove.dataset.key, { kind: 'card-tag', fields: { tag: remove.dataset.tagRemove, on: false } });
+    // An Archive or Restore is a tag-archive {key, tag, on} through the open card's outbox; the board's answer redraws
+    // the picker (keepTagPicker) with the tag moved.
+    const archive = ev.target.closest('#tagPicker button[data-tag-archive]');
+    const restore = ev.target.closest('#tagPicker button[data-tag-restore]');
+    if (archive || restore) B.enqueue(tagKey, { kind: 'tag-archive', fields: { tag: (archive || restore).dataset[archive ? 'tagArchive' : 'tagRestore'], on: Boolean(archive) } });
     const pick = ev.target.closest('#tagPicker button[data-tag-pick]');
     const fresh = ev.target.closest('#tagPicker button[data-tag-new]');
     if (pick) pickTag(pick.dataset.tagPick, !pick.hasAttribute('data-on'));

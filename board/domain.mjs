@@ -1399,6 +1399,8 @@ export const stateEntries = (m) => (m.answers || [m]).filter((a) => a.eventId).m
 export function buildBoard(snapshot) {
   const { owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {}, delivered = {}, actedOn = {} } = snapshot;
   const now = snapshot.now ?? Date.now();
+  // docs/adr/2026-11-22-1200-an-archived-tag-greys-out-and-leaves-the-picker.md
+  const archivedTags = new Set((snapshot.archivedTags || []).map((t) => t.toLowerCase()));
   const index = threadIndex(events, owner);
   const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn').map((e) => e.data?.id));
   const asks = new Map(events.filter((e) => e.kind === 'ask' && !withdrawn.has(e.id)).map((e) => [e.id, e]));
@@ -1466,6 +1468,7 @@ export function buildBoard(snapshot) {
       }));
       const card = items[items.length - 1];
       // An offered script waits on the owner's Run or Decline (actionOf).
+      card.archivedTags = card.tags.filter((t) => archivedTags.has(t.toLowerCase()));
       card.scriptWaiting = msgs.some((m) => m.script?.state === 'waiting');
       // A card filed from an ask takes the ask's place: Todo sorts it by when the ask was sent
       // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
@@ -1693,7 +1696,7 @@ export function buildBoard(snapshot) {
     .sort((a, b) => b.at.localeCompare(a.at));
   merges.sort((a, b) => b.at.localeCompare(a.at));
   // unfiled: the asks with no card yet, for the board server to file (asks.mjs fileAsks).
-  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, boardAsks: newBoardAsks(events, working), owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews }, snapshot);
+  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, boardAsks: newBoardAsks(events, working), owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews, archivedTags: snapshot.archivedTags || [] }, snapshot);
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
@@ -2092,7 +2095,7 @@ export const DONE_KEPT = 100;
 // ui-snapshot.js updateSign, and the pane glance's Landed rows (app-pane.js), which read commit and sortAt.
 // No page file reads `agents`, and the rest are set on a Done card only to be sent.
 export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fold','ticket', 'ticketSource', 'linear', 'pr', 'prs', 'commit',
-  'review', 'reviewers', 'risk', 'tags', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
+  'review', 'reviewers', 'risk', 'tags', 'archivedTags', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'blocks', 'blockers', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
 
@@ -2158,7 +2161,7 @@ const CARD_TAPS = ['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-
 // A tap that asks for a planner, and the brief it owes.
 const REQUEST_BRIEFS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': VISUAL, 'review-request': REVIEWER };
 // The event kinds tapPlan decides.
-export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'card-unbump', 'card-tag', ...Object.keys(REQUEST_BRIEFS)]);
+export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'card-unbump', 'card-tag', 'tag-archive', ...Object.keys(REQUEST_BRIEFS)]);
 
 // docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md
 // What the owner's tap of kind, with its event's data body, does to card (the built card its key names, or undefined
@@ -2231,6 +2234,12 @@ export function tapPlan(card, kind, body) {
   if (kind === 'card-tag') {
     const tag = String(body.tag || '');
     return [{ do: 'record', nothing: `${card?.ref || key} ${body.on ? 'already carries' : 'doesn’t carry'} the tag ${tag}, so nothing changed.`, stops: false }];
+  }
+  // docs/adr/2026-11-22-1200-an-archived-tag-greys-out-and-leaves-the-picker.md: an Archive or Restore in the picker
+  // (tag-archive {key, tag, on}, on archiving) is written to the board's data/tags.json, wakes no session.
+  if (kind === 'tag-archive') {
+    const tag = String(body.tag || '');
+    return [{ do: 'record', nothing: `The tag ${tag} is already ${body.on ? 'archived' : 'restored'}, so nothing changed.`, stops: false }];
   }
   // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a request owes the orchestrator's
   // brief, and ends an Implement or Close mark (docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md).

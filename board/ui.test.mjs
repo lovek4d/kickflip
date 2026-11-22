@@ -3027,6 +3027,26 @@ test("the Tag… picker lists the board's tags by use, ticked where the card has
   assert.match(ui.tagRows(it, ui.boardTags(board), 'a,b'), /takes no comma/);
 });
 
+test("an archived tag leaves the picker's picks for a greyed Archived group with a Restore, each other tag gets an Archive, and an archived tag no card carries is still listed", () => {
+  const board = [{ kind: 'work', tags: ['phone', 'perf'] }, { kind: 'work', tags: ['phone'] }];
+  const tags = ui.boardTags(board, ['Perf', 'old']);
+  assert.deepEqual(plain(tags), [{ name: 'phone', count: 2 }, { name: 'perf', count: 1, archived: true }, { name: 'old', count: 0, archived: true }]);
+  const html = ui.tagRows({ key: 'w/B5', tags: ['perf'] }, tags, '');
+  assert.deepEqual([...html.matchAll(/data-tag-pick="([^"]+)"/g)].map((m) => m[1]), ['phone'], 'only an unarchived tag is a pick');
+  assert.deepEqual([...html.matchAll(/data-tag-archive="([^"]+)"/g)].map((m) => m[1]), ['phone']);
+  assert.deepEqual([...html.matchAll(/data-tag-restore="([^"]+)"/g)].map((m) => m[1]), ['perf', 'old']);
+  assert.match(html, /<div class="tag-group">Archived<\/div>/);
+  assert.ok(html.indexOf('tag-group') > html.indexOf('data-tag-pick'), 'the Archived group follows the picks');
+  assert.doesNotMatch(ui.tagRows({ key: 'w/B5', tags: [] }, tags, 'old'), /data-tag-new/, 'a typed archived name is that tag, not a new one');
+  assert.match(ui.tagRows({ key: 'w/B5', tags: [] }, ui.boardTags([], ['old']), ''), /No tags on this board yet/, 'with only archived tags the picker offers none');
+});
+
+test("a card's chip for an archived tag is greyed", () => {
+  const chips = ui.tagChips({ tags: ['phone', 'perf'], archivedTags: ['perf'] });
+  assert.match(chips, /<span class="tag-chip" title="phone">/);
+  assert.match(chips, /<span class="tag-chip archived" title="perf">/);
+});
+
 test("a Tag… pick in the outbox draws on its card at once, put on or taken off, until the board answers; a failed one leaves the card as the board has it", () => {
   const items = [{ key: 'w/A1', tags: ['phone'] }, { key: 'w/B1' }];
   const tap = (key, tag, on, extra = {}) => ({ kind: 'card-tag', key, fields: { tag, on }, ...extra });

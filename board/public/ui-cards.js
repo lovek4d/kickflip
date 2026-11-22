@@ -86,15 +86,18 @@
   // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: a card's tags as chips right of its ticket badge, two at
   // most, then +N naming the rest in its title. A long name cuts with an ellipsis; its title holds it whole.
   const TAGS_SHOWN = 2;
-  const tagChip = (name) => `<span class="tag-chip" title="${esc(name)}">${esc(name)}</span>`;
+  // An archived tag (it.archivedTags, the card's tags the board archived) is drawn grey.
   function tagChips(it) {
+    const tagChip = (name) => `<span class="tag-chip${(it.archivedTags || []).includes(name) ? ' archived' : ''}" title="${esc(name)}">${esc(name)}</span>`;
     const tags = it.tags || [];
     const rest = tags.slice(TAGS_SHOWN);
     return tags.slice(0, TAGS_SHOWN).map(tagChip).join('') + (rest.length ? `<span class="tag-chip more" title="${esc(rest.join(', '))}">+${rest.length}</span>` : '');
   }
   // The board's tags for the Tag… picker, each with the count of work cards carrying it, most used first, then by name.
   // Names differing only in case are one tag, spelled as first met.
-  function boardTags(items) {
+  // archived is the board's archived tag names (board.archivedTags): each is flagged archived, and one no card carries is
+  // listed too, with a count of 0.
+  function boardTags(items, archived = []) {
     const byName = new Map();
     for (const it of items) {
       if (it.kind !== 'work') continue;
@@ -104,6 +107,8 @@
         byName.set(name.toLowerCase(), tag);
       }
     }
+    for (const name of archived) if (!byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), { name, count: 0 });
+    for (const tag of byName.values()) if (archived.some((a) => a.toLowerCase() === tag.name.toLowerCase())) tag.archived = true;
     return [...byName.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }
   // The Tag… picker's rows for card it (app-cards.js opens it from the card's menu) under the words typed: each of the
@@ -118,14 +123,20 @@
     const name = typedTag(typed);
     const low = name.toLowerCase();
     const carries = (tag) => (it.tags || []).some((t) => t.toLowerCase() === tag.toLowerCase());
-    const rows = tags.filter((t) => t.name.toLowerCase().includes(low)).map((t) => {
+    const shown = tags.filter((t) => t.name.toLowerCase().includes(low));
+    const line = (t) => {
       const on = carries(t.name);
-      return `<button type="button" role="menuitemcheckbox" aria-checked="${on}" data-tag-pick="${esc(t.name)}"${on ? ' data-on' : ''}><span class="tag-tick" aria-hidden="true">${on ? '✓' : ''}</span><span class="tag-name">${esc(t.name)}</span><span class="tag-count">${plural(t.count, 'card')}</span></button>`;
-    }).join('');
+      return `<div class="tag-line"><button type="button" role="menuitemcheckbox" aria-checked="${on}" data-tag-pick="${esc(t.name)}"${on ? ' data-on' : ''}><span class="tag-tick" aria-hidden="true">${on ? '✓' : ''}</span><span class="tag-name">${esc(t.name)}</span><span class="tag-count">${plural(t.count, 'card')}</span></button><button type="button" class="tag-archive" data-tag-archive="${esc(t.name)}" aria-label="Archive the tag ${esc(t.name)}">Archive</button></div>`;
+    };
+    // An archived tag is no pick: it sits greyed in its own group with a Restore, below the tags the picker offers.
+    const old = (t) => `<div class="tag-line archived"><span class="tag-name">${esc(t.name)}</span><span class="tag-count">${plural(t.count, 'card')}</span><button type="button" class="tag-archive" data-tag-restore="${esc(t.name)}" aria-label="Restore the tag ${esc(t.name)}">Restore</button></div>`;
+    const archivedShown = shown.filter((t) => t.archived);
+    const rows = shown.filter((t) => !t.archived).map(line).join('')
+      + (archivedShown.length ? `<div class="tag-group">Archived</div>${archivedShown.map(old).join('')}` : '');
     const fault = name.includes(',') ? 'A tag takes no comma.' : name.length > TAG_MAX ? `A tag is ${TAG_MAX} characters at most.` : '';
     const fresh = name && !fault && !tags.some((t) => t.name.toLowerCase() === low)
       ? `<button type="button" role="menuitem" data-tag-new="${esc(name)}">${PLUS}<span class="tag-name">New tag “${esc(name)}”</span><span class="tag-count">Create</span></button>` : '';
-    const empty = !tags.length && !name ? '<p class="tag-note">No tags on this board yet: type one.</p>' : '';
+    const empty = !tags.some((t) => !t.archived) && !name ? '<p class="tag-note">No tags on this board yet: type one.</p>' : '';
     return rows + (fault ? `<p class="tag-note">${fault}</p>` : '') + fresh + empty;
   }
   // The open card's Tags row (app-cards.js detail): each tag whole, with a × that takes it off, then + Add tag, which

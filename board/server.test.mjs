@@ -1188,6 +1188,22 @@ test("a Tag… pick is one events POST that writes the tag to the card's item fi
   assert.equal('tags' in JSON.parse(fs.readFileSync(wave, 'utf8')).items.find((i) => i.id === 'TG1'), false);
 });
 
+// docs/adr/2026-11-22-1200-an-archived-tag-greys-out-and-leaves-the-picker.md
+test("an Archive tap is one events POST that writes the tag to data/tags.json with no event, the board answers it, and a repeat is refused", async () => {
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
+  await putWave(JSON.stringify({ items: [{ id: 'TA1', title: 'One', tags: ['phone'] }] }));
+  await board.settled();
+  const [status, out] = await post({ kind: 'tag-archive', key: 't/TA1', tag: 'Phone', on: true });
+  assert.equal(status, 200, out.error);
+  assert.deepEqual(out.board.archivedTags, ['Phone']);
+  assert.deepEqual(out.board.items.find((i) => i.id === 'TA1').archivedTags, ['phone']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(site, 'data', 'tags.json'), 'utf8')), { archived: ['Phone'] });
+  assert.equal((await post({ kind: 'tag-archive', key: 't/TA1', tag: 'phone', on: true }))[0], 400);
+  const [back, restored] = await post({ kind: 'tag-archive', key: 't/TA1', tag: 'phone', on: false });
+  assert.equal(back, 200);
+  assert.deepEqual(restored.board.archivedTags, []);
+});
+
 test("deleting a New card is one events POST that records ask-withdrawn and hides the ask, and its board has the card gone", async () => {
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post({ kind: 'ask', text: 'Never mind' });

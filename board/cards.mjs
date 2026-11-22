@@ -1249,6 +1249,26 @@ export async function tagItem(site, key, { tag, untag, who = 'claude', sendId })
   return { tagged, untagged };
 }
 
+// docs/adr/2026-11-22-1200-an-archived-tag-greys-out-and-leaves-the-picker.md
+// The board's archived tags, data/tags.json {archived: [names]}: tags the picker no longer offers, still on their cards.
+// Names match whatever their case; a tag no card carries can be archived too. Writes run one at a time.
+export const tagsFile = (site) => path.join(site, 'data', 'tags.json');
+export const readArchivedTags = async (site) => (await readJSON(tagsFile(site), { archived: [] })).archived || [];
+let tagWrites = Promise.resolve();
+// Archives tag name (archived true) or restores it. → true, or false when it already was so.
+export function archiveTag(site, name, archived) {
+  const tag = tagName(name);
+  const write = tagWrites.then(async () => {
+    const before = await readArchivedTags(site);
+    const after = archived ? (before.some((t) => sameTag(t, tag)) ? before : [...before, tag]) : before.filter((t) => !sameTag(t, tag));
+    if (after.length === before.length) return false;
+    await writeJSON(tagsFile(site), { archived: after });
+    return true;
+  });
+  tagWrites = write.catch(() => {});
+  return write;
+}
+
 // The owner's Block, Unblock, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}),
 // or a Tag… pick (card-tag {key, tag, on}, tagItem),
 // recorded in the item file as the board server takes it, with a thread line; a Done closes the card and unblocks blocked cards as item set --done does
@@ -1256,6 +1276,7 @@ export async function tagItem(site, key, { tag, untag, who = 'claude', sendId })
 // when there is nothing to write.
 export async function recordOwnerTap(site, kind, data) {
   const key = String(data?.key || '');
+  if (kind === 'tag-archive') return archiveTag(site, data.tag, Boolean(data.on));
   if (kind === 'card-tag') return tagItem(site, key, { [data.on ? 'tag' : 'untag']: [String(data.tag ?? '')], who: 'love', sendId: data.sendId });
   const { file: slug, id } = parseKey(key);
   const { source, itemFile } = await loadItemFile(site, slug);

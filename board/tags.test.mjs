@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { site, lines, read, write, board } from './board-fixture.mjs';
 import { tapPlan, buildBoard, DONE_FIELDS } from './domain.mjs';
-import { tagName, retagged } from './cards.mjs';
+import { tagName, retagged, archiveTag, readArchivedTags } from './cards.mjs';
 
 const items = () => read(site('audit', 'data', 'items.json')).items;
 const item = (id) => items().find((it) => it.id === id);
@@ -77,4 +77,32 @@ test("a built card carries its item file's tags, a Done one included, and none a
     { id: 'S1', title: 'One', tags: ['phone', 'perf'] }, { id: 'S2', title: 'Two' }] } }] });
   assert.deepEqual(built.items.map((i) => i.tags), [['phone', 'perf'], []]);
   assert.ok(DONE_FIELDS.includes('tags'), 'a slimmed Done card keeps its tags');
+});
+
+// docs/adr/2026-11-22-1200-an-archived-tag-greys-out-and-leaves-the-picker.md
+test("archiving a tag writes the board's data/tags.json whatever the tag's case, restoring takes it out, and a change that changes nothing is false", async () => {
+  const dir = site('audit');
+  assert.deepEqual(await readArchivedTags(dir), []);
+  assert.equal(await archiveTag(dir, ' Phone ', true), true);
+  assert.equal(await archiveTag(dir, 'phone', true), false, 'the same tag in any case is archived already');
+  assert.deepEqual(read(site('audit', 'data', 'tags.json')), { archived: ['Phone'] });
+  assert.equal(await archiveTag(dir, 'perf', false), false);
+  assert.equal(await archiveTag(dir, 'PHONE', false), true);
+  assert.deepEqual(await readArchivedTags(dir), []);
+  assert.throws(() => archiveTag(dir, 'a,b', true), /takes no comma/);
+});
+
+test("a tag-archive tap is written to data/tags.json with no event, refused with why when it changes nothing", () => {
+  const tapCard = { key: 'w/A1', ref: '#1', kind: 'work', lane: 'done' };
+  assert.deepEqual(tapPlan(tapCard, 'tag-archive', { key: 'w/A1', tag: 'perf', on: true }), [{ do: 'record', nothing: 'The tag perf is already archived, so nothing changed.', stops: false }]);
+  assert.deepEqual(tapPlan(tapCard, 'tag-archive', { key: 'w/A1', tag: 'perf', on: false }), [{ do: 'record', nothing: 'The tag perf is already restored, so nothing changed.', stops: false }]);
+});
+
+test("a built board lists its archived tags and each card its own tags that are archived, a Done card's too", () => {
+  const built = buildBoard({ fromWaves: false, archivedTags: ['Perf'], files: [{ slug: 's', itemFile: { items: [
+    { id: 'S1', title: 'One', tags: ['phone', 'perf'] }, { id: 'S2', title: 'Two' }] } }] });
+  assert.deepEqual(built.archivedTags, ['Perf']);
+  assert.deepEqual(built.items.map((i) => i.archivedTags), [['perf'], []]);
+  assert.ok(DONE_FIELDS.includes('archivedTags'));
+  assert.deepEqual(buildBoard({ fromWaves: false, files: [] }).archivedTags, []);
 });

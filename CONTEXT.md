@@ -315,7 +315,7 @@ Similar tasks that should be cross-referenced, shown on both tasks. The session 
 _Avoid_: sibling, link (alone)
 
 **Tag**:
-A board-only name a card carries, several per card, to group cards by hand beside **Related to**. Set from the card's "…" menu, Done included, whose Tag… picker lists the board's tags to tick or takes a new name, or from the open card's Tags row (× takes one off, + Add tag opens the picker), or with `item set --tag` and `--untag`; each change is a Tagged or Untagged line in its thread. Free text up to 48 characters, the same tag whatever its case. A card shows two as chips right of its ticket badge, then +N. No ticket source hears of it ([a card carries board-only tags](docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md)).
+A board-only name a card carries, several per card, to group cards by hand beside **Related to**. Set from the card's "…" menu, Done included, whose Tag… picker lists the board's tags to tick or takes a new name, or from the open card's Tags row (× takes one off, + Add tag opens the picker), or with `item set --tag` and `--untag`; each change is a Tagged or Untagged line in its thread. Free text up to 48 characters, the same tag whatever its case. A card shows two as chips right of its ticket badge, then +N. The picker's Archive archives the tag itself: it stays on its cards, shown grey, and sits greyed in the picker's Archived group with a Restore, no longer a pick. No ticket source hears of it ([a card carries board-only tags](docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md), [an archived tag greys out and leaves the picker](docs/adr/2026-11-22-1200-an-archived-tag-greys-out-and-leaves-the-picker.md)).
 _Avoid_: label, category
 
 **Split**:

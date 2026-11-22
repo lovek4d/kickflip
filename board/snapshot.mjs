@@ -12,7 +12,7 @@ import { topicItems } from './review.mjs';
 import { transcriptMovedAt } from './transcript.mjs';
 import { alive as runAlive, landable, queuedPlanners, readLanders } from './runs.mjs';
 import { BoardError } from './checks.mjs';
-import { readActedOn, readAgents, readAskLinks, readDelivered, readHidden, readReplyIndex, readWorking, replyFilesOf, threadFile } from './cards.mjs';
+import { readActedOn, readArchivedTags, readAgents, readAskLinks, readDelivered, readHidden, readReplyIndex, readWorking, replyFilesOf, threadFile } from './cards.mjs';
 import { itemNotes, readScreening } from './questions.mjs';
 import { opensPRs, settingsOf } from './settings.mjs';
 import { boardAt, githubStateFile } from '../hub/boards.mjs';
@@ -217,7 +217,7 @@ export async function readSnapshot(site, outside, { archived = [], items: itemsO
   return {
     // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: main's log tail rides the board while its build is failing.
     mainLog: tries?.main?.state === 'failed' ? await tryLogTail(here, 'main') : null,
-    ...items, moved, alive, loggedOut: await loggedOutCards(files, home), try: tries, main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here),
+    ...items, moved, alive, loggedOut: await loggedOutCards(files, home), try: tries, main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), archivedTags: await readArchivedTags(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(here),
     owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
     topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,

@@ -4817,6 +4817,23 @@ test("an open card's Tags row sits above its Related to: its × takes a tag off 
   assert.equal(picker.hidden, false);
 });
 
+test("the Tag… picker's Archive sends a tag-archive tap with no confirm, and an archived tag shows greyed in an Archived group with a Restore that sends the reverse", async () => {
+  const board = { ...boardOf([workCard('T1', { bumpable: false, tags: ['phone', 'perf'], archivedTags: ['perf'] })]), archivedTags: ['perf'] };
+  const b = boardOnDom({ board, threads: {}, confirm: true });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T1"] button[data-card-menu]') });
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#cardMenu button[data-card-tag="w/T1"]') });
+  const picker = b.root.querySelector('#tagPicker');
+  assert.deepEqual([...picker.querySelectorAll('button[data-tag-pick]')].map((r) => r.dataset.tagPick), ['phone']);
+  assert.match(picker.querySelector('.tag-group').textContent, /Archived/);
+  b.page.fire(b.root, 'click', { target: picker.querySelector('button[data-tag-archive="phone"]') });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: picker.querySelector('button[data-tag-restore="perf"]') });
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [['tag-archive', { key: 'w/T1', tag: 'phone', on: true }], ['tag-archive', { key: 'w/T1', tag: 'perf', on: false }]]);
+  assert.deepEqual(b.confirms, []);
+});
+
 // docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md
 // A send that waits for the test: answer() settles the oldest, with the server's board, or refuses it with reason.
 // What a board sent, without the send id the outbox gives each thread message.

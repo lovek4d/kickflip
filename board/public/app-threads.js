@@ -159,7 +159,7 @@ BoardView.part((B) => {
   // card with a PR its own words stand until a thread load after the answer.
   const REQUESTED = { 'prototype-request': 'Prototype requested', 'grill-more': 'Grill requested', 'visual-request': 'Visual requested', 'review-request': 'Review requested' };
   const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Blocked' : 'Unblocked'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened', 'card-cancel': () => 'Cancelled Implement', 'card-merge': () => 'Merge requested',
-    'card-bump': () => 'Moved to the top', 'card-unbump': () => 'Unbumped', 'card-tag': (m) => `${m.fields.on ? 'Tagged' : 'Untagged'} ${m.fields.tag}` };
+    'card-bump': () => 'Moved to the top', 'card-unbump': () => 'Unbumped', 'tag-archive': (m) => `${m.fields.on ? 'Archived' : 'Restored'} the tag ${m.fields.tag}`, 'card-tag': (m) => `${m.fields.on ? 'Tagged' : 'Untagged'} ${m.fields.tag}` };
   function tapOf(m) {
     if (m.text || m.files.length || m.uploads) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
     return { words: REQUESTED[m.kind] || CARD_TAPS[m.kind]?.(m) || 'Marked as staged', waits: Boolean(REQUESTED[m.kind]) };
