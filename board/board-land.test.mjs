@@ -666,7 +666,13 @@ test("a repo's .kickflip/release replaces land's release: check before landing r
   assert.ok(waiting.out.includes(`\npushed main to origin\nrelease 1.0.0 waits while Run release script is off; turn it on in Board Settings, then run .kickflip/release ship 1.0.0 ${git(repo, 'rev-parse', 'main')} in ${repo}\n`), waiting.out);
   assert.deepEqual(called().map((c) => c.split(' ')[0]), ['check'], 'ship waits on the box');
   // A release the orchestrator ships by hand is watched as one land shipped.
-  assert.equal(itemOf('A4').release.state, 'publishing');
+  // docs/adr/2026-11-21-2349-a-failed-ticket-move-is-retried-on-the-hubs-poll-and-an-untagged-release-offers-its-tag.md:
+  // with the box off the card reads untagged and its thread offers the check and ship as a Run card.
+  assert.equal(itemOf('A4').release.state, 'untagged');
+  const offer = threadOf('A4').at(-1);
+  assert.match(offer.text, /^1\.0\.0 landed but isn't tagged: Run release script is off/);
+  const sha = git(repo, 'rev-parse', 'main');
+  assert.equal(offer.script.body, `cd '${repo}' && git fetch -q origin && '.kickflip/release' check 1.0.0 ${sha} && '.kickflip/release' ship 1.0.0 ${sha}\n`);
   assert.equal(itemOf('A2').release, undefined);
   // The owner's Done closes a release card, its release gone.
   const owner = spawnSync(process.execPath, ['--input-type=module', '-e', `import { recordOwnerTap } from ${JSON.stringify(path.join(path.dirname(bin('x')), '..', 'store.mjs'))}; await recordOwnerTap(${JSON.stringify(site('orch'))}, 'card-done', { key: 'w/A1' });`],

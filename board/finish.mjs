@@ -11,6 +11,7 @@
 // board's "Push main after a land" switch is on (permissions.mjs pushMain). Each refuses with the reason before it
 // changes the card, so the builder stays on, fixes it and finishes again.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { ghSync, limitWords } from '../shared/gh.mjs';
 import { BoardError } from './checks.mjs';
@@ -115,7 +116,9 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md: a release card keeps
   // its release, which holds it in In Review while the hub watches it publish, whether this land ships it or the
   // orchestrator does by hand.
-  const release = landed.release ? { version: landed.release.version, pkg: landed.release.pkg } : undefined;
+  // On a board that pushes main with Run release script off, the tag waits for the owner, which the card reads as untagged.
+  const permissions = landed.release ? await readPermissions(repo, site) : null;
+  const release = landed.release ? { version: landed.release.version, pkg: landed.release.pkg, untagged: permissions.pushMain && !permissions.runRelease } : undefined;
   const closed = await setItem(site, key, { done: true, landed: landed.commit, landedFiles, release, ...(closing ? { closing } : { text }), ownerStep, check });
   return {
     said: release ? `landed; waits until release ${release.version} is published`
@@ -176,7 +179,18 @@ async function pushBase(site, key, repo, base, { release, commit }) {
   if (!release) return lines;
   const shipped = shipRelease(repo, release, permissions, site);
   if (shipped.failed) await appendStatus(site, key, 'push-failed', { base: `release ${release.version}`, error: shipped.failed });
+  if (shipped.offer) await offerScript(site, key, shipped.offer);
   return [...lines, shipped.line];
+}
+
+// The card's Run card: the script's text goes to a file for appendMessage, which stores it whole on the thread line.
+async function offerScript(site, key, { text, body }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-offer-'));
+  try {
+    const file = path.join(dir, 'script.sh');
+    fs.writeFileSync(file, body);
+    await appendMessage(site, key, { text, script: file });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
 async function sendForReview(site, key, { path: dir, branch, base, title: given, text }) {

@@ -119,3 +119,15 @@ test("a release with no package publishes on its tag's runs alone, and a gh that
   assert.match(failed[0], /^gh-down: could not read r\/G1's release 1\.0\.0: /);
   assert.equal(broken.item('G1').release.state, 'publishing');
 });
+
+// docs/adr/2026-11-21-2349-a-failed-ticket-move-is-retried-on-the-hubs-poll-and-an-untagged-release-offers-its-tag.md
+test('an untagged release stays untagged until its tag shows a run, then it is watched as publishing', async () => {
+  const release = { version: '0.20.0', tag: 'v0.20.0', since: '2026-11-21T20:00:00Z', state: 'untagged' };
+  const board = releaseBoard('untagged', [{ id: 'U1', lane: 'done', release }]);
+  await board.watch();
+  assert.equal(board.item('U1').release.state, 'untagged');
+  assert.deepEqual(board.thread('r/U1'), []);
+  board.world.runs['v0.20.0'] = [{ databaseId: 9, workflowName: 'release', status: 'in_progress', conclusion: '', url: 'https://github.com/o/r/actions/runs/9', createdAt: '2026-11-21T20:05:00Z' }];
+  await board.watch();
+  assert.equal(board.item('U1').release.state, 'publishing');
+});

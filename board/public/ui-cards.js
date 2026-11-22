@@ -583,6 +583,7 @@
     const run = (words) => (r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${escText(words)} ${LINK_ARROW}</a>` : escText(words));
     if (r.state === 'failed') return `<div class="line3 sub refused release">${run(`release v${r.version} failed${r.failure ? `: ${r.failure}` : ''}`)}</div>`;
     if (r.state === 'published') return `<div class="line3 sub release-published">${run(`published ${r.version}`)}</div>`;
+    if (r.state === 'untagged') return `<div class="line3 sub agent release">${DOT}${run(`waits on tag v${r.version}`)}</div>`;
     return `<div class="line3 sub agent release">${DOT}${run(`publishing v${r.version}`)}</div>`;
   }
 

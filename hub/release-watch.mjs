@@ -1,7 +1,7 @@
 // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md
 // The release watch, run on each of the hub's checks (github.mjs checkGitHub): every landed card holding a release not
 // yet published (board/cards.mjs keeps it from the land) gets its tag's runs read on its board's GitHub repo, once
-// however many boards show it. A run still going, or none yet, is publishing. A failed run is the card's failure, with
+// however many boards show it. A run still going is publishing, and none yet is publishing too, or untagged on a card whose land left the tag to the owner (Run release script off) until a run shows. A failed run is the card's failure, with
 // the run's link and its first failing test (firstFailingTest). Every run passed, and the version on npm when the
 // release names a package, is published, which asks the owner for Done. board/cards.mjs markRelease writes each change.
 // A gh or npm that can't run leaves the card as it is and says so in failed.
@@ -59,7 +59,7 @@ export async function runReleaseWatch(boards, failed, { exec = execArgv } = {}) 
             const failure = release.state === 'failed' && release.url === runs.url ? release.failure ?? null
               : firstFailingTest(await exec('gh', ['run', 'view', String(runs.run.databaseId), '--repo', repo, '--log-failed']));
             found = { state: 'failed', url: runs.url, failure };
-          } else if (runs.state === 'publishing') found = { state: 'publishing', url: runs.url ?? release.url };
+          } else if (runs.state === 'publishing') found = { state: release.state === 'untagged' && !runs.url ? 'untagged' : 'publishing', url: runs.url ?? release.url };
           else if (!release.pkg) found = { state: 'published', url: runs.url, words: 'its release run passed' };
           else {
             const npm = await runCheck({ name: 'npm', args: [release.pkg, release.version] }, { exec });

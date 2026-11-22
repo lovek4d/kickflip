@@ -30,6 +30,7 @@ import { allLanded, cardPRs, leastReady, prNames } from '../shared/card-prs.mjs'
 const PR_ENDED = ['MERGED', 'CLOSED'];
 import { runOwnerChecks } from './owner-checks.mjs';
 import { runReleaseWatch } from './release-watch.mjs';
+import { runTicketRetries } from './ticket-retry.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'linked'];
@@ -213,6 +214,7 @@ export async function checkGitHub({ every, manifest }) {
   for (const key of Object.keys(state.threaded)) if (!prs.has(key)) delete state.threaded[key];
   await runOwnerChecks(boards, state, failed);
   await runReleaseWatch(boards, failed);
+  await runTicketRetries(boards, failed);
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
   saveJSON(githubStateFile(), state);
   const tickets = await followPRs(ticketCards(boards, fetched, fetchKey));

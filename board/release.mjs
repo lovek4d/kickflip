@@ -77,6 +77,18 @@ export function landRelease(repo, commit) {
   return { version, commit, pkg };
 }
 
+// The Run card a release waiting on the box offers: the thread line's words and the script that tags the landed commit.
+// docs/adr/2026-11-21-2349-a-failed-ticket-move-is-retried-on-the-hubs-poll-and-an-untagged-release-offers-its-tag.md
+function tagOffer(repo, release, home, shown) {
+  const file = home.scripts === 'kickflip' ? scriptFileOf(home, 'release') : `${shown}`;
+  const quote = (word) => `'${word.replaceAll("'", `'\\''`)}'`;
+  const verb = (v) => `${quote(file)} ${v} ${release.version} ${release.commit}`;
+  return {
+    text: `${release.version} landed but isn't tagged: Run release script is off, so the land stopped short of the tag. Run this to tag it and push the tag, which sends ${release.version} out to npm.`,
+    body: `cd ${quote(repo)} && git fetch -q origin && ${verb('check')} && ${verb('ship')}\n`,
+  };
+}
+
 // After base reached origin: ships release, landRelease's. runRelease is the board's Run release script box
 // (permissions.mjs). The script runs from repo's checkout of base, which the fast-forward left at release.commit; a
 // repo's script must be the landed commit's, a kickflip-held one is the board's one copy.
@@ -85,7 +97,7 @@ export function shipRelease(repo, release, { runRelease }, site) {
   const home = homeOf(site);
   const shown = scriptShownOf(home, 'release');
   const how = `run ${shown} ship ${release.version} ${release.commit} in ${repo}`;
-  if (!runRelease) return { line: `release ${release.version} waits while Run release script is off; turn it on in Board Settings, then ${how}` };
+  if (!runRelease) return { line: `release ${release.version} waits while Run release script is off; turn it on in Board Settings, then ${how}`, offer: tagOffer(repo, release, home, shown) };
   if (home.scripts !== 'kickflip' && !git(repo, 'diff', '--quiet', release.commit, '--', RELEASE_SCRIPT).ok) {
     const why = `${scriptFileOf(home, 'release', repo)} isn't the landed commit's`;
     return { line: `landed, but release ${release.version} didn't ship: ${why}; ${how}`, failed: why };

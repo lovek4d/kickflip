@@ -1012,7 +1012,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   // docs/adr/2026-11-18-0200-a-release-card-waits-in-in-review-until-its-release-is-published.md: a land that is a
   // release ({version, pkg}, finish.mjs) keeps it for the hub's watch (hub/release-watch.mjs); any other close, the
   // owner's Done or the orchestrator's, ends it.
-  if (done && release) item.release = { version: release.version, tag: `v${release.version}`, ...(release.pkg ? { pkg: release.pkg } : {}), since: new Date().toISOString(), state: 'publishing' };
+  if (done && release) item.release = { version: release.version, tag: `v${release.version}`, ...(release.pkg ? { pkg: release.pkg } : {}), since: new Date().toISOString(), state: release.untagged ? 'untagged' : 'publishing' };
   else if (done) delete item.release;
   // docs/adr/2026-11-15-0715-a-merge-mode-done-card-shows-its-commit-as-a-badge.md: the commit a land fast-forwarded the base to.
   if (typeof landed === 'string') item.landed_sha = landed;
@@ -1125,6 +1125,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     const { line, lines } = await appendStatus(site, key, moved.kind, moved.inputs);
     resolved.push(...lines, line.text);
   }
+  if (target) await keepTicketRetry(site, key, moved?.kind === 'ticket-failed' ? target : null);
   // A builder that forgot builder done would keep the card In Progress after it was handed back; a hand-back's records
   // close marked handed_back, and a handover or a close ends the hand-back.
   if (handover || done || handBack) {
@@ -1296,6 +1297,31 @@ export async function markRelease(site, key, version, { state, url, failure, wor
     await appendStatus(site, key, 'release-failed', { version, failure }, link);
     await appendEvent({ dir: site }, 'release-failed', { key, version, url, failure });
   }
+  return true;
+}
+
+// docs/adr/2026-11-21-2349-a-failed-ticket-move-is-retried-on-the-hubs-poll-and-an-untagged-release-offers-its-tag.md
+// A card's ticket move that failed (tickets.mjs moveTicket's ticket-failed) is kept on the item as ticket_retry, the
+// target it asked for, for the hub's poll to try again (hub/ticket-retry.mjs); a later move of the card's ticket that
+// went through, or needed nothing, clears it.
+async function keepTicketRetry(site, key, target) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  if ((item.ticket_retry ?? null) === target) return;
+  if (target) item.ticket_retry = target; else delete item.ticket_retry;
+  await writeJSON(source.file, itemFile);
+}
+
+// One retry of the card's failed ticket move, with no new line while it fails again: a card no longer where the move
+// wanted it (a Done ticket's card reopened) has it dropped. → true when the move went through.
+export async function retryTicketMove(site, key, ctx = {}) {
+  const { itemFile, item } = await loadItem(site, key);
+  const target = item.ticket_retry;
+  if (!target) return false;
+  if (target === 'done' && item.lane !== 'done') { await keepTicketRetry(site, key, null); return false; }
+  const moved = await moveTicket(await boardSource(site), item, target, { ...ctx, repo: boardRepoOf(site, itemFile) });
+  if (moved?.kind === 'ticket-failed') return false;
+  await keepTicketRetry(site, key, null);
+  if (moved) await appendStatus(site, key, moved.kind, moved.inputs);
   return true;
 }
 
