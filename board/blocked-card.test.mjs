@@ -12,19 +12,21 @@ const find = (items) => built(items).items.find((i) => i.key === 'w/A1');
 const mark = { on: 'implement', at: at(5), phase: 'discussing', lane: 'todo' };
 const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
 
-test('a blocked Todo card owing Implement has no action; unblocked it reads Tap Implement', () => {
-  assert.equal(find([card({ waits_on_owner: mark })]).action?.label, 'Tap Implement');
-  assert.equal(find([card({ waits_on_owner: mark, blocked_until: '2026-12-01' })]).action, null, 'blocked until');
-  assert.equal(find([card({ waits_on_owner: mark, held: true })]).action, null, "the owner's block");
+test('a blocked Todo card owing Implement or Done keeps its action', () => {
   const blocker = { id: 'B1', title: 'Blocker', created: at(0), lane: 'progress', phase: 'ready' };
-  assert.equal(find([card({ waits_on_owner: mark, deps: ['B1'] }), blocker]).action, null, 'unfinished dep');
-  assert.equal(find([card({ phase: 'discussing', lane: 'todo', waits_on_owner: { on: 'close', at: at(5) }, held: true })]).action, null, 'a close mark');
+  const closeMark = { on: 'close', at: at(5) };
+  const cases = [['blocked until', { blocked_until: '2026-12-01' }], ["the owner's block", { held: true }], ['unfinished dep', { deps: ['B1'] }]];
+  for (const [name, block] of cases) {
+    assert.equal(find([card({ waits_on_owner: mark, ...block }), blocker]).action?.label, 'Tap Implement', name);
+    assert.equal(find([card({ waits_on_owner: closeMark, ...block }), blocker]).action?.label, 'Tap Done', `${name}, a close mark`);
+    assert.equal(find([card({ ...block }), blocker]).action, null, `${name}, no mark`);
+  }
 });
 
-test('a staged blocked card has no staging wait, and one unblocked has', () => {
+test('a staged blocked card keeps its staging wait', () => {
   const kinds = (items) => orchestratorWaits(built(items)).map((w) => w.kind);
   assert.deepEqual(kinds([card({ phase: 'staging', staged_at: at(3) })]), ['staging']);
-  assert.equal(kinds([card({ phase: 'staging', staged_at: at(3), held: true, pick_up_at: '2026-11-19T00:00:00Z' })]).includes('staging'), false);
+  assert.deepEqual(kinds([card({ phase: 'staging', staged_at: at(3), held: true, pick_up_at: '2026-11-19T00:00:00Z' })]), ['staging']);
 });
 
 // docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md
@@ -32,8 +34,8 @@ const waitsOf = (item, { threads = {}, events = [], working = {} } = {}) => orch
   working, prs: {}, files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [card(item)] } }] }));
 const held = [['staging', { phase: 'staging', staged_at: at(3) }], ['limbo', { phase: 'discussing' }], ['unblocked', { lane: 'review', unblocked_at: at(3) }]];
 
-test('a staging, limbo or past-Todo unblocked wait drops while its card is blocked', () => {
-  for (const [kind, item] of held) {
+test('a limbo or past-Todo unblocked wait drops while its card is blocked', () => {
+  for (const [kind, item] of held.filter(([kind]) => kind !== 'staging')) {
     assert.equal(waitsOf(item).some((w) => w.kind === kind), true, kind);
     assert.equal(waitsOf({ ...item, blocked_until: 'the API ships' }).some((w) => w.kind === kind), false, `${kind} blocked`);
   }

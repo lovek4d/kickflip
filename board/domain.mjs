@@ -549,12 +549,12 @@ function actionOf(it, questionById, autoMerge) {
   }
   // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
   const merge = it.waitsOn === 'merge' && (!autoMerge || it.mergeReady) && !it.merging && it.prs.every((p) => ['MERGED', 'CLOSED'].includes(p.state) || mergeable(p, it.reviewers.length > 0)) ? { kind: ACTION_KIND.merge, url: thread, label: 'Merge' } : null;
-  // docs/adr/2026-11-16-1000-a-blocked-card-owes-the-owner-nothing.md: a blocked card has no Implement, Done, review or
-  // steps nudge; its merge only reaches placeOwnerWait, which turns it into the disabled Merge button.
-  if (it.blocked) return merge;
   if (it.ownerWait === 'implement' && it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new')) return { kind: ACTION_KIND.implement, url: `${thread}&reply`, label: 'Tap Implement' };
   // docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md
   if (it.ownerWait === 'close') return { kind: ACTION_KIND.close, url: `${thread}&reply`, label: TAP_DONE };
+  // docs/adr/2026-11-16-1000-a-blocked-card-owes-the-owner-nothing.md: past Implement and Done, a blocked card has no
+  // review or steps nudge; its merge only reaches placeOwnerWait, which turns it into the disabled Merge button.
+  if (it.blocked) return merge;
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: `Review draft PR #${it.pr.number}` };
   if (it.waitsOn === 'merge' && it.manualSteps.length && !it.mergeReady) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   return merge;
@@ -2341,8 +2341,9 @@ const PROTOTYPE_ROUNDS = '; name each prototype to draw as its own round, and ea
 // (docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md).
 const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new') && !it.unsorted && !it.action
   && !it.briefs.length && !it.plannerQueued && !it.agents.some((a) => a.started && !a.done);
-// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md: the waits a block holds. Each drops
-// while its card is blocked; once the block ends it is owed from then (unblocked_at), and a pickup from before is void.
+// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md: the waits a block holds. Limbo and
+// unblocked drop while their card is blocked; a staging wait stays (docs/adr/2026-11-16-1000-a-blocked-card-owes-the-owner-nothing.md).
+// Once the block ends it is owed from then (unblocked_at), and a pickup from before is void.
 const HELD_BY_BLOCK = new Set(['staging', 'limbo', 'unblocked']);
 function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
@@ -2398,7 +2399,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       limbo(it) && { kind: 'limbo', since: facts.limboFrom, next: `${it.ref} owes nobody anything: ask Implement (reply ${it.key} --implement), ask questions, or close it` },
     ]),
   ];
-  const open = waits.filter((wait) => wait?.since && !(it.blocked && HELD_BY_BLOCK.has(wait.kind)));
+  const open = waits.filter((wait) => wait?.since && !(it.blocked && wait.kind !== 'staging' && HELD_BY_BLOCK.has(wait.kind)));
   return (open.length > 1 ? open.filter((wait) => wait.kind !== 'limbo') : open).map((wait) => {
     const blockEnded = HELD_BY_BLOCK.has(wait.kind) && facts.unblockedAt && String(facts.unblockedAt) > String(wait.since);
     const since = String(blockEnded ? facts.unblockedAt : wait.since);
