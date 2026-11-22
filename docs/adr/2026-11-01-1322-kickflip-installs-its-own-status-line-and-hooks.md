@@ -5,4 +5,4 @@ The owner picked option A of `setup-owner` on hub/INT-191, after dropping the st
 - `bin/statusline.mjs` prints the old dotfiles line, directory, branch (`*` when dirty), model and context, plus Claude's usage (`5h 23% · 7d 57%`). After printing it saves the usage to `~/.claude/web-ts/usage.json` for the hub. It never fails the line.
 - `web-ts install` links `~/.claude/statusline.sh` to it through the skill link of [kickflip runs from a clone linked into Claude Code's skills](2026-10-31-1538-kickflip-runs-from-a-linked-clone.md), and sets `statusLine` in `~/.claude/settings.json` only when there is none. It replaces a dangling link or a site's prototype, and refuses a real file or another working link.
 - The Codex share reminder joins builder-stop in the `web-ts-hooks` plugin, so no hook goes into settings.json and the owner's other hooks stay.
-- Install drops a settings.json hook entry that runs the old `~/.claude/hooks/no-paths.py` once that file is gone.
+- Install once dropped a settings.json hook entry that ran the old `~/.claude/hooks/no-paths.py` once that file was gone. That sweep is deleted; install leaves every hook but its own alone.

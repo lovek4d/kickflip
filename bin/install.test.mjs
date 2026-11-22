@@ -200,28 +200,7 @@ test('settings preserves its existing statusLine options and recognizes home-bas
   }
 });
 
-test('settings removes only stale no-paths commands and retains other hooks and group options', () => {
-  const staleCommands = [`python3 "${path.join(home, '.claude', 'hooks', 'no-paths.py')}"`, 'python3 ~/.claude/hooks/no-paths.py', '"$HOME/.claude/hooks/no-paths.py"', 'python3 "${HOME}/.claude/hooks/no-paths.py"'];
-  const keep = { type: 'command', command: '/somewhere-else/no-paths.py', timeout: 4 };
-  const mentioned = { type: 'command', command: 'echo "~/.claude/hooks/no-paths.py"' };
-  writeSettings({ statusLine: { type: 'command', command: statusline() }, keep: true, autoCompactEnabled: true, hooks: {
-    PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: staleCommands[0] }, keep, mentioned] },
-      { matcher: 'Read', hooks: staleCommands.slice(1).map((command) => ({ type: 'command', command })) },
-      { matcher: 'Write', hooks: [] }],
-    Stop: [{ hooks: [{ type: 'command', command: 'cc-status' }, { type: 'command', command: 'node ~/.claude/skills/kickflip/hooks-plugin/hooks/watcher-stop.mjs', timeout: 5 }] }],
-  } });
-  const notes = configure();
-  assert.deepEqual(notes, staleCommands.map((command) => `removed stale hook PreToolUse: ${command}`));
-  assert.deepEqual(readSettings().hooks, { PreToolUse: [{ matcher: 'Bash', hooks: [keep, mentioned] }, { matcher: 'Write', hooks: [] }], Stop: [{ hooks: [{ type: 'command', command: 'cc-status' }, { type: 'command', command: 'node ~/.claude/skills/kickflip/hooks-plugin/hooks/watcher-stop.mjs', timeout: 5 }] }] });
-  assert.equal(readSettings().keep, true);
-  const before = fs.statSync(settingsFile());
-  assert.deepEqual(configure(), []);
-  assert.equal(fs.statSync(settingsFile()).ino, before.ino);
-});
-
-test('settings keeps no-paths when the script exists and refuses invalid JSON without overwriting', () => {
-  fs.mkdirSync(path.join(home, '.claude', 'hooks'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.claude', 'hooks', 'no-paths.py'), 'keep');
+test('settings keeps other hooks and refuses invalid JSON without overwriting', () => {
   const hooks = { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'python3 ~/.claude/hooks/no-paths.py' }] }] };
   writeSettings({ hooks });
   configure();
@@ -357,15 +336,14 @@ test('the init command configures links and settings before the hub service and 
   assert.match(first.stdout, /linked .*skills\/kickflip-hooks/);
   assert.match(first.stdout, /linked .*statusline.sh -> .*skills\/kickflip\/bin\/statusline.mjs/);
   assert.match(first.stdout, /set statusLine in/);
-  assert.match(first.stdout, /removed stale hook PreToolUse: python3 ~\/\.claude\/hooks\/no-paths.py/);
   assert.match(first.stdout, /added the watcher Stop hook to/);
   assert.match(first.stdout, /turned on autoCompactEnabled in/);
-  assert.deepEqual(readSettings(), { keep: 'untouched', hooks: { PreToolUse: [], Stop: [watcherStop] }, statusLine: { type: 'command', command: statusline() }, autoCompactEnabled: true });
+  assert.deepEqual(readSettings(), { keep: 'untouched', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'python3 ~/.claude/hooks/no-paths.py' }] }], Stop: [watcherStop] }, statusLine: { type: 'command', command: statusline() }, autoCompactEnabled: true });
   const inode = fs.statSync(settingsFile()).ino;
   const second = run();
   assert.equal(second.status, 1);
   assert.equal(second.stdout.split('\n').filter((line) => line.startsWith('checked ')).length, 3);
-  assert.doesNotMatch(second.stdout, /^(?:linked |set statusLine|removed stale|added the watcher|turned on)/m);
+  assert.doesNotMatch(second.stdout, /^(?:linked |set statusLine|added the watcher|turned on)/m);
   assert.equal(fs.statSync(settingsFile()).ino, inode);
 });
 

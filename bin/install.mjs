@@ -244,27 +244,6 @@ export function installClaudeSettings({ home = os.homedir() } = {}) {
     changed = true;
     notes.push(`turned on autoCompactEnabled in ${file}`);
   }
-  const missing = path.join(home, '.claude', 'hooks', 'no-paths.py');
-  if (!fs.existsSync(missing) && settings.hooks && typeof settings.hooks === 'object') {
-    const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const scripts = [missing, '~/.claude/hooks/no-paths.py', '$HOME/.claude/hooks/no-paths.py', '${HOME}/.claude/hooks/no-paths.py'].map(escape).join('|');
-    // Match an executed script (directly or through Python), not a path mentioned in echo or an argument to another hook.
-    const stale = new RegExp(`^\\s*(?:exec\\s+)?(?:(?:/usr/bin/env\\s+)?(?:[^\\s]+/)?python(?:\\d+(?:\\.\\d+)*)?(?:\\s+-[^\\s]+)*\\s+)?(?:"(?:${scripts})"|'(?:${scripts})'|(?:${scripts}))(?=$|\\s)`);
-    for (const [event, groups] of Object.entries(settings.hooks)) {
-      if (!Array.isArray(groups)) continue;
-      settings.hooks[event] = groups.flatMap((group) => {
-        if (!Array.isArray(group?.hooks)) return [group];
-        const hooks = group.hooks.filter((hook) => {
-          if (hook?.type !== 'command' || typeof hook.command !== 'string' || !stale.test(hook.command)) return true;
-          notes.push(`removed stale hook ${event}: ${hook.command}`);
-          changed = true;
-          return false;
-        });
-        if (hooks.length === group.hooks.length) return [group];
-        return hooks.length ? [{ ...group, hooks }] : [];
-      });
-    }
-  }
   if (changed) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
