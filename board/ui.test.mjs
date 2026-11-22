@@ -2997,7 +2997,7 @@ test("every work card has its \"…\", and its tags read as chips right of its t
   const head = (it) => workLines({ ...workCard, lane: 'todo', bumpable: false, ...it }).split('</div>')[1];
   assert.match(workLines({ ...workCard, lane: 'done', bumpable: false }), /data-card-menu="w\/B5"/);
   assert.doesNotMatch(head({}), /tag-chip/);
-  const chips = (html) => [...html.matchAll(/<span class="tag-chip( more)?" title="([^"]*)">([^<]*)<\/span>/g)].map((m) => [m[3], m[2]]);
+  const chips = (html) => [...html.matchAll(/<span class="tag-chip( more)?"(?: role="button" tabindex="0" data-tag-filter="[^"]*")? title="([^"]*)">([^<]*)<\/span>/g)].map((m) => [m[3], m[2]]);
   assert.deepEqual(chips(head({ tags: ['phone'] })), [['phone', 'phone']]);
   assert.deepEqual(chips(head({ tags: ['phone', 'sidebar', 'perf', 'docs'] })), [['phone', 'phone'], ['sidebar', 'sidebar'], ['+2', 'perf, docs']]);
   // The chips sit after the ticket's badge and before the title.
@@ -3043,8 +3043,8 @@ test("an archived tag leaves the picker's picks for a greyed Archived group with
 
 test("a card's chip for an archived tag is greyed", () => {
   const chips = ui.tagChips({ tags: ['phone', 'perf'], archivedTags: ['perf'] });
-  assert.match(chips, /<span class="tag-chip" title="phone">/);
-  assert.match(chips, /<span class="tag-chip archived" title="perf">/);
+  assert.match(chips, /<span class="tag-chip"[^>]* title="phone">/);
+  assert.match(chips, /<span class="tag-chip archived"[^>]* title="perf">/);
 });
 
 test("a Tag… pick in the outbox draws on its card at once, put on or taken off, until the board answers; a failed one leaves the card as the board has it", () => {

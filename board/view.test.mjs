@@ -9611,3 +9611,66 @@ test("a board left with sheets open reopens them in stack order when it mounts a
   assert.deepEqual([last.sheet('#readerSheet').open, last.sheet('#questionsSheet').open], [true, false], 'answered while away: only the reader returns');
   last.view.unmount();
 });
+
+// docs/adr/2026-11-22-0300-a-tag-chip-narrows-the-board-under-its-own-banner.md
+function taggedOnDom(opts = {}) {
+  const board = linkedBoard();
+  const tags = { 'w/T-594': ['phone'], 'w/T-598': ['Phone', 'perf'], 'w/T-601': ['phone'], 'w/T-610': ['perf'] };
+  for (const it of board.items) if (tags[it.key]) it.tags = tags[it.key];
+  const b = linkedOnDom({ board, ...opts });
+  const chip = (ref, name) => b.root.querySelector(`details.item[data-key="w/${ref}"] .tag-chip[data-tag-filter="${name}"]`);
+  const tagBanner = () => { const el = b.root.querySelector('#tagBanner'); return el.hidden ? null : el.textContent.trim(); };
+  return { ...b, chip, tagBanner };
+}
+
+test('tapping a tag chip narrows every lane to that tag under its own banner, case-insensitively, without opening the card; the banner\'s × ends it', async () => {
+  const b = taggedOnDom();
+  await b.settle();
+  const before = b.shown();
+  const ev = b.page.fire(b.root, 'click', { target: b.chip('T-601', 'phone') });
+  await b.settle();
+  assert.equal(ev.defaultPrevented, true, 'the tap does not open the card');
+  assert.equal(b.tagBanner(), 'Tag: phone · 3 cards');
+  assert.deepEqual(b.shown(), ['w/n1', 'w/T-601', 'w/T-594', 'w/T-598']);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#tagBanner [data-tag-end]') });
+  await b.settle();
+  assert.deepEqual([b.tagBanner(), b.shown()], [null, before]);
+  b.view.unmount();
+});
+
+test('a tag banner stacks with the chain and the filter, all intersecting; each × ends only its own, and Esc ends the tag last', async () => {
+  const b = taggedOnDom();
+  await b.settle();
+  await b.choose('T-594', 'Linked · 1 hop');
+  b.page.fire(b.root, 'click', { target: b.chip('T-598', 'perf') });
+  await b.settle();
+  assert.deepEqual([b.banner(), b.tagBanner()], ['Linked to T-594 · 1 hop', 'Tag: perf · 2 cards']);
+  assert.deepEqual(b.shown(), ['w/n1', 'w/T-598'], 'in the chain and tagged perf');
+  b.page.fire(b.root, 'click', { target: b.chip('T-598', 'Phone') });
+  await b.settle();
+  assert.equal(b.tagBanner(), 'Tag: Phone · 3 cards', 'another chip re-roots, never stacks');
+  assert.deepEqual(b.shown(), ['w/n1', 'w/T-601', 'w/T-594', 'w/T-598']);
+  b.view.B.showOnly(['blocked']);
+  await b.settle();
+  assert.deepEqual(b.shown(), ['w/n1'], 'the filter narrows further: no tagged card is Blocked');
+  assert.equal(b.root.querySelectorAll('#linkedBanner, #tagBanner, #filterBanner').filter((el) => !el.hidden).length, 3);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#linkedBanner [data-linked-end]') });
+  await b.settle();
+  assert.notEqual(b.tagBanner(), null, 'ending the chain leaves the tag');
+  await b.press('Escape');
+  assert.equal(b.tagBanner(), null);
+  b.view.unmount();
+});
+
+test('a link to a card the tag hides asks to reset filters: yes ends the tag and opens the card', async () => {
+  const b = taggedOnDom({ width: 1280, confirm: true });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: b.chip('T-601', 'phone') });
+  await b.settle();
+  b.page.win.location.hash = '#selectedCard=w%2FT-33';
+  b.page.fire(vm.runInContext('window', b.page.win), 'hashchange');
+  await b.settle();
+  assert.deepEqual([b.confirms, b.tagBanner()], [['This task is not currently visible, reset filters?'], null]);
+  assert.equal(b.root.querySelector('details.item[data-key="w/T-33"]').open, true);
+  b.view.unmount();
+});

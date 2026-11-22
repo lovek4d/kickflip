@@ -58,7 +58,7 @@ BoardView.part((B) => {
   // Open Done's paging stops while the search narrows it: the matches page in by Show more's tap alone.
   function doneRows(d, cards) {
     const searching = B.searchWords().length > 0;
-    const older = B.linkedTo() ? 0 : searching ? found.left : olderThanBoard(d);
+    const older = B.linkedTo() || B.taggedName() !== null ? 0 : searching ? found.left : olderThanBoard(d);
     if (older > 0 && !searching && store.get('lanes', {}).done && shownCount('done', cards) + STEP >= cards.length) preloadOlder();
     return cappedRows('done', cards, older);
   }
@@ -172,7 +172,7 @@ BoardView.part((B) => {
   // A card the filter, the search or a chain keeps off the board: not in the New strip, and matched by an unchecked
   // box, not holding every word searched for, or out of the chain.
   const hiddenOnBoard = (it) => !it.isNew && (hiddenByFilter(it) || !BoardUI.cardMatches(it, B.searchWords())
-    || B.linkedKeys()?.has(it.key) === false);
+    || B.linkedKeys()?.has(it.key) === false || B.taggedHides(it));
   // Asks before opening a card the filters hide → true once the owner has reset the filter and ended the search and the
   // chain, so the card shows.
   async function resetFilterToShow() {
@@ -180,6 +180,7 @@ BoardView.part((B) => {
     state.boardFilter = [];
     B.endSearch();
     B.endLinked();
+    B.endTag();
     return true;
   }
   function renderFilter() {
@@ -206,20 +207,21 @@ BoardView.part((B) => {
     // Items arrive in each lane's fixed order (domain.mjs laneOrder).
     const all = shown.filter((i) => !i.isNew && i.lane === laneId);
     const done = laneId === 'done';
-    const cards = (done ? doneCards(d, all) : all).filter((it) => !hiddenByFilter(it) && (!chain || chain.has(it.key)) && (!words.length || BoardUI.cardMatches(it, words)));
+    const cards = (done ? doneCards(d, all) : all).filter((it) => !hiddenByFilter(it) && (!chain || chain.has(it.key)) && !B.taggedHides(it) && (!words.length || BoardUI.cardMatches(it, words)));
     const total = done ? doneCount(d, all) : all.length;
-    const narrowed = words.length > 0 || chain !== null || unchecked().length > 0;
+    const narrowed = words.length > 0 || chain !== null || B.taggedName() !== null || unchecked().length > 0;
     return { cards, count: narrowed || (!done && cards.length < all.length) ? `${cards.length} of ${total}` : `${total}` };
   }
   function lanesHtml(d, shown) {
     const laneState = store.get('lanes', {});
     const words = B.searchWords();
     const chain = B.linkedKeys();
-    const narrowed = words.length > 0 || chain !== null;
-    return (chain ? '' : reviewsHtml(d, words)) + LANES.map((lane) => {
+    const tagged = B.taggedName() !== null;
+    const narrowed = words.length > 0 || chain !== null || tagged;
+    return (chain || tagged ? '' : reviewsHtml(d, words)) + LANES.map((lane) => {
       const done = lane.id === 'done';
       const { cards, count } = laneCards(d, lane.id, shown);
-      if (chain && !cards.length) return '';
+      if ((chain || tagged) && !cards.length) return '';
       const rows = done ? doneRows(d, cards) : lane.capped ? cappedRows(lane.id, cards) : cardsHtml(cards);
       const expanded = narrowed && cards.length ? true : laneState[lane.id] ?? lane.open;
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
@@ -232,7 +234,7 @@ BoardView.part((B) => {
   // A lane or fold the search or a chain opened or shut keeps its own state: their toggles store nothing.
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
-    if ((B.searchWords().length || B.linkedTo()) && el.matches?.('details.lane, details.new-orchestrator, details.fold')) return;
+    if ((B.searchWords().length || B.linkedTo() || B.taggedName() !== null) && el.matches?.('details.lane, details.new-orchestrator, details.fold')) return;
     if (el.matches?.('details.lane, details.new-orchestrator')) {
       const s = store.get('lanes', {}); s[el.dataset.lane] = el.open; store.set('lanes', s);
     } else if (el.matches?.('details.fold')) store.set(FOLDS[el.dataset.fold].store, el.open);

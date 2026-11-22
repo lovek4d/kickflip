@@ -88,7 +88,7 @@
   const TAGS_SHOWN = 2;
   // An archived tag (it.archivedTags, the card's tags the board archived) is drawn grey.
   function tagChips(it) {
-    const tagChip = (name) => `<span class="tag-chip${(it.archivedTags || []).includes(name) ? ' archived' : ''}" title="${esc(name)}">${esc(name)}</span>`;
+    const tagChip = (name) => `<span class="tag-chip${(it.archivedTags || []).includes(name) ? ' archived' : ''}" role="button" tabindex="0" data-tag-filter="${esc(name)}" title="${esc(name)}">${esc(name)}</span>`;
     const tags = it.tags || [];
     const rest = tags.slice(TAGS_SHOWN);
     return tags.slice(0, TAGS_SHOWN).map(tagChip).join('') + (rest.length ? `<span class="tag-chip more" title="${esc(rest.join(', '))}">+${rest.length}</span>` : '');

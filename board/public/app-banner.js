@@ -105,5 +105,18 @@ BoardView.part((B) => {
   }
   B.on(B.root, 'click', (ev) => { if (ev.target.closest?.('[data-filter-end]')) B.clearFilter(); });
 
-  Object.assign(B, { renderBanner, renderStart, renderLinked, renderFilterBanner });
+  // docs/adr/2026-11-22-0300-a-tag-chip-narrows-the-board-under-its-own-banner.md
+  // The tag banner while a tag chip narrows the board (app-search.js showTag): the chain banner's style, under it,
+  // reading the tag and how many cards the page holds that carry it, its × ending the tag.
+  const TAG = svg('<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>', 16);
+  function renderTagBanner() {
+    const el = $('#tagBanner');
+    const name = B.taggedName();
+    el.hidden = name === null;
+    if (name === null) { BoardUI.setHTML(el, ''); return; }
+    BoardUI.setHTML(el, `<div class="hold-banner linked" role="status">${TAG}<span>Tag: <b>${esc(name)}</b> · ${plural(B.taggedCards().length, 'card')}</span>`
+      + `<button type="button" class="btn quiet" data-tag-end aria-label="Show every card" title="Show every card (Esc)">${X}</button></div>`);
+  }
+
+  Object.assign(B, { renderBanner, renderStart, renderLinked, renderTagBanner, renderFilterBanner });
 });

@@ -81,7 +81,8 @@ BoardView.part((B) => {
     if (ev.key === 'Escape') {
       if (ev.defaultPrevented || inField(ev.target) || blocked(ev)) return;
       if (!bar.hidden) endSearch();
-      else endLinked();
+      else if (linked) endLinked();
+      else endTag();
       return;
     }
     if (ev.defaultPrevented || ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || ev.isComposing
@@ -133,5 +134,40 @@ BoardView.part((B) => {
   }
   B.on(B.root, 'click', (ev) => { if (ev.target.closest?.('[data-linked-end]')) endLinked(); });
 
-  Object.assign(B, { searchWords, endSearch, linkedTo, linkedKeys, showLinked, endLinked });
+  // docs/adr/2026-11-22-0300-a-tag-chip-narrows-the-board-under-its-own-banner.md
+  // A tap on a card's tag chip narrows the lanes to the cards carrying that tag (names differing only in case are one
+  // tag), over every card the page holds, as the chain does. It is one tag at a time, a tap on another chip moving it,
+  // and it stacks with the chain, the filter and the search, all intersecting. The banner's × or Esc (once the search
+  // bar is closed and no chain is on) ends it. Like the words, it lives in memory only.
+  let tagged = null;
+  const taggedName = () => tagged;
+  const carries = (it) => (it.tags || []).some((t) => t.toLowerCase() === tagged.toLowerCase());
+  const taggedHides = (it) => tagged !== null && !carries(it);
+  const taggedCards = () => {
+    const byKey = new Map([...state.found.cards, ...state.archived.cards, ...state.board.items].map((c) => [c.key, c]));
+    return [...byKey.values()].filter((c) => !c.isNew && carries(c));
+  };
+  function showTag(name) {
+    tagged = name;
+    draw();
+  }
+  function endTag() {
+    if (tagged === null) return;
+    tagged = null;
+    draw();
+  }
+  // The chip sits in its card's summary: the tap must not toggle the card.
+  const chipTap = (ev) => ev.target.closest?.('[data-tag-filter]');
+  B.on(B.root, 'click', (ev) => {
+    const chip = chipTap(ev);
+    if (chip) { ev.preventDefault(); showTag(chip.dataset.tagFilter); }
+    else if (ev.target.closest?.('[data-tag-end]')) endTag();
+  });
+  B.on(B.root, 'keydown', (ev) => {
+    if ((ev.key !== 'Enter' && ev.key !== ' ') || !chipTap(ev)) return;
+    ev.preventDefault();
+    showTag(chipTap(ev).dataset.tagFilter);
+  });
+
+  Object.assign(B, { searchWords, endSearch, linkedTo, linkedKeys, showLinked, endLinked, taggedName, taggedHides, taggedCards, showTag, endTag });
 });

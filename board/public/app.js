@@ -238,6 +238,7 @@ window.BoardView = (function () {
         B.renderPane(d, items);
         B.renderBanner(d);
         B.renderLinked();
+        B.renderTagBanner();
         B.renderFilterBanner();
         B.keepCardMenu();
         B.keepTagPicker();
@@ -597,6 +598,7 @@ window.BoardView = (function () {
   <section id="promptStrip" class="hub-view" aria-label="Prompts waiting on you" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
   <section id="linkedBanner" class="hub-view" hidden></section>
+  <section id="tagBanner" class="hub-view" hidden></section>
   <section id="filterBanner" class="hub-view" hidden></section>
   <div id="tryMain"></div>
   <section id="newStrip" class="new-strip" aria-label="New" hidden></section>
