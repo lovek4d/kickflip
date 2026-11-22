@@ -1290,7 +1290,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       ...hubView({
         now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
         code, version: VERSION, update: { latest: upgrade.available(), pull: upgrade.pull(), auto: readAutoUpdate(), clone: upgrade.clone }, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), orchestratorModel: readOrchestratorModel(), boardDefaults: readBoardDefaults(), landTests: readLandTests(), tasksInProgress: readTasksInProgress(), serves: readServes(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
-        remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
+        remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: await routedRows({ manifest: loadManifest() }), restarts: restartLines(clock()),
       }),
       prompts: pendingFor(null).map(shown),
       remembered: rememberedFor(null),

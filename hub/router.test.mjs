@@ -30,7 +30,7 @@ beforeEach(() => {
   for (const f of [ROUTE_QUEUE, ROUTED_LOG, ROUTED_DISMISSED]) fs.rmSync(f, { force: true });
 });
 
-test('a board for routing is its route, title, description and its 15 most recently changed open card titles', () => {
+test('a board for routing is its route, title, description and its 15 most recently changed open card titles', async () => {
   const items = Array.from({ length: 18 }, (_, i) => item(`T-${i + 1}`, `Card ${i + 1}`, 'todo', `2026-11-${String(i + 1).padStart(2, '0')}T00:00:00Z`));
   items.push(item('T-99', 'Finished', 'done', '2026-11-30T00:00:00Z'));
   const [only] = routingBoards(manifestOf(board('shop', { description: 'The paddock shop', items, title: 'Paddock' })));
@@ -40,7 +40,7 @@ test('a board for routing is its route, title, description and its 15 most recen
   assert.deepEqual(only.recent, Array.from({ length: 15 }, (_, i) => `Card ${18 - i}`));
 });
 
-test('the prompt names every board with its description and recent titles, and the request', () => {
+test('the prompt names every board with its description and recent titles, and the request', async () => {
   const prompt = routePrompt('the checkout 500s', [
     { route: 'shop', title: 'Paddock', description: 'The paddock shop', recent: ['Fix the basket'] },
     { route: 'hub', title: 'Hub', description: '', recent: [] },
@@ -51,7 +51,7 @@ test('the prompt names every board with its description and recent titles, and t
 });
 
 // docs/adr/2026-11-21-2300-each-board-takes-a-routed-ask-or-passes-it-down-haikus-ranking.md
-test("Haiku's answer is a ranking of known routes, best first, each with a one-line reason; unknown and repeated routes drop, and none left is refused", () => {
+test("Haiku's answer is a ranking of known routes, best first, each with a one-line reason; unknown and repeated routes drop, and none left is refused", async () => {
   const routes = ['shop', 'hub', 'web'];
   assert.deepEqual(parseRanking({ ranking: [{ route: '/shop', reason: '  the shop owns checkout\nand more ' }, { route: 'paddock', reason: 'x' }, { route: 'hub', reason: 'maybe the hub' }, { route: 'shop', reason: 'again' }, { route: 'web', reason: '' }] }, routes),
     [{ route: 'shop', reason: 'the shop owns checkout and more' }, { route: 'hub', reason: 'maybe the hub' }]);
@@ -127,7 +127,7 @@ test("the hub page's rows: newest first, each linked to the card its ask became,
     { id: 'r3', at: '2026-11-12T09:40:00Z', text: 'not yet a task', via: 'slack', by: 'Sam', route: 'shop', eventId: 'e3', reason: 'shop again' },
   ] }));
   fs.writeFileSync(ROUTE_QUEUE, JSON.stringify({ queue: [{ id: 'q1', at: '2026-11-12T09:50:00Z', text: 'held', from: { via: 'slack', by: 'Quinn' }, tries: 0 }] }));
-  const rows = routedRows({ manifest: manifestOf(shop, other) });
+  const rows = await routedRows({ manifest: manifestOf(shop, other) });
   assert.deepEqual(rows.map((r) => r.id), ['q1', 'r3', 'r2', 'r1']);
   assert.deepEqual(rows[0], { id: 'q1', at: '2026-11-12T09:50:00Z', text: 'held', via: 'slack', by: 'Quinn', waiting: true });
   assert.deepEqual(rows[3].to, { route: 'shop', ref: 'T-5', title: 'Checkout 500s', href: '/shop/#selectedCard=items%2FT-5' });
@@ -138,7 +138,7 @@ test("the hub page's rows: newest first, each linked to the card its ask became,
   assert.equal(rows[3].reason, 'shop');
 });
 
-test("the hub page's rows carry the asks other boards put to a board, queued or answered, among the routed ones, newest first", () => {
+test("the hub page's rows carry the asks other boards put to a board, queued or answered, among the routed ones, newest first", async () => {
   const shop = board('shop', {});
   const other = board('other', { title: 'Other' });
   const ev = (id, ts, kind, data) => JSON.stringify({ id, ts, kind, data });
@@ -149,10 +149,41 @@ test("the hub page's rows carry the asks other boards put to a board, queued or 
     ev('n1', '2026-11-12T08:31:00Z', 'ask', { text: 'not a board ask' }),
   ].join('\n') + '\n');
   fs.writeFileSync(ROUTED_LOG, JSON.stringify({ routed: [{ id: 'r1', at: '2026-11-12T09:00:00Z', text: 'checkout', via: 'slack', by: 'Maya', route: 'shop', eventId: 'e1', reason: 'shop' }] }));
-  const rows = routedRows({ manifest: manifestOf(shop, other) });
+  const rows = await routedRows({ manifest: manifestOf(shop, other) });
   assert.deepEqual(rows.map((r) => r.id), ['a2', 'r1', 'a1']);
   assert.deepEqual(rows[0], { id: 'a2', at: '2026-11-12T09:45:00Z', text: 'and Y?', asked: { from: { route: 'other', title: 'Other' }, to: { route: 'shop', href: '/shop/#selectedCard=ask%3Aa2' }, answered: null } });
   assert.deepEqual(rows[2].asked, { from: { route: 'other', title: 'Other', key: 'items/T-9', ref: 'T-9' }, to: { route: 'shop', href: '/shop/#selectedCard=ask%3Aa1' }, answered: { at: '2026-11-12T08:30:00Z', href: '/other/#selectedCard=items%2FT-9' } });
+});
+
+// docs/adr/2026-11-22-2300-the-hub-page-reads-board-events-async-and-only-what-was-appended.md
+test("a board's events are read once and then only what was appended, and a replaced file is read afresh", async () => {
+  const shop = board('shop', {});
+  const file = path.join(shop[1].dir, 'data', 'events.jsonl');
+  const manifest = manifestOf(shop);
+  const ev = (id, kind, data) => JSON.stringify({ id, ts: '2026-11-12T08:00:00Z', kind, data }) + '\n';
+  const ask = (id) => ev(id, 'board-ask', { text: id, from: { route: 'other', title: 'Other' } });
+  fs.writeFileSync(file, ask('a1') + ask('a2'));
+  const reads = [];
+  const probe = await fs.promises.open(file);
+  const handle = Object.getPrototypeOf(probe);
+  await probe.close();
+  const read = handle.read;
+  handle.read = function (...args) { reads.push(args[3]); return read.apply(this, args); };
+  after(() => { handle.read = read; });
+  assert.deepEqual((await routedRows({ manifest })).map((r) => r.id).sort(), ['a1', 'a2']);
+  const size = fs.statSync(file).size;
+  assert.deepEqual(reads, [0n]);
+  await routedRows({ manifest });
+  assert.deepEqual(reads, [0n], 'an unchanged file is not read again');
+  fs.appendFileSync(file, ask('a3') + '{"id":"a4"');
+  assert.deepEqual((await routedRows({ manifest })).map((r) => r.id).sort(), ['a1', 'a2', 'a3']);
+  assert.equal(reads[1], BigInt(size), 'only the appended bytes are read');
+  fs.appendFileSync(file, ',"ts":"2026-11-12T08:00:00Z","kind":"board-ask","data":{"text":"a4","from":{"route":"other"}}}\n');
+  assert.equal((await routedRows({ manifest })).length, 4, 'a line cut off mid-write is parsed once it is whole');
+  fs.rmSync(file);
+  fs.writeFileSync(file, ask('b1'));
+  assert.deepEqual((await routedRows({ manifest })).map((r) => r.id), ['b1']);
+  handle.read = read;
 });
 
 // docs/adr/2026-11-16-0600-the-hubs-new-task-box-files-through-the-router.md
@@ -179,11 +210,11 @@ test("a dismissed row leaves the hub page's rows, whatever kind it was, and stay
   fs.writeFileSync(path.join(shop[1].dir, 'data', 'events.jsonl'), JSON.stringify({ id: 'a1', ts: '2026-11-12T08:00:00Z', kind: 'board-ask', data: { text: 'why X?', from: { route: 'other', title: 'Other' } } }) + '\n');
   fs.writeFileSync(ROUTED_LOG, JSON.stringify({ routed: [{ id: 'r1', at: '2026-11-12T09:00:00Z', text: 'checkout', route: 'shop', eventId: 'e1', reason: 'shop' }, { id: 'r2', at: '2026-11-12T09:10:00Z', text: 'two', route: 'shop', eventId: 'e2', reason: 'shop' }] }));
   const manifest = manifestOf(shop);
-  assert.deepEqual(routedRows({ manifest }).map((r) => r.id), ['r2', 'r1', 'a1']);
+  assert.deepEqual((await routedRows({ manifest })).map((r) => r.id), ['r2', 'r1', 'a1']);
   await dismissRow('r1');
   await dismissRow('a1');
   await dismissRow('a1');
-  assert.deepEqual(routedRows({ manifest }).map((r) => r.id), ['r2']);
+  assert.deepEqual((await routedRows({ manifest })).map((r) => r.id), ['r2']);
   assert.deepEqual(read(ROUTED_DISMISSED).dismissed, ['r1', 'a1']);
 });
 
@@ -260,7 +291,7 @@ test('a failed answer is retried each tick until the last try, which keeps the e
   assert.deepEqual([logged.answer.text, logged.answer.slack, logged.answer.slackError], ['yes', undefined, 'Slack: channel_not_found']);
 });
 
-test("the hub page's rows: a routed ask its board hasn't sorted reads trying with the passes so far; an unplaced one carries its passes, answer and the boards to put it on", () => {
+test("the hub page's rows: a routed ask its board hasn't sorted reads trying with the passes so far; an unplaced one carries its passes, answer and the boards to put it on", async () => {
   const a = board('a', { title: 'A' });
   const b = board('b', { title: 'B', items: [{ ...item('T-2', 'keep awake', 'todo', '2026-11-21T09:01:00Z'), from_ask: 'e2' }, { ...item('T-3', 'sorted', 'todo', '2026-11-21T09:01:00Z'), from_ask: 'e3', phase: 'ready' }] });
   const passed = [{ route: 'a', reason: 'not this repo' }];
@@ -269,7 +300,7 @@ test("the hub page's rows: a routed ask its board hasn't sorted reads trying wit
     { id: 'r2', at: '2026-11-21T09:05:00Z', text: 'taken', via: 'hub', by: 'love', route: 'b', eventId: 'e3', reason: 'b might' },
     { id: 'r3', at: '2026-11-21T09:10:00Z', text: 'nobody', via: 'slack', by: 'Maya', link: 'https://slack.com/x', route: 'b', eventId: 'e4', reason: 'b might', unplaced: true, passed, slack: { channel: 'D1', thread_ts: '1.1', ts: '1.2' }, answer: { text: 'Use caffeinate.', at: '2026-11-21T09:11:00Z', slack: '1.3' } },
   ] }));
-  const rows = routedRows({ manifest: manifestOf(a, b) });
+  const rows = await routedRows({ manifest: manifestOf(a, b) });
   const by = Object.fromEntries(rows.map((r) => [r.id, r]));
   assert.deepEqual([by.r1.trying, by.r1.passed], [true, passed]);
   assert.equal(by.r2.trying, undefined, 'a sorted card is taken');
@@ -299,7 +330,7 @@ test("the owner puts an unplaced ask on a board: it's filed there with its words
   assert.deepEqual({ ...e.data.routed, at: 'x' }, { reason: 'you put it here after no board took it', via: 'slack', by: 'Maya', slack, at: 'x', id: 'r3', next: [] });
   const [logged] = read(ROUTED_LOG).routed;
   assert.deepEqual([logged.route, logged.eventId, logged.unplaced, logged.placed], ['a', e.id, undefined, true]);
-  const row = routedRows({ manifest }).find((r) => r.id === 'r3');
+  const row = (await routedRows({ manifest })).find((r) => r.id === 'r3');
   assert.deepEqual([row.placed, row.to.route, row.unplaced], [true, 'a', undefined]);
   await assert.rejects(placeRow('r3', 'b', { manifest }), /isn't waiting for a board/);
 });

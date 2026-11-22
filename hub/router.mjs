@@ -240,7 +240,7 @@ export async function placeRow(id, route, { manifest = readManifest() } = {}) {
   const target = boards.find((b) => b.route === route);
   if (!target) throw refused(404, `no board at /${route} in the hub's manifest`);
   const last = boards.find((b) => b.route === entry.route);
-  const data = (last && readLines(path.join(last.dir, 'data', 'events.jsonl')).find((e) => e.id === entry.eventId && e.kind === 'ask')?.data) || {};
+  const data = (last && (await readEvents(path.join(last.dir, 'data', 'events.jsonl'))).find((e) => e.id === entry.eventId && e.kind === 'ask')?.data) || {};
   const files = await Promise.all((data.files || []).map((f) => copyUpload(last.dir, target.dir, f)));
   const { passed: _, ...routed } = data.routed || { via: entry.via, by: entry.by, id };
   const intent = Object.fromEntries(['request', 'quick'].filter((k) => data[k] !== undefined).map((k) => [k, data[k]]));
@@ -266,21 +266,48 @@ function cardOf(board, eventId) {
   return { route: board.route, ref: null, title: null, href: cardHref(board.route, `ask:${eventId}`) };
 }
 // Where ask eventId on board was moved by `ask move` (its thread's ask-moved line), or null.
-function movedTo(board, eventId, boards) {
-  const lines = readLines(path.join(board.dir, 'data', 'threads', `ask__${eventId}.jsonl`));
+async function movedTo(board, eventId, boards) {
+  const lines = parseLines(await fs.promises.readFile(path.join(board.dir, 'data', 'threads', `ask__${eventId}.jsonl`), 'utf8').catch(() => ''));
   const link = lines.find((m) => m.line === 'ask-moved')?.link;
   const m = /^\/([^/]+)\/#selectedCard=ask%3A(.+)$/.exec(link || '');
   const there = m && boards.find((b) => b.route === m[1]);
   return there ? cardOf(there, decodeURIComponent(m[2])) : null;
 }
-function readLines(file) {
-  try { return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }); } catch { return []; }
+const parseLines = (text) => text.split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
+
+// Each board's events file as parsed lines, read once and then only what was appended: the file only grows, so a read
+// takes the bytes past the last whole line it parsed. A file that shrank or was replaced (another inode) is read afresh.
+// Reads of one file queue, so none parses the same bytes twice.
+const eventTails = new Map();
+const eventReads = new Map();
+async function tailEvents(file) {
+  const fh = await fs.promises.open(file).catch(() => null);
+  if (!fh) { eventTails.delete(file); return []; }
+  try {
+    const st = await fh.stat({ bigint: true });
+    let tail = eventTails.get(file);
+    if (!tail || tail.ino !== st.ino || tail.birth !== st.birthtimeNs || st.size < tail.offset) tail = { ino: st.ino, birth: st.birthtimeNs, offset: 0n, lines: [] };
+    if (st.size > tail.offset) {
+      const buf = Buffer.alloc(Number(st.size - tail.offset));
+      const { bytesRead } = await fh.read(buf, 0, buf.length, tail.offset);
+      const whole = buf.subarray(0, bytesRead).lastIndexOf(10) + 1;
+      tail.lines.push(...parseLines(buf.toString('utf8', 0, whole)));
+      tail.offset += BigInt(whole);
+    }
+    eventTails.set(file, tail);
+    return tail.lines;
+  } finally { await fh.close(); }
+}
+function readEvents(file) {
+  const run = (eventReads.get(file) || Promise.resolve()).then(() => tailEvents(file));
+  eventReads.set(file, run.catch(() => {}));
+  return run;
 }
 
 // The asks other boards put to board (domain.mjs boardAsksOf over its events), as hub rows {id, at, text, asked: {from,
 // to: {route, href}, answered: {at, href} | null}}: href is the asking card, where the answer landed as a message.
-function askedRows(board, boards) {
-  return boardAsksOf(readLines(path.join(board.dir, 'data', 'events.jsonl'))).map((a) => {
+async function askedRows(board, boards) {
+  return boardAsksOf(await readEvents(path.join(board.dir, 'data', 'events.jsonl'))).map((a) => {
     const asker = boards.find((b) => b.route === a.from.route);
     const answered = a.answer && { at: a.answer.at, href: a.from.key && asker ? cardHref(a.from.route, a.from.key) : null };
     return { id: a.id, at: a.at, text: a.text, asked: { from: a.from, to: { route: board.route, href: cardHref(board.route, `ask:${a.id}`) }, answered: answered || null } };
@@ -297,11 +324,11 @@ export async function dismissRow(id) {
 
 // Whether board's orchestrator has taken ask eventId: the card it became has left New (a lane past Todo or a phase
 // set), or it was folded into another card. An ask the owner deleted counts as taken, so its row never reads trying.
-function taken(board, eventId, events) {
+async function taken(board, eventId, events) {
   const it = board.files.flatMap((f) => f.itemFile.items).find((i) => i?.from_ask === eventId);
   if (it) return (it.lane || 'todo') !== 'todo' || Boolean(it.phase);
   return typeof readJSON(path.join(board.dir, 'data', 'ask-links.json'), {}).links?.[eventId] === 'string'
-    || events().some((e) => e.kind === 'ask-withdrawn' && e.data?.id === eventId);
+    || (await events()).some((e) => e.kind === 'ask-withdrawn' && e.data?.id === eventId);
 }
 
 // The hub page's New rows, newest first: each queued request, waiting, then each routed one with `to`, the card it
@@ -309,15 +336,11 @@ function taken(board, eventId, events) {
 // it's on hasn't taken it; one every board passed is unplaced, with Haiku's answer (or why it has none) and places, the
 // boards the owner can put it on, and one the owner put on a board is placed. Then each ask another board put to a
 // board, queued or answered, less the rows dismissRow hid.
-export function routedRows({ manifest = readManifest() } = {}) {
+export async function routedRows({ manifest = readManifest() } = {}) {
   const boards = listBoards(manifest);
-  const eventsOf = new Map();
-  const events = (board) => () => {
-    if (!eventsOf.has(board.route)) eventsOf.set(board.route, readLines(path.join(board.dir, 'data', 'events.jsonl')));
-    return eventsOf.get(board.route);
-  };
+  const events = (board) => () => readEvents(path.join(board.dir, 'data', 'events.jsonl'));
   const waiting = readJSON(ROUTE_QUEUE, { queue: [] }).queue.map((q) => ({ id: q.id, at: q.at, text: q.text, via: q.from?.via, by: q.from?.by, waiting: true }));
-  const routed = readRouted().map((r) => {
+  const routed = await Promise.all(readRouted().map(async (r) => {
     const board = boards.find((b) => b.route === r.route);
     const row = { id: r.id, at: r.at, text: r.text, via: r.via, by: r.by, ...(r.link ? { link: r.link } : {}), reason: r.reason,
       to: board ? cardOf(board, r.eventId) : { route: r.route, ref: null, title: null, href: `/${r.route}/` }, ...(r.passed?.length ? { passed: r.passed } : {}) };
@@ -326,10 +349,10 @@ export function routedRows({ manifest = readManifest() } = {}) {
       return { ...row, unplaced: true, answer, ...(!answer && r.answerTries >= ROUTE_TRIES ? { answerError: r.answerError } : {}), places: boards.map((b) => ({ route: b.route, title: b.title })) };
     }
     if (r.placed) return { ...row, placed: true };
-    const moved = board && movedTo(board, r.eventId, boards);
+    const moved = board && await movedTo(board, r.eventId, boards);
     if (moved) return { ...row, moved };
-    return board && !taken(board, r.eventId, events(board)) ? { ...row, trying: true } : row;
-  });
+    return board && !(await taken(board, r.eventId, events(board))) ? { ...row, trying: true } : row;
+  }));
   const dismissed = new Set(readJSON(ROUTED_DISMISSED, { dismissed: [] }).dismissed);
-  return [...waiting, ...routed, ...boards.flatMap((b) => askedRows(b, boards))].filter((r) => !dismissed.has(r.id)).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return [...waiting, ...routed, ...(await Promise.all(boards.map((b) => askedRows(b, boards)))).flat()].filter((r) => !dismissed.has(r.id)).sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
