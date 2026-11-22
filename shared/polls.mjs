@@ -99,6 +99,8 @@ export const POLLS = Object.freeze([
     ...on('quarter', 4), runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'nightly-suite', group: 'hub', name: 'Nightly suite check', what: 'Whether tonight’s full test run is due, between the middle and end of quiet hours; on the npm check’s 15 minutes.',
     ...on('quarter', 60), runs: 'Hub', where: 'hub/hub.mjs' },
+  { id: 'leftovers-sweep', group: 'hub', name: 'Leftovers sweep', what: 'Removes the worktrees closed tasks left, 14 days after the close when they hold work that never landed, folders git no longer lists, and agent and failed-land logs older than 14 days; also as the hub starts.',
+    ...on('quarter', DAY / CLOCKS.quarter), runs: 'Hub', where: 'hub/hub.mjs' },
 
   // Updates
   { id: 'npm-update', group: 'updates', name: 'npm update check', what: 'Checks npm for a new release and pulls it once you’ve been away 15 minutes. The auto update box turns the pull off.',

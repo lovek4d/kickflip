@@ -31,7 +31,7 @@ import { BoardError, fail, needSite, text, optional, cardTitle, pageUrl, domId }
 import { storedTickets, settingsOf, readBoardSettings, markDescription, refuseSecondProposal, boardRepoOf, boardTarget } from './settings.mjs';
 import { leaveNew, refuseFiled, inIntake, IMPLEMENT_NOT_FILED, refuseMoved } from './asks.mjs';
 import { pageServed, publishStaged, cardOfTopic, noteStamp, freeNotesName, writeNotesFile, appendNotes, refuseCardNotes, DRAFT_HINT, markWaiting, readiedText, owe, dropOwed, cardQuestions, resolveAnswered, hasOpenQuestion, setNext, closeQuestions, unpickedPrototype, clip, ownerQuote, planPath, itemNotes } from './questions.mjs';
-import { onlyRebased, requestPause, isLanding, clearRefusal, builderFiles, closeBuilders } from './runs.mjs';
+import { onlyRebased, requestPause, isLanding, clearRefusal, builderFiles, closeBuilders, removeCardWorktrees } from './runs.mjs';
 
 export async function siteDir(route) {
   if (!/^[\w-]+$/.test(route || '')) fail(`--site takes a route such as ios-orchestrator, not "${route}"`);
@@ -1149,6 +1149,10 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
     await markUnblocked(site, key, line.ts);
     await appendEvent({ dir: site }, 'card-unblocked', { key });
     resolved.unshift(`unblocked: ${key}`);
+  }
+  // docs/adr/2026-11-22-2345-a-closed-tasks-worktree-goes-and-the-hub-sweeps-what-is-left.md
+  if (done && !wasFinished && site) {
+    for (const why of await removeCardWorktrees(site, key, source.dir, item, { landed: storedPRs(item).some((p) => p.merged_at) })) await appendStatus(site, key, 'worktree-kept', { why });
   }
   if (!done || wasFinished) return { file: source.file, lines: resolved };
   if (split) await moveWaiters(site, key, split);

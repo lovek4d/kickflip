@@ -239,6 +239,7 @@
 // answers each ask every board passed (router.mjs answerUnplaced), and
 // slack-intake.json, where each poll's @kickflip DM search starts (slack-intake.mjs).
 import { sweepStaleTempsUnder } from './stale-tmp.mjs';
+import { sweepLeftovers } from './leftovers.mjs';
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
@@ -884,6 +885,17 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       if (r) log(`nightly suite ${r.night}: ${r.runs.map((x) => `${x.route} ${x.ok ? 'ok' : x.error ? `couldn't run (${x.error})` : 'failed, filed a task'}`).join('; ') || 'no board'}`);
     }).catch((e) => log('nightly suite failed:', e.message)).finally(() => { suiting = null; });
     return track(suiting);
+  }
+
+  // docs/adr/2026-11-22-2345-a-closed-tasks-worktree-goes-and-the-hub-sweeps-what-is-left.md: what closed tasks and
+  // agent runs left on disk (leftovers.mjs), swept as the hub starts and once a day, one sweep at a time.
+  let sweeping = null;
+  function runSweep() {
+    sweeping ||= sweepLeftovers({ manifest: loadManifest(), now: clock() }).then((r) => {
+      if (r.worktrees.length || r.logs.length) log(`swept ${r.worktrees.length} worktrees and ${r.logs.length} logs`);
+      for (const f of r.failed) log('leftovers sweep failed:', f);
+    }).catch((e) => log('leftovers sweep failed:', e.message)).finally(() => { sweeping = null; });
+    return track(sweeping);
   }
 
   // Routes whose page asked for a wake (/_hub/wake) that no session check has taken up yet.
@@ -2106,6 +2118,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   readiness.listenOn(PORT);
   log(`hub on http://127.0.0.1:${PORT}/ (manifest ${MANIFEST})`);
   reconcileLogged();
+  if (ticks) runSweep();
   // The hub's clock (shared/polls.mjs CLOCKS): each job runs every so many ticks of its clock, as its registry
   // entry says (docs/adr/2026-11-17-0330-every-poll-is-in-one-registry-and-the-hub-runs-on-two-clocks.md).
   const jobs = {
@@ -2115,6 +2128,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     'hung-check': () => checkHung().catch((e) => log('hung check failed:', e.message)), // poll: hung-check
     'self-restart': () => (codeRestarts ? track(selfRestart.check()).catch((e) => log('self-restart check failed:', e.message)) : null), // poll: self-restart
     'nightly-suite': runSuite, // poll: nightly-suite
+    'leftovers-sweep': runSweep, // poll: leftovers-sweep
     'peer-outbox': runOutbox, // poll: peer-outbox
   };
   for (const p of POLLS) if (p.clock && !jobs[p.id]) throw new Error(`shared/polls.mjs names ${p.id} on the hub's ${p.clock} clock, which runs no such job`);
@@ -2124,7 +2138,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       timers.push(setInterval(() => { n++; for (const p of dueOn(clock, n)) jobs[p.id](); }, ms)); // poll: none, each job names its own
     }
   }
-  return { port: PORT, reconcile, hung: checkHung, tick, poll: runPoll, outbox: runOutbox, settled, close, shutdown };
+  return { port: PORT, reconcile, hung: checkHung, tick, poll: runPoll, outbox: runOutbox, sweep: runSweep, settled, close, shutdown };
 }
 
 // node hub/hub.mjs: the hub on KICKFLIP_HUB_PORT, else 4500, until SIGTERM or SIGINT.

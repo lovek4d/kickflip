@@ -41,6 +41,9 @@
     ],
     "hooks-plugin/hooks/builder-guard.test.mjs": [
       "hooks-plugin/hooks/waits-filter-gate.mjs"
+    ],
+    "shared/temp-dir.test.mjs": [
+      "shared/temp-dir.mjs"
     ]
   }
 }

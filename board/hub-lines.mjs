@@ -122,6 +122,8 @@ export const HUB_LINES = {
   'pr-found': { tone: 'blue', mark: MOVE, text: ({ pr, branch }) => fit(`Found PR #${pr} on branch `, branch, '.'), longest: { pr: 100000 } },
   'ci-passed': { tone: 'green', mark: DONE, text: ({ pr }) => `CI passed, so PR #${pr} is marked ready for review.`, longest: { pr: 100000 } },
   'worktree-remade': { tone: 'grey', mark: MOVE, text: () => 'Remade its leftover worktree: it held no commits or changes.' },
+  // docs/adr/2026-11-22-2345-a-closed-tasks-worktree-goes-and-the-hub-sweeps-what-is-left.md
+  'worktree-kept': { tone: 'grey', mark: MOVE, text: ({ why }) => fit('Kept its worktree, removed in 14 days: ', why) },
   // docs/adr/2026-11-16-0500-a-refused-start-returns-the-card-to-ready.md: builder pick on a refused card clears the refusal.
   'refusal-cleared': { tone: 'grey', mark: MOVE, text: () => 'Cleared the refused start: the next pull may take it.' },
   merged: { tone: 'purple', mark: DONE, text: ({ words }) => fit('', words) },

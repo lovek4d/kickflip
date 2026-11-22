@@ -379,7 +379,10 @@ export async function stopRuns(leaders, { grace = 5000, ps: ask = ps } = {}) {
 export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
 const logsDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'logs');
+// A run's log, <role>-<card id>-<time>.log, role the first word of the run's role (Builder, Visual agent, Helper
+// tests…) lower-cased, which AGENT_LOG matches.
 const logFile = (id, role) => path.join(logsDir(), `${role}-${id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+export const AGENT_LOG = /^(?:builder|visual|reviewer|helper|planner|lander|rebase)-.+\.log$/;
 
 // docs/adr/2026-11-18-2030-a-launch-is-one-exclusive-claim.md
 // The folder of the launch claims of the board at site, one file per run: its card and agent.

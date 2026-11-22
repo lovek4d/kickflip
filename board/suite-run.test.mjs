@@ -283,3 +283,25 @@ test('holds', () => {
   await own.close();
   await ended;
 });
+
+// docs/adr/2026-11-22-2345-a-closed-tasks-worktree-goes-and-the-hub-sweeps-what-is-left.md
+test('a test run makes its temp dirs in a folder of its own, which goes as the run ends, with what a killed test file left there', async (t) => {
+  const dir = home(t);
+  const tree = path.join(dir, 'tree');
+  fs.mkdirSync(tree);
+  const made = path.join(dir, 'made.txt');
+  const tempDirModule = new URL('../shared/temp-dir.mjs', import.meta.url).href;
+  fs.writeFileSync(path.join(tree, 'killed.test.mjs'), `import test from 'node:test';
+import fs from 'node:fs';
+import { tempDir } from ${JSON.stringify(tempDirModule)};
+test('killed', () => {
+  fs.writeFileSync(${JSON.stringify(made)}, tempDir('killed-'));
+  process.kill(process.pid, 'SIGKILL');
+});
+`);
+  const result = await nodeTests(tree, { limit: 60_000 });
+  assert.equal(result.ok, false);
+  const run = path.dirname(fs.readFileSync(made, 'utf8'));
+  assert.equal(fs.realpathSync(path.dirname(run)), fs.realpathSync(os.tmpdir()), "the run's folder is in the system temp dir");
+  assert.equal(fs.existsSync(run), false, "the run's folder went with the run");
+});

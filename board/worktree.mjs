@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { BoardError } from './checks.mjs';
@@ -30,6 +31,7 @@ import { DETAIL_CAP } from './hub-lines.mjs';
 export const skillRepo = cloneRoot;
 export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'worktrees');
 const fail = (msg) => { throw new BoardError(msg); };
+const execFileAsync = promisify(execFile);
 
 export function git(cwd, ...args) {
   // core.commentChar=';' keeps a message line starting with # (an older "#N: ..." subject, or a ref wrapped to a line's
@@ -85,15 +87,48 @@ function removeLeftover(root, dir, branches, { ref, base, busy }) {
   if (!id) refuse('already exists');
   const commits = Number(git(root, 'rev-list', '--count', `${ref}..refs/heads/${id}`).out);
   const changed = git(dir, 'status', '--porcelain').out.split('\n').filter(Boolean).length;
-  const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
-  const work = [...(commits ? [`${count(commits, 'commit')} beyond ${base}`] : []), ...(changed ? [count(changed, 'changed file')] : [])];
-  if (work.length) refuse(`holds ${work.join(' and ')}`);
+  const work = workWords(commits, changed, `beyond ${base}`);
+  if (work) refuse(`holds ${work}`);
   // --force takes the ignored files (node_modules and the like) with it; status has shown nothing else is there.
   const removed = git(root, 'worktree', 'remove', '--force', dir);
   if (!removed.ok) fail(`--worktree: could not remove the leftover ${dir}: ${removed.err}`);
   const deleted = git(root, 'branch', '--quiet', '-D', id);
   if (!deleted.ok) fail(`--worktree: could not delete the leftover branch ${id}: ${deleted.err}`);
   return `Remade the leftover worktree ${storedPath(dir)} from ${base}: it held no commits or changes.`;
+}
+
+const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
+// The work a worktree holds that removing it would lose, in words: commits, followed by words, and changed files not
+// committed. → "2 commits beyond main and 1 changed file", or '' when it holds none.
+const workWords = (commits, changed, words) => [...(commits ? [`${count(commits, 'commit')} ${words}`] : []), ...(changed ? [count(changed, 'changed file')] : [])].join(' and ');
+
+// git as git() runs it, without holding the event loop while it runs, for the hub (hub/leftovers.mjs). → a promise of
+// {ok, out, err}
+export async function gitAsync(cwd, ...args) {
+  const r = await execFileAsync('git', ['-C', cwd, '-c', 'core.commentChar=;', ...args], { encoding: 'utf8' }).then((x) => ({ ...x, ok: true }), (e) => ({ ok: false, stdout: e.stdout, stderr: e.stderr || e.message }));
+  return { ok: r.ok, out: (r.stdout || '').trim(), err: (r.stderr || '').trim().split('\n')[0] };
+}
+
+// A closed card's worktree tree ({path, branch, repo}), removed with its branch when it holds no work its card's base
+// lacks: no commits that neither the base here nor origin's holds (landed counts them as landed, as a PR merged on
+// GitHub has them) and no uncommitted changes. force removes it whatever it holds; --force takes the ignored files
+// (node_modules and the like) with it. Every git call and file check is async, so the hub's sweep never holds its
+// event loop. → a promise of null once it is gone, or why it was kept: "1 commit never landed and 2 changed files".
+export async function removeClosedWorktree(tree, { base, landed = false, force = false }) {
+  const { path: dir, branch, repo } = tree;
+  if (!await fs.promises.stat(dir).then(() => true, () => false)) return null;
+  if (!force) {
+    const refs = [];
+    for (const ref of [`refs/heads/${base}`, `refs/remotes/origin/${base}`]) if ((await gitAsync(repo, 'rev-parse', '--verify', '--quiet', ref)).ok) refs.push(ref);
+    const commits = landed ? 0 : Number((await gitAsync(repo, 'rev-list', '--count', `refs/heads/${branch}`, '--not', ...refs)).out);
+    const changed = (await gitAsync(dir, 'status', '--porcelain')).out.split('\n').filter(Boolean).length;
+    const work = workWords(commits, changed, 'never landed');
+    if (work) return work;
+  }
+  const removed = await gitAsync(repo, 'worktree', 'remove', '--force', dir);
+  if (!removed.ok) return `git could not remove it (${removed.err})`;
+  await gitAsync(repo, 'branch', '--quiet', '-D', branch);
+  return null;
 }
 
 // Where the board at site's builders branch from and land (hub/board-repo.mjs boardRepo): a board on GitHub or a plain
@@ -236,8 +271,9 @@ export const testArgs = (testLimit, files) => ['--test', '--test-reporter=tap', 
 // at limit: its process group is killed, so a hung file's child dies with it, and
 // → {hung: {after, files}} naming the files still running, with the partial output and those processes saved to the log
 // (docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md). Whatever the run's tests left
-// running in its process group is killed as the run exits, and headless Chromes its files left behind are swept at
-// the run's start and end (docs/adr/2026-11-22-2350-a-test-files-headless-chrome-ends-with-it.md).
+// running in its process group is killed as the run exits, headless Chromes its files left behind are swept at the
+// run's start and end (docs/adr/2026-11-22-2350-a-test-files-headless-chrome-ends-with-it.md), and the temp folder its
+// TMPDIR names is removed.
 export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000, fileLimit = 10 * 60 * 1000, report, every = REPORT_EVERY } = {}) {
   sweepOrphanChromes().catch(() => {}); // a ps that fails leaves the sweep for the next run
   const files = chosen ? chosen.map((f) => path.join(dir, f)) : testFiles(dir);
@@ -256,12 +292,16 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
   const exitWithRun = `--import=${JSON.stringify(EXIT_WITH_RUN)}`;
   const options = rest.NODE_OPTIONS?.includes(exitWithRun) ? rest.NODE_OPTIONS : [rest.NODE_OPTIONS, exitWithRun].filter(Boolean).join(' ');
   const ends = began + limit - Math.min(FILE_END_MARGIN, limit / 4);
-  const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), KICKFLIP_TEST_FILE_LIMIT: String(fileLimit), KICKFLIP_TEST_RUN_ENDS: String(ends), KICKFLIP_TEST_RUN_LIMIT: String(limit), NODE_OPTIONS: options };
+  // The run's own temp folder, its TMPDIR, removed as it ends: a test file killed outright leaves its temp dirs there.
+  // Its name is short, as a unix socket path under it (Chrome's, a test's) has room for about 100 characters.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kr-'));
+  const env = { ...rest, TMPDIR: tmp, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), KICKFLIP_TEST_FILE_LIMIT: String(fileLimit), KICKFLIP_TEST_RUN_ENDS: String(ends), KICKFLIP_TEST_RUN_LIMIT: String(limit), NODE_OPTIONS: options };
   const run = inGroup([nodeBin(), ...testArgs(testLimit, files)], { cwd: dir, env, limit });
   return run.closed.then(async ({ status, signal }) => {
     await sweepOrphanChromes().catch(() => {});
     const { stdout, stderr, left } = run;
     clearInterval(ticker);
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
     const count = (name) => Number(stdout.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] ?? 0);
     const result = { ok: status === 0, pass: count('pass'), fail: count('fail') };
     const seconds = Math.round((Date.now() - began) / 1000);
@@ -315,8 +355,9 @@ function inGroup(argv, { cwd, env, limit }) {
   return run;
 }
 
-// A failed run's output, with the processes still running at its cutoff, saved to ~/.claude/kickflip/logs.
-// → {log: the file} or {logError}
+// A failed run's output, with the processes still running at its cutoff, saved to ~/.claude/kickflip/logs as
+// land-<uuid>.tap or .log, which LAND_LOG matches. → {log: the file} or {logError}
+export const LAND_LOG = /^land-[0-9a-f-]{36}\.(?:tap|log)$/;
 function saveLog(output, left, extension) {
   const logs = path.join(os.homedir(), '.claude', 'kickflip', 'logs');
   try {

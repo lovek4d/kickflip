@@ -40,7 +40,7 @@ import path from 'node:path';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
 import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, launchLives, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, sessionIdOf, stopRuns } from './headless.mjs';
 import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, fixesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
-import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree } from './worktree.mjs';
+import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree, removeClosedWorktree } from './worktree.mjs';
 import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
 import { readClaudeModel } from '../shared/hub-settings.mjs';
 import { runLimit } from '../hub/usage.mjs';
@@ -2146,6 +2146,26 @@ export async function closeBuilders(fileDir, id, cardFinished, { handedBack, end
     const { eta, handed_back, ...rest } = record;
     await writeJSON(file, { ...rest, done: now, ...(handedBack ? { handed_back: handedBack } : {}), ...(held && record.started ? { hold_stopped: true } : {}) });
   }
+}
+
+// docs/adr/2026-11-22-2345-a-closed-tasks-worktree-goes-and-the-hub-sweeps-what-is-left.md
+// As card key closes for good, each worktree it kept goes with its branch: its builds' and helpers', from its records,
+// and the one it got on entering In Progress (worktree.mjs removeClosedWorktree, landed when its PR merged). One holding
+// work that never landed stays, as do all of them while a run the board launched for the card still lives; the hub's
+// sweep (hub/leftovers.mjs) takes what stays 14 days after the close. → why each kept worktree stays.
+export async function removeCardWorktrees(site, key, fileDir, item, { landed }) {
+  const files = await builderFiles(fileDir, item.id);
+  const records = await Promise.all(files.map((f) => readJSON(f, null)));
+  const trees = new Map([item, ...records].filter((r) => r?.worktree?.path).map((r) => [r.worktree.path, r.worktree]));
+  if (!trees.size) return [];
+  const agentOf = (file) => path.basename(file, '.json').slice(String(item.id).length + 1) || 'main';
+  if (files.some((f) => launchLives(site, key, agentOf(f)))) return [...trees.values()].filter((t) => existsSync(t.path)).map(() => 'its build was still running');
+  const kept = [];
+  for (const tree of trees.values()) {
+    const why = await removeClosedWorktree(tree, { base: builderRepo(site, { repo: tree.repo, id: item.id }).base, landed });
+    if (why) kept.push(why);
+  }
+  return kept;
 }
 
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
