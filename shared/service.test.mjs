@@ -171,3 +171,17 @@ test('an active unit whose file is unchanged is not restarted', async () => {
   assert.match((await s.install('unit'))[0], /^left kickflip-hub\.service running/);
   assert.deepEqual(calls(), ['systemctl --user is-active kickflip-hub.service']);
 });
+
+test('status says stopping while launchd shows the job exiting or systemd shows the unit deactivating', () => {
+  const file = path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'plist');
+  stub('launchctl', `  'print gui/501/local.claude.kickflip-hub') echo 'state = exiting' ;;`);
+  assert.deepEqual(service('darwin').status(), { installed: true, running: false, stopping: true, detail: 'stopping' });
+
+  const unit = path.join(home, '.config', 'systemd', 'user', 'kickflip-hub.service');
+  fs.mkdirSync(path.dirname(unit), { recursive: true });
+  fs.writeFileSync(unit, 'unit');
+  stub('systemctl', `  '--user is-active kickflip-hub.service') echo deactivating; exit 3 ;;`);
+  assert.deepEqual(service('linux').status(), { installed: true, running: false, stopping: true, detail: 'stopping' });
+});

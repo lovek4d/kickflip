@@ -39,6 +39,10 @@ export function hubService({ platform = process.platform, home = os.homedir(), u
   };
 }
 
+// status()'s answer; stopping (the manager shows the job exiting) is present only when true.
+const serviceState = ({ installed, running, stopping }) =>
+  ({ installed, running, ...(stopping && { stopping }), detail: running ? 'running' : stopping ? 'stopping' : installed ? 'not running' : 'not installed' });
+
 const RESTART_TIMEOUT = 120_000;
 const EXIT_WAIT_MS = 30_000;
 const POLL_MS = 500;
@@ -120,7 +124,8 @@ function launchd({ home, uid, exec }) {
       const printed = launchctl(['print', `${domain}/${LOGIN_LABEL}`]);
       const installed = fs.existsSync(file);
       const running = installed && printed.status === 0 && /\bstate = running\b/.test(printed.stdout || '');
-      return { installed, running, detail: running ? 'running' : installed ? 'not running' : 'not installed' };
+      const stopping = installed && printed.status === 0 && /\bstate = exiting\b/.test(printed.stdout || '');
+      return serviceState({ installed, running, stopping });
     },
     notes: () => [],
   };
@@ -195,8 +200,9 @@ WantedBy=default.target
     status() {
       const active = systemctl(['is-active', UNIT]);
       const installed = fs.existsSync(file);
-      const running = installed && active.status === 0 && (active.stdout || '').trim() === 'active';
-      return { installed, running, detail: running ? 'running' : installed ? 'not running' : 'not installed' };
+      const state = (active.stdout || '').trim();
+      const running = installed && active.status === 0 && state === 'active';
+      return serviceState({ installed, running, stopping: installed && state === 'deactivating' });
     },
     // A user unit stops with the owner's last login session unless the user lingers.
     notes() {

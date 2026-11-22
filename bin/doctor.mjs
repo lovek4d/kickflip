@@ -129,7 +129,7 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   else add(autoCompact, 'fixable', `${Object.hasOwn(settings, 'autoCompactEnabled') ? 'off' : 'not set'}; a board session that fills its context stops answering`, FIX);
   const service = hubService({ platform, home, uid, env, run });
   const login = service.status();
-  add(service.item, login.running ? 'ok' : service.manager ? 'fixable' : 'yours', login.detail, service.manager ? FIX : `run ${service.restartCommand} under a service manager of your own`);
+  add(service.item, login.running ? 'ok' : login.stopping ? 'note' : service.manager ? 'fixable' : 'yours', login.detail, service.manager ? FIX : `run ${service.restartCommand} under a service manager of your own`);
   const serviceNode = login.installed ? service.node() : null;
   if (serviceNode) {
     const prefix = installPrefix(cloneRoot);
@@ -153,7 +153,9 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
 
   group = 'hub';
   const hub = await hubStatus({ port, fetch });
-  add('hub', hub ? 'ok' : 'fixable', `${hub ? 'running' : 'not running'} on 127.0.0.1:${port}`, FIX);
+  // A service restarting its hub: the old one still answers until it exits, so the row follows the service's state.
+  if (login.stopping) add('hub', 'note', `stopping; ${hub ? 'still answering' : 'not answering'} on 127.0.0.1:${port}`);
+  else add('hub', hub ? 'ok' : 'fixable', `${hub ? 'running' : 'not running'} on 127.0.0.1:${port}`, FIX);
   if (ts) add(ts.root.item, ts.root.state, ts.root.detail, ts.root.fix);
 
   let sites = hub?.sites;

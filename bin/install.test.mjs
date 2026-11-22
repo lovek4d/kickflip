@@ -637,6 +637,17 @@ test('doctor names a missing or out-of-date review skill as optional with the sk
   assert.equal(report.exitCode, 0);
 });
 
+test('doctor reads a service that is stopping as a note on both rows, never not running beside hub running', async () => {
+  const { options, responses } = healthyDoctor();
+  responses.set('launchctl print gui/501/local.claude.kickflip-hub', { status: 0, stdout: 'state = exiting' });
+  const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
+  assert.deepEqual([pick(items, 'hub login item').state, pick(items, 'hub login item').detail], ['note', 'stopping']);
+  assert.deepEqual([pick(items, 'hub').state, pick(items, 'hub').detail, pick(items, 'hub').fix], ['note', 'stopping; still answering on 127.0.0.1:19460', null]);
+  assert.equal(exitCode, 0);
+  options.fetch = async () => { throw new Error('offline'); };
+  assert.equal((await doctorReport(options)).find((entry) => entry.item === 'hub').detail, 'stopping; not answering on 127.0.0.1:19460');
+});
+
 for (const name of ['kickflip skill link', 'kickflip-hooks link', '~/.claude/statusline.sh', 'settings.json statusLine', 'settings.json watcher Stop hook', 'settings.json autoCompactEnabled', 'hub login item', 'hub', 'tailscale /']) {
   test(`doctor marks ${name} fixable and gives the shared fix command`, async () => {
     const { options, responses, plist } = healthyDoctor();
