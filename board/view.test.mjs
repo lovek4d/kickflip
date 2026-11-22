@@ -2246,7 +2246,7 @@ test('the Hub row stays selected on old Settings URLs, hub sections, the old Pol
   }
 });
 
-test('modal page locking is below 900px and fitted sheets use the current width and latest wide scroll position', () => {
+test('modal page locking is below 900px, by CSS alone: a fitted sheet never writes the page scroll', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const phoneMedia = /@media\s*\(max-width:\s*899px\)\s*\{(?:[^{}]|\{[^{}]*\})*\}/g;
   const lock = /html:has\(dialog:modal\)\s*\{\s*overflow:\s*hidden;\s*\}/g;
@@ -2258,28 +2258,22 @@ test('modal page locking is below 900px and fitted sheets use the current width 
   const { Element } = miniDom(page.Target, win.document);
   const sheet = win.document.body.appendChild(new Element('dialog'));
   const global = vm.runInContext('window', win);
+  const scrolls = [];
+  win.scrollTo = (x, y) => { scrolls.push(y); win.scrollY = y; };
   for (const width of [1280, 390]) {
     win.innerWidth = width;
-    win.scrollTo(0, 120);
+    win.scrollY = 120;
     const unfit = win.BoardDialogs.fitSheet(sheet);
     sheet.showModal();
-    win.scrollTo(0, 469);
+    win.scrollY = 469;
     page.fire(global, 'scroll');
-    assert.equal(win.scrollY, width === 390 ? 120 : 469);
-    win.innerWidth = 900;
-    win.scrollTo(0, 600);
-    page.fire(global, 'scroll');
-    assert.equal(win.scrollY, 600);
-    win.innerWidth = 899;
-    win.scrollTo(0, 700);
-    page.fire(global, 'scroll');
-    assert.equal(win.scrollY, 600);
     sheet.close();
     unfit();
   }
+  assert.deepEqual(scrolls, []);
 });
 
-test('ask and New board sheets follow the phone keyboard, hold the page still and release viewport listeners on close', () => {
+test('ask and New board sheets follow the phone keyboard and release viewport listeners on close', () => {
   const page = fakePage(memoryStorage().localStorage);
   const { win } = page;
   const doc = win.document;
@@ -2314,14 +2308,14 @@ test('ask and New board sheets follow the phone keyboard, hold the page still an
       sheet.style.setProperty = (k, v) => values.set(k, v);
       vv.height = 500;
       page.fire(vv, 'resize');
-      assert.deepEqual([...values], [['--kb', '344px'], ['--sheet-full', '844px'], ['--vh', '500px']]);
+      assert.deepEqual([...values], [['--kb', '344px']]);
       assert.equal(sheet.classList.contains('kb'), true);
       assert.equal(sheet.classList.contains('keyboard-sheet'), true);
       vv.offsetTop = 20;
       page.fire(vv, 'scroll');
       assert.equal(values.get('--kb'), '324px');
-      // The pan lowers vh + kb to 824, but the sheet keeps the height it opened at.
-      assert.equal(values.get('--sheet-full'), '844px');
+      // The sheet's height is CSS's 100dvh, so the pan changes nothing else.
+      assert.deepEqual([...values.keys()], ['--kb']);
       vv.height = 844;
       page.fire(vv, 'resize');
       assert.equal(values.get('--kb'), '0px');
@@ -2333,9 +2327,13 @@ test('ask and New board sheets follow the phone keyboard, hold the page still an
       vv.height = 844;
       page.fire(global, 'focus');
       assert.equal(values.get('--kb'), '0px');
+      // Turning the phone resizes the visual viewport; nothing listens on the window's resize or scroll.
+      values.clear();
+      page.fire(global, 'resize');
       win.scrollY = 469;
       page.fire(global, 'scroll');
-      assert.deepEqual(scrolls, [120]);
+      assert.equal(values.size, 0);
+      assert.deepEqual(scrolls, []);
       sheet.close();
       const closed = [page.listenerCount(vv), page.listenerCount(global)];
       values.clear();
@@ -2343,7 +2341,7 @@ test('ask and New board sheets follow the phone keyboard, hold the page still an
       win.scrollY = 300;
       page.fire(global, 'scroll');
       assert.equal(values.size, 0);
-      assert.deepEqual(scrolls, [120]);
+      assert.deepEqual(scrolls, []);
       assert.deepEqual(closed, baseline);
     }
   }

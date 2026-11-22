@@ -1,6 +1,7 @@
 // A sheet with a keyboard focuses its field through BoardDialogs.focusField: focus without scrolling, since iOS otherwise
-// scrolls the board behind the sheet then settles back (dialogs.js fitSheet pins the scroll afterwards), then the field
-// scrolls into view once the keyboard is up.
+// scrolls the board behind the sheet, then the field scrolls into view once the keyboard is up. Below 900px the page is
+// locked under a modal by CSS alone; dialogs.js fitSheet never writes the page's scroll
+// (docs/adr/2026-11-22-2330-a-sheets-height-follows-rotation-from-css.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';

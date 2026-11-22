@@ -145,49 +145,26 @@
       },
       destroy() { destroyed = true; root.removeEventListener('click', click); root.removeEventListener('input', input); root.removeEventListener('change', input); } };
   }
+  // docs/adr/2026-11-22-2330-a-sheets-height-follows-rotation-from-css.md
+  // A sheet's height is CSS's 100dvh, which follows rotation and ignores the keyboard. iOS keeps fixed elements on
+  // the layout viewport, so --kb, the part of it covered by the keyboard, lifts the sheet's content above it.
   function fitSheet(sheet) {
     const vv = window.visualViewport;
-    // iOS keeps fixed elements on the layout viewport; --kb is the part covered by its keyboard.
-    // --sheet-full is the tallest the viewport has been while the sheet is open, so the pan (offsetTop) when a field
-    // takes focus doesn't lower the sheet's top; turning the phone measures it again.
-    let full = 0, width = window.innerWidth;
     const fit = () => {
-      const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
-      if (window.innerWidth !== width) { width = window.innerWidth; full = 0; }
-      full = Math.max(full, (vv ? vv.height : window.innerHeight) + kb);
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
       sheet.style.setProperty('--kb', kb + 'px');
-      sheet.style.setProperty('--sheet-full', full + 'px');
-      sheet.style.setProperty('--vh', (vv ? vv.height : window.innerHeight) + 'px');
       sheet.classList.toggle('kb', kb > 0);
-    };
-    // iOS scrolls the page to show a focused field even under a modal sheet, and then draws the sheet cut off above the
-    // keyboard with the board below it, so the page keeps its scroll position. innerHeight reads short during that
-    // scroll and no resize follows the restore, so --kb is measured again once the keyboard has settled.
-    let y = window.scrollY;
-    let settle = 0;
-    const pin = () => {
-      // The 900px breakpoint must match style.css's html:has(dialog:modal) scroll lock.
-      if (matchMedia('(min-width: 900px)').matches) { y = window.scrollY; return; }
-      if (window.scrollY === y) return;
-      window.scrollTo(window.scrollX, y);
-      clearTimeout(settle);
-      settle = setTimeout(fit, 350);
     };
     sheet.classList.add('keyboard-sheet');
     fit();
-    vv?.addEventListener('resize', fit);
-    vv?.addEventListener('scroll', fit);
-    window.addEventListener('resize', fit);
+    vv.addEventListener('resize', fit);
+    vv.addEventListener('scroll', fit);
     // A file picker closing returns focus to the window without a resize, so the sheet is measured again.
     window.addEventListener('focus', fit);
-    window.addEventListener('scroll', pin);
     return () => {
-      clearTimeout(settle);
-      vv?.removeEventListener('resize', fit);
-      vv?.removeEventListener('scroll', fit);
-      window.removeEventListener('resize', fit);
+      vv.removeEventListener('resize', fit);
+      vv.removeEventListener('scroll', fit);
       window.removeEventListener('focus', fit);
-      window.removeEventListener('scroll', pin);
     };
   }
   // Focuses a sheet's field without the page scrolling, then scrolls the field into view once the keyboard is up: on the

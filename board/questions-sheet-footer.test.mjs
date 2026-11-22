@@ -22,9 +22,7 @@ const FIXTURE = (kb) => `<!doctype html><html><head><meta name="viewport" conten
   document.body.insertAdjacentHTML('beforeend', BoardQuestionsSheet.markup());
   const sheet = document.querySelector('dialog.questions-sheet');
   sheet.querySelector('.reader-body').innerHTML = '<div class="view-questions qs-body">' + [1, 2, 3, 4, 5, 6].map(${card}).join('') + '</div>';
-  ${kb ? `sheet.classList.add('keyboard-sheet', 'kb'); sheet.style.setProperty('--kb', '${kb}px');
-    document.documentElement.style.setProperty('--sheet-full', innerHeight + 'px');
-    document.documentElement.style.setProperty('--vh', (innerHeight - ${kb}) + 'px');` : ''}
+  ${kb ? `sheet.classList.add('keyboard-sheet', 'kb'); sheet.style.setProperty('--kb', '${kb}px');` : ''}
   sheet.style.animation = 'none';
   sheet.showModal();
   const body = sheet.querySelector('.reader-body');

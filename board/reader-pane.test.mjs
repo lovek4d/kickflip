@@ -40,11 +40,19 @@ const standard = phone.match(/@media \(max-width: 899px\) \{\s*\.sheet\.reader-s
 
 test('on a phone every standard sheet is full height: one formula, above the app bar, below the status bar', () => {
   const formula = standard.match(/--standard-height: ([^;]*);/)?.[1] ?? '';
-  assert.match(formula, /var\(--sheet-full, calc\(var\(--vh, 100dvh\) \+ var\(--kb, 0px\)\)\)/);
+  assert.match(formula, /^calc\(100dvh - /);
   assert.match(formula, /max\(0px, calc\(var\(--app-bottom, 0px\) - var\(--kb, 0px\)\)\)/);
   assert.doesNotMatch(formula, /max\(var\(--app-bottom, 0px\), var\(--kb, 0px\)\)/);
   assert.match(formula, /max\(12px, env\(safe-area-inset-top\)\)/);
   assert.match(standard, /\n\s+height: var\(--standard-height\); max-height: var\(--standard-height\);/);
+});
+
+// docs/adr/2026-11-22-2330-a-sheets-height-follows-rotation-from-css.md
+test('every sheet height comes from 100dvh, which follows rotation and ignores the keyboard; no measured height is read', () => {
+  assert.doesNotMatch(css, /--sheet-full|--vh\b/);
+  const heights = [...css.matchAll(/(?:--standard-height|--sheet-limit|max-height): ([^;]*dvh[^;]*);/g)].map(([, value]) => value);
+  assert.ok(heights.length > 0);
+  for (const value of heights) assert.match(value, /100dvh/);
 });
 
 test('no other rule gives a standard sheet its own height', () => {
