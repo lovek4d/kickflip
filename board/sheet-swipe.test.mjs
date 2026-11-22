@@ -117,3 +117,15 @@ test('a touch that starts mid-scroll and stays below the top leaves the sheet', 
   sheet.fire('touchend', { ...touch(600), timeStamp: 50, type: 'touchend' });
   assert.equal(sheet.closed, false);
 });
+
+test('a drag on the sheet body starts while the board behind it is scrolled', () => {
+  const { sheet } = rig(0);
+  const board = { scrollingElement: { scrollTop: 500 } };
+  sheet.ownerDocument = board;
+  const body = { scrollTop: 0, parentElement: null, ownerDocument: board, closest: () => null };
+  const touch = (y) => ({ touches: [{ screenY: y }], target: body, timeStamp: 0, preventDefault() {} });
+  sheet.fire('touchstart', touch(100));
+  sheet.fire('touchmove', touch(600));
+  sheet.fire('touchend', { ...touch(600), timeStamp: 50, type: 'touchend' });
+  assert.equal(sheet.closed, true);
+});

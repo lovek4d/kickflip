@@ -649,7 +649,8 @@
     if (target.closest(SWIPE_TEXT_BOX)) return false;
     // A finger in a same-origin frame walks up the frame's page, then on from the frame element in the sheet.
     for (let el = target; el && el !== sheet.parentElement; el = el.parentElement || el.ownerDocument?.defaultView?.frameElement) if (el.scrollTop > 0) return false;
-    if (target.ownerDocument?.scrollingElement?.scrollTop > 0) return false;
+    // The board behind the sheet scrolls on its own: only a frame's page, a document other than the sheet's, counts.
+    if (target.ownerDocument !== sheet.ownerDocument && target.ownerDocument?.scrollingElement?.scrollTop > 0) return false;
     return true;
   };
   // Registers the drag once per sheet and returns what removes it, for a sheet that outlives a view's mount.
