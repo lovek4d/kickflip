@@ -30,7 +30,7 @@ import { parseCheck, checkText } from '../shared/owner-check.mjs';
 import { BoardError, fail, needSite, text, optional, cardTitle, pageUrl, domId } from './checks.mjs';
 import { storedTickets, settingsOf, markDescription, refuseSecondProposal, boardRepoOf, boardTarget } from './settings.mjs';
 import { leaveNew, refuseFiled, inIntake, IMPLEMENT_NOT_FILED, refuseMoved } from './asks.mjs';
-import { publishStaged, cardOfTopic, noteStamp, freeNotesName, writeNotesFile, appendNotes, refuseCardNotes, DRAFT_HINT, markWaiting, readiedText, owe, dropOwed, cardQuestions, resolveAnswered, hasOpenQuestion, setNext, closeQuestions, unpickedPrototype, clip, ownerQuote, planPath, itemNotes } from './questions.mjs';
+import { pageServed, publishStaged, cardOfTopic, noteStamp, freeNotesName, writeNotesFile, appendNotes, refuseCardNotes, DRAFT_HINT, markWaiting, readiedText, owe, dropOwed, cardQuestions, resolveAnswered, hasOpenQuestion, setNext, closeQuestions, unpickedPrototype, clip, ownerQuote, planPath, itemNotes } from './questions.mjs';
 import { onlyRebased, requestPause, isLanding, clearRefusal, builderFiles, closeBuilders } from './runs.mjs';
 
 export async function siteDir(route) {
@@ -435,7 +435,9 @@ export async function appendMessage(site, key, { text: body, link, log, who = 'c
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
   const words = via === undefined ? messageText(body) : text(body, '--text');
   const script = scriptFile === undefined ? undefined : scriptOf(scriptFile);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: optional(link, (v) => pageUrl(v, '--link')), log, via, script };
+  const page = optional(link, (v) => pageUrl(v, '--link'));
+  if (page !== undefined) await pageServed(site, page, '--link');
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: page, log, via, script };
   const file = threadFile(site, key);
   if (close || implement) await markWaiting(site, key, close ? 'close' : 'implement');
   await appendLine(file, line);

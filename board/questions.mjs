@@ -12,7 +12,7 @@ import { boardConfig, itemSources, readJSON, readLog, replace, writeJSON } from 
 import { builtCards } from './snapshot.mjs';
 import { BRIEF_LINE_LIMIT, lineFault } from './hub-lines.mjs';
 import { hasPR } from '../shared/card-prs.mjs';
-import { BoardError, fail, needSite, text, optional, pageUrl, bool, domId, onlyKeys } from './checks.mjs';
+import { BoardError, fail, needSite, text, optional, pageUrl, bool, domId, onlyKeys, PROTOTYPE_PAGE, VISUAL_PAGE } from './checks.mjs';
 import { settingsOf } from './settings.mjs';
 import { leaveNew } from './asks.mjs';
 import { passNews, checkAskQuestion, builderFiles } from './runs.mjs';
@@ -102,6 +102,21 @@ export const takeFile = (site, topic, key) => path.join(site, 'public', 'prototy
 export async function readPrototypes(site) {
   const list = site ? (await readJSON(prototypesFile(site), {})).prototypes : null;
   return Array.isArray(list) ? list.map((p) => ({ id: p.topic, ...p })) : [];
+}
+// Refuses a thread --link or question url naming a visuals or prototype page the board server would 404: a visual's
+// file must be in the site's public folder, a prototype's page a recorded prototype's or a hand-written file there.
+// An http(s) link is not the board's to check.
+export async function pageServed(site, link, name) {
+  if (/^https?:/.test(link)) return;
+  const page = link.replace(/[?#].*$/, '');
+  const file = path.join(site, 'public', page);
+  if (VISUAL_PAGE.test(page)) {
+    if (!(await fs.stat(file).then((st) => st.isFile(), () => false))) fail(`${name} names ${page}, which the board does not serve: no file at ${file}; save the page there (board.mjs visual add places it)`);
+  } else if (PROTOTYPE_PAGE.test(page)) {
+    const topic = page.slice('prototype-'.length, -'.html'.length);
+    if ((await readPrototypes(site)).some((p) => p.topic === topic) || (await fs.stat(file).then((st) => st.isFile(), () => false))) return;
+    fail(`${name} names ${page}, which the board does not serve: no recorded prototype ${topic} and no file at ${file}`);
+  }
 }
 // change(list) → the new list, run under the file's lock on the records the file holds now, so what it checks of them
 // still holds when it writes: the sub-agents of one prototype round record their topics at once.
@@ -272,6 +287,8 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
     if (long) fail(`${name}.question ${long}; keep the question to one line and move the detail into context or the option details, which take markdown`);
     for (const k of ['source', 'context']) optional(q[k], (v) => text(v, `${name}.${k}`));
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
+    // A prototype url is checked against the recorded prototypes below.
+    if (VISUAL_PAGE.test(q.url ?? '')) await pageServed(site, q.url, `${name}.url`);
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
     // docs/adr/2026-11-18-0100-implement-is-only-the-cards-tap.md

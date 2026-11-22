@@ -481,6 +481,17 @@ test("question add refuses a question whose context names the card's visual or p
   assert.equal(refused.code, 1);
   assert.match(refused.err, /question v1 names the card's visual in its context but has no url; set url to visuals\/A1\/four-fixes\.html/);
   assert.equal((await add(on('v2', { context: 'See four-fixes.html.' }))).code, 1);
+  fs.mkdirSync(site('orch', 'public', 'visuals', 'A1'), { recursive: true });
+  fs.writeFileSync(site('orch', 'public', 'visuals', 'A1', 'four-fixes.html'), '<p>Four fixes</p>');
   assert.equal((await add(on('v3', { context: 'The visual shows four fixes.', url: 'visuals/A1/four-fixes.html' }))).code, 0);
   assert.equal((await add(on('v4', { context: 'Four fixes are left: the badge, the header, the footer and the toast.' }))).code, 0);
+});
+
+test('question add refuses a visuals url whose page the board does not serve', async () => {
+  write(path.join(home, 'q.json'), question('v1', { topic: 'item:w/A1', url: 'visuals/A1/report.html' }));
+  const r = await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'));
+  assert.equal(r.code, 1);
+  assert.match(r.err, /question v1\.url names visuals\/A1\/report\.html, which the board does not serve: no file at .*report\.html/);
+  write(site('orch', 'public', 'visuals', 'A1', 'report.html'), '<p>Report</p>');
+  assert.equal((await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'))).code, 0);
 });

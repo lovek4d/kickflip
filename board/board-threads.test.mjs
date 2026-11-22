@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { boardWith, home, at, site, write, read, lines, run, board, runAsync, withDevice, wave } from './board-fixture.mjs';
+import { boardWith, home, at, site, write, read, lines, run, board, runAsync, withDevice, wave, recordPrototype } from './board-fixture.mjs';
 
 test('install posts only the route and key to the hub once it quotes the owner, prints started, and reports refusals plainly', async () => {
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Please build A1 so I can\n try it' } }) + '\n');
@@ -86,6 +86,7 @@ test("thread appends a line to an item's thread", async () => {
     { who: 'claude', text: 'Merged.' },
   ]);
   assert.ok(!Number.isNaN(Date.parse(msgs[0].ts)));
+  write(site('orch', 'public', 'prototype-x.html'), '<p>Hand-written</p>');
   const links = ['prototype-x.html', 'prototype-x.html?q=some-id', 'prototype-x.html#take-A', 'prototype-x.html?q=some-id#take-A', 'http://example.com/prototype'];
   for (const link of links) {
     const r = await board('thread', 'w/A1', '--site', 'orch', '--text', 'Pick a take.', '--link', link);
@@ -310,4 +311,18 @@ test('the board writes a thread only through appendStatus and appendMessage: no 
     }
   }
   assert.ok(raw > 0);
+});
+
+test('thread --link refuses a visuals or prototype page the board does not serve, naming the path it looked for', async () => {
+  const link = (l) => board('thread', 'w/A1', '--site', 'orch', '--text', 'See it.', '--link', l);
+  const visual = await link('visuals/A1/report.html');
+  assert.equal(visual.code, 1);
+  assert.match(visual.err, new RegExp(`--link names visuals/A1/report\\.html, which the board does not serve: no file at ${site('orch', 'public', 'visuals', 'A1', 'report.html')}`));
+  const proto = await link('prototype-nope.html?q=a');
+  assert.equal(proto.code, 1);
+  assert.match(proto.err, /no recorded prototype nope and no file at .*prototype-nope\.html/);
+  write(site('orch', 'public', 'visuals', 'A1', 'report.html'), '<p>Report</p>');
+  assert.equal((await link('visuals/A1/report.html')).code, 0);
+  await recordPrototype('nope', ['A:Keep']);
+  assert.equal((await link('prototype-nope.html?q=a')).code, 0);
 });

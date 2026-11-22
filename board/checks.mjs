@@ -22,8 +22,8 @@ export const cardTitle = (v) => {
   const fault = cardTitleFault(title);
   return fault ? fail(`--title "${title}" ${fault}; a task's title is ${cardTitleWords}`) : title;
 };
-const PROTOTYPE_PAGE = /^prototype-[\w-]+\.html(?:[?#]\S*)?$/;
-const VISUAL_PAGE = /^visuals\/[\w-]+\/[\w-]+\.html$/;
+export const PROTOTYPE_PAGE = /^prototype-[\w-]+\.html(?:[?#]\S*)?$/;
+export const VISUAL_PAGE = /^visuals\/[\w-]+\/[\w-]+\.html$/;
 export const pageUrl = (v, name) => (typeof v === 'string' && (PROTOTYPE_PAGE.test(v) || VISUAL_PAGE.test(v) || /^https?:\/\/\S+$/.test(v)) ? v : fail(`${name} must be an http(s) URL or a site page such as prototype-<topic>.html?q=<id>`));
 export const bool = (v, name) => (typeof v === 'boolean' ? v : fail(`${name} must be true or false`));
 export const domId = (v, name) => (typeof v === 'string' && /^[\w.-]+$/.test(v) ? v : fail(`${name} must use only letters, digits, "_", "." and "-"`));
