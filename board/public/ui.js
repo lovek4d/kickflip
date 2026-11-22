@@ -670,17 +670,23 @@
       // A touch on a scroller scrolled down waits (held) and starts dragging where the scroller reaches its top.
       const mayStart = e.touches.length === 1 && swipeMayStart(e.target, sheet);
       const held = e.touches.length === 1 && !mayStart && !e.target.closest(SWIPE_TEXT_BOX);
-      from = mayStart || held ? { y: e.touches[0].screenY, at: e.timeStamp, held } : null;
+      from = mayStart || held ? { x: e.touches[0].screenX, y: e.touches[0].screenY, at: e.timeStamp, held } : null;
       dragging = false;
     };
     const move = (e) => {
       if (!from) return;
       if (from.held) {
         if (!swipeMayStart(e.target, sheet)) return;
-        from = { y: e.touches[0].screenY, at: e.timeStamp, held: false };
+        from = { x: e.touches[0].screenX, y: e.touches[0].screenY, at: e.timeStamp, held: false };
       }
       dy = e.touches[0].screenY - from.y; // screenY: a frame moves with the sheet, so its clientY would not hold still
-      if (!dragging && dy < SWIPE.slop) { if (dy < -SWIPE.slop) from = null; return; }
+      if (!dragging && dy < SWIPE.slop) {
+        if (dy < -SWIPE.slop) from = null;
+        // iOS hands the pan to the page at the first touchmove nobody cancels, and then lets no later one be cancelled:
+        // a move down claims the touch before the slop moves the sheet (docs/adr/2026-11-22-1400-a-sheets-drag-claims-the-touch-on-its-first-move-down.md).
+        else if (dy > 0 && dy >= Math.abs(e.touches[0].screenX - from.x)) e.preventDefault();
+        return;
+      }
       dragging = true;
       e.preventDefault();
       set(Math.max(0, dy), false);

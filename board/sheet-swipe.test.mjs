@@ -129,3 +129,36 @@ test('a drag on the sheet body starts while the board behind it is scrolled', ()
   sheet.fire('touchend', { ...touch(600), timeStamp: 50, type: 'touchend' });
   assert.equal(sheet.closed, true);
 });
+
+// iOS hands the pan to the page at the first touchmove nobody cancels, so a drag claims the touch before it moves the sheet.
+const claimRig = () => {
+  const { sheet } = rig(0);
+  const body = { scrollTop: 0, parentElement: null, closest: () => null };
+  const touch = (x, y) => {
+    const e = { touches: [{ screenX: x, screenY: y }], target: body, timeStamp: 0, claimed: false };
+    e.preventDefault = () => { e.claimed = true; };
+    return e;
+  };
+  return { sheet, touch };
+};
+
+test('the first move down claims the touch before the sheet moves', () => {
+  const { sheet, touch } = claimRig();
+  sheet.fire('touchstart', touch(50, 100));
+  const first = touch(50, 102);
+  sheet.fire('touchmove', first);
+  assert.equal(first.claimed, true);
+  assert.equal(sheet.style.transform, undefined);
+});
+
+test('a first move up or sideways leaves the touch to the page', () => {
+  const { sheet, touch } = claimRig();
+  sheet.fire('touchstart', touch(50, 100));
+  const up = touch(50, 98);
+  sheet.fire('touchmove', up);
+  assert.equal(up.claimed, false);
+  sheet.fire('touchstart', touch(50, 100));
+  const sideways = touch(56, 102);
+  sheet.fire('touchmove', sideways);
+  assert.equal(sideways.claimed, false);
+});
