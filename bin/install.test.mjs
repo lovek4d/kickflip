@@ -589,36 +589,30 @@ function oldClones() {
   return { ...doctor, used, remote, other };
 }
 
-test('doctor lists each board clone in an old place, naming a board that still uses it, without failing', async () => {
-  const { options, used, remote, other } = oldClones();
+test('doctor lists each board clone in an old place that no board uses, without failing', async () => {
+  const { options, remote } = oldClones();
   const { items, exitCode } = await runDoctor({ ...options, write: () => {} });
   const clones = path.join(home, '.claude', 'kickflip', 'repos');
   assert.deepEqual(items.filter((entry) => entry.item === 'old board clone'), [
-    { group: 'hub', item: 'old board clone', state: 'optional', detail: `${used} is in an old place; board clones now live in ${clones}; /page uses it`, fix: 'kickflip doctor --fix' },
-    { group: 'hub', item: 'old board clone', state: 'optional', detail: `${remote} is in an old place; board clones now live in ${clones}`, fix: 'kickflip doctor --fix' },
-    { group: 'hub', item: 'old board clone', state: 'optional', detail: `${other} is in an old place; board clones now live in ${clones}; /gone uses it`, fix: 'kickflip doctor --fix' },
-  ].sort((a, b) => a.detail.localeCompare(b.detail)));
+    { group: 'hub', item: 'old board clone', state: 'optional', detail: `${remote} is in an old place and no board uses it; board clones now live in ${clones}`, fix: 'kickflip doctor --fix' },
+  ]);
   assert.equal(exitCode, 0);
 });
 
-test('doctor --fix asks about each old board clone and removes only the ones answered yes; with no one to ask it removes none', async () => {
+test('doctor --fix asks only about old board clones no board uses and removes the ones answered yes; with no one to ask it removes none', async () => {
   const { options, used, remote, other } = oldClones();
   const questions = [];
-  const answers = new Map([[used, 'y'], [remote, ''], [other, 'YES']]);
-  const ask = async (question) => { questions.push(question); return answers.get([...answers.keys()].find((clone) => question.includes(`${clone}?`))); };
+  const ask = async (question) => { questions.push(question); return 'y'; };
   const output = [];
   const result = await runDoctor({ ...options, fix: true, install: async () => {}, ask, write: (line) => output.push(line) });
-  assert.deepEqual(questions, [
-    `Remove the old board clone ${used}? /page uses it. (y/N) `,
-    `Remove the old board clone ${remote}? (y/N) `,
-    `Remove the old board clone ${other}? /gone uses it. (y/N) `,
-  ].sort());
-  assert.deepEqual([used, remote, other].map((dir) => fs.existsSync(dir)), [false, true, false]);
-  assert.ok(output.includes(`removed ${used}`) && output.includes(`removed ${other}`));
-  assert.deepEqual(result.items.filter((entry) => entry.item === 'old board clone').map((entry) => entry.detail.split(' is in ')[0]), [remote]);
+  assert.deepEqual(questions, [`Remove the old board clone ${remote}? (y/N) `]);
+  assert.deepEqual([used, remote, other].map((dir) => fs.existsSync(dir)), [true, false, true]);
+  assert.ok(output.includes(`removed ${remote}`));
+  assert.deepEqual(result.items.filter((entry) => entry.item === 'old board clone'), []);
   assert.ok(fs.existsSync(path.join(home, '.claude', 'kickflip', 'repos', 'owner', 'project', '.git')));
   assert.ok(fs.existsSync(path.join(root, '.repos', 'owner', 'not-a-clone', 'src')));
 
+  fs.mkdirSync(path.join(remote, '.git'), { recursive: true });
   const quiet = await runDoctor({ ...options, fix: true, install: async () => {}, write: () => {} });
   assert.ok(fs.existsSync(remote));
   assert.equal(quiet.items.filter((entry) => entry.item === 'old board clone').length, 1);
