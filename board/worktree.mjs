@@ -21,6 +21,7 @@ import { nodeBin, storedPath } from '../bin/install.mjs';
 import { squashMessage, subjectFault } from './commit-message.mjs';
 import { checkRelease, landRelease } from './release.mjs';
 import { affectedTests } from './affected.mjs';
+import { sweepOrphanChromes } from '../shared/chrome.mjs';
 import { readMachineState } from '../shared/machine-gate.mjs';
 import { backgroundArgv } from './background.mjs';
 import { buildScriptError, scriptFileOf, scriptsOf } from './build-script.mjs';
@@ -235,8 +236,10 @@ export const testArgs = (testLimit, files) => ['--test', '--test-reporter=tap', 
 // at limit: its process group is killed, so a hung file's child dies with it, and
 // → {hung: {after, files}} naming the files still running, with the partial output and those processes saved to the log
 // (docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md). Whatever the run's tests left
-// running in its process group is killed as the run exits.
+// running in its process group is killed as the run exits, and headless Chromes its files left behind are swept at
+// the run's start and end (docs/adr/2026-11-22-2350-a-test-files-headless-chrome-ends-with-it.md).
 export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000, fileLimit = 10 * 60 * 1000, report, every = REPORT_EVERY } = {}) {
+  sweepOrphanChromes().catch(() => {}); // a ps that fails leaves the sweep for the next run
   const files = chosen ? chosen.map((f) => path.join(dir, f)) : testFiles(dir);
   if (!files.length) return Promise.resolve({ ok: true, pass: 0, fail: 0 });
   const began = Date.now();
@@ -256,6 +259,7 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
   const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), KICKFLIP_TEST_FILE_LIMIT: String(fileLimit), KICKFLIP_TEST_RUN_ENDS: String(ends), KICKFLIP_TEST_RUN_LIMIT: String(limit), NODE_OPTIONS: options };
   const run = inGroup([nodeBin(), ...testArgs(testLimit, files)], { cwd: dir, env, limit });
   return run.closed.then(async ({ status, signal }) => {
+    await sweepOrphanChromes().catch(() => {});
     const { stdout, stderr, left } = run;
     clearInterval(ticker);
     const count = (name) => Number(stdout.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] ?? 0);

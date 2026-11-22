@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 // Read when used: a test points CHROME at a stand-in for one run.
@@ -20,6 +21,11 @@ const START_WAIT_MS = 45000;
 // with its profile dir as cwd, so stop() takes down whatever it started and nothing is left in a worktree.
 const NO_HELPERS = ['--disable-crash-reporter', '--disable-breakpad', '--disable-component-update', '--disable-background-networking'];
 
+// The Chromes this process started and has not stopped. The process's exit, including a process.exit from
+// exit-with-run.mjs at a file's limit, kills their groups; a SIGKILL gives no exit, so sweepOrphanChromes ends those.
+const running = new Set();
+process.on('exit', () => { for (const pid of running) { try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ } } });
+
 const groupAlive = (pgid) => { try { process.kill(-pgid, 0); return true; } catch { return false; } };
 
 async function launchOnce(dir, flags) {
@@ -29,8 +35,10 @@ async function launchOnce(dir, flags) {
   const chrome = spawn(chromePath(), ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', ...NO_HELPERS, ...flags, 'about:blank'],
     // The account's own home, not a $HOME a caller pointed elsewhere: Chrome's network stack stalls on a home without its keychain.
     { stdio: 'ignore', env, cwd: dir, detached: true });
+  running.add(chrome.pid);
   const exited = new Promise((resolve) => chrome.once('exit', resolve));
   const stop = async () => {
+    running.delete(chrome.pid);
     try { process.kill(-chrome.pid, 'SIGKILL'); } catch { /* the group is already gone */ }
     await exited;
     // SIGKILL reaches every member at once, but the kernel reaps them a moment after the leader.
@@ -77,4 +85,16 @@ export async function openTab(port) {
     await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`).catch(() => {});
   };
   return { cdp, on: (fn) => { listeners.push(fn); return () => listeners.splice(listeners.indexOf(fn), 1); }, close };
+}
+
+// Ends each headless Chrome whose parent is gone (parent 1) and whose profile dir is under the temp dir: one a test file
+// started with startChrome and was killed before it could stop. A Chrome of a test file still running has its parent.
+export async function sweepOrphanChromes() {
+  const { stdout } = await promisify(execFile)('/bin/ps', ['-A', '-o', 'pid=,ppid=,args=']);
+  const profiles = [os.tmpdir(), fs.realpathSync(os.tmpdir())].map((dir) => `--user-data-dir=${dir}${path.sep}`);
+  for (const line of stdout.split('\n')) {
+    const [, pid, ppid, args] = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line) ?? [];
+    if (ppid !== '1' || !args.includes('--headless') || !args.includes('--remote-debugging-port=0') || !profiles.some((p) => args.includes(p))) continue;
+    try { process.kill(-Number(pid), 'SIGKILL'); } catch { /* gone */ }
+  }
 }
