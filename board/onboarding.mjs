@@ -41,6 +41,19 @@ What this part does, when the chosen home has no build script:
 - If nothing here builds, say so and write no build script.
 `;
 
+const TEST_PART = `## Test script
+
+Every land, PR push and nightly suite runs the board's test script, the repo's \`.kickflip/test\` or the board's \`test\` in kickflip, as \`<test> <base>\`, with the run's worktree as its working folder (docs/adr/2026-11-21-2310-a-land-runs-its-repos-own-test-script.md). With none it runs the repo's node test files, and a repo with no node test files and no test script refuses to land.
+- Exit non-zero to refuse the land; its last lines go in the refusal.
+- A stub that exits 0 opts the repo out of tests, and its last line is said on each land.
+- Like the build script, the file is a regular file, executable, writable by no one but its owner.
+
+What this part does, when the chosen home has no test script and the repo has no node test files:
+- Look at how the repo tests: a package script, a test runner's config, a CI workflow.
+- If it tests, ask the owner for the command that runs the repo's tests, and write \`test\` to run it.
+- If it has no tests, ask the owner whether to write a stub that exits 0 with a last line saying so, so the first land isn't refused.
+`;
+
 const RELEASE_PART = `## Release script
 
 A release task is one whose commit subject is \`chore(release): <version>\`. When the board has a release script, the repo's \`.kickflip/release\` or the board's \`release\` in kickflip, land runs it for each release task, with no shell (docs/adr/2026-11-16-0200-a-repos-kickflip-release-replaces-lands-tag-release.md):
@@ -66,7 +79,7 @@ export const SCRIPTS_CARD = 'Choose where the build scripts live, and prepare th
 // {build, release}, what the board's site holds). The scripts card is always there, for its first-round question; the
 // CONTEXT card covers only the missing parts.
 function cardsFor(has) {
-  const cards = [{ title: SCRIPTS_CARD, notes: `# ${SCRIPTS_CARD}\n\n${[HOME_PART(has), BUILD_PART, RELEASE_PART].join('\n')}` }];
+  const cards = [{ title: SCRIPTS_CARD, notes: `# ${SCRIPTS_CARD}\n\n${[HOME_PART(has), BUILD_PART, TEST_PART, RELEASE_PART].join('\n')}` }];
   const gaps = [!has.context && 'CONTEXT.md', !has.adr && 'ADR'].filter(Boolean);
   if (gaps.length === 2) {
     cards.push({ title: "Write the repo's CONTEXT.md glossary and first ADR", notes: `# Write CONTEXT.md and the first ADR\n\nTasks in this repo are grilled and built against its own words and decisions. This task writes them down.\n\nWhat this task does:\n${CONTEXT_PART}${ADR_PART}- If the repo already has a CONTEXT.md or ADRs, extend them rather than start again.\n` });

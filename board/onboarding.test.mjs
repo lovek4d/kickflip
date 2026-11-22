@@ -28,6 +28,19 @@ test('the scripts card sets up the build and release scripts, with their contrac
   assert.match(notes, /`<release> ship <version> <commit>` once main reached origin, while the board's Run release script box is on/);
 });
 
+// docs/adr/2026-11-21-2310-a-land-runs-its-repos-own-test-script.md
+test('the scripts card asks for a test script, or a stub that opts out, beside the build script', () => {
+  const d = dir();
+  const [scripts] = onboardingItems(path.join(d, 'wave.json'), { has: {} });
+  const notes = fs.readFileSync(path.join(d, scripts.plan), 'utf8');
+  assert.match(notes, /## Test script\n/);
+  assert.match(notes, /`<test> <base>`, with the run's worktree as its working folder/);
+  assert.match(notes, /a repo with no node test files and no test script refuses to land/);
+  assert.match(notes, /ask the owner for the command that runs the repo's tests/);
+  assert.match(notes, /stub that exits 0/);
+  assert.ok(notes.indexOf('## Build script') < notes.indexOf('## Test script') && notes.indexOf('## Test script') < notes.indexOf('## Release script'));
+});
+
 const titles = (items) => items.map((i) => i.title);
 const SCRIPTS = 'Choose where the build scripts live, and prepare them';
 const CONTEXT = "Write the repo's CONTEXT.md glossary and first ADR";
