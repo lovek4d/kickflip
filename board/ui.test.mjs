@@ -255,22 +255,12 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(text(idle), 'GitHub 2 h');
 });
 
-test('the header time moves on a refresh, the first load and a change signal that brought something new, never on a poll', () => {
-  const board = { generatedAt: '2026-10-23T12:00:00Z', items: [{ key: 'w/A', lane: 'todo' }] };
-  const threads = new Map([['w/A', [{ text: 'a' }]]]);
-  const sig = ui.freshSig(board, threads, ['w/A']);
-  assert.equal(ui.freshSig({ ...board, generatedAt: '2026-10-23T12:05:00Z' }, threads, ['w/A']), sig);
-  const replied = ui.freshSig(board, new Map([['w/A', [{ text: 'a' }, { text: 'b' }]]]), ['w/A']);
-  assert.notEqual(replied, sig);
-  assert.notEqual(ui.freshSig({ ...board, items: [] }, threads, ['w/A']), sig);
-  const snapshot = { at: '2026-10-23T08:00:00Z', sig: null };
-  assert.deepEqual(plain(ui.nextFresh(snapshot, { via: 'poll', at: 't1', sig })), { at: 't1', sig });
-  assert.deepEqual(plain(ui.nextFresh(null, { via: 'signal', at: 't1', sig })), { at: 't1', sig });
-  const landed = { at: 't1', sig };
-  assert.equal(ui.nextFresh(landed, { via: 'poll', at: 't2', sig: replied }), landed);
-  assert.equal(ui.nextFresh(landed, { via: 'signal', at: 't2', sig }), landed);
-  assert.deepEqual(plain(ui.nextFresh(landed, { via: 'signal', at: 't2', sig: replied })), { at: 't2', sig: replied });
-  assert.deepEqual(plain(ui.nextFresh(landed, { via: 'refresh', at: 't2', sig })), { at: 't2', sig });
+test('the page goes quiet after 5 minutes without an answer from the host', () => {
+  const at = '2026-10-23T12:00:00Z';
+  const later = (min) => Date.parse(at) + min * 60000;
+  assert.equal(ui.quiet(at, later(5)), false);
+  assert.equal(ui.quiet(at, later(5) + 1), true);
+  assert.equal(ui.quiet(null, later(60)), false, 'before any answer there is nothing to grey');
 });
 
 test("the GitHub refresh spins and rests only while the server's checks.requested reads pending", () => {

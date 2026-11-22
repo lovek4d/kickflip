@@ -6,7 +6,7 @@
 // name opens, with Join in terminal, Settings, Repo review and Pause. Needs app-core.js.
 BoardView.part((B) => {
   const { $, state, toast } = B;
-  const { statusLine, freshSig, nextFresh, githubLine, remoteLine, linksList, setupCard, pendingCheck, githubRefresh, headerControls } = BoardUI;
+  const { statusLine, quiet, githubLine, remoteLine, linksList, setupCard, pendingCheck, githubRefresh, headerControls } = BoardUI;
 
   function renderHeader(d) {
     renderStatus();
@@ -17,6 +17,7 @@ BoardView.part((B) => {
   }
   // The status line, and the moon right of the title while the owner reads away (hub/presence.mjs ownerTracker).
   const renderStatus = () => {
+    B.root.classList.toggle('quiet', quiet(state.fresh?.at));
     $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.() });
     renderPause(B.pause?.());
     B.renderStart();
@@ -58,9 +59,9 @@ BoardView.part((B) => {
     el.hidden = !html;
     BoardUI.setHTML(el, html);
   }
-  // A board load and its open threads landed; via is ui-header.js nextFresh's.
-  function landed(via) {
-    state.fresh = nextFresh(state.fresh, { via, at: new Date().toISOString(), sig: freshSig(state.board, state.threadCache, state.openItems) });
+  // The host answered a board load (a 304 included) or a tap: the header's time starts again and the live counts lift from quiet.
+  function landed() {
+    state.fresh = { at: new Date().toISOString() };
     renderStatus();
   }
   B.tick(() => { if (!document.hidden) renderStatus(); });

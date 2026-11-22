@@ -1,7 +1,7 @@
 // The board header's time and the In Review header's GitHub line, with when a refresh asks for a check. Needs ui.js.
 (function () {
   const { since, esc } = globalThis.BoardUI;
-  // The header's short time beside refresh: `at` is when the page last got fresh data (nextFresh). It reads that age;
+  // The header's short time beside refresh: `at` is when the host last answered the page (app-header.js landed). It reads that age;
   // the board's other states only move its title; the logo's dot carries the state, and the span takes `late` past a
   // minute old, which style.css turns orange with the arrow (docs/adr/2026-11-12-1000-the-logo-dot-carries-the-hub-state.md). watcher is
   // /api/board's checks.watcher (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
@@ -15,17 +15,13 @@
       : watcher === 'waking' ? 'Waking: the hub is resuming its session'
       : watcher === 'asleep' ? 'Asleep: its session idled out. Refresh, or any tap on the page, wakes it' : '';
     if (!at && !reason) return '';
-    const title = [reason, at && `Updated ${since(at)}: the last change from the host, or your last refresh`].filter(Boolean).join('. ');
+    const title = [reason, at && `Updated ${since(at)}: the host last answered`].filter(Boolean).join('. ');
     const late = at && Date.now() - Date.parse(at) > 60000;
     return `<span class="fresh${late ? ' late' : ''}" title="${esc(title)}">${at ? shortSince(at) : ''}</span>`;
   };
-  // What the page shows, for telling whether a change signal brought anything new; generatedAt changes on every load.
-  const freshSig = (board, threads, openKeys) => JSON.stringify([{ ...board, generatedAt: null }, [...openKeys].sort().map((k) => [k, threads.get(k) ?? null])]);
-  // fresh is {at, sig}: the header's time and what the page showed then. via is 'refresh' (a ↻ tap), 'signal' (the
-  // stream's change signal) or 'poll' (any other load). A manual refresh always moves the time, a change signal only when it brought
-  // something the time hasn't counted, a poll never, and any load moves it while none has landed (sig null)
-  // (docs/adr/2026-10-29-1639-the-board-reloads-on-a-change-signal.md).
-  const nextFresh = (fresh, { via, at, sig }) => (!fresh?.sig || via === 'refresh' || (via === 'signal' && sig !== fresh.sig) ? { at, sig } : fresh);
+  // The page has heard nothing from the host for this long: every live count greys out (style.css .quiet) until an answer comes.
+  const QUIET_AFTER = 5 * 60000;
+  const quiet = (at, now = Date.now()) => Boolean(at) && now - Date.parse(at) > QUIET_AFTER;
   const shortSince = (iso) => {
     const s = (Date.now() - Date.parse(iso)) / 1000;
     return s < 60 ? 'now' : s < 3600 ? Math.round(s / 60) + ' min' : s < 86400 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' d';
@@ -162,5 +158,5 @@
       + `${note ? `<p class="muted small">${note}</p>` : ''}<p class="small">${leave}</p><p class="muted small">/exit ends the session; the hub wakes it on the next event.</p>`;
   };
 
-  Object.assign(globalThis.BoardUI, { statusLine, freshSig, nextFresh, githubLine, remoteLine, brokenLinks, linksList, setupCard, pendingCheck, githubRefresh, refreshIcon, headerControls, joinState, JOIN_STATES, boardMenu, joinSheet });
+  Object.assign(globalThis.BoardUI, { statusLine, quiet, githubLine, remoteLine, brokenLinks, linksList, setupCard, pendingCheck, githubRefresh, refreshIcon, headerControls, joinState, JOIN_STATES, boardMenu, joinSheet });
 })();

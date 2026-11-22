@@ -417,7 +417,7 @@ window.BoardView = (function () {
         if (state.view !== 'fresh' && B.alive()) await showDown(BoardUI.downOf(e.answer || null));
       }
       await Promise.all(threads);
-      if (landed) B.landed(via);
+      if (landed) B.landed();
       if (state.view === 'fresh') B.endFlash();
     }
 
@@ -514,6 +514,7 @@ window.BoardView = (function () {
       const out = await B.site.send(kind, { ...data, ...(state.view === 'fresh' ? { since: state.board.version } : {}) }, { signal });
       if (!B.alive()) return out;
       answered?.();
+      B.landed();
       if (!land(out.board, B.boardLoad = (B.boardLoad || 0) + 1)) await boardAfter(out.board.generatedAt);
       return out;
     }

@@ -179,6 +179,8 @@ button.link { background: none; border: 0; color: var(--accent); padding: 8px 12
 .refresh #status { font-size: 12px; min-width: 0; }
 .refresh .late { color: var(--color-notice); font-weight: 600; }
 .refresh:has(.late) #refresh { color: var(--color-notice); }
+/* The page has heard nothing from the host for 5 minutes (ui-header.js quiet): every live count and its pulse go grey and still. */
+.quiet [data-since], .quiet [data-since] .it-pulse { color: var(--muted) !important; animation: none !important; }
 .lane-github { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--muted); text-align: right; }
 .lane-github .late { color: var(--color-notice); }
 .msg .reply, .msg .small, .rep, .sent { overflow-wrap: anywhere; }
