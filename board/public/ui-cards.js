@@ -431,12 +431,15 @@
   // docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
   // docs/adr/2026-11-12-0600-action-needed-and-new-messages-get-their-own-row.md).
   const SEP = '<span class="sep"> · </span>';
+  // A message of this browser's outbox failed to send (ui-snapshot.js tapped); app-threads.js scrolls to its Retry on a tap
+  // (docs/adr/2026-11-23-1600-a-thread-message-that-failed-to-send-flags-its-card-in-red.md).
+  const NOT_SENT = '<span class="card-not-sent" data-not-sent title="A message of yours didn’t send. Tap to see it.">not sent</span>';
   const newWords = (n, word) => n && `${n} new ${word}${n === 1 ? '' : 's'}`;
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
     const footer = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, phaseWord(it), ...(it.footer || []).map(footerWord), bars].filter(Boolean);
     const news = newWords(unread, 'message');
-    const alert = [actionWords(it), news && `<span class="card-unread">${news}</span>`, it.stalled && '<span class="card-stalled">stalled</span>', it.plannerQueued && PAUSED].filter(Boolean);
+    const alert = [actionWords(it), news && `<span class="card-unread">${news}</span>`, it.notSent && NOT_SENT, it.stalled && '<span class="card-stalled">stalled</span>', it.plannerQueued && PAUSED].filter(Boolean);
     return [footer.length && `<div class="line6 sub card-time">${footer.join(SEP)}</div>`,
       alert.length && `<div class="line6 sub card-alert">${alert.join(SEP)}</div>`].filter(Boolean).join('');
   }

@@ -1527,6 +1527,20 @@ test('a stale builder has no badge and no nudge: its status line and bars keep t
   assert.doesNotMatch(css, /nudg|button\.sub/);
 });
 
+// docs/adr/2026-11-23-1600-a-thread-message-that-failed-to-send-flags-its-card-in-red.md
+test('a card with a message that failed to send reads red not sent in its alert row, beside stalled, and tapped marks it', () => {
+  const alert = (it) => /<div class="line6 sub card-alert">(.*?)<\/div>/.exec(workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
+  assert.equal(alert({ notSent: true }), '<span class="card-not-sent" data-not-sent title="A message of yours didn’t send. Tap to see it.">not sent</span>');
+  assert.equal(alert({ notSent: false }), undefined);
+  assert.match(alert({ notSent: true, stalled: 'x' }), /not sent<\/span><span class="sep"> · <\/span><span class="card-stalled">stalled<\/span>$/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /^\.card-alert \.card-not-sent \{ color: var\(--color-danger\); \}$/m);
+  const items = [{ key: 'w/A1' }, { key: 'w/B1' }, { key: 'w/C1' }];
+  const drawn = ui.tapped(items, [{ kind: 'item-message', key: 'w/A1', failed: true }, { kind: 'item-message', key: 'w/B1' }, { kind: 'card-tag', key: 'w/C1', fields: { key: 'w/C1', tag: 'x', on: true }, failed: true }]);
+  assert.deepEqual(drawn.map((i) => Boolean(i.notSent)), [true, false, true]);
+  assert.equal(ui.tapped(items, []), items);
+});
+
 test('a card the orchestrator stalled reads red stalled rightmost on the row under its footer, after its Action needed, in place of stale', () => {
   const action = { kind: 'stalled', url: '#selectedCard=w%2FB5', label: 'stalled: Crashed twice' };
   const html = workLines({ ...workCard, lane: 'progress', sortAt: ago(5), stale: true, stalled: 'Crashed twice', action });

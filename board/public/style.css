@@ -539,6 +539,7 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .card-alert .card-action { color: var(--color-notice); }
 .card-alert .card-action.card-open-items { color: var(--color-info); }
 .card-alert .card-stalled { color: var(--color-danger); }
+.card-alert .card-not-sent { color: var(--color-danger); }
 .card-alert .card-unread { color: var(--color-info); }
 /* Lane headers: Linear-style group bands */
 .lane > summary { display: flex; align-items: center; gap: 8px; margin: 0; min-height: 34px; padding: 5px 12px;

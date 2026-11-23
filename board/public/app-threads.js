@@ -413,6 +413,16 @@ BoardView.part((B) => {
     B.answersLinkChanged();
   }
 
+  // The red not sent on an open card (ui-cards.js NOT_SENT) scrolls to the failed message's Retry instead of folding the card;
+  // on a closed card the tap opens it, and its thread draws the message.
+  B.on(B.root, 'click', (ev) => {
+    const flag = ev.target.closest('[data-not-sent]');
+    const card = flag?.closest('details.item[open]');
+    if (!card) return;
+    ev.preventDefault();
+    card.querySelector('[data-resend]')?.scrollIntoView({ block: 'center' });
+  });
+
   // Retry and X on a failed send, each after a confirm: Retry sends it again in place; X drops it and puts its text
   // back in the box, before whatever is typed there, a New task's in the New task box with its files, opened
   // (new-task.js reopenAsk); a keyless tap with said words has no box, and X only drops it. A bare tap's confirm names its line.
