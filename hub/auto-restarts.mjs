@@ -25,16 +25,15 @@ export function readRestarts() {
   return text.split('\n').flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
 }
 
-// Each board's newest automatic restart within ROW_FOR, as its Hub row line: Map route → {link, detail}.
+// Each board's newest automatic restart within ROW_FOR, as its Hub row line: Map route → {link, detail ("the session"), at (when, which the page words and counts on), why}.
 export function restartLines(now = Date.now(), entries = readRestarts()) {
   const lines = new Map();
   for (const e of entries) {
     if (e.outcome !== 'restarted' || now - Date.parse(e.at) > ROW_FOR) continue;
-    lines.set(e.board, { link: 'restarted', detail: `the ${e.what} ${agoWords(now - Date.parse(e.at))}: ${e.why}` });
+    lines.set(e.board, { link: 'restarted', detail: `the ${e.what}`, at: e.at, why: e.why });
   }
   return lines;
 }
-const agoWords = (ms) => (ms < 60_000 ? 'just now' : ms < 3600_000 ? `${Math.floor(ms / 60_000)}m ago` : `${Math.floor(ms / 3600_000)}h ago`);
 
 // docs/adr/2026-11-16-1500-new-code-restarts-on-a-busy-board-once-no-land-is-landing.md
 // Why a restart for new code waits: a land is landing on the host, moving the code the restart would load and pushing,

@@ -39,7 +39,7 @@
     const { row, CHEVRON } = HubUI;
     const site = (s) => {
       const busy = restarting.has(s.route);
-      const lines = s.lines.length ? `<span class="links">${s.lines.map((l) => `<span><b>${esc(l.link)}</b> ${esc(l.detail)}</span>`).join('')}</span>` : '';
+      const lines = s.lines.length ? `<span class="links">${s.lines.map((l) => `<span><b>${esc(l.link)}</b> ${l.at ? `${esc(l.detail)} <span data-ago="${esc(l.at)}">${esc(BoardUI.ago(l.at))}</span>: ${esc(l.why)}` : esc(l.detail)}</span>`).join('')}</span>` : '';
       const sub = busy ? RESTARTING : `<span class="st ${esc(s.tone)}">${esc(s.word)}</span>${lines}`;
       return (s.restart ? restartRow(s, sub, busy) : row({ icon: s.icon, title: esc(s.title), sub, wrap: true, trail: CHEVRON, href: s.href })) + rememberedHtml(s.remembered);
     };
@@ -166,6 +166,8 @@ ${BoardNewTask.markup()}`,
       // A change in the Notifications modal can start or end the hold the banner shows.
       const settings = HubSettings.create(B.$('.hub-settings'), siteRoot, { ...ctx, sidebarChanged: () => { ctx.sidebarChanged?.(); load(); } });
       settings.mount();
+      // A restart line's age is worded from its time, so it counts on between loads.
+      B.tick(() => { for (const el of B.$('.hub-status')?.querySelectorAll('[data-ago]') || []) el.textContent = BoardUI.ago(el.dataset.ago); });
       B.atUnmount(() => settings.unmount());
       B.on(B.$('#refresh'), 'click', () => settings.B.refreshSettings?.());
       // docs/adr/2026-11-16-0600-the-hubs-new-task-box-files-through-the-router.md: the board's + button and New task sheet

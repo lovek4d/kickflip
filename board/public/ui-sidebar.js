@@ -190,7 +190,12 @@
       + `<line x1="0" x2="120" y1="${y(cores)}" y2="${y(cores)}" stroke="var(--line)" stroke-dasharray="3 3"/>`
       + `<polyline fill="none" stroke-width="2" vector-effect="non-scaling-stroke" points="${samples.map((s, i) => `${x(i)},${y(s.load)}`).join(' ')}"/></svg>`;
   }
-  function loadSheet(data, { open = new Set() } = {}) {
+  // The age of a process, worded from its start; the sheet's open page counts it on (recountAges).
+  const ageSpan = (startedAt, now) => `<span class="ls-age" data-started="${esc(startedAt)}">${ageWords(Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000)))}</span>`;
+  const recountAges = (root, now = Date.now()) => {
+    for (const el of root.querySelectorAll('[data-started]')) el.textContent = ageWords(Math.max(0, Math.floor((now - Date.parse(el.dataset.started)) / 1000)));
+  };
+  function loadSheet(data, { open = new Set(), now = Date.now() } = {}) {
     const head = `<div class="sheet-head"><h2 id="loadSheetTitle">What's loading the host</h2><button type="button" data-load-close aria-label="Close sheet">✕</button></div>`;
     if (!data) return `<div class="sheet-body">${head}<p class="ls-note" role="status">Reading the host…</p></div>`;
     const load = `<div class="ls-load${data.busy ? ' ls-busy' : ''}"><div><b>${tenth(data.load)}</b><span> now, ${data.cores} cores</span></div>`
@@ -198,7 +203,7 @@
         ? `<div><b class="ls-avg">${tenth(data.average)}</b><span> hour average</span></div><div class="ls-sparkbox">${loadLine(data)}<span class="ls-axis"><i>60 min ago</i><i>now</i></span></div>`
         : '<div><span>No samples yet</span></div>')
       + '</div>';
-    const row = (r, orphan) => `<div class="ls-item"><div class="ls-row"><span class="ls-txt"><span class="ls-cmd">${esc(r.cmd)}</span><span class="ls-facts">${esc([ageWords(r.age), r.owner].filter(Boolean).join(' · '))}</span></span>`
+    const row = (r, orphan) => `<div class="ls-item"><div class="ls-row"><span class="ls-txt"><span class="ls-cmd">${esc(r.cmd)}</span><span class="ls-facts">${ageSpan(r.startedAt, now)}${r.owner ? ` · ${esc(r.owner)}` : ''}</span></span>`
       + `<span class="ls-cpu${r.cpu >= 100 ? ' hot' : ''}">${Math.round(r.cpu)}%</span>${orphan ? `<button type="button" class="ls-stop" data-stop="${r.pid}">Stop</button>` : ''}</div>`
       + (orphan ? `<div class="ls-confirm" hidden><span>Stop <code>${esc(r.cmd)}</code> (pid ${r.pid})? It ends the process and anything it's doing.</span><button type="button" data-keep>Keep</button><button type="button" class="danger" data-stop-yes="${r.pid}">Stop it</button><p class="ls-refused" role="alert" hidden></p></div>` : '')
       + '</div>';
@@ -360,5 +365,5 @@
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, loadSheet, START_STEPS, startSteps, startCaption, startBanner, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords, hubDot });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, loadSheet, recountAges, START_STEPS, startSteps, startCaption, startBanner, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords, hubDot });
 })();

@@ -108,6 +108,7 @@ export const POLLS = Object.freeze([
 
   // Pages
   { id: 'start-steps', group: 'pages', name: 'Start-step ticker', what: 'Counts up a starting board’s steps in the sidebar, only while one starts.', every: SECOND, runs: 'Each open page', where: 'board/public/sidebar.js' },
+  { id: 'load-sheet-ages', group: 'pages', name: 'Load sheet ages', what: 'Counts up each process’s age in the What’s loading the host sheet, only while the sheet is open.', every: SECOND, runs: 'Each open page', where: 'board/public/sidebar.js' },
   { id: 'pin-countdown', group: 'pages', name: 'Sign-in PIN countdown', what: 'Drains the Sign in a device dialog’s bar and renews its PIN at 0, only while the dialog is open.', every: SECOND, runs: 'Each open page', where: 'board/public/view-hub.js' },
   { id: 'run-log', group: 'pages', name: 'Run log', what: 'Reads a run’s log again while it’s open and the run hasn’t finished.', every: 3 * SECOND, runs: 'Each open page', where: 'board/public/app-reader.js' },
   { id: 'log-page', group: 'pages', name: 'Log page', what: 'Reads a site’s log again while the log page is open.', every: 3 * SECOND, runs: 'Each open page', where: 'board/public/log.html' },

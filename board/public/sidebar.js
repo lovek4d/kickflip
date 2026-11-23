@@ -327,6 +327,8 @@
       document.body.appendChild(el);
       BoardUI.swipeToDismiss(el);
       el.showModal();
+      const ticker = setInterval(() => BoardUI.recountAges(el), 1000); // poll: load-sheet-ages
+      el.addEventListener('close', () => clearInterval(ticker));
       read();
     }
     // A failed start's sheet (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). Dismiss deletes its Starting

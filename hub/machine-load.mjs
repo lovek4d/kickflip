@@ -131,16 +131,18 @@ async function groupsNow({ ps = () => runPs(PS_COLUMNS), builders, sessions, kee
   return text === null ? null : loadGroups(parsePs(text), { builders: await builders, sessions: await sessions, keep, uid, home });
 }
 
+const startedAtRows = (groups, now) => groups && groups.map((g) => ({ ...g, rows: g.rows.map(({ age, ...row }) => ({ ...row, startedAt: new Date(now - age * 1000).toISOString() })) }));
+
 // What /_hub/machine.json serves: {load, cores, busy (the state the hub's tick kept), average (of the samples, null without any), samples: [{at, load}],
-// groups (loadGroups', or null when ps gave no answer)}.
-export async function machineLoad({ reading = readMachine, samples = readMachineSamples, state = readMachineState, ...deps }) {
+// groups (loadGroups', or null when ps gave no answer), each row with startedAt (an ISO time, in place of its age, which the page words and counts on)}.
+export async function machineLoad({ reading = readMachine, samples = readMachineSamples, state = readMachineState, now: clock = Date.now, ...deps }) {
   const now = reading();
   const kept = samples();
   return {
     load: now.load, cores: now.cores, busy: state().state === 'busy',
     average: kept.length ? kept.reduce((n, s) => n + s.load, 0) / kept.length : null,
     samples: kept,
-    groups: await groupsNow(deps),
+    groups: startedAtRows(await groupsNow(deps), clock()),
   };
 }
 

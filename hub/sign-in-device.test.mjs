@@ -20,7 +20,7 @@ function page() {
   }, document);
   const store = new Map();
   const B = (root) => ({ root, site: { root: '/_hub' }, store: { get: (k, d) => (store.has(k) ? store.get(k) : d), set: (k, v) => store.set(k, v) },
-    $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) });
+    $: (s) => root.querySelector(s), alive: () => true, tick() {}, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) });
   const click = (target) => listeners.filter((l) => l.type === 'click' && l.target?.contains?.(target)).forEach((l) => l.fn({ target }));
   return { document, listeners, Element, B, click };
 }

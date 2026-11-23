@@ -21,7 +21,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 const BOARD_UI = { header: () => '', BUSY: ' disabled aria-busy="true"', waitOn: (control, promise) => promise, onBackdrop: (ev, backdrop) => ev.target === backdrop, swipeToDismiss: () => () => {}, openSheet: (sheet) => sheet.showModal(), newStrip: () => '' };
 // The hub page's outbox (view-hub.js) keeps its tasks in the page's store, their files in attach.js boxes.
 const memoryStore = () => { const m = new Map(); return { get: (k, d) => (m.has(k) ? m.get(k) : d), set: (k, v) => m.set(k, v) }; };
-const HUB_PAGE = () => ({ site: { root: '/_hub' }, store: memoryStore() });
+const HUB_PAGE = () => ({ site: { root: '/_hub' }, store: memoryStore(), tick() {} });
 const ATTACH = { onChange: () => () => {}, list: () => [], saved: () => null, restore() {} };
 // The New task box's drafts (drafts.js), idle: board/view.test.mjs tests them.
 const DRAFTS = { create: () => ({ take() {}, text: () => '', put() {}, send: async (id, ta, current, run) => run() }) };
@@ -547,10 +547,10 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
   let live, loads = 0;
-  const listeners = [], opened = [];
+  const listeners = [], opened = [], ticks = [];
   const context = vm.createContext({
     navigator: {}, localStorage: { getItem: () => 'mine' },
-    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(),$: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardNewTask: { markup: () => '', wire() {} }, BoardAttach: ATTACH, BoardDrafts: DRAFTS, BoardView: { page: (root, site, run) => run({ ...HUB_PAGE(), tick: (fn) => ticks.push(fn),$: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
     BoardUI: { ...BOARD_UI, ago: (iso) => (Date.now() - Date.parse(iso) > 3600_000 ? '2h ago' : '5m ago') },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
@@ -661,6 +661,16 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.match(limited.textContent, /rate limited · resets at 3:12pm/);
   assert.equal(limited.querySelector('.rd-waits').textContent, integrations[0].waits);
   assert.match(limited.querySelector('.icon').getAttribute('style'), /var\(--color-danger\)/);
+  // A board's restart line sends when it happened; the page words it and counts it on from that time.
+  const restartedAt = new Date(Date.now() - 5 * 60_000).toISOString();
+  const [first, ...others] = data.groups[0].sites;
+  live.paint({ ...data, groups: [{ ...data.groups[0], sites: [{ ...first, lines: [{ link: 'restarted', detail: 'the session', at: restartedAt, why: 'not listening' }] }, ...others] }] });
+  const age = root.querySelector('.links [data-ago]');
+  assert.equal(age.dataset.ago, restartedAt);
+  assert.equal(age.parentNode.textContent, 'restarted the session 5m ago: not listening');
+  age.textContent = 'stale';
+  ticks.forEach((fn) => fn());
+  assert.equal(age.textContent, '5m ago', 'the page tick words it again from its time');
 });
 
 // docs/adr/2026-11-15-0730-an-integration-missing-a-permission-reads-degraded.md

@@ -3449,17 +3449,18 @@ test("the Hub row's status opens what's loading the host at any load: the load n
 
   assert.match(text(ui.loadSheet(null)), /What's loading the host ✕ Reading the host…/);
   const H = 3600;
+  const since = (s) => new Date(NOW - s * 1000).toISOString();
   const data = {
     load: 58.04, cores: 10, average: 46.25,
     samples: [{ at: '2026-11-12T01:00:00Z', load: 31 }, { at: '2026-11-12T01:01:00Z', load: 63 }, { at: '2026-11-12T01:02:00Z', load: 58 }],
     groups: [
-      { key: 'orphan', title: 'Looks orphaned', rows: [{ pid: 4127, cmd: 'node --test board/server.test.mjs', age: 5 * 24 * H, cpu: 212, owner: 'no board or session' }, { pid: 5530, cmd: 'node board/server.mjs --port 4431', age: 3 * 24 * H, cpu: 38.4, owner: 'no board or session' }] },
-      { key: 'suite', title: 'Test suites', rows: [{ pid: 122, cmd: 'node --test hub/hub.test.mjs', age: 720, cpu: 96, owner: 'T-171 build' }] },
-      { key: 'session', title: 'Claude sessions', rows: [{ pid: 200, cmd: 'Hub Orchestrator', age: 9 * H, cpu: 3, owner: 'orchestrator' }] },
-      { key: 'other', title: 'Other', rows: [{ pid: 300, cmd: 'mds_stores', age: 40, cpu: 18, owner: '' }] },
+      { key: 'orphan', title: 'Looks orphaned', rows: [{ pid: 4127, cmd: 'node --test board/server.test.mjs', startedAt: since(5 * 24 * H), cpu: 212, owner: 'no board or session' }, { pid: 5530, cmd: 'node board/server.mjs --port 4431', startedAt: since(3 * 24 * H), cpu: 38.4, owner: 'no board or session' }] },
+      { key: 'suite', title: 'Test suites', rows: [{ pid: 122, cmd: 'node --test hub/hub.test.mjs', startedAt: since(720), cpu: 96, owner: 'T-171 build' }] },
+      { key: 'session', title: 'Claude sessions', rows: [{ pid: 200, cmd: 'Hub Orchestrator', startedAt: since(9 * H), cpu: 3, owner: 'orchestrator' }] },
+      { key: 'other', title: 'Other', rows: [{ pid: 300, cmd: 'mds_stores', startedAt: since(40), cpu: 18, owner: '' }] },
     ],
   };
-  const sheet = ui.loadSheet(data);
+  const sheet = ui.loadSheet(data, { now: NOW });
   assert.match(text(sheet), /^What's loading the host ✕ 58 now, 10 cores 46\.3 hour average 60 min ago now /);
   assert.match(sheet, /<polyline [^>]*points="0,[\d.]+ 60,[\d.]+ 120,[\d.]+"/);
   const folds = [...sheet.matchAll(/<button type="button" class="ls-fold" data-fold="(\w+)" aria-expanded="(true|false)">(.*?)<\/button>/g)].map((m) => [m[1], m[2], text(m[3])]);
@@ -3468,7 +3469,7 @@ test("the Hub row's status opens what's loading the host at any load: the load n
   ]);
   assert.equal([...sheet.matchAll(/<div class="ls-inner"( hidden)?>/g)].map((m) => Boolean(m[1])).join(), 'true,true,true,true', 'every group opens collapsed');
   // A re-read after a Stop keeps the groups the owner opened.
-  const reread = ui.loadSheet(data, { open: new Set(['orphan', 'other']) });
+  const reread = ui.loadSheet(data, { now: NOW, open: new Set(['orphan', 'other']) });
   assert.equal([...reread.matchAll(/<div class="ls-inner"( hidden)?>/g)].map((m) => Boolean(m[1])).join(), 'false,true,true,false');
   assert.match(reread, /data-fold="orphan" aria-expanded="true"/);
   assert.match(text(sheet), /node --test board\/server\.test\.mjs 5d · no board or session 212% Stop Stop node --test board\/server\.test\.mjs \(pid 4127\)\? It ends the process and anything it's doing\. Keep Stop it/);
@@ -3480,12 +3481,17 @@ test("the Hub row's status opens what's loading the host at any load: the load n
   assert.match(sheet, /class="ls-cpu hot">212%/);
 
   assert.doesNotMatch(sheet, /ls-busy/, 'green while the hub does not read busy');
-  assert.match(ui.loadSheet({ ...data, busy: true }), /<div class="ls-load ls-busy">/, 'orange while it reads busy');
+  assert.match(ui.loadSheet({ ...data, busy: true }, { now: NOW }), /<div class="ls-load ls-busy">/, 'orange while it reads busy');
   assert.doesNotMatch(sheet, /<polyline [^>]*stroke="/, 'the line takes its colour from the sheet');
 
   assert.match(text(ui.loadSheet({ ...data, groups: [] })), /Nothing is loading the host\.$/);
   assert.match(text(ui.loadSheet({ ...data, groups: null })), /ps gave no answer in time, as happens on a busy host\. Try again in a moment\.$/);
   assert.match(text(ui.loadSheet({ ...data, average: null, samples: [] })), /58 now, 10 cores No samples yet/);
+  // The ages are words of each row's start, which the page counts on after the sheet drew.
+  assert.match(sheet, new RegExp(`<span class="ls-age" data-started="${since(720)}">12m</span>`));
+  const el = { dataset: { started: since(720) }, textContent: '12m' };
+  ui.recountAges({ querySelectorAll: () => [el] }, NOW + 5 * 60_000);
+  assert.equal(el.textContent, '17m', 'a later page tick words it again');
 });
 
 test('a card whose planner is queued for the usage reset ends its alert row with a grey bold paused', () => {

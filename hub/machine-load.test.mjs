@@ -116,7 +116,10 @@ test('the sheet’s data carries the load now and over the hour, the cores, and 
   assert.equal(data.average, 45);
   assert.equal(data.busy, false);
   assert.equal((await machineLoad({ ...base, state: () => ({ state: 'busy' }) })).busy, true);
-  assert.deepEqual(Object.keys(data.groups[0].rows[0]).sort(), ['age', 'cmd', 'command', 'cpu', 'owner', 'pid', 'ppid']);
+  assert.deepEqual(Object.keys(data.groups[0].rows[0]).sort(), ['cmd', 'command', 'cpu', 'owner', 'pid', 'ppid', 'startedAt'], 'a start time, not an age that freezes');
+  const aged = (await machineLoad({ ...base, now: () => Date.parse('2026-11-12T02:00:00Z') })).groups[0].rows[0];
+  const row = parsePs(PS).find((p) => p.pid === aged.pid);
+  assert.equal(aged.startedAt, new Date(Date.parse('2026-11-12T02:00:00Z') - row.age * 1000).toISOString());
   assert.deepEqual(data.samples, samples);
   assert.equal(data.groups[0].key, 'orphan');
   assert.equal((await machineLoad({ ...base, ps: () => null })).groups, null);

@@ -22,18 +22,16 @@ test("each automatic restart is one line of the hub's log, and a board's Hub row
     [at(4).toISOString(), 'orch', 'session', 'not listening', 'failed', 'claude stop failed'],
   ]);
   assert.deepEqual([...restartLines(t0 + 5 * 60_000)], [
-    ['shop', { link: 'restarted', detail: 'the server 5m ago: not answering' }],
-    ['orch', { link: 'restarted', detail: 'the session 2m ago: not listening' }],
+    ['shop', { link: 'restarted', detail: 'the server', at: at(0).toISOString(), why: 'not answering' }],
+    ['orch', { link: 'restarted', detail: 'the session', at: at(3).toISOString(), why: 'not listening' }],
   ]);
-  assert.equal(restartLines(t0 + 3 * 60_000 + 30_000).get('orch').detail, 'the session just now: not listening');
-  assert.equal(restartLines(t0 + 3 * 3600_000).get('shop').detail, 'the server 3h ago: not answering');
   assert.deepEqual([...restartLines(t0 + 3 * 60_000 + ROW_FOR + 1).keys()], [], 'a day on, the row drops it');
 
   const sidebar = { sites: [{ route: 'orch', board: true }], hub: { tone: 'ok', word: 'healthy', detail: '' }, usage: {}, pause: {}, notifications: { text: 'On' } };
   const st = { settings: { notifications: { on: true } }, hold: null };
   const rows = [{ route: 'orch', title: 'Orch', state: 'up', restart: true }];
   const view = hubView({ now: new Date(t0 + 5 * 60_000), st, sidebar, rows, restarts: restartLines(t0 + 5 * 60_000) });
-  assert.deepEqual(view.groups[0].sites[0].lines, [{ link: 'restarted', detail: 'the session 2m ago: not listening' }]);
+  assert.deepEqual(view.groups[0].sites[0].lines, [{ link: 'restarted', detail: 'the session', at: at(3).toISOString(), why: 'not listening' }]);
 });
 
 test('an automatic restart waits while its session is busy, a builder of the board is open, or a land is queued or landing', async () => {
