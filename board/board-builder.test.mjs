@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardWith, home, at, site, write, read, lines, run, runAsync, board, onOrch, launched, threadOf, wave, question, git, commit, scratchRepo, worktree, land, branches, record, itemOf, toolUse, toolResult, stopHook, ago, onHome, pollClock } from './board-fixture.mjs';
+import { boardWith, home, at, site, write, read, lines, run, runAsync, board, onOrch, launched, threadOf, wave, question, git, commit, scratchRepo, worktree, boardWorktree, land, branches, record, itemOf, toolUse, toolResult, stopHook, ago, onHome, pollClock } from './board-fixture.mjs';
 import * as store from './store.mjs';
 
 test('agent.mjs still writes builder records, beside the wave file it names', async () => {
@@ -329,6 +329,17 @@ test("a card's --size and --model feed builder pick's Claude model, and builder 
   assert.equal((await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'p', '--kind', 'prototype', '--model', 'opus')).code, 0);
 });
 
+test("a build on a board makes its worktree in the board's own folder, worktrees/<route>/<id>", async () => {
+  const repo = scratchRepo();
+  const r = await onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo);
+  assert.equal(r.code, 0, r.err);
+  const tree = at('kickflip', 'worktrees', 'orch', 'A1');
+  assert.ok(r.out.split('\n').includes(`worktree: ${tree}`), r.out);
+  assert.equal(record().worktree.path, tree);
+  assert.ok(fs.existsSync(path.join(tree, '.git')));
+  assert.equal(fs.existsSync(worktree()), false);
+});
+
 test('builder start --worktree makes a worktree on a new branch from main, keeps it on the record and prints it, and refuses a taken path or branch', async () => {
   const repo = scratchRepo();
   git(repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
@@ -355,22 +366,22 @@ test("a build start on a board makes the card's worktree when its record keeps n
   write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), github_login: 'Me' });
   const dispatched =await board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'claude');
   assert.equal(dispatched.code, 0, dispatched.err);
-  assert.ok(dispatched.out.includes(`worktree: ${worktree()}\n`), dispatched.out);
-  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'main'));
+  assert.ok(dispatched.out.includes(`worktree: ${boardWorktree()}\n`), dispatched.out);
+  assert.equal(git(boardWorktree(), 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'main'));
   const taken = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Opus implementer');
   assert.equal(taken.code, 0, taken.err);
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo });
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: boardWorktree(), branch: 'me/orch/a1', repo });
   assert.equal((await board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'notes', '--label', 'Notes')).code, 0);
   assert.equal(read(at('waves', 'w', 'agents', 'A1@notes.json')).worktree, undefined);
   assert.deepEqual(branches(repo), ['main', 'me/orch/a1']);
 
-  commit(worktree(), 'work.txt', 'built');
+  commit(boardWorktree(), 'work.txt', 'built');
   assert.equal((await board('--site', 'orch', 'builder', 'done', 'w/A1', '--next', 'Check the build')).code, 0);
   launched('orch', 'w/A1');
   const again = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(again.code, 0, again.err);
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo });
-  assert.equal(fs.readFileSync(path.join(worktree(), 'work.txt'), 'utf8'), 'built');
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: boardWorktree(), branch: 'me/orch/a1', repo });
+  assert.equal(fs.readFileSync(path.join(boardWorktree(), 'work.txt'), 'utf8'), 'built');
 });
 
 test('builder start --worktree remakes a leftover worktree that holds no work from current main, saying so, and refuses one holding commits or changes, naming them', async () => {
@@ -429,8 +440,8 @@ test("builder start stores the installed link for the kickflip fallback repo, an
   write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), github_login: 'Me' });
   const hub = start('--site', 'orch');
   assert.equal(hub.status, 0, hub.stderr);
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo: project });
-  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'main'));
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: boardWorktree(), branch: 'me/orch/a1', repo: project });
+  assert.equal(git(boardWorktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'main'));
   assert.deepEqual(branches(clone), ['main']);
 });
 
@@ -441,14 +452,14 @@ test('a build start on a board gives the card its worktree, and a later build st
   launched('orch', 'w/A1');
   const first = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(first.code, 0, first.err);
-  assert.equal(git(worktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'me/orch/a1');
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo });
+  assert.equal(git(boardWorktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'me/orch/a1');
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: boardWorktree(), branch: 'me/orch/a1', repo });
   assert.equal(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'A1').lane, 'progress');
-  commit(worktree(), 'work.txt', 'built');
+  commit(boardWorktree(), 'work.txt', 'built');
   const started = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(started.code, 0, started.err);
-  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo });
-  assert.equal(fs.readFileSync(path.join(worktree(), 'work.txt'), 'utf8'), 'built');
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: boardWorktree(), branch: 'me/orch/a1', repo });
+  assert.equal(fs.readFileSync(path.join(boardWorktree(), 'work.txt'), 'utf8'), 'built');
 });
 
 test('a board builder uses its shared clone and selected remote branch without changing the clone checkout', async () => {
@@ -469,7 +480,7 @@ test('a board builder uses its shared clone and selected remote branch without c
   write(at('kickflip', 'manifest.json'), manifest);
   const r = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
   assert.equal(r.code, 0, r.err);
-  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), head);
+  assert.equal(git(boardWorktree(), 'rev-parse', 'HEAD'), head);
   assert.equal(git(repo, 'branch', '--show-current'), 'main');
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree.repo, repo);
 });
@@ -848,7 +859,7 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   // The board server opens the record in the helper's own worktree off the card's branch (store.mjs startHelper);
   // here the test stands in for it.
   const tree = at('kickflip', 'worktrees', 'A1-tests');
-  git(worktree(), 'worktree', 'add', '--quiet', '-b', 'A1-tests', tree, 'me/orch/a1');
+  git(boardWorktree(), 'worktree', 'add', '--quiet', '-b', 'A1-tests', tree, 'me/orch/a1');
   write(helperFile, { ...record, started: new Date().toISOString(), dispatched: 'hub', worktree: { path: tree, branch: 'A1-tests', repo } });
   const start = await onOrch('builder', 'start', 'w/A1', '--kind', 'helper', '--agent', 'tests');
   assert.equal(start.code, 0, start.err);
@@ -866,13 +877,13 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out, `helper tests done: Added the scroll tests\nbranch A1-tests in ${tree}: merge it with agent merge w/A1 --name tests\n`);
   assert.equal('waits' in read(at('waves', 'w', 'agents', 'A1.json')), false, 'the wait clears its mark');
-  commit(worktree(), 'card.txt', 'card', 'feat: the task\n\nRefs: A1');
+  commit(boardWorktree(), 'card.txt', 'card', 'feat: the task\n\nRefs: A1');
   const merged = await onOrch('agent', 'merge', 'w/A1', '--name', 'tests');
   assert.equal(merged.code, 0, merged.err);
   assert.equal(merged.out, `merged A1-tests into me/orch/a1\nworktree removed: ${tree}\nbranch deleted: A1-tests\n`);
   // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
-  assert.equal(git(worktree(), 'log', '-1', '--format=%B'), 'chore: merge the A1-tests helper branch\n\nRefs: A1');
-  assert.equal(fs.readFileSync(path.join(worktree(), 'scroll.test.mjs'), 'utf8'), 'test');
+  assert.equal(git(boardWorktree(), 'log', '-1', '--format=%B'), 'chore: merge the A1-tests helper branch\n\nRefs: A1');
+  assert.equal(fs.readFileSync(path.join(boardWorktree(), 'scroll.test.mjs'), 'utf8'), 'test');
   assert.deepEqual(branches(repo), ['main', 'me/orch/a1']);
 });
 

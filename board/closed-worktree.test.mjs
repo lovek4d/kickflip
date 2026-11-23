@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { removeClosedWorktree } from './worktree.mjs';
-import { git, commit, scratchRepo, worktree, branches, onOrch, launched, threadOf, write } from './board-fixture.mjs';
+import { git, commit, scratchRepo, boardWorktree as worktree, branches, onOrch, launched, threadOf, write } from './board-fixture.mjs';
 
 const BRANCH = 'me/orch/a1';
 const close = () => onOrch('item', 'set', 'w/A1', '--done', '--text', 'Closed without landing.');

@@ -67,6 +67,20 @@ async function expireLogs(logs, now) {
   return expired;
 }
 
+// The folders the sweep looks at: each under the worktrees folder, and each under a board's route folder
+// (board/worktree.mjs worktreePath), which is no worktree itself.
+async function worktreeFolders(root, manifest) {
+  const routes = new Set(Object.entries(manifest.sites || {}).filter(([, site]) => isBoardSite(site)).map(([route]) => route));
+  const found = [];
+  for (const name of await list(root)) {
+    const dir = path.join(root, name);
+    const holdsTrees = routes.has(name) && !await fs.stat(path.join(dir, '.git')).then(() => true, () => false);
+    if (holdsTrees) found.push(...(await list(dir)).map((child) => path.join(dir, child)));
+    else found.push(dir);
+  }
+  return found;
+}
+
 // One sweep. Each folder under the worktrees folder goes, its branch with it, when every record naming it is a closed
 // card's with no launched run alive: at once when it holds no work that never landed (a merged PR's commits landed),
 // else KEEP_DAYS after the newest card's close. A folder git no longer lists goes once a day old, as a younger one may
@@ -78,8 +92,7 @@ export async function sweepLeftovers({ manifest = readManifest(), now = Date.now
   const worktrees = [];
   const failed = [];
   const repos = new Set();
-  for (const name of await list(root)) {
-    const dir = path.join(root, name);
+  for (const dir of await worktreeFolders(root, manifest)) {
     try {
       if (!await listed(dir)) {
         if (now - (await fs.stat(dir)).mtimeMs > DAY) { await fs.rm(dir, { recursive: true, force: true, maxRetries: 3 }); worktrees.push(dir); }

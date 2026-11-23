@@ -373,7 +373,7 @@ test("the server launches the builder for a tap and a pull instead of waking the
   const tapped = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-build', key: 't/H1' }) }).then((r) => r.json());
   assert.equal(tapped.id, null);
   await board.settled();
-  const worktree = path.join(home, '.claude', 'kickflip', 'worktrees', 'H1');
+  const worktree = path.join(home, '.claude', 'kickflip', 'worktrees', 'shop', 'H1');
   assert.equal(runs.length, 2, 'the tapped builder launches');
   const built = runs[1];
   assert.equal(fs.realpathSync(built.cwd), fs.realpathSync(worktree));
@@ -474,7 +474,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
   assert.deepEqual(Object.keys(byCard).sort(), ['R1', 'R2'], 'the clean PR gets none');
   assert.equal(byCard.R1.cwd, built);
   assert.ok(byCard.R1.prompt.includes('builder start t/R1 --kind build --label Rebase') && byCard.R1.prompt.includes('PR #5'));
-  const made = path.join(home, '.claude', 'kickflip', 'worktrees', 'R2');
+  const made = path.join(home, '.claude', 'kickflip', 'worktrees', 'shop', 'R2');
   assert.equal(fs.realpathSync(byCard.R2.cwd), fs.realpathSync(made));
   assert.equal(git(made, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'by-hand'), "the hand-linked PR's worktree is made from its branch");
   assert.deepEqual([read('agents/R1.json').label, read('agents/R1.json').dispatched, read('agents/R1.json').done], ['Rebase', 'hub', undefined]);
@@ -1441,7 +1441,7 @@ test('a writing helper launches at once, its card In Progress already holding th
   fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
   fs.writeFileSync(path.join(b.home, '.claude', 'kickflip', 'settings.json'), JSON.stringify({ tasksInProgress: 1 }));
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
-  const cardTree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1');
+  const cardTree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'shop', 'V1');
   git(b.clone, 'worktree', 'add', '--quiet', '-b', 'V1', cardTree, 'main');
   fs.mkdirSync(path.join(b.data, 'agents'), { recursive: true });
   const main = { kind: 'claude', model: 'opus', started: new Date().toISOString(), worktree: { path: cardTree, branch: 'V1', repo: b.clone } };
@@ -1452,7 +1452,7 @@ test('a writing helper launches at once, its card In Progress already holding th
   await wrote(board, path.join(b.data, 'agents', 'V1@tests.json'));
   assert.equal(b.runs.length, 1, 'the helper launches with the one slot full');
   const [run] = b.runs;
-  const tree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1-tests');
+  const tree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'shop', 'V1-tests');
   assert.equal(fs.realpathSync(run.cwd), fs.realpathSync(tree));
   assert.match(run.prompt, /builder start t\/V1 --kind helper --agent tests/);
   assert.match(run.prompt, /Write the split tests/);

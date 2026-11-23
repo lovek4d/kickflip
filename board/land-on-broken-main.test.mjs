@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { git, commit, scratchRepo, worktree, onOrch, record, itemOf, threadOf, at, read, write, onHome, site } from './board-fixture.mjs';
+import { git, commit, scratchRepo, boardWorktree as worktree, onOrch, record, itemOf, threadOf, at, read, write, onHome, site } from './board-fixture.mjs';
 import { landable } from './store.mjs';
 import { builtCards } from './snapshot.mjs';
 

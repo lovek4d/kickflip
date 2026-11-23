@@ -30,6 +30,9 @@ import { DETAIL_CAP } from './hub-lines.mjs';
 
 export const skillRepo = cloneRoot;
 export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'worktrees');
+// Where card id's worktree lives: worktrees/<route>/<id> for a card on the board at site, so two boards' tasks with the
+// same id never share a path; worktrees/<id> with no board at site.
+export const worktreePath = (site, id) => path.join(worktreesDir(), ...[site ? boardAt(site)?.route : null].filter(Boolean), id);
 const fail = (msg) => { throw new BoardError(msg); };
 const execFileAsync = promisify(execFile);
 
@@ -43,7 +46,7 @@ const short = (repo, ref) => git(repo, 'rev-parse', '--short', ref).out;
 
 // → {path, branch, repo, remade}: a builder branch from base, checked out outside the shared clone. A worktree an earlier
 // build left at the path is remade when it holds no work (removeLeftover), and remade is the line saying so, else null.
-export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = false, busy = [], branch = id } = {}) {
+export function makeWorktree(id, { site, repo = skillRepo(), base = 'main', remote = false, busy = [], branch = id } = {}) {
   const root = path.resolve(repo);
   if (!git(root, 'rev-parse', '--git-dir').ok) fail(`--repo ${root} is not a git repo`);
   if (!git(root, 'check-ref-format', '--branch', branch).ok) fail(`--worktree: "${branch}" can't be a branch name`);
@@ -52,7 +55,7 @@ export function makeWorktree(id, { repo = skillRepo(), base = 'main', remote = f
   // The shared clone is fetched only when a board picks it; offline, the last fetched tip still serves.
   if (remote) git(root, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${base}:${ref}`);
   if (!git(root, 'rev-parse', '--verify', '--quiet', ref).ok) fail(`--worktree: ${root} has no ${base} branch`);
-  const dir = path.join(worktreesDir(), id);
+  const dir = worktreePath(site, id);
   const remade = fs.existsSync(dir) ? removeLeftover(root, dir, [id, branch], { ref, base, busy }) : null;
   if (git(root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).ok) fail(`--worktree: branch ${branch} already exists in ${root}`);
   refuseNesting(root, branch);
@@ -152,7 +155,7 @@ export function builderRepo(site, { repo, id, manifest = readManifest() } = {}) 
 }
 
 // The worktree of card id on the board at site, from builderRepo. → as makeWorktree
-export const boardWorktree = (site, id, { repo, busy } = {}) => makeWorktree(id, { ...builderRepo(site, { repo, id }), busy, branch: branchName(site, id) });
+export const boardWorktree = (site, id, { repo, busy } = {}) => makeWorktree(id, { ...builderRepo(site, { repo, id }), site, busy, branch: branchName(site, id) });
 
 // gh's signed-in user, read once per process: it can't change while a hub or board server runs. Null while gh has none,
 // which isn't kept, so a login made later is found.
@@ -186,7 +189,7 @@ export function boardBranch(board, id) {
 
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
 // The worktree of helper name on card id: branch <id>-<name> from base, the card's branch, in repo. → as makeWorktree
-export const helperWorktree = (id, name, { repo, base, busy }) => makeWorktree(`${id}-${name}`, { repo, base, busy });
+export const helperWorktree = (site, id, name, { repo, base, busy }) => makeWorktree(`${id}-${name}`, { site, repo, base, busy });
 
 // `agent merge`: brings a helper's branch (helper {path, branch}) into the card's worktree (card {path}), then removes
 // the helper's worktree and branch. A branch already in the card's history skips the merge, so a run after a conflict
@@ -227,7 +230,7 @@ export function prWorktree(site, id, branch) {
   const ref = `refs/remotes/origin/${branch}`;
   const fetched = git(root, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:${ref}`);
   if (!fetched.ok) fail(`could not fetch ${branch} from origin: ${fetched.err}`);
-  const dir = path.join(worktreesDir(), id);
+  const dir = worktreePath(site, id);
   if (fs.existsSync(dir)) fail(`${storedPath(dir)} already exists; land or remove it first`);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   const exists = git(root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).ok;

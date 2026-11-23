@@ -9,7 +9,7 @@ import { opensPRs, settingsOf } from './store.mjs';
 import { SUMMARY_HINT } from './domain.mjs';
 import { fakeGh, writeLimit, writeOpen, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
-import { boardWith, bin, home, at, site, write, read, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, land, branches, onOrch, launched, record, itemOf, threadOf, remoteBoard, tapMerge, onHome } from './board-fixture.mjs';
+import { boardWith, bin, home, at, site, write, read, run, board, wave, question, git, commit, scratchRepo, heldBoard, boardWorktree as worktree, land, branches, onOrch, launched, record, itemOf, threadOf, remoteBoard, tapMerge, onHome } from './board-fixture.mjs';
 
 
 test('builder done on a build that keeps a worktree finishes the card: it needs --text, lands it and closes the card and its record; a failed finish refuses with the reason and keeps the builder on', async () => {
@@ -111,7 +111,7 @@ test("a finish on a local board pushes its branch to origin once it lands when t
   const finish = async (id) => {
     launched('orch', `w/${id}`);
     assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
-    commit(at('kickflip', 'worktrees', id), `${id}.txt`, 'built\n', `feat: work\n\nRefs: ${id}`);
+    commit(at('kickflip', 'worktrees', 'orch', id), `${id}.txt`, 'built\n', `feat: work\n\nRefs: ${id}`);
     const r = await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
     assert.equal(r.code, 0, r.err);
     return r;
@@ -416,7 +416,7 @@ test('a Merge tap on a held build whose tested commit is still on top of main la
   assert.equal(git(repo, 'for-each-ref', 'refs/kickflip'), '');
 
   assert.equal((await onOrch('builder', 'start', 'w/ENG-1', '--worktree', '--repo', repo)).code, 0);
-  const second = at('kickflip', 'worktrees', 'ENG-1');
+  const second = at('kickflip', 'worktrees', 'orch', 'ENG-1');
   commit(second, 'more.txt', 'more\n', 'feat: work\n\nRefs: ENG-1');
   assert.equal((await onOrch('builder', 'done', 'w/ENG-1', '--summary', 'Built it.', '--text', 'Checked it.')).code, 0);
   commit(repo, 'later.txt', 'main moved\n');
@@ -600,7 +600,7 @@ test("on Draft PR or Ready PR, a hub card branches from origin's main, and its f
   const folderMain = git(folder, 'rev-parse', 'main');
   const originMain = git(origin, 'rev-parse', 'main');
   const finish = async (id) => {
-    const tree = at('kickflip', 'worktrees', id);
+    const tree = at('kickflip', 'worktrees', 'orch', id);
     assert.equal((await b('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
     assert.equal(fs.existsSync(path.join(tree, 'local.txt')), false);
     commit(tree, `${id}.txt`, 'built\n', `feat: work\n\nRefs: ${id}`);

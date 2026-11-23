@@ -7,7 +7,7 @@ import { sweepLeftovers } from './leftovers.mjs';
 import { at, git, commit, scratchRepo, branches, onOrch, onHome, read, write } from '../board/board-fixture.mjs';
 
 const DAY = 86400_000;
-const tree = (id) => at('kickflip', 'worktrees', id);
+const tree = (id) => at('kickflip', 'worktrees', 'orch', id);
 const closeOn = (id, closedAt) => {
   const file = at('waves', 'w', 'wave.json');
   const wave = read(file);

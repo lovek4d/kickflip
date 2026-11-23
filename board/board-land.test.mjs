@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { land as landWorktree } from './worktree.mjs';
 import { fakeGh, prView, writePR, writeReviews, writeMerge, writeLimit, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
-import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, stubTests, worktree, land, branches, onOrch, launched, record, itemOf, threadOf, addEvents } from './board-fixture.mjs';
+import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, stubTests, worktree, boardWorktree, land, branches, onOrch, launched, record, itemOf, threadOf, addEvents } from './board-fixture.mjs';
 
 test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and leaves its refusal off the card's thread", async () => {
   const dir = path.join(home, 'fake-gh');
@@ -194,20 +194,20 @@ test("every land squashes the card's branch into one commit on main: --title els
   const repo = scratchRepo();
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
   const main = git(repo, 'rev-parse', 'main');
-  commit(worktree(), 'work.txt', 'built\n', 'feat(board): work\n\nThe detail.\n\nRefs: A1\n\nCo-Authored-By: Claude <c@x>');
-  git(worktree(), 'switch', '--quiet', '-c', 'helper');
-  commit(worktree(), 'helper.txt', 'helped\n', 'test: helper tests\n\nCo-Authored-By: Ann <ann@x>');
-  git(worktree(), 'switch', '--quiet', 'me/orch/a1');
-  commit(worktree(), 'fix.txt', 'fixed\n', 'review fixes\n\nCo-Authored-By: Claude <c@x>');
-  git(worktree(), 'merge', '--quiet', '--no-ff', '-m', 'chore: merge the tests helper branch', 'helper');
-  git(worktree(), 'branch', '--quiet', '-D', 'helper');
-  const head = git(worktree(), 'rev-parse', 'HEAD');
-  const tree = git(worktree(), 'rev-parse', 'HEAD^{tree}');
+  commit(boardWorktree(), 'work.txt', 'built\n', 'feat(board): work\n\nThe detail.\n\nRefs: A1\n\nCo-Authored-By: Claude <c@x>');
+  git(boardWorktree(), 'switch', '--quiet', '-c', 'helper');
+  commit(boardWorktree(), 'helper.txt', 'helped\n', 'test: helper tests\n\nCo-Authored-By: Ann <ann@x>');
+  git(boardWorktree(), 'switch', '--quiet', 'me/orch/a1');
+  commit(boardWorktree(), 'fix.txt', 'fixed\n', 'review fixes\n\nCo-Authored-By: Claude <c@x>');
+  git(boardWorktree(), 'merge', '--quiet', '--no-ff', '-m', 'chore: merge the tests helper branch', 'helper');
+  git(boardWorktree(), 'branch', '--quiet', '-D', 'helper');
+  const head = git(boardWorktree(), 'rev-parse', 'HEAD');
+  const tree = git(boardWorktree(), 'rev-parse', 'HEAD^{tree}');
 
   const badTitle = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--title', 'Work');
   assert.equal(badTitle.code, 1);
   assert.match(badTitle.err, /^--title "Work" isn't "<type>\(<scope>\): <summary>".*; pass --title "<type>\(<scope>\): <summary>", at most 100 characters\n$/);
-  assert.deepEqual([git(repo, 'rev-parse', 'main'), git(worktree(), 'rev-parse', 'HEAD')], [main, head]);
+  assert.deepEqual([git(repo, 'rev-parse', 'main'), git(boardWorktree(), 'rev-parse', 'HEAD')], [main, head]);
 
   const r = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--title', 'feat(board): the title');
   assert.equal(r.code, 0, r.err);
@@ -296,13 +296,13 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
     manifest.sites.orch = { dir: manifest.sites.orch.dir, port: 1, cmd: manifest.sites.orch.cmd, ...fields };
     write(at('kickflip', 'manifest.json'), manifest);
   };
-  const reset = () => { git(project, 'worktree', 'remove', '--force', worktree()); git(project, 'branch', '--quiet', '-D', 'me/orch/a1'); };
+  const reset = () => { git(project, 'worktree', 'remove', '--force', boardWorktree()); git(project, 'branch', '--quiet', '-D', 'me/orch/a1'); };
   for (const fields of [{ owner: { repo: project } }, { github: 'owner/project', branch: 'main', local: true, owner: { repo: project } }]) {
     setOrch(fields);
     const r = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
     assert.equal(r.code, 0, r.err);
-    assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'me/orch/a1', repo: project });
-    assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'main'));
+    assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: boardWorktree(), branch: 'me/orch/a1', repo: project });
+    assert.equal(git(boardWorktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'main'));
     reset();
   }
 
@@ -312,8 +312,8 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
 
   setOrch({ owner: { repo: project } });
   fs.rmSync(at('waves', 'w', 'agents'), { recursive: true });
-  git(project, 'worktree', 'add', '--quiet', '-b', 'A1', worktree(), 'main');
-  commit(worktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
+  git(project, 'worktree', 'add', '--quiet', '-b', 'A1', boardWorktree(), 'main');
+  commit(boardWorktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
   const landed = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.']);
   assert.equal(landed.code, 0, landed.err);
   assert.match(landed.out, new RegExp(`main fast-forwarded to \\w+ in ${project}`));
@@ -334,8 +334,8 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   write(at('kickflip', 'manifest.json'), manifest);
   const started = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
   assert.equal(started.code, 0, started.err);
-  assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'trunk'));
-  commit(worktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
+  assert.equal(git(boardWorktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'trunk'));
+  commit(boardWorktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
 
   git(project, 'switch', '--quiet', '-c', 'feature');
   const landTrunk = () => boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.']);
@@ -590,7 +590,7 @@ test('land refuses a release task in a repo with no .kickflip/release, landing a
 
   launched('orch', 'w/A1');
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
-  commit(at('kickflip', 'worktrees', 'A1'), 'package.json', JSON.stringify({ name: 'x', version: '0.2.0' }) + '\n', 'chore(release): 0.2.0\n\nRefs: A1');
+  commit(at('kickflip', 'worktrees', 'orch', 'A1'), 'package.json', JSON.stringify({ name: 'x', version: '0.2.0' }) + '\n', 'chore(release): 0.2.0\n\nRefs: A1');
   const refused = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.');
   assert.equal(refused.code, 1);
   assert.match(refused.err, /^land: "chore\(release\): 0\.2\.0" is a release\. This repo has no \.kickflip\/release, so land can't ship it; add one and land again\n/);
@@ -630,7 +630,7 @@ test("a repo's .kickflip/release replaces land's release: check before landing r
   const release = async (id, version) => {
     launched('orch', `w/${id}`);
     assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
-    commit(at('kickflip', 'worktrees', id), 'CHANGELOG.md', `${version}\n`, `chore(release): ${version}\n\n- feat: work\n\nRefs: ${id}`);
+    commit(at('kickflip', 'worktrees', 'orch', id), 'CHANGELOG.md', `${version}\n`, `chore(release): ${version}\n\n- feat: work\n\nRefs: ${id}`);
     return await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
   };
   const called = () => fs.readFileSync(calls, 'utf8').trim().split('\n');
@@ -707,7 +707,7 @@ test("a board whose scripts are in kickflip checks and ships a release with its 
   const release = async (id, version) => {
     launched('orch', `w/${id}`);
     assert.equal((await onOrch('builder', 'start', `w/${id}`, '--kind', 'build')).code, 0);
-    commit(at('kickflip', 'worktrees', id), 'CHANGELOG.md', `${version}\n`, `chore(release): ${version}\n\nRefs: ${id}`);
+    commit(at('kickflip', 'worktrees', 'orch', id), 'CHANGELOG.md', `${version}\n`, `chore(release): ${version}\n\nRefs: ${id}`);
     return await onOrch('builder', 'done', `w/${id}`, '--summary', 'Built it.', '--text', 'Checked it.');
   };
 
@@ -742,7 +742,7 @@ test("a finish that joins a release card's land returns once that land records i
   launched('orch', 'w/A1');
   const started = await onOrch('builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(started.code, 0, started.err);
-  commit(at('kickflip', 'worktrees', 'A1'), 'CHANGELOG.md', '0.7.0\n', 'chore(release): 0.7.0\n\nRefs: A1');
+  commit(at('kickflip', 'worktrees', 'orch', 'A1'), 'CHANGELOG.md', '0.7.0\n', 'chore(release): 0.7.0\n\nRefs: A1');
   const before = git(repo, 'rev-parse', 'main');
   const old = process.env.HOME;
   process.env.HOME = home;

@@ -194,6 +194,8 @@ export function scratchRepo() {
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: Auto-merge off holds a verified build for the owner's Merge.
 export const heldBoard = () => write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), auto_merge: false });
 export const worktree = () => at('kickflip', 'worktrees', 'A1');
+// A1's worktree when its builder started on the board at --site orch: in the board's own folder.
+export const boardWorktree = () => at('kickflip', 'worktrees', 'orch', 'A1');
 export const land = () => boardWith(['land', 'w/A1']);
 export const branches = (repo) => git(repo, 'branch', '--format=%(refname:short)').split('\n');
 

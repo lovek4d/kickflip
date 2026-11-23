@@ -208,7 +208,7 @@ async function launchBeside(site, key, kind, io) {
 // spawner's agent wait reports.
 async function launchHelper(site, key, name, io) {
   try {
-    const started = await startHelper(site, key, name, (opts) => helperWorktree(key.split('/')[1], name, opts));
+    const started = await startHelper(site, key, name, (opts) => helperWorktree(site, key.split('/')[1], name, opts));
     if (!started) return;
     io.log({ call: 'helper', key, result: 'launching', reason: 'A helper was asked for and pullOf let it launch.', inputs: { name, model: started.model, worktree: started.worktree } });
     try { await launchBuilder(site, started, { launch: io.launch }); } catch (e) {

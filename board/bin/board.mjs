@@ -10,7 +10,7 @@ import * as slackStore from '../slack-store.mjs';
 import * as schedules from '../schedules.mjs';
 import { waitsHistory, waitsHistoryLines } from '../domain.mjs';
 import { cardTiming, cardTimingLines, timingDays, timingDaysLines } from '../timing.mjs';
-import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, repoRun, worktreesDir } from '../worktree.mjs';
+import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, repoRun, worktreePath } from '../worktree.mjs';
 import { ownTests } from '../affected.mjs';
 import { pidAlive } from '../headless.mjs';
 import { fileFindings } from '../arch-review.mjs';
@@ -1445,7 +1445,7 @@ const COMMANDS = {
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
       const report = site ? await store.testReport(site, key, { phase: 'landing' }) : undefined;
-      await landInTurn({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref, site }, { report });
+      await landInTurn({ path: recorded?.path ?? worktreePath(site, id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref, site }, { report });
       return site ? store.setItem(site, key, { done: true, text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;

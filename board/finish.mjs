@@ -22,7 +22,7 @@ import { checkClose } from './questions.mjs';
 import { readBoardSettings } from './settings.mjs';
 import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase, endFixRun } from './runs.mjs';
 import { blockWordsOf } from './domain.mjs';
-import { builderRepo, git, joiningLand, landInTurn, passTests, repoRun, syncBase, worktreesDir } from './worktree.mjs';
+import { builderRepo, git, joiningLand, landInTurn, passTests, repoRun, syncBase, worktreePath } from './worktree.mjs';
 import { scriptsOf } from './build-script.mjs';
 import { readPermissions } from './permissions.mjs';
 import { shipRelease } from './release.mjs';
@@ -43,7 +43,7 @@ export async function finishCard(site, key, { text, closing, ownerStep, check, r
   const id = key.split('/')[1];
   const recorded = await recordedWorktree(site, key);
   const { repo, base, remote } = builderRepo(site, { repo: given ?? recorded?.repo, id });
-  const tree = { path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base };
+  const tree = { path: recorded?.path ?? worktreePath(site, id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base };
   const ref = await cardName(site, key);
   const settings = await readBoardSettings(site);
   const github = remote ? boardRepo(boardAt(site).route).github : null;

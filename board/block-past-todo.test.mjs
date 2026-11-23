@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { boardWith, home, at, site, write, read, lines, run, wave, commit, git, scratchRepo, worktree, itemOf, threadOf, record } from './board-fixture.mjs';
+import { boardWith, home, at, site, write, read, lines, run, wave, commit, git, scratchRepo, worktree, boardWorktree, itemOf, threadOf, record } from './board-fixture.mjs';
 import { fakeGh, prView, writePR, calls } from '../shared/fake-gh.mjs';
 import * as store from './store.mjs';
 import { builtCards } from './snapshot.mjs';
@@ -43,7 +43,7 @@ test('a blocked card In Review stays there, and merge refuses it naming what blo
 test('land refuses a blocked card with Auto-merge on, leaving main as it was', async () => {
   const repo = scratchRepo();
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
+  commit(boardWorktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   setA1({ deps: ['ENG-1'] });
   const main = git(repo, 'rev-parse', 'main');
   const landed = await onOrch('land', 'w/A1', '--text', 'Checked.');

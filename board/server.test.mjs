@@ -611,7 +611,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   const log = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
   const card = async (id) => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === id);
   const thread = (id) => fs.readFileSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
-  const worktree = path.join(home, '.claude', 'kickflip', 'worktrees', 'B1');
+  const worktree = path.join(home, '.claude', 'kickflip', 'worktrees', 'site', 'B1');
   const before = log().length;
   try {
     await ok200(post({ kind: 'card-build', key: 't/B1' }));
@@ -650,7 +650,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual([bumped.lane, 'queued' in bumped, bumped.storedLane, bumped.builder, bumped.next, bumped.buildable, bumped.blockedBy.map((d) => d.ref)], ['todo', false, 'todo', null, null, true, ['B4']]);
     assert.deepEqual(thread('B3').map((m) => [m.who, m.text]), [['claude', 'Can’t start yet: waits on B4. Bumped to the top of Todo.']]);
     assert.equal(fs.existsSync(path.join(site, 'data', 'agents', 'B3.json')), false);
-    assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B3')), false);
+    assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'site', 'B3')), false);
     await ok200(post({ kind: 'card-build', key: 't/B5' }));
     const unheldBumped = await card('B5');
     assert.deepEqual([unheldBumped.ownerBlock, unheldBumped.blocked, unheldBumped.lane, Boolean(unheldBumped.bumpedAt)], [null, true, 'todo', true]);
@@ -658,7 +658,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual(log().slice(before).filter((e) => e.kind === 'card-bump').map((e) => e.data.key), ['t/B3', 't/B5']);
     assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'waits-history', 'grill-more', 'card-bump'].includes(k)), []);
 
-    const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
+    const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'site', 'B4');
     fs.mkdirSync(taken, { recursive: true });
     await ok200(post({ kind: 'card-build', key: 't/B4' }));
     const leftover = await card('B4');
@@ -668,8 +668,8 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
 
     // A leftover worktree holding no work is remade from the board's fetched main; one holding work still refuses.
     git(clone, 'fetch', '--quiet', 'origin');
-    const leftover6 = path.join(home, '.claude', 'kickflip', 'worktrees', 'B6');
-    const leftover7 = path.join(home, '.claude', 'kickflip', 'worktrees', 'B7');
+    const leftover6 = path.join(home, '.claude', 'kickflip', 'worktrees', 'site', 'B6');
+    const leftover7 = path.join(home, '.claude', 'kickflip', 'worktrees', 'site', 'B7');
     git(clone, 'worktree', 'add', '--quiet', '-b', 'B6', leftover6, 'origin/main');
     git(clone, 'worktree', 'add', '--quiet', '-b', 'B7', leftover7, 'origin/main');
     fs.writeFileSync(path.join(leftover7, 'a.txt'), 'changed\n');
