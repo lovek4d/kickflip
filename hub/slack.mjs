@@ -39,7 +39,7 @@ export async function setSlack(changes) {
   return withFileLock(fileOf(), () => save({ ...read(fileOf()), ...readSlack(), ...changes }));
 }
 
-// slack.json's pr_emoji {<state kind>: emoji name}: Hub › Slack's pick of an emoji for a PR state's reaction, one set
+// slack.json's pr_emoji {<state kind>: emoji name}: Hub › Slack's pick of an emoji for a PR state's or task status's reaction, one set
 // for every board; a kind with none takes its default (prEmojiDefault).
 export const readPREmoji = () => Object.fromEntries(Object.entries(read(fileOf()).pr_emoji || {}).filter(([kind, name]) => PR_EMOJI[kind] && typeof name === 'string'));
 const needEmojiName = (name) => { if (name && !/^[a-z0-9_+'-]{1,100}$/.test(name)) throw new Error('emoji must be an emoji name such as white_check_mark'); };
@@ -108,11 +108,24 @@ const READS = ['users.list', 'emoji.list', 'search.messages', 'conversations.his
 // docs/adr/2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md
 // Each PR state's reaction on its messages by default: its custom emoji while the workspace has it, else its standard
 // one. Hub › Slack's pick for a state (readPREmoji) wins over both.
+// docs/adr/2026-11-23-0010-a-slack-message-on-a-task-shows-where-it-stands-as-one-reaction.md: then each status a Slack
+// message on a task shows (STATUS_KINDS), standard only.
 export const PR_EMOJI = {
   approved: { custom: 'git_approved', standard: 'white_check_mark' },
   merged: { custom: 'git_merged', standard: 'large_purple_circle' },
   closed: { standard: 'x' },
+  received: { standard: 'eyes' },
+  thinking: { standard: 'thinking_face' },
+  waiting: { standard: 'raised_hand' },
+  done: { standard: 'white_check_mark' },
 };
+export const STATUS_KINDS = ['received', 'thinking', 'waiting', 'done'];
+// Each status's reaction, {received, thinking, waiting, done} → emoji name: its pick, else its standard emoji. None has a
+// custom default, so no Slack call is made.
+export function statusEmojis() {
+  const picks = readPREmoji();
+  return Object.fromEntries(STATUS_KINDS.map((kind) => [kind, picks[kind] || PR_EMOJI[kind].standard]));
+}
 // A state's default emoji, given the workspace's custom emoji {name: url}.
 const prEmojiDefault =(kind, customs) => (customs[PR_EMOJI[kind].custom] ? PR_EMOJI[kind].custom : PR_EMOJI[kind].standard);
 const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired', 'account_inactive'];
@@ -200,7 +213,7 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     async prEmojis() {
       const customs = await customEmoji();
       const picks = readPREmoji();
-      return Object.fromEntries(Object.keys(PR_EMOJI).map((kind) => [kind, picks[kind] || prEmojiDefault(kind, customs)]));
+      return Object.fromEntries(Object.keys(PR_EMOJI).filter((kind) => !STATUS_KINDS.includes(kind)).map((kind) => [kind, picks[kind] || prEmojiDefault(kind, customs)]));
     },
     // The workspace's own emoji, {name: image url}, its aliases left out; none without the emoji:read scope.
     async workspaceEmoji() {

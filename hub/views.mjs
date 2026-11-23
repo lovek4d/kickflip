@@ -192,9 +192,10 @@ const STANDARD_EMOJI = [
   ['ship', '🚢'], ['checkered_flag', '🏁'], ['large_green_circle', '🟢'], ['large_blue_circle', '🔵'], ['large_orange_circle', '🟠'],
   ['red_circle', '🔴'], ['white_circle', '⚪'], ['no_entry', '⛔'], ['no_entry_sign', '🚫'], ['octagonal_sign', '🛑'], ['wastebasket', '🗑️'],
   ['lock', '🔒'], ['hourglass', '⌛'], ['heart', '❤️'], ['purple_heart', '💜'], ['green_heart', '💚'],
+  ['thinking_face', '🤔'], ['raised_hand', '✋'],
 ].map(([name, char]) => ({ name, char }));
-const EMOJI_TITLES = { approved: 'Approved', merged: 'Merged', closed: 'Closed', signature: 'Signature' };
-// What Hub › Slack shows for the PR states' reactions (hub/slack.mjs PR_EMOJI) and the signature, the sign-off line's
+const EMOJI_TITLES = { approved: 'Approved', merged: 'Merged', closed: 'Closed', received: 'Received', thinking: 'Thinking', waiting: 'Waiting on owner', done: 'Done', signature: 'Signature' };
+// What Hub › Slack shows for the PR states' and task statuses' reactions (hub/slack.mjs PR_EMOJI) and the signature, the sign-off line's
 // emoji: a row each with its emoji, a custom one's {name, url} or a standard one's {name, char}, marked standard while
 // it is its standard default, and what it is: the workspace's own, the standard one (and which custom one the workspace
 // lacks), or a pick, changed from its default; then the picker's emoji, the workspace's own and the standard ones.
@@ -213,7 +214,7 @@ export function prEmojiView({ picks, signOff, customs, scopeMissing = false }) {
   });
   return {
     label: 'Reactions and signature',
-    note: "One set for every board. A PR's Slack messages get its state's reaction, and every message the hub posts ends with the signature. A standard emoji stands in while the workspace lacks a custom one.",
+    note: "One set for every board. A PR's Slack messages get its state's reaction, each Slack message on a Slack-filed task gets its status's, and every message the hub posts ends with the signature. A standard emoji stands in while the workspace lacks a custom one.",
     warning: scopeMissing ? 'Slack’s token lacks the emoji:read user scope, so the workspace’s own emoji aren’t listed. Add emoji:read under User Token Scopes, reinstall the app, and paste the token again.' : null,
     rows,
     customs: Object.entries(customs).map(([name, url]) => ({ name, url })),

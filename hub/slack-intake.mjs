@@ -2,8 +2,10 @@
 // A message saying kickflip, with or without the @, in one of the owner's 1:1 Slack DMs, from anyone, goes to the router as a request, which files it as a
 // routed ask on the board it fits; the board refuses to sort that ask ready before the owner stages its card. One
 // search.messages call each poll finds the matches. The token is the owner's, with no bot, so the match is on the
-// word kickflip in the text, or the mention of the workspace's kickflip bot user when it has one. A filed message gets a 👀 reaction; a failed reaction is reported, never fatal. The request's words are the thread up to the match: the opener and the replies before it, then
-// the match, each as "<name>: <text>". Its from names the Slack thread, {channel, thread_ts, ts}.
+// word kickflip in the text, or the mention of the workspace's kickflip bot user when it has one. A filed message gets the received status's reaction, 👀 by default; a failed reaction is reported, never fatal. The request's words are the thread up to the match: the opener and the replies before it, then
+// the match, each as "<name>: <text>". Its from names the Slack thread, {channel, thread_ts, ts, reacted?}, reacted the
+// received status's emoji (statusEmojis) once Slack took it, the reaction the task's status then swaps
+// (docs/adr/2026-11-23-0010-a-slack-message-on-a-task-shows-where-it-stands-as-one-reaction.md).
 // Not filed: a group DM or channel, our own signed-off posts, a thread already filed, and a board's day thread or its
 // posts' threads, where an @kickflip is a slack-question (review-send.mjs hearBoards).
 // ~/.claude/kickflip/slack-intake.json holds since, the Slack ts intake started at, and threads, each filed thread's
@@ -11,11 +13,11 @@
 // and keeps a thread for KEEP_DAYS, reading no match older.
 import os from 'node:os';
 import path from 'node:path';
-import { appendEvent, listBoards, readJSON, saveJSON } from './boards.mjs';
-import { savedSlack, slackStatus, missingScope, setSearching, isSignedOff, slackUserId } from './slack.mjs';
+import { appendEvent, isListening, listBoards, readJSON, saveJSON } from './boards.mjs';
+import { savedSlack, slackStatus, missingScope, setSearching, isSignedOff, slackUserId, statusEmojis } from './slack.mjs';
 import { queueRequest } from './router.mjs';
 import { appendMessage, appendStatus } from '../board/cards.mjs';
-import { boardPosts, followedSlackThreads, markSlackPost, markSlackFollow, markSlackThreadHeard, markSlackWait, slackOutbox } from '../board/slack-store.mjs';
+import { boardPosts, followedSlackThreads, markSlackPost, markSlackFollow, markSlackThreadHeard, markSlackWait, recordSlackStatus, slackOutbox, slackStatusDue } from '../board/slack-store.mjs';
 
 export const INTAKE_FILE = path.join(os.homedir(), '.claude', 'kickflip', 'slack-intake.json');
 const NAMED = /\bkickflip\b/i;
@@ -84,11 +86,16 @@ export async function fileSlackAsks({ boards = listBoards(), fetch, now = new Da
       if (state.threads[key(m)] || ours.has(thread)) continue;
       try {
         const seed = thread === m.ts ? [m] : (await slack.replies({ channel: m.channel.id, ts: thread })).filter((r) => Number(r.ts) <= Number(m.ts));
-        await queueRequest({ text: seed.map(words).join('\n\n'), from: { via: 'slack', by: name(m.user), link: m.permalink, slack: { channel: m.channel.id, thread_ts: thread, ts: m.ts } } });
+        const received = statusEmojis().received;
+        let reacted = received;
+        try { await slack.react({ channel: m.channel.id, ts: m.ts, name: received }); } catch (e) {
+          reacted = null;
+          failed.push(`reacting :${received}: to ${m.permalink}: ${e.message}`);
+        }
+        await queueRequest({ text: seed.map(words).join('\n\n'), from: { via: 'slack', by: name(m.user), link: m.permalink, slack: { channel: m.channel.id, thread_ts: thread, ts: m.ts, ...(reacted ? { reacted } : {}) } } });
         state.threads[key(m)] = m.ts;
         saveJSON(INTAKE_FILE, state);
         filed.push(`${name(m.user)} in ${m.channel.id}: ${m.permalink}`);
-        try { await slack.react({ channel: m.channel.id, ts: m.ts, name: 'eyes' }); } catch (e) { failed.push(`reacting 👀 to ${m.permalink}: ${e.message}`); }
       } catch (e) { failed.push(`filing ${m.permalink}: ${e.message}`); }
     }
   }
@@ -189,4 +196,36 @@ export async function postSlackReplies({ boards = listBoards(), fetch } = {}) {
     }
   }
   return { posted, failed };
+}
+
+// docs/adr/2026-11-23-0010-a-slack-message-on-a-task-shows-where-it-stands-as-one-reaction.md
+// Each Slack message on a Slack-filed task shows where it stands as one reaction, swapped as it moves on (slack-store.mjs
+// slackStatusDue): 👀 received, 🤔 thinking, ✋ waiting on the owner, ✅ done, or Hub › Slack's picks. A message's
+// removal goes before its add, and a failed one holds back that message's rest until the next poll, which tries again.
+// listening(board) says whether the board's session hears its events. → {reacted: ['<route> <key>: [removed ]:<emoji>:'],
+// failed: [why]}, both empty without a saved working token.
+export async function reactSlackStatus({ boards = listBoards(), fetch, listening = (board) => isListening(board) } = {}) {
+  const slack = savedSlack({ fetch });
+  const reacted = [];
+  const failed = [];
+  if (!slack || slackStatus().refused) return { reacted, failed };
+  const emojis = statusEmojis();
+  for (const board of boards) {
+    let due;
+    try { due = await slackStatusDue(board.dir, { emojis, listening: () => listening(board) }); } catch (e) { failed.push(`${board.route}: reading its Slack messages' status: ${e.message}`); continue; }
+    const stuck = new Set();
+    for (const r of due) {
+      const id = `${r.channel}:${r.ts}`;
+      if (stuck.has(id)) continue;
+      try {
+        await (r.remove ? slack.unreact : slack.react)({ channel: r.channel, ts: r.ts, name: r.emoji });
+        await recordSlackStatus(board.dir, r);
+        reacted.push(`${board.route} ${r.key}: ${r.remove ? 'removed ' : ''}:${r.emoji}:`);
+      } catch (e) {
+        stuck.add(id);
+        failed.push(`${board.route}: ${r.remove ? `removing :${r.emoji}: from` : `reacting :${r.emoji}: to`} ${r.key}: ${e.message}`);
+      }
+    }
+  }
+  return { reacted, failed };
 }

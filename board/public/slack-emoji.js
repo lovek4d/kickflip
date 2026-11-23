@@ -1,4 +1,5 @@
-// SlackEmoji: Hub › Slack's emoji for each PR state's reaction on its Slack messages, and the signature that ends every
+// SlackEmoji: Hub › Slack's emoji for each PR state's reaction on its Slack messages, each status a Slack message on a
+// Slack-filed task shows (docs/adr/2026-11-23-0010-a-slack-message-on-a-task-shows-where-it-stands-as-one-reaction.md), and the signature that ends every
 // message the hub posts (docs/adr/2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md), under
 // the token slot (linear-key.js) while the token works. A row per state and the signature, worded by hub/views.mjs prEmojiView from GET
 // /_hub/api/slack-emoji; its cell opens a popup (popup.js) grid of the workspace's own emoji, then the standard ones, with a
@@ -6,7 +7,11 @@
 (function () {
   const FAILED = 'Could not save. Is the host awake?';
   const UNLOADED = 'Could not load the workspace’s emoji. Is the host awake?';
-  const TILES = { approved: ['check', 'var(--color-success)'], merged: ['merge', 'var(--color-merged)'], closed: ['x', 'var(--color-danger)'], signature: ['pen', 'var(--accent)'] };
+  const TILES = {
+    approved: ['check', 'var(--color-success)'], merged: ['merge', 'var(--color-merged)'], closed: ['x', 'var(--color-danger)'],
+    received: ['eye', 'var(--color-info)'], thinking: ['clock', 'var(--color-notice)'], waiting: ['bell', 'var(--color-danger)'], done: ['check', 'var(--color-success)'],
+    signature: ['pen', 'var(--accent)'],
+  };
 
   // Draws the rows into root while on, the token working. → {set(on), destroy()}
   function mount(root, { on }) {

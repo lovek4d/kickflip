@@ -228,6 +228,8 @@ export async function readSnapshot(site, outside, { archived = [], items: itemsO
 // The cards of board site as its page draws them, by key: buildBoard of readSnapshot's whole read, so a CLI command
 // reads the lane, blockedBy and finished the page shows, with the server down too. With no site (a command without
 // --site), the cards of ~/.claude/waves' item files alone.
+// Board site as its page draws it: buildBoard of readSnapshot's whole read, with each card's thread (threadViews).
+export const builtBoard = async (site) => buildBoard(await readSnapshot(site, await outsideData(site)));
 export async function builtCards(site) {
   const { items } = buildBoard(site ? await readSnapshot(site, await outsideData(site)) : { files: await liveFiles() });
   return new Map(items.filter((i) => i.kind === 'work').map((i) => [i.key, i]));

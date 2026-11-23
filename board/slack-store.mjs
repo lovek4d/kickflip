@@ -14,7 +14,7 @@ import { readiness } from '../hub/readiness.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
 import { BoardError, domId, needSite, text } from './checks.mjs';
 import { addItem, appendMessage, askTaskOf } from './cards.mjs';
-import { builtCards } from './snapshot.mjs';
+import { builtBoard, builtCards } from './snapshot.mjs';
 import { boardRepoOf, boardTarget, sameName, settingsOf, storedTickets } from './settings.mjs';
 
 const fail = (msg) => { throw new BoardError(msg); };
@@ -344,8 +344,9 @@ export const queueSlackReply = (site, key, name, thread) => editJSON(slackThread
 // docs/adr/2026-11-22-0100-a-slack-filed-task-tells-its-thread-when-it-waits-on-the-owner.md
 // What a card waits on the owner for, in words, or null: its open question's text, else its next step. A card waits
 // when it carries an owner action or waitsOn owner, the state that lights the owner's Reply (domain.mjs placeOwnerWait).
+const waitsOnOwner = (card) => card.waitsOn === 'owner' || Boolean(card.action);
 async function ownerWaitWords(site, card) {
-  if (card.waitsOn !== 'owner' && !card.action) return null;
+  if (!waitsOnOwner(card)) return null;
   if (card.questions?.open > 0) {
     const asked = ((await readJSON(path.join(site, 'data', 'owner.json'), { items: [] })).items || []).find((q) => q.id === card.questions.first);
     if (asked?.question) return asked.question;
@@ -402,6 +403,73 @@ export const markSlackPost = (site, thread, reply, { ts, failed }) => editJSON(s
 });
 // Records thread's wait line, posted for words, with the ts Slack gave it.
 export const markSlackWait = (site, thread, words, ts) => editJSON(slackThreadsFile(site), (all) => { all.waits = { ...all.waits, [slackThreadId(thread)]: { words, ts } }; });
+
+// docs/adr/2026-11-23-0010-a-slack-message-on-a-task-shows-where-it-stands-as-one-reaction.md
+// slack-threads.json's reactions {"<channel>:<ts>": [{kind, name}]}: the status reactions the hub put on each Slack
+// message on a task, the status kind and the emoji. A message is tracked from the first poll that sees its task open,
+// holding then the 👀 intake put on an ask's own message (routed.slack.reacted, else eyes, an earlier intake's).
+// Where a Slack message on a task stands: done once its task is Done or a reply to it has posted to Slack; thinking
+// while the orchestrator works on it (listening) or its reply waits to post; waiting once acted on with no reply while
+// the task waits on the owner; else received.
+function messageStatus(m, { posted, owner, listening }) {
+  if (m.state === 'replied') return posted ? 'done' : 'thinking';
+  if (m.state === 'working' && listening) return 'thinking';
+  return m.state === 'answered' && owner ? 'waiting' : 'received';
+}
+// The status reactions owed to each Slack message on this board's tasks, which the hub sends each poll: the asks routed
+// from Slack, and the Slack replies copied onto their tasks as item-messages. Each message has one status reaction,
+// emojis[status] ({received, thinking, waiting, done} → emoji name); the hub's others on it are removed first.
+// listening() says whether the board's session hears its events, asked only while a task is open. Records each message
+// first seen while its task is open. → [{key, channel, ts, kind, emoji, remove?}]
+export async function slackStatusDue(site, { emojis, listening }) {
+  const events = await readLog(path.join(site, 'data', 'events.jsonl'));
+  const asks = events.filter((e) => e.kind === 'ask' && e.data?.routed?.via === 'slack' && e.data.routed.slack);
+  if (!asks.length) return [];
+  const { replies = {}, reactions = {} } = await readJSON(slackThreadsFile(site), {});
+  const tasks = new Map();
+  for (const e of asks) {
+    const card = await askTaskOf(site, e.id);
+    if (!card) continue;
+    const { channel, ts, reacted = 'eyes' } = e.data.routed.slack;
+    const task = tasks.get(card.key) || tasks.set(card.key, { done: card.item.lane === 'done', messages: [] }).get(card.key);
+    task.messages.push({ id: e.id, channel, ts, had: [{ kind: 'received', name: reacted }] });
+  }
+  for (const e of events) {
+    const [via, channel, ts] = String(e.data?.sendId || '').split(':');
+    if (e.kind === 'item-message' && via === 'slack' && tasks.has(e.data.key)) tasks.get(e.data.key).messages.push({ id: e.id, channel, ts, had: [] });
+  }
+  const posted = (id) => Object.entries(replies).some(([name, r]) => r.ts && (name === id || name.startsWith(`${id}~`)));
+  const out = [];
+  const seen = [];
+  let built, hears;
+  for (const [key, task] of tasks) {
+    for (const m of task.messages) {
+      const id = `${m.channel}:${m.ts}`;
+      if (!reactions[id] && task.done) continue;
+      if (!reactions[id]) seen.push([id, m.had]);
+      let status = 'done';
+      if (!task.done) {
+        built ??= await builtBoard(site);
+        const shown = built.threadViews[key]?.find((x) => x.eventId === m.id);
+        if (!shown) continue;
+        hears ??= listening();
+        status = messageStatus(shown, { posted: posted(m.id), owner: waitsOnOwner(built.items.find((i) => i.key === key)), listening: hears });
+      }
+      const emoji = emojis[status];
+      const had = reactions[id] || m.had;
+      for (const name of new Set(had.filter((r) => r.name !== emoji).map((r) => r.name))) out.push({ key, channel: m.channel, ts: m.ts, kind: had.find((r) => r.name === name).kind, emoji: name, remove: true });
+      if (!had.some((r) => r.name === emoji)) out.push({ key, channel: m.channel, ts: m.ts, kind: status, emoji });
+    }
+  }
+  if (seen.length) await editJSON(slackThreadsFile(site), (all) => { all.reactions = { ...Object.fromEntries(seen), ...all.reactions }; });
+  return out;
+}
+// Records one of slackStatusDue's reactions, once Slack has added or removed it.
+export const recordSlackStatus = (site, due) => editJSON(slackThreadsFile(site), (all) => {
+  const id = `${due.channel}:${due.ts}`;
+  const kept = (all.reactions?.[id] || []).filter((r) => r.name !== due.emoji);
+  all.reactions = { ...all.reactions, [id]: due.remove ? kept : [...kept, { kind: due.kind, name: due.emoji }] };
+});
 // What the orchestrator posts in a day thread: its words, at most WORDS_LIMIT characters; the Slack client signs them off.
 const WORDS_LIMIT = 250;
 function orchestratorWords(words) {

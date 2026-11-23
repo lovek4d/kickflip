@@ -57,7 +57,7 @@ test('a new @kickflip in a 1:1 DM is queued for the router once, as its sender\'
   assert.deepEqual(await poll(), { filed: [`Bob in D2: ${link(world, 'D2', ts)}`], failed: [] });
   assert.deepEqual(queued(), [{
     text: 'Bob: @kickflip the export button 500s for @Love',
-    from: { via: 'slack', by: 'Bob', link: link(world, 'D2', ts), slack: { channel: 'D2', thread_ts: ts, ts } },
+    from: { via: 'slack', by: 'Bob', link: link(world, 'D2', ts), slack: { channel: 'D2', thread_ts: ts, ts, reacted: 'eyes' } },
   }]);
   slack.calls.length = 0;
   assert.deepEqual(await poll(), { filed: [], failed: [] });
@@ -75,7 +75,7 @@ test("an @kickflip reply carries its thread's opener and the replies before it, 
   assert.equal((await poll()).filed.length, 1);
   assert.deepEqual(queued(), [{
     text: 'Ann: The digest skipped my PR today\n\nLove: Odd, it was green\n\nAnn: @Kickflip can you look?',
-    from: { via: 'slack', by: 'Ann', link: link(world, 'D1', named, opener), slack: { channel: 'D1', thread_ts: opener, ts: named } },
+    from: { via: 'slack', by: 'Ann', link: link(world, 'D1', named, opener), slack: { channel: 'D1', thread_ts: opener, ts: named, reacted: 'eyes' } },
   }]);
   slack.say({ channel: 'D1', user: 'U0', text: '@kickflip any news?', thread_ts: opener });
   assert.deepEqual(await poll(), { filed: [], failed: [] });

@@ -442,7 +442,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.doesNotMatch(root.innerHTML, /xoxp-secret/);
   assert.equal(posts.at(-1).url, '/_hub/api/slack-emoji');
   await settle();
-  assert.deepEqual(slackSlot.querySelectorAll('.slack-emoji .se-row .title').map((t) => t.textContent), ['Approved standard', 'Merged standard', 'Closed standard', 'Signature standard']);
+  assert.deepEqual(slackSlot.querySelectorAll('.slack-emoji .se-row .title').map((t) => t.textContent), ['Approved standard', 'Merged standard', 'Closed standard', 'Received standard', 'Thinking standard', 'Waiting on owner standard', 'Done standard', 'Signature standard']);
   assert.match(slackSlot.querySelector('.slack-emoji h2').textContent, /^Reactions and signature$/);
   await fire(tokenSlot, 'click', { target: slackSlot.querySelector('[data-slack-remove]') });
   await settle();
@@ -1389,14 +1389,19 @@ test("Hub › Slack's emoji rows: each PR state's reaction and the signature, it
   const rows = (view) => view.rows.map((r) => [r.kind, r.title, r.emoji.name, r.tag, r.sub, r.changed]);
   const has = prEmojiView({ picks: {}, signOff: 'robot_face', customs });
   assert.equal(has.label, 'Reactions and signature');
-  assert.equal(has.note, "One set for every board. A PR's Slack messages get its state's reaction, and every message the hub posts ends with the signature. A standard emoji stands in while the workspace lacks a custom one.");
+  assert.equal(has.note, "One set for every board. A PR's Slack messages get its state's reaction, each Slack message on a Slack-filed task gets its status's, and every message the hub posts ends with the signature. A standard emoji stands in while the workspace lacks a custom one.");
   assert.deepEqual(rows(has), [
     ['approved', 'Approved', 'git_approved', null, ':git_approved: · this workspace’s', false],
     ['merged', 'Merged', 'git_merged', null, ':git_merged: · this workspace’s', false],
     ['closed', 'Closed', 'x', 'standard', ':x: · standard', false],
+    ['received', 'Received', 'eyes', 'standard', ':eyes: · standard', false],
+    ['thinking', 'Thinking', 'thinking_face', 'standard', ':thinking_face: · standard', false],
+    ['waiting', 'Waiting on owner', 'raised_hand', 'standard', ':raised_hand: · standard', false],
+    ['done', 'Done', 'white_check_mark', 'standard', ':white_check_mark: · standard', false],
     ['signature', 'Signature', 'robot_face', 'standard', ':robot_face: · standard', false],
   ]);
-  assert.deepEqual(has.rows[3].emoji, { name: 'robot_face', char: '🤖' });
+  assert.deepEqual(has.rows.at(-1).emoji, { name: 'robot_face', char: '🤖' });
+  assert.deepEqual(has.rows.slice(3, 7).map((r) => r.emoji.char), ['👀', '🤔', '✋', '✅']);
   assert.deepEqual(rows(prEmojiView({ picks: {}, signOff: 'ship_it', customs })).at(-1), ['signature', 'Signature', 'ship_it', null, ':ship_it: · changed from :robot_face:', true]);
   assert.deepEqual(has.rows[0].emoji, { name: 'git_approved', url: customs.git_approved });
   assert.deepEqual(has.rows[2].emoji, { name: 'x', char: '❌' });
@@ -1408,6 +1413,10 @@ test("Hub › Slack's emoji rows: each PR state's reaction and the signature, it
     ['approved', 'Approved', 'white_check_mark', 'standard', ':white_check_mark: · standard, :git_approved: isn’t in this workspace', false],
     ['merged', 'Merged', 'large_purple_circle', 'standard', ':large_purple_circle: · standard, :git_merged: isn’t in this workspace', false],
     ['closed', 'Closed', 'x', 'standard', ':x: · standard', false],
+    ['received', 'Received', 'eyes', 'standard', ':eyes: · standard', false],
+    ['thinking', 'Thinking', 'thinking_face', 'standard', ':thinking_face: · standard', false],
+    ['waiting', 'Waiting on owner', 'raised_hand', 'standard', ':raised_hand: · standard', false],
+    ['done', 'Done', 'white_check_mark', 'standard', ':white_check_mark: · standard', false],
     ['signature', 'Signature', 'robot_face', 'standard', ':robot_face: · standard', false],
   ]);
   assert.deepEqual(rows(prEmojiView({ picks: { approved: 'tada', closed: 'ship_it' }, signOff: 'robot_face', customs })).filter((r) => r[5]), [

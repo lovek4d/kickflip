@@ -135,10 +135,10 @@ test("the hub serves Hub › Slack's PR state emoji and signature from the works
   const { base } = await inProcessHub(t);
   const names = (view) => view.rows.map((r) => r.emoji.name);
   // With no token, the standard emojis stand in.
-  assert.deepEqual(names(await (await fetch(`${base}/_hub/api/slack-emoji`)).json()), ['white_check_mark', 'large_purple_circle', 'x', 'robot_face']);
+  assert.deepEqual(names(await (await fetch(`${base}/_hub/api/slack-emoji`)).json()), ['white_check_mark', 'large_purple_circle', 'x', 'eyes', 'thinking_face', 'raised_hand', 'white_check_mark', 'robot_face']);
   write(kf('secrets.json'), { slack: { token: world.token, team: 'Acme', user: 'love', user_id: 'U0' } });
   const view = await (await fetch(`${base}/_hub/api/slack-emoji`)).json();
-  assert.deepEqual([names(view), view.customs.map((e) => e.name)], [['git_approved', 'git_merged', 'x', 'robot_face'], ['claude_kickflip', 'git_approved', 'git_merged']]);
+  assert.deepEqual([names(view), view.customs.map((e) => e.name)], [['git_approved', 'git_merged', 'x', 'eyes', 'thinking_face', 'raised_hand', 'white_check_mark', 'robot_face'], ['claude_kickflip', 'git_approved', 'git_merged']]);
   assert.equal(view.warning, null);
   world.emojiMissingScope = true;
   assert.match((await (await fetch(`${base}/_hub/api/slack-emoji`)).json()).warning, /lacks the emoji:read user scope/);
@@ -147,10 +147,10 @@ test("the hub serves Hub › Slack's PR state emoji and signature from the works
   const picked = await (await pick('state=approved&emoji=tada')).json();
   assert.deepEqual([picked.rows[0].emoji, picked.rows[0].sub], [{ name: 'tada', char: '🎉' }, ':tada: · changed from :git_approved:']);
   assert.deepEqual(readPREmoji(), { approved: 'tada' });
-  assert.deepEqual(names(await (await pick('state=approved&emoji=')).json()), ['git_approved', 'git_merged', 'x', 'robot_face']);
+  assert.deepEqual(names(await (await pick('state=approved&emoji=')).json()), ['git_approved', 'git_merged', 'x', 'eyes', 'thinking_face', 'raised_hand', 'white_check_mark', 'robot_face']);
   // The signature is saved as slack.json's sign_off_emoji, and its reset goes back to robot_face.
   const signed = await (await pick('state=signature&emoji=claude_kickflip')).json();
-  assert.deepEqual([signed.rows[3].emoji, signed.rows[3].sub], [{ name: 'claude_kickflip', url: 'https://emoji.example/claude_kickflip.png' }, ':claude_kickflip: · changed from :robot_face:']);
+  assert.deepEqual([signed.rows.at(-1).emoji, signed.rows.at(-1).sub], [{ name: 'claude_kickflip', url: 'https://emoji.example/claude_kickflip.png' }, ':claude_kickflip: · changed from :robot_face:']);
   assert.equal(readSignOff(), 'claude_kickflip');
   assert.deepEqual(names(await (await pick('state=signature&emoji=')).json()).at(-1), 'robot_face');
   assert.equal(readSignOff(), 'robot_face');

@@ -310,7 +310,7 @@ import { pollsPage } from './polls-page.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
 import { SlackError, slackStatus, removeSlackToken, saveSlackToken, savedSlack, readPREmoji, setPREmoji, readSignOff, setSignOff } from './slack.mjs';
 import { sendReviews } from './review-send.mjs';
-import { fileSlackAsks, followSlackAsks, postSlackReplies } from './slack-intake.mjs';
+import { fileSlackAsks, followSlackAsks, postSlackReplies, reactSlackStatus } from './slack-intake.mjs';
 import { createAnswering } from './answering.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -750,7 +750,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   const ERROR_LOG_MS = 60 * 60_000;
   // running: the poll in progress; startedAt: when the last one began; last: its result; remaining: GitHub's points left
   // after its query, null when it made none.
-  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, ticketErrorLoggedAt: 0, slackErrorLoggedAt: 0, slackIntakeErrorLoggedAt: 0, slackFollowErrorLoggedAt: 0, slackRepliesErrorLoggedAt: 0 };
+  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, ticketErrorLoggedAt: 0, slackErrorLoggedAt: 0, slackIntakeErrorLoggedAt: 0, slackFollowErrorLoggedAt: 0, slackRepliesErrorLoggedAt: 0, slackStatusErrorLoggedAt: 0 };
   const owner = ownerTracker();
 
   const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
@@ -832,6 +832,15 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       if (result.slackReplies.failed.length && clock() - polls.slackRepliesErrorLoggedAt > ERROR_LOG_MS) {
         polls.slackRepliesErrorLoggedAt = clock();
         log(`slack replies: ${result.slackReplies.failed.length} failed, first: ${result.slackReplies.failed[0]} (logged at most hourly)`);
+      }
+      // docs/adr/2026-11-23-0010-a-slack-message-on-a-task-shows-where-it-stands-as-one-reaction.md: after the replies, so a
+      // message whose reply just posted swaps to done on the same poll.
+      try { result.slackStatus = await reactSlackStatus({ boards: listBoards(loadManifest()) }); }
+      catch (e) { result.slackStatus = { reacted: [], failed: [e.message] }; }
+      for (const line of result.slackStatus.reacted) log(`slack: reacted on ${line}`);
+      if (result.slackStatus.failed.length && clock() - polls.slackStatusErrorLoggedAt > ERROR_LOG_MS) {
+        polls.slackStatusErrorLoggedAt = clock();
+        log(`slack status: ${result.slackStatus.failed.length} failed, first: ${result.slackStatus.failed[0]} (logged at most hourly)`);
       }
       try { result.deaf = await checkListening({ manifest: loadManifest() }); }
       catch (e) { result.deaf = { pushed: [], failed: [e.message] }; }
