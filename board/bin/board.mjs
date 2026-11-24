@@ -119,7 +119,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          page with visual add --implement
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
-         {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
+         {id, topic, question, options: [{id, label, recommended?, existing?, detail?, diagram?, practice?}],
           source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, prototype_gate?}; topic is declared, item:<file>/<id> (an ask's
           questions go on its task's). A question on a done task reopens it.
          A question on an item: topic whose task has a grill or prototype planner running is staged, not published,
@@ -127,6 +127,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          on the task publishes in the order added, with one owner push. The command says "staged" and why.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
+         existing: true badges, in grey, the option that keeps today's behaviour unchanged; one per question at most.
          suggested: {option, task, answer, reason?} pre-checks the option the owner already chose on an earlier task, with a blue
          line above its description, Orchestrator choice: <reason>; give a reason, your own words for why. Without one the line
          reads Orchestrator choice: you answered this on <task>: "<answer>"; task is that task's ref, answer their words.

@@ -851,6 +851,12 @@ test('a question card marks the recommended option', () => {
   assert.match(text(ui.questionCard(question)), /Keep <it>\?/);
 });
 
+test('a question card badges the existing option, which can also be recommended', () => {
+  const q = { ...question, options: [{ id: 'A', label: 'Keep', existing: true, recommended: true }, { id: 'B', label: 'Drop' }] };
+  assert.deepEqual(options(ui.questionCard(q)).map((o) => text(o)), ['A. Keep recommended existing', 'B. Drop']);
+  assert.match(ui.questionCard(q), /<span class="exist">existing<\/span>/);
+});
+
 // docs/adr/2026-11-09-1500-a-questions-descriptions-are-markdown-and-its-text-is-one-brief-line.md
 test("a question's context and an option's detail draw as markdown, its text stays plain", () => {
   const md = { ...question, question: 'Use **it**?', context: 'Why:\n\n- one\n- two\n\n## Head', options: [{ id: 'A', label: 'Keep', detail: 'Use `x` and **bold**' }] };

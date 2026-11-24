@@ -8,7 +8,7 @@
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
   // suggested: the orchestrator's blue line under a suggested option's label, as HTML.
   const option = (o, { type = 'radio', name, checked = false, numbered = true, locked = false, suggested = '', links = {} }) => `<label class="opt"><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
-        <span><span class="lbl">${numbered ? escText(lead(o)) : ''}${escText(o.label)}</span>${o.recommended ? '<span class="rec">recommended</span>' : ''}${suggested ? `<div class="suggested-why">Orchestrator choice: ${suggested}</div>` : ''}<div class="det">${o.detail ? markdown(o.detail, links) : ''}</div></span></label>`;
+        <span><span class="lbl">${numbered ? escText(lead(o)) : ''}${escText(o.label)}</span>${o.recommended ? '<span class="rec">recommended</span>' : ''}${o.existing ? '<span class="exist">existing</span>' : ''}${suggested ? `<div class="suggested-why">Orchestrator choice: ${suggested}</div>` : ''}<div class="det">${o.detail ? markdown(o.detail, links) : ''}</div></span></label>`;
   // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
   // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
   // suggested, pre-checked so the topic's Send sends it.

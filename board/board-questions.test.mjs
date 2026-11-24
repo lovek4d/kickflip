@@ -22,6 +22,8 @@ test('question add appends valid questions and rejects the whole file otherwise'
     [question('q3', { options: [] })],
     [question('q3', { options: [{ id: 'A', label: 'Keep', recommend: true }] })],
     [question('q3', { options: [{ id: 'A', label: 'X', recommended: true }, { id: 'B', label: 'Y', recommended: true }] })],
+    [question('q3', { options: [{ id: 'A', label: 'X', existing: true }, { id: 'B', label: 'Y', existing: true }] })],
+    [question('q3', { options: [{ id: 'A', label: 'X', existing: 'yes' }] })],
     [question('q3'), question('q3')],
     [question('q3', { suggested: { option: 'C', task: '#186', answer: 'Keep.' } })],
     [question('q3', { suggested: { option: 'A', answer: 'Keep.' } })],

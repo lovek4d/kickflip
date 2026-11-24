@@ -66,16 +66,18 @@ function checkOptions(options, name) {
   const ids = new Set();
   options.forEach((o, i) => {
     const at = `${name}.options[${i}]`;
-    onlyKeys(o, ['id', 'label', 'recommended', 'detail', 'diagram', 'practice'], at);
+    onlyKeys(o, ['id', 'label', 'recommended', 'existing', 'detail', 'diagram', 'practice'], at);
     checkDiagram(o, at);
     if (ids.has(text(o.id, `${at}.id`))) fail(`${name} has two options with id "${o.id}"`);
     ids.add(o.id);
     if (text(o.label, `${at}.label`).startsWith(`${o.id}. `)) fail(`${at}.label starts with "${o.id}. ", but the page adds the option letter itself`);
     optional(o.recommended, (v) => bool(v, `${at}.recommended`));
+    optional(o.existing, (v) => bool(v, `${at}.existing`));
     optional(o.detail, (v) => (typeof v === 'string' ? v : fail(`${at}.detail must be text`)));
     if (CODES_ONLY.test(o.label.trim()) && !o.detail?.trim()) fail(`${at}.label "${o.label}" is only codes with no detail; a question stands alone, so say what each one is in the label or the detail`);
   });
   if (options.filter((o) => o.recommended).length > 1) fail(`${name} recommends more than one option`);
+  if (options.filter((o) => o.existing).length > 1) fail(`${name} marks more than one option existing`);
 }
 
 // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md

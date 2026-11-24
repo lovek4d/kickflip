@@ -882,6 +882,7 @@ main > * { transition: opacity .25s ease; }
 .view-questions .opt input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--accent); }
 .view-questions .opt .lbl { font-weight: 600; }
 .view-questions .opt .rec { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
+.view-questions .opt .exist { color: var(--muted); font-weight: 500; font-size: 12px; margin-left: 4px; }
 .view-questions .opt .det { color: var(--muted); font-size: 13px; }
 /* A question's context and an option's detail take markdown at body size: headings drawn as bold lines, blocks tight
    (docs/adr/2026-11-09-1500-a-questions-descriptions-are-markdown-and-its-text-is-one-brief-line.md). So does any .md
