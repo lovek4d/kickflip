@@ -18,15 +18,15 @@ const FIXTURE = `<!doctype html><html><head>
 <link rel="stylesheet" href="${pub}style.css"><link rel="stylesheet" href="${pub}sidebar.css"></head>
 <body class="has-sidebar"><aside class="sidebar open"><div class="sb-scroll"><section><a class="sb-row"><span class="sb-text"><span class="sb-sub">${long}</span></span></a><code>${long}</code></section></div></aside>
 <div class="board-pane"><div class="pane-landing"><h2>${long}</h2><p>${long}</p><div class="pane-chips"><button class="pane-chip">${long}</button></div></div></div>
-<div class="view-questions"><div class="ctx"><p>${long}</p>${wideTable}<pre>${long}</pre></div></div>
+<div class="view-questions"><div class="ctx"><p>${long}</p>${wideTable}<div class="code-block"><pre><code>${long}</code></pre></div></div></div>
 <div class="view-notes"><div class="plan"><p>${long}</p><pre>${long}</pre><div class="md-table">${wideTable}</div></div></div>
 <dialog class="reader-sheet" open><div class="reader-body"><div class="reader-row">${long}</div><div class="reader-md"><pre>${long}</pre>${wideTable}</div></div></dialog>
 <script>{
   const widths = {};
   for (const sel of ['.sidebar', '.sb-scroll', '.board-pane', '.view-questions', '.view-notes', '.reader-body'])
     { const el = document.querySelector(sel); widths[sel] = [el.scrollWidth, el.clientWidth];
-      // Nothing inside a pane may be its own sideways scroller either.
-      for (const inner of el.querySelectorAll('*')) if (['auto', 'scroll'].includes(getComputedStyle(inner).overflowX) && inner.scrollWidth > inner.clientWidth)
+      // Nothing inside a pane may be its own sideways scroller either, but a fenced block, which scrolls instead of wrapping.
+      for (const inner of el.querySelectorAll('*')) if (inner.tagName !== 'PRE' && ['auto', 'scroll'].includes(getComputedStyle(inner).overflowX) && inner.scrollWidth > inner.clientWidth)
         widths[sel + ' ' + inner.tagName.toLowerCase() + '.' + inner.className] = [inner.scrollWidth, inner.clientWidth]; }
   const probe = document.createElement('pre'); probe.id = 'probe'; probe.textContent = JSON.stringify(widths); document.body.append(probe);
 }</script></body></html>`;

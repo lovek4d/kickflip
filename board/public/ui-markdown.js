@@ -23,6 +23,16 @@
   const startsTable = (lines, i) => lines[i].includes('|') && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1]);
   const startsBlock = (lines, i) => FENCE.test(lines[i]) || HEADING.test(lines[i]) || RULE.test(lines[i]) || QUOTE.test(lines[i]) || ITEM.test(lines[i]) || startsTable(lines, i);
 
+  // A fenced block, with the Copy button the click handler below answers.
+  const codeBlock = (body) => `<div class="code-block"><button type="button" class="copy-code" data-copy-code>Copy</button><pre><code>${esc(body.join('\n'))}</code></pre></div>`;
+  // The lines after an opening fence at lines[i], up to its closing fence; their indent under the opening fence is dropped.
+  function fenceBody(lines, i) {
+    const indent = /^\s*/.exec(lines[i])[0].length;
+    const body = [];
+    for (i++; i < lines.length && !FENCE.test(lines[i]); i++) body.push(lines[i].replace(new RegExp(`^\\s{0,${indent}}`), ''));
+    return { body, next: i + 1 };
+  }
+
   // links: a ui-links.js linkContext, to link the refs in the plan's text.
   function markdown(src, links = null) {
     const lines = String(src ?? '').replace(/\r\n?/g, '\n').split('\n');
@@ -33,10 +43,9 @@
       let m;
       if (!line.trim()) { i++; continue; }
       if (FENCE.test(line)) {
-        const body = [];
-        for (i++; i < lines.length && !FENCE.test(lines[i]); i++) body.push(lines[i]);
-        i++;
-        out.push(`<pre><code>${esc(body.join('\n'))}</code></pre>`);
+        const fence = fenceBody(lines, i);
+        i = fence.next;
+        out.push(codeBlock(fence.body));
       } else if ((m = HEADING.exec(line))) {
         out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`);
         i++;
@@ -60,12 +69,13 @@
         const items = [];
         while (i < lines.length) {
           const it = ITEM.exec(lines[i]);
-          if (it && (it[1].length > base || /\d/.test(it[2]) === ordered)) { items.push({ nested: it[1].length > base, text: it[3] }); i++; }
+          if (it && (it[1].length > base || /\d/.test(it[2]) === ordered)) { items.push({ nested: it[1].length > base, text: it[3], blocks: [] }); i++; }
+          else if (items.length && /^\s{2,}```/.test(lines[i])) { const fence = fenceBody(lines, i); items[items.length - 1].blocks.push(codeBlock(fence.body)); i = fence.next; }
           else if (items.length && lines[i].trim() && /^\s{2,}/.test(lines[i])) { items[items.length - 1].text += ` ${lines[i].trim()}`; i++; }
           else break;
         }
         const tag = ordered ? 'ol' : 'ul';
-        out.push(`<${tag}>${items.map((it) => `<li${it.nested ? ' class="nested"' : ''}>${inline(it.text)}</li>`).join('')}</${tag}>`);
+        out.push(`<${tag}>${items.map((it) => `<li${it.nested ? ' class="nested"' : ''}>${inline(it.text)}${it.blocks.join('')}</li>`).join('')}</${tag}>`);
       } else {
         const body = [];
         for (; i < lines.length && lines[i].trim() && !startsBlock(lines, i); i++) body.push(lines[i].trim());
@@ -75,6 +85,20 @@
     const html = out.join('\n');
     return links ? linkHtml(html, links) : html;
   }
+
+  // One handler for every page that draws markdown. clipboard needs a secure context; on plain http the block's text is selected to copy by hand.
+  globalThis.document?.addEventListener('click', async (ev) => {
+    const button = ev.target.closest?.('[data-copy-code]');
+    if (!button) return;
+    const code = button.parentElement.querySelector('code');
+    try {
+      await navigator.clipboard.writeText(code.textContent);
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+    } catch {
+      getSelection().selectAllChildren(code);
+    }
+  });
 
   Object.assign(globalThis.BoardUI, { markdown });
 })();

@@ -2462,6 +2462,7 @@ test('a plan renders headings, lists, emphasis, code and links, escapes raw HTML
   assert.match(html, /<div class="md-table"><table><thead><tr><th>id<\/th><th>Scope<\/th><\/tr><\/thead><tbody><tr><td>I1<\/td><td class="wide">/);
   assert.match(html, /<td>a \| b<\/td>/);
   assert.match(html, /<pre><code>&lt;script&gt;<\/code><\/pre>/);
+  assert.match(html, /<div class="code-block"><button type="button" class="copy-code" data-copy-code>Copy<\/button><pre>/);
   assert.doesNotMatch(html, /<script|<b>/);
 });
 
@@ -2569,6 +2570,17 @@ test('an HTML line and a reply link refs in their text but leave existing links 
   ]);
   assert.match(html, /&rarr; done<\/p><pre>INT-54<\/pre>/);
   assert.match(html, /INT-56<\/a> &mdash; see/);
+});
+
+test('a fence under a list item stays a block inside the item, with its lines and indent kept', () => {
+  const html = ui.markdown('1. Run this:\n   ```\n   terraform apply \\\n     -target=a.b\n   ```\n2. Then <done>');
+  assert.match(html, /<ol><li>Run this:<div class="code-block">.*<pre><code>terraform apply \\\n  -target=a\.b<\/code><\/pre><\/div><\/li><li>Then &lt;done&gt;<\/li><\/ol>/s);
+});
+
+test('a fenced block is shown verbatim, with no markdown or link processing', () => {
+  const html = ui.markdown('```\n**x** [a](https://x.test) `y`\n```');
+  assert.match(html, /<code>\*\*x\*\* \[a\]\(https:\/\/x\.test\) `y`<\/code>/);
+  assert.doesNotMatch(html, /<strong>|<a /);
 });
 
 test('a question card and a full plan link refs too, to the board page from another page', () => {

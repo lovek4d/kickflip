@@ -894,7 +894,14 @@ main > * { transition: opacity .25s ease; }
 :is(.view-questions .ctx, .view-questions .opt .det, .md) :is(p, ul, ol, blockquote, pre, table) { margin: 0 0 6px; }
 :is(.view-questions .ctx, .view-questions .opt .det, .md) :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: 600; margin: 6px 0 2px; }
 :is(.view-questions .ctx, .view-questions .opt .det, .md) :is(ul, ol) { padding-left: 18px; }
-:is(.view-questions .ctx, .view-questions .opt .det, .md) :is(pre, code) { white-space: pre-wrap; font-size: 12px; }
+:is(.view-questions .ctx, .view-questions .opt .det, .md) :is(pre, code) { font-size: 12px; }
+:is(.view-questions .ctx, .view-questions .opt .det, .md) code { white-space: pre-wrap; }
+/* A fenced block keeps its lines as written and scrolls sideways; the Copy button sits at its top right. */
+:is(.view-questions .ctx, .view-questions .opt .det, .md) pre { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+:is(.view-questions .ctx, .view-questions .opt .det, .md) pre code { white-space: inherit; }
+.code-block { position: relative; margin: 0 0 6px; }
+:is(.view-questions .ctx, .view-questions .opt .det, .md) .code-block pre { margin: 0; padding-right: 56px; }
+.copy-code { position: absolute; top: 4px; right: 4px; padding: 2px 8px; font-size: 11px; }
 :is(.view-questions .ctx, .view-questions .opt .det, .md) table { display: block; max-width: 100%; overflow-x: hidden; }
 :is(.view-questions .ctx, .view-questions .opt .det, .md) > :last-child { margin-bottom: 0; }
 .view-questions .opt .suggested-why { margin-top: 4px; color: var(--color-info); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
