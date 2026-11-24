@@ -326,3 +326,19 @@ test('thread --link refuses a visuals or prototype page the board does not serve
   await recordPrototype('nope', ['A:Keep']);
   assert.equal((await link('prototype-nope.html?q=a')).code, 0);
 });
+
+test("thread --link refuses a visual already in the card's thread, whoever posted it, and names the question url as the way to point at it", async () => {
+  const page = path.join(home, 'again.html');
+  fs.writeFileSync(page, '<!doctype html><title>Again</title>');
+  const added = (await board('--site', 'orch', 'visual', 'add', 'w/A1', '--file', page, '--title', 'Seen once')).out.trim();
+  const link = (l) => board('thread', 'w/A1', '--site', 'orch', '--text', 'Questions on it.', '--link', l);
+  const again = await link(added);
+  assert.equal(again.code, 1);
+  assert.match(again.err, new RegExp(`--link names ${added.replace('.', '\\.')}, which is already in w/A1's thread as a line: put it in the questions' url only`));
+  fs.writeFileSync(path.join(home, 'other.html'), '<!doctype html><title>Other</title>');
+  const other = (await board('--site', 'orch', 'visual', 'add', 'w/A1', '--file', path.join(home, 'other.html'), '--title', 'Another')).out.trim();
+  assert.equal((await link(other)).code, 1, 'the second visual is in the thread too');
+  write(site('orch', 'public', 'visuals', 'A1', 'by-hand.html'), '<p>Mine</p>');
+  assert.equal((await link('visuals/A1/by-hand.html')).code, 0, 'a page the orchestrator wrote by hand links once');
+  assert.equal((await link('visuals/A1/by-hand.html')).code, 1, 'and not again');
+});

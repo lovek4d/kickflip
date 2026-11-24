@@ -29,7 +29,7 @@ import { githubSignOffLine } from '../hub/slack.mjs';
 import { allLanded, cardPRs, hasPR, parsePRRef, prNames, storedPRs } from '../shared/card-prs.mjs';
 import { reviewersOf } from './review.mjs';
 import { parseCheck, checkText } from '../shared/owner-check.mjs';
-import { BoardError, fail, needSite, text, optional, cardTitle, pageUrl, domId } from './checks.mjs';
+import { BoardError, fail, needSite, text, optional, cardTitle, pageUrl, domId, VISUAL_PAGE } from './checks.mjs';
 import { storedTickets, settingsOf, readBoardSettings, markDescription, refuseSecondProposal, boardRepoOf, boardTarget } from './settings.mjs';
 import { leaveNew, refuseFiled, inIntake, IMPLEMENT_NOT_FILED, refuseMoved } from './asks.mjs';
 import { pageServed, publishStaged, cardOfTopic, noteStamp, freeNotesName, writeNotesFile, appendNotes, refuseCardNotes, DRAFT_HINT, markWaiting, readiedText, owe, dropOwed, cardQuestions, resolveAnswered, hasOpenQuestion, setNext, closeQuestions, unpickedPrototype, clip, ownerQuote, planPath } from './questions.mjs';
@@ -472,8 +472,12 @@ export async function appendMessage(site, key, { text: body, link, log, who = 'c
   const script = scriptFile === undefined ? undefined : scriptOf(scriptFile);
   const page = optional(link, (v) => pageUrl(v, '--link'));
   if (page !== undefined) await pageServed(site, page, '--link');
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: page, log, via, script };
   const file = threadFile(site, key);
+  if (page !== undefined && VISUAL_PAGE.test(page)) {
+    const shown = page.replace(/[?#].*$/, '');
+    if ((await readLog(file)).some((m) => m.link?.replace(/[?#].*$/, '') === shown)) fail(`--link names ${shown}, which is already in ${key}'s thread as a line: put it in the questions' url only`);
+  }
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: page, log, via, script };
   if (close || implement) await markWaiting(site, key, close ? 'close' : 'implement');
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
