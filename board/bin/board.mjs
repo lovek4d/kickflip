@@ -207,8 +207,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   pr comment <pr> --body <text>                          posts Claude's words on PR <pr> through gh, a number in the
                                                          board's repo or owner/repo#<n> for a task's PR in another,
   pr reply <pr> <comment id> --body <text>               or replies in that review comment's thread, as the board's
-                                                         github-login (else gh's account), adding "🤖 " before and a
-                                                         blank line and <!-- claude-bridge --> after, the marker pr
+                                                         github-login (else gh's account), ending them with the signature,
+                                                         a blank line and <!-- claude-bridge -->, the marker pr
                                                          reads as Claude's own. Refuses words that already carry
                                                          either. Prints the post's url
   item set <file>/<id> [--done --text <t> [--force]]    edits the item in its item file; --done closes the task
@@ -522,13 +522,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          Hub's token: one message a line, named board, you or the
                                                          reviewer; → marks the event's message. On a message that
                                                          expects no reply, ends the orchestrator's wait on it
-  slack answer <eventId> --text <t>                     posts "🤖 " and the answer, at most 250 characters, as a reply
+  slack answer <eventId> --text <t>                     posts the answer, signed off, at most 250 characters, as a reply
                                                          in that thread, ending the orchestrator's wait on it.
                                                          Refuses an owner's message that names no @kickflip, which
                                                          expects no reply
   slack skip <eventId>                                  ends the orchestrator's wait on a slack-question that needs
                                                          no answer, such as a thanks, posting nothing
-  slack say <reviewer> --text <t>                       posts "🤖 " and the words, at most 250 characters, in the
+  slack say <reviewer> --text <t>                       posts the words, signed off, at most 250 characters, in the
                                                          reviewer's day thread for today, opening it with the
                                                          day's digest when none is open; only on the owner's
                                                          explicit ask
@@ -560,8 +560,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   review post <pr> --file <review.md>                   posts the session's words as one Comment review (never an
           --read-at <time>                               approval or a request for changes) on an incoming PR at
                                                          its listed head, as the board's github-login (else gh's
-                                                         account), under "🤖 Claude review from the <board title>
-                                                         board" and the <!-- claude-bridge --> marker, and records
+                                                         account), under "Claude review from the <board title>
+                                                         board", ending with the signature and the
+                                                         <!-- claude-bridge --> marker, and records
                                                          it posted with the review's link. Refuses words that carry
                                                          the header or marker, and a PR that got
                                                          another review after that time. The PR must be one the hub

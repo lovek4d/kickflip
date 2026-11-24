@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fakeSlack, slackWorld } from '../shared/test-helpers.mjs';
-import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack, isSignedOff, slackDay, setPREmoji, readPREmoji, setSlack, readSlack, setSignOff, readSignOff } from './slack.mjs';
+import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack, isSignedOff, slackDay, setPREmoji, readPREmoji, setSlack, readSlack, setSignOff, readSignOff, githubSignOffLine } from './slack.mjs';
 
 test("the digest's day opens at quiet hours' end, the Mac's time read in the Slack timezone, on weekdays only", () => {
   write(kf('settings.json'), { quiet: { start: '22:00', end: '07:30', hold: true } });
@@ -169,6 +169,14 @@ test('every post ends with a “- :robot_face:” line by default, whatever emoj
   assert.equal(slack.calls.filter((c) => c.method === 'emoji.list').length, 0);
   assert.equal(read(kf('slack.json')).sign_off_emoji, 'tada');
   await assert.rejects(setSignOff(':tada:'), /emoji must be an emoji name/);
+});
+
+test("GitHub's signature is “- ” and the picked emoji's character, the robot face when the pick is a custom emoji", async () => {
+  assert.equal(githubSignOffLine(), '- 🤖');
+  await setSignOff('tada');
+  assert.equal(githubSignOffLine(), '- 🎉');
+  await setSignOff('ship_it');
+  assert.equal(githubSignOffLine(), '- 🤖');
 });
 
 test('a message signed off with the picked emoji reads as ours, and so does one signed with any emoji picked before it, :robot_face: or :claude_kickflip:; no other does', async () => {

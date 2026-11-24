@@ -27,7 +27,6 @@ import { boardAsksOf, refOf } from '../board/domain.mjs';
 import { copyUpload } from '../board/asks.mjs';
 import { ROUTED_LOG, changeEntry, changeRouted, readRouted } from './routed-log.mjs';
 import { savedSlack } from './slack.mjs';
-import { CLAUDE_PREFIX } from './pr-report.mjs';
 
 export { ROUTED_LOG };
 
@@ -205,7 +204,7 @@ ${text}
 }
 
 // Haiku answers each ask every board passed (an unplaced entry with no answer), once, unless usage is paused: the answer
-// goes on its New row, and into its Slack thread when it came from Slack, "🤖 " first as the orchestrator's replies are
+// goes on its New row, and into its Slack thread when it came from Slack, signed off as the orchestrator's replies are
 // (slack-intake.mjs postSlackReplies). A failed call is tried again each tick, up to ROUTE_TRIES; a failed Slack post
 // keeps the answer with why, and isn't tried again. → {answered: [request ids], failed: [why]}
 export async function answerUnplaced({ ask = askHaiku, paused = () => readUsageGate().state === 'paused', slack = savedSlack } = {}) {
@@ -226,7 +225,7 @@ export async function answerUnplaced({ ask = askHaiku, paused = () => readUsageG
     if (e.slack) {
       try {
         const client = slack() || (() => { throw new Error('the hub has no Slack token'); })();
-        answer.slack = await client.post({ channel: e.slack.channel, thread_ts: e.slack.thread_ts, text: `${CLAUDE_PREFIX}${text}` });
+        answer.slack = await client.post({ channel: e.slack.channel, thread_ts: e.slack.thread_ts, text });
       } catch (err) { answer.slackError = err.message; }
     }
     await changeEntry(e.id, (x) => ({ ...x, answer }));

@@ -23,7 +23,8 @@ import { appendLine, boardConfig, itemSources, readJSON, readLog, remove, replac
 import { builtCards, shownEvents } from './snapshot.mjs';
 import { SCRIPT_LIMIT, runsAs, scriptLogName, scriptSha } from './scripts.mjs';
 import { HUB, WAIT_OVER, MESSAGE_LIMIT, hubLineOf, hubText, detailOf } from './hub-lines.mjs';
-import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
+import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_MARK } from '../hub/pr-report.mjs';
+import { githubSignOffLine } from '../hub/slack.mjs';
 import { allLanded, cardPRs, hasPR, parsePRRef, prNames, storedPRs } from '../shared/card-prs.mjs';
 import { reviewersOf } from './review.mjs';
 import { parseCheck, checkText } from '../shared/owner-check.mjs';
@@ -1690,14 +1691,14 @@ export async function prReport(site, key) {
 }
 
 // `pr comment` and `pr reply`: Claude's words on a PR, a number in the board's repo or owner/repo#n in another, posted
-// as the board's github-login with the prefix and marker added (hub/pr-report.mjs postToPR), so the next `pr` leaves
+// as the board's github-login with the signature and marker added (hub/pr-report.mjs postToPR), so the next `pr` leaves
 // them out. → {lines}
 export async function postPR(site, pr, { replyTo, body }) {
   const command = replyTo === undefined ? 'pr comment' : 'pr reply';
   const ref = parsePRRef(pr) || fail(`${command} takes a PR number or owner/repo#<n>`);
   if (replyTo !== undefined && !/^[1-9]\d*$/.test(replyTo)) fail('pr reply takes the id of the review comment it answers');
   const words = text(body, '--body').trim();
-  if (words.startsWith(CLAUDE_PREFIX.trim()) || words.includes(CLAUDE_MARK)) fail(`${command} adds the ${CLAUDE_PREFIX.trim()} prefix and the claude-bridge marker itself; pass only your words`);
+  if (words.split('\n').at(-1) === githubSignOffLine() || words.includes(CLAUDE_MARK)) fail(`${command} adds the signature and the claude-bridge marker itself; pass only your words`);
   const repo = ref.repo || boardRepoOf(needSite(site), {}) || fail(`${command} needs a board on GitHub; this board has no repo there`);
   try {
     const url = await postToPR({ repo, pr: ref.number, replyTo, words, login: settingsOf(await boardConfig(site)).github_login });

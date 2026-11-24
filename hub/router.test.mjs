@@ -278,7 +278,7 @@ test("Haiku answers an ask every board passed, once, from the passes and the ask
   assert.equal(prompts.length, 1);
   assert.match(prompts[0], /keep my Mac awake\?/);
   assert.match(prompts[0], /\/a: not this repo/);
-  assert.deepEqual(posts, [{ channel: 'D1', thread_ts: '1.1', text: '🤖 Run your build under caffeinate -i.\n\nIt costs nothing.' }]);
+  assert.deepEqual(posts, [{ channel: 'D1', thread_ts: '1.1', text: 'Run your build under caffeinate -i.\n\nIt costs nothing.' }]);
   const [logged] = read(ROUTED_LOG).routed;
   assert.deepEqual({ ...logged.answer, at: 'x' }, { text: 'Run your build under caffeinate -i.\n\nIt costs nothing.', at: 'x', slack: '1.3' });
   assert.deepEqual(await answerUnplaced({ manifest, ask, paused: () => false, slack: () => slackClient }), { answered: [], failed: [] }, 'answered once');

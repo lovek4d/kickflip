@@ -284,7 +284,7 @@ test("a card with an owner step keeps its GitHub issue open when the session clo
   assert.deepEqual([read(file).items.at(-1).lane, read(file).items.at(-1).owner_step], ['done', undefined]);
 });
 
-test("pr comment and pr reply post Claude's words through gh with the robot prefix and the claude-bridge marker, as the board's github-login", async () => {
+test("pr comment and pr reply post Claude's words through gh with the signature and the claude-bridge marker, as the board's github-login", async () => {
   const dir = path.join(home, 'fake-gh');
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
   writeAccounts(dir, { owner: 'token-owner' });
@@ -304,14 +304,14 @@ test("pr comment and pr reply post Claude's words through gh with the robot pref
   const elsewhere = await cli('pr', 'comment', 'o/site#1', '--body', 'Linked from #7.');
   assert.equal(elsewhere.out, 'posted on PR o/site#1: https://github.com/o/site/issues/1/comments\n');
   assert.deepEqual(posts(), [
-    ['repos/o/r/issues/7/comments', 'body=🤖 Fixed in abc1234.\n\n<!-- claude-bridge -->', null],
-    ['repos/o/r/pulls/7/comments/901/replies', 'body=🤖 Not changed: the owner kept it.\n\n<!-- claude-bridge -->', 'token-owner'],
-    ['repos/o/site/issues/1/comments', 'body=🤖 Linked from #7.\n\n<!-- claude-bridge -->', 'token-owner'],
+    ['repos/o/r/issues/7/comments', 'body=Fixed in abc1234.\n- 🤖\n\n<!-- claude-bridge -->', null],
+    ['repos/o/r/pulls/7/comments/901/replies', 'body=Not changed: the owner kept it.\n- 🤖\n\n<!-- claude-bridge -->', 'token-owner'],
+    ['repos/o/site/issues/1/comments', 'body=Linked from #7.\n- 🤖\n\n<!-- claude-bridge -->', 'token-owner'],
   ]);
 
   for (const [args, err] of [
-    [['pr', 'comment', '7', '--body', '🤖 Fixed.'], 'pr comment adds the 🤖 prefix and the claude-bridge marker itself; pass only your words'],
-    [['pr', 'comment', '7', '--body', 'Fixed.\n\n<!-- claude-bridge -->'], 'pr comment adds the 🤖 prefix and the claude-bridge marker itself; pass only your words'],
+    [['pr', 'comment', '7', '--body', 'Fixed.\n- 🤖'], 'pr comment adds the signature and the claude-bridge marker itself; pass only your words'],
+    [['pr', 'comment', '7', '--body', 'Fixed.\n\n<!-- claude-bridge -->'], 'pr comment adds the signature and the claude-bridge marker itself; pass only your words'],
     [['pr', 'comment', 'x7', '--body', 'Fixed.'], 'pr comment takes a PR number or owner/repo#<n>'],
     [['pr', 'reply', '7', 'abc', '--body', 'Fixed.'], 'pr reply takes the id of the review comment it answers'],
     [['pr', 'comment', '7'], 'pr comment needs --body "<what Claude says>"'],
@@ -518,7 +518,7 @@ test("review post posts the session's words as one Comment review on a listed in
   const done = await cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T09:00:00Z');
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out, 'posted review on PR #437: https://github.com/o/incoming/pull/437#pullrequestreview-1\n');
-  assert.deepEqual(posts(), [[['repos/o/incoming/pulls/437/reviews', '-f', `body=🤖 Claude review from the ${title} board\n\nOne point: the retry loops.\n\n<!-- claude-bridge -->`, '-f', 'event=COMMENT', '-f', 'commit_id=abc'], 'token-owner']]);
+  assert.deepEqual(posts(), [[['repos/o/incoming/pulls/437/reviews', '-f', `body=Claude review from the ${title} board\n\nOne point: the retry loops.\n- 🤖\n\n<!-- claude-bridge -->`, '-f', 'event=COMMENT', '-f', 'commit_id=abc'], 'token-owner']]);
   const { at: postedAt, ...rec } = read(site('orch', 'data', 'reviews.json'))['437'];
   assert.ok(Date.parse(postedAt));
   assert.deepEqual(rec, { ...pr, state: 'posted', text: 'One point: the retry loops.', review_url: 'https://github.com/o/incoming/pull/437#pullrequestreview-1' });
@@ -532,9 +532,9 @@ test("review post posts the session's words as one Comment review on a listed in
   assert.equal(posts().length, 2);
 
   for (const [name, words, err] of [
-    ['robot', '🤖 Fine.', /adds the 🤖 header and the claude-bridge marker itself/],
-    ['header', 'Claude review from me\n\nFine.', /adds the 🤖 header/],
-    ['marker', 'Fine.\n<!-- claude-bridge -->', /adds the 🤖 header/],
+    ['signature', 'Fine.\n- 🤖', /adds the header, the signature and the claude-bridge marker itself/],
+    ['header', 'Claude review from me\n\nFine.', /adds the header, the signature/],
+    ['marker', 'Fine.\n<!-- claude-bridge -->', /adds the header, the signature/],
   ]) {
     write(path.join(home, `${name}.md`), words);
     assert.match((await cli('review', 'post', '437', '--file', path.join(home, `${name}.md`), '--read-at', '2026-11-05T10:30:00Z')).err, err, name);
@@ -570,7 +570,7 @@ test("applyReviewAnswer records a held review posted for Skip, posts its held te
   write(site('orch', 'data', 'reviews.json'), { 437: held });
   await applyReviewAnswer(site('orch'), 437, 'post');
   assert.deepEqual([rec().state, rec().review_url, posts().length], ['posted', 'https://github.com/o/incoming/pull/437#pullrequestreview-1', 1]);
-  assert.match(posts()[0].args.find((a) => a.startsWith('body=')), /Clashes with #47\.\n\n<!-- claude-bridge -->$/);
+  assert.match(posts()[0].args.find((a) => a.startsWith('body=')), /Clashes with #47\.\n- 🤖\n\n<!-- claude-bridge -->$/);
 
   write(site('orch', 'data', 'reviews.json'), { 437: held });
   writeReviews(dir, 437, [{ id: 5, user: { login: 'ann' }, submitted_at: '2026-11-05T10:00:00Z', body: '', state: 'COMMENTED' }]);

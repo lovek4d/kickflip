@@ -1,5 +1,6 @@
 // GitHub's raw PR data and the session's report (docs/adr/2026-11-01-2314-the-hub-reads-github-itself.md).
 import { gh as ghRun, PRIMARY } from '../shared/gh.mjs';
+import { githubSignOffLine } from './slack.mjs';
 
 export const PR_VIEW_FIELDS = 'state,isDraft,reviewDecision,mergeable,mergeStateStatus,headRefOid,statusCheckRollup';
 // The hub runs under the host's service manager, whose PATH may not hold gh.
@@ -14,8 +15,7 @@ async function gh(args, { env, account } = {}) {
   try { return JSON.parse(r.stdout); } catch (e) { throw new Error(firstLine(`unreadable output (${e.message})`)); }
 }
 
-// Every GitHub post Claude writes opens with the robot and ends with the marker reportOf reads as Claude's own.
-export const CLAUDE_PREFIX = '🤖 ';
+// Every GitHub post Claude writes ends with the signature, then the marker reportOf reads as Claude's own.
 export const CLAUDE_MARK = '<!-- claude-bridge -->';
 
 // gh as login when given (its token from gh's own store, read each time since it can be rotated), else as gh's active
@@ -41,7 +41,7 @@ export async function prSize({ repo, pr, login }) {
 export async function postToPR({ repo, pr, replyTo, words, login }) {
   const as = await asLogin(login);
   const endpoint = replyTo === undefined ? `repos/${repo}/issues/${pr}/comments` : `repos/${repo}/pulls/${pr}/comments/${replyTo}/replies`;
-  try { return (await gh(['api', endpoint, '-f', `body=${CLAUDE_PREFIX}${words}\n\n${CLAUDE_MARK}`], as)).html_url; }
+  try { return (await gh(['api', endpoint, '-f', `body=${words}\n${githubSignOffLine()}\n\n${CLAUDE_MARK}`], as)).html_url; }
   catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
 }
 

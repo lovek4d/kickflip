@@ -134,6 +134,19 @@ const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired',
 // (readSignOff), followed on a message the hub edited by “ · _updated HH:MM_”, the edit's time. A message with
 // attachments, such as a PR's link, ends its last attachment with it, under what the bar holds
 // (docs/adr/2026-11-14-0451-a-prs-slack-link-is-a-bar-coloured-by-the-builders-risk.md).
+// The standard emoji Hub › Slack's picker offers for a PR state's reaction and the signature, with the character each
+// shows as.
+export const STANDARD_EMOJI = [
+  ['white_check_mark', '✅'], ['heavy_check_mark', '✔️'], ['large_purple_circle', '🟣'], ['x', '❌'], ['robot_face', '🤖'], ['+1', '👍'], ['tada', '🎉'],
+  ['rocket', '🚀'], ['sparkles', '✨'], ['fire', '🔥'], ['100', '💯'], ['star', '⭐'], ['eyes', '👀'], ['clap', '👏'], ['raised_hands', '🙌'],
+  ['ship', '🚢'], ['checkered_flag', '🏁'], ['large_green_circle', '🟢'], ['large_blue_circle', '🔵'], ['large_orange_circle', '🟠'],
+  ['red_circle', '🔴'], ['white_circle', '⚪'], ['no_entry', '⛔'], ['no_entry_sign', '🚫'], ['octagonal_sign', '🛑'], ['wastebasket', '🗑️'],
+  ['lock', '🔒'], ['hourglass', '⌛'], ['heart', '❤️'], ['purple_heart', '💜'], ['green_heart', '💚'],
+  ['thinking_face', '🤔'], ['raised_hand', '✋'],
+].map(([name, char]) => ({ name, char }));
+// The signature as GitHub shows it: “- ” and the picked emoji's character, the robot face when the pick is a custom
+// emoji GitHub can't show.
+export const githubSignOffLine = () => `- ${(STANDARD_EMOJI.find((e) => e.name === readSignOff()) || STANDARD_EMOJI.find((e) => e.name === SIGN_OFF_DEFAULT)).char}`;
 export const SIGN_OFF_DEFAULT = 'robot_face';
 export const signOffLine = () => `- :${readSignOff()}:`;
 // The sign-offs the hub used before the pick: :claude_kickflip: while the workspace had it, else :robot_face:.

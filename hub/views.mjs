@@ -8,7 +8,7 @@ import { siteIcon } from './icons.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 import { BOARD_DEFAULT_BUILT_INS, MAX_LAND_TESTS, MAX_SERVES, MAX_TASKS_IN_PROGRESS } from '../shared/hub-settings.mjs';
 import { autoViews, buildersView, orchestratorsView } from '../shared/model-views.mjs';
-import { PR_EMOJI, SIGN_OFF_DEFAULT } from './slack.mjs';
+import { PR_EMOJI, SIGN_OFF_DEFAULT, STANDARD_EMOJI } from './slack.mjs';
 
 export const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -184,16 +184,6 @@ function slackWords(slack) {
 }
 
 // docs/adr/2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md
-// The standard emoji Hub › Slack's picker offers for a PR state's reaction and the signature, with the character each
-// shows as.
-const STANDARD_EMOJI = [
-  ['white_check_mark', '✅'], ['heavy_check_mark', '✔️'], ['large_purple_circle', '🟣'], ['x', '❌'], ['robot_face', '🤖'], ['+1', '👍'], ['tada', '🎉'],
-  ['rocket', '🚀'], ['sparkles', '✨'], ['fire', '🔥'], ['100', '💯'], ['star', '⭐'], ['eyes', '👀'], ['clap', '👏'], ['raised_hands', '🙌'],
-  ['ship', '🚢'], ['checkered_flag', '🏁'], ['large_green_circle', '🟢'], ['large_blue_circle', '🔵'], ['large_orange_circle', '🟠'],
-  ['red_circle', '🔴'], ['white_circle', '⚪'], ['no_entry', '⛔'], ['no_entry_sign', '🚫'], ['octagonal_sign', '🛑'], ['wastebasket', '🗑️'],
-  ['lock', '🔒'], ['hourglass', '⌛'], ['heart', '❤️'], ['purple_heart', '💜'], ['green_heart', '💚'],
-  ['thinking_face', '🤔'], ['raised_hand', '✋'],
-].map(([name, char]) => ({ name, char }));
 const EMOJI_TITLES = { approved: 'Approved', merged: 'Merged', closed: 'Closed', received: 'Received', thinking: 'Thinking', waiting: 'Waiting on owner', done: 'Done', signature: 'Signature' };
 // What Hub › Slack shows for the PR states' and task statuses' reactions (hub/slack.mjs PR_EMOJI) and the signature, the sign-off line's
 // emoji: a row each with its emoji, a custom one's {name, url} or a standard one's {name, char}, marked standard while

@@ -162,8 +162,8 @@ export async function followSlackAsks({ boards = listBoards(), fetch } = {}) {
 
 // docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
 // The orchestrator's replies to a Slack-filed task's Slack messages (the @kickflip ask, or a Slack reply copied onto the
-// task) post into its Slack thread as the owner, "🤖 " first and signed off, in the order written; once the task is
-// Done, one end line follows and nothing more posts. While the task waits on the owner, one "🤖 Waiting on owner: <what>"
+// task) post into its Slack thread as the owner, signed off, in the order written; once the task is
+// Done, one end line follows and nothing more posts. While the task waits on the owner, one "Waiting on owner: <what>"
 // line posts per wait (slack-store.mjs ownerWaitWords), after the replies; a wait that clears and a new one post again.
 // A failed wait line is retried each poll with no fault line. A failed post writes one fault line on the card and is retried
 // each poll, holding back the thread's later posts; each posted one's ts is recorded, so none posts twice.
@@ -181,7 +181,7 @@ export async function postSlackReplies({ boards = listBoards(), fetch } = {}) {
         ...(thread.wait ? [{ text: `Waiting on owner: ${thread.wait}`, what: 'a wait line', wait: thread.wait }] : [])];
       for (const p of posts) {
         try {
-          const ts = await slack.post({ channel: thread.channel, thread_ts: thread.thread_ts, text: `🤖 ${p.text}` });
+          const ts = await slack.post({ channel: thread.channel, thread_ts: thread.thread_ts, text: p.text });
           await (p.wait ? markSlackWait(board.dir, thread, p.wait, ts) : markSlackPost(board.dir, thread, p.name, { ts }));
           posted.push(`${board.route} ${thread.key}: ${p.what}`);
         } catch (e) {
