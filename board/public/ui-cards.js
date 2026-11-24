@@ -454,22 +454,20 @@
     return `<div class="hub-view"><div class="dur-chips" role="group" aria-labelledby="holdTitle"><div class="dur-choices">${chips}</div>`
       + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom block until a date and time"></div></div></div>`;
   }
-  // A card's top right holds one bare orange glyph for the owner's next, before its "…": ? opening the questions sheet
-  // while the card has open questions, which replace any other next; else Implement while the orchestrator's offer is open
-  // (the card's action is Tap Implement), which confirms, then sends the card's build (app-cards.js confirmTap); else Done's check
-  // for a card waiting on its owner step or a published release, which confirms, then sends card-done
+  // A card's top right holds one bare orange glyph for the owner's next, before its "…", following the card's action (the
+  // action flag): Implement while the orchestrator's offer is open (the action is Tap Implement), which confirms, then sends
+  // the card's build (app-cards.js confirmTap); else Done's check when the action is Tap Done, or when the card waits
+  // on its owner step or a published release with no other action, which confirms, then sends card-done
   // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md,
   // docs/adr/2026-11-24-2330-a-cards-top-right-offers-the-owners-next-in-one-tap.md).
   const glyph = (path) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const CHECK = glyph('<path d="M20 6 9 17l-5-5"/>');
-  const QUESTION = glyph('<path d="M9 9a3 3 0 1 1 4.5 2.6c-1 .6-1.5 1.1-1.5 2.4"/><path d="M12 18h.01"/>');
   const IMPLEMENT = glyph('<path d="M8 5v14l11-7z"/>');
   const ownerNext = (it) => {
     const sending = (act) => (it.sending?.includes(act) ? BoardUI.SENDING : '');
     const button = (attrs, label, title, icon) => `<button type="button" class="ghost icon owner-done" ${attrs} aria-label="${label}" title="${esc(title)}">${icon}</button>`;
-    if (it.questions?.open > 0) return button(`data-questions="${esc(it.questions.first)}"`, 'Questions', 'Questions', QUESTION);
     if (it.action?.kind === ACTION_KIND.implement) return button(`data-confirm="implement" data-key="${esc(it.key)}"${sending('build')}`, 'Implement', 'Implement', IMPLEMENT);
-    if (it.ownerStep || it.release?.state === 'published') return button(`data-confirm="finish" data-key="${esc(it.key)}"${sending('finish')}`, 'Done', `Done: ${it.ownerStep || `published ${it.release.version}`}`, CHECK);
+    if (it.action?.kind === ACTION_KIND.close || (!it.action && (it.ownerStep || it.release?.state === 'published'))) return button(`data-confirm="finish" data-key="${esc(it.key)}"${sending('finish')}`, 'Done', it.ownerStep ? `Done: ${it.ownerStep}` : it.release?.state === 'published' ? `Done: published ${it.release.version}` : 'Done', CHECK);
     return '';
   };
 

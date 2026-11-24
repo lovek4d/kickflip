@@ -2997,22 +2997,26 @@ test("a card waiting on its owner step reads the step as its orange Next, with D
 });
 
 // docs/adr/2026-11-24-2330-a-cards-top-right-offers-the-owners-next-in-one-tap.md
-test("a card's top right holds one bare glyph for the owner's next: ? for open questions, else Implement on an offered task, else Done's check", () => {
-  const slot = (it) => (workLines(it).match(/<div class="ask-actions">(<button[^]*?<\/button>)<button type="button" class="ghost icon card-more"/) || [])[1] || '';
+test("a card's top right holds one bare glyph that follows the card's action: Implement or Done's check, never questions", () => {
+  const slot = (it) => (workLines(it).match(/<div class="ask-actions">(<button[^]*?<\/button>)?<button type="button" class="ghost icon card-more"/) || [])[1] || '';
   const step = 'Add the npm trusted publisher';
   const done = { ...workCard, lane: 'review', ownerStep: step, awaitsDone: true, bumpable: false };
-  const offered = { ...workCard, lane: 'todo', action: { kind: 'implement', url: '#', label: 'Tap Implement' } };
-  const open = { questions: { open: 2, answered: 0, replied: 0, first: 'q1' } };
+  const withAction = (kind) => ({ ...workCard, lane: 'todo', action: { kind, url: '#', label: kind } });
   assert.match(slot(done), /class="ghost icon owner-done" data-confirm="finish"/);
-  assert.match(slot(offered), /^<button type="button" class="ghost icon owner-done" data-confirm="implement" data-key="w\/B5" aria-label="Implement" title="Implement"/);
-  assert.match(slot({ ...offered, ...open }), /^<button type="button" class="ghost icon owner-done" data-questions="q1" aria-label="Questions" title="Questions"><svg/);
-  // Questions replace whatever else the card's next is: one glyph, no count, no circle.
-  assert.equal((slot({ ...done, ...open }).match(/<button/g) || []).length, 1);
-  assert.match(slot({ ...done, ...open }), /data-questions="q1"/);
-  assert.doesNotMatch(slot({ ...offered, ...open }), /circle|badge|pip/);
-  // A Todo card with no offer open (new, discussing, grilling, staged or ready) shows no glyph; nor does a task with no owner step.
-  assert.equal(slot({ ...offered, action: null }), '');
-  assert.equal(slot({ ...offered, action: null, ready: true }), '');
+  // Each action kind maps to its glyph or to none, as the card's action flag does.
+  const glyphOf = { implement: 'implement', close: 'finish' };
+  for (const kind of ['stalled', 'script', 'pick', 'questions', 'merge', 'implement', 'close', 'ready', 'steps']) {
+    const want = glyphOf[kind];
+    const got = slot(withAction(kind));
+    if (want) assert.match(got, new RegExp(`data-confirm="${want}" data-key="w/B5"`), kind);
+    else assert.equal(got, '', kind);
+  }
+  assert.match(slot(withAction('implement')), /^<button type="button" class="ghost icon owner-done" data-confirm="implement" data-key="w\/B5" aria-label="Implement" title="Implement"/);
+  // Open questions take no slot.
+  const open = { questions: { open: 2, answered: 0, replied: 0, first: 'q1' } };
+  assert.doesNotMatch(workLines({ ...done, ...open }), /data-questions/);
+  assert.equal(slot({ ...withAction('questions'), ...open }), '');
+  assert.equal(slot({ ...withAction('implement'), action: null }), '');
   assert.equal(slot({ ...workCard, lane: 'progress' }), '');
 });
 
