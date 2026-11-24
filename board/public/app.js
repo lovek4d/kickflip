@@ -214,7 +214,10 @@ window.BoardView = (function () {
       if (d.title && document.title !== d.title) document.title = d.title;
       // An open card that changed lane since the last paint closes in its new lane, and the board forgets it as open,
       // before steady picks its anchor, so the page keeps on a card still where it was.
-      const moved = new Set(items.filter((i) => state.openItems.has(i.key) && state.laneOf.get(i.key) !== undefined && state.laneOf.get(i.key) !== i.lane).map((i) => i.key));
+      // A card whose thread's box has focus stays open, and the page follows the box (steady anchors the field typed in);
+      // Done, tapped from that box, closes it.
+      const typing = document.activeElement?.closest?.('form[data-reply]')?.dataset.reply;
+      const moved = new Set(items.filter((i) => (i.key !== typing || i.lane === 'done') && state.openItems.has(i.key) && state.laneOf.get(i.key) !== undefined && state.laneOf.get(i.key) !== i.lane).map((i) => i.key));
       for (const key of moved) state.openItems.delete(key);
       if (moved.size) store.set('openItems', [...state.openItems]);
       state.laneOf = new Map(items.map((i) => [i.key, i.lane]));
@@ -337,12 +340,19 @@ window.BoardView = (function () {
       }
       const el = $(`details.item[data-key="${CSS.escape(focusKey)}"]`);
       // The desktop header, or below 900px the status bar, would cover the card's title row.
-      if (el) {
+      // A card whose title row is already on screen stays where it is
+      // (docs/adr/2026-11-12-0000-a-topic-pill-tap-keeps-the-page-scroll.md).
+      if (el && !titleOnScreen(el)) {
         el.style.scrollMarginTop = 'calc(env(safe-area-inset-top) + 8px)';
         el.scrollIntoView({ block: 'start' });
       }
       if (el && replyKey === focusKey) focusReply(replyKey);
       if (el || final) focusKey = replyKey = null;
+    }
+    function titleOnScreen(el) {
+      const r = el.querySelector('summary')?.getBoundingClientRect();
+      const pane = matchMedia('(min-width: 900px)').matches ? B.root.querySelector('.split > main')?.getBoundingClientRect() : null;
+      return !!r && r.bottom > r.top && r.top >= Math.max(0, pane?.top ?? 0) && r.bottom <= Math.min(innerHeight, pane?.bottom ?? innerHeight);
     }
     // The thread loads after the card opens, so its reply box is waited for, briefly. iOS shows no keyboard for a
     // focus that no tap started, so the box is also brought into view: one tap on it then types.

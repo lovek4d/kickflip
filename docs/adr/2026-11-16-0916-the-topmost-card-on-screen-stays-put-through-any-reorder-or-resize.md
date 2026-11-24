@@ -12,3 +12,5 @@ The owner (11/16): "Any time a ticket moves due to a lane change, filter change,
 - **A thread's folds** keep holding their reply form ([expanding in a thread grows it upward](2026-11-15-1600-expanding-in-a-thread-grows-it-upward.md)).
 
 Amends [an open card moves at once and the page follows it](2026-10-30-1637-an-open-card-moves-at-once-and-the-page-follows-it.md): the open card's title row is no longer an anchor of its own.
+
+Update (#1195): an open card whose thread's reply box has focus stays open through a lane change, the box keeping focus and its draft, and the page follows it; any other open card closes in its new lane as before.

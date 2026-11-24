@@ -9729,3 +9729,38 @@ test("hovering a task link with a fine pointer shows that task's title after a d
   assert.ok(closed.length > open1, 'a scroll closes it');
   b.view.unmount();
 });
+
+// docs/adr/2026-11-12-0000-a-topic-pill-tap-keeps-the-page-scroll.md
+for (const width of [390, 1280]) {
+  test(`at ${width}px a link onto a card whose title row is on screen leaves the scroll; one onto a card off screen scrolls it into view`, async () => {
+    const b = boardOnDom({ board: boardOf([workCard('T1'), workCard('T2')]), threads: {}, width });
+    await b.settle();
+    const view = flowOut(b);
+    const scrolled = [];
+    b.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key); };
+    const follow = async (hash) => { b.page.win.location.hash = hash; b.page.fire(vm.runInContext('window', b.page.win), 'hashchange'); await b.settle(); };
+    view.scrollY = 0;
+    await follow('#selectedCard=w%2FT1');
+    assert.deepEqual(scrolled, [], 'a card on screen does not scroll');
+    view.scrollY = 5000;
+    await follow('#selectedCard=w%2FT2');
+    assert.deepEqual(scrolled, ['w/T2'], 'a card off screen scrolls into view');
+    b.view.unmount();
+  });
+}
+
+// docs/adr/2026-11-16-0916-the-topmost-card-on-screen-stays-put-through-any-reorder-or-resize.md
+for (const width of [390, 1280]) {
+  test(`at ${width}px an open card that changes lane stays open while its thread's box has focus, and closes otherwise`, async () => {
+    const msgs = [{ at: '2026-10-30T09:00:00.000Z', who: 'claude', text: 'hi' }];
+    const b = boardOnDom({ board: boardOf([workCard('T1'), workCard('P1')]), threads: { 'w/T1': msgs, 'w/P1': msgs }, width, open: ['w/T1', 'w/P1'] });
+    await b.settle();
+    const card = (k) => b.root.querySelector(`details.item[data-key="${k}"]`);
+    const box = b.root.querySelector('form[data-reply="w/T1"] textarea');
+    box.focus();
+    await b.change({ board: boardOf([workCard('T1', { lane: 'progress' }), workCard('P1', { lane: 'progress' })]) });
+    assert.deepEqual([card('w/T1').open, card('w/P1').open], [true, false]);
+    assert.equal(b.doc.activeElement.closest('form')?.dataset.reply, 'w/T1', 'the box keeps focus');
+    b.view.unmount();
+  });
+}

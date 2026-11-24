@@ -9,3 +9,5 @@ With no open card and no box being typed in, the board had no anchor, and the br
 Lanes side by side on a desktop don't shift each other vertically, so this matters mostly on a phone's single column; the rule is the same.
 
 Amended by [the topmost card on screen stays put through any reorder or resize](2026-11-16-0916-the-topmost-card-on-screen-stays-put-through-any-reorder-or-resize.md).
+
+Update (#1195): an open card whose thread's reply box has focus does not close when it changes lane. It stays open, and the page follows the box, the field being typed in being the anchor.
