@@ -108,7 +108,7 @@ export const ON_CARD = {
     ? `new task ${e.id} from ${askedBy(e.data.asked)} received as ${c}, to build: item triage <its key> --title and its links and no --phase, which stages it; then judge and size it as any staged task`
     : e.data?.quick === true
       ? `new task ${e.id}${e.data?.asked ? `, asked by ${askedBy(e.data.asked)}, ${NOT_THE_OWNER},` : ''} received as ${c}, to build: item triage <its key> --title and its links and no --phase, which stages it; then judge and size it as any staged task`
-      : `new task ${e.id}${e.data?.asked ? `, asked by ${askedBy(e.data.asked)}, ${NOT_THE_OWNER},` : ''} received as ${c}: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links and --text, or --fold-into <task> for a duplicate; then investigate`),
+      : `new task ${e.id}${e.data?.asked ? `, asked by ${askedBy(e.data.asked)}, ${NOT_THE_OWNER},` : ''} received as ${c}: triage it first, from what you know of the board, reading no code: item triage <its key> --title --phase discussing|grilling|prototyping|visual with its links, or --fold-into <task> for a duplicate; then investigate${['builder', 'planner'].includes(e.data?.asked?.by) ? '; if it rests on a claim nobody has checked, brief a reviewer first (item brief <its key> --kind reviewer)' : ''}`),
 };
 
 // One plain line per event line, from its kind and card (data.key, data.id for an ask-* event, or an ask's own id), or null for a

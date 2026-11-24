@@ -2580,9 +2580,12 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
     const key = `w/T-${id.slice(1)}`;
     return `Triage the new task first, from what you know of the board, reading no code: ${triage(key)}. Then investigate: item notes, questions, a reply ${key}.`;
   };
-  const triage = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--parent <key> [--split]] [--blocked-by <keys>] [--ticket <id>] --text "<what comes next>", or --fold-into <task> for a duplicate`;
+  const triage = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual [--relate <keys>] [--parent <key> [--split]] [--blocked-by <keys>] [--ticket <id>], or --fold-into <task> for a duplicate`;
   const cards = [asked('e1'), asked('e2')];
 
+  const byBuilder = ask('e1', 1, { data: { text: 'Task e1', asked: { by: 'builder', ref: 'T-9', key: 'w/T-9' } } });
+  assert.match(waits([byBuilder], { waveItems: cards })[0][4], /a reply w\/T-1\. If it rests on a claim nobody has checked .* \(item brief w\/T-1 --kind reviewer\), before any plan or reply that rests on it\.$/);
+  assert.doesNotMatch(waits([ask('e1', 1)], { waveItems: cards })[0][4], /reviewer/);
   // An ask with no card yet waits on no one: it is unfiled, for the board server to file.
   assert.deepEqual(waits([ask('e1', 1)]), []);
   assert.deepEqual(built([ask('e1', 1)]).unfiled, ['e1']);

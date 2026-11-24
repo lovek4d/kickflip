@@ -33,6 +33,12 @@ test('a discussing card with no mark, no question and nothing running waits on t
   assert.deepEqual(waits({ items: [card()], threads: { 'w/A1': [line(9)] } }), [['w/A1', 'limbo', at(0), LIMBO]]);
 });
 
+test("a card whose reviewer posted last waits to fold the findings into the notes, then reply", () => {
+  const reviewer = { kind: 'reviewer', started: at(4), done: at(8) };
+  assert.deepEqual(waits({ items: [card()], agents: { A1: { reviewer } } }), [['w/A1', 'limbo', at(8), "A1's reviewer posted its findings: fold them into the notes, then reply w/A1"]]);
+  assert.deepEqual(waits({ items: [card()], agents: { A1: { reviewer, grill: { kind: 'grill', started: at(9), done: at(12) } } } }), [['w/A1', 'limbo', at(12), LIMBO]], 'a later planner end is the plain limbo');
+});
+
 test('the limbo waits come after every other wait, oldest first, so a deploy surfaces them once in one batch', () => {
   const items = [card({ id: 'A1', created: at(20) }), card({ id: 'A2', created: at(10) }), { id: 'A3', title: 'Three', lane: 'todo', phase: 'staging', staged_at: at(30) }];
   assert.deepEqual(waits({ items }).map(([key, kind]) => [key, kind]), [['w/A3', 'staging'], ['w/A2', 'limbo'], ['w/A1', 'limbo']]);

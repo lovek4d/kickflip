@@ -2014,7 +2014,7 @@ export function relatedCandidates(items, it) {
     .map(({ o }) => o);
 }
 const TRIAGE_LINKS = '[--relate <keys>] [--parent <key> [--split]] [--blocked-by <keys>] [--ticket <id>]';
-const TRIAGE = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual ${TRIAGE_LINKS} --text "<what comes next>", or --fold-into <task> for a duplicate`;
+const TRIAGE = (key) => `item triage ${key} --title "<type>(<scope>): <summary>" --phase discussing|grilling|prototyping|visual ${TRIAGE_LINKS}, or --fold-into <task> for a duplicate`;
 // docs/adr/2026-11-17-0543-a-quick-ask-is-triaged-into-staging.md: whether ask id came with the owner's Implement, the
 // New task sheet's (quick) or one tapped on its New card, which item triage turns into staging. A Slack @kickflip
 // discusses first, Implement or not (docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md).
@@ -2027,10 +2027,14 @@ const candidatesLine = (cards) => (cards.length ? ` Likely related (check them, 
 // docs/adr/2026-11-07-0700-staging-then-ready.md: what a task is checked against before it goes ready, staged or filed
 // from an Implement ask.
 const STAGING_CHECKS = "check that no open or merged task already covers it or overlaps its files, that the tasks it depends on or that should land first are linked (item set --blocked-by), that a related task's settled answers don't contradict it, that its size and model fit what its notes now ask, and that nothing it asks is left as a question for the owner";
+// docs/adr/2026-11-23-1800-a-task-resting-on-an-unchecked-claim-starts-a-reviewer-unasked.md: the default next step for a
+// task a builder or planner filed.
+const UNCHECKED_CLAIM = (key) => `If it rests on a claim nobody has checked (a number from a log line, a premise taken as fact), the next step is a reviewer brief (item brief ${key} --kind reviewer), before any plan or reply that rests on it.`;
+const filedByAgent = (e) => ['builder', 'planner'].includes(e.data?.asked?.by);
 const INTAKE_NEXT = {
   ask: (key, cards, e, events) => (implementAsk(events, e.id)
     ? `Triage the new task first, from what you know of the board, reading no code: ${e.data?.asked?.by === 'schedule' ? `${askedBy(e.data.asked)} filed it to build on its cadence` : 'the owner tapped Implement'}, so item triage ${key} --title "<type>(<scope>): <summary>" ${TRIAGE_LINKS} stages it, taking no --phase. Then judge it as any staged task: item notes, then the checks a staged task gets (${STAGING_CHECKS}), then item set ${key} --phase ready --text "<what you checked>" at any size, or --phase grilling or prototyping with a thread line saying why.${candidatesLine(cards)}`
-    : `Triage the new task ${e.data?.asked ? `${askedBy(e.data.asked)} asked, ${NOT_THE_OWNER},` : 'first,'} from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}.${candidatesLine(cards)}`),
+    : `Triage the new task ${e.data?.asked ? `${askedBy(e.data.asked)} asked, ${NOT_THE_OWNER},` : 'first,'} from what you know of the board, reading no code: ${TRIAGE(key)}. Then investigate: item notes, questions, a reply ${key}.${filedByAgent(e) ? ` ${UNCHECKED_CLAIM(key)}` : ''}${candidatesLine(cards)}`),
   'card-added': (key, cards) => `Triage the task an agent added, from what you know of the board: ${TRIAGE(key)}. Then investigate: item notes.${candidatesLine(cards)}`,
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
@@ -2363,6 +2367,8 @@ const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPha
 // and unblocked drop while their card is blocked: a blocked card can't go ready, so its staging judgment waits for the
 // block's end (docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md).
 // Once the block ends it is owed from then (unblocked_at), and a pickup from before is void.
+// Whether the newest agent to end on a card is its reviewer.
+const reviewPosted = (it) => it.agents.filter((a) => a.done).sort((a, b) => (a.done < b.done ? -1 : 1)).at(-1)?.kind === REVIEWER;
 const HELD_BY_BLOCK = new Set(['staging', 'limbo', 'unblocked']);
 function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
@@ -2423,7 +2429,8 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       it.next === NO_NEXT && lastBuild && { kind: 'unowned', since: lastBuild, next: UNOWNED_NEXT(it.key) },
       // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: a sorted
       // Todo card still owing Implement, with no mark, question, brief or planner, owes nobody anything.
-      limbo(it) && { kind: 'limbo', since: facts.limboFrom, next: `${it.ref} owes nobody anything: ask Implement (reply ${it.key} --implement), ask questions, or close it` },
+      // docs/adr/2026-11-23-1800-a-task-resting-on-an-unchecked-claim-starts-a-reviewer-unasked.md: a posted review is folded in first.
+      limbo(it) && { kind: 'limbo', since: facts.limboFrom, next: reviewPosted(it) ? `${it.ref}'s reviewer posted its findings: fold them into the notes, then reply ${it.key}` : `${it.ref} owes nobody anything: ask Implement (reply ${it.key} --implement), ask questions, or close it` },
     ]),
   ];
   const open = waits.filter((wait) => wait?.since && !(it.blocked && HELD_BY_BLOCK.has(wait.kind)));
