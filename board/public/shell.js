@@ -252,8 +252,8 @@ window.AppShell = (function () {
     const dirty = () => Boolean(current?.root.querySelector('[data-dirty]'));
     addEventListener('beforeunload', (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });
 
-    // go(view, href, how): router.js's, with how 'replace' for a framed page's hand-off and 'reload' for a view's
-    // own refresh. → true, or a promise of whether the view switched once the owner answers about an unsaved edit.
+    // go(view, href, how, auto): router.js's, with how 'replace' for a framed page's hand-off and 'reload' for a view's
+    // own refresh, and auto for a push's open, whose sheet opens as an auto-open (ui.js opening). → true, or a promise of whether the view switched once the owner answers about an unsaved edit.
     let router = null;
     // A questions URL, the old Waiting on you page's (docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md),
     // and a board's card page, a prototype or a visual, are no views of their own: every way to one, a link, a push, a
@@ -262,18 +262,21 @@ window.AppShell = (function () {
     // and opens a card page in its reader sheet (docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md).
     const inPane = (view) => view?.kind === 'questions' || AppRouter.isCardPage(view, boards());
     // ask(B) → true once the board did what the view asks. A board just shown takes a moment to load, so it is asked
-    // again until it has.
-    const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openPage?.(href));
+    // again until it has. auto: a push's ask or the cold load's, whose sheet is an auto-open.
+    const paneAsk = (view, href, auto) => {
+      const ask = view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openPage?.(href);
+      return auto ? (B) => BoardUI.opening('auto', () => ask(B)) : ask;
+    };
     // A newer ask drops the retries of an older one, so a late retry never sets an earlier pick over the later one.
     let asked = 0;
     function askPane(ask, tries = 50, mine = ++asked) {
       if (mine !== asked || current?.view.kind !== 'board' || ask(current.v.B) || tries <= 0) return;
       setTimeout(() => askPane(ask, tries - 1, mine), 100);
     }
-    function go(view, href, how) {
+    function go(view, href, how, auto = false) {
       if (!AppRouter.mounted(view)) return false;
       if (inPane(view)) {
-        const ask = paneAsk(view, href);
+        const ask = paneAsk(view, href, auto);
         const board = { kind: 'board', route: view.route, hash: '' };
         const boardHref = new URL(AppRouter.urlOf(board), location.href).href;
         if (how === 'pop') history.replaceState(history.state, '', boardHref);
@@ -340,22 +343,22 @@ window.AppShell = (function () {
 
     let pane = null;
     if (inPane(first)) {
-      pane = paneAsk(first, location.href);
+      pane = paneAsk(first, location.href, true);
       first = { kind: 'board', route: first.route, hash: '' };
       history.replaceState(history.state, '', AppRouter.urlOf(first));
     }
     router = AppRouter.listen({ boards, go });
-    opener = (url, { replace = false, frames = true } = {}) => {
+    opener = (url, { replace = false, frames = true, auto = false } = {}) => {
       const view = AppRouter.viewOf(url, { boards: boards() });
       if (!AppRouter.mounted(view) || (!frames && view.kind === 'frame')) return false;
-      go(view, new URL(url, location.href).href, replace ? 'replace' : 'push');
+      go(view, new URL(url, location.href).href, replace ? 'replace' : 'push', auto);
       return true;
     };
     // Answered at once, since the switch may wait on the owner's answer about an unsaved edit.
     navigator.serviceWorker?.addEventListener('message', (e) => {
       const url = e.data?.open;
       if (typeof url !== 'string') return;
-      e.ports?.[0]?.postMessage({ routed: open(url) });
+      e.ports?.[0]?.postMessage({ routed: open(url, { auto: true }) });
     });
     navigator.serviceWorker?.startMessages?.();
 

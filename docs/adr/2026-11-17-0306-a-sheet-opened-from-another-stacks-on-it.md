@@ -1,6 +1,6 @@
 # A sheet opened from another stacks on it
 
-Supersedes [a sheet opened over another lands on top first](2026-11-16-2000-a-sheet-opened-over-another-lands-on-top-first.md).
+Supersedes [a sheet opened over another lands on top first](2026-11-16-2000-a-sheet-opened-over-another-lands-on-top-first.md). Amended by [a sheet stacks only from a tap inside another](2026-11-24-0300-a-sheet-stacks-only-from-a-tap-inside-another.md): only a tap inside a sheet stacks, and any other open replaces the stack.
 
 A prototype opened from the questions sheet replaced it, so its Choose this had to close the prototype and send the owner back to the question through the shell. On a phone the questions sheet then drew its old copy without the pick, and the owner saw the sheet close with nothing picked. The owner asked for a standard seam instead: modals opened from modals always stack.
 

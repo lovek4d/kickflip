@@ -70,6 +70,7 @@ function fakePage(localStorage) {
     setAttribute(k, v) { this.attrs[k] = String(v); }
     getAttribute(k) { return this.attrs[k] ?? null; }
     removeAttribute(k) { delete this.attrs[k]; }
+    toggleAttribute(k, on = !(k in this.attrs)) { if (on) this.attrs[k] = ''; else delete this.attrs[k]; return on; }
     appendChild(el) { el.parentNode = this; return el; }
     remove() {}
     getBoundingClientRect() { return { height: 36 }; }
@@ -139,6 +140,8 @@ function fakePage(localStorage) {
     const e = { target, type, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() { stopped = true; }, ...ev };
     // A tap is a press then a click on the same element, so BoardUI.onBackdrop sees where it began.
     if (type === 'click' && !('pressed' in ev)) for (const l of listeners.filter((x) => x.target === document && x.type === 'pointerdown')) l.fn({ target: e.target });
+    // A click passes the document's capture listeners first, as the sheet stack's that notes where it landed (ui.js).
+    if (type === 'click' && target !== document) for (const l of listeners.filter((x) => x.target === document && x.type === 'click' && x.capture)) l.fn(e);
     for (const l of listeners.filter((x) => x.target === target && x.type === type).sort((a, b) => b.capture - a.capture)) { if (stopped) break; l.fn(e); }
     return e;
   };
@@ -7246,6 +7249,40 @@ test("a question link tapped in the reader, in a card's notes or a page it frame
   }
 });
 
+// docs/adr/2026-11-24-0300-a-sheet-stacks-only-from-a-tap-inside-another.md
+test("notes or a transcript opened from the board while the reader is open replace what it shows; a question link on the board replaces the reader, and a push's stacks over it", async () => {
+  for (const width of [390, 1280]) {
+    const r = readerOnDom('plain log text', { width, topics: [openQuestion('q1', 'item:w/A1')], notes: { 'w/A1': '# The plan\n\nBuild it.' } });
+    await drain(() => r.view.B.state.notesCache.size === 1, "the card's notes load");
+    const questions = r.root.querySelector('#questionsSheet');
+    const BoardUI = r.page.win.BoardUI;
+    r.tap(r.root.querySelector('a[href="notes.html?item=w%2FA1"]'));
+    await r.settle();
+    r.tap(r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]'));
+    await r.settle();
+    assert.deepEqual([r.inSheet('#readerTitle').textContent, r.sheet().querySelectorAll('.reader-body').length, BoardUI.openSheets().length], ['builder transcript', 1, 1], `${width}: the transcript took the notes' place, with no page beneath`);
+    r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
+    r.page.runTimers();
+    assert.equal(r.sheet().open, false, 'its ✕ closes the sheet: nothing was beneath');
+
+    // The owner's notes, then a push for the card's question: it stacks on them, and closing it returns to them.
+    r.tap(r.root.querySelector('a[href="notes.html?item=w%2FA1"]'));
+    await r.settle();
+    BoardUI.opening('auto', () => r.view.B.focusQuestion('q1'));
+    assert.deepEqual([questions.open, BoardUI.isTopSheet(questions), r.sheet().open, BoardUI.anchored()], [true, true, true, true], `${width}: the push stacked on the owner's notes`);
+    r.page.fire(questions, 'click', { target: questions.querySelector('[data-qs="close"]') });
+    r.page.runTimers();
+    assert.deepEqual([questions.open, BoardUI.isTopSheet(r.sheet())], [false, true]);
+
+    // The same question opened from the board, by hand, replaces the notes.
+    r.tap(r.root);
+    r.view.B.focusQuestion('q1');
+    r.page.runTimers();
+    assert.deepEqual([questions.open, r.sheet().open, BoardUI.openSheets().length], [true, false, 1], `${width}: the board's question link closed the notes`);
+    r.view.unmount();
+  }
+});
+
 // docs/adr/2026-11-18-0523-previews-run-in-a-sandboxed-opaque-origin.md
 test("a visual in its opaque origin gives the reader its title and its link taps by message; another frame's, or a link that isn't the web's, does nothing", async () => {
   const r = readerOnDom('', { topics: [openQuestion('q1', 'item:w/A1')] });
@@ -8326,7 +8363,9 @@ test("a prototype or a visual opened from the questions sheet stacks on it, with
     assert.equal(b.view.B.openQuestionsSheet('q2'), true);
     assert.equal(questions.querySelector('section.q[data-q="q2"] a.proto-view').getAttribute('href'), 'prototype-x2.html?q=q2');
     assert.deepEqual(moves, [], `${width}: the questions sheet alone has no entry`);
-    // The question's View prototypes, which the shell hands to the board's reader sheet (shell.js go).
+    // The question's View prototypes, tapped in the questions sheet, which the shell hands to the board's reader sheet
+    // (shell.js go).
+    b.page.win.BoardUI.tappedIn(questions);
     b.view.B.openPage(proto);
     assert.deepEqual([questions.open, reader.open, top(reader), reader.modal, questions.modal], [true, true, true, width < 900, width < 900], `${width}: the prototype stacks on the questions sheet, which stays open`);
     assert.deepEqual(moves, [], 'the stacked layer makes no entry');
@@ -9603,6 +9642,8 @@ test("a board left with sheets open reopens them in stack order when it mounts a
   await r.settle();
   r.tap(r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]'));
   await r.settle();
+  // A question link tapped in the reader stacks its sheet on it.
+  r.page.win.BoardUI.tappedIn(r.sheet());
   r.view.B.openQuestionsSheet('item:w/A1');
   await r.settle();
   const remount = async (board) => {

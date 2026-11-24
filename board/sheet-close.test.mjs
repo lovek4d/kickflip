@@ -31,7 +31,7 @@ const context = vm.createContext({
 });
 for (const file of ['ui-icon-text.js', 'ui.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 const later = (ms, fn) => timers.push({ fn, ms });
-const { closeSheet: close, cutClose } = context.BoardUI;
+const { closeSheet: close, cutClose, tappedIn } = context.BoardUI;
 const closeSheet = (sheet, done) => close(sheet, later, done);
 
 const dialog = () => {
@@ -54,7 +54,10 @@ const sheetEl = (name) => {
     showing.splice(showing.indexOf(el), 1);
     queueMicrotask(() => el.dispatchEvent(new Event('close')));
   };
-  el.style = { setProperty: (_, v) => { el.layer = Number(v); } };
+  const attrs = new Set();
+  el.style = { setProperty: (k, v) => { if (k === '--layer') el.layer = Number(v); }, removeProperty: () => {} };
+  el.toggleAttribute = (k, on) => { if (on) attrs.add(k); else attrs.delete(k); };
+  el.removeAttribute = (k) => attrs.delete(k);
   el.querySelectorAll = () => [];
   el.querySelector = () => null;
   el.contains = (n) => n === el;
@@ -133,14 +136,17 @@ const fresh = async () => {
   await tick();
   Object.assign(history, { entries: [{ idx: 0 }], at: 0, backs: 0 });
   timers.length = 0;
+  tappedIn(null);
 };
+// A sheet opened by a tap inside the sheet under it, so it stacks on it.
+const openOver = (under, sheet) => { tappedIn(under); openSheet(sheet); };
 const noHistory = () => assert.deepEqual([history.entries.length, history.at, history.backs], [1, 0, 0], 'no entry pushed, none stepped back');
 
 test('a sheet opened over another stacks on it; closing it returns to the one beneath, which hears sheet-return; no history entry is made or spent', async () => {
   await fresh();
   const questions = sheetEl('questions'), reader = sheetEl('reader');
   openSheet(questions);
-  openSheet(reader);
+  openOver(questions, reader);
   assert.deepEqual([questions.open, reader.open, isTopSheet(reader), reader.layer], [true, true, true, 1], 'both open, the new on top');
   closeSheet(reader);
   assert.deepEqual([questions.open, isTopSheet(questions), questions.got], [true, true, ['sheet-return']]);
@@ -154,7 +160,7 @@ test('opening A then B and closing A then B never steps history, so no older add
   await fresh();
   const a = sheetEl('a'), b = sheetEl('b');
   openSheet(a);
-  openSheet(b);
+  openOver(a, b);
   closeSheet(a);
   closeSheet(b);
   noHistory();
@@ -164,7 +170,7 @@ test('opening A then B and closing A then B never steps history, so no older add
 test('a sheet shut by its own close() leaves the stack; one under another closing leaves the top as it is', async () => {
   await fresh();
   const a = sheetEl('a'), b = sheetEl('b'), c = sheetEl('c');
-  openSheet(a); openSheet(b); openSheet(c);
+  openSheet(a); openOver(a, b); openOver(b, c);
   b.close();
   await tick();
   assert.deepEqual([isTopSheet(c), c.got], [true, []], 'b goes, c stays on top');
@@ -174,17 +180,18 @@ test('a sheet shut by its own close() leaves the stack; one under another closin
   noHistory();
 });
 
-test('a sheet opened again while under another comes back on top; one open on top stays put', async () => {
+test('a sheet opened again while under another comes back on top as the ones above it close; one open on top stays put', async () => {
   await fresh();
   const reader = sheetEl('reader'), questions = sheetEl('questions');
   openSheet(reader);
-  openSheet(questions);
-  openSheet(questions);
-  openSheet(reader);
+  openOver(reader, questions);
+  openOver(questions, questions);
+  assert.deepEqual([questions.open, isTopSheet(questions), questions.got], [true, true, []], 'open on top: left as it is');
+  openOver(questions, reader);
+  assert.deepEqual([reader.open, isTopSheet(reader), reader.layer, questions.classList.contains('closing')], [true, true, 0, true], 'the questions sheet above it closes');
+  timers.shift().fn();
   await tick();
-  assert.deepEqual([reader.open, questions.open, isTopSheet(reader), reader.layer, questions.layer], [true, true, true, 1, 0], 'raised over the questions sheet; the late close event leaves it in the stack');
-  closeSheet(reader);
-  assert.equal(isTopSheet(questions), true);
+  assert.deepEqual([reader.open, questions.open, isTopSheet(reader)], [true, false, true]);
   noHistory();
 });
 
@@ -197,7 +204,7 @@ test('a page a sheet stacks on itself is a layer of its own, which popPage takes
   popPage(reader);
   assert.deepEqual([reader.got, reader.open], [[], true]);
 
-  openSheet(questions);
+  openOver(reader, questions);
   questions.scrollTop = 40;
   pushPage(reader);
   assert.deepEqual([isTopSheet(reader), showing, reader.layer, questions.layer], [true, [questions, reader], 1, 0], 'a page over the questions sheet raises the sheet');
@@ -239,7 +246,7 @@ test('Escape closes only the top sheet, and again the one beneath, each held by 
   await fresh();
   const a = sheetEl('a'), b = sheetEl('b');
   closing(a); closing(b);
-  openSheet(a); openSheet(b);
+  openSheet(a); openOver(a, b);
   assert.equal(escape(b), true, 'kept from the browser');
   timers.shift().fn();
   await tick();
@@ -257,7 +264,7 @@ test('Escape in a dialog that is not the top sheet, in an open popup, or any oth
   closing(a); closing(b);
   openSheet(a);
   assert.equal(escape({ closest: () => confirm }), false, 'a confirm dialog outside the stack closes itself');
-  openSheet(b);
+  openOver(a, b);
   assert.equal(escape({ closest: () => a }), true, 'focus left in a lower sheet still closes the top one');
   assert.ok(timers.some((t) => t.ms === 180) && b.classList.contains('closing') && !a.classList.contains('closing'), 'b closes, not a');
   await fresh();
@@ -283,7 +290,7 @@ test('a sheet takes focus when it opens or comes back on top: its autofocus fiel
   b.querySelector = (sel) => (sel === '[autofocus]' ? field : null);
   openSheet(a);
   assert.deepEqual([doc.activeElement, a.focused?.preventScroll, a.tabIndex], [a, true, -1]);
-  openSheet(b);
+  openOver(a, b);
   assert.deepEqual([doc.activeElement, field.focused?.preventScroll], [field, true]);
   b.contains = (n) => n === b || n === field;
   closeSheet(b);

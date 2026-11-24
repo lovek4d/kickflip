@@ -144,7 +144,8 @@ function prototypePage(url, { framed = false, inSheet = false, owner, resolved =
   win.document.head.append = (script) => { loaded.push(script.src); script.onload?.(); };
   vm.runInContext(fs.readFileSync(new URL('./public/prototype-switcher.js', import.meta.url), 'utf8'), win);
   const mounted = win.PrototypeSwitcher.mount({ takes: { A: 'Named chips', B: 'One stepper' }, initial: 'A', render: (take) => rendered.push(take) });
-  const pill = listeners.find((l) => l.type === 'click')?.target;
+  // The switcher's first click listener; ui.js's own is on the document (where a tap lands, for the sheet stack).
+  const pill = listeners.find((l) => l.type === 'click' && l.target !== 'document')?.target;
   const part = (sel) => controls[0]?.parts[sel];
   const settle = () => new Promise((r) => setTimeout(r, 0));
   const pick = async () => {

@@ -533,26 +533,66 @@
   const outsideBox = (ev, box) => { const r = box.getBoundingClientRect(); return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom; };
 
   // docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md
-  // The sheet stack. Every sheet opens through openSheet and closes through closeSheet or its own close(); one opened
-  // while another is open stacks on it, and the one beneath stays open where it was. A sheet that shows pages (the
-  // reader) stacks a page on itself with pushPage: a layer of its own, the sheet on top, which popPage or the sheet
-  // closing takes off, the sheet showing its page beneath and going back under any sheet stacked on it before.
+  // docs/adr/2026-11-24-0300-a-sheet-stacks-only-from-a-tap-inside-another.md
+  // The sheet stack. Every sheet opens through openSheet and closes through closeSheet or its own close(). One opened
+  // from a tap inside a sheet of the stack stacks on the top one, and the ones beneath stay open where they were, each
+  // showing as a peek strip above the top one; a tap on a strip closes the sheets above it. One opened any other way (a
+  // tap on the board, a card's button, a link) replaces the stack: the open sheets close as Escape closes them. A sheet
+  // reopened from inside the stack while lower in it closes those above it instead.
+  // An auto-open (a push, or the link the page loaded with: opening('auto', fn)) stacks on top while the stack is
+  // anchored, any sheet or page in it opened by hand, and else replaces it. Each layer keeps its own flag.
+  // A sheet that shows pages (the reader) stacks a page on itself with pushPage: a layer of its own, the sheet on top,
+  // which popPage or the sheet closing takes off, the sheet showing its page beneath and going back under any sheet
+  // stacked on it before.
   // No layer reads or writes the browser's history or the address: Back leaves the board as from any page. A layer that
   // closes, however it closes, gives the layer beneath, back on top, a sheet-return event.
-  // layers: bottom first, a sheet's own {sheet, modal, shut}, shut its close listener while in the stack, and each page
-  // it stacked {sheet, page: true}.
+  // layers: bottom first, a sheet's own {sheet, modal, auto, shut}, shut its close listener while in the stack, and each
+  // page it stacked {sheet, page: true, auto}.
   const layers = [];
   const isTopSheet = (sheet) => layers.at(-1)?.sheet === sheet;
   // The open sheets, bottom first, each once.
   const openSheets = () => layers.map((l) => l.sheet).filter((sheet, i, all) => sheet.open && all.indexOf(sheet) === i);
+  // Whether the owner opened a sheet or a page in the stack, so an auto-open can't take its place.
+  const anchored = () => layers.some((l) => !l.auto);
+  // How the openSheet and pushPage calls under way came, set by opening: 'auto' for an auto-open, 'stack' for sheets
+  // opened again in the order they stood (a board mounting again), else null.
+  let how = null;
+  function opening(as, fn) {
+    const was = how;
+    how = as;
+    try { return fn(); } finally { how = was; }
+  }
+  // The sheet the owner's last click landed in, else null; a page framed in a sheet reports its own taps (tappedIn).
+  let tapped = null;
+  const tappedIn = (sheet) => { tapped = sheet; };
+  // Whether a sheet opened now stacks on the top one: auto, while the stack is anchored; by hand, from a tap inside it.
+  function opensOver({ auto = false } = {}) {
+    if (!layers.length) return false;
+    if (how === 'stack') return true;
+    return auto || how === 'auto' ? anchored() : layers.some((l) => l.sheet === tapped);
+  }
   // The stacked sheets as they show, bottom first, and those showing again in their place (restack), whose close is
   // no leaving.
   let shown = [];
   const moving = new Set();
+  // A sheet out of the stack loses its strip once it has closed.
+  const unstrip = (sheet) => {
+    sheet.removeAttribute('data-under');
+    sheet.removeAttribute('data-over');
+    sheet.style.removeProperty('--depth');
+    sheet.style.removeProperty('--below');
+  };
   // Each sheet shows at its topmost layer: from the first one out of that order, each shows again, in order, its
-  // scroll kept. A non-modal sheet stacks by its --layer (style.css .reader-sheet).
+  // scroll kept. A non-modal sheet stacks by its --layer (style.css .reader-sheet). Each one beneath the top is a peek
+  // strip (data-under, --depth its count from the top), and each one over another stands below the strips (data-over,
+  // --below the count beneath it), only the bottom one dimming the board.
   function restack() {
     const order = layers.map((l) => l.sheet).filter((sheet, i, all) => all.lastIndexOf(sheet) === i);
+    for (const sheet of shown) {
+      if (order.includes(sheet)) continue;
+      if (sheet.classList.contains('closing')) sheet.addEventListener('close', () => { if (!layers.some((l) => l.sheet === sheet)) unstrip(sheet); }, { once: true });
+      else unstrip(sheet);
+    }
     shown = shown.filter((sheet) => order.includes(sheet));
     let kept = -1;
     let from = order.length;
@@ -567,7 +607,14 @@
       if (layers.find((l) => l.sheet === sheet && !l.page).modal) sheet.showModal(); else sheet.show();
       for (const [el, top] of scrolled) el.scrollTop = top;
     }
-    order.forEach((sheet, i) => sheet.style.setProperty('--layer', String(i)));
+    order.forEach((sheet, i) => {
+      const depth = order.length - 1 - i;
+      sheet.style.setProperty('--layer', String(i));
+      sheet.toggleAttribute('data-under', depth > 0);
+      sheet.toggleAttribute('data-over', i > 0);
+      sheet.style.setProperty('--depth', String(depth));
+      sheet.style.setProperty('--below', String(i));
+    });
     shown = order;
     focusTop();
   }
@@ -580,17 +627,53 @@
     if (target) target.focus({ preventScroll: true });
     else { top.tabIndex = -1; top.focus({ preventScroll: true }); }
   }
-  // The one Escape for the stack: it closes the top sheet by that sheet's own cancel, which every sheet's own close path
-  // answers, and else closes it through closeSheet. A dialog outside the stack (a confirm above it) or an open popup has its own; focus left in a lower sheet still closes the top.
-  if (typeof document !== 'undefined') document.addEventListener('keydown', (ev) => {
-    const top = layers.at(-1)?.sheet;
-    if (ev.key !== 'Escape' || !top?.open) return;
-    const dialog = ev.target?.closest?.('dialog');
-    if (dialog && !layers.some((l) => l.sheet === dialog)) return;
-    if (document.querySelector(':popover-open')) return;
-    ev.preventDefault();
+  // The top sheet closes as Escape closes it: by its own cancel, which every sheet's own close path answers, else
+  // through closeSheet. → whether the stack lost a layer; a sheet that asks first may stay.
+  function shutTop() {
+    const count = layers.length;
+    const top = layers.at(-1).sheet;
     if (top.dispatchEvent(new Event('cancel', { cancelable: true }))) closeSheet(top, (ms, fn) => setTimeout(fn, ms));
-  }, true);
+    return layers.length < count;
+  }
+  // The sheets over sheet's topmost layer close, top first; with sheet null, every one.
+  function closeDownTo(sheet) {
+    while (layers.length && !isTopSheet(sheet) && shutTop());
+  }
+  // A sheet beneath the top leaves the stack by its own cancel, as often as its pages take.
+  function dismiss(sheet) {
+    while (layers.some((l) => l.sheet === sheet)) {
+      const count = layers.length;
+      if (sheet.dispatchEvent(new Event('cancel', { cancelable: true }))) closeSheet(sheet, (ms, fn) => setTimeout(fn, ms));
+      if (layers.length === count) return;
+    }
+  }
+  if (typeof document !== 'undefined') {
+    // The one Escape for the stack: it closes the top sheet. A dialog outside the stack (a confirm above it) or an open
+    // popup has its own; focus left in a lower sheet still closes the top.
+    document.addEventListener('keydown', (ev) => {
+      const top = layers.at(-1)?.sheet;
+      if (ev.key !== 'Escape' || !top?.open) return;
+      const dialog = ev.target?.closest?.('dialog');
+      if (dialog && !layers.some((l) => l.sheet === dialog)) return;
+      if (document.querySelector(':popover-open')) return;
+      ev.preventDefault();
+      shutTop();
+    }, true);
+    // A click in the stack outside the top sheet's box, on a sheet beneath (its strip), closes the sheets above that
+    // one; any other click is where the next sheet opens from.
+    document.addEventListener('click', (ev) => {
+      const inStack = layers.findLast((l) => l.sheet.contains(ev.target))?.sheet ?? null;
+      const strip = inStack && outsideBox(ev, layers.at(-1).sheet) && !document.querySelector(':popover-open')
+        && openSheets().slice(0, -1).reverse().find((sheet) => !outsideBox(ev, sheet));
+      if (strip) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeDownTo(strip);
+        return;
+      }
+      tapped = inStack;
+    }, true);
+  }
   // The layer at, out of the stack.
   function unstack(at) {
     const [layer] = layers.splice(at, 1);
@@ -611,8 +694,8 @@
     returnTo(was);
   }
   // A page the sheet shows over the one it showed: a layer of its own, the sheet on top.
-  function pushPage(sheet) {
-    layers.push({ sheet, page: true });
+  function pushPage(sheet, { auto = false } = {}) {
+    layers.push({ sheet, page: true, auto: auto || how === 'auto' });
     restack();
   }
   // The sheet's top page out of the stack; the sheet shows the page beneath (its caller's part).
@@ -639,15 +722,29 @@
       done();
     }, 180);
   }
-  // The one way a sheet opens: one that isn't open yet shows (modal unless said otherwise) on top of every open sheet,
-  // with its body and every scroller inside it at the top; one open on top, or on its way out, is left as it is, scroll
-  // included; one open under another comes back on top, at its top.
-  function openSheet(sheet, { modal = true } = {}) {
-    const at = layers.findIndex((l) => l.sheet === sheet && !l.page);
-    if (sheet.open && (at === -1 || isTopSheet(sheet))) return;
-    if (at >= 0) unstack(at);
+  // The one way a sheet opens. Stacking (opensOver), one that isn't open yet shows (modal unless said otherwise) on top
+  // of every open sheet, with its body and every scroller inside it at the top, and one already in the stack comes back
+  // on top as the sheets above it close. Replacing, every other sheet closes and the sheet's own pages go: one already
+  // open stays as it is, any other opens alone. One on its way out is left as it is.
+  // auto: an auto-open, as within opening('auto'). A sheet opened again by hand is the owner's from then on.
+  function openSheet(sheet, { modal = true, auto = false } = {}) {
+    auto ||= how === 'auto';
+    const over = opensOver({ auto });
+    const own = () => layers.find((l) => l.sheet === sheet && !l.page);
+    if (sheet.open && !own()) return;
+    if (!over) {
+      closeDownTo(own() ? sheet : null);
+      for (const other of openSheets()) if (other !== sheet) dismiss(other);
+      for (let at = layers.length - 1; at >= 0; at--) if (layers[at].sheet === sheet && layers[at].page) unstack(at);
+    }
+    if (own()) {
+      closeDownTo(sheet);
+      own().auto &&= auto;
+      restack();
+      return;
+    }
     // A sheet shut by its own close(), a swipe or a view's unmount, leaves the stack too; one shown again since stays.
-    const layer = { sheet, modal, shut: () => { if (!sheet.open && !moving.has(sheet)) leaveLayer(sheet); } };
+    const layer = { sheet, modal, auto, shut: () => { if (!sheet.open && !moving.has(sheet)) leaveLayer(sheet); } };
     sheet.addEventListener('close', layer.shut);
     layers.push(layer);
     restack();
@@ -753,7 +850,7 @@
   // After ui-icon-text.js, whose iconText, ICON_SHAPES and ICON_COLOURS stay on BoardUI.
   globalThis.BoardUI = {
     ...globalThis.BoardUI,
-    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, pushPage, popPage, isTopSheet, openSheets, cutClose, swipeToDismiss, swipeVerdict,
+    LINK_ARROW, aloneHref, escText, onBackdrop, outsideBox, closeSheet, openSheet, pushPage, popPage, isTopSheet, openSheets, anchored, opening, opensOver, tappedIn, cutClose, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, SENDING, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SEND_LIMIT_MS, sendWithin,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, uploadTiles, sentFiles, protoButton, grillButton, visualButton, reviewButton, requestRow, requestShown, keyedRequest, requestOf, slashOf, mark, statusMark, MARK_ICONS, WORKING_DOT, AGENT_DOT, withdrawButton, cardBumpItem, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };

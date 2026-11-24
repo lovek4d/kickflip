@@ -45,7 +45,7 @@ test('a sheet opened from a sheet takes focus; Escape closes it, then the one be
   try {
     await p.run('BoardUI.openSheet(a)');
     assert.deepEqual(await p.state(), { a: true, b: false, active: 'a1' }, 'a takes focus, its button');
-    await p.run('BoardUI.openSheet(b)');
+    await p.run('BoardUI.tappedIn(a); BoardUI.openSheet(b)');
     assert.deepEqual(await p.state(), { a: true, b: true, active: 'b1' }, 'b takes its autofocus field');
     await p.escape();
     assert.deepEqual(await p.state(), { a: true, b: false, active: 'a1' }, 'only b closed, focus back in a');
@@ -57,7 +57,7 @@ test('a sheet opened from a sheet takes focus; Escape closes it, then the one be
 test('with focus left in the sheet beneath, Escape still closes the top one; a confirm outside the stack keeps its own', { skip: !chromeInstalled }, async () => {
   const p = await load();
   try {
-    await p.run('BoardUI.openSheet(a, { modal: false }); BoardUI.openSheet(b, { modal: false }); a1.focus()');
+    await p.run('BoardUI.openSheet(a, { modal: false }); BoardUI.tappedIn(a); BoardUI.openSheet(b, { modal: false }); a1.focus()');
     assert.equal((await p.state()).active, 'a1');
     await p.escape();
     assert.deepEqual([(await p.state()).a, (await p.state()).b], [true, false], 'b closed, not a');

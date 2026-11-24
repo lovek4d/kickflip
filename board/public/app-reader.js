@@ -146,10 +146,11 @@ BoardView.part((B) => {
   function dropUnder() {
     for (const view of under.splice(0)) view.body.remove();
   }
-  // Opened while the sheet is open, the page opens over the one it shows.
-  function show(title, ref) {
+  // Opened while the sheet is open, from a tap inside the stack or as an auto-open over the owner's (ui.js opensOver),
+  // the page opens over the one it shows; opened any other way, the sheet shows it alone. auto: an auto-open.
+  function show(title, ref, { auto = false } = {}) {
     BoardUI.cutClose(sheet);
-    const over = sheet.open;
+    const over = sheet.open && BoardUI.opensOver({ auto });
     opened++;
     stopReading?.();
     if (over) stackView(); else dropUnder();
@@ -165,7 +166,7 @@ BoardView.part((B) => {
     body.innerHTML = '<p class="muted">Loading…</p>';
     if (!sheet.open) modal = !matchMedia('(min-width: 900px)').matches;
     // Opened from another sheet it stacks on it; a page over the first stacks on the sheet.
-    if (over) BoardUI.pushPage(sheet); else BoardUI.openSheet(sheet, { modal });
+    if (over) BoardUI.pushPage(sheet, { auto }); else BoardUI.openSheet(sheet, { modal, auto });
     return opened;
   }
   function openLog(file) {
@@ -193,7 +194,7 @@ BoardView.part((B) => {
       notesKey = key;
       body.innerHTML = '<p class="muted">Loading…</p>';
     } else {
-      n = show('notes', '');
+      n = show('notes', '', { auto });
       notesKey = key;
       autoNotes = auto;
     }
@@ -209,18 +210,18 @@ BoardView.part((B) => {
     }
     if (n === opened) paintNotes(answer.key ?? key, answer.markdown, answer.ref);
   }
-  // From 900px, a card the owner opens opens its notes while no view is open or the open one is notes that followed; a
-  // card with open questions (asked) or no notes closes followed notes.
+  // From 900px, a card the owner opens opens its notes while no view is open or the open one is notes that followed, on
+  // top of the stack; a card with open questions (asked) or no notes closes followed notes.
   function followCardNotes(key, asked) {
     if (!matchMedia('(min-width: 900px)').matches) return;
     const shown = sheet.open && !sheet.classList.contains('closing');
-    if (shown && !autoNotes) return;
+    if (shown && (!autoNotes || !BoardUI.isTopSheet(sheet))) return;
     if (asked || !state.board?.items.find((i) => i.key === key)?.hasNotes) { if (shown) closeAll(); return; }
     openNotes(`?item=${encodeURIComponent(key)}`, { auto: true });
   }
-  // A card the owner collapses closes its notes if they opened by themselves.
+  // A card the owner collapses closes its notes if they opened by themselves and nothing is stacked on them.
   function leaveCardNotes(key) {
-    if (sheet.open && autoNotes && notesKey === key) closeAll();
+    if (sheet.open && autoNotes && notesKey === key && BoardUI.isTopSheet(sheet)) closeAll();
   }
   // The open sheet's notes again, when the cache holds them changed.
   function repaintNotes(keys) {
@@ -278,6 +279,7 @@ BoardView.part((B) => {
       const to = new URL(a.href, win.location.href);
       if (!AppRouter.viewOf(to.href, { boards: here }) || (to.pathname === win.location.pathname && to.search === win.location.search && to.hash)) return;
       ev.preventDefault();
+      BoardUI.tappedIn(sheet);
       takeLink(to.href);
     });
   }
@@ -293,8 +295,9 @@ BoardView.part((B) => {
     let to;
     try { to = new URL(String(ev.data.href)); } catch { return; }
     if (!['http:', 'https:'].includes(to.protocol)) return;
-    if (AppRouter.viewOf(to.href, { boards: here })) takeLink(to.href);
-    else frame.src = to.href;
+    if (!AppRouter.viewOf(to.href, { boards: here })) { frame.src = to.href; return; }
+    BoardUI.tappedIn(sheet);
+    takeLink(to.href);
   }
   B.on(window, 'message', previewMessage);
   // Closes the sheet with every page in it, then opens href through the shell. A question

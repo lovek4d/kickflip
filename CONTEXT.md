@@ -42,8 +42,20 @@ _Avoid_: hub home, switcher, nav
 The sidebar showing each linked row's key after s is pressed twice outside a text field: the first nine boards' numbers on their tiles, and every linked row's letter from its name, in blue, while the Boards label reads "Boards – press a key to switch" over a bar that drains, and no row moves. The next key opens that row in place; Escape, a click or 3 seconds with no key ends it. Boards claim letters first, in the order they joined the hub, so a new board never takes another board's letter ([Switch mode's letters come from names, claimed in the order sites joined](docs/adr/2026-10-30-1102-switch-mode-letters-come-from-names-in-join-order.md)).
 _Avoid_: shortcuts, hotkeys, jump mode
 
+**Sheet**:
+One panel of content opened over the board: New task, questions, settings, a card's notes, a transcript, a prototype, a visual. On a phone it rises from the bottom over the board; it closes by its ✕, a swipe down or Escape.
+_Avoid_: drawer, modal (for these)
+
+**Pane**:
+From 900px, the column beside the lanes where sheets open instead of over the board; with no sheet open it shows the **board filter** chips. It is where a sheet shows on desktop, not a different thing.
+_Avoid_: reader pane, drawer
+
+**Reader sheet**:
+The one sheet that shows pages (a card's notes, a transcript, a prototype, a visual); a link inside it opens the next page over the one shown.
+_Avoid_: reader pane, modal
+
 **Sheet stack**:
-The open sheets of a page, one on another. A sheet opened while another is open, whatever the two are (questions, a card's notes, a transcript, a prototype, a visual), stacks on it, and the one beneath stays open where it was; closing the top one, by its ✕, a swipe or Escape, returns to the one beneath. A sheet makes no browser history entry: Back leaves the board. The reader is one sheet showing pages: a prototype, a visual, a transcript or notes linked in it opens over the page shown, and closing it shows the page beneath as it was; a page it opens while under the questions sheet takes it on top until that page closes. A prototype's Choose this, opened from the questions sheet, closes only the prototype, leaving the question with its take picked ([a sheet opened from another stacks on it](docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md)). A row in the desktop pane is no sheet: its questions sheet takes the reader's place.
+The open sheets of a page, one on another, on one root: one root sheet is open at a time, at every width. A sheet stacks on the top one only when a tap inside a sheet of the stack, or in a page the reader sheet frames, opens it; any other open (a tap on the board, a card's button, a board link) closes the stack, top first as Escape closes each, and opens its sheet alone. Reopening a sheet lower in the stack closes the sheets above it. Each sheet keeps its own flag, auto or by hand: an auto-open (a push, the URL the page loaded with, the questions or notes a card opens in the pane) stacks on top while a sheet the owner opened is in the stack, and otherwise replaces it; once the owner's sheets close back down to an auto root, the next auto-open replaces it. Each sheet beneath the top one shows as a peek strip above it, with its title, scaled back and fainter the deeper it is; only the bottom sheet dims the board, and a tap on a strip closes the sheets above that one. Closing the top one, by its ✕, a swipe or Escape, returns to the one beneath as it was. A sheet makes no browser history entry: Back leaves the board. In the reader sheet a link opens the next page over the one shown, and closing it shows the page beneath as it was. A prototype's Choose this, opened from the questions sheet, closes only the prototype, leaving the question with its take picked ([a sheet opened from another stacks on it](docs/adr/2026-11-17-0306-a-sheet-opened-from-another-stacks-on-it.md), [a sheet stacks only from a tap inside another](docs/adr/2026-11-24-0300-a-sheet-stacks-only-from-a-tap-inside-another.md)).
 _Avoid_: modal stack, sheet swap
 
 **Shortcuts sheet**:

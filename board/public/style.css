@@ -1014,6 +1014,24 @@ main > * { transition: opacity .25s ease; }
     height: var(--standard-height); max-height: var(--standard-height); padding-bottom: 0;
     border-width: 1px 0 0; border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,.18); }
 }
+/* A stack reads as stacked (ui.js restack): each sheet beneath the top one is a peek strip, its top edge --peek above
+   the sheet over it, scaled back and fainter by its --depth, its head's title drawn up into the strip and its buttons
+   hidden. Each sheet over another stands that much lower by its --below. Only the bottom sheet dims the board, so the
+   strips show undimmed. */
+:root { --peek: 24px; }
+.sheet, .settings-modal { transform-origin: 50% 0; transition: transform .2s ease-out, opacity .2s ease-out; }
+.sheet[data-under], .settings-modal[data-under] { transform: scale(calc(1 - var(--depth, 0) * .05)); opacity: calc(1.12 - var(--depth, 0) * .12); }
+:is(.sheet, .settings-modal)[data-under] :is(.reader-head, .sheet-head, .settings-head) { align-items: flex-start; padding-top: 4px; }
+:is(.sheet, .settings-modal)[data-under] :is(.reader-head, .sheet-head, .settings-head) button { visibility: hidden; }
+.sheet[data-under] > .sheet-body { padding-top: 0; }
+.sheet[data-over]::backdrop, .settings-modal[data-over]::backdrop { background: transparent; }
+@media (max-width: 899px) {
+  .sheet.reader-sheet[data-over], .sheet.arch-sheet[data-over], .settings-modal[data-over] {
+    height: calc(var(--standard-height) - var(--below, 0) * var(--peek)); max-height: calc(var(--standard-height) - var(--below, 0) * var(--peek)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .settings-modal { transition: none; }
+}
 .settings-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
 .settings-head h2 { margin: 0; font-size: 18px; }
 .settings-head p { margin: 4px 0 0; }
@@ -1221,6 +1239,8 @@ button.thread-more[aria-busy="true"]::after { inset: 0 auto 0 12px; margin: auto
   .sheet.reader-sheet[open], .sheet.arch-sheet[open], .settings-modal[open] { animation: reader-in .22s ease-out; }
   .sheet.reader-sheet.closing, .sheet.arch-sheet.closing, .settings-modal.closing { animation: reader-out .18s ease-in forwards; }
   .reader-sheet::backdrop { background: transparent; }
+  .sheet.reader-sheet[data-over], .sheet.arch-sheet[data-over], .settings-modal[data-over] { top: calc(56px + var(--below, 0) * var(--peek)); }
+  :is(.sheet.reader-sheet, .sheet.arch-sheet, .settings-modal):is([data-over], [data-under]) { border-top-width: 1px; border-top-left-radius: 12px; }
   .board-pane { display: flex; flex-direction: column; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px 16px 0; border-left: 1px solid var(--line); }
   /* The landing: the board's name, one line and the chips, then the glance, in a column at the pane's top. */
   .pane-landing { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 6px; text-align: center; }

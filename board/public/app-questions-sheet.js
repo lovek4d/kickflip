@@ -153,7 +153,7 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
       else { kept = new Set(answered); kept = new Set(batches()[0].qs.map((q) => q.id)); }
     }
     if (!sheet.open) { modal = !matchMedia('(min-width: 900px)').matches; unfit ||= BoardDialogs.fitSheet(sheet); }
-    if (!sheet.open || !auto) BoardUI.openSheet(sheet, { modal });
+    if (!sheet.open || !auto) BoardUI.openSheet(sheet, { modal, auto });
     draw();
     return true;
   }
@@ -165,20 +165,21 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     } catch { toast('Could not load the answers.'); return; }
     open(id);
   }
-  // From 900px, a card the owner opens opens its questions sheet while none is open or the open one is autoOpen; a card
-  // with no open questions closes an autoOpen sheet. → whether a sheet is now showing, so the card's notes stay shut.
+  // From 900px, a card the owner opens opens its questions sheet while none is open or the open one is autoOpen on top of
+  // the stack; a card with no open questions closes an autoOpen sheet. → whether a sheet is now showing, so the card's
+  // notes stay shut.
   function followCard(key) {
     if (!matchMedia('(min-width: 900px)').matches) return false;
-    if (sheet.open && !autoOpen) return true;
+    if (sheet.open && (!autoOpen || !BoardUI.isTopSheet(sheet))) return true;
     if (!open(`item:${key}`, { auto: true }) && sheet.open) close();
     return isShowing();
   }
   const isShowing = () => sheet.open && !sheet.classList.contains('closing');
   // Whether the sheet is open for that topic and not on its way out.
   const shows = (t) => isShowing() && topic === t;
-  // A card the owner collapses closes its questions sheet if it opened by itself.
+  // A card the owner collapses closes its questions sheet if it opened by itself and nothing is stacked on it.
   function leaveCard(key) {
-    if (sheet.open && autoOpen && topic === `item:${key}`) close();
+    if (sheet.open && autoOpen && topic === `item:${key}` && BoardUI.isTopSheet(sheet)) close();
   }
   function close() {
     BoardUI.closeSheet(sheet, later, () => { topic = null; fetched = null; });

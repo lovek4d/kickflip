@@ -174,7 +174,7 @@ BoardView.part((B) => {
     const p = place;
     place = null;
     if (!p || linked) return;
-    for (const { name, state } of p.sheets || []) sheetParts.get(name)?.reopen(state);
+    BoardUI.opening('stack', () => { for (const { name, state } of p.sheets || []) sheetParts.get(name)?.reopen(state); });
     if (column()) column().scrollTop = p.y; else scrollTo(0, p.y);
     const box = p.box && $(p.box.selector);
     if (!box || box.closest('details:not([open])') || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;

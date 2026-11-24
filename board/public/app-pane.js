@@ -138,8 +138,8 @@ BoardView.part((B) => {
 
   // The shell's one rule for a questions URL (shell.js go): it shows the board and asks here for the question or topic
   // id, or null for none → false while the board hasn't loaded, so the shell asks again. A card's question or topic
-  // opens the card on the board under its questions sheet, which takes the reader's place: it lands on top of it
-  // (ui.js openSheet), then the reader closes under it; a card whose questions are all answered just opens. A topic of
+  // opens the card on the board under its questions sheet, which replaces the open sheets, or as a push's stacks over the
+  // owner's (ui.js openSheet); a card whose questions are all answered just opens. A topic of
   // no card opens its sheet over the board as it is. An id this copy of the board doesn't hold may be newer than it, as
   // a push's can be: the board reloads once, and the shell's retries wait up to WAIT_TRIES for a new copy. An id the new
   // copy doesn't hold either, or none, shows only the Questions filter's cards.
@@ -149,7 +149,7 @@ BoardView.part((B) => {
     if (!state.board) return false;
     const card = BoardUI.cardOfQuestion(state.board, id);
     if (card) B.select(card);
-    if (id && B.openQuestionsSheet(id)) { B.closeReader(); return true; }
+    if (id && B.openQuestionsSheet(id)) return true;
     if (card) return true;
     if (id) {
       if (wait?.id !== id) { wait = { id, board: state.board, tries: 0 }; B.reload(); }

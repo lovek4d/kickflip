@@ -189,6 +189,7 @@ export function miniDom(Target, document) {
     setAttribute(k, v) { this.attrMap.set(k, String(v)); }
     removeAttribute(k) { this.attrMap.delete(k); }
     hasAttribute(k) { return this.attrMap.has(k); }
+    toggleAttribute(k, on = !this.hasAttribute(k)) { if (on) this.setAttribute(k, ''); else this.removeAttribute(k); return on; }
     get id() { return this.getAttribute('id') ?? ''; }
     get value() { return this._value ?? (this.tagName === 'TEXTAREA' ? this.textContent : this.getAttribute('value') ?? ''); }
     set value(v) { this._value = String(v); this._sel = [this._value.length, this._value.length, 'none']; }
