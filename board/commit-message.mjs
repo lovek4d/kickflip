@@ -69,7 +69,23 @@ export const releaseVersion = (subject) => /^chore\(release\): (\S+)(?: \([^()\s
 // A squash merge's body, below the PR title as its subject: the PR body's Summary section wrapped at 72 as the detail,
 // then the trailers, "Refs: <ref>" for each of refs and each Co-Authored-By the PR's commits carry, once whatever its
 // case. commits are gh's ({messageBody}).
-export const squashBody = (refs, body, commits) => withTrailers(wrap(summaryOf(body)), refs, commits.map((c) => c.messageBody));
+export const squashBody = (refs, body, commits) => withTrailers(detailOf(body), refs, commits.map((c) => c.messageBody));
+
+// docs/adr/2026-11-24-2300-a-commit-body-is-the-pr-descriptions-summary-as-plain-text.md
+// A commit's detail from a PR body, on both paths (a PR's merge and a no-PR land): its Summary section as plain text,
+// wrapped at 72.
+const detailOf = (body) => wrap(plain(summaryOf(body)));
+
+// markdown as plain prose: heading marks, emphasis, code ticks and fences, link targets and HTML tags gone, their
+// words kept. List dashes and quote marks stay, as prose uses them.
+const plain = (text) => text
+  .replace(/^[ \t]*(```|~~~).*\n?/gm, '')
+  .replace(/^#{1,6}\s+(.*?)\s*#*\s*$/gm, '$1')
+  .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+  .replace(/<\/?[a-z][^>]*>/gi, '')
+  .replace(/(\*\*|__)(.+?)\1/g, '$2')
+  .replace(/(?<![\w*])([*_])(?=\S)(.+?)(?<=\S)\1(?![\w*])/g, '$2')
+  .replace(/`+([^`\n]*)`+/g, '$1');
 
 // The PR body's Summary section: the lines under its "Summary" heading, of any level, down to the next heading of that
 // level or higher, with the body's HTML comments (a template's notes) left out; the whole body when no heading says
@@ -119,12 +135,12 @@ function withTrailers(detail, refs, messages) {
 
 // docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md
 // A land's squash commit message from messages, the branch's commit messages, its first commit's first: title, else
-// that first subject, ending " (<ticket>)" with a ticket; the first commit's detail, its Refs and Co-Authored-By lines
-// left out; then the trailer block, "Refs: <ref>" for each of refs (with no refs given, a land with no card, each Refs
+// that first subject, ending " (<ticket>)" with a ticket; body, the card's kept PR body, as a PR merge's detail, else
+// the first commit's detail, its Refs and Co-Authored-By lines left out; then the trailer block, "Refs: <ref>" for each of refs (with no refs given, a land with no card, each Refs
 // the messages carry, once) and each Co-Authored-By they carry, once.
-export function squashMessage(messages, { refs, ticket, title } = {}) {
-  const [subject, ...body] = messages[0].split('\n');
-  const detail = body.filter((l) => !REFS.test(l) && !COAUTHOR.test(l)).join('\n').replace(/\n{3,}/g, '\n\n');
+export function squashMessage(messages, { refs, ticket, title, body: prBody } = {}) {
+  const [subject, ...rest] = messages[0].split('\n');
+  const detail = prBody ? detailOf(prBody) : rest.filter((l) => !REFS.test(l) && !COAUTHOR.test(l)).join('\n').replace(/\n{3,}/g, '\n\n');
   const kept = refs ?? once(messages.flatMap((m) => m.split('\n').filter((l) => REFS.test(l)).map((l) => l.replace(REFS, '').trim())));
   return [withTicket(title ?? subject, ticket), withTrailers(detail, kept, messages)].filter(Boolean).join('\n\n');
 }

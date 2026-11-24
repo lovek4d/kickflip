@@ -99,7 +99,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   const testWaits = waitLines(site, key, 'test-waiting');
   let landed;
   try {
-    landed = await landInTurn({ ...tree, ref, site, commit: await commitRefs(site, key) }, { hold: !go, onWait, onTurn, onTestWait: testWaits.onWait, onTestTurn: testWaits.over, queue, report, found: (words) => recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
+    landed = await landInTurn({ ...tree, ref, site, commit: { ...await commitRefs(site, key), body: await keptPRBody(site, key) } }, { hold: !go, onWait, onTurn, onTestWait: testWaits.onWait, onTestTurn: testWaits.over, queue, report, found: (words) => recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
   } catch (e) {
     // docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md
     if (!e.failsOnBase) throw e;
@@ -116,6 +116,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   // its release, which holds it in In Review while the hub watches it publish, whether this land ships it or the
   // orchestrator does by hand.
   // On a board that pushes main with Run release script off, the tag waits for the owner, which the card reads as untagged.
+  await dropPRBody(site, key);
   const permissions = landed.release ? await readPermissions(repo, site) : null;
   const release = landed.release ? { version: landed.release.version, pkg: landed.release.pkg, untagged: permissions.pushMain && !permissions.runRelease } : undefined;
   const closed = await setItem(site, key, { done: true, landed: landed.commit, release, ...(closing ? { closing } : { text }), ownerStep, check });

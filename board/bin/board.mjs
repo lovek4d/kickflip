@@ -1480,7 +1480,8 @@ const COMMANDS = {
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
       const report = site ? await store.testReport(site, key, { phase: 'landing' }) : undefined;
-      await landInTurn({ path: recorded?.path ?? worktreePath(site, id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref, site, commit: site ? await store.commitRefs(site, key) : undefined }, { report });
+      await landInTurn({ path: recorded?.path ?? worktreePath(site, id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref, site, commit: site ? { ...await store.commitRefs(site, key), body: await store.keptPRBody(site, key) } : undefined }, { report });
+      if (site) await store.dropPRBody(site, key);
       return site ? store.setItem(site, key, { done: true, text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;

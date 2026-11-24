@@ -727,7 +727,7 @@ function squash(dir, repo, base, branch, { commit, title }) {
   const first = git(repo, 'rev-list', '--first-parent', '--reverse', `${from}..${branch}`).out.split('\n')[0];
   const commits = git(repo, 'rev-list', '--reverse', `${from}..${branch}`).out.split('\n');
   const messageOf = (c) => git(repo, 'log', '-1', '--format=%B', c).out;
-  const message = squashMessage([first, ...commits.filter((c) => c !== first)].map(messageOf), { refs: commit?.refs, ticket: commit?.ticket, title });
+  const message = squashMessage([first, ...commits.filter((c) => c !== first)].map(messageOf), { refs: commit?.refs, ticket: commit?.ticket, title, body: commit?.body });
   const subject = message.split('\n')[0];
   const named = `commit ${short(repo, first)} "${subject}"`;
   if (!subject) fail(`${branch} has a commit with an empty subject (${short(repo, first)}); reword it in ${dir} and land again`);

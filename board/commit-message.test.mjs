@@ -63,20 +63,20 @@ test("a squash body is the PR body's Summary section, wrapped at 72, then the tr
     '',
     '- a list item long enough that it has to wrap onto a second line at the commit width',
     '',
-    '### Solution',
+    'Solution',
     'Builders pass --body-file.',
     '',
     '## Verification',
     '<details><summary>commands</summary>npm test</details>',
   ].join('\n');
   assert.equal(squashBody(['#7'], body, []), [
-    '**Problem**: every board PR opened with a one-line body, so the',
-    'orchestrator rewrote each one by hand with gh pr edit.',
+    'Problem: every board PR opened with a one-line body, so the orchestrator',
+    'rewrote each one by hand with gh pr edit.',
     '',
     '- a list item long enough that it has to wrap onto a second line at the',
     '  commit width',
     '',
-    '### Solution',
+    'Solution',
     'Builders pass --body-file.',
     '',
     'Refs: #7',
@@ -136,4 +136,28 @@ test("a land's squash message is --title else the first commit's subject, the fi
   // A message already in its final shape comes back as it is.
   const final = `feat: x\n\nDetail.\n\nRefs: #7\n${claude}`;
   assert.equal(squashMessage([final], { refs: ['#7'] }), final);
+});
+
+// docs/adr/2026-11-24-2300-a-commit-body-is-the-pr-descriptions-summary-as-plain-text.md
+test("a commit body is the PR body's Summary as plain text: no emphasis, code ticks, heading marks, link targets or HTML", () => {
+  const body = [
+    '## Summary',
+    '**Problem**: the `land` ignored [the guide](https://x.dev/g) and <b>more</b>.',
+    '',
+    '- _kept_ item',
+    '```sh',
+    'npm test',
+    '```',
+    '## Verification',
+    'Ran it.',
+  ].join('\n');
+  assert.equal(squashBody(['#7'], body, []), 'Problem: the land ignored the guide and more.\n\n- kept item\nnpm test\n\nRefs: #7');
+});
+
+test("a no-PR land's body is the kept PR body's Summary as a PR merge writes it, else the first commit's detail", () => {
+  const messages = ['feat(board): x\n\nThe first detail.\n\nRefs: #7'];
+  const body = '## Summary\n**Problem**: one.\n## Verification\nRan it.';
+  assert.equal(squashMessage(messages, { refs: ['#7'], body }), 'feat(board): x\n\nProblem: one.\n\nRefs: #7');
+  assert.equal(squashMessage(messages, { refs: ['#7'], body: null }), 'feat(board): x\n\nThe first detail.\n\nRefs: #7');
+  assert.equal(squashMessage(messages, { refs: ['#7'], body: '' }), 'feat(board): x\n\nThe first detail.\n\nRefs: #7');
 });
