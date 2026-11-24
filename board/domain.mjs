@@ -291,7 +291,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // (rebase_run) until its push, and the push it made (rebased), while that is still the PR's head.
   const rebasing = Boolean(it.rebase_run) && pr?.state === 'OPEN';
   const lastRebase = (it.rebased || []).at(-1);
-  const runs = agents.filter((a) => a.started && !a.done && builds(a));
+  const runs = agents.filter((a) => a.started && !a.done && movesCard(a));
   const checkingCode = Boolean(checkingAt) && changesCode(newestBuild(agents));
   let lane = laneOf(it, pr, runs.some(changesCode), checkingCode, pushed || mergeReady, Boolean(reopenAt), skipDraft, rebasing, runs.length > 0 || Boolean(checkingAt));
   if (reopenAt && lane === 'todo') lane = 'progress';
@@ -695,7 +695,7 @@ function placeOwnerWait(it, questionById, autoMerge) {
 // A work card has started once it is stored past Todo (cards.mjs placeIn: a build's start moves it, a block or a
 // launch that failed moves it back); one never placed, once building has: a build agent's record, running or finished.
 // A PR, a pushed branch and a hand-back place it on their own (laneOf).
-const started = (storedLane, agents) => (storedLane ? storedLane !== 'todo' : agents.some(builds));
+const started = (storedLane, agents) => (storedLane ? storedLane !== 'todo' : agents.some(movesCard));
 
 // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md
 // An In Progress card shows its builder line while a builder record is open, else its Next. buildBoard gives one with
@@ -737,6 +737,9 @@ export const HELPER = 'helper';
 const PLANNERS = new Set(['grill', 'prototype', VISUAL, REVIEWER]);
 export const plans = (agent) => PLANNERS.has(agent.kind);
 export const builds = (agent) => !plans(agent);
+// docs/adr/2026-11-24-0200-a-read-only-helper-never-moves-a-card.md
+// Whether a build agent's record places its card: not a read-only helper, as pullOf's running counts it.
+export const movesCard = (agent) => builds(agent) && !(agent.kind === HELPER && !agent.writes);
 // A planner's word, never a builder phase: its card reads it before the planner's first line and leads each line with
 // it (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md). A running visual agent's card reads
 // generating visual.
@@ -1903,7 +1906,7 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] }
   const inProgress = open.filter((i) => i.lane === 'progress' && !i.blockedBy?.length && !asking(i)).length;
   // A running implementer: no planner, no read-only helper, no paused build and none blocked on its own open helper
   // (agent wait's waits mark), on a card the orchestrator hasn't stalled.
-  const running = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes) && !a.pause?.paused
+  const running = (a, agents) => a.started && !a.done && builds(a) && movesCard(a) && !a.pause?.paused
     && !(a.waits && agents.some((h) => h.name === a.waits && !h.done));
   const busy = open.some((i) => !i.stalled && (i.agents || []).some((a, _, all) => running(a, all)));
   // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a card whose title its PR can't take waits to be retitled.

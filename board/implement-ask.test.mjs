@@ -144,3 +144,19 @@ test('an Implement on a held card stages it and keeps the block and its pick-up 
   assert.equal(w.read().held, undefined);
   assert.equal(w.read().phase, 'staging');
 });
+
+// docs/adr/2026-11-24-0200-a-read-only-helper-never-moves-a-card.md
+test('the return-helper-cards migration sends a card only read-only helpers moved to In Progress back to Todo, discussing', async () => {
+  const { returnHelperCards } = await import('./migrations.mjs');
+  const w = world({ lane: 'progress', phase: 'reading' });
+  const agents = path.join(w.site, 'data', 'agents');
+  fs.mkdirSync(agents);
+  fs.writeFileSync(path.join(agents, 'A1@measure.json'), JSON.stringify({ kind: 'helper', writes: false, started: '2026-11-23T10:00:00Z', done: '2026-11-23T10:05:00Z' }));
+  assert.deepEqual(await returnHelperCards(w.site), ['t: 1 tasks a read-only helper had moved to In Progress went back to Todo']);
+  assert.deepEqual([w.read().lane, w.read().phase], ['todo', 'discussing']);
+  fs.writeFileSync(path.join(agents, 'A1.json'), JSON.stringify({ kind: 'claude', started: '2026-11-23T11:00:00Z' }));
+  const b = world({ lane: 'progress', phase: 'reading' });
+  fs.mkdirSync(path.join(b.site, 'data', 'agents'));
+  fs.writeFileSync(path.join(b.site, 'data', 'agents', 'A1.json'), JSON.stringify({ kind: 'claude', started: '2026-11-23T11:00:00Z' }));
+  assert.deepEqual(await returnHelperCards(b.site), [], 'a card with a builder stays');
+});

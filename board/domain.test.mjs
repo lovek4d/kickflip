@@ -3603,3 +3603,16 @@ test('fixesDue lists each card whose ready PR has red CI and no builder, once pe
     ['done', red(), { item: { lane: 'done' } }],
   ]) assert.deepEqual(fixesDue(items(p, extra), {}), [], why);
 });
+
+// docs/adr/2026-11-24-0200-a-read-only-helper-never-moves-a-card.md
+test('a read-only helper never moves a card: Todo stays Todo, running or finished, and In Review stays In Review', () => {
+  const at = '2026-11-23T10:00:00Z';
+  const helper = (more = {}) => ({ kind: 'helper', writes: false, started: at, done: null, ...more });
+  const laneOfCard = (item, agent, pr = null) => board({ pr, item: { pr: pr ? 7 : undefined, ...item }, agents: { A1: { measure: agent } } }).items.find((i) => i.key === 'w/A1').lane;
+  const todo = { lane: 'todo', phase: 'discussing' };
+  assert.equal(laneOfCard(todo, helper()), 'todo', 'running');
+  assert.equal(laneOfCard(todo, helper({ done: '2026-11-23T10:05:00Z' })), 'todo', 'finished');
+  assert.equal(laneOfCard(todo, helper({ writes: true })), 'progress', 'a writing helper still moves it');
+  assert.equal(laneOfCard({ lane: 'review', lane_at: at }, helper(), greenDraft), 'review', 'a card with an open PR');
+  assert.equal(laneOfCard({ lane: 'review', lane_at: at }, helper({ writes: true }), greenDraft), 'progress');
+});

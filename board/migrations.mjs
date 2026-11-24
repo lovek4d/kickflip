@@ -5,12 +5,12 @@
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { PHASES, builds, HELPER } from './domain.mjs';
+import { PHASES, builds, HELPER, movesCard } from './domain.mjs';
 import { isBoardSite, listBoards, readManifest, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { itemSources, readJSON, readLog, replace, writeJSON } from './files.mjs';
 import { hasPR, storedPRs } from '../shared/card-prs.mjs';
 import { BoardError } from './checks.mjs';
-import { archiveWrite, depKey, leftTodo, loadItem, ownerFile, parseKey, readArchive, threadFile, ticketWrite, writeArchive } from './cards.mjs';
+import { archiveWrite, depKey, leftTodo, placeIn, loadItem, ownerFile, parseKey, readArchive, threadFile, ticketWrite, writeArchive } from './cards.mjs';
 import { cardOfTopic, owesImplement, resolveQuestion, splitSharedNotes, stagedFile, topicQuestionsAll } from './questions.mjs';
 import { builderFiles } from './runs.mjs';
 import { withFileLock } from '../hub/locks.mjs';
@@ -153,6 +153,28 @@ export async function dropNextGates(site) {
   }
   return lines;
 }
+
+// docs/adr/2026-11-24-0200-a-read-only-helper-never-moves-a-card.md
+// Each card In Progress with no PR, pushed branch or hold, whose only started runs are read-only helpers, goes back to
+// Todo, discussing: a helper alone had moved it there. Run by the board server as it starts. → one line per item file changed.
+export const returnHelperCards = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  for (const entry of await itemSources(site)) {
+    const itemFile = await readJSON(entry.file, null);
+    let changed = 0;
+    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
+      if (it.lane !== 'progress' || hasPR(it) || it.pushed || it.merge_ready || it.held || !entry.dir) continue;
+      const runs = (await Promise.all((await builderFiles(entry.dir, it.id)).map((f) => readJSON(f, null)))).filter((r) => r?.started && builds(r));
+      if (!runs.length || runs.some(movesCard)) continue;
+      placeIn(it, 'todo', undefined, 'discussing');
+      changed++;
+    }
+    if (!changed) continue;
+    await writeJSON(entry.file, itemFile);
+    lines.push(`${entry.slug}: ${changed} tasks a read-only helper had moved to In Progress went back to Todo`);
+  }
+  return lines;
+});
 
 // docs/adr/2026-11-16-1400-todo-sorts-strictly-by-created.md
 // Each live card with no created time takes the time of the first line of its thread. Todo sorts strictly by created, so
@@ -430,6 +452,7 @@ export const MIGRATIONS = [
   { id: 'recheck-staging', scope: 'board', run: ({ site }) => restageRechecks(site) },
   { id: 'split-notes', scope: 'board', run: ({ site, archived }) => splitSharedNotes(site, archived) },
   { id: 'no-next-gate', scope: 'board', run: ({ site }) => dropNextGates(site) },
+  { id: 'return-helper-cards', scope: 'board', run: ({ site }) => returnHelperCards(site) },
   { id: 'dead-fields', scope: 'board', run: async ({ site, archived }) => { await stripDeadFields(site, archived); return []; } },
 ];
 

@@ -7,3 +7,5 @@ Every read of the card's build skips helper records (`kind: helper`): `domain.mj
 `builder verified` names why it did not land (not handed back, a record still holds unverified calls, a record is still open, or the worktree is gone) instead of printing only "judgment calls verified".
 
 An exit-without-done watch was not added: a server-launched builder that exits with its record open is already relaunched once, then handed back (2026-11-04-1010).
+
+A read-only helper does not move its card: only a helper that writes does (docs/adr/2026-11-24-0200-a-read-only-helper-never-moves-a-card.md).
