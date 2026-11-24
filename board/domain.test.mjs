@@ -3436,15 +3436,15 @@ test("tapPlan stages an Implement or a Reply on a Todo card by its phase, and an
     // A Reply on a ready Todo card stages it again; one on a discussing card is a message.
     [tapCard({ phase: 'ready', storedPhase: 'ready' }), { text: 'one more thing' }, [EVENT, { do: 'stage', as: 'reply' }]],
     [tapCard(), { text: 'a thought' }, [EVENT]],
-    // On a running card the builder hears it, the words or a pointer to the files.
-    [tapCard({ lane: 'progress' }), { text: '  stop at the API  ' }, [{ do: 'passNews', text: 'stop at the API' }, EVENT]],
-    [tapCard({ lane: 'progress' }), { files: ['a.png'] }, [{ do: 'passNews', text: 'see the files on its thread' }, EVENT]],
+    // On a running card only the orchestrator hears it; the builder gets it by a relay.
+    [tapCard({ lane: 'progress' }), { text: '  stop at the API  ' }, [EVENT]],
+    [tapCard({ lane: 'progress' }), { files: ['a.png'] }, [EVENT]],
     // In Review or Done it is a message, recorded.
     [tapCard({ lane: 'review' }), { text: 'hm' }, [EVENT]],
     [tapCard({ lane: 'review' }), { text: '' }, [EVENT]],
     // A stall or an owner mark comes off first.
     [tapCard({ stalled: 'stuck', ownerWait: 'implement' }), { intent: 'build' }, [{ do: 'clearStall' }, { do: 'clearOwnerWait' }, { do: 'stage', as: 'asIs' }]],
-    [tapCard({ lane: 'progress', stalled: 'stuck' }), { text: 'go on' }, [{ do: 'clearStall' }, { do: 'passNews', text: 'go on' }, EVENT]],
+    [tapCard({ lane: 'progress', stalled: 'stuck' }), { text: 'go on' }, [{ do: 'clearStall' }, EVENT]],
   ];
   for (const [card, body, effects] of rows) assert.deepEqual(tapPlan(card, 'item-message', { key: 'w/A1', ...body }), effects, `${card.lane}/${card.phase} ${JSON.stringify(body)}`);
   // A message on no card, or on an ask's card, is only recorded.

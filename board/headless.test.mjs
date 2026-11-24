@@ -302,7 +302,7 @@ test("every brief tells its agent to read the card's thread with item thread, an
   const builder = briefs.builder;
   assert.ok(builder.includes('who: love') && builder.includes("the owner's message wins") && !builder.includes('the notes win'), 'a later owner message beats the notes');
   assert.ok(builder.includes('Ask it only when you are blocked') && builder.includes('builder asks w/A1 --wait') && builder.includes('Found: <what>'), 'the brief asks only when blocked, waits with --wait, and files findings as calls');
-  assert.ok(builder.includes('Read the thread again in checking'));
+  assert.ok(builder.includes('reach you only that way'));
   assert.ok(briefs.grill.includes('never quotes of the owner'), 'a planner writes findings, never quotes of the thread');
 });
 
@@ -1194,18 +1194,18 @@ test("the owner's Block pauses the card's running builder at its next progress r
 });
 
 // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
-test("the owner's message reaches the running builder at its next command, and builder resume on its hand-back resumes its own session with every word since", async (t) => {
+test("the owner's message is no news to the running builder, the orchestrator's relay reaches it at its next command, and builder resume on its hand-back resumes its own session with every word since", async (t) => {
   const b = oneLaunchBoard(t, [{ id: 'H1', title: 'feat: sheet', phase: 'ready', size: 'large' }]);
   const { board, send } = await b.start();
   const { pid, id: session } = b.record('H1').session;
   await send('item-message', { key: 't/H1', text: 'Use the blue' });
-  assert.ok(b.record('H1').news, 'the message waits on its record');
-  assert.ok((await builderProgress(b.site, 't/H1', 'Writing the sheet', { phase: 'building' })).lines.includes('New on t/H1 while you build: the owner wrote: Use the blue'));
+  assert.equal(b.record('H1').news, undefined, 'the message waits on the orchestrator, not on the builder record');
+  await builderResume(b.site, 't/H1', 'Owner, verbatim: "Use the blue"');
+  assert.ok((await builderProgress(b.site, 't/H1', 'Writing the sheet', { phase: 'building' })).lines.includes('New on t/H1 while you build: the orchestrator wrote: Owner, verbatim: "Use the blue"'));
 
   await recordCall(b.site, 't/H1', 'Kept the sheet', {});
   await handBackCalls(b.site, 't/H1', {});
   await b.gone(pid);
-  await send('item-message', { key: 't/H1', text: 'Also the red' });
   await builderResume(b.site, 't/H1', 'Make it a button');
   await wrote(board, path.join(b.data, 'agents', 'H1.json'));
   assert.equal(b.runs.length, 2, 'the resume launches its session again');
@@ -1213,7 +1213,7 @@ test("the owner's message reaches the running builder at its next command, and b
   assert.equal(again.resume, session);
   assert.equal(again.cwd, b.record('H1').worktree.path);
   assert.match(again.prompt, /^The orchestrator resumes your handed-back build of task H1 to change it\./);
-  for (const said of ['the owner wrote: Also the red', 'the orchestrator wrote: Make it a button']) assert.ok(again.prompt.includes(`New on t/H1 while you build: ${said}`), said);
+  for (const said of ['the orchestrator wrote: Make it a button']) assert.ok(again.prompt.includes(`New on t/H1 while you build: ${said}`), said);
   assert.ok(!again.prompt.includes('Use the blue'), 'its session read that one already');
   const rec = b.record('H1');
   assert.deepEqual([rec.done, rec.handed_back, rec.rerun, rec.news, rec.session.pid], [undefined, undefined, undefined, undefined, again.pid]);

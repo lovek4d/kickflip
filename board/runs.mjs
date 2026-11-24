@@ -37,6 +37,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { shownEvents } from './snapshot.mjs';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
 import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, launchLives, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, sessionIdOf, stopRuns } from './headless.mjs';
 import { beside, besideAgent, blockWordsOf, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, fixesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
@@ -1249,7 +1250,7 @@ async function builderReply(site, key, { dir, agent = 'main' }) {
 
 // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
 // News is what reached a card In Progress for its builder after the build started: the orchestrator's builder resume,
-// the owner's thread message, a notes section added. It waits on the card's main build record, running or handed back,
+// the owner's words as the orchestrator relays them, a notes section added. It waits on the card's main build record, running or handed back,
 // as news [{at, from: orchestrator|owner|notes, text}], until it reaches the builder: a running one at its next command
 // (builderReply), its PostToolUse hook (hooks-plugin board-messages.mjs, through data/builder-news/<session id>.json,
 // which names the card), or the refusal of its builder done; a handed-back one in the brief it is resumed with (takeRerun).
@@ -1287,18 +1288,33 @@ export async function takeNews(site, key) {
   return newsLines(key, news);
 }
 
-// builder done refuses the main build while news waits for it, the refusal delivering it.
+// docs/adr/2026-11-24-2140-owner-words-reach-a-builder-only-through-the-orchestrator.md
+// builder done refuses the main build while news waits for it, the refusal delivering it, and while an owner message
+// sent since the build started waits on the orchestrator (the card's reply wait), so nothing lands past an unread stop
+// or change. The orchestrator ends that wait by relaying the message (builder resume --quote), filing it or answering it.
 export async function refuseNews(site, key) {
   const lines = await takeNews(site, key);
   if (lines.length) fail(`${lines.join('\n')}\nRun builder done again once your build takes it in.`);
+  const open = await openBuild(site, key);
+  const card = await shownCard(site, key);
+  const waiting = [card?.orchestrator, ...(card?.moreWaits || [])].some((w) => w?.kind === 'reply' && String(w.since) > String(open?.record.started));
+  if (waiting) fail("An owner message since your build started waits on the orchestrator, which relays what belongs in it. Run builder done again once it has.");
 }
 
-// `builder resume <key> --text <t>`, the orchestrator's: on a running build the text is news for it, with a thread line
+// The owner's words in the message event id on the card, as a relay quotes them. → "Owner, verbatim: …"
+async function ownerQuote(site, key, id) {
+  const event = (await shownEvents(site)).find((e) => e.id === id);
+  if (event?.kind !== 'item-message' || event.data?.key !== key) fail(`--quote ${id} must name an owner message on ${await cardName(site, key)}`);
+  return `Owner, verbatim: "${String(event.data.text || '').trim() || 'see the files on its thread'}"`;
+}
+
+// `builder resume <key> --text <t> [--quote <event id>]`, the orchestrator's: --quote puts the owner's message, word for
+// word, ahead of the text (the text may then be left out); on a running build the text is news for it, with a thread line
 // saying so; on a handed-back build it is news too, and the record is marked rerun {at, text} for the board server to
 // resume the builder's own session with it (takeRerun); so is an open build whose process is gone. → {running}
-export async function builderResume(site, key, said) {
+export async function builderResume(site, key, said, quote) {
   needSite(site);
-  const words = text(said, '--text');
+  const words = quote === undefined ? text(said, '--text') : [await ownerQuote(site, key, quote), said === undefined ? '' : text(said, '--text')].filter(Boolean).join('\n');
   const { item } = await loadItem(site, key);
   const name = await cardName(site, key);
   if (item.lane !== 'progress') fail(`builder resume takes a task In Progress; ${name} is in ${item.lane ?? 'todo'}`);

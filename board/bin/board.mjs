@@ -897,7 +897,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          the orchestrator"; --wait blocks until none is waiting, and
                                                          after --timeout (9) minutes says so and fails: run it again.
                                                          News for the builder or a pause ends the wait early
-  builder resume <file>/<id> --text <t>                  the session's words for the task's builder, In Progress.
+  builder resume <file>/<id> --text <t> [--quote <id>]   the session's words for the task's builder, In Progress;
+                                                         --quote <event id> puts the owner's message on the task, word
+                                                         for word, ahead of them (--text may then be left out).
                                                          To a running one they are news: its next command (progress,
                                                          call, ask, asks --wait), its tool-call hook or its builder
                                                          done's refusal prints "New on <key> while you build: …", and
@@ -1441,7 +1443,7 @@ const COMMANDS = {
   'builder answer': [['file/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text)],
   'builder defer': [['file/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text, { deferred: true })],
   'builder asks': [['file/id'], ['wait', 'timeout'], (site, [key], f) => store.listAsks(site, key, f)],
-  'builder resume': [['file/id'], ['text'], (site, [key], f) => store.builderResume(site, key, f.text)],
+  'builder resume': [['file/id'], ['text', 'quote'], (site, [key], f) => store.builderResume(site, key, f.text, f.quote)],
   'builder verified': [['file/id'], ['dir', 'agent', 'note', 'title', 'body-file'], async (site, [key], f) => {
     await store.verifyCalls(site, key, f);
     if (f['body-file'] !== undefined) await keepBody(site, key, f['body-file'], f);

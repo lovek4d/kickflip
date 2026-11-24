@@ -1,5 +1,6 @@
 // #804: builder resume passes the orchestrator's words to a running builder, or resumes a handed-back one in its own
-// session; the owner's messages and new notes reach a running builder by themselves
+// session; the owner's messages reach a builder only as the orchestrator quotes them, and new notes reach a running
+// builder by themselves
 // (docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -97,4 +98,28 @@ test('builder resume refuses a card not In Progress, one with no running or hand
   assert.match((await onOrch('builder', 'resume', 'w/A1', '--text', 'x')).err, /A1's build has no Claude session the board launched to resume/);
   building();
   assert.match((await onOrch('builder', 'resume', 'w/A1')).err, /--text/);
+});
+
+const ownerSays = (id, text, ts = new Date().toISOString()) => fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id, ts, kind: 'item-message', data: { key: 'w/A1', text } }) + '\n');
+
+test('an owner message on a building card is no news; builder resume --quote relays it word for word, and builder done waits until it has', async () => {
+  building();
+  ownerSays('m1', 'Stop at the API');
+  assert.equal((await onOrch('builder', 'call', 'w/A1', 'Kept the sheet')).out.includes('New on'), false, 'the builder hears nothing of it');
+  const done = await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--risk', 'low', '--text', 'Checked');
+  assert.equal(done.code, 1);
+  assert.match(done.err, /owner message since your build started waits on the orchestrator/);
+  const relay = await onOrch('builder', 'resume', 'w/A1', '--quote', 'm1', '--text', 'Drop the sheet work');
+  assert.equal(relay.code, 0, relay.err);
+  assert.equal(threadOf().at(-1).text, 'Passed to the builder: Owner, verbatim: "Stop at the API" Drop the sheet work');
+  const next = await onOrch('builder', 'call', 'w/A1', 'Stopped at the API');
+  assert.match(next.out, /New on w\/A1 while you build: the orchestrator wrote: Owner, verbatim: "Stop at the API"/);
+  assert.doesNotMatch((await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--risk', 'low', '--text', 'Checked')).err, /waits on the orchestrator/);
+});
+
+test('builder resume --quote refuses an id that is not an owner message on the card', async () => {
+  building();
+  const r = await onOrch('builder', 'resume', 'w/A1', '--quote', 'nope');
+  assert.equal(r.code, 1);
+  assert.match(r.err, /--quote nope must name an owner message on A1/);
 });

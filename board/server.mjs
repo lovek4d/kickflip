@@ -386,7 +386,7 @@ import { cardName, readScriptOffer, readAgents, tapMerge, appendStatus, appendCo
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
 import { heldReview, applyReviewAnswer, dropAskCard, withdrawRefused, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
 import { SILENT_DEFAULTS, finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf, overridesOf, readBoardJSON } from './settings.mjs';
-import { noteLoggedOut, dropPause, markPaused, passNews, requestPause, openAgents, implementAsIs, clearStall } from './runs.mjs';
+import { noteLoggedOut, dropPause, markPaused, requestPause, openAgents, implementAsIs, clearStall } from './runs.mjs';
 import { runMigrations } from './migrations.mjs';
 import { fireSchedules, readSchedules, setSchedule, removeSchedule } from './schedules.mjs';
 import { appendEvents as appendBoardEvents, appendLine, boardConfig, eventId, itemSources, readJSON, readLog, remove, tellOnWrite, wavesDir, writeJSON } from './files.mjs';
@@ -1009,7 +1009,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (effect.do === 'event') id = (await appendEvents([[kind, body]]))[0];
       else if (effect.do === 'clearStall') await clearStall(here, key);
       else if (effect.do === 'clearOwnerWait') await clearOwnerWait(here, key);
-      else if (effect.do === 'passNews') await passNews(here, key, { from: 'owner', text: effect.text });
       else if (effect.do === 'stage' && effect.as === 'asIs') stopAgents(await implementAsIs(here, key, sendId));
       else if (effect.do === 'stage' && effect.as === 'implement') stopAgents(await stageImplement(here, key, body));
       else if (effect.do === 'stage' && effect.as === 'reply') await stageReply(here, key);

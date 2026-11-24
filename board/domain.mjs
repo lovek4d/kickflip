@@ -2181,7 +2181,6 @@ export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'ca
 // for none): {refuse: {status, words}}, which changes nothing, or the effects to run in order (server.mjs applyTap):
 //   {do: 'event'}                    the tap's event is recorded here; a plan without one records none
 //   {do: 'clearStall'}, {do: 'clearOwnerWait'}
-//   {do: 'passNews', text}           a running builder hears the owner's words
 //   {do: 'stage', as}                staged as is (a bare Implement), as an Implement, or again after a Reply (reply);
 //                                    an Implement stops the planners it ends
 //   {do: 'record', nothing, stops}   the tap written to the item file (cards.mjs recordOwnerTap); one with nothing to
@@ -2210,9 +2209,9 @@ export function tapPlan(card, kind, body) {
     if (card?.kind !== 'work') return [event];
     // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md: a message on a card the
     // orchestrator stalled clears the stall, and reaches the orchestrator as any message does.
-    const before = [card.stalled && { do: 'clearStall' }, card.ownerWait && { do: 'clearOwnerWait' },
-      // docs/adr/2026-11-16-0007-builder-resume-updates-a-running-builder-or-resumes-a-handed-back-one.md
-      card.lane === 'progress' && !bare && { do: 'passNews', text: String(body.text || '').trim() || 'see the files on its thread' }].filter(Boolean);
+    // docs/adr/2026-11-24-2140-owner-words-reach-a-builder-only-through-the-orchestrator.md: the message waits on the
+    // orchestrator, which relays what belongs in a running build (builder resume --quote); the builder hears nothing.
+    const before = [card.stalled && { do: 'clearStall' }, card.ownerWait && { do: 'clearOwnerWait' }].filter(Boolean);
     // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement stages the
     // card as it is, with no event.
     if (bare && (card.ready || card.lane === 'todo')) return [...before, { do: 'stage', as: 'asIs' }];
