@@ -131,6 +131,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          suggested: {option, task, answer, reason?} pre-checks the option the owner already chose on an earlier task, with a blue
          line above its description, Orchestrator choice: <reason>; give a reason, your own words for why. Without one the line
          reads Orchestrator choice: you answered this on <task>: "<answer>"; task is that task's ref, answer their words.
+         {option, reason} alone pre-checks an option for that reason, such as a script the repo already has.
          The questions sheet shows fitting takes in a grid, or a chooser above one full-width take for a single take or if any
          scrolls or fills the screen.
          diagram, with practice: rows of 1-4 boxes [[{text, tone?, to?}]], tone quiet|info|notice|

@@ -269,7 +269,7 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
     ['T-1', 'grilling', undefined, 'T-1-notes.md'],
     ['T-2', 'grilling', undefined, 'T-2-notes.md'],
   ]);
-  assert.match(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'T-1-notes.md'), 'utf8'), /^# Choose where the build scripts live, and prepare them\n/);
+  assert.match(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'T-1-notes.md'), 'utf8'), /^# Choose the test, build and release scripts to set up\n/);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(claudeConfig, '.claude.json'), 'utf8')), { theme: 'dark', projects: { [repo]: { hasTrustDialogAccepted: true } } });
   assert.equal(r.stdout, `Made My app at https://mac.tail.ts.net/my-app/, working in ${repo} (owner/my-app).\nIts session is starting in the background, and joins the board shortly.\n`);
 
@@ -285,8 +285,8 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   assert.equal(claudeCalls().length, 1);
 });
 
-// docs/adr/2026-11-17-1451-a-boards-scripts-live-in-its-repo-or-in-kickflip.md
-test('a board for a repo whose main already has a build script still starts with the scripts card, which says what the repo has', async () => {
+// docs/adr/2026-11-23-1730-onboarding-asks-per-script-and-files-a-task-for-each.md
+test('a board for a repo whose main already has a build script still starts with the scripts card, its build question preselecting the repo', async () => {
   const repo = gitRepo('built app');
   fs.mkdirSync(path.join(repo, '.kickflip'));
   fs.writeFileSync(path.join(repo, '.kickflip', 'build-web'), '#!/bin/sh\necho port 3000\n', { mode: 0o755 });
@@ -297,8 +297,9 @@ test('a board for a repo whose main already has a build script still starts with
   const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'items.json'), 'utf8'));
   assert.deepEqual(wave.items.map((i) => [i.id, i.ticket]), [['T-1', undefined], ['T-2', undefined]]);
   const notes = fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'T-1-notes.md'), 'utf8');
-  assert.match(notes, /^# Choose where the build scripts live, and prepare them\n/);
-  assert.match(notes, /The repo's main has `\.kickflip\/build`\. Kickflip holds none for this board\./);
+  assert.match(notes, /^# Choose the test, build and release scripts to set up\n/);
+  const build = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(notes)[1]).find((q) => q.question === 'Set up a build script?');
+  assert.deepEqual(build.suggested, { option: 'repo', reason: "The repo's main already has `.kickflip/build`." });
   assert.match(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'T-2-notes.md'), 'utf8'), /^# Write CONTEXT\.md/);
 });
 

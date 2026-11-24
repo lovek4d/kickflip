@@ -18,3 +18,5 @@ Considered:
 - Kickflip's copy winning over the repo's whenever it exists: rejected for an explicit choice per board, so a stray file can't silently change what runs.
 - Rebuilding cards on a save too: a card rebuilds on its head or the owner's tap, as before; main is the build the owner watches for a script change.
 - A per-run copy of a kickflip script into the worktree: rejected, since the script already runs with the worktree as cwd.
+
+Amended by [onboarding asks per script and files a task for each](2026-11-23-1730-onboarding-asks-per-script-and-files-a-task-for-each.md): the home question is now one Create in repo / Create in kickflip / Don't create question per script.

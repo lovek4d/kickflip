@@ -82,13 +82,19 @@ function checkOptions(options, name) {
 
 // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
 // The option the overnight triage is confident the owner already chose, from their answer on an earlier card: the
-// task's ref and the answer as they gave it.
+// task's ref and the answer as they gave it. With a reason, the option is preselected for that reason alone, such as
+// onboarding's for a script the repo already has (docs/adr/2026-11-23-1730-onboarding-asks-per-script-and-files-a-task-for-each.md).
 function checkSuggested(s, options, at) {
   onlyKeys(s, ['option', 'task', 'answer', 'reason'], at);
   if (!options.some((o) => o.id === text(s.option, `${at}.option`))) fail(`${at}.option names no option "${s.option}"`);
-  text(s.task, `${at}.task`);
-  text(s.answer, `${at}.answer`);
-  optional(s.reason, (v) => text(v, `${at}.reason`));
+  if (s.reason === undefined) {
+    text(s.task, `${at}.task`);
+    text(s.answer, `${at}.answer`);
+  } else {
+    text(s.reason, `${at}.reason`);
+    optional(s.task, (v) => text(v, `${at}.task`));
+    optional(s.answer, (v) => text(v, `${at}.answer`));
+  }
 }
 
 // A prototype is a topic recorded here, served as prototype-<topic>.html from one template (board/public/prototype.html,
