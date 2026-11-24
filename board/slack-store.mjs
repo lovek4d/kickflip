@@ -412,12 +412,13 @@ export const markSlackWait = (site, thread, words, ts) => editJSON(slackThreadsF
 // message on a task, the status kind and the emoji. A message is tracked from the first poll that sees its task open,
 // holding then the 👀 intake put on an ask's own message (routed.slack.reacted, else eyes, an earlier intake's).
 // Where a Slack message on a task stands: done once its task is Done or a reply to it has posted to Slack; thinking
-// while the orchestrator works on it (listening) or its reply waits to post; waiting once acted on with no reply while
-// the task waits on the owner; else received.
+// while the orchestrator works on it (listening) or its reply waits to post; waiting while it is owed its reply and the
+// task waits on the owner; else received, a message marked no-reply too
+// (docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md).
 function messageStatus(m, { posted, owner, listening }) {
   if (m.state === 'replied') return posted ? 'done' : 'thinking';
   if (m.state === 'working' && listening) return 'thinking';
-  return m.state === 'answered' && owner ? 'waiting' : 'received';
+  return m.state !== 'answered' && owner ? 'waiting' : 'received';
 }
 // The status reactions owed to each Slack message on this board's tasks, which the hub sends each poll: the asks routed
 // from Slack, and the Slack replies copied onto their tasks as item-messages. Each message has one status reaction,

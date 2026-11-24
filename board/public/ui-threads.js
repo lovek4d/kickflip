@@ -64,11 +64,13 @@
   // The owner's messages, the board's events and the outbox's, also show where they are in their footer.
   const footed = (m) => Boolean(m.eventId || m.sendId);
   // Each reply becomes Claude's own message at the time it was written, quoting the owner's message
-  // when other messages came between them. A reply with no time follows its message.
+  // when other messages came between them. A reply with no time follows its message. A reply to a Slack message, which
+  // posts to its Slack thread, carries slack: who it answered, '' for the owner's own
+  // (docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md).
   const withReplies = (msgs) => {
     // A folded submit's answers each reply, quoting their own block.
     const out = msgs.flatMap((m, i) => [{ m, at: String(m.ts), i, part: 0 },
-      ...(m.answers || [m]).filter((a) => a.eventId && a.reply).flatMap((a) => (a.replies?.length ? a.replies : [a.reply]).map((reply, k) => ({ m: { ts: reply.at || m.ts, who: 'claude', kind: 'reply', reply }, of: m, quoted: m.answers ? a.text : m.text, later: k > 0, at: String(reply.at || m.ts), i, part: 1 })))]);
+      ...(m.answers || [m]).filter((a) => a.eventId && a.reply).flatMap((a) => (a.replies?.length ? a.replies : [a.reply]).map((reply, k) => ({ m: { ts: reply.at || m.ts, who: 'claude', kind: 'reply', reply, ...(m.via === 'slack' ? { slack: m.by || '' } : {}) }, of: m, quoted: m.answers ? a.text : m.text, later: k > 0, at: String(reply.at || m.ts), i, part: 1 })))]);
     out.sort((a, b) => a.at.localeCompare(b.at) || a.i - b.i || a.part - b.part);
     return out.map(({ m, of, quoted, later }, n) => (of ? { ...m, quote: later || out[n - 1]?.m === of && !(of.answers?.length > 1) ? '' : quoted || '' } : m));
   };
@@ -124,7 +126,7 @@
   // A line naming a card (domain.mjs namedLine): its words, then the card's reference as it stands (ui-links.js cardRef).
   const named = (m, links) => `${escText(m.words)} ${cardRef(m.card, links)}${m.after ? escText(m.after) : ''}`;
   const line = (m, links, folded = false) => (m.kind === 'reply'
-    ? `<div class="msg claude reply-msg"><div class="who">Orchestrator</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div>${msgFooter(m, [])}</div>`
+    ? `<div class="msg claude reply-msg"><div class="who">Orchestrator</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div>${msgFooter(m, m.slack === undefined ? [] : ['Slack', m.slack && `to ${esc(m.slack)}`].filter(Boolean))}</div>`
     : m.kind === 'ask-link' ? statusLine('link', statusMark('ask-link') + named(m, links), m.ts)
     // docs/adr/2026-11-16-0514-prototypes-and-visuals-open-in-the-reader-sheet.md: the link is a card page, which the shell opens in the reader sheet.
     : m.kind === 'visual' ? statusLine('link visual', statusMark('visual') + linked(m.link, `${escText(m.text)} →`), m.ts)

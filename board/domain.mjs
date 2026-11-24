@@ -230,12 +230,14 @@ const TAP_DONE = 'Tap Done';
 const QUIET_KINDS = ['status', 'agent', 'ask-link', 'command', MOVE, BUILDER_ASK.answer];
 const countsUnread = (m) => (m.who === 'claude' || m.via === 'github' || m.via === 'board') && (m.kind === HUB ? hubLineOf(m).fault : isMessage(m) && !QUIET_KINDS.includes(m.kind));
 
-// said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
+// said is the owner's messages and answers in the card's thread (threadOf), their own Slack messages included and a
+// teammate's left out, slackWords its Slack messages still owed a reply (slackOwed), and askedAt the asked_at of its
+// questions.
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 // The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
 const STILL_MERGING = ['lander-handoff', 'land-waiting', 'test-waiting'];
-function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, landing, eta, thread, events, scriptEvents, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
+function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, landing, eta, thread, events, scriptEvents, working, said, slackWords, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets, landers, landHeld, landSkips, plannerQueued }) {
   // A wait line whose wait is over no longer shows in the merging Next (hub-lines.mjs waitsOf).
   const waits = waitsOf(thread);
   thread = waits.lines;
@@ -428,7 +430,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     turn: lane === 'todo' && it.phase === 'discussing' ? (said.some((m) => m.state === 'waiting' || m.state === 'working') ? 'claude' : 'owner') : undefined,
     updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
-    waitFacts: waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt: refusal ? newest.ts : null, closed: doneAt }),
+    waitFacts: waitFactsOf(it, { agents, thread, events, scriptEvents, said, slackWords, refusedAt: refusal ? newest.ts : null, closed: doneAt }),
   };
 }
 
@@ -438,6 +440,11 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
 // progress line, agent line or ask.
 // A command line (Related to, Marked as …) is the board's own and answers nobody.
 const answersOwner = (m) => (m.who || 'claude') === 'claude' && !m.command && !['status', 'agent', BUILDER_ASK.ask].includes(m.kind);
+// docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md
+// A card's Slack messages (threadOf's, via slack) still owed a reply: waiting or working, since only a reply, a no-reply
+// mark or the card's close answers one. The orchestrator owes each a reply carrying the outcome (SLACK_NEXT).
+export const slackOwed = (msgs) => msgs.filter((m) => m.via === 'slack' && m.eventId && (m.state === 'waiting' || m.state === 'working'));
+const SLACK_NEXT = (s) => `Answer ${s.by || 'the owner'} in Slack: reply ${s.id} --text "<the outcome: the answer, the review link, the task filed>", which posts to its Slack thread; a message that needs no words (a thanks) takes reply ${s.id} --no-reply`;
 // The owner's word that became the newest on the card: the first of its messages since the card last closed (closed)
 // that no orchestrator line in thread follows once it was handed over (threadOf's handed), nor a reply to the message's
 // own event whenever it was written, as {at, picked}, picked being its working mark; null when the orchestrator spoke last
@@ -459,7 +466,7 @@ const unverifiedOf = (agents) => agents.some((a) => a.calls.some((c) => !a.verif
 // (limboFrom), whether its records hold unverified calls, and the session's writes on it: a thread line of Claude's
 // other than a status, agent, move, refusal or board command line (staged, related, followup: the board writes those,
 // not the session), a verify and a builder start. closed is when the card last closed.
-function waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt, closed }) {
+function waitFactsOf(it, { agents, thread, events, scriptEvents, said, slackWords, refusedAt, closed }) {
   const answered = new Set(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => m.ask));
   const ask = thread.filter((m) => m.kind === BUILDER_ASK.ask && !answered.has(m.ask)).sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
   const requestAt = (kind) => events.filter((e) => isRequest(e, kind)).pop()?.ts || null;
@@ -471,6 +478,8 @@ function waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt
     pages: thread.filter((m) => m.kind === VISUAL).map((m) => m.ts),
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, unblockedAt: it.unblocked_at || null, unblockCheck: it.unblock_check || null,
     ownerWord: closed === null ? null : ownerWordOf(said, thread, events, closed),
+    // docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md: each Slack message still owed its reply.
+    slack: slackWords.map((m) => ({ at: String(m.ts), id: m.eventId, by: m.by || null, picked: m.state === 'working' ? m.since : null })),
     // When the newest script run ended or was declined: the orchestrator owes its next line on it.
     scriptAt: scriptEvents.filter((e) => e.kind !== SCRIPT_EVENTS.run).map((e) => String(e.ts)).sort().pop() || null,
     // A lapsed mark, a planner's end, a board or command line (a phase change, a question added) or an owner's answer
@@ -1304,7 +1313,7 @@ export function pendingState({ replied = false, cleared = false, handed = '', an
   return listening && picked ? { state: 'working', since: picked } : { state: 'waiting' };
 }
 const voiceOf = (a) => (a.kind === REVIEWER ? { reviewer: a.target } : plans(a) ? { planner: true } : {});
-export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, delivered = {}, listening = true, actedAt = '', clearedAt = '', fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
+export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, delivered = {}, listening = true, actedAt = '', clearedAt = '', noReply = {}, fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   // A wait line draws grey once its wait is over (hub-lines.mjs waitsOf).
   const waits = waitsOf(lines);
   lines = waits.lines;
@@ -1372,8 +1381,12 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved) || (sorted && m.eventId === fromAsk));
     m.handed = handedAt(delivered, working, m.eventId, m.ts);
     const mark = routeRecord(working, m.eventId) || routeRecord(delivered.events || {}, m.eventId);
-    Object.assign(m, pendingState({ replied: Boolean(m.reply), cleared: linked || acted.has(m.eventId) || String(clearedAt || '') > String(m.ts),
-      handed: m.handed, answeredAt: lastClaude, picked: mark, listening }));
+    // docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md: a Slack message is answered only by its
+    // reply, which posts to its Slack thread, its no-reply mark (noReply, the card's no_reply) or the card's close.
+    Object.assign(m, pendingState(m.via === 'slack'
+      ? { replied: Boolean(m.reply), cleared: Boolean(routeRecord(noReply, m.eventId)) || String(clearedAt || '') > String(m.ts), picked: mark, listening }
+      : { replied: Boolean(m.reply), cleared: linked || acted.has(m.eventId) || String(clearedAt || '') > String(m.ts),
+        handed: m.handed, answeredAt: lastClaude, picked: mark, listening }));
   }
   return foldSubmits(msgs);
 }
@@ -1462,7 +1475,7 @@ export function buildBoard(snapshot) {
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(itemFile, it, tickets), became: true }]);
       const clearedAt = [it.lane === 'done' ? it.closed_at : null, cardDones.get(key)].filter(Boolean).map(String).sort().pop() || '';
-      const thread = { lines, events, owner, working, delivered, actedAt: routeRecord(actedOn, key) || '', clearedAt, fromAsk: it.from_ask || null, sorted: Boolean(it.phase), moved: folded, cards, index };
+      const thread = { lines, events, owner, working, delivered, actedAt: routeRecord(actedOn, key) || '', clearedAt, noReply: it.no_reply || {}, fromAsk: it.from_ask || null, sorted: Boolean(it.phase), moved: folded, cards, index };
       const msgs = threadOf(key, thread);
       threadViews[key] = threadOf(key, { ...thread, agents: routeRecord(records, it.id) || {} });
       for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
@@ -1478,7 +1491,8 @@ export function buildBoard(snapshot) {
         scriptEvents: index.scripts.get(key) || [],
         events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],
         working: msgs.some((m) => stateEntries(m).some(([, state]) => state === 'working')),
-        said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
+        said: msgs.filter((m) => m.who === 'love' && !(m.via === 'slack' && m.by) && (m.kind === 'item-message' || m.kind === 'owner-answer')),
+        slackWords: slackOwed(msgs),
         askedAt: (index.questions.get(`item:${key}`) || []).filter((q) => q.asked_at).map((q) => q.asked_at),
         topicItems, prSlack: snapshot.prSlack || {}, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
         mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets, landers: snapshot.landers || {}, landHeld: snapshot.landHeld || {}, landSkips: snapshot.landSkips || {}, plannerQueued: Object.keys(snapshot.queuedPlanners || {}).some((queued) => queuedPlannerCard(queued) === key),
@@ -1683,7 +1697,7 @@ export function buildBoard(snapshot) {
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered' || (q.resolved === ANSWERED && q.state === 'resolved' && q.answers.length && !q.answers.at(-1).reply)).map((q) => q.answers.at(-1).ts).sort().pop();
     // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
     // Review (laneOf, workItem), and an owner's message on a Done card from Done; a card the orchestrator stalled waits on the owner alone.
-    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'done' && it.waitFacts.ownerWord) || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.waitFacts.scriptAt || it.briefs.some((b) => !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince })
+    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'done' && it.waitFacts.ownerWord) || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.ownerWord || it.waitFacts.slack.length || it.waitFacts.scriptAt || it.briefs.some((b) => !b.brief)))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince: it.workingSince })
       // A closed, split or folded card owes no brief: a Done card holds none, whatever its record still carries.
       : [];
     // The card shows its first wait; the waits list (orchestratorWaits) names every one.
@@ -2409,6 +2423,9 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     // owner's word last on the card is owed, whatever else the card waits on, until the orchestrator's next line.
     // It is picked up when the message was handed over, not at a line written before that.
     facts.ownerWord && { kind: 'reply', since: facts.ownerWord.at, picked: facts.ownerWord.picked, next: "Act on the owner's reply: answer it in the thread, or act and let the action's line answer it" },
+    // docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md: each Slack message on the card, until
+    // its reply or its no-reply mark, whatever else the card waits on.
+    ...facts.slack.map((s) => ({ kind: 'slack', since: s.at, picked: s.picked, next: SLACK_NEXT(s) })),
     // docs/adr/2026-11-17-0300-a-finished-script-run-waits-on-the-orchestrator.md: held until the orchestrator writes on the card.
     facts.scriptAt && !facts.writes.some((t) => t > facts.scriptAt) && { kind: 'script', since: facts.scriptAt, next: "Read the script's result (the owner ran or declined it): answer it in the thread, or act on it" },
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
@@ -2530,7 +2547,7 @@ function newBoardAsks(events, working) {
 // docs/adr/2026-11-18-0200-the-orchestrators-waits-run-the-owners-words-then-new-todo-in-progress-in-review.md
 // The groups, in the order the orchestrator works them: the owner's words waiting on a reply or an answer, a New
 // task's intake, then each lane's waits down Todo, In Progress and In Review.
-const OWNER_WORDS = new Set(['reply', 'answer']);
+const OWNER_WORDS = new Set(['reply', 'slack', 'answer']);
 const waitGroup = (w) => OWNER_WORDS.has(w.kind) ? 0 : w.kind === 'intake' ? 1 : { todo: 2, progress: 3, review: 4 }[w.lane] ?? 2;
 const bySince = (a, b) => a.since.localeCompare(b.since);
 export function orchestratorWaits(built) {
@@ -2568,7 +2585,7 @@ export const PICKED_REWAKE_AFTER = 60 * 60000;
 // docs/adr/2026-11-18-1400-an-unread-request-re-wakes-the-orchestrator-in-2-minutes-and-stop-names-it.md
 // The waits that hold an owner's request (a reply on a task, a New task's intake), and how long one nobody has read
 // (inbox read stamps it picked) goes between wakes.
-export const REQUEST_KINDS = ['reply', 'intake'];
+export const REQUEST_KINDS = ['reply', 'slack', 'intake'];
 export const REQUEST_REWAKE_AFTER = 2 * 60000;
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 // How long a picked-up daily wait (a stale review) goes between wakes: a change on its PR wakes the session sooner, by github-change.

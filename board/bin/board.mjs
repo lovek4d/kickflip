@@ -54,6 +54,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          questions, noting "Acted on: replied". A
                                                          reply to overnight-triage ends that triage
          [--title <t>]                                   retitles the New or discussing task the ask became
+  reply <eventId> --no-reply                             marks a Slack message on a task that needs no words (a
+                                                         thanks) on its card, ending its slack wait as a reply
+                                                         would and posting nothing. Every other Slack message waits
+                                                         on its reply, which posts to its Slack thread
          [--questions <json>]                            the questions to ask with the message (thread takes it too),
                                                          in question add's shape: checked first, then the message is
                                                          posted and the questions asked after it, so the thread reads
@@ -567,6 +571,11 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          the header or marker, and a PR that got
                                                          another review after that time. The PR must be one the hub
                                                          listed in data/incoming.json or reviewed before
+         [--task <file>/<id>]                            any PR that task names (a teammate's "take a look at
+                                                         <link>" from Slack), as its link, owner/repo#n or n in
+                                                         the board's repo: posted at the head GitHub reads now and
+                                                         recorded nowhere; reply to the task's message with the
+                                                         link it prints, which carries it to Slack
   review record <pr> --state posted|needs               the session's review of an incoming PR that was not posted
          --text <markdown> | --file <path>               through review post, in data/reviews.json: posted for a PR
                                                          it chose to say nothing on, needs while it waits on the
@@ -986,7 +995,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'blocked', 'unblocked', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close', 'split', 'final']);
+const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'blocked', 'unblocked', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close', 'split', 'final', 'no-reply']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -1197,7 +1206,11 @@ const COMMANDS = {
     if (f.body === undefined) throw new UsageError('pr reply needs --body "<what Claude says>"');
     return store.postPR(site, pr, { replyTo, body: f.body });
   }],
-  reply: [['eventId'], ['text', 'file', 'title', 'implement', 'close', 'questions'], async (site, [id], f) => {
+  reply: [['eventId'], ['text', 'file', 'title', 'implement', 'close', 'questions', 'no-reply'], async (site, [id], f) => {
+    if (f['no-reply']) {
+      if (id.includes('/') || [f.text, f.file, f.title, f.questions].some((v) => v !== undefined) || f.implement || f.close) throw new UsageError('reply <eventId> --no-reply marks a Slack message that needs no words and takes nothing else');
+      return store.markNoReply(site, id);
+    }
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('reply takes --text or --file');
     if ((f.implement || f.close) && !id.includes('/')) throw new UsageError('reply --implement and --close mark a task: name it <file>/<id>');
     if (f.implement && f.close) throw new UsageError('reply takes --implement or --close, not both');
@@ -1369,12 +1382,12 @@ const COMMANDS = {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('review record takes --text or --file');
     return store.recordReview(site, pr, { state: f.state, text: f.text ?? readInput(f.file) });
   }],
-  'review post': [['pr'], ['file', 'read-at'], async (site, [pr], f) => {
+  'review post': [['pr'], ['file', 'read-at', 'task'], async (site, [pr], f) => {
     if (f.file === undefined) throw new UsageError('review post needs --file <review.md>');
     if (f['read-at'] === undefined) throw new UsageError('review post needs --read-at <time>, when you read the PR, so a review that landed since is caught');
     const words = readInput(f.file);
     await store.refuseCites(site, [words]);
-    return store.postIncomingReview(site, pr, { words, readAt: f['read-at'] });
+    return store.postIncomingReview(site, pr, { words, readAt: f['read-at'], task: f.task });
   }],
   'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await slackStore.reviewDigest(site, options))] })],
   'review due': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await slackStore.reviewDue(site, options))] })],
@@ -1548,7 +1561,7 @@ function itemChanges(f) {
  * name: (site, args, flags, result) → line
  */
 const SAID = {
-  reply: async (site, [id], f, { asked }) => (id.includes('/') ? `answered ${await card(site, id)}: it reads discussing, the owner's turn; ${asked ? askedAfter(asked) : 'ask any open point with reply --questions <json>, not in prose'}` : `reply written to ${await store.eventCard(site, id)}${asked ? `; ${askedAfter(asked)}` : ''}`),
+  reply: async (site, [id], f, { asked, key }) => (f['no-reply'] ? `marked ${id} needing no reply on ${await card(site, key)}` : id.includes('/') ? `answered ${await card(site, id)}: it reads discussing, the owner's turn; ${asked ? askedAfter(asked) : 'ask any open point with reply --questions <json>, not in prose'}` : `reply written to ${await store.eventCard(site, id)}${asked ? `; ${askedAfter(asked)}` : ''}`),
   thread: async (site, [key], f, { asked }) => `thread line on ${await card(site, key)}${asked ? `; ${askedAfter(asked)}` : ''}`,
   'topic add': (site, [id]) => `topic ${id} added`,
   'question add': async (site, _, f, { asked, staged }) => {

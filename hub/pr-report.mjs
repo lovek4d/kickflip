@@ -28,6 +28,12 @@ async function asLogin(login) {
   return { env: { ...process.env, GH_TOKEN: token }, account: login };
 }
 
+// A PR's head commit, as login, for a review posted at it. → its sha
+export async function prHead({ repo, pr, login }) {
+  try { return (await gh(['pr', 'view', String(pr), '--repo', repo, '--json', 'headRefOid'], await asLogin(login))).headRefOid; }
+  catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
+}
+
 // A PR's title and size for its Slack link, as login. → {title, additions, deletions, files}
 export async function prSize({ repo, pr, login }) {
   try {

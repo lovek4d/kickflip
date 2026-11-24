@@ -179,6 +179,13 @@ if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test
   console.log(JSON.stringify({ ...${JSON.stringify(SQUASH_SOURCE)}, ...(own.title ? { title: own.title } : {}), ...(own.body ? { body: own.body } : {}) }));
   process.exit(0);
 }
+// gh pr view <n> --repo <repo> --json headRefOid: the PR fixture's head.
+if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === 'headRefOid') {
+  let own = null;
+  try { own = JSON.parse(fs.readFileSync(fixture('pr', args[4], args[2]), 'utf8')); } catch { fail(); }
+  console.log(JSON.stringify({ headRefOid: own.headRefOid }));
+  process.exit(0);
+}
 let file;
 let list = false;
 if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === ${JSON.stringify(PR_VIEW_FIELDS)}) file = fixture('pr', args[4], args[2]);

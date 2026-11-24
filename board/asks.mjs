@@ -11,12 +11,12 @@ import { appendLine, boardConfig, eventId as newEventId, itemSources, readJSON, 
 import { readOutbox } from '../hub/peers.mjs';
 import { notePassed } from '../hub/routed-log.mjs';
 import { HUB, hubText } from './hub-lines.mjs';
-import { postReview, reviewsSince, CLAUDE_MARK } from '../hub/pr-report.mjs';
+import { postReview, prHead, reviewsSince, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { githubSignOffLine } from '../hub/slack.mjs';
-import { hasPR } from '../shared/card-prs.mjs';
+import { hasPR, parsePRRef } from '../shared/card-prs.mjs';
 import { BoardError, fail, needSite, text, cardTitle, domId } from './checks.mjs';
 import { settingsOf, boardRepoOf, boardTarget } from './settings.mjs';
-import { freeNotesName, writeNotesFile, ownerMark, dropOwed, resolveAnsweredOn } from './questions.mjs';
+import { freeNotesName, writeNotesFile, ownerMark, dropOwed, resolveAnsweredOn, itemNotes } from './questions.mjs';
 import { threadFile, ownerFile, parseKey, loadItemFile, loadItem, readAgents, replyFilesOf, freshenPush, uploadsDir, uploadMeta, STORED, appendStatus, appendMessage, messageText, askLinksFile, readAskLinks, cardName, askCardOf, askTaskOf, checkAsk, placeIn, leftTodo, depKey, depList, parentKey, relatedKeys, UNSOURCED, SPLIT_NEEDS_PARENT, refuseAskedSplit, refuseUnborn, replyFirst, refuseUnlinked, askWordsOf, refuseUnplaced, linkedWith, linksOf, postLinkLines, nextTaskId, ticketWrite, setItem, blockLines, refuseCites } from './cards.mjs';
 
 const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
@@ -52,6 +52,26 @@ export async function writeReply(site, eventId, md, title) {
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   if (card) lines.push(...await resolveAnsweredOn(site, `item:${card.key}`, 'Acted on: replied'));
   return { file, lines, slack };
+}
+
+// docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md
+// reply <eventId> --no-reply: a Slack message on a task that needs no words (a thanks) is marked on its card's no_reply
+// {<event id>: when}, which ends its slack wait as a reply would, posting nothing. Refuses any other message, one
+// already replied to and one on a Done task, which owes nothing. → {file, lines}
+export async function markNoReply(site, eventId) {
+  needSite(site);
+  domId(eventId, 'the event id');
+  const event = (await readLog(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
+  if (!event) fail(`no event "${eventId}" in this site's data/events.jsonl`);
+  if (!slackSourced(event)) fail(`reply --no-reply marks a Slack message that needs no words; "${eventId}" did not come from Slack: answer it with reply ${eventId} --text`);
+  const key = event.kind === 'ask' ? (await askTaskOf(site, eventId))?.key : event.data.key;
+  if (!key) fail(`the Slack ask "${eventId}" has no task yet; triage it first`);
+  if ((await replyFilesOf(path.join(site, 'data', 'replies'), eventId)).length) fail(`"${eventId}" already has a reply, which answered it`);
+  const { source, itemFile, item } = await loadItem(site, key);
+  if (item.lane === 'done') fail(`${key} is Done, so its Slack messages owe nothing`);
+  item.no_reply = { ...item.no_reply, [eventId]: new Date().toISOString() };
+  await writeJSON(source.file, itemFile);
+  return { file: source.file, lines: [], key };
 }
 
 // Whether the card an ask became is still New: nothing has sorted, answered or started it.
@@ -306,7 +326,8 @@ export async function refuseFiled(site, eventId, key) {
 }
 // docs/adr/2026-11-21-1700-a-replys-route-follows-the-message-it-names.md
 // The messages on card key nobody has answered, each {id, from}: its ask and the owner's or Slack's messages on it,
-// with no reply file and no plain orchestrator message after it. from reads "Slack · <name>" or "board".
+// with no reply file and no plain orchestrator message after it, a Slack one with no no-reply mark whatever came after
+// it (docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md). from reads "Slack · <name>" or "board".
 export async function unansweredOn(site, key, item) {
   const links = await readAskLinks(site);
   const events = (await readLog(path.join(site, 'data', 'events.jsonl')))
@@ -314,8 +335,9 @@ export async function unansweredOn(site, key, item) {
   const said = (await readLog(threadFile(site, key))).filter((m) => (m.who || 'claude') === 'claude' && !m.kind && !m.command).map((m) => String(m.ts)).sort().pop() || '';
   const open = [];
   for (const e of events) {
-    if (String(e.ts) < said || (await replyFilesOf(path.join(site, 'data', 'replies'), e.id)).length) continue;
-    const from = slackSourced(e) ? ['Slack', e.data.slack?.by || e.data.routed?.by].filter(Boolean).join(' · ') : 'board';
+    const slack = slackSourced(e);
+    if ((slack ? Object.hasOwn(item.no_reply || {}, e.id) : String(e.ts) < said) || (await replyFilesOf(path.join(site, 'data', 'replies'), e.id)).length) continue;
+    const from = slack ? ['Slack', e.data.slack?.by || e.data.routed?.by].filter(Boolean).join(' · ') : 'board';
     open.push({ id: e.id, from });
   }
   return open;
@@ -768,6 +790,25 @@ async function incomingPR(site, number, command) {
   return { ...pr, repo: incoming?.repo || boardRepoOf(site, {}) };
 }
 
+// docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md
+// The PR ref names (its link, owner/repo#n, or n in the board's repo) when task key names it, by link or owner/repo#n,
+// in its title, notes, asks or messages, as a teammate's "can you take a look at <link>" does: its repo, number and
+// head, read from GitHub as login. → {repo, number, head}
+async function taskPR(site, ref, key, login) {
+  const link = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/([1-9]\d*)\/?$/.exec(String(ref).trim());
+  const parsed = link ? { repo: link[1], number: Number(link[2]) } : parsePRRef(ref) || fail(`review post takes the PR's link, owner/repo#n or its number, not "${ref}"`);
+  const { source, itemFile, item } = await loadItem(site, key);
+  const repo = parsed.repo || boardRepoOf(site, itemFile) || fail('review post needs a board on GitHub for a bare PR number; pass owner/repo#n');
+  const asks = new Set([item.from_ask, ...Object.entries(await readAskLinks(site)).filter(([, k]) => k === key).map(([id]) => id)]);
+  const said = (await readLog(path.join(site, 'data', 'events.jsonl')))
+    .filter((e) => (e.kind === 'ask' && asks.has(e.id)) || (e.kind === 'ask-edited' && asks.has(e.data?.id)) || (e.kind === 'item-message' && e.data?.key === key))
+    .map((e) => String(e.data?.text ?? ''));
+  const words = [item.title, await itemNotes(source.dir, item), ...said].filter(Boolean).join('\n').toLowerCase();
+  const names = [`github.com/${repo}/pull/${parsed.number}`, `${repo}#${parsed.number}`].map((n) => n.toLowerCase());
+  if (!names.some((n) => new RegExp(`${n.replace(/[.]/g, '\\.')}(?!\\d)`).test(words))) fail(`${repo}#${parsed.number} is not named on ${key}: its title, notes, asks and messages name no link to it`);
+  return { repo, number: parsed.number, head: await prHead({ repo, pr: parsed.number, login }) };
+}
+
 async function saveReview(site, { number, title, author, url, touches = [], asked = false, head }, { state, text, review_url }) {
   const file = path.join(site, 'data', 'reviews.json');
   const records = await readJSON(file, {});
@@ -778,22 +819,25 @@ async function saveReview(site, { number, title, author, url, touches = [], aske
 
 // `review post`: the session's words as one Comment review on an incoming PR at its listed head, as the board's
 // github-login, under the board's header and the claude-bridge marker, then recorded as posted with the review's link.
-// It refuses, posting nothing, when another review landed after readAt, which it requires. → {lines}
-export async function postIncomingReview(site, number, { words, readAt }) {
+// It refuses, posting nothing, when another review landed after readAt, which it requires. With task, a task's key,
+// the PR is any one that task names (taskPR), at its head as GitHub reads it now, and nothing is recorded: the reply to
+// the task's message carries the review's link. → {lines}
+export async function postIncomingReview(site, number, { words, readAt, task }) {
   needSite(site);
-  const pr = await incomingPR(site, number, 'review post');
+  const login = settingsOf(await boardConfig(site)).github_login;
+  const pr = task === undefined ? await incomingPR(site, number, 'review post') : null;
   const text = String(words ?? '').trim() || fail('review post needs the review text, as --file');
   const header = `Claude review from the ${(await boardConfig(site)).title} board`;
   if (text.split('\n').at(-1) === githubSignOffLine() || text.includes('Claude review from') || text.includes(CLAUDE_MARK)) fail('review post adds the header, the signature and the claude-bridge marker itself; pass only your words');
-  const repo = pr.repo || fail('review post needs a board on GitHub; this board has no repo there');
   if (Number.isNaN(Date.parse(readAt))) fail('--read-at takes the time you read the PR, such as 2026-11-05T09:30:00Z');
-  const login = settingsOf(await boardConfig(site)).github_login;
   try {
-    const newer = await reviewsSince({ repo, pr: pr.number, since: readAt });
-    if (newer.length) fail(`PR #${number} got ${newer.length === 1 ? 'a review' : `${newer.length} reviews`} after ${readAt} (${newer.map((r) => `${r.login} at ${r.at}`).join(', ')}); reread the PR and review again`);
-    const review_url = await postReview({ repo, pr: pr.number, head: pr.head, body: `${header}\n\n${text}\n${githubSignOffLine()}\n\n${CLAUDE_MARK}`, login });
-    await saveReview(site, pr, { state: 'posted', text, review_url });
-    return { lines: [`posted review on PR #${number}: ${review_url}`] };
+    const target = pr || await taskPR(site, number, task, login);
+    const repo = target.repo || fail('review post needs a board on GitHub; this board has no repo there');
+    const newer = await reviewsSince({ repo, pr: target.number, since: readAt });
+    if (newer.length) fail(`PR #${target.number} got ${newer.length === 1 ? 'a review' : `${newer.length} reviews`} after ${readAt} (${newer.map((r) => `${r.login} at ${r.at}`).join(', ')}); reread the PR and review again`);
+    const review_url = await postReview({ repo, pr: target.number, head: target.head, body: `${header}\n\n${text}\n${githubSignOffLine()}\n\n${CLAUDE_MARK}`, login });
+    if (pr) await saveReview(site, pr, { state: 'posted', text, review_url });
+    return { lines: [`posted review on PR #${target.number}: ${review_url}${pr ? '' : `; reply to ${task}'s message with it`}`] };
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
 }
 

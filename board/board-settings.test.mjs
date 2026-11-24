@@ -549,6 +549,36 @@ test("review post posts the session's words as one Comment review on a listed in
   assert.equal(posts().length, 2);
 });
 
+// docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md
+test("review post --task posts on any PR the task names, at the head GitHub reads now, records nothing and says to reply with the link", async () => {
+  const dir = path.join(home, 'fake-gh-task');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  writeAccounts(dir, { owner: 'token-owner' });
+  writePR(dir, 'o/other#7', prView({ head: 'def456' }));
+  const cli = (...args) => boardWith(['--site', 'audit', ...args], env);
+  write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'ea', ts: '2026-11-24T10:00:00Z', kind: 'ask', data: { text: 'can you take a look at https://github.com/o/other/pull/7', routed: { via: 'slack', by: 'Sam', link: 'https://acme.slack.com/a', slack: { channel: 'D1', ts: '1.1' } } } }) + '\n');
+  write(site('audit', 'data', 'items.json'), { ...wave(), internal: true, items: [{ id: 'T-1', title: 'Review PR 7', from_ask: 'ea', lane: 'todo', phase: 'discussing' }, { id: 'T-2', title: 'Other' }] });
+  write(site('audit', 'data', 'reviews.json'), {});
+  write(path.join(home, 'review.md'), 'The retry loop never backs off.\n');
+  const file = path.join(home, 'review.md');
+  const posts = () => tokens(dir).filter((c) => c.args[0] === 'api' && c.args[1].endsWith('/reviews') && c.args.includes('-f')).map(({ args }) => [args[1], args.at(-1)]);
+  assert.equal((await cli('settings', 'set', 'github-login', 'owner')).code, 0);
+
+  for (const ref of ['https://github.com/o/other/pull/7', 'o/other#7']) {
+    const done = await cli('review', 'post', ref, '--task', 'audit/T-1', '--file', file, '--read-at', '2026-11-24T10:05:00Z');
+    assert.equal(done.code, 0, done.err);
+    assert.equal(done.out, "posted review on PR #7: https://github.com/o/other/pull/7#pullrequestreview-1; reply to audit/T-1's message with it\n");
+  }
+  assert.deepEqual(posts(), [['repos/o/other/pulls/7/reviews', 'commit_id=def456'], ['repos/o/other/pulls/7/reviews', 'commit_id=def456']]);
+  assert.deepEqual(read(site('audit', 'data', 'reviews.json')), {}, 'recorded nowhere');
+  // A PR the task doesn't name, or named on another task, is refused, nothing posted.
+  for (const [ref, key] of [['o/other#8', 'audit/T-1'], ['o/other#70', 'audit/T-1'], ['o/other#7', 'audit/T-2']]) {
+    assert.match((await cli('review', 'post', ref, '--task', key, '--file', file, '--read-at', '2026-11-24T10:05:00Z')).err, new RegExp(`${ref} is not named on ${key}`), `${ref} on ${key}`);
+  }
+  assert.match((await cli('review', 'post', 'seven', '--task', 'audit/T-1', '--file', file, '--read-at', '2026-11-24T10:05:00Z')).err, /review post takes the PR's link, owner\/repo#n or its number/);
+  assert.equal(posts().length, 2);
+});
+
 // docs/adr/2026-11-16-2000-the-server-applies-the-owners-post-or-skip-on-a-held-review.md
 test("applyReviewAnswer records a held review posted for Skip, posts its held text for Post, and leaves it held when the post fails", async (t) => {
   const { applyReviewAnswer, heldReview } = await import('./store.mjs');

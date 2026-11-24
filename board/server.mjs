@@ -882,7 +882,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const mine = (await shownEvents()).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind)) || (e.kind === 'owner-answer' && asked.has(e.data?.id))      || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
     const lines = (await Promise.all([...keys].map((k) => readLog(threadFile(k))))).flat();
     const clearedAt = item?.lane === 'done' ? String(item.closed_at || '') : '';
-    return threadOf(key, { lines, events: await Promise.all(mine.map((e) => withReply(e))), owner, working: await readWorking(here), delivered: await readDelivered(here), actedAt: routeRecord(await readActedOn(here), key) || '', listening: !boardAt(here) || (listenState(boardAt(here)) === 'listening' && sessionBusy(boardAt(here))), clearedAt, fromAsk: askId,
+    return threadOf(key, { lines, events: await Promise.all(mine.map((e) => withReply(e))), owner, working: await readWorking(here), delivered: await readDelivered(here), actedAt: routeRecord(await readActedOn(here), key) || '', listening: !boardAt(here) || (listenState(boardAt(here)) === 'listening' && sessionBusy(boardAt(here))), clearedAt, noReply: item?.no_reply || {}, fromAsk: askId,
       links: own ? await askLinksOf(askId) : [], agents, moved, cards: new Map((await sharedBoard()).items.map((i) => [i.key, { ref: i.ref }])) });
   }
 

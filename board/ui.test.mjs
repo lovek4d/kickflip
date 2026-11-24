@@ -822,6 +822,23 @@ test("every sender's message is its name alone, the body, then a footer with its
   assert.doesNotMatch(draw({ who: 'claude' }), /Orchestrator ·/);
 });
 
+// docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md
+test("a Slack message reads waiting or thinking until its reply, which shows in the thread labelled Slack and who it answered", () => {
+  const at = ago(2);
+  const slack = { ts: at, who: 'love', via: 'slack', by: 'Pete', link: 'https://acme.slack.com/x', eventId: 'e2', kind: 'item-message', text: 'can you look at PR 7' };
+  assert.match(ui.threadMessages([{ ...slack, state: 'waiting' }]), /<span>waiting…<\/span>/);
+  assert.match(ui.threadMessages([{ ...slack, state: 'working', since: at }]), /thinking/);
+  const replied = ui.threadMessages([{ ...slack, state: 'replied', reply: { at: ago(1), md: 'Posted the review.' } }]);
+  const reply = replied.slice(replied.indexOf('reply-msg'));
+  assert.match(reply, /<div class="who">Orchestrator<\/div>/);
+  assert.match(reply, /<span>·<\/span><span>Slack<\/span><span>·<\/span><span>to Pete<\/span><\/div>/);
+  // The owner's own Slack message's reply reads Slack alone; a board message's reply carries no label.
+  const own = ui.threadMessages([{ ...slack, by: undefined, state: 'replied', reply: { at: ago(1), md: 'Done.' } }]);
+  assert.match(own.slice(own.indexOf('reply-msg')), /<span>Slack<\/span><\/div>/);
+  const board = ui.threadMessages([{ ...slack, via: 'site', by: undefined, state: 'replied', reply: { at: ago(1), md: 'Done.' } }]);
+  assert.doesNotMatch(board.slice(board.indexOf('reply-msg')), /Slack/);
+});
+
 test('a time reads the time only today and the date and time on another day', () => {
   const now = new Date(2026, 10, 14, 15, 0);
   assert.equal(ui.time(new Date(2026, 10, 14, 14, 28).toISOString(), now), '2:28 pm');

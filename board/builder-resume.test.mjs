@@ -127,6 +127,20 @@ test('an owner message on a building card is no news; builder resume --quote rel
   assert.doesNotMatch((await onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--risk', 'low', '--text', 'Checked')).err, /waits on the orchestrator/);
 });
 
+// docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md
+test("the owner's own Slack message on a building card holds builder done until relayed, as their board message does; a teammate's holds nothing", async () => {
+  building();
+  const slackSays = (id, text, by) => fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id, ts: new Date().toISOString(), kind: 'item-message', data: { key: 'w/A1', text, slack: { link: 'https://acme.slack.com/x', ...(by ? { by } : {}) } } }) + '\n');
+  slackSays('s1', 'looks good, ship it', 'Sam');
+  const done = () => onOrch('builder', 'done', 'w/A1', '--summary', 'Built it.', '--risk', 'low', '--text', 'Checked');
+  assert.doesNotMatch((await done()).err, /waits on the orchestrator/, "a teammate's");
+  building();
+  slackSays('s2', 'Stop at the API');
+  assert.match((await done()).err, /owner message since your build started waits on the orchestrator/, "the owner's own");
+  assert.equal((await onOrch('builder', 'resume', 'w/A1', '--quote', 's2', '--text', 'Drop the sheet work')).code, 0);
+  assert.doesNotMatch((await done()).err, /waits on the orchestrator/);
+});
+
 test('builder resume --quote refuses an id that is not an owner message on the card', async () => {
   building();
   const r = await onOrch('builder', 'resume', 'w/A1', '--quote', 'nope');

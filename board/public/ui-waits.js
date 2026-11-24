@@ -7,7 +7,7 @@
   // Each wait kind (domain.mjs orchestratorWaitsOf and the waits beside it) in plain words, as the step the orchestrator owes.
   const WAIT_WORDS = Object.freeze({
     intake: 'sort the new task', screen: "screen the grill's questions", ask: 'answer the ask', staging: 'look over the staged task',
-    answer: "act on the owner's answer", investigate: 'investigate the task', reply: "act on the owner's reply", brief: 'write the planner brief',
+    answer: "act on the owner's answer", investigate: 'investigate the task', reply: "act on the owner's reply", slack: 'reply in Slack', brief: 'write the planner brief',
     stale: 'find out why it stalled', calls: "verify the builder's calls", checking: 'land the checked build', grill: 'start the grill',
     prototype: 'draw the prototype', unasked: "post the planner's question", visual: "place the visual's page",
     refused: 'sort out the refused build', unowned: 'set what happens next', unblocked: 'act on the ended block', script: 'read the script result', triage: 'run the overnight triage',

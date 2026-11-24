@@ -550,7 +550,7 @@ export async function readThread(site, key) {
   const events = (await shownEvents(site)).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))
     || (e.kind === 'owner-answer' && asked.has(e.data?.id)) || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
   const lines = (await Promise.all([...keys].map((k) => readLog(threadFile(site, k))))).flat();
-  const thread = threadOf(key, { lines, events: await Promise.all(events.map((e) => withReply(site, e))), owner, fromAsk: item.from_ask || null, moved });
+  const thread = threadOf(key, { lines, events: await Promise.all(events.map((e) => withReply(site, e))), owner, noReply: item.no_reply || {}, fromAsk: item.from_ask || null, moved });
   // Reading the owner's words here hands them over, as inbox read does: a line written after this read answers them.
   await markDelivered(site, thread.filter((m) => m.who === 'love' && m.eventId).map((m) => m.eventId));
   const replyText = (r) => String(r.md ?? r.html ?? JSON.stringify(r.json) ?? '').trim();

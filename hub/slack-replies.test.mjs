@@ -135,6 +135,26 @@ test('a reply by task key is refused while a message is unanswered, listing each
   await assert.rejects(store.answerCard(site, 'items/T-1', 'On it.'), /ea \(Slack · Bob\)/);
 });
 
+// docs/adr/2026-11-24-2300-every-slack-message-on-a-task-waits-on-a-reply.md
+test('a Slack message stays unanswered after any thread line, until its reply or a no-reply mark, which posts nothing', async () => {
+  const { world, asked, post } = filed();
+  addEvent({ id: 'es', ts: '2026-11-15T10:00:00Z', kind: 'item-message', data: { key: 'items/T-1', text: 'thanks!', slack: { by: 'Bob', link: 'https://acme.slack.com/x' } } });
+  addEvent({ id: 'eb', ts: '2026-11-15T10:05:00Z', kind: 'item-message', data: { key: 'items/T-1', text: 'Hold off' } });
+  await appendMessage(site, 'items/T-1', { text: 'Posted the review on the PR.' });
+  await assert.rejects(store.answerCard(site, 'items/T-1', 'On it.'), (e) => /ea \(Slack · Bob\), es \(Slack · Bob\)$/.test(e.message), "a thread line answers the owner's board message alone");
+  await assert.rejects(store.markNoReply(site, 'eb'), /did not come from Slack: answer it with reply eb --text/);
+  await writeReply(site, 'ea', 'Posted: https://github.com/o/r/pull/7#pullrequestreview-1');
+  await assert.rejects(store.markNoReply(site, 'ea'), /already has a reply/);
+  assert.deepEqual((await store.markNoReply(site, 'es')).key, 'items/T-1');
+  assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'items.json'), 'utf8')).items[0].no_reply.es));
+  await store.answerCard(site, 'items/T-1', 'Done here.');
+  await post();
+  assert.deepEqual(inThread(world, asked), ['Posted: https://github.com/o/r/pull/7#pullrequestreview-1\n- :robot_face:'], 'the no-reply mark posts nothing');
+  setItem({ lane: 'done', phase: 'closed' });
+  addEvent({ id: 'el', ts: '2026-11-15T11:00:00Z', kind: 'item-message', data: { key: 'items/T-1', text: 'great', slack: { by: 'Bob', link: 'https://acme.slack.com/y' } } });
+  await assert.rejects(store.markNoReply(site, 'el'), /is Done, so its Slack messages owe nothing/);
+});
+
 // docs/adr/2026-11-22-0100-a-slack-filed-task-tells-its-thread-when-it-waits-on-the-owner.md
 const ask = (question) => write(path.join(site, 'data', 'owner.json'), { items: [{ id: 'q1', topic: 'item:items/T-1', question }] });
 const answer = () => write(path.join(site, 'data', 'owner.json'), { items: [{ id: 'q1', topic: 'item:items/T-1', question: 'x', resolved: 'Done.', resolved_at: '2026-11-15T11:00:00Z' }] });
