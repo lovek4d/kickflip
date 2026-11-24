@@ -9557,7 +9557,7 @@ const asking = (n) => workCard('T1', { actionButton: 'openQuestions', resolvedBy
 const marks = (v) => {
   const card = v.root.querySelector('details.item[data-key="w/T1"]');
   const chip = v.root.querySelector('.pane-chip[data-pane-show="questions"] b')?.textContent;
-  return [card.querySelector('.card-open-items') !== null, card.querySelector('button[data-questions]')?.getAttribute('class').split(' ').includes('resolves'), chip];
+  return [card.querySelector('.card-open-items') !== null, card.querySelector('.action-row button[data-questions]')?.getAttribute('class').split(' ').includes('resolves'), chip];
 };
 
 test("sending answers to every open question of a card clears its Open items and its Questions button's orange at once, before the board replies, and counts it out of the questions chip", async () => {

@@ -262,6 +262,7 @@ BoardView.part((B) => {
     finish: (it, ref) => (it.ownerStep ? `Done with "${it.ownerStep}"? ${ref} moves to Done and its ticket closes.`
       : it.release ? `Done ${ref}? Release ${it.release.version} reads ${it.release.state}; ${ref} moves to Done and its ticket closes.`
       : `Done ${ref}? It moves to Done and Claude stops work on it.${openPRs(it).length ? ` Its PR${openPRs(it).length > 1 ? 's stay' : ' stays'} open on GitHub.` : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
+    implement: (it, ref) => `Implement ${ref}? Claude takes it from here and stages it for the orchestrator's review.`,
     // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
     reopen: (it, ref) => `Reopen ${ref}? It moves back to Todo, discussing, for you to talk it through again.`,
   };
@@ -626,7 +627,7 @@ BoardView.part((B) => {
     // The card stays where it is, open or closed, its button busy, until the board moves it
     // (docs/adr/2026-11-17-1335-a-sending-card-button-spins-and-the-lane-waits-for-the-board.md).
     // Merge: docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md.
-    B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done' }, reopen: { kind: 'card-reopen' }, cancel: { kind: 'card-cancel' }, merge: { kind: 'card-merge' } }[act]);
+    B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done' }, implement: { intent: 'build' }, reopen: { kind: 'card-reopen' }, cancel: { kind: 'card-cancel' }, merge: { kind: 'card-merge' } }[act]);
   }
 
   function cardOf(key) { return state.board.items.find((i) => i.key === key); }

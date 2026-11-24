@@ -1933,7 +1933,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), ownerBlock: { until: null }, sortAt,
     action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } };
   assert.deepEqual(lines(workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', `${ui.cardTime(sortAt)} · blocked · blocked by INT-2`, 'Open items · 1 new message']);
-  assert.match(workLines(waiting), /<div class="ask-actions"><button type="button" class="ghost icon card-more bumped" data-card-menu="w\/B5" aria-haspopup="menu" aria-expanded="false" aria-label="More" title="Bumped · More">/);
+  assert.match(workLines(waiting), /<button type="button" class="ghost icon card-more bumped" data-card-menu="w\/B5" aria-haspopup="menu" aria-expanded="false" aria-label="More" title="Bumped · More">/);
   assert.doesNotMatch(workLines(waiting), /disabled|data-confirm="bump"|data-card-bump/);
   assert.match(workLines({ ...waiting, bumpedAt: null }), /<button type="button" class="ghost icon card-more" data-card-menu="w\/B5" aria-haspopup="menu" aria-expanded="false" aria-label="More" title="More">/);
   // The card an ask became, once sorted, reads as any task: Task where its ticket would be, and no asked line.
@@ -2977,6 +2977,26 @@ test("a card waiting on its owner step reads the step as its orange Next, with D
   assert.doesNotMatch(workLines({ ...waiting, ownerStep: null }), /owner-done/);
   // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: every card has its "…", beside the check.
   assert.match(workLines(waiting), /<div class="ask-actions"><button type="button" class="ghost icon owner-done"[^]*?<\/button><button type="button" class="ghost icon card-more" data-card-menu="w\/B5"/);
+});
+
+// docs/adr/2026-11-24-2330-a-cards-top-right-offers-the-owners-next-in-one-tap.md
+test("a card's top right holds one bare glyph for the owner's next: ? for open questions, else Implement on an offered task, else Done's check", () => {
+  const slot = (it) => (workLines(it).match(/<div class="ask-actions">(<button[^]*?<\/button>)<button type="button" class="ghost icon card-more"/) || [])[1] || '';
+  const step = 'Add the npm trusted publisher';
+  const done = { ...workCard, lane: 'review', ownerStep: step, awaitsDone: true, bumpable: false };
+  const offered = { ...workCard, lane: 'todo', action: { kind: 'implement', url: '#', label: 'Tap Implement' } };
+  const open = { questions: { open: 2, answered: 0, replied: 0, first: 'q1' } };
+  assert.match(slot(done), /class="ghost icon owner-done" data-confirm="finish"/);
+  assert.match(slot(offered), /^<button type="button" class="ghost icon owner-done" data-confirm="implement" data-key="w\/B5" aria-label="Implement" title="Implement"/);
+  assert.match(slot({ ...offered, ...open }), /^<button type="button" class="ghost icon owner-done" data-questions="q1" aria-label="Questions" title="Questions"><svg/);
+  // Questions replace whatever else the card's next is: one glyph, no count, no circle.
+  assert.equal((slot({ ...done, ...open }).match(/<button/g) || []).length, 1);
+  assert.match(slot({ ...done, ...open }), /data-questions="q1"/);
+  assert.doesNotMatch(slot({ ...offered, ...open }), /circle|badge|pip/);
+  // A Todo card with no offer open (new, discussing, grilling, staged or ready) shows no glyph; nor does a task with no owner step.
+  assert.equal(slot({ ...offered, action: null }), '');
+  assert.equal(slot({ ...offered, action: null, ready: true }), '');
+  assert.equal(slot({ ...workCard, lane: 'progress' }), '');
 });
 
 // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
