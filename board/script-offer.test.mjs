@@ -47,14 +47,16 @@ test('a script offer is a message with its full script, its hash, and the host a
 // Starts a board whose script run runEnded() waits out: the runner's exit, then the board reading the result it wrote.
 async function startRunning(t, site) {
   let exited;
+  const started = [];
   const startScript = (...args) => {
+    started.push(args);
     const child = startScriptRunner(...args);
     exited = new Promise((resolve) => child.on('exit', resolve));
     return child;
   };
   const board = await startBoard(t, { site, startScript });
   const runEnded = async () => { await exited; board.changed('data/events.jsonl'); await board.settled(); };
-  return { ...board, runEnded };
+  return { ...board, runEnded, started };
 }
 
 test('a waiting script is Action needed on its card and pushes at once; Run is the owner\'s, checked against the script\'s hash, runs once, and posts its result back', async (t) => {
@@ -151,9 +153,9 @@ test('a Run whose stored text no longer hashes to the approved sha is refused an
 test('the runner is given the approved bytes over stdin, whatever the thread holds afterward', async (t) => {
   const w = world('stdin');
   const s = await w.offer('echo "é approved"\n');
-  const started = [];
-  const { base } = await startBoard(t, { site: w.site, startScript: (...args) => { started.push(args); return startScriptRunner(...args); } });
+  const { base, started, runEnded } = await startRunning(t, w.site);
   assert.equal((await send(base, 'script-run', { key: 't/A1', id: s.id, sha: s.sha })).status, 200);
+  await runEnded();
   assert.equal(started[0][4], s.body);
   assert.equal(scriptSha(started[0][4]), s.sha);
 });

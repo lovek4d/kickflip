@@ -10,7 +10,19 @@ import path from 'node:path';
 // (board/worktree.mjs nodeTests; docs/adr/2026-11-22-2345-a-closed-tasks-worktree-goes-and-the-hub-sweeps-what-is-left.md).
 // board/temp-dirs.test.mjs fails a test source that makes a temp dir any other way.
 const made = [];
-const removeMade = () => { for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 }); };
+// A dir that will not go is named with what is left in it, and the process exits 1.
+const removeMade = () => {
+  for (const dir of made.splice(0)) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch (error) {
+      let left;
+      try { left = fs.readdirSync(dir, { recursive: true }).join(', '); } catch (listError) { left = listError.message; }
+      console.error(`temp dir ${dir} would not go (${error.code}); left in it: ${left}`);
+      process.exitCode = 1;
+    }
+  }
+};
 process.on('exit', removeMade);
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.once(signal, () => {
