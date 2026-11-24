@@ -287,6 +287,17 @@ test("on a board that skips the draft, the poll marks a card's draft ready once 
   assert.deepEqual(skips.thread('k/A3'), []);
 });
 
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md
+test("on a board that skips the draft, a blocked card's green draft stays a draft until nothing blocks it", async () => {
+  const blocks = fileBoard('blocks', { slug: 'q', skip_draft: true }, [{ id: 'C1', pr: 90, held: true }, { id: 'C2', pr: 91, deps: ['C3'] }, { id: 'C3' }, { id: 'C4', pr: 92, blocked_until: 'the API ships' }]);
+  const success = { __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' };
+  for (const pr of [90, 91, 92]) writePR(home, pr, prView({ isDraft: true, statusCheckRollup: [success] }));
+  const readied = () => calls(home).filter((a) => a[0] === 'pr' && a[1] === 'ready' && ['90', '91', '92'].includes(a[2]));
+  assert.deepEqual((await blocks.poll()).failed, []);
+  assert.deepEqual(readied(), []);
+  for (const id of ['C1', 'C2', 'C4']) assert.deepEqual(blocks.thread(`q/${id}`), [], id);
+});
+
 // docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md
 test("on a board with auto-merge on, the poll merges an approved, green, clean PR itself, and leaves commits after the approval to the session", async () => {
   const auto = fileBoard('auto', { slug: 'a', auto_merge: true }, [{ id: 'A1', pr: 90 }, { id: 'A2', pr: 91 }, { id: 'A3', pr: 92 }, { id: 'A4', pr: 93 }]);
@@ -629,8 +640,9 @@ test("the poll links an open same-repo PR whose head is a card's branch, once, a
   assert.deepEqual(first.failed, []);
   const items = board.wave().items;
   assert.deepEqual(items.map((i) => storedPRs(i).map((p) => p.number)), [[12], [13], [70], [], [], []]);
-  // A linked PR is a handover: each card moves to In Review, and a held one leaves its hold.
-  assert.deepEqual(items.slice(0, 2).map((i) => [i.lane, i.held]), [['review', undefined], ['review', undefined]]);
+  // A linked PR is a handover: each card moves to In Review, and a held one keeps its hold
+  // (docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md).
+  assert.deepEqual(items.slice(0, 2).map((i) => [i.lane, i.held]), [['review', undefined], ['review', true]]);
   assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Moved to In Review: PR #12 opened', 'Found PR #12 on branch me/hand/h1.']);
   assert.deepEqual(board.thread('h/H5'), []);
   assert.deepEqual(board.events().map((e) => e.data.prs), [[

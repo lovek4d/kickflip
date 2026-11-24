@@ -21,7 +21,8 @@ import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { overnightOn } from './overnight.mjs';
 import { githubStateFile, wakeStateFile, wavesDir, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
-import { appendMessage, appendStatus, setItem, mergeCard } from '../board/cards.mjs';
+import { appendMessage, appendStatus, setItem, mergeCard, shownCard } from '../board/cards.mjs';
+import { blockWordsOf } from '../board/domain.mjs';
 import { boardBranch } from '../board/worktree.mjs';
 import { followPRs } from '../board/tickets.mjs';
 import { storedTickets } from '../board/settings.mjs';
@@ -298,9 +299,11 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
 
 // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md: on a board that skips the draft, a card's draft PR is marked
 // ready for review once its CI passes, once a check however many cards show it, with a line on the card. The next
-// check reads it out of draft, which wakes the session with a draft change.
+// check reads it out of draft, which wakes the session with a draft change. A blocked card's draft stays a draft until
+// nothing blocks it (docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md).
 async function readyGreenDraft(board, { p, key }, view, readied, failed) {
   if (readied.has(key) || view?.state !== 'OPEN' || !view.isDraft || !checksPassed(view.statusCheckRollup)) return;
+  if (blockWordsOf(await shownCard(board.dir, `${p.file}/${p.id}`))) return;
   readied.add(key);
   const entry = { call: 'ready-draft', key: `${p.file}/${p.id}`, reason: `The board skips the draft and PR #${p.pr}'s CI passed.`, inputs: { repo: p.repo, pr: p.pr, isDraft: view.isDraft, checks: 'passed' } };
   try { await markReady({ repo: p.repo, pr: p.pr }); }

@@ -197,6 +197,24 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   assert.equal(fs.existsSync(worktree()), true);
 });
 
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md
+test('on a GitHub board, a block holds the PR: builder done opens none while the card is blocked', async () => {
+  const ghDir = path.join(home, 'gh');
+  const origin = remoteBoard(() => ({ github: 'owner/project' }));
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  launched('orch', 'w/A1');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
+  assert.equal((await b('item', 'set', 'w/A1', '--blocked-until', 'the API ships')).code, 0);
+  const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--title', 'feat(board): the work');
+  assert.equal(r.code, 1);
+  assert.match(r.err, /A1 is blocked until the API ships, so its PR waits; it opens once nothing blocks it/);
+  assert.equal(calls(ghDir).some((a) => a[0] === 'pr' && a[1] === 'create'), false);
+  assert.equal(git(origin, 'branch', '--list', 'me/orch/a1'), '');
+  assert.equal(itemOf().prs, undefined);
+});
+
 // docs/adr/2026-11-21-2333-a-task-can-keep-its-own-pr-base.md
 test("a task's own base (item set --base) is where its builder branches from on origin and what its draft PR targets; --base \"\" clears it", async () => {
   const ghDir = path.join(home, 'gh');

@@ -998,9 +998,10 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   }
   assert.equal(card({ pr: { ...clean, mergeStateStatus: 'BLOCKED' } }).items[0].next, 'Approved, Merge shows once CI and the merge state allow');
   assert.equal(card({ item: { held: true, pr: undefined } }).items[0].action, null);
-  // docs: a card that left Todo never reads blocked by its owner, whatever old data says.
-  const leftTodo = card({ item: { held: true, pick_up_at: '2026-11-05T17:00:00.000Z' } }).items[0];
-  assert.deepEqual([leftTodo.lane, leftTodo.ownerBlock], ['review', null]);
+  // docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md: In Review the
+  // owner's block still reads, and holds the Merge.
+  const inReview = card({ item: { held: true, pick_up_at: '2026-11-05T17:00:00.000Z' } }).items[0];
+  assert.deepEqual([inReview.lane, inReview.ownerBlock, inReview.blocked, inReview.action?.kind === 'merge'], ['review', { until: '2026-11-05T17:00:00.000Z' }, true, false]);
   const doneHeld = card({ item: { held: true, lane: 'done', pr: undefined } }).items[0];
   assert.deepEqual([doneHeld.lane, doneHeld.ownerBlock], ['done', null]);
   assert.equal(card({ item: { manual_steps: ['Run the backfill'] } }).items[0].action.kind, 'steps');

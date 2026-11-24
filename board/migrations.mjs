@@ -13,6 +13,7 @@ import { BoardError } from './checks.mjs';
 import { archiveWrite, depKey, leftTodo, placeIn, loadItem, ownerFile, parseKey, readArchive, threadFile, ticketWrite, writeArchive } from './cards.mjs';
 import { cardOfTopic, owesImplement, resolveQuestion, splitSharedNotes, stagedFile, topicQuestionsAll } from './questions.mjs';
 import { builderFiles } from './runs.mjs';
+import { builtCards } from './snapshot.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { migrateBoardRepos, migrateHubBoard } from '../hub/board-repo.mjs';
 
@@ -317,6 +318,29 @@ export const restageRechecks = (site) => ticketWrite(site, async () => {
   return lines;
 });
 
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md
+// A ready Todo card that a block holds goes back to staging from now, as a block added to a ready card now sends it:
+// its staging wait opens once the block ends. Run by the board server as it starts. → one line per item file changed.
+export const stageBlockedReady = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  const cards = await builtCards(site);
+  const at = new Date().toISOString();
+  for (const entry of await itemSources(site)) {
+    const itemFile = await readJSON(entry.file, null);
+    const ready = (Array.isArray(itemFile?.items) ? itemFile.items : [])
+      .filter((it) => it.phase === 'ready' && !leftTodo(it) && cards.get(`${entry.slug}/${it.id}`)?.blocked);
+    if (!ready.length) continue;
+    for (const it of ready) {
+      Object.assign(it, { phase: 'staging', staged_at: at });
+      delete it.ready_at;
+      delete it.ready_main;
+    }
+    await writeJSON(entry.file, itemFile);
+    lines.push(`${entry.slug}: ${ready.length} blocked ready ${ready.length === 1 ? 'task' : 'tasks'} moved to staging`);
+  }
+  return lines;
+});
+
 // docs/adr/2026-11-04-1056-archived-done-cards-are-built-as-they-page-in.md
 // Drops what nothing reads, once: an archive entry's page card, keeping its sortAt as closed_at; an item file entry's summary and an item file's internal flag;
 // and a question's push_tag and no_change, in owner.json and in the archive. It also renames a question's
@@ -450,6 +474,7 @@ export const MIGRATIONS = [
   { id: 'discussing', scope: 'board', run: ({ site }) => discussNewCards(site) },
   { id: 'staging', scope: 'board', run: ({ site }) => stageImplementAsks(site) },
   { id: 'recheck-staging', scope: 'board', run: ({ site }) => restageRechecks(site) },
+  { id: 'blocked-ready-staging', scope: 'board', run: ({ site }) => stageBlockedReady(site) },
   { id: 'split-notes', scope: 'board', run: ({ site, archived }) => splitSharedNotes(site, archived) },
   { id: 'no-next-gate', scope: 'board', run: ({ site }) => dropNextGates(site) },
   { id: 'return-helper-cards', scope: 'board', run: ({ site }) => returnHelperCards(site) },

@@ -17,3 +17,5 @@ It supersedes "Wakes are untouched" in [a block past Todo bumps a build and hold
 - A hold's pick-up time marks no `unblocked_at`; holds are #432's.
 
 Amended by [a block only keeps a card from In Progress](2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md): an unblock in Todo of a ready card is a re-check wait, not record-only.
+
+Amended by [a block holds every transition, and its end moves the card or opens a wait](2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md): the unblocked wait also covers a build whose builder is stopped or silent, every way a block ends records it, and a blocker closed without landing makes it ask whether the task still applies, in any lane.

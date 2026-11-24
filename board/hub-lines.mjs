@@ -65,9 +65,12 @@ export const HUB_LINES = {
   // written before still render.
   'ready-expired': { tone: 'grey', mark: MOVE, text: () => 'Ready expired after a day unpulled: re-checking against what landed since' },
   'hold-ended': { tone: 'orange', mark: RESUMED, text: ({ at }) => `Unblocked: its block until ${at} ended.`, longest: { at: AT } },
+  // No longer written: a blocked card is never ready, so none stays ready at its block's end. It stays so threads
+  // written before still render.
   'recheck-released': { tone: 'grey', mark: RESUMED, text: ({ card }) => fit('Stays ready: ', card, " touched none of this task's files") },
   unblocked: { tone: 'orange', mark: RESUMED, text: ({ lifted }) => fit('Unblocked: ', lifted, '.') },
   'unblocked-done': { tone: 'orange', mark: RESUMED, text: ({ card }) => fit('Unblocked: ', card, ' is done.') },
+  'unblocked-closed': { tone: 'orange', mark: RESUMED, text: ({ card }) => fit('Unblocked: ', card, ' closed without landing.') },
   // Blocks.
   'blocked-pausing': { tone: 'grey', mark: BLOCKED, text: ({ blocked }) => fit('Blocked ', blocked, ': its builder pauses at its next stopping point and it stays In Progress.') },
   'blocked-stays': { tone: 'grey', mark: BLOCKED, text: ({ blocked }) => fit('Blocked ', blocked, ': it stays In Progress.') },

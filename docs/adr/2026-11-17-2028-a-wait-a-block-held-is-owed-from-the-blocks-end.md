@@ -27,3 +27,5 @@ block's end (t651-since); and, asked what `recheck_at` meant, "Can't that just a
 
 It amends [a block only keeps a card from In Progress](2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md)
 and supersedes the staging-only void of the 1930 decision.
+
+Amended by [a block holds every transition, and its end moves the card or opens a wait](2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md): a ready card can no longer be blocked, so its block's end sends nothing to staging, and the staging wait drops while its card is blocked like limbo and unblocked.

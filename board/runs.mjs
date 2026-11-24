@@ -39,7 +39,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
 import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, launchLives, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, sessionIdOf, stopRuns } from './headless.mjs';
-import { beside, besideAgent, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, fixesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
+import { beside, besideAgent, blockWordsOf, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, fixesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
 import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree, removeClosedWorktree } from './worktree.mjs';
 import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
 import { readClaudeModel } from '../shared/hub-settings.mjs';
@@ -652,7 +652,7 @@ export async function tick(site, built, io, { resumes = [], helpers = [] } = {})
   const stopped = stoppedKeys(built);
   const bump = bumpIn(built);
   const held = (key) => heldNow(site, pass, 'claude', Boolean(bump(key)));
-  const reruns = built.filter((i) => i.kind === 'work' && i.lane === 'progress' && i.agents?.some((a) => a.name === 'main' && a.rerun)).map((i) => i.key);
+  const reruns = built.filter((i) => i.kind === 'work' && i.lane === 'progress' && !i.blocked && i.agents?.some((a) => a.name === 'main' && a.rerun)).map((i) => i.key);
   const passes = [
     () => launchQueuedPlanners(site, built, io, pass),
     () => launchBriefs(site, built, io, pass),
@@ -756,7 +756,8 @@ async function reviveHeadless(site, built, io) {
       await markPaused(site, card.key);
       io.stale();
     };
-    const paused = new Set(items.filter((c) => c.builder?.pause?.paused).map((c) => c.key));
+    // A paused build, or one a block holds, waits as it is: its block's end relaunches it.
+    const paused = new Set(items.filter((c) => c.builder?.pause?.paused || c.blocked).map((c) => c.key));
     const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind, bumped) => heldFor(readUsageGate({ dir: site }), kind, bumped), stopped: stoppedKeys(items), paused,
       limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit, bumpOf: bumpIn(items) });
     if (JSON.stringify(next) !== JSON.stringify(tracked)) await writeJSON(file, next, { from: tracked });
@@ -777,7 +778,7 @@ async function launchCutOffBuilds(site, io) {
 }
 
 // docs/adr/2026-11-18-2000-builder-start-takes-up-a-launch.md
-// A card In Progress with nothing building it (stuckBuilds) and no task blocking it gets its builder launched in
+// A card In Progress with nothing building it (stuckBuilds) and nothing blocking it gets its builder launched in
 // place, at boot and each minute: fresh, in the worktree its last build kept (startBuilder's ownWorktree), staying In
 // Progress on its slot, with a thread line. A card moved in or whose run ended within the last STUCK_GRACE_MS may be a
 // start or a finish still under way, so only boot, which has none, takes it at once. Bumped cards restart first, and a
@@ -788,7 +789,7 @@ async function restartStuckBuilds(site, built, io, grace) {
   if (heldFor(gate, 'claude', true)) return;
   const items = await built();
   const bump = bumpIn(items);
-  const blocked = new Set(items.filter((c) => c.blockedBy?.length).map((c) => c.key));
+  const blocked = new Set(items.filter((c) => c.blocked).map((c) => c.key));
   const stuck = (await stuckBuilds(site, new Date(Date.now() - grace).toISOString())).filter((k) => !blocked.has(k));
   for (const key of byBump(stuck, bump)) {
     if (heldFor(gate, 'claude', Boolean(bump(key)))) return;
@@ -964,6 +965,11 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const takeUp = before?.dispatched && !before.done ? before : null;
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   const marking = build && !dir && !(await shownCard(site, key)).finished && was.lane !== 'progress';
+  // docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md: a block holds
+  // a build's restart on a card already In Progress, as setItem's start holds its first. The lander, rebase and fix
+  // runs are held where they launch.
+  const restartBlocked = build && agent === 'main' && site && !dir && !marking && (label ?? 'Builder') === 'Builder' && blockWordsOf(await shownCard(site, key));
+  if (restartBlocked) fail(`${key} is blocked ${restartBlocked}; its build starts again once nothing blocks it`);
   // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a card goes into In Progress titled as its PR will be.
   const untitled = marking && startTitleFault(key, was.title);
   if (untitled) fail(untitled, startTitleBrief(was.title));
@@ -1073,7 +1079,8 @@ async function keepPastRun(file, before) {
 export async function startTappedBuild(site, key, worktree, dispatch = 'tap', { full = false } = {}) {
   try {
     const { held, blockers } = await tapRefusals(site, key);
-    if (held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
+    // The owner's Implement lifts their own block to start the build it held, so no block-ended step follows.
+    if (held) await recordOwnerTap(site, 'card-hold', { key, hold: false }, { blockEnds: false });
     if (blockers.length) return await bumpBlocked(site, key, blockers);
     if (full) return await bumpBlocked(site, key, ['a free implementer slot']);
     try {
@@ -1305,6 +1312,9 @@ export async function builderResume(site, key, said) {
     await appendStatus(site, key, 'builder-told', { text: words });
     return { running: true };
   }
+  // A block holds the resume of a build that isn't running; its end opens the unblocked wait that asks for it.
+  const blocked = blockWordsOf(await shownCard(site, key));
+  if (blocked) fail(`${name} is blocked ${blocked}; resume its build once nothing blocks it`);
   if (providerOf(record.kind ?? 'claude') !== 'claude' || !sessionIdOf(record.session)) fail(`${name}'s build has no Claude session the board launched to resume; start a new build instead`);
   if (record.rerun) fail(`${name} already waits on the board to resume its builder`);
   await passNews(site, key, { from: 'orchestrator', text: words });

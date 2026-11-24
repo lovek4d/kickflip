@@ -97,8 +97,6 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   const queue = { site, key, first: await landFirst(site, key) };
   const report = await testReport(site, key, { phase: 'landing' });
   const testWaits = waitLines(site, key, 'test-waiting');
-  // The files its diff changes, which the cards it unblocks compare with the files their notes name.
-  const landedFiles = git(tree.repo, 'diff', '--name-only', '--no-renames', `${base}...${tree.branch}`).out.split('\n').filter(Boolean);
   let landed;
   try {
     landed = await landInTurn({ ...tree, ref, site }, { hold: !go, onWait, onTurn, onTestWait: testWaits.onWait, onTestTurn: testWaits.over, queue, report, found: (words) => recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
@@ -120,7 +118,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   // On a board that pushes main with Run release script off, the tag waits for the owner, which the card reads as untagged.
   const permissions = landed.release ? await readPermissions(repo, site) : null;
   const release = landed.release ? { version: landed.release.version, pkg: landed.release.pkg, untagged: permissions.pushMain && !permissions.runRelease } : undefined;
-  const closed = await setItem(site, key, { done: true, landed: landed.commit, landedFiles, release, ...(closing ? { closing } : { text }), ownerStep, check });
+  const closed = await setItem(site, key, { done: true, landed: landed.commit, release, ...(closing ? { closing } : { text }), ownerStep, check });
   return {
     said: release ? `landed; waits until release ${release.version} is published`
       : ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
@@ -206,6 +204,10 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   const recorded = github ? await cardPR(site, key) : null;
   const found = github && !recorded ? openPROf(github, branch, dir) : null;
   const open = recorded ?? found;
+  // docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md: a block holds
+  // the PR's opening, or a plain remote's push for its merge; a push to an open PR (a rebase or fix run's) goes on.
+  const blocked = !open && blockWordsOf(await shownCard(site, key));
+  if (blocked) fail(`${await cardName(site, key)} is blocked ${blocked}, so its PR waits; it opens once nothing blocks it`);
   // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: a new PR's title is a
   // Conventional subject, the builder's --title, else the card's title
   // (docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md).

@@ -16,3 +16,5 @@ releases on any blocker. The notes then are the only place a task can say what i
 names a real path.
 
 Amended by [a wait a block held is owed from the block's end](2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md): a ready card whose blocker touched a noted file goes back to staging, and one that touched none stays ready.
+
+Superseded by [a block holds every transition, and its end moves the card or opens a wait](2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md): a blocked card is never ready, so none stays ready at its block's end.

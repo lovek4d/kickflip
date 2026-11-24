@@ -318,11 +318,12 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   if (idle) lane = 'review';
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
   // docs/adr/2026-11-15-2230-the-owners-hold-is-a-block.md: the owner's block, stored as the item's held and pick_up_at
-  // or the newer card-hold tap, {until}, until null for one with no time. A Todo card reads it, and so does an In
-  // Progress one, whose build it pauses until the owner's Unblock
-  // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md); old data can't show one in
-  // In Review or Done.
-  const owned = (lane === 'todo' || lane === 'progress') && (tapped ? Boolean(holdAsk.data.hold) : Boolean(it.held));
+  // or the newer card-hold tap, {until}, until null for one with no time. Every open card reads it: In Progress it
+  // pauses the build until the owner's Unblock
+  // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md), and In Review it holds the
+  // PR, the Merge and the land
+  // (docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md).
+  const owned = lane !== 'done' && (tapped ? Boolean(holdAsk.data.hold) : Boolean(it.held));
   // docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
   const ownerBlock = owned ? { until: (tapped ? holdAsk.data.until : it.pick_up_at) || null } : null;
   // docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md
@@ -467,7 +468,7 @@ function waitFactsOf(it, { agents, thread, events, scriptEvents, said, refusedAt
     unasked: thread.filter((m) => m.line === 'planner-unasked').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((m) => ({ at: m.ts, kind: m.detail })).pop() || null,
     unplaced: thread.filter((m) => m.line === 'visual-unplaced').map((m) => m.ts).sort().pop() || null,
     pages: thread.filter((m) => m.kind === VISUAL).map((m) => m.ts),
-    grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, unblockedAt: it.unblocked_at || null,
+    grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, unblockedAt: it.unblocked_at || null, unblockCheck: it.unblock_check || null,
     ownerWord: closed === null ? null : ownerWordOf(said, thread, events, closed),
     // When the newest script run ended or was declined: the orchestrator owes its next line on it.
     scriptAt: scriptEvents.filter((e) => e.kind !== SCRIPT_EVENTS.run).map((e) => String(e.ts)).sort().pop() || null,
@@ -648,14 +649,16 @@ export function footerOf(it) {
   if (pause) footer.push({ kind: 'pause', paused: Boolean(pause.paused), words: `${pause.paused ? 'paused' : 'pausing'} · ${pause.words}` });
   return footer;
 }
-// What blocks built card it as words after "blocked": "by #53, #54 and until <condition>", or '' when nothing does. The
-// CLI's refusals (store.mjs) and the card's Merge read them.
-export const blockWordsOf = (it) => [it.blockedBy?.length && `by ${it.blockedBy.map((d) => d.ref).join(', ')}`, it.blockedUntil && `until ${it.blockedUntil}`].filter(Boolean).join(' and ');
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md
+// The one block check: what blocks built card it as words after "blocked": "by the owner", "by #53, #54" and "until
+// <condition>", joined with "and", or '' when nothing does (it.blocked). Every transition a block holds reads it: staged
+// to ready, a build's start, restart and resume, the PR opening and leaving draft, review links, the Merge and the land.
+export const blockWordsOf = (it) => [it.ownerBlock && 'by the owner', it.blockedBy?.length && `by ${it.blockedBy.map((d) => d.ref).join(', ')}`, it.blockedUntil && `until ${it.blockedUntil}`].filter(Boolean).join(' and ');
 const mergeBlockedWords = (it) => `Blocked ${blockWordsOf(it)}`;
 // docs/adr/2026-11-14-0031-a-land-step-reads-landables-skips.md: what a verified built card's land skips for, given
 // runs.mjs landable's skip: a gone worktree, which a block can't hide, else what blocks the card, else landable's.
 export const landSkipOf = (it, skip) => (skip?.step === 'worktree-gone' ? skip
-  : it.blockedBy?.length || it.blockedUntil ? { step: 'blocked', blocked: blockWordsOf(it) } : skip ?? null);
+  : it.blocked ? { step: 'blocked', blocked: blockWordsOf(it) } : skip ?? null);
 // The card's land step from its landStep inputs (workItem landFrom) and what blocks it; the card's status line reads
 // the step's words (public/ui-cards.js).
 function landOf(it) {
@@ -1583,6 +1586,8 @@ export function buildBoard(snapshot) {
     it.blockedUntil = open ? it.blockedUntil ?? null : null;
     it.blockReason = open ? it.blockReason ?? null : null;
     it.blocked = it.blockedBy.length > 0 || Boolean(it.blockedUntil) || Boolean(it.ownerBlock);
+    // Stale is a fault: a blocked card's stopped or silent build, or its quiet review, waits on the block, not on anyone.
+    if (it.blocked) it.stale = false;
     if (it.kind === 'work') {
       it.land = landOf(it);
       delete it.landFrom;
@@ -2339,6 +2344,7 @@ export function strictlyIdle(built, { pulled = [] } = {}) {
 const STALL_NEXT = "item stall it with the reason when it can't go on";
 // docs/adr/2026-11-18-2000-builder-start-takes-up-a-launch.md: the board restarts the card's builder in place itself.
 const UNOWNED_NEXT = (key) => `Nothing builds it, and the board restarts its builder in place within minutes; if it hasn't, read why in audit ${key}, fix what refused it, or set its Next`;
+const UNBLOCKED_RESTART = (key) => `Its block ended and its builder isn't running: restart the build with builder resume ${key} --text "<what to carry on with>", or set its Next; a thread line ends the wait`;
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
 // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a staged card whose split was answered Split is filed as its split, not set ready.
@@ -2353,8 +2359,9 @@ const PROTOTYPE_ROUNDS = '; name each prototype to draw as its own round, and ea
 // (docs/adr/2026-11-16-0856-the-waits-sheet-lists-one-row-per-card-for-what-the-orchestrator-owes-now.md).
 const limbo = (it) => it.lane === 'todo' && OWES_IMPLEMENT.includes(it.storedPhase || 'new') && !it.unsorted && !it.action
   && !it.briefs.length && !it.plannerQueued && !it.agents.some((a) => a.started && !a.done);
-// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md: the waits a block holds. Limbo and
-// unblocked drop while their card is blocked; a staging wait stays (docs/adr/2026-11-16-1000-a-blocked-card-owes-the-owner-nothing.md).
+// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md: the waits a block holds. Staging, limbo
+// and unblocked drop while their card is blocked: a blocked card can't go ready, so its staging judgment waits for the
+// block's end (docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md).
 // Once the block ends it is owed from then (unblocked_at), and a pickup from before is void.
 const HELD_BY_BLOCK = new Set(['staging', 'limbo', 'unblocked']);
 function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
@@ -2367,6 +2374,15 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     && !it.agents.some((a) => a.kind === facts.unasked.kind && a.started && (!a.done || String(a.started) > facts.unasked.at)) ? facts.unasked : null;
   const unplaced = facts.unplaced && !facts.pages.some((t) => String(t) > facts.unplaced)
     && !it.agents.some((a) => a.kind === VISUAL && a.started && (!a.done || String(a.started) > facts.unplaced)) ? facts.unplaced : null;
+  // docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md: the wait a
+  // block's end opens, until the session writes on the card: a blocker that closed without landing, in any lane, asks
+  // whether the task still applies; past Todo, a build whose builder is stopped or silent is restarted, and a handed-back
+  // card with no builder is acted on. A staged card's end is its staging wait's, a paused build resumes and a verified
+  // build lands on their own (docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md).
+  const idle = Boolean(it.builder?.stopped || it.builder?.stale);
+  const unblocked = facts.unblockedAt && !facts.writes.some((t) => t > facts.unblockedAt) && (facts.unblockCheck
+    ? { kind: 'unblocked', since: facts.unblockedAt, next: `${facts.unblockCheck} closed without landing, which this task waited on: check it still applies, then carry on, change its notes or blockers, or close it; a thread line ends the wait` }
+    : it.lane !== 'todo' && !it.land && (!it.builder || idle) && { kind: 'unblocked', since: facts.unblockedAt, next: idle ? UNBLOCKED_RESTART(it.key) : 'Its block ended: act on what it waited for, or set its Next; a thread line ends the wait' });
   const waits = [
     facts.ask && { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}: builder answer ${it.key} ${facts.ask.id} --text "<answer>" from the task's notes, thread and the owner's words, or builder defer ${it.key} ${facts.ask.id} --text "<what to carry on with>" when you aren't confident or the owner's opinion is wanted; never ask the owner mid-build` },
     it.staging && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
@@ -2383,9 +2399,12 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
     owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind}${owed.kind === VISUAL && owed.final ? ' --final' : ''} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page', [REVIEWER]: 'review' }[owed.kind]} should cover and the files that matter${owed.kind === 'prototype' ? PROTOTYPE_ROUNDS : ''}` },
     // While the owner owes the card an answer, the waits below are theirs to unblock.
     ...(ASKING.has(it.action?.kind) ? [] : [
-      // One stale wait: a stopped or silent builder, else a review past seven days. A builder waiting on its own ask is
-      // the ask's wait, not a stale one.
-      it.builder?.stopped || it.builder?.stale ? (facts.ask ? null
+      // A block's end the orchestrator acts on: the block-ended step (cards.mjs blockEnded) moved nothing itself.
+      unblocked,
+      // One stale wait, a fault only: a stopped or silent builder, else a review past seven days, on a card nothing
+      // blocks. A builder waiting on its own ask is the ask's wait, and one whose block ended is the unblocked wait's.
+      it.blocked ? null
+      : idle ? (facts.ask || unblocked ? null
         : it.builder.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: ${RESTART_NEXT}, or drop the task` }
         : { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent, then finish its run or ${RESTART_NEXT}` })
       : it.lane === 'review' && it.stale && { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), daily: true, next: `Find out why the review went stale (CI red, a conflict, changes requested, reviewers silent) and fix what you can: rebase, CI, comments; re-ping silent reviewers once in Slack; write one thread line, naming who when only a reviewer owes it; ask the owner only for a decision (close it, change reviewers); or ${STALL_NEXT}` },
@@ -2402,16 +2421,12 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       unplaced && { kind: 'visual', since: unplaced, next: 'Its visual agent ended without placing its page: read its log, then place the page with visual add, or ask for the visual again' },
       it.refusal && facts.refusedAt && { kind: 'refused', since: facts.refusedAt, next: `${it.refusal}: fix what refused the build and start it, or say on the task why it waits` },
       it.next === NO_NEXT && lastBuild && { kind: 'unowned', since: lastBuild, next: UNOWNED_NEXT(it.key) },
-      // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo whose block ended waits until the session writes on it.
-      // A verified build waiting to land is its land step's (docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md).
-      facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.land && !facts.writes.some((t) => t > facts.unblockedAt)
-        && { kind: 'unblocked', since: facts.unblockedAt, next: 'Its block ended: act on what it waited for, or set its Next; a thread line ends the wait' },
       // docs/adr/2026-11-15-1600-a-card-owing-nobody-or-with-the-owners-word-last-waits-on-the-orchestrator.md: a sorted
       // Todo card still owing Implement, with no mark, question, brief or planner, owes nobody anything.
       limbo(it) && { kind: 'limbo', since: facts.limboFrom, next: `${it.ref} owes nobody anything: ask Implement (reply ${it.key} --implement), ask questions, or close it` },
     ]),
   ];
-  const open = waits.filter((wait) => wait?.since && !(it.blocked && wait.kind !== 'staging' && HELD_BY_BLOCK.has(wait.kind)));
+  const open = waits.filter((wait) => wait?.since && !(it.blocked && HELD_BY_BLOCK.has(wait.kind)));
   return (open.length > 1 ? open.filter((wait) => wait.kind !== 'limbo') : open).map((wait) => {
     const blockEnded = HELD_BY_BLOCK.has(wait.kind) && facts.unblockedAt && String(facts.unblockedAt) > String(wait.since);
     const since = String(blockEnded ? facts.unblockedAt : wait.since);

@@ -16,3 +16,5 @@ with the block kept (`item set --phase ready` works on a blocked card), and the 
 The draft-review and manual-steps nudges stay suppressed, since their work can't start, and so do the limbo and
 past-Todo unblocked waits. The rest of this decision stands: the block words are orange, and a blocked In Review
 card's Merge shows disabled.
+
+The amendment above is superseded by [a block holds every transition, and its end moves the card or opens a wait](2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md): `item set --phase ready` refuses a blocked card, blocking a ready card sends it back to staging, and its staging wait drops while it is blocked, returning at the block's end.

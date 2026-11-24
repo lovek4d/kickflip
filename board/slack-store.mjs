@@ -145,6 +145,9 @@ export async function reviewDue(site, options) {
   const cache = await readJSON(githubStateFile(), {});
   const record = await readPRSlack(site);
   const links = [];
+  // A blocked card's review links wait for its block's end
+  // (docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md).
+  const built = await builtCards(site);
   // Each PR's first card with its ticket, and the reviewers of every card holding it.
   const cards = new Map();
   const githubOf = new Map();
@@ -159,7 +162,7 @@ export async function reviewDue(site, options) {
         if (!cards.has(pr)) cards.set(pr, { item, ticket, people: [] });
         const card = cards.get(pr);
         card.people.push(...people.filter((r) => !card.people.some((q) => q.name === r.name)));
-        if (item.lane === 'done') continue;
+        if (item.lane === 'done' || built.get(`${source.slug}/${item.id}`)?.blocked) continue;
         const gh = routeRecord(cache.prs, pr);
         for (const r of people) {
           if (!linkOwed(gh, record, pr, r.name) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;

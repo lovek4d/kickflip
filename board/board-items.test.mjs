@@ -83,7 +83,7 @@ test('item set edits the item in a waves board and in a file board', async () =>
     assert.equal((await board('item', 'set', key, '--site', route, '--blocked')).code, 0);
     assert.equal(read(file).items[0].held, true);
     assert.equal((await board('item', 'set', key, '--site', route, '--pr', '7')).code, 0);
-    assert.deepEqual([read(file).items[0].lane, read(file).items[0].held], ['review', undefined]);
+    assert.deepEqual([read(file).items[0].lane, read(file).items[0].held], ['review', true]);
     assert.equal((await board('item', 'set', key, '--site', route, '--done', '--text', 'Done.')).code, 0);
     assert.equal(read(file).items[0].lane, 'done');
   }
@@ -641,7 +641,7 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
   const done = await board('item', 'set', 'd/A1', '--done', '--site', 'orch', '--text', 'Done.');
   assert.equal(done.code, 0);
   assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('unblocked')), ['unblocked: d/A2']);
-  assert.deepEqual(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', kind: 'hub', line: 'unblocked-done', text: 'Unblocked: A1 is done.' }]);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', kind: 'hub', line: 'unblocked-closed', text: 'Unblocked: A1 closed without landing.' }]);
   assert.equal(fs.existsSync(site('orch', 'data', 'threads', 'd__A3.jsonl')), false);
   assert.deepEqual(events().map((e) => e.data), [{ key: 'd/A2' }]);
   assert.ok(events()[0].id);
@@ -658,7 +658,7 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
   const merged = await board('item', 'set', 'd/A2', '--done', '--site', 'orch', '--text', 'Merged.');
   assert.deepEqual(merged.out.split('\n').filter((l) => l.startsWith('unblocked')), ['unblocked: d/A3']);
   assert.deepEqual(events().map((e) => e.data.key), ['d/A2', 'd/A3']);
-  assert.deepEqual(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).map((m) => m.text), ['Unblocked: A1 is done.', 'Merged.']);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).map((m) => m.text), ['Unblocked: A1 closed without landing.', 'Merged.']);
   const untold = await board('item', 'set', 'd/A3', '--done', '--site', 'orch');
   assert.equal(untold.code, 1);
   assert.match(untold.err, /^--done needs --text/);
@@ -698,7 +698,9 @@ test('a hand-back unblocks nothing, and closing a handed-back card unblocks as u
   assert.deepEqual(unblocked(await board('item', 'set', 'd/A1', '--done', '--site', 'orch', '--text', 'Done.')), ['unblocked: d/A2']);
 });
 
-test('an owner-blocked item emits its unblocking but never starts until --unblocked unblocks it', async () => {
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md: the owner's
+// block holds what any block holds, so a dep's Done leaves an owner-blocked card blocked, and its --unblocked ends it.
+test('an owner-blocked item stays blocked when its dep finishes, and never starts until --unblocked unblocks it', async () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'feat: one', lane: 'progress' },
     { id: 'A2', title: 'feat: two', deps: ['A1'] },
@@ -710,14 +712,18 @@ test('an owner-blocked item emits its unblocking but never starts until --unbloc
   assert.equal(items()[1].held, true);
   assert.equal((await board('item', 'set', 'd/A2', '--blocked', '--unblocked', '--site', 'orch')).code, 1);
   const done = await board('item', 'set', 'd/A1', '--done', '--site', 'orch', '--text', 'Done.');
-  assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('unblocked')), ['unblocked: d/A2', 'unblocked: d/A3']);
-  assert.deepEqual(lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-unblocked').map((e) => e.data.key), ['d/A2', 'd/A3']);
+  assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('unblocked')), []);
+  const unblocked = () => lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-unblocked').map((e) => e.data.key);
+  assert.deepEqual(unblocked(), []);
   const refused = await start('d/A2');
   assert.equal(refused.code, 1);
   assert.match(refused.err, /d\/A2 is blocked by the owner.*--unblocked/);
   assert.equal(items()[1].lane, undefined);
   assert.equal((await start('d/A3')).code, 1);
-  assert.equal((await board('item', 'set', 'd/A2', '--unblocked', '--site', 'orch')).code, 0);
+  const lifted = await board('item', 'set', 'd/A2', '--unblocked', '--site', 'orch');
+  assert.equal(lifted.code, 0, lifted.err);
+  assert.match(lifted.out, /unblocked: d\/A2/);
+  assert.deepEqual(unblocked(), ['d/A2']);
   assert.equal((await board('item', 'set', 'd/A3', '--unblocked', '--site', 'orch')).code, 0);
   assert.deepEqual(items().map((it) => [it.lane, Boolean(it.held)]), [['done', false], [undefined, false], [undefined, false]]);
   assert.equal((await start('d/A2')).code, 0);
@@ -1009,7 +1015,9 @@ test('there is no wave command, no wave:<slug> dep or split target, and no wave 
 });
 
 
-test('a write that takes a card out of Todo clears its hold and pick-up time', async () => {
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md: past Todo the
+// owner's block holds what any block holds, so only a close clears it.
+test('a close clears the owner\'s block and pick-up time; a hand-back or a PR keeps it', async () => {
   const nine = new Date(Date.now() + 864e5).toISOString();
   write(at('waves', 'd', 'wave.json'), { items: ['A1', 'A2', 'A3', 'A4', 'A5'].map((id) => ({ id, title: id, held: true, pick_up_at: nine })) });
   const items = () => read(at('waves', 'd', 'wave.json')).items;
@@ -1020,8 +1028,7 @@ test('a write that takes a card out of Todo clears its hold and pick-up time', a
   assert.match((await board('builder', 'done', 'd/A2', '--summary', 'Built it.', '--site', 'orch')).out, /^handed back: Next/m);
   assert.equal((await board('item', 'set', 'd/A3', '--pr', '7', '--site', 'orch')).code, 0);
   assert.equal((await board('item', 'set', 'd/A4', '--done', '--site', 'orch', '--text', 'Done.')).code, 0);
-  assert.deepEqual(items().slice(0, 4).map((it) => [it.held, it.pick_up_at]), Array(4).fill([undefined, undefined]));
-  assert.deepEqual([items()[4].held, items()[4].pick_up_at], [true, nine]);
+  assert.deepEqual(items().map((it) => [it.held, it.pick_up_at]), [[undefined, undefined], [true, nine], [true, nine], [undefined, undefined], [true, nine]]);
 });
 
 test("a Next set while the card has an open question clears once its questions are all acted on, and any Next clears once a build starts", async () => {
@@ -1067,7 +1074,7 @@ test('item set --done accepts a done card with a message on it, and refuses one 
 test('item set blocks a card until a condition with a reason, refuses its start while it holds, and clearing it threads and emits card-unblocked once', async () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'feat: one', lane: 'progress' },
-    { id: 'A2', title: 'feat: two', phase: 'ready' },
+    { id: 'A2', title: 'feat: two', phase: 'staging' },
     { id: 'A3', title: 'feat: three', deps: ['A1'] },
   ] });
   const item = (id) => read(at('waves', 'd', 'wave.json')).items.find((i) => i.id === id);
@@ -1103,7 +1110,9 @@ test('item set blocks a card until a condition with a reason, refuses its start 
   assert.deepEqual([item('A2').deps, item('A2').block_reason], [['A3'], 'shares the send bar']);
   assert.equal((await board('item', 'set', 'd/A2', '--site', 'orch', '--blocked-by', '')).code, 0);
   assert.equal(item('A2').block_reason, undefined);
-  assert.equal(events().length, 1, 'clearing deps by hand is no unblocking event, as before');
+  // docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md
+  assert.equal(events().length, 2, 'clearing deps by hand ends the block too');
+  assert.equal(thread('A2').at(-1), 'Unblocked: no task blocks it now.');
 });
 
 test('item set --done --split-into moves every open card waiting on the card onto the cards it split into, with a line in each thread, and writes the Split into line', async () => {

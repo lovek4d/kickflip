@@ -250,7 +250,7 @@ test("a Quick build ask's New card is staged by item triage, then goes ready fro
   assert.match((await board('item', 'add', 'audit', '--from-ask', 'a1', '--text', 'x', '--title', 'X', '--phase', 'grilling', '--site', 'audit')).err, /already task audit\/T-1/);
 });
 
-test('item set --phase ready with --blocked-by sets Blocked by, bare or prefixed, and the card waits', async () => {
+test('item set --blocked-by sets Blocked by, bare or prefixed, and the card stays staged: ready refuses a blocked card', async () => {
   auditEvents({ ...ask, data: { ...ask.data, quick: true } });
   const s = await store();
   await s.fileAsk(audit(), 'a1');
@@ -259,10 +259,13 @@ test('item set --phase ready with --blocked-by sets Blocked by, bare or prefixed
   for (const id of ['B1', 'B2']) { const a = await board('item', 'add', 'audit', '--site', 'audit', '--title', 'fix(board): ' + id, '--notes', 'x', '--phase', 'grilling', '--relate', 'audit/T-1'); assert.equal(a.code, 0, a.err); }
   assert.equal((await board('item', 'triage', 'audit/T-1', '--title', 'fix(board): pin the header', '--site', 'audit')).code, 0);
   assert.equal((await board('item', 'notes', 'audit/T-1', '--heading', 'Scope', '--file', notes, '--site', 'audit')).code, 0);
-  const r = await board('item', 'set', 'audit/T-1', '--phase', 'ready', '--text', 'No other task covers it.', '--size', 'small', '--blocked-by', 'audit/T-2,audit/T-3', '--site', 'audit');
+  // A blocked card can't go ready (docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md).
+  const refused = await board('item', 'set', 'audit/T-1', '--phase', 'ready', '--text', 'No other task covers it.', '--size', 'small', '--blocked-by', 'audit/T-2,audit/T-3', '--site', 'audit');
+  assert.match(refused.err, /audit\/T-1 is blocked by .+, so it stays staged/);
+  const r = await board('item', 'set', 'audit/T-1', '--size', 'small', '--blocked-by', 'audit/T-2,audit/T-3', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   const item = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
-  assert.deepEqual(item.deps, ['audit/T-2', 'audit/T-3']);
+  assert.deepEqual([item.deps, item.phase], [['audit/T-2', 'audit/T-3'], 'staging']);
   // The command's one line names the Blocked by it set, as it names every other change.
   assert.match(r.out, /blocked by audit\/T-2,audit\/T-3/);
   const bare = await board('item', 'set', 'audit/T-1', '--blocked-by', 'T-2', '--site', 'audit');

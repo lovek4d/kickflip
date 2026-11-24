@@ -497,3 +497,16 @@ test("a digest lists a reviewer's PRs oldest in review first, whatever order the
   const { reviewers } = await reviewDigest(site, { now: monday });
   assert.deepEqual(reviewers[0].items.map((i) => i.pr), ['o/r#2', 'o/r#1']);
 });
+
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md
+test("a blocked card's review links wait for its block's end", async () => {
+  saveToken(slackWorld());
+  write(waveFile, { repo: 'o/r', items: [
+    { id: 'A1', title: 'Held', held: true, prs: [{ number: 1 }] },
+    { id: 'A2', title: 'Waits', deps: ['A4'], prs: [{ number: 2 }] },
+    { id: 'A3', title: 'Until', blocked_until: 'the API ships', prs: [{ number: 3 }] },
+    { id: 'A4', title: 'Free', prs: [{ number: 4 }] },
+  ] });
+  setPRs({ 'o/r#1': pr(), 'o/r#2': pr(), 'o/r#3': pr(), 'o/r#4': pr() });
+  assert.deepEqual((await reviewDue(site, { now: sunday })).links.map((l) => l.pr), ['o/r#4']);
+});

@@ -93,17 +93,20 @@ test('a finishing dep records unblocked_at on a staging card, which reopens its 
   assert.ok(itemOf().unblocked_at);
 });
 
-// docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md,
-// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md
-test("a finishing dep sends a ready Todo card back to staging, owed from the unblock, its Implement tap kept", async () => {
+// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md,
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md
+test("a landed dep ends a staged card's block, owed from the unblock, its Implement tap kept, and it can go ready", async (t) => {
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { process.env.HOME = oldHome; });
   write(at('waves', 'w', 'a1-notes.md'), 'Build it.\n');
-  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'ready', size: 'small', plan: 'a1-notes.md', deps: ['ENG-1'], ready_at: now(), ready_main: 'abc' }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'staging', staged_at: '2026-11-16T10:00:00.000Z', size: 'small', plan: 'a1-notes.md', deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
   write(site('orch', 'data', 'events.jsonl'), '');
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), `${JSON.stringify({ id: 'b1', ts: now(), kind: 'card-bump', data: { key: 'w/A1' }, reply: null })}\n`);
-  assert.equal((await onOrch('item', 'set', 'w/ENG-1', '--done', '--text', 'Done.')).code, 0);
+  await store.setItem(site('orch'), 'w/ENG-1', { done: true, closing: ['handed-closed', {}], landed: 'abc1234' });
   assert.ok(events().some((e) => e.kind === 'card-unblocked' && e.data.key === 'w/A1'));
   const unblocked = threadOf().find((l) => l.line === 'unblocked-done');
-  assert.deepEqual([itemOf().phase, itemOf().staged_at, itemOf().unblocked_at, itemOf().ready_at, itemOf().recheck_at], ['staging', unblocked.ts, unblocked.ts, undefined, undefined]);
+  assert.deepEqual([itemOf().phase, itemOf().staged_at, itemOf().unblocked_at], ['staging', '2026-11-16T10:00:00.000Z', unblocked.ts]);
   assert.equal(events().some((e) => e.kind === 'card-unbump'), false, 'its Implement tap stays');
   const judged = await onOrch('item', 'set', 'w/A1', '--phase', 'ready', '--text', 'Re-judged against ENG-1: nothing stale.');
   assert.equal(judged.code, 0, judged.err);
@@ -138,35 +141,4 @@ test('--next naming an unfinished card by its #number is refused without --deps'
   assert.equal(r.code, 1);
   assert.match(r.err, /names unfinished task w\/ENG-1; add it with --blocked-by/);
   assert.equal((await onOrch('item', 'set', 'w/A1', '--blocked-by', 'ENG-1', '--next', 'Tag once #398 lands')).code, 0);
-});
-
-// docs/adr/2026-11-17-0700-a-recheck-whose-blocker-touched-none-of-the-tasks-files-releases-itself.md
-const unblockCase = async (notes, files) => {
-  const oldHome = process.env.HOME;
-  process.env.HOME = home;
-  if (notes !== null) write(at('waves', 'w', 'a1-notes.md'), notes);
-  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'ready', size: 'small', ...(notes === null ? {} : { plan: 'a1-notes.md' }), deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
-  await store.setItem(site('orch'), 'w/ENG-1', { done: true, closing: ['handed-closed', {}], landed: 'abc1234', landedFiles: files }).finally(() => { process.env.HOME = oldHome; });
-};
-
-test("a blocker that landed none of the task's noted files leaves a ready card ready, with a thread line", async () => {
-  await unblockCase('Change board/server.mjs and docs/adr.\n', ['hub/push.mjs', 'README.md']);
-  assert.equal(itemOf().phase, 'ready');
-  assert.equal(threadOf().at(-1).text, "Stays ready: ENG-1 touched none of this task's files");
-});
-
-test("a blocker that landed a noted file, or inside a noted folder, sends the ready card to staging", async () => {
-  await unblockCase('Change board/server.mjs.\n', ['board/server.mjs']);
-  assert.equal(itemOf().phase, 'staging');
-  await unblockCase('Write docs/adr.\n', ['docs/adr/x.md']);
-  assert.equal(itemOf().phase, 'staging');
-  await unblockCase('Edit SKILL.md.\n', ['SKILL.md']);
-  assert.equal(itemOf().phase, 'staging');
-});
-
-test('notes naming no files send the ready card to staging, and so does a blocker with no recorded diff', async () => {
-  await unblockCase('Make it nicer, e.g. faster.\n', ['hub/push.mjs']);
-  assert.equal(itemOf().phase, 'staging');
-  await unblockCase('Change board/server.mjs.\n', undefined);
-  assert.equal(itemOf().phase, 'staging');
 });

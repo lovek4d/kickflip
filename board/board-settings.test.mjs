@@ -183,7 +183,7 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   assert.deepEqual(gh.at(-1), ['issue', 'close', '42', '--repo', 'o/r']);
   assert.deepEqual(thread('F6'), [['ticket-closed', 'Closed #42.']]);
   // The line on the card it unblocked names the finished card by its ticket, not its id.
-  assert.deepEqual(lines(site('audit', 'data', 'threads', 'audit__H8.jsonl')).map((m) => m.text).slice(-1), ['Unblocked: #42 is done.']);
+  assert.deepEqual(lines(site('audit', 'data', 'threads', 'audit__H8.jsonl')).map((m) => m.text).slice(-1), ['Unblocked: #42 closed without landing.']);
   assert.equal(await cli('item', 'set', 'audit/G7', '--done', '--text', 'Merged.'), 0);
   assert.equal(out.at(-1), 'Left #41 as it is: assigned to someone else.');
   assert.equal(gh.some((argv) => argv[1] === 'close' && argv[2] === '41'), false);

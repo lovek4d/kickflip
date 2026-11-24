@@ -30,7 +30,7 @@ import { parseCheck, checkText } from '../shared/owner-check.mjs';
 import { BoardError, fail, needSite, text, optional, cardTitle, pageUrl, domId } from './checks.mjs';
 import { storedTickets, settingsOf, readBoardSettings, markDescription, refuseSecondProposal, boardRepoOf, boardTarget } from './settings.mjs';
 import { leaveNew, refuseFiled, inIntake, IMPLEMENT_NOT_FILED, refuseMoved } from './asks.mjs';
-import { pageServed, publishStaged, cardOfTopic, noteStamp, freeNotesName, writeNotesFile, appendNotes, refuseCardNotes, DRAFT_HINT, markWaiting, readiedText, owe, dropOwed, cardQuestions, resolveAnswered, hasOpenQuestion, setNext, closeQuestions, unpickedPrototype, clip, ownerQuote, planPath, itemNotes } from './questions.mjs';
+import { pageServed, publishStaged, cardOfTopic, noteStamp, freeNotesName, writeNotesFile, appendNotes, refuseCardNotes, DRAFT_HINT, markWaiting, readiedText, owe, dropOwed, cardQuestions, resolveAnswered, hasOpenQuestion, setNext, closeQuestions, unpickedPrototype, clip, ownerQuote, planPath } from './questions.mjs';
 import { onlyRebased, requestPause, isLanding, clearRefusal, builderFiles, closeBuilders, removeCardWorktrees } from './runs.mjs';
 
 export async function siteDir(route) {
@@ -698,10 +698,10 @@ export const blockerNames = (card) => [...card.blockedBy.map((d) => d.ref), ...(
 // finished is the built card's.
 const inProgress = (item, records, finished) => !hasPR(item) && !item.pushed && !item.merge_ready && !finished
   && (Boolean(handedBackAt(records)) || records.some((r) => r?.started && !r.done && builds(r)));
-// → the keys of the open cards waiting on key that nothing blocks now: no dep they wait on and no condition.
+// → the keys of the open cards waiting on key that nothing blocks now: no dep they wait on, no condition and no owner's block.
 async function unblockedBy(site, key) {
   return [...(await builtCards(site)).values()]
-    .filter((c) => !c.finished && !c.blockedUntil && !c.blockedBy.length && c.blockers.some((d) => d.key === key)).map((c) => c.key);
+    .filter((c) => !c.finished && !c.blocked && c.blockers.some((d) => d.key === key)).map((c) => c.key);
 }
 
 // docs/adr/2026-11-14-1200-waves-are-dropped-deps-and-related-carry-order-and-grouping.md: --split-into for card key, closing as a split: a comma
@@ -744,31 +744,31 @@ async function moveWaiters(site, key, { entries, words, waiters }) {
   for (const w of waiters) await appendStatus(site, w, 'split-moved', { card, to: words });
 }
 
-// docs/adr/2026-11-17-0700-a-recheck-whose-blocker-touched-none-of-the-tasks-files-releases-itself.md
-// The paths a task's notes name: tokens with a folder slash or a file extension of letters. A token names a changed file
-// when it is that file, a folder holding it, or a bare file name (SKILL.md) ending the file's path.
-const namedPaths = (markdown) => [...new Set((markdown.match(/[\w.-]+(?:\/[\w.-]+)+|[\w-]+\.[a-z]\w+/gi) || []).map((t) => t.replace(/^\.\/|[.\/]+$/g, '')).filter((t) => /[a-z]/i.test(t)))];
-const namesFile = (named, file) => file === named || file.startsWith(`${named}/`) || (!named.includes('/') && file.endsWith(`/${named}`));
-
-// docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md: a card records when its block ended as
-// unblocked_at, ts its Unblocked line's, which domain.mjs orchestratorWaitsOf reads as when each wait the block held is
-// owed from. A ready card in Todo goes back to staging for the orchestrator to judge again against what landed
-// (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md), unless its blocker landed files (the paths
-// its diff changed) none its notes name: then it stays ready. Notes naming no path, or no notes, send it to staging.
-// → whether it stayed ready.
-async function markUnblocked(site, key, ts, landedFiles) {
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md
+// The one step every way a block ends goes through, once nothing blocks the card: a blocker landing or closing, its
+// blocked-until cleared, its blockers edited, the owner's Unblock or a timed block running out. ts is the line that
+// says how it ended. It records unblocked_at, from which the waits the block held are owed
+// (docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md, domain.mjs orchestratorWaitsOf), and
+// raises card-unblocked {key, until?}. What moves on its own then moves: a staged card's staging wait brings it back to
+// the orchestrator, a paused build resumes (domain.mjs pauseWork) and a verified build lands (landSkipOf); anything
+// else past Todo opens the unblocked wait. closedBy, the name of a blocker that closed without landing, is kept as
+// unblock_check, so that wait asks whether the task still applies, in any lane.
+async function blockEnded(site, key, ts, { closedBy = null, until } = {}) {
   const { source, itemFile, item } = await loadItem(site, key);
   item.unblocked_at = ts;
-  const markdown = item.phase === 'ready' && !leftTodo(item) && landedFiles ? await itemNotes(source.dir, item) : null;
-  const named = markdown ? namedPaths(markdown) : [];
-  const staysReady = named.length > 0 && !landedFiles.some((f) => named.some((n) => namesFile(n, f)));
-  if (item.phase === 'ready' && !leftTodo(item) && !staysReady) {
-    Object.assign(item, { phase: 'staging', staged_at: ts });
-    delete item.ready_at;
-    delete item.ready_main;
-  }
+  if (closedBy) item.unblock_check = closedBy; else delete item.unblock_check;
   await writeJSON(source.file, itemFile);
-  return staysReady;
+  await appendEvent({ dir: site }, 'card-unblocked', { key, ...(until ? { until } : {}) });
+}
+
+// A ready Todo card that a block now holds goes back to staging: a blocked card is never ready, and its block's end
+// brings it back to the orchestrator's staging judgment. → whether it moved
+function stageBlocked(item, at) {
+  if (item.phase !== 'ready' || leftTodo(item)) return false;
+  Object.assign(item, { phase: 'staging', staged_at: at });
+  delete item.ready_at;
+  delete item.ready_main;
+  return true;
 }
 
 export async function checkNextDeps(site, key, item, next) {
@@ -862,7 +862,7 @@ const RISKS = ['low', 'medium', 'high'];
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md). risk is the builder's judgment of its
 // change, low, medium or high, which builder done records and the PR's Slack link shows (slack-store.mjs prLink). replyOn (--reply-on)
 // is the orchestrator's reply on a card this call links or unlinks while its owner waits on that reply (replyFirst).
-async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, landedFiles, start, handBack, next, clearNext, pr, pushed, base, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, command, ownerStep, ownerDone, check, finishAsk, triaged, release }, options) {
+async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, base, mergeReady, ghSince, fromAsk, phase, state, block, unblock, pickUpAt, deps, blockedUntil, blockReason, parent, split: splitOfParent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, command, ownerStep, ownerDone, check, finishAsk, triaged, release }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -973,8 +973,17 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
       : `${key} is blocked by the owner; start it only once they unblock it, with item set ${key} --unblocked`);
   }
   const handover = pr !== undefined || pushed !== undefined || mergeReady !== undefined;
-  // A card that leaves Todo is never still blocked by the owner.
-  if (start || done || handBack || handover) clearHold(item);
+  // A closed card is never still blocked by the owner. Past Todo the owner's block holds what any block holds.
+  if (done) clearHold(item);
+  // docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md: what blocks
+  // the card once this call's blockers are written (blockWordsOf's words), which refuses ready and sends a ready card
+  // back to staging.
+  const openDeps = (deps !== undefined || blockedUntil !== undefined || hold !== undefined || phase === 'ready') && !done
+    ? depCards(file, item.deps).filter(((open) => (k) => open.has(k))(site ? await openKeys(site) : new Set())) : null;
+  const blockedNow = openDeps && [item.held && 'by the owner', openDeps.length && `by ${(await Promise.all(openDeps.map((k) => cardName(site, k)))).join(', ')}`,
+    item.blocked_until && `until ${item.blocked_until}`].filter(Boolean).join(' and ');
+  if (phase === 'ready' && blockedNow) fail(`${key} is blocked ${blockedNow}, so it stays staged; when the block ends its staging wait brings it back to you`);
+  const staged = blockedNow && phase === undefined && stageBlocked(item, new Date().toISOString());
   if (start) {
     const blockers = shown.blockedBy.map((d) => d.key);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done`);
@@ -1096,8 +1105,8 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   const linking = ticket !== undefined || newTicket;
   if (linking) await assignTicket(site, itemFile, item, ticket, options, source.dir);
   await writeJSON(source.file, itemFile);
-  // The card as the board draws it after this write, for what a block or its lifting does.
-  const after = blocking || lifted ? await shownCard(site, key) : null;
+  // The card as the board draws it after this write, for what a block or its end does.
+  const after = blockedNow !== null ? await shownCard(site, key) : null;
   const blocked = blocking && inProgress(item, records, after.finished) ? blockWordsOf(after) : '';
   await writeReply();
   if (madeAtReady) await appendStatus(site, key, 'ticket-made', { ticket: item.ticket });
@@ -1105,7 +1114,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
   if (readied) await appendCommand(site, key, { command: 'readied', ...(readiedLine === undefined ? {} : { text: readiedLine }) });
   // The line and the wait share one moment, as stage writes them (domain.mjs markWaitStarts).
-  if (phase === 'staging') await appendCommand(site, key, { command: 'staged', ts: item.staged_at });
+  if (phase === 'staging' || staged) await appendCommand(site, key, { command: 'staged', ts: item.staged_at });
   if (blocked) {
     const pausing = site && !(await isLanding(site, key)) && await requestPause(site, key, { cause: 'blocked', words: `blocked ${blocked}` });
     await appendStatus(site, key, pausing ? 'blocked-pausing' : 'blocked-stays', { blocked });
@@ -1144,10 +1153,10 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
-  if (lifted && !after.finished && !after.blockedBy.length) {
-    const { line } = await appendStatus(site, key, 'unblocked', { lifted });
-    await markUnblocked(site, key, line.ts);
-    await appendEvent({ dir: site }, 'card-unblocked', { key });
+  // A block this call ended: its condition cleared, its blockers edited so none is open, or the owner's block lifted.
+  if (shown.blocked && after && !after.blocked) {
+    const { line } = await appendStatus(site, key, 'unblocked', { lifted: lifted ?? (hold === null ? 'its block was lifted' : 'no task blocks it now') });
+    await blockEnded(site, key, line.ts);
     resolved.unshift(`unblocked: ${key}`);
   }
   // docs/adr/2026-11-22-2345-a-closed-tasks-worktree-goes-and-the-hub-sweeps-what-is-left.md
@@ -1157,12 +1166,13 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (!done || wasFinished) return { file: source.file, lines: resolved };
   if (split) await moveWaiters(site, key, split);
   const unblocked = await unblockedBy(site, key);
-  // The owner reads a card's wait in its thread, so the line that ends it goes there too.
+  // The owner reads a card's wait in its thread, so the line that ends it goes there too. A blocker that closed without
+  // landing leaves its waiters to the orchestrator's check that each still applies.
   const card = await cardName(site, key);
+  const closedBy = typeof landed === 'string' || item.landed_sha || storedPRs(item).some((p) => p.merged_at) ? null : card;
   for (const k of unblocked) {
-    const { line } = await appendStatus(site, k, 'unblocked-done', { card });
-    if (await markUnblocked(site, k, line.ts, landedFiles)) await appendStatus(site, k, 'recheck-released', { card });
-    else await appendEvent({ dir: site }, 'card-unblocked', { key: k });
+    const { line } = await appendStatus(site, k, closedBy ? 'unblocked-closed' : 'unblocked-done', { card });
+    await blockEnded(site, k, line.ts, { closedBy });
   }
   return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
 }
@@ -1208,16 +1218,16 @@ function setHold(item, hold) {
 }
 
 // A card the owner blocked whose pick-up time `until` has passed, as board/server.mjs checkPickUps finds it: unblocked in its item file
-// file. announce first adds a thread line and, unless a dep is unfinished or a condition blocks it, card-unblocked {key, until}, as a finished
-// dep does; it is false when those were sent before a restart cut the write short.
+// file. announce first adds a thread line and, unless a dep is unfinished or a condition blocks it, ends the block
+// (blockEnded), whose card-unblocked {key, until} carries until; it is false when those were sent before a restart cut the write short.
 export async function pickUp(site, key, until, { announce = true } = {}) {
-  const { source, itemFile, item } = await loadItem(site, key);
   if (announce) {
     const at = new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    await appendStatus(site, key, 'hold-ended', { at });
+    const { line } = await appendStatus(site, key, 'hold-ended', { at });
     const card = await shownCard(site, key);
-    if (!card.blockedUntil && !card.blockedBy.length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
+    if (!card.blockedUntil && !card.blockedBy.length) await blockEnded(site, key, line.ts, { until });
   }
+  const { source, itemFile, item } = await loadItem(site, key);
   setHold(item, null);
   await writeJSON(source.file, itemFile);
 }
@@ -1285,9 +1295,10 @@ export function archiveTag(site, name, archived) {
 // The owner's Block, Unblock, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}),
 // or a Tag… pick (card-tag {key, tag, on}, tagItem),
 // recorded in the item file as the board server takes it, with a thread line; a Done closes the card and unblocks blocked cards as item set --done does
-// (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). → the item set result, or null
-// when there is nothing to write.
-export async function recordOwnerTap(site, kind, data) {
+// (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). An Unblock that leaves nothing
+// blocking the card ends its block (blockEnded), unless blockEnds is false: the owner's Implement, whose build is what the
+// block held. → the item set result, or null when there is nothing to write.
+export async function recordOwnerTap(site, kind, data, { blockEnds = true } = {}) {
   const key = String(data?.key || '');
   if (kind === 'tag-archive') return archiveTag(site, data.tag, Boolean(data.on));
   if (kind === 'card-tag') return tagItem(site, key, { [data.on ? 'tag' : 'untag']: [String(data.tag ?? '')], who: 'love', sendId: data.sendId });
@@ -1323,8 +1334,13 @@ export async function recordOwnerTap(site, kind, data) {
   if (!stepOpen && item.lane === 'done') return null;
   if (kind === 'card-done') return setItem(site, key, { done: true, force: true, ownerDone: true, ...said });
   const until = data.hold ? (typeof data.until === 'string' ? new Date(data.until).toISOString() : null) : undefined;
+  const wasHeld = Boolean(item.held);
   setHold(item, data.hold ? { until } : null);
+  // docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md: the owner's
+  // block on a ready card sends it back to staging, as any block does.
+  const staged = data.hold && stageBlocked(item, item.held_at);
   await writeJSON(source.file, itemFile);
+  if (staged) await appendCommand(site, key, { command: 'staged', ts: item.staged_at });
   // A block pauses the card's running build at its next stopping point, and stops its other agents, a landing build's
   // included, so their records close: an open record with an exited process is relaunched
   // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md). Its pause keeps the cause
@@ -1335,8 +1351,11 @@ export async function recordOwnerTap(site, kind, data) {
     await publishStaged(site, key);
   }
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  return appendCommand(site, key, data.hold ? { text: at ? `${COMMANDS.hold} until ${at}` : COMMANDS.hold, who: 'love', command: 'hold' }
-    : { who: 'love', command: 'resume' });
+  if (data.hold) return appendCommand(site, key, { text: at ? `${COMMANDS.hold} until ${at}` : COMMANDS.hold, who: 'love', command: 'hold' });
+  const ts = new Date().toISOString();
+  const written = await appendCommand(site, key, { who: 'love', command: 'resume', ts });
+  if (blockEnds && wasHeld && !(await shownCard(site, key)).blocked) await blockEnded(site, key, ts);
+  return written;
 }
 
 // --check's text → its stored form, or refuses it (shared/owner-check.mjs parseCheck).

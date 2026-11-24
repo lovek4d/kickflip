@@ -23,10 +23,12 @@ test('a blocked Todo card owing Implement or Done keeps its action', () => {
   }
 });
 
-test('a staged blocked card keeps its staging wait', () => {
+// docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md: a blocked card
+// can't go ready, so its staging wait waits for the block's end.
+test('a staged blocked card has no staging wait', () => {
   const kinds = (items) => orchestratorWaits(built(items)).map((w) => w.kind);
   assert.deepEqual(kinds([card({ phase: 'staging', staged_at: at(3) })]), ['staging']);
-  assert.deepEqual(kinds([card({ phase: 'staging', staged_at: at(3), held: true, pick_up_at: '2026-11-19T00:00:00Z' })]), ['staging']);
+  assert.deepEqual(kinds([card({ phase: 'staging', staged_at: at(3), held: true, pick_up_at: '2026-11-19T00:00:00Z' })]), []);
 });
 
 // docs/adr/2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md
@@ -34,8 +36,8 @@ const waitsOf = (item, { threads = {}, events = [], working = {} } = {}) => orch
   working, prs: {}, files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [card(item)] } }] }));
 const held = [['staging', { phase: 'staging', staged_at: at(3) }], ['limbo', { phase: 'discussing' }], ['unblocked', { lane: 'review', unblocked_at: at(3) }]];
 
-test('a limbo or past-Todo unblocked wait drops while its card is blocked', () => {
-  for (const [kind, item] of held.filter(([kind]) => kind !== 'staging')) {
+test('a staging, limbo or past-Todo unblocked wait drops while its card is blocked', () => {
+  for (const [kind, item] of held) {
     assert.equal(waitsOf(item).some((w) => w.kind === kind), true, kind);
     assert.equal(waitsOf({ ...item, blocked_until: 'the API ships' }).some((w) => w.kind === kind), false, `${kind} blocked`);
   }

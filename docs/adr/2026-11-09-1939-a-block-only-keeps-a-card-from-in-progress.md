@@ -21,3 +21,7 @@ It supersedes [a blocked card is not grilled until its blockers land](2026-11-05
 ## Amended (2026-11-17)
 
 A ready card whose block ends no longer waits on a re-check: it goes back to staging, where the staging judgment is the re-check, and `recheck_at` is gone ([a wait a block held is owed from the block's end](2026-11-17-2028-a-wait-a-block-held-is-owed-from-the-blocks-end.md)).
+
+## Amended (2026-11-24)
+
+A blocked card no longer goes ready: it stays staged until its block ends, and a block on a ready card sends it back to staging ([a block holds every transition, and its end moves the card or opens a wait](2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md)).

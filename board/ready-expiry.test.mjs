@@ -30,8 +30,8 @@ test('a ready card stays ready before the day is up, or when main has not moved 
   assert.deepEqual(thread(), []);
 });
 
-test('a held card expires too, but one pulled out of Todo or in no ready phase does not', async () => {
-  fileItems(readyOne({ held: true }), readyOne({ id: 'T2', lane: 'progress' }), readyOne({ id: 'T3', phase: 'grilling' }));
+test('a card pulled out of Todo or in no ready phase does not expire', async () => {
+  fileItems(readyOne(), readyOne({ id: 'T2', lane: 'progress' }), readyOne({ id: 'T3', phase: 'grilling' }));
   assert.deepEqual(await restageStaleReady(dir(), 'bbb', at(READY_EXPIRES_MS)), ['audit/T1']);
   assert.deepEqual([item('T2').phase, item('T3').phase], ['ready', 'grilling']);
 });
