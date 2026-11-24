@@ -21,7 +21,7 @@ import { citeFault, renderCites } from './cites.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { appendLine, boardConfig, itemSources, readJSON, readLog, remove, replace, sitesDir, wavesDir, writeJSON } from './files.mjs';
-import { builtCards, shownEvents } from './snapshot.mjs';
+import { builtCards, shownEvents, withReply } from './snapshot.mjs';
 import { SCRIPT_LIMIT, runsAs, scriptLogName, scriptSha } from './scripts.mjs';
 import { HUB, WAIT_OVER, MESSAGE_LIMIT, hubLineOf, hubText, detailOf } from './hub-lines.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_MARK } from '../hub/pr-report.mjs';
@@ -546,8 +546,12 @@ export async function readThread(site, key) {
   const events = (await shownEvents(site)).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))
     || (e.kind === 'owner-answer' && asked.has(e.data?.id)) || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
   const lines = (await Promise.all([...keys].map((k) => readLog(threadFile(site, k))))).flat();
-  const thread = threadOf(key, { lines, events, owner, fromAsk: item.from_ask || null, moved });
-  return thread.map((m) => `${m.ts} ${m.who}: ${String(m.text ?? '').trim()}`);
+  const thread = threadOf(key, { lines, events: await Promise.all(events.map((e) => withReply(site, e))), owner, fromAsk: item.from_ask || null, moved });
+  // Reading the owner's words here hands them over, as inbox read does: a line written after this read answers them.
+  await markDelivered(site, thread.filter((m) => m.who === 'love' && m.eventId).map((m) => m.eventId));
+  const replyText = (r) => String(r.md ?? r.html ?? JSON.stringify(r.json) ?? '').trim();
+  return thread.flatMap((m) => [{ ts: m.ts, who: m.who, text: m.text }, ...(m.replies || []).map((r) => ({ ts: r.at, who: 'claude', text: replyText(r) }))])
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((m) => `${m.ts} ${m.who}: ${String(m.text ?? '').trim()}`);
 }
 
 // A card as the board labels it, for the one-line summaries board/bin/board.mjs and bin/wait-events.mjs print: a work

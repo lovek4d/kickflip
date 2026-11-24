@@ -436,14 +436,15 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
 // Whether thread line m is the orchestrator's word on its card: any line written as claude, its status lines (moves,
 // staged, readied, pulled) included, since an action that answers the owner always leaves one; never a builder's
 // progress line, agent line or ask.
-const answersOwner = (m) => (m.who || 'claude') === 'claude' && !['status', 'agent', BUILDER_ASK.ask].includes(m.kind);
+// A command line (Related to, Marked as …) is the board's own and answers nobody.
+const answersOwner = (m) => (m.who || 'claude') === 'claude' && !m.command && !['status', 'agent', BUILDER_ASK.ask].includes(m.kind);
 // The owner's word that became the newest on the card: the first of its messages since the card last closed (closed)
-// that no orchestrator line in thread, nor a reply to an event of the card, follows once it was handed over (threadOf's
-// handed), as {at, picked}, picked being its working mark; null when the orchestrator spoke last
+// that no orchestrator line in thread follows once it was handed over (threadOf's handed), nor a reply to the message's
+// own event whenever it was written, as {at, picked}, picked being its working mark; null when the orchestrator spoke last
 // (docs/adr/2026-11-15-1700-a-card-reads-thinking-from-its-events-delivery-until-the-orchestrator-writes.md).
 function ownerWordOf(said, thread, events, closed) {
   const spoke = [...thread.filter(answersOwner).map((m) => m.ts), ...events.map((e) => e.reply?.at)].filter(Boolean).map(String).sort().pop() || '';
-  const word = said.filter((m) => m.kind === 'item-message' && String(m.ts) > closed && !(m.handed && spoke > m.handed))
+  const word = said.filter((m) => m.kind === 'item-message' && String(m.ts) > closed && !m.reply && !(m.handed && spoke > m.handed))
     .sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
   return word ? { at: String(word.ts), picked: word.since || null } : null;
 }
@@ -2549,7 +2550,7 @@ export function ownerWordEnds(previous, current, built, now) {
   const holds = new Set(current.filter((w) => w.kind === 'reply').map((w) => `${w.key} ${w.since}`));
   return previous.filter((w) => w.kind === 'reply' && !holds.has(`${w.key} ${w.since}`)).map((w) => {
     const thread = built.threadViews?.[w.key] || [];
-    const replies = thread.filter((m) => m.reply?.at).map((m) => ({ ts: m.reply.at, who: 'claude', kind: 'reply', text: m.reply.text ?? '' }));
+    const replies = thread.filter((m) => m.reply?.at).map((m) => ({ ts: m.reply.at, who: 'claude', kind: 'reply', text: m.reply.md ?? m.reply.html ?? JSON.stringify(m.reply.json ?? '') }));
     // The line that ended it came after the message was handed over.
     const handed = thread.find((m) => m.who === 'love' && String(m.ts) === w.since)?.handed || w.since;
     const line = [...thread.filter(answersOwner), ...replies].filter((m) => String(m.ts) > handed)

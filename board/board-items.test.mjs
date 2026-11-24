@@ -263,6 +263,12 @@ test("item thread prints the owner's message and the board's lines in order, whi
   const out = r.out.trim().split('\n');
   assert.deepEqual(out.map((l) => l.replace(/^\S+ /, '')), ['love: Use the blue', 'claude: Blue it is.']);
   assert.equal((await board('item', 'thread', 'w/A1')).code, 2, 'it needs --site');
+  // It prints the reply to the message, and stamps the message delivered.
+  fs.mkdirSync(site('orch', 'data', 'replies'), { recursive: true });
+  fs.writeFileSync(site('orch', 'data', 'replies', 'm1.md'), 'Blue, done.');
+  const again = await board('item', 'thread', 'w/A1', '--site', 'orch');
+  assert.ok(again.out.split('\n').some((l) => l.endsWith('claude: Blue, done.')), again.out);
+  assert.ok(read(site('orch', 'data', 'delivered.json')).events.m1);
 });
 
 test('item notes --file - and item add --notes-from - read the draft from stdin', async () => {

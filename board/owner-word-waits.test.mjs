@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { buildBoard, orchestratorWaits, ownerWordEnds } from './domain.mjs';
 
 const at = (minute) => `2026-11-15T10:${String(minute).padStart(2, '0')}:00.000Z`;
-const built = ({ items, agents = {}, events = [], threads = {}, owner = {} }) => buildBoard({ now: Date.parse(at(59)), owner, events, threads, working: {},
+const built = ({ items, agents = {}, events = [], threads = {}, owner = {}, delivered = {} }) => buildBoard({ now: Date.parse(at(59)), owner, events, threads, working: {}, delivered,
   files: [{ slug: 'w', agents, itemFile: { internal: true, items } }] });
 const waits = (snapshot) => orchestratorWaits(built(snapshot)).map(({ key, kind, since, next }) => [key, kind, since, next]);
 const card = (item = {}) => ({ id: 'A1', title: 'One', created: at(0), phase: 'discussing', lane: 'todo', ...item });
@@ -48,7 +48,7 @@ test("a card whose newest thread message is the owner's waits on the orchestrato
   const marked = card({ waits_on_owner: { on: 'implement', at: at(1), phase: 'discussing', lane: 'todo' } });
   assert.deepEqual(waits({ items: [marked], events: [said(5), said(7)] }), [['w/A1', 'reply', at(5), "Act on the owner's reply: answer it in the thread, or act and let the action's line answer it"]]);
   // Any line the orchestrator writes after it ends it, a status line too; a builder's progress line or ask doesn't.
-  for (const answer of [line(8), line(8, { command: 'staged', text: 'Marked as staged' }), line(8, { kind: 'move', text: 'Moved' }), line(8, { kind: 'hub', line: 'pulled', text: 'Moved to In Progress' })]) {
+  for (const answer of [line(8), line(8, { kind: 'move', text: 'Moved' }), line(8, { kind: 'hub', line: 'pulled', text: 'Moved to In Progress' })]) {
     assert.deepEqual(waits({ items: [marked], events: [said(5)], threads: { 'w/A1': [answer] } }), [], JSON.stringify(answer));
   }
   assert.deepEqual(waits({ items: [marked], events: [said(5)], threads: { 'w/A1': [line(8, { kind: 'status', text: 'Reading: x' })] } }).map((w) => w[1]), ['reply'], 'a progress line');
@@ -65,11 +65,29 @@ test("a card whose newest thread message is the owner's waits on the orchestrato
   assert.deepEqual(waits({ items: [card({ lane: 'done', closed_at: at(6) })], events: [said(5)] }), []);
 });
 
+test("a reply answers its message whatever its handed stamp, a line or action only after it, and a board command line never", () => {
+  const marked = card({ waits_on_owner: { on: 'implement', at: at(1), phase: 'discussing', lane: 'todo' } });
+  const handedAt10 = { since: at(1), events: { m5: at(10) } };
+  const open = (extra) => waits({ items: [marked], events: [said(5)], delivered: handedAt10, ...extra }).map((w) => w[1]);
+  assert.deepEqual(open({}), ['reply']);
+  assert.deepEqual(open({ events: [{ ...said(5), reply: { at: at(7), md: 'Done.' } }] }), [], 'a reply before the handed stamp');
+  assert.deepEqual(open({ threads: { 'w/A1': [line(7)] } }), ['reply'], 'a thread line before the handed stamp');
+  assert.deepEqual(open({ threads: { 'w/A1': [line(12)] } }), [], 'a thread line after it');
+  for (const command of ['related', 'staged']) assert.deepEqual(open({ threads: { 'w/A1': [line(12, { command, text: 'Related to T-1' })] } }), ['reply'], `a ${command} command line`);
+});
+
+test("a reply's body ends the wait in the log as its text", () => {
+  const previous = [{ key: 'w/A1', ref: 'A1', kind: 'reply', since: at(5) }];
+  const b = built({ items: [card()], events: [{ ...said(5), reply: { at: at(8), md: 'Done.' } }] });
+  b.threadViews = { 'w/A1': [{ ts: at(5), who: 'love', handed: at(5) }, { ts: at(5), who: 'love', handed: at(5), reply: { at: at(8), md: 'Done.' } }] };
+  assert.equal(ownerWordEnds(previous, [], b, new Date(at(21)))[0].endedBy.text, 'Done.');
+});
+
 test("each owner's-last-word wait that ends is logged with the line that ended it and how long it waited", () => {
   const previous = [{ key: 'w/A1', ref: 'A1', kind: 'reply', since: at(5) }, { key: 'w/A2', ref: 'A2', kind: 'limbo', since: at(0) }];
-  const answered = built({ items: [card()], events: [said(5)], threads: { 'w/A1': [line(20, { command: 'staged', text: 'Marked as staged' })] } });
+  const answered = built({ items: [card()], events: [said(5)], threads: { 'w/A1': [line(20)] } });
   assert.deepEqual(ownerWordEnds(previous, orchestratorWaits(answered), answered, new Date(at(21))),
-    [{ key: 'w/A1', ref: 'A1', messageAt: at(5), endedAt: at(20), endedBy: { who: 'claude', kind: 'command', command: 'staged', text: 'Marked as staged' }, minutes: 15 }]);
+    [{ key: 'w/A1', ref: 'A1', messageAt: at(5), endedAt: at(20), endedBy: { who: 'claude', text: 'On it.' }, minutes: 15 }]);
   // Still waiting: nothing is logged.
   const still = built({ items: [card()], events: [said(5)] });
   assert.deepEqual(ownerWordEnds(previous, orchestratorWaits(still), still, new Date(at(21))), []);
