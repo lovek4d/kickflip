@@ -19,6 +19,7 @@ const scriptsNotes = (has) => {
 };
 // The questions the scripts card's notes give its grill to post: the notes' one json block.
 const questionsOf = (notes) => JSON.parse(/```json\n([\s\S]*?)\n```/.exec(notes)[1]);
+const existing = (q) => q.options.filter((o) => o.existing).map((o) => o.id);
 const recommended = (q) => q.options.filter((o) => o.recommended).map((o) => o.id);
 
 test('onboarding cards are filed grilling as tasks keyed T-<n> with no ticket, each with a notes file', () => {
@@ -45,6 +46,7 @@ test('with the script in neither home, kickflip is recommended and nothing is pr
   for (const [q, name] of questionsOf(scriptsNotes({})).map((q, i) => [q, ['test', 'build', 'release'][i]])) {
     assert.deepEqual(recommended(q), ['kickflip']);
     assert.equal(q.suggested, undefined);
+    assert.deepEqual(existing(q), []);
     assert.ok(q.context.endsWith(`The repo's main has no \`.kickflip/${name}\`. Kickflip holds no \`${name}\` for this board.`), q.context);
   }
 });
@@ -58,6 +60,9 @@ test('a script the repo already has recommends and preselects Create in repo, sa
   }
   assert.ok(release.context.includes('Kickflip also holds `release` for this board.'), release.context);
   assert.deepEqual(recommended(build), ['kickflip']);
+  assert.deepEqual(existing(testQ), ['repo']);
+  assert.deepEqual(existing(build), ['kickflip']);
+  assert.deepEqual(existing(release), ['repo', 'kickflip']);
   assert.deepEqual(build.suggested, { option: 'kickflip', reason: 'Kickflip already holds `build` for this board.' });
 });
 

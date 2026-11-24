@@ -61,7 +61,7 @@ const SCRIPTS = [
 ];
 
 // The question for one script, given what each home holds: the home that already has it recommended and preselected,
-// the repo's ahead of kickflip's; else kickflip recommended.
+// the repo's ahead of kickflip's; else kickflip recommended. Each home that holds it badges its option existing.
 function scriptQuestion({ name, what, without }, has) {
   const inRepo = Boolean(has[name]);
   const inKickflip = Boolean(has.kickflip?.[name]);
@@ -72,7 +72,7 @@ function scriptQuestion({ name, what, without }, has) {
     { id: 'repo', label: 'Create in repo', detail: `\`.kickflip/${name}\` committed to the repo, reviewed and landed like code, so a task can try a script change on its branch.` },
     { id: 'kickflip', label: 'Create in kickflip', detail: `The board keeps its own \`${name}\` in its site's \`scripts/\` folder, written with \`board.mjs script set ${name} --file <file>\`, so the repo needs no \`.kickflip/\` folder. One copy serves every task and main.` },
     { id: 'none', label: "Don't create", detail: without },
-  ].map((o) => (o.id === pick ? { ...o, recommended: true } : o));
+  ].map((o) => ({ ...o, ...(o.id === pick && { recommended: true }), ...((o.id === 'repo' ? inRepo : o.id === 'kickflip' && inKickflip) && { existing: true }) }));
   return { question: `Set up a ${name} script?`, context: `${what} ${repoLine} ${kickflipLine}`, options,
     ...(inRepo || inKickflip ? { suggested: { option: pick, reason: inRepo ? repoLine : kickflipLine } } : {}) };
 }
