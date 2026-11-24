@@ -961,6 +961,7 @@ export async function writeBrief(site, key, { kind, file, final }) {
   if (card.finished) fail(`${name} is done; there is nothing to brief`);
   if (card.lane === 'todo' && STAGED_PHASES.includes(card.storedPhase)) fail(`${name} is ${card.storedPhase}, so it gets no ${kind} brief until it is back to discussing`);
   if (!beside({ kind }) && card.lane !== 'todo') fail(`${name} is past Todo, so it gets no ${kind}`);
+  if (final && !(card.lane === 'todo' && OWES_IMPLEMENT.includes(card.storedPhase || 'new'))) fail(`${name} owes no Implement, so a final visual has none to mark; brief a plain visual (item brief ${key} --kind ${VISUAL} --file <draft.md>)`);
   const body = (await refuseCardNotes(site, file, '--file', () => `${DRAFT_HINT}, holding only the brief`)).trim();
   if (!body) fail(`${file} is empty`);
   const notes = item.plan ? (await readNotes(site, key)).markdown : '';

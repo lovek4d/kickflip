@@ -189,6 +189,24 @@ test('item brief --final writes a final visual brief, which its agent launches f
   assert.deepEqual(t1().briefs.map((b) => [b.kind, b.brief.final]), [['visual', true]]);
 });
 
+// docs/adr/2026-11-17-1600-a-final-visual-ends-on-the-cards-implement.md
+test('item brief --final is refused on a card that no longer owes Implement, and says to brief a plain visual', async () => {
+  fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  await triage('audit/T-1');
+  const items = read(audit('data', 'items.json'));
+  fs.writeFileSync(audit('data', 'items.json'), JSON.stringify({ items: items.items.map((i) => (i.id === 'T-1' ? { ...i, lane: 'review', phase: undefined } : i)) }));
+  const draft = path.join(home, 'late-final.md');
+  fs.writeFileSync(draft, 'Draw the footer as built.');
+  const refused = await board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--final', '--file', draft, '--site', 'audit');
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.err, /owes no Implement/);
+  assert.match(refused.err, /plain visual/);
+  const plain = await board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--file', draft, '--site', 'audit');
+  assert.deepEqual([plain.code, plain.err], [0, '']);
+});
+
 // docs/adr/2026-11-19-0300-a-take-pick-owes-a-final-visual-and-its-confirm-is-implement.md
 test('a brief for the visual a take pick owes is final without --final, and says so; the brief wait names --final', async () => {
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
