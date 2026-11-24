@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { HOST_BUSY, failingOnBase, nodeTests, passTests, testArgs, testConcurrency } from './worktree.mjs';
+import { CUT_OFF_EXIT } from './test-cut-off.mjs';
 import { machineFile } from '../shared/machine-gate.mjs';
 import { until } from '../shared/test-helpers.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
@@ -102,11 +103,31 @@ test('waits on a child', () => new Promise((resolve) => spawn(process.execPath, 
   fs.writeFileSync(path.join(tree, 'fine.test.mjs'), "import test from 'node:test';\ntest('fine', () => {});\n");
   // The file limit is past the run's cutoff, so only the cutoff ends the waiting file.
   const r = await nodeTests(tree, { limit: 16000, fileLimit: 60000 });
+  assert.equal(r.ok, false);
   assert.equal(r.hung, undefined);
   assert.equal(r.pass, 1);
-  assert.deepEqual(r.failedFiles, ['waits.test.mjs']);
-  assert.equal(r.failures.length, 1);
-  assert.match(r.failures[0], /^\S*waits\.test\.mjs\n.*waits\.test\.mjs:\d+:\d+\n  Error: test file still running near the run's 16-second cutoff after \d+ seconds, held open by .*ProcessWrap.*, waiting on .*-e setInterval\(\(\) => \{\}, 1000\) slow-command/);
+  // Cut off, not failed: no failing file or failure, so the land reruns it rather than refusing.
+  assert.deepEqual(r.failedFiles, []);
+  assert.deepEqual(r.failures, []);
+  assert.equal(r.cutOff.after, '16 seconds');
+  assert.deepEqual(r.cutOff.files, ['waits.test.mjs']);
+  assert.equal(r.cutOff.failures.length, 1);
+  assert.match(r.cutOff.failures[0], /^\S*waits\.test\.mjs\n.*waits\.test\.mjs:\d+:\d+\n  Error: test file still running near the run's 16-second cutoff after \d+ seconds, held open by .*ProcessWrap.*, waiting on .*-e setInterval\(\(\) => \{\}, 1000\) slow-command/);
+});
+
+// What T-855's and T-859's lands hit: the runner starts a queued file after the run's end, which runs into the cutoff.
+test("a test file the runner starts after the run's end exits at once as cut off, before any of its code runs", (t) => {
+  const dir = home(t);
+  const ran = path.join(dir, 'ran');
+  const file = path.join(dir, 'late.test.mjs');
+  fs.writeFileSync(file, `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(ran)}, 'ran');\n`);
+  const r = spawnSync(process.execPath, [`--import=${new URL('./exit-with-run.mjs', import.meta.url).pathname}`, file], {
+    encoding: 'utf8',
+    env: { ...process.env, NODE_TEST_CONTEXT: 'child-v8', KICKFLIP_TEST_RUN: String(process.pid), KICKFLIP_TEST_FILE_LIMIT: '60000', KICKFLIP_TEST_RUN_ENDS: String(Date.now() - 1000), KICKFLIP_TEST_RUN_LIMIT: '900000' },
+  });
+  assert.equal(r.status, CUT_OFF_EXIT);
+  assert.equal(r.stderr, "Error: test file not started: the run's 15-minute cutoff is near\n");
+  assert.equal(fs.existsSync(ran), false);
 });
 
 test('a suite that passes resolves with its counts and saves no log', async (t) => {
@@ -184,6 +205,70 @@ test("a land passes a run whose failing files fail on the base too, each untouch
   const own = await passTests('/wt', { runTests: run({ 'x.test.mjs': ['a'], 'y.test.mjs': ['a'] }, ['y.test.mjs']), outcome: 'nothing landed', onBaseRun: base({ 'y.test.mjs': ['a'] }) }).catch((e) => e);
   assert.match(own.message, /tests failed in \/wt/);
   assert.equal(own.failsOnBase, undefined, 'x.test.mjs passes on the base, so the change broke it');
+});
+
+// A run whose test files were cut off by its time limit, else failing: cut, the files cut off; failed, each failing file's
+// failures' keys.
+const cutRun = (cut, failed = {}) => ({
+  ok: false, pass: 5, fail: cut.length + Object.keys(failed).length, failedFiles: Object.keys(failed), signatures: failed,
+  failures: Object.values(failed).flat(),
+  ...(cut.length ? { cutOff: { after: '15 minutes', files: cut, failures: cut.map((f) => `${f}\n  Error: test file still running near the run's 15-minute cutoff`) } } : {}),
+});
+
+test('a land whose only failures are files the run cut off reruns just those once, and lands when they pass', async (t) => {
+  home(t);
+  const runs = [];
+  const said = [];
+  const runTests = async (dir, { files } = {}) => { runs.push(files); return runs.length === 1 ? cutRun(['a.test.mjs', 'b.test.mjs']) : { ok: true, pass: 7, fail: 0 }; };
+  const passed = await passTests('/wt', { say: (l) => said.push(l), runTests, outcome: 'nothing landed', onBaseRun: () => assert.fail('a cut-off file is not rerun on the base') });
+  assert.equal(passed, undefined);
+  assert.deepEqual(runs, [undefined, ['a.test.mjs', 'b.test.mjs']]);
+  assert.deepEqual(said, [
+    "a.test.mjs, b.test.mjs cut off by the run's limit of 15 minutes; running them again on their own",
+    'tests passed: 12',
+  ]);
+});
+
+test('a land whose cut-off files are cut off or fail again refuses, naming them', async (t) => {
+  home(t);
+  const again = (second) => { let n = 0; return async () => (n++ ? second : cutRun(['a.test.mjs', 'b.test.mjs'])); };
+  const cut = await passTests('/wt', { say: () => {}, runTests: again({ ...cutRun(['b.test.mjs']), log: '/logs/land-1.tap' }), outcome: 'nothing landed' }).catch((e) => e);
+  assert.equal(cut.message, [
+    "tests cut off by the run's limit of 15 minutes twice in b.test.mjs; nothing landed",
+    "b.test.mjs\n  Error: test file still running near the run's 15-minute cutoff",
+    'Full test output: /logs/land-1.tap',
+  ].join('\n'));
+  const failed = await passTests('/wt', { say: () => {}, runTests: again(cutRun([], { 'a.test.mjs': ['a broke'] })), outcome: 'nothing landed', onBaseRun: () => assert.fail('the rerun is not rerun on the base') }).catch((e) => e);
+  assert.equal(failed.message, 'tests failed in /wt (1 failing); nothing landed\na broke');
+});
+
+test('a land with a real failure beside cut-off files refuses naming the failure, rerunning nothing but the failing file on the base', async (t) => {
+  home(t);
+  const runs = [];
+  const asked = [];
+  const runTests = async (dir, { files } = {}) => { runs.push(files); return cutRun(['a.test.mjs', 'b.test.mjs'], { 'server.test.mjs': ['server broke'] }); };
+  const e = await passTests('/wt', { say: () => {}, runTests, outcome: 'nothing landed', onBaseRun: async (files) => { asked.push(files); return { failedFiles: [], signatures: {} }; } }).catch((err) => err);
+  assert.deepEqual(runs, [undefined]);
+  assert.deepEqual(asked, [['server.test.mjs']]);
+  assert.equal(e.message, [
+    'tests failed in /wt (1 failing); nothing landed',
+    'server broke',
+    "cut off by the run's limit of 15 minutes, not run again: a.test.mjs, b.test.mjs",
+  ].join('\n'));
+});
+
+test('a land whose real failures fail the same on the base still reruns its cut-off files before it goes on', async (t) => {
+  home(t);
+  const runs = [];
+  const said = [];
+  const runTests = async (dir, { files } = {}) => { runs.push(files); return runs.length === 1 ? cutRun(['a.test.mjs'], { 'x.test.mjs': ['x broke'] }) : { ok: true, pass: 3, fail: 0 }; };
+  const passed = await passTests('/wt', { say: (l) => said.push(l), runTests, outcome: 'nothing landed', onBaseRun: async () => ({ failedFiles: ['x.test.mjs'], signatures: { 'x.test.mjs': ['x broke'] } }) });
+  assert.deepEqual(runs, [undefined, ['a.test.mjs']]);
+  assert.deepEqual(passed, { failingOnBase: ['x.test.mjs'] });
+  assert.deepEqual(said, [
+    "a.test.mjs cut off by the run's limit of 15 minutes; running it again on its own",
+    'x.test.mjs fail on the base too, so the change didn\'t break them',
+  ]);
 });
 
 test('a failing run keys each failure by its file, the same wherever the run is checked out: no location, duration or stack', async (t) => {

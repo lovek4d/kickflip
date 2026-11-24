@@ -15,3 +15,5 @@ What held the 11/22 lands was host load, not a hang, a lander's environment or b
 - their git commands sat in disk wait for seconds each.
 
 A quiet host runs hub/sessions, the hub/try* files and hub/views together in 75 seconds. Those files spawn real servers, git repos and CLIs, so they are the ones a loaded host leaves running at the cutoff.
+
+Amended by [a test file cut off by the run's limit reruns on its own](2026-11-24-2240-a-test-file-cut-off-by-the-runs-limit-reruns-on-its-own.md): a file the cutoff ends, or the runner starts after the run's end, exits 75 and reads as cut off, not failed; a land reruns such files once on their own and never on base.

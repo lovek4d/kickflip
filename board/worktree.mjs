@@ -27,6 +27,7 @@ import { readMachineState } from '../shared/machine-gate.mjs';
 import { backgroundArgv } from './background.mjs';
 import { buildScriptError, scriptFileOf, scriptsOf } from './build-script.mjs';
 import { DETAIL_CAP } from './hub-lines.mjs';
+import { CUT_OFF_EXIT } from './test-cut-off.mjs';
 
 export const skillRepo = cloneRoot;
 export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'worktrees');
@@ -291,9 +292,10 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     said.push(report.update(`${done.length} tests run, ${done.filter(Boolean).length} failing`));
   }, every);
   const { NODE_TEST_CONTEXT: _, ...rest } = process.env;
-  // A run started from inside a run's test has the import already, and watches its own starter.
+  // A run started from inside a run's test has an import already, maybe another checkout's copy, which would read this
+  // run's settings by its own rules, so this run's copy replaces it.
   const exitWithRun = `--import=${JSON.stringify(EXIT_WITH_RUN)}`;
-  const options = rest.NODE_OPTIONS?.includes(exitWithRun) ? rest.NODE_OPTIONS : [rest.NODE_OPTIONS, exitWithRun].filter(Boolean).join(' ');
+  const options = [rest.NODE_OPTIONS?.replace(/\s*--import="[^"]*\/exit-with-run\.mjs"/g, '').trim(), exitWithRun].filter(Boolean).join(' ');
   const ends = began + limit - Math.min(FILE_END_MARGIN, limit / 4);
   // The run's own temp folder, its TMPDIR, removed as it ends: a test file killed outright leaves its temp dirs there.
   // Its name is short, as a unix socket path under it (Chrome's, a test's) has room for about 100 characters.
@@ -307,19 +309,23 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
     const count = (name) => Number(stdout.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] ?? 0);
     const result = { ok: status === 0, pass: count('pass'), fail: count('fail') };
+    const all = result.ok ? [] : tapFailures(stdout, dir);
+    const failed = all.filter((f) => !f.cutOff);
+    const cut = all.filter((f) => f.cutOff);
     const seconds = Math.round((Date.now() - began) / 1000);
-    said.push(report?.end(`${result.pass} passed, ${result.fail} failed in ${minutes(seconds)}`, { failed: result.fail }));
+    said.push(report?.end(`${result.pass} passed, ${result.fail - cut.length} failed${cut.length ? `, ${cut.length} cut off` : ''} in ${minutes(seconds)}`, { failed: result.fail - cut.length }));
     await Promise.all(said);
     if (result.ok) return result;
     Object.assign(result, saveLog(stdout + stderr, left, 'tap'));
     // The runner's own args name every file, so only its children's name the files still running.
     const children = left?.filter((line) => Number(line.split(/\s+/)[1]) !== run.pid);
     if (left) result.hung = { after: duration(limit), files: files.filter((f) => children.some((p) => p.includes(f))).map((f) => path.relative(dir, f)) };
-    const failed = tapFailures(stdout, dir);
     result.failures = failed.map((f) => f.text);
-    // The test files holding a failing test, by the location the runner reports for it, each with its failures' keys.
-    const places = stdout.split('\n').filter((line) => /^\s*location: /.test(line));
-    result.failedFiles = files.map((f) => path.relative(dir, f)).filter((rel) => places.some((line) => line.includes(`/${rel}:`)));
+    // The test files holding a failing test, by the location the runner reports for it, each with its failures' keys;
+    // and those the run cut off, each reported as a failure of the whole file (exit-with-run.mjs).
+    const filesOf = (some) => files.map((f) => path.relative(dir, f)).filter((rel) => some.some((f) => f.location?.includes(`/${rel}:`)));
+    result.failedFiles = filesOf(failed);
+    if (cut.length) result.cutOff = { after: duration(limit), files: filesOf(cut), failures: cut.map((f) => f.text) };
     result.signatures = Object.fromEntries(result.failedFiles.map((rel) => [rel, failed.filter((f) => f.location?.includes(`/${rel}:`)).map((f) => f.key)]));
     const firstErr = stderr.trim().split('\n')[0];
     result.error = `${signal ? `test runner killed by ${signal}` : `test runner exited ${status}`}${firstErr ? `: ${firstErr}` : ''}`;
@@ -424,7 +430,7 @@ async function scriptTests(dir, { home, file, args, limit = 15 * 60 * 1000, repo
 
 // Each failing test of a TAP run in dir: {text, the name, location and error excerpt a refusal shows; location; key,
 // its name and diagnostic without the location, duration and stack, and dir read as ".", so the same failure in another
-// checkout of the repo has the same key}.
+// checkout of the repo has the same key; cutOff, a test file whose process the run's cutoff ended (CUT_OFF_EXIT)}.
 const UNKEYED = ['location', 'duration_ms', 'stack'];
 function tapFailures(tap, dir) {
   // The longer first, so a symlinked tmp's real path (/private/var/…) isn't half replaced through its link (/var/…).
@@ -474,6 +480,7 @@ function tapFailures(tap, dir) {
       text: `${name}\n  ${location ? scalar(location) : 'file not reported by test runner'}${excerpt.length ? '\n' + excerpt.slice(0, 3).map((line) => `  ${line}`).join('\n') : ''}`,
       location: location && scalar(location),
       key: here.reduce((k, d) => k.split(d).join('.'), [name, ...kept].join('\n')),
+      cutOff: field('exitCode') === String(CUT_OFF_EXIT),
     });
   }
   return failures;
@@ -757,8 +764,10 @@ export function syncBase(repo, base) {
   if (!moved.ok) fail(`${base} in ${repo} doesn't fast-forward to origin's (${moved.err}); bring it level with origin/${base} and land again`);
 }
 
-// The tests the change in a worktree since base affects (affected.mjs), as passTests' runTests, saying which run.
-export const affectedRun = (base, say = console.log) => (dir, { report } = {}) => {
+// The tests the change in a worktree since base affects (affected.mjs), as passTests' runTests, saying which run; given
+// files, just those, as passTests' rerun of the files a run cut off.
+export const affectedRun = (base, say = console.log) => (dir, { report, files: only } = {}) => {
+  if (only) return nodeTests(dir, { files: only, report });
   const { files, full, touched } = affectedTests(dir, base);
   say(full ? `testing every test file, as ${full}` : `testing the ${files.length} test files the change affects`);
   return nodeTests(dir, { files, report }).then((tests) => ({ ...tests, touched }));
@@ -801,8 +810,8 @@ export async function untilHostEases({ say = console.log, report, wait = sleep }
 }
 
 // Runs the worktree's tests (runTests, else the full suite) once the host eases (untilHostEases), at once for a bumped
-// card's land (docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md), refusing on a failure with each failing test, or on a run cut off at its time limit
-// with the files still running, and outcome, what the refusal left undone.
+// card's land (docs/adr/2026-11-19-0242-a-bump-goes-first-in-every-queue.md), refusing on a failure with each failing
+// test, or on a run cut off at its time limit with the files still running, and outcome, what the refusal left undone.
 // report, when given, is told the run's start, progress and result ({start, update, end}, each taking words; nodeTests).
 // onBaseRun, when given, runs the failing test files on base (failingOnBase's answer) once the run fails
 // (docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md). When every one fails there too,
@@ -811,27 +820,45 @@ export async function untilHostEases({ say = console.log, report, wait = sleep }
 // failure left to a Found: call, not the card.
 // When every one fails there too but a touched one fails differently, the refusal carries failsOnBase, the failing
 // files, so the land waits on main's fix rather than the card's.
+// The test files the run's cutoff ended (nodeTests cutOff) are never run on base. When they are all that failed, or the
+// rest fail on base too, they run again once on their own, and a failure or cutoff there refuses
+// (docs/adr/2026-11-24-2240-a-test-file-cut-off-by-the-runs-limit-reruns-on-its-own.md). Beside another failure they
+// are named in its refusal, not run again.
 export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report, onBaseRun, wait, bumped = false }) {
   if (!bumped) await untilHostEases({ say, report, wait });
-  const tests = await runTests(dir, { report });
+  let tests = await runTests(dir, { report });
   let failsOnBase;
+  let excused;
   if (!tests.ok && !tests.hung && onBaseRun && tests.failedFiles?.length) {
     const onBase = await onBaseRun(tests.failedFiles);
     if (tests.failedFiles.every((f) => onBase.failedFiles.includes(f))) {
       const same = (f) => tests.touched?.includes(f) === false
         || JSON.stringify([...tests.signatures[f]].sort()) === JSON.stringify([...onBase.signatures[f]].sort());
-      if (tests.failedFiles.every(same)) {
-        say(`${tests.failedFiles.join(', ')} fail on the base too, so the change didn't break them`);
-        return { failingOnBase: tests.failedFiles };
-      }
-      failsOnBase = tests.failedFiles;
+      if (tests.failedFiles.every(same)) excused = tests.failedFiles;
+      else failsOnBase = tests.failedFiles;
     }
+  }
+  if (tests.cutOff && !tests.hung && (excused || !tests.failedFiles.length)) {
+    const { files, after } = tests.cutOff;
+    say(`${files.join(', ')} cut off by the run's limit of ${after}; running ${files.length === 1 ? 'it again on its own' : 'them again on their own'}`);
+    const rerun = await runTests(dir, { report, files });
+    if (!rerun.ok) excused = undefined;
+    tests = { ...rerun, pass: tests.pass + rerun.pass };
+  }
+  if (excused) {
+    say(`${excused.join(', ')} fail on the base too, so the change didn't break them`);
+    return { failingOnBase: excused };
   }
   const log = tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : [];
   if (tests.hung) fail([`tests hung past ${tests.hung.after} in ${tests.hung.files.join(', ') || 'the test runner'}; ${outcome}`, ...log].join('\n'));
+  const cut = tests.cutOff;
+  // Only a rerun's cutoff leaves a run with nothing else failing here.
+  if (cut && !tests.failedFiles.length) fail([`tests cut off by the run's limit of ${cut.after} twice in ${cut.files.join(', ')}; ${outcome}`, ...cut.failures, ...log].join('\n'));
+  const failing = tests.fail - (cut?.failures.length ?? 0);
   if (!tests.ok) throw Object.assign(new BoardError([
-    `tests failed in ${dir}${tests.fail ? ` (${tests.fail} failing)` : ''}; ${outcome}`,
+    `tests failed in ${dir}${failing ? ` (${failing} failing)` : ''}; ${outcome}`,
     ...(tests.failures?.length ? tests.failures : [tests.error || 'test runner failed without test diagnostics']),
+    ...(cut ? [`cut off by the run's limit of ${cut.after}, not run again: ${cut.files.join(', ')}`] : []),
     ...log,
   ].join('\n')), failsOnBase ? { failsOnBase, log: tests.log } : {});
   say(tests.passed ?? `tests passed: ${tests.pass}`);

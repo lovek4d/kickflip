@@ -42,6 +42,15 @@ const failing = { ok: false, pass: 10, fail: 2, failures: ['a > breaks\n  board/
 const passing = { ok: true, pass: 12, fail: 0 };
 const eases = async () => {};
 
+test('a night whose run had files cut off by its limit lists them with its failures', async () => {
+  fs.rmSync(suiteStateFile(), { force: true });
+  const sites = Object.fromEntries([board('cut')]);
+  const cut = { ...failing, failures: [], cutOff: { after: '15 minutes', files: ['board/slow.test.mjs'], failures: ["board/slow.test.mjs\n  Error: test file still running near the run's 15-minute cutoff"] } };
+  await runNightlySuite({ now: t(3, 1), settings: DEFAULTS, manifest: { sites }, runTests: async () => cut, eases });
+  const [filed] = asks(sites.cut.dir);
+  assert.match(filed.data.text, /^- board\/slow\.test\.mjs\n  Error: test file still running near the run's 15-minute cutoff$/m);
+});
+
 test('the nightly suite is due once a night, from the middle of quiet hours to their end', () => {
   assert.equal(suiteDue(t(2, 59), DEFAULTS), null);
   assert.equal(suiteDue(t(3), DEFAULTS), '2026-10-14');

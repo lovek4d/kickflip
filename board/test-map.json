@@ -44,6 +44,9 @@
     ],
     "shared/temp-dir.test.mjs": [
       "shared/temp-dir.mjs"
+    ],
+    "board/suite-run.test.mjs": [
+      "board/exit-with-run.mjs"
     ]
   }
 }

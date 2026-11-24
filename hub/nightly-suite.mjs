@@ -25,7 +25,8 @@ function failureText(base, sha, tests) {
   const total = tests.pass + tests.fail;
   const what = tests.hung ? `it hung past ${tests.hung.after} in ${tests.hung.files.join(', ') || 'the test runner'}`
     : total ? `${tests.fail} of ${total} tests failed` : tests.error;
-  const failures = tests.failures || [];
+  // A file the run's limit cut off is listed with the failures: the night's run is never run again.
+  const failures = [...(tests.failures || []), ...(tests.cutOff?.failures || [])];
   return [
     `Nightly full suite failed on ${base} at ${sha}: ${what}.`,
     ...(failures.length ? ['', ...failures.slice(0, FAILURES_SHOWN).map((f) => `- ${f}`), ...(failures.length > FAILURES_SHOWN ? [`- and ${failures.length - FAILURES_SHOWN} more`] : [])] : ['', tests.error || 'The runner named no failing test.']),
