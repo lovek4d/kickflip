@@ -713,23 +713,26 @@ function refuseNumberedAdr(repo, base, branch) {
 }
 
 // docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md
-// The commits branch adds since it left base made one commit in the worktree dir, its message squashMessage's (ref the
-// card's, title the builder's --title), its author and date the branch's first commit's. Refuses, changing nothing, a
-// message with an empty subject, one still holding the "# Conflicts:" note a `rebase --continue` under
-// core.commentChar=';' keeps as message text, or on a card a subject off the commit standard
-// (docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md), naming the first commit,
-// where the subject and detail come from. A branch already one commit with that message is left as it is.
-function squash(dir, repo, base, branch, { ref, title }) {
+// The commits branch adds since it left base made one commit in the worktree dir, its message squashMessage's (with
+// commit, the card's store.commitRefs: its ticket ending the subject and its Refs trailers; title the builder's
+// --title), its author and date the branch's first commit's. Refuses, changing nothing, a message with an empty
+// subject, one still holding the "# Conflicts:" note a `rebase --continue` under core.commentChar=';' keeps as message
+// text, or on a card a subject off the commit standard
+// (docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md) or a message citing a
+// task key (docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md),
+// naming the first commit, where the subject and detail come from. A branch already one commit with that message is
+// left as it is.
+function squash(dir, repo, base, branch, { commit, title }) {
   const from = git(repo, 'merge-base', base, branch).out;
   const first = git(repo, 'rev-list', '--first-parent', '--reverse', `${from}..${branch}`).out.split('\n')[0];
   const commits = git(repo, 'rev-list', '--reverse', `${from}..${branch}`).out.split('\n');
   const messageOf = (c) => git(repo, 'log', '-1', '--format=%B', c).out;
-  const message = squashMessage([first, ...commits.filter((c) => c !== first)].map(messageOf), { ref, title });
+  const message = squashMessage([first, ...commits.filter((c) => c !== first)].map(messageOf), { refs: commit?.refs, ticket: commit?.ticket, title });
   const subject = message.split('\n')[0];
   const named = `commit ${short(repo, first)} "${subject}"`;
   if (!subject) fail(`${branch} has a commit with an empty subject (${short(repo, first)}); reword it in ${dir} and land again`);
   if (/^# Conflicts:/m.test(message)) fail(`land: ${named} still holds a "# Conflicts:" note in its message; amend it out and land again`);
-  const fault = ref && subjectFault(subject);
+  const fault = commit && (subjectFault(subject) || commit.cites(message));
   if (fault) fail(`land: ${named} ${fault}; reword it to the commit standard and land again`);
   if (commits.length === 1 && messageOf(first) === message) return;
   if (git(repo, 'diff', '--quiet', from, branch).ok) fail(`${branch}'s commits change nothing beyond ${base}; nothing to land`);
@@ -838,9 +841,9 @@ export async function passTests(dir, { say = console.log, runTests = nodeTests, 
 // The part of a land that runs outside the land lock: the checks, the squash of the branch into one commit (squash),
 // the rebase of that commit onto base when base moved, a release's check (release.mjs checkRelease), and the repo's
 // tests (repoRun: its test script, else the node tests the change affects).
-// title is the builder's --title, the squash commit's subject. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
+// title is the builder's --title, the squash commit's subject, and commit the card's store.commitRefs. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
 // still it, with base not moved past it, is not tested again. site is the card's board, whose release script the check runs.
-export async function prepareLand({ path: dir, branch, repo, base, ref, title, site }, { say = console.log, runTests = repoRun({ home: scriptsOf(site), base, say }), report, found = () => {}, bumped = false } = {}) {
+export async function prepareLand({ path: dir, branch, repo, base, commit, title, site }, { say = console.log, runTests = repoRun({ home: scriptsOf(site), base, say }), report, found = () => {}, bumped = false } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
@@ -848,7 +851,7 @@ export async function prepareLand({ path: dir, branch, repo, base, ref, title, s
   const fault = title !== undefined && subjectFault(title);
   if (fault) fail(`--title "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 100 characters`);
   refuseNumberedAdr(repo, base, branch);
-  squash(dir, repo, base, branch, { ref, title });
+  squash(dir, repo, base, branch, { commit, title });
 
   if (!git(repo, 'merge-base', '--is-ancestor', base, branch).ok) {
     const rebased = git(dir, 'rebase', '--quiet', base);

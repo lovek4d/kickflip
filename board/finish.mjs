@@ -17,7 +17,7 @@ import { ghSync, limitWords } from '../shared/gh.mjs';
 import { BoardError } from './checks.mjs';
 import { readLog } from './files.mjs';
 import { landRetry } from './hub-lines.mjs';
-import { threadFile, messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, appendWaitOver, setItem, appendMessage, builderModel, cardTitleOf, boardSource } from './cards.mjs';
+import { threadFile, messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, appendWaitOver, setItem, appendMessage, builderModel, cardTitleOf, boardSource, commitRefs, refuseCites } from './cards.mjs';
 import { checkClose } from './questions.mjs';
 import { readBoardSettings } from './settings.mjs';
 import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase, endFixRun, keptPRBody, dropPRBody } from './runs.mjs';
@@ -30,7 +30,7 @@ import { landByBuilder } from './headless.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { commentTicket } from './tickets.mjs';
-import { subjectFault } from './commit-message.mjs';
+import { subjectFault, withTicket } from './commit-message.mjs';
 
 const fail = (msg) => { throw new BoardError(msg); };
 const said = (text) => (typeof text === 'string' && text.trim() ? text.trim() : fail('--text must be non-empty text'));
@@ -99,7 +99,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   const testWaits = waitLines(site, key, 'test-waiting');
   let landed;
   try {
-    landed = await landInTurn({ ...tree, ref, site }, { hold: !go, onWait, onTurn, onTestWait: testWaits.onWait, onTestTurn: testWaits.over, queue, report, found: (words) => recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
+    landed = await landInTurn({ ...tree, ref, site, commit: await commitRefs(site, key) }, { hold: !go, onWait, onTurn, onTestWait: testWaits.onWait, onTestTurn: testWaits.over, queue, report, found: (words) => recordCall(site, key, words, {}), sync: () => remote && syncBase(tree.repo, base) });
   } catch (e) {
     // docs/adr/2026-11-17-0519-a-land-failing-on-mains-own-test-blocks-on-mains-fix.md
     if (!e.failsOnBase) throw e;
@@ -210,11 +210,16 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   if (blocked) fail(`${await cardName(site, key)} is blocked ${blocked}, so its PR waits; it opens once nothing blocks it`);
   // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: a new PR's title is a
   // Conventional subject, the builder's --title, else the card's title
-  // (docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md).
+  // (docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md), ending " (<ticket>)" with the card's ticket, as its
+  // squash commit's subject does; it and the PR's body cite no task key
+  // (docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md).
   const opens = github && !open;
-  const title = given ?? (opens ? await cardTitleOf(site, key) : undefined);
+  const named = given ?? (opens ? await cardTitleOf(site, key) : undefined);
+  const title = opens ? withTicket(named, (await commitRefs(site, key)).ticket) : named;
   const fault = opens && subjectFault(title);
   if (fault) fail(`${given === undefined ? "the task's title" : '--title'} "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 100 characters`);
+  const body = github ? await keptPRBody(site, key) : null;
+  if (github) await refuseCites(site, [title, opens ? body ?? text : body]);
   const report = await testReport(site, key, { phase: 'landing' });
   await passTests(dir, { runTests: repoRun({ home: scriptsOf(site), base: `refs/remotes/origin/${base}` }), outcome: 'nothing was pushed', report });
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: to a card's open PR, a rebased
@@ -226,8 +231,7 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
     : git(dir, 'push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`);
   if (!pushed.ok) fail(`could not push ${branch} to origin: ${pushed.err}`);
   // docs/adr/2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md: the body the build kept
-  // (--body-file) opens the PR, or replaces an open one's; with none kept, a new PR's body is text.
-  const body = github ? await keptPRBody(site, key) : null;
+  // (--body-file), read above, opens the PR, or replaces an open one's; with none kept, a new PR's body is text.
   if (open) {
     // Rebase-only: no more commits on base than the PR had, so the run replayed the PR's commits and added none of its own.
     const ahead = (tip) => Number(git(dir, 'rev-list', '--count', `refs/remotes/origin/${base}..${tip}`).out);

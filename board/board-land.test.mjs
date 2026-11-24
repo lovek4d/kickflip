@@ -42,7 +42,7 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   const done = await merge('w/A1', '--after-approval', 'Only a rebase onto main.', '--confirmed', 'the backfill ran on prod');
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out.trim().split('\n').at(-1), 'A1: merged');
-  assert.deepEqual(merges().at(-1), ['pr', 'merge', '7', '--repo', 'o/r', '--squash', '--subject', 'feat: the work', '--body', 'Checked it.\n\nRefs: A1\nCo-Authored-By: Claude <noreply@anthropic.com>']);
+  assert.deepEqual(merges().at(-1), ['pr', 'merge', '7', '--repo', 'o/r', '--squash', '--subject', 'feat: the work', '--body', 'Checked it.\n\nCo-Authored-By: Claude <noreply@anthropic.com>']);
   const merged = read(at('waves', 'w', 'wave.json')).items[0];
   assert.deepEqual([merged.lane, merged.prs.map((p) => [p.number, typeof p.merged_at])], ['done', [[7, 'string']]]);
   // The board's merged line, then the orchestrator's words on the merge as its message.
@@ -182,11 +182,12 @@ test("land --site refuses a squash message whose subject isn't Conventional or r
 
   assert.equal(git(worktree(), 'rev-parse', '--short', 'HEAD'), noted);
 
-  // Land writes the trailer block: the card's Refs, then each Co-Authored-By, with no blank line between.
+  // Land writes the trailer block: the card's Refs, none for a card with no ticket, then each Co-Authored-By, with no
+  // blank line between.
   git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '--amend', '-m', 'fix(board)!: fine\n\nThe detail.\n\nRefs: A2\n\nCo-Authored-By: X');
   const landed = await landOn();
   assert.equal(landed.code, 0, landed.err);
-  assert.equal(git(repo, 'log', '-1', '--format=%B', 'main').trim(), 'fix(board)!: fine\n\nThe detail.\n\nRefs: A1\nCo-Authored-By: X');
+  assert.equal(git(repo, 'log', '-1', '--format=%B', 'main').trim(), 'fix(board)!: fine\n\nThe detail.\n\nCo-Authored-By: X');
 });
 
 // docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md
@@ -213,14 +214,39 @@ test("every land squashes the card's branch into one commit on main: --title els
   assert.equal(r.code, 0, r.err);
   assert.equal(git(repo, 'rev-parse', 'main~1'), main);
   assert.equal(git(repo, 'rev-parse', 'main^{tree}'), tree);
-  assert.equal(git(repo, 'log', '-1', '--format=%B', 'main').trim(), 'feat(board): the title\n\nThe detail.\n\nRefs: A1\nCo-Authored-By: Claude <c@x>\nCo-Authored-By: Ann <ann@x>');
+  assert.equal(git(repo, 'log', '-1', '--format=%B', 'main').trim(), 'feat(board): the title\n\nThe detail.\n\nCo-Authored-By: Claude <c@x>\nCo-Authored-By: Ann <ann@x>');
   assert.equal(itemOf().lane, 'done');
+});
+
+// docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md
+test("a ticketed card lands with its ticket ending the subject and Refs for it and its related cards' tickets; a message citing a task key is refused, naming what to cite", async () => {
+  const repo = scratchRepo();
+  const { saveBoardSettings } = await import('./store.mjs');
+  await saveBoardSettings(site('orch'), { tickets: { source: 'github' } });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [
+    { id: 'A1', title: 'feat: one', ticket: '#7', related: ['T-3'] },
+    { id: 'T-3', title: 'feat: three', ticket: '#9' },
+    { id: 'T-4', title: 'feat: four', related: ['A1'] },
+    { id: 'T-5', title: 'feat: five' },
+  ] });
+  write(site('orch', 'data', 'done-archive.json'), { cards: [{ key: 'w/T-2', file: 'w', item: { id: 'T-2', title: 'fix: two', lane: 'done', ticket: '#6' } }] });
+  assert.equal((await onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
+  const main = git(repo, 'rev-parse', 'main');
+  commit(boardWorktree(), 'work.txt', 'built\n', 'feat(board): work\n\nFollows T-2, as T-5 began.\n\nRefs: #7');
+  const cited = await onOrch('land', 'w/A1', '--text', 'Checked.');
+  assert.equal(cited.code, 1);
+  assert.match(cited.err, /^land: commit \w+ "feat\(board\): work \(#7\)" the text leaves the board, where a task key means nothing: cite T-2 as #6; leave T-5 out, as it never left the board\. Outside text cites only tickets, PRs and commits; reword it to the commit standard and land again\n$/);
+  assert.equal(git(repo, 'rev-parse', 'main'), main);
+  git(boardWorktree(), 'commit', '--quiet', '--amend', '-m', 'feat(board): work\n\nFollows #6.\n\nRefs: #7\nCo-Authored-By: X');
+  const r = await onOrch('land', 'w/A1', '--text', 'Checked.');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(git(repo, 'log', '-1', '--format=%B', 'main').trim(), 'feat(board): work (#7)\n\nFollows #6.\n\nRefs: #7\nRefs: #9\nCo-Authored-By: X');
 });
 
 test('a branch already one commit with the squash message lands as that commit, unrewritten', async () => {
   const repo = scratchRepo();
   assert.equal((await board('builder', 'start', 'w/A1', '--worktree', '--repo', repo)).code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nThe detail.\n\nRefs: A1\nCo-Authored-By: X');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nThe detail.\n\nCo-Authored-By: X');
   const head = git(worktree(), 'rev-parse', 'HEAD');
   const r = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.']);
   assert.equal(r.code, 0, r.err);

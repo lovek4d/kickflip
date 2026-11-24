@@ -32,7 +32,7 @@ test('tickets link or are made in the board source through the CLI and an inject
   await saveBoardSettings(site('audit'), { tickets: { source: 'github' } });
   assert.equal(await cli('item', 'add', 'audit/F6', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: six', '--ticket', '#41'), 0);
   assert.equal(await cli('item', 'set', 'audit/F6', '--ticket', '41'), 0);
-  assert.equal(await cli('item', 'add', 'audit/G7', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: seven', '--notes', 'Why this matters', '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit/G7', '--phase', 'grilling', '--relate', 'audit/A1,audit/T-1', '--title', 'feat: seven', '--notes', 'Why this matters, after T-1', '--new-ticket'), 0, err.at(-1));
   write(path.join(home, 'notes.md'), '# Full notes');
   assert.equal(await cli('item', 'add', 'audit/H8', '--phase', 'grilling', '--relate', 'audit/A1', '--title', 'feat: eight', '--notes-from', path.join(home, 'notes.md'), '--new-ticket'), 0);
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
@@ -44,7 +44,9 @@ test('tickets link or are made in the board source through the CLI and an inject
   assert.deepEqual(calls, [
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
-    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: seven', '--body', 'Why this matters', '--assignee', '@me']],
+    // docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md: the notes' T-1,
+    // which never left the board, reads as an earlier task in the ticket's body.
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: seven', '--body', 'Why this matters, after an earlier task', '--assignee', '@me']],
     ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: eight', '--body', '# Full notes', '--assignee', '@me']],
     ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'From ask', '--body', 'Asked why', '--assignee', '@me']],
     ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: another follow', '--body', 'Notes.', '--assignee', '@me']],

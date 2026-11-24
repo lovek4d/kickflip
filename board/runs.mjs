@@ -40,7 +40,7 @@ import path from 'node:path';
 import { shownEvents } from './snapshot.mjs';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
 import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, launchLives, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, sessionIdOf, stopRuns } from './headless.mjs';
-import { beside, besideAgent, blockWordsOf, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, fixesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
+import { beside, besideAgent, blockWordsOf, refOf, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, fixesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
 import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree, removeClosedWorktree } from './worktree.mjs';
 import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
 import { readClaudeModel } from '../shared/hub-settings.mjs';
@@ -1936,14 +1936,15 @@ export async function verifyCalls(site, key, { dir, agent = 'main', note }) {
 }
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
-// What a headless builder's brief is built from: {key, ref, title, notes: the notes file's path or null, worktree: the
+// What a headless builder's brief is built from: {key, ref, ticket: its ticket or null, title, notes: the notes file's path or null, worktree: the
 // newest record's worktree path or null, answers: the owner's answer to each deferred ask put to them, [{ask, question,
 // answer}], links: its cardLinks, prototype: its kept prototype answer, gates.prototype, or null}.
 export async function briefFacts(site, key) {
   const { source, item } = await loadItem(site, key);
   const said = (q, a) => [(q.options || []).find((o) => o.id === a.choice)?.label, a.note].filter(Boolean).join(': ') || 'answered';
   const answers = (await cardQuestions(site, key)).asked.filter((q) => q.ask && q.answers.length).map((q) => ({ ask: q.ask, question: q.question, answer: said(q, q.answers.at(-1)) }));
-  return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, thread: threadFile(site, key), worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key),
+  const ref = await cardName(site, key);
+  return { key, ref, ticket: ref === refOf(null, item, null) ? null : ref, title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, thread: threadFile(site, key), worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key),
     rebasePR: item.rebase_run?.pr ?? null, fixRun: item.fix_run ?? null, prototype: item.gates?.prototype ?? null };
 }
 

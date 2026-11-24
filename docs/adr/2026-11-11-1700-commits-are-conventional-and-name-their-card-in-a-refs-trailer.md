@@ -1,6 +1,6 @@
 # Commits are Conventional and name their card in a Refs trailer
 
-Status: accepted (#517, 11/11). Amended by [a builder writes its PR's body by the repo's PR guide](2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md): the squash body is the PR body's Summary section, and a scope may be a comma list (`feat(api,web): …`). Land's check of every commit is superseded by [every land squashes the branch into one commit](2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md): land checks the squash message only and writes the Refs trailer itself.
+Status: accepted (#517, 11/11). Amended by [outside text cites only external refs, and a subject ends with its ticket](2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md): a subject ends " (<ticket>)" when the card has a ticket, and the `Refs:` trailers name only tickets, the card's and its related cards', none for a card with no ticket. Amended by [a builder writes its PR's body by the repo's PR guide](2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md): the squash body is the PR body's Summary section, and a scope may be a comma list (`feat(api,web): …`). Land's check of every commit is superseded by [every land squashes the branch into one commit](2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md): land checks the squash message only and writes the Refs trailer itself.
 
 ## Context
 

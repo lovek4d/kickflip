@@ -17,7 +17,7 @@ import { hasPR } from '../shared/card-prs.mjs';
 import { BoardError, fail, needSite, text, cardTitle, domId } from './checks.mjs';
 import { settingsOf, boardRepoOf, boardTarget } from './settings.mjs';
 import { freeNotesName, writeNotesFile, ownerMark, dropOwed, resolveAnsweredOn } from './questions.mjs';
-import { threadFile, ownerFile, parseKey, loadItemFile, loadItem, readAgents, replyFilesOf, freshenPush, uploadsDir, uploadMeta, STORED, appendStatus, appendMessage, messageText, askLinksFile, readAskLinks, cardName, askCardOf, askTaskOf, checkAsk, placeIn, leftTodo, depKey, depList, parentKey, relatedKeys, UNSOURCED, SPLIT_NEEDS_PARENT, refuseAskedSplit, refuseUnborn, replyFirst, refuseUnlinked, askWordsOf, refuseUnplaced, linkedWith, linksOf, postLinkLines, nextTaskId, ticketWrite, setItem, blockLines } from './cards.mjs';
+import { threadFile, ownerFile, parseKey, loadItemFile, loadItem, readAgents, replyFilesOf, freshenPush, uploadsDir, uploadMeta, STORED, appendStatus, appendMessage, messageText, askLinksFile, readAskLinks, cardName, askCardOf, askTaskOf, checkAsk, placeIn, leftTodo, depKey, depList, parentKey, relatedKeys, UNSOURCED, SPLIT_NEEDS_PARENT, refuseAskedSplit, refuseUnborn, replyFirst, refuseUnlinked, askWordsOf, refuseUnplaced, linkedWith, linksOf, postLinkLines, nextTaskId, ticketWrite, setItem, blockLines, refuseCites } from './cards.mjs';
 
 const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
@@ -26,6 +26,8 @@ export async function writeReply(site, eventId, md, title) {
   domId(eventId, 'the event id');
   const event = (await readLog(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
   if (!event) fail(`no event "${eventId}" in this site's data/events.jsonl`);
+  // A reply to a Slack message posts into Slack, so it cites no task key (cards.mjs refuseCites).
+  if (slackSourced(event)) await refuseCites(site, [md]);
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a reply to an ask answers the card
   // it became, which alone takes --title.
   const card = event.kind === 'ask' ? await askCardOf(site, eventId) : null;

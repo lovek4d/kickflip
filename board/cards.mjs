@@ -8,7 +8,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
-import { squashBody, startTitleFault, subjectFault } from './commit-message.mjs';
+import { squashBody, startTitleFault, subjectFault, withTicket } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
 import { COMMANDS, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, threadOf, builds, filedFromOf, mergeBlockers, owesNext, pushTag, refOf, HELPER, implementAsk } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
@@ -16,7 +16,8 @@ import { builderRepo } from './worktree.mjs';
 import { reviseQueued, pushKindError } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { resolveTicket, ticketNamed, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
+import { resolveTicket, ticketIn, ticketNamed, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
+import { citeFault, renderCites } from './cites.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { appendLine, boardConfig, itemSources, readJSON, readLog, remove, replace, sitesDir, wavesDir, writeJSON } from './files.mjs';
@@ -176,6 +177,39 @@ export function refuseLocalPaths(texts, key) {
   const found = texts.filter((t) => typeof t === 'string').map((t) => LOCAL_PATH.exec(t)?.[0]).find(Boolean);
   if (found) fail(`the text names a path the owner can't open (${found}…); put a report in a visual (board.mjs visual add ${key || '<task>'} --file <report.md> --title <t>, or item brief ${key || '<task>'} --kind visual) and keep the line to a summary and its link`);
 }
+// docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md
+// The board's cards, open and archived, as cites.mjs reads them: {key, id, ticket, prs, landed}, and repo, the board's
+// GitHub repo, whose PRs a cite names as #n.
+export async function boardTasks(site) {
+  const { tickets } = settingsOf(await boardConfig(site));
+  const repo = boardRepoOf(site, {}) || null;
+  const taskOf = (key, item, itemRepo) => ({ key, id: refOf(null, item, null), ticket: ticketIn(tickets, item.ticket) ? item.ticket : null, prs: cardPRs(item, itemRepo), landed: item.landed_sha || null, related: (item.related || []).map((r) => depKey(parseKey(key).file, r)) });
+  const tasks = [];
+  for (const s of await itemSources(site)) {
+    const itemFile = await readJSON(s.file, null);
+    for (const it of itemFile?.items || []) tasks.push(taskOf(`${s.slug}/${it.id}`, it, boardRepoOf(site, itemFile)));
+  }
+  const open = new Set(tasks.map((t) => t.key));
+  for (const a of await readArchive(site)) if (a.item && !open.has(a.key)) tasks.push(taskOf(a.key, a.item, repo));
+  return { tasks, repo };
+}
+// Refuses texts bound off the board that name a card by its task key, naming what to cite instead (cites.mjs citeFault).
+export async function refuseCites(site, texts) {
+  if (!site || !texts.some((t) => typeof t === 'string' && t)) return;
+  const { tasks, repo } = await boardTasks(site);
+  const fault = citeFault(tasks, texts, repo);
+  if (fault) fail(fault);
+}
+// What a land's commit names for the card key: ticket, the card's, which ends its subject, refs, the Refs trailers (its
+// ticket, then each related card's, either way round, that has one), and cites(message), why the message can't land.
+export async function commitRefs(site, key) {
+  const { tasks, repo } = await boardTasks(site);
+  const card = tasks.find((t) => t.key === key);
+  const related = tasks.filter((t) => t.key !== key && (card?.related.includes(t.key) || t.related.includes(key)));
+  const refs = [...new Set([card?.ticket, ...related.map((t) => t.ticket)].filter(Boolean))];
+  return { ticket: card?.ticket ?? null, refs, cites: (message) => citeFault(tasks, [message], repo) };
+}
+
 // The cards owner.json's questions ids are asked on, for the question commands' ACTS entries.
 export async function questionCards(site, ids) {
   const owner = await readJSON(ownerFile(site), { items: [] });
@@ -1781,8 +1815,10 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
     fail(why);
   }
   // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: the squash commit is the
-  // PR's title, with no " (#N)", over its body and the card's trailers. docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md:
-  // every PR's title is a Conventional subject before any merges.
+  // PR's title, ending " (<ticket>)" with the card's ticket and not GitHub's " (#<PR>)"
+  // (docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md), over its body
+  // and the card's trailers. docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: every PR's title is a
+  // Conventional subject before any merges.
   const sources = [];
   for (const p of open) {
     const viewed = await gh(['pr', 'view', String(p.number), '--repo', p.repo, '--json', 'title,body,commits']);
@@ -1794,9 +1830,10 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
     sources.push(source);
   }
   const done = [];
+  const { ticket, refs } = await commitRefs(site, key);
   for (const [n, p] of open.entries()) {
     const { title, body, commits } = sources[n];
-    const message = ['--subject', title, '--body', squashBody(await cardName(site, key), body, commits)];
+    const message = ['--subject', withTicket(title, ticket), '--body', squashBody(refs, body, commits)];
     const merged = await gh(['pr', 'merge', String(p.number), '--repo', p.repo, '--squash', ...message], { timeout: 120_000 });
     if (merged.limited) await limited(merged.limited);
     if (merged.status !== 0) fail(`gh pr merge ${prNames([p], repo)} failed: ${merged.stderr.trim().split('\n')[0] || `gh exited ${merged.status}`}${done.length ? ` (merged ${prNames(done, repo)} before it)` : ''}`);
@@ -1842,6 +1879,11 @@ async function assignTicket(site, itemFile, item, ticket, options, dir, body) {
   const source = (await boardSource(site)) || fail(NO_SOURCE);
   try {
     body ??= ticket === undefined && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
+    // A made ticket's body leaves the board, so the notes' task keys go as their external forms (cites.mjs renderCites).
+    if (ticket === undefined && site) {
+      const { tasks, repo } = await boardTasks(site);
+      body = renderCites(tasks, body, repo);
+    }
     const r = await resolveTicket(source, { ticket, title: item.title, body, repo: boardRepoOf(site, itemFile) }, options);
     item.ticket = r.ticket;
     if (r.created) item.ticket_created = true; else delete item.ticket_created;

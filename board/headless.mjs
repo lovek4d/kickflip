@@ -86,7 +86,7 @@ const bodyLine = (worktree, fix) => (fix
 
 // The standard brief for a card's headless builder. card: {route, key, ref, title, notes, worktree, base, rules, links}.
 // With fix, {pr, failing: [check name]}, it is the fix run of a PR whose CI is red (docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md).
-export function builderBrief({ route, key, ref, title, notes, thread, worktree, base, rules = [], links = [], fix = null }) {
+export function builderBrief({ route, key, ref, ticket = null, title, notes, thread, worktree, base, rules = [], links = [], fix = null }) {
   const b = cli(route);
   return [
     `You are the headless builder for task ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person. Work only in ${worktree}. Never restart the hub or a board server, and never push.`,
@@ -115,11 +115,12 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     ...ruleLines(rules),
     `Write tests first, and run only the test files you write or change, with \`${b} test --dir ${worktree} --base ${base}\`, as part of building: it runs just those, or the repo's test script whole where it has one. Run no other test set, and don't rebase before you finish: the finish step rebases once and runs the tests your change affects once. Where the repo keeps ADRs, write one named with a timestamp: docs/adr/YYYY-MM-DD-HHMM-<slug>.md.`,
     "A process you start in the background (CPU load such as `yes` to reproduce a flake, a server, a watcher) you stop before the command that started it returns, with a `trap` or an explicit `kill`: never leave one running detached. builder done refuses while one still runs in your worktree, and names it.",
-    `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape.`,
+    `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ticket)}. Land refuses any other shape.`,
     '',
     `To finish, run \`${b} builder done ${key} --risk low|medium|high --summary "${SUMMARY_HINT}" --text "<what you checked>"${fix ? '' : ' --body-file <path>'}\`, picking one risk word.`,
     "- --summary is the owner's plain account of the build: it posts as the Builder's message in the thread, above your judgment calls, and done refuses without it.",
     bodyLine(worktree, fix),
+    `- The PR's title and body, like a commit message, leave the board: cite earlier work by its ticket, PR or commit, never by a task key such as ${key.split('/')[1]}, and work that never left the board not at all. builder done refuses a task key in them.`,
     "- --risk is your judgment of how likely your change is to break something, from what it touches and how well the tests cover it: it colours the PR's Slack message for its reviewers.",
     "- If you recorded a judgment call, it hands the task back for the orchestrator to verify your calls; stop there: the orchestrator's verification finishes the task.",
     ...finishSteps({ route, key, worktree, base }),
@@ -130,7 +131,7 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
 
 // The brief for a lander, launched (or, with resumed, sent to the card's builder session, with why the land needs it) once the session verified a handed-back build's calls. card as builderBrief's, with
 // answers [{ask, question, answer}], the owner's answers to the asks the session deferred.
-export function landerBrief({ route, key, ref, title, thread, worktree, base, answers = [], resumed = false, why }) {
+export function landerBrief({ route, key, ref, ticket = null, title, thread, worktree, base, answers = [], resumed = false, why }) {
   const b = cli(route);
   return [
     resumed
@@ -145,7 +146,7 @@ export function landerBrief({ route, key, ref, title, thread, worktree, base, an
     ] : []),
     '',
     threadLine(b, key),
-    `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape, so reword a commit the build left in another.`,
+    `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ticket)}. Land refuses any other shape, so reword a commit the build left in another.`,
     '',
     `To finish, run ${finishCommand({ route, key })}.`,
     ...finishSteps({ route, key, worktree, base }),
@@ -304,12 +305,12 @@ export function reviewerBrief({ route, key, ref, title, notes, thread, repo, age
 // The brief for a helper another agent on the card asked for (runs.mjs requestHelper): its task, in cwd, its own
 // worktree when it writes, else the card's or the board's repo read-only. card as builderBrief's, with agent its name,
 // task, writes and cwd. It reports and finishes as its own agent, and its done --text is what its spawner reads.
-export function helperBrief({ route, key, ref, title, notes, thread, agent, task, writes, cwd, rules = [], links = [] }) {
+export function helperBrief({ route, key, ref, ticket = null, title, notes, thread, agent, task, writes, cwd, rules = [], links = [] }) {
   const b = cli(route);
   return [
     `You are the headless helper ${agent} on task ${ref} (${key}, "${title}") on the kickflip board /${route}. Another agent working on the task asked the board for you to do one task beside it, and waits on your hand-back. Nobody watches this session, so never wait on a person. Never restart the hub or a board server, and never push.`,
     writes
-      ? `Work only in ${cwd}, your own worktree, branched from the task's: commit your work there with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. The task's builder merges your branch, so leave nothing uncommitted.`
+      ? `Work only in ${cwd}, your own worktree, branched from the task's: commit your work there with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ticket)}. The task's builder merges your branch, so leave nothing uncommitted.`
       : `Read and run in ${cwd}; change no files there and commit nothing.`,
     '',
     'The task:',

@@ -1448,15 +1448,25 @@ test("a helper's brief gives it the task as its own agent, in its worktree when 
 });
 
 // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
-test("a builder's, a lander's and a writing helper's brief give the commit standard, the card's ref in a Refs trailer and never in the subject, and the builder titles a PR with --title", () => {
-  const build = builderBrief(card);
-  const helper = helperBrief({ ...card, agent: 'tests', task: 'x', writes: true, cwd: '/wt/A1-tests' });
-  for (const brief of [build, helper, landerBrief(card)]) {
+test("a builder's, a lander's and a writing helper's brief give the commit standard, the card's ticket in a Refs trailer and never in the subject, and the builder titles a PR with --title", () => {
+  const ticketed = { ...card, ticket: 'ENG-1' };
+  const build = builderBrief(ticketed);
+  const helper = helperBrief({ ...ticketed, agent: 'tests', task: 'x', writes: true, cwd: '/wt/A1-tests' });
+  for (const brief of [build, helper, landerBrief(ticketed)]) {
     assert.ok(brief.includes(standardWords('ENG-1')), brief);
     assert.ok(brief.includes('"Refs: ENG-1"'));
     assert.ok(!brief.includes('"ENG-1: <'), 'no subject starts with the ref');
   }
   assert.ok(build.includes(`--title "<type>(<scope>): <what the PR does>"`), build);
+});
+
+// docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md
+test("a card with no ticket gets a brief with no Refs line, and a builder's brief keeps task keys out of the PR's title and body", () => {
+  for (const brief of [builderBrief(card), landerBrief(card), helperBrief({ ...card, agent: 'tests', task: 'x', writes: true, cwd: '/wt/A1-tests' })]) {
+    assert.ok(brief.includes(standardWords(null)), brief);
+    assert.ok(!brief.includes('"Refs: '), brief);
+  }
+  assert.match(builderBrief(card), /The PR's title and body, like a commit message, leave the board: cite earlier work by its ticket, PR or commit, never by a task key such as A1/);
 });
 
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md

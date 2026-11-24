@@ -33,7 +33,7 @@ test("the Merge tap merges the card in the board server, and a refusal answers t
 
   const merged = await tap('t/A1');
   assert.equal(merged.status, 200);
-  assert.deepEqual(calls(home).filter((a) => a[1] === 'merge'), [['pr', 'merge', '7', '--repo', 'o/r', '--squash', '--subject', 'feat: the work', '--body', 'Checked it.\n\nRefs: A1\nCo-Authored-By: Claude <noreply@anthropic.com>']]);
+  assert.deepEqual(calls(home).filter((a) => a[1] === 'merge'), [['pr', 'merge', '7', '--repo', 'o/r', '--squash', '--subject', 'feat: the work', '--body', 'Checked it.\n\nCo-Authored-By: Claude <noreply@anthropic.com>']]);
   assert.deepEqual([items()[0].lane, items()[0].prs.map((p) => [p.number, typeof p.merged_at])], ['done', [[7, 'string']]]);
   assert.equal(thread('t/A1').at(-1), 'Merged PR #7.');
   assert.doesNotMatch(events(), /card-merge/);

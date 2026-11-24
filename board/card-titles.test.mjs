@@ -94,5 +94,22 @@ test("merge takes a PR titled with a comma list of scopes, and squashes its body
   const r = await boardWith(['--site', 'orch', 'merge', 'w/A1'], env);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(calls(dir).filter((a) => a[1] === 'merge'), [['pr', 'merge', '7', '--repo', 'o/r', '--squash', '--subject', 'feat(api,web): one field across both',
-    '--body', 'The API and the web app both read the new field, so a change across the\ntwo packages lands as one.\n\nRefs: A1\nCo-Authored-By: Claude <noreply@anthropic.com>']]);
+    '--body', 'The API and the web app both read the new field, so a change across the\ntwo packages lands as one.\n\nCo-Authored-By: Claude <noreply@anthropic.com>']]);
+});
+
+// docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md
+test("merge ends a ticketed card's squash subject with its ticket, not GitHub's PR number, and its Refs name its ticket and its related cards'", async () => {
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  const { saveBoardSettings } = await import('./store.mjs');
+  await saveBoardSettings(site('orch'), { tickets: { source: 'github' } });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [
+    { id: 'A1', title: 'feat: one', ticket: '#3', related: ['T-2'], prs: [{ number: 7 }], lane: 'review' },
+    { id: 'T-2', title: 'feat: two', ticket: '#4' },
+  ] });
+  writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', title: 'feat(board): one', body: '## Summary\n\nOne.\n' }));
+  const r = await boardWith(['--site', 'orch', 'merge', 'w/A1'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(calls(dir).filter((a) => a[1] === 'merge'), [['pr', 'merge', '7', '--repo', 'o/r', '--squash', '--subject', 'feat(board): one (#3)',
+    '--body', 'One.\n\nRefs: #3\nRefs: #4\nCo-Authored-By: Claude <noreply@anthropic.com>']]);
 });

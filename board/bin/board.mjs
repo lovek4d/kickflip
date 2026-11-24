@@ -1053,6 +1053,13 @@ const TO_OWNER = {
   thread: ['text'], reply: ['text'], 'item set': ['text'], 'item add': ['text'], 'item triage': ['text'],
   'builder answer': ['text'], push: ['title', 'body'],
 };
+// docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md: the commands whose
+// text leaves the board, and the flags that hold it: they refuse a task key, naming the ticket, PR or commit to cite
+// (store.refuseCites). review post's file, a builder's --body-file and a reply into Slack are checked where they're read.
+const OUTSIDE = {
+  'pr comment': ['body'], 'pr reply': ['body'], 'slack answer': ['text'], 'slack say': ['text'],
+  'builder done': ['title'], 'builder verified': ['title'],
+};
 const readInput = (file) => fs.readFileSync(file === '-' ? 0 : file, 'utf8');
 const renderCheck = () => (process.env.KICKFLIP_RENDER_CHECK === 'off' ? undefined : checkTakesRender);
 
@@ -1110,6 +1117,7 @@ async function keepBody(site, key, file, f) {
   if ((f.agent ?? 'main') !== 'main') throw new UsageError("--body-file goes on the build's own done, not a helper's");
   const body = readInput(file);
   if (!body.trim()) throw new store.BoardError(`--body-file ${file} is empty: write the PR's body there`);
+  await store.refuseCites(site, [body]);
   await store.keepPRBody(site, key, body);
 }
 
@@ -1361,10 +1369,12 @@ const COMMANDS = {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('review record takes --text or --file');
     return store.recordReview(site, pr, { state: f.state, text: f.text ?? readInput(f.file) });
   }],
-  'review post': [['pr'], ['file', 'read-at'], (site, [pr], f) => {
+  'review post': [['pr'], ['file', 'read-at'], async (site, [pr], f) => {
     if (f.file === undefined) throw new UsageError('review post needs --file <review.md>');
     if (f['read-at'] === undefined) throw new UsageError('review post needs --read-at <time>, when you read the PR, so a review that landed since is caught');
-    return store.postIncomingReview(site, pr, { words: readInput(f.file), readAt: f['read-at'] });
+    const words = readInput(f.file);
+    await store.refuseCites(site, [words]);
+    return store.postIncomingReview(site, pr, { words, readAt: f['read-at'] });
   }],
   'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await slackStore.reviewDigest(site, options))] })],
   'review due': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await slackStore.reviewDue(site, options))] })],
@@ -1470,7 +1480,7 @@ const COMMANDS = {
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
       const report = site ? await store.testReport(site, key, { phase: 'landing' }) : undefined;
-      await landInTurn({ path: recorded?.path ?? worktreePath(site, id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref, site }, { report });
+      await landInTurn({ path: recorded?.path ?? worktreePath(site, id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref, site, commit: site ? await store.commitRefs(site, key) : undefined }, { report });
       return site ? store.setItem(site, key, { done: true, text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;
@@ -1635,6 +1645,7 @@ export async function main(argv, options = {}) {
     const site = route === undefined ? null : await store.siteDir(route);
     if (site && TO_OWNER[name] && (name !== 'thread' || (opts.who ?? 'claude') === 'claude')) await store.refuseQuestionIds(site, TO_OWNER[name].map((flag) => opts[flag]));
     if (name === 'thread' && (opts.who ?? 'claude') === 'claude') store.refuseLocalPaths([opts.text], args[0]);
+    if (site && OUTSIDE[name]) await store.refuseCites(site, OUTSIDE[name].map((flag) => opts[flag]));
     const writes = routeRecord(WRITES, name);
     if (site && writes) await store.refuseInIntake(site, await writes(site, args, opts));
     const result = await run(site, args, opts, options);

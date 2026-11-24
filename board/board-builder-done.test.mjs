@@ -344,13 +344,22 @@ test("opening a card's draft PR comments it on the card's GitHub ticket once, th
   await saveBoardSettings(site('orch'), { tickets: { source: 'github' } });
   const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => boardWith(['--site', 'orch', ...args], env);
-  write(at('waves', 'w', 'wave.json'), { ...wave(), items: wave().items.map((i) => (i.id === 'A1' ? { ...i, ticket: '#7' } : i)) });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [...wave().items.map((i) => (i.id === 'A1' ? { ...i, ticket: '#7' } : i)), { id: 'T-3', title: 'feat: three', ticket: '#5', prs: [{ number: 6 }] }] });
   launched('orch', 'w/A1');
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
   commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
-  const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked.', '--title', 'feat(board): the work, as one PR');
+  // docs/adr/2026-11-24-2100-outside-text-cites-only-external-refs-and-a-subject-ends-with-its-ticket.md: the PR's title
+  // and body leave the board, so a task key in them is refused, naming what to cite; the title ends with the ticket.
+  const bodyFile = path.join(home, 'pr-body.md');
+  write(bodyFile, '## Summary\n\nFollows T-3.\n');
+  const cited = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked.', '--title', 'feat(board): the work, as one PR', '--body-file', bodyFile);
+  assert.deepEqual([cited.code, cited.err], [1, 'the text leaves the board, where a task key means nothing: cite T-3 as #5, PR #6. Outside text cites only tickets, PRs and commits\n']);
+  assert.equal((await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked.', '--title', 'feat(board): after T-3')).code, 1);
+  write(bodyFile, '## Summary\n\nFollows #5.\n');
+  const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked.', '--title', 'feat(board): the work, as one PR', '--body-file', bodyFile);
   assert.equal(r.code, 0, r.err);
-  const comment = ['issue', 'comment', '7', '--repo', 'owner/project', '--body', 'PR opened: [feat(board): the work, as one PR](https://github.com/owner/project/pull/100)'];
+  assert.deepEqual(calls(ghDir).filter((a) => a[1] === 'create').map((a) => a[a.indexOf('--title') + 1]), ['feat(board): the work, as one PR (#7)']);
+  const comment = ['issue', 'comment', '7', '--repo', 'owner/project', '--body', 'PR opened: [feat(board): the work, as one PR (#7)](https://github.com/owner/project/pull/100)'];
   assert.deepEqual(calls(ghDir).filter((a) => a[1] === 'comment'), [comment]);
   assert.deepEqual(threadOf().filter((m) => m.line === 'ticket-commented').map((m) => [m.line, m.text]), [['ticket-commented', 'Commented on #7.']]);
   commit(worktree(), 'more.txt', 'more\n', 'feat: more\n\nRefs: A1');
@@ -734,7 +743,7 @@ test('PRs off on a GitHub board needs Push main granted; then a finish lands in 
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\n#7: landed and done\n'), r.out);
   const landedSha = git(origin, 'rev-parse', 'main');
-  assert.deepEqual(calls(ghDir).filter((a) => a[1] === 'comment'), [['issue', 'comment', '7', '--repo', 'owner/project', '--body', `Landed on main: [feat: work](https://github.com/owner/project/commit/${landedSha})`]]);
+  assert.deepEqual(calls(ghDir).filter((a) => a[1] === 'comment'), [['issue', 'comment', '7', '--repo', 'owner/project', '--body', `Landed on main: [feat: work (#7)](https://github.com/owner/project/commit/${landedSha})`]]);
   assert.deepEqual(threadOf().filter((m) => m.line === 'ticket-commented').map((m) => m.text), ['Commented on #7.']);
   assert.ok(r.out.includes('\npushed main to origin\n'), r.out);
   assert.equal(git(origin, 'show', 'main:work.txt'), 'built');
