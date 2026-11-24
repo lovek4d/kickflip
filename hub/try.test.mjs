@@ -751,6 +751,34 @@ test('the relay hands the app an owner’s request without tailscale serve’s i
   assert.equal(upgraded, '');
 });
 
+test('the relay hands the app the loopback address it dials as Host and Origin, so a build that answers only its own address serves the owner', async () => {
+  setManager(tryManager({ now: () => clock, log() {}, gate: async () => 'owner' }));
+  const server = http.createServer();
+  await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  await new Promise((resolve) => server.close(resolve));
+  setScript(`const own = (h) => h.host === '127.0.0.1:${port}' && (!h.origin || h.origin === 'http://127.0.0.1:${port}') && h['x-forwarded-host'] === 'studio.tail1234.ts.net:8500';
+  const server = require('node:http').createServer((req, res) => own(req.headers) ? res.end('served ' + req.headers.host) : res.writeHead(403).end('foreign'));
+  server.on('upgrade', (req, socket) => socket.end('HTTP/1.1 101 Switching Protocols\\r\\nConnection: Upgrade\\r\\nUpgrade: test\\r\\n\\r\\n' + (own(req.headers) ? 'own' : 'foreign')));
+  server.listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`);
+  await start();
+  await manager.settled();
+  const visitor = { host: 'studio.tail1234.ts.net:8500', origin: 'https://studio.tail1234.ts.net:8500' };
+  const status = (headers) => new Promise((resolve, reject) => http.get(relayOf(8500) + '/', { headers }, (res) => { let body = ''; res.on('data', (c) => { body += c; }); res.on('end', () => resolve([res.statusCode, body])); }).on('error', reject));
+  assert.deepEqual(await status(visitor), [200, `served 127.0.0.1:${port}`]);
+  const upgraded = await new Promise((resolve, reject) => {
+    const request = http.request(relayOf(8500) + '/socket', { headers: { connection: 'Upgrade', upgrade: 'test', ...visitor } });
+    request.on('error', reject);
+    request.on('upgrade', (_response, socket, head) => {
+      let body = head.toString();
+      socket.on('data', (chunk) => { body += chunk; });
+      socket.on('end', () => { socket.destroy(); resolve(body); });
+    });
+    request.end();
+  });
+  assert.equal(upgraded, 'own');
+});
+
 // docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md
 test("the relay needs the owner's sign-in cookie, and the app never gets it", async () => {
   const signedIn = (req) => String(req.headers.cookie || '').includes('kickflip_owner=good');

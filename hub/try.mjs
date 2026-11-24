@@ -51,10 +51,14 @@ const PORT_HELD_MS = 15_000;
 // What tailscale serve adds to say who a request is from; the try relay drops them before the app.
 const IDENTITY_HEADERS = ['tailscale-user-login', 'tailscale-user-name', 'tailscale-user-profile-pic', 'x-forwarded-for'];
 // A request's headers as the app gets them: without the identity headers, and without the owner's sign-in cookie.
-function appHeaders(req) {
+// Its Host, and its Origin where it has one, are the loopback address the relay dials, not the tailnet name the owner typed:
+// the app's own host check refuses any name but its own, and the relay has already judged the visitor. X-Forwarded-Host
+// keeps the name the owner typed, which also marks the request as relayed: a hub behind the relay reads it as a device, not
+// a local process, so its loopback-only routes (/_hub/build, /_hub/pull, /_hub/kill) refuse it.
+export function appHeaders(req, port) {
   const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !IDENTITY_HEADERS.includes(name) && name !== 'cookie'));
   const cookie = withoutOwnerCookie(req.headers.cookie);
-  return cookie ? { ...headers, cookie } : headers;
+  return { ...headers, host: `127.0.0.1:${port}`, 'x-forwarded-host': req.headers.host || '', ...(headers.origin && { origin: `http://127.0.0.1:${port}` }), ...(cookie && { cookie }) };
 }
 // What stops a page from being framed by the board, which is another origin on the same host.
 const FRAME_HEADERS = ['x-frame-options'];
@@ -394,7 +398,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       if (verdict !== 'owner') { log(refusalLine(req, verdict, run.https)); refuse(req, res, verdict); return; }
       if (!signedIn(req)) { refuse(req, res, 'signed-out', { hub: hubAddress() }); return; }
       run.visited = now();
-      const headers = appHeaders(req);
+      const headers = appHeaders(req, run.port);
       const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers }, (answer) => {
         // The prototype serve is framed by the board's own page, so its answers lose the headers that refuse a frame.
         res.writeHead(answer.statusCode, run.key === BASE_KEY ? withoutFraming(answer.headers) : answer.headers);
@@ -411,7 +415,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       if (verdict !== 'owner') { log(refusalLine(req, verdict, run.https)); refuseUpgrade(socket, verdict); return; }
       if (!signedIn(req)) { refuseUpgrade(socket, 'signed-out'); return; }
       const cookie = withoutOwnerCookie(req.headers.cookie);
-      track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url, replace: [...IDENTITY_HEADERS, 'cookie'], extra: cookie ? [`Cookie: ${cookie}`] : [] }));
+      track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url, replace: [...IDENTITY_HEADERS, 'cookie', 'host', 'origin', 'x-forwarded-host'], extra: [`Host: 127.0.0.1:${run.port}`, `X-Forwarded-Host: ${req.headers.host || ''}`, ...(req.headers.origin ? [`Origin: http://127.0.0.1:${run.port}`] : []), ...(cookie ? [`Cookie: ${cookie}`] : [])] }));
     });
     // The relay listens on the try port on this host, where the host's browser opens it; while the tailnet is on,
     // tailscale serve maps the same port on the tailnet to it. Main's old run, still serving while this one came up,
