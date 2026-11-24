@@ -24,7 +24,7 @@ function boardPatch(from, to, threads = { from: {}, to: {} }, notes = { from: {}
 }
 
 const SCRIPTS = ['ui-icon-text.js', 'ui.js','ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-waits.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'slack-emoji.js', 'sidebar.js', 'toasts.js', 'popup.js', 'drafts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-search.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'slack-emoji.js', 'sidebar.js', 'toasts.js', 'popup.js', 'drafts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-search.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-waits.js', 'app-reader.js', 'app-questions-sheet.js', 'app-lightbox.js', 'app-link-hover.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 // The time every test here builds its data from. A fake page's clock starts at it and moves only by its advance(ms)
@@ -9689,5 +9689,45 @@ test('a link to a card the tag hides asks to reset filters: yes ends the tag and
   await b.settle();
   assert.deepEqual([b.confirms, b.tagBanner()], [['This task is not currently visible, reset filters?'], null]);
   assert.equal(b.root.querySelector('details.item[data-key="w/T-33"]').open, true);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-24-0030-hovering-a-task-link-shows-its-title.md
+test("hovering a task link with a fine pointer shows that task's title after a delay; a task the page doesn't hold, a touch device, and leaving or scrolling closes it", async () => {
+  const b = boardOnDom({ board: boardOf([workCard('B1', { title: 'Ship the thing' })]), threads: {}, width: 1200 });
+  await b.settle();
+  let fine = true;
+  b.page.win.matchMedia = (q) => ({ matches: q.includes('hover: hover') ? fine : false, addEventListener() {}, removeEventListener() {} });
+  const shown = [];
+  const open = b.page.win.Popup.open;
+  b.page.win.Popup.open = (el, anchor, opts) => { shown.push([el.querySelector('span').textContent, anchor]); open(el, anchor, opts); };
+  const closed = [];
+  b.page.win.Popup.close = () => closed.push(1);
+  const linkTo = (key) => { const a = { getAttribute: () => `#selectedCard=${encodeURIComponent(key)}`, contains: (n) => n === a, getBoundingClientRect: () => ({ top: 0, bottom: 10, left: 0, right: 10 }) }; a.closest = () => a; return a; };
+  const hover = (a) => { b.page.fire(b.root, 'pointerover', { target: a }); b.page.runTimers(); };
+
+  const known = linkTo('w/B1');
+  hover(known);
+  assert.deepEqual(shown.map(([t, a]) => [t, a === known]), [['Ship the thing', true]]);
+
+  b.page.fire(b.root, 'pointerout', { target: known, relatedTarget: null });
+  const before = shown.length;
+  hover(linkTo('w/missing'));
+  assert.equal(shown.length, before, 'a task the page does not hold shows nothing');
+
+  fine = false;
+  hover(linkTo('w/B1'));
+  assert.equal(shown.length, before, 'a touch device shows nothing');
+  fine = true;
+
+  b.page.fire(b.root, 'pointerover', { target: known });
+  b.page.fire(b.root, 'pointerout', { target: known, relatedTarget: null });
+  b.page.runTimers();
+  assert.equal(shown.length, before, 'leaving before the delay shows nothing');
+
+  hover(known);
+  const open1 = closed.length;
+  b.page.fire(vm.runInContext('window', b.page.win), 'scroll');
+  assert.ok(closed.length > open1, 'a scroll closes it');
   b.view.unmount();
 });
