@@ -1340,12 +1340,14 @@ export async function builderResume(site, key, said, quote) {
 }
 
 // The board server's take of a handed-back build marked rerun: the record opens again, its hand-back, rerun mark and
-// news off it, the card's Next cleared, and a "Resumed: <text>" line. → {record: the record it now is, news: the news's
+// news off it (its label back to Builder when a lander's), the card's Next cleared, and a "Resumed: <text>" line. → {record: the record it now is, news: the news's
 // lines for the resume's brief}, or null when no build is marked
 export async function takeRerun(site, key) {
   const build = await newsBuild(site, key);
   if (!build?.record.rerun) return null;
-  const { file, record: { done, handed_back, rerun, news = [], ...rest } } = build;
+  const { file, record: { done, handed_back, rerun, news = [], ...open } } = build;
+  // A failed lander's record resumes as the build it was handed back to, not as a landing a land pass would end.
+  const rest = open.label === LANDER ? { ...open, label: 'Builder' } : open;
   await writeJSON(file, rest);
   await clearNext(site, key);
   await appendStatus(site, key, 'builder-rerun', { text: rerun.text });

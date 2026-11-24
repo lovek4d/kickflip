@@ -73,6 +73,16 @@ test('builder resume on a handed-back build marks it for the board to resume, it
   assert.match((await onOrch('builder', 'resume', 'w/A1', '--text', 'Again')).err, /already waits on the board to resume its builder/);
 });
 
+test('a resumed build that was a lander reads as a build again, so no land pass takes it for a finished landing', async (t) => {
+  onHome(t);
+  handedBack({ label: 'Lander', verified: { at: new Date().toISOString() }, session: { id: 's1', pid: 2 ** 22 + 12345, log: 's1.log' } });
+  assert.equal((await onOrch('builder', 'resume', 'w/A1', '--text', 'Fix the tests')).code, 0);
+  await store.takeRerun(site('orch'), 'w/A1');
+  assert.equal(record().label, 'Builder');
+  assert.equal(record().done, undefined);
+  assert.ok(record().verified, 'the verification it lands stays');
+});
+
 test('builder resume on an open build whose process is gone marks it for the board to resume, not queueing to a dead session', async (t) => {
   onHome(t);
   building({ session: { id: 's1', pid: 2 ** 22 + 12345, log: 's1.log' } });
