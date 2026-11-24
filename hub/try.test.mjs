@@ -653,8 +653,9 @@ take();`);
 });
 
 test("a web script serves root paths and upgrades through the relay to the owner alone, and keeps its port across a new commit and Retry", async () => {
-  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }), tailnet: () => true });
-  setManager(tryManager({ now: () => clock, log() {}, gate }));
+  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [], name: 'studio.tail1234.ts.net' }), tailnet: () => true });
+  const logged = [];
+  setManager(tryManager({ now: () => clock, log: (line) => logged.push(line), gate }));
   const server = http.createServer();
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
@@ -685,6 +686,10 @@ test("a web script serves root paths and upgrades through the relay to the owner
   const phone = { 'x-forwarded-for': '100.70.1.2', 'tailscale-user-login': 'lovek4d@github' };
   assert.equal(await (await fetch(relayOf(8500) + '/nested', { headers: phone })).text(), 'served /nested');
   const friend = { 'x-forwarded-for': '100.70.1.3', 'tailscale-user-login': 'friend@github' };
+  // A foreign Host is refused and the log names the verdict, the port, and the Host and Origin names.
+  const foreign = await new Promise((resolve, reject) => http.get(relayOf(8500) + '/nested', { headers: { ...phone, host: 'Evil.example:8500', origin: 'https://evil.example/path?x=1' } }, (res) => { res.resume(); resolve(res.statusCode); }).on('error', reject));
+  assert.equal(foreign, 403);
+  assert.ok(logged.includes('refused host on port 8500: Host evil.example, Origin evil.example'), logged.join('\n'));
   const page = await fetch(relayOf(8500) + '/nested', { headers: { ...friend, accept: 'text/html' } });
   assert.equal(page.status, 403);
   assert.match(await page.text(), /This kickflip belongs to someone else\./);

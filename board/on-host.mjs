@@ -96,8 +96,8 @@ const LOOPBACK_NAMES = ['127.0.0.1', 'localhost', '[::1]'];
 const nameOf = (hostPort) => String(hostPort).toLowerCase().replace(/:\d+$/, '');
 const originHost = (origin) => { try { return new URL(origin).host || 'null'; } catch { return 'null'; } };
 
-// The names a DNS-rebinding page can't take: this host's loopback and, while the tailnet is on, its own tailnet name;
-// the port is ignored. The request's Host must be one of them, and an upgrade's Origin too, which stops another site's
+// The names a DNS-rebinding page can't take: this host's loopback and, while the tailnet is on, its own tailnet name and
+// tailnet addresses (a page opened by address, whose Try link keeps that address); the port is ignored. The request's Host must be one of them, and an upgrade's Origin too, which stops another site's
 // page opening a WebSocket from the owner's browser. A request with no Host header names nothing to rebind.
 // → 'ok', 'host' for a foreign name, 'unread' while the tailnet name is wanted and tailscale hasn't given it
 async function hostVerdict(req, host, ownerNode) {
@@ -108,7 +108,8 @@ async function hostVerdict(req, host, ownerNode) {
   if (!host.tailnet()) return 'host';
   const node = await ownerNode();
   if (!node?.name) return 'unread';
-  return foreign.every((n) => nameOf(n) === node.name) ? 'ok' : 'host';
+  const own = [node.name, ...(node.addresses || []).flatMap((a) => [a, `[${a}]`])];
+  return foreign.every((n) => own.includes(nameOf(n))) ? 'ok' : 'host';
 }
 
 // The hub process's one gate, shared by its own server and its try relays.

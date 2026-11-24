@@ -134,6 +134,11 @@ test("the gate refuses a foreign Host, and a foreign Origin on an upgrade, befor
   assert.equal(await at(on_, { host: 'Studio.tail1234.ts.net:8501', ...served('100.70.1.2') }), 'owner');
   assert.equal(await at(on_, { host: 'evil.example', ...served('100.70.1.2') }), 'host');
   assert.equal(await at(on_, { host: 'other.tail1234.ts.net', ...served('100.70.1.2') }), 'host');
+  // The node's own tailnet addresses name it too, with or without a port; another tailnet address is foreign.
+  assert.equal(await at(on_, { host: '100.81.98.101:8501', ...served('100.70.1.2') }), 'owner');
+  assert.equal(await at(on_, { host: '[fd7a:115c:a1e0::8601:62c1]:8501', ...served('100.70.1.2') }), 'owner');
+  assert.equal(await at(on_, { host: '100.70.1.2:8501', ...served('100.70.1.2') }), 'host');
+  assert.equal(await at(off, { host: '100.81.98.101:8501' }), 'host');
   // An upgrade's Origin is held to the same names; a plain request's is crossSite's to judge.
   const upgrade = { upgrade: 'websocket', host: '127.0.0.1:4500' };
   assert.equal(await at(off, { ...upgrade, origin: 'http://localhost:4500' }), 'owner');

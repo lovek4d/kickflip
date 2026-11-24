@@ -119,6 +119,13 @@ export function refuse(req, res, verdict, { headers = {}, ...options } = {}) {
   req.resume();
 }
 
+// The log line for a refused request: the verdict, the listening port, and the names its Host and Origin headers carried
+// (never a path, query or cookie), so the next refusal can be traced.
+export function refusalLine(req, verdict, port) {
+  const name = (value) => (value === undefined ? '-' : String(value).replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '').toLowerCase().slice(0, 100));
+  return `refused ${verdict} on port ${port}: Host ${name(req.headers.host)}, Origin ${name(req.headers.origin)}`;
+}
+
 const REASONS = { 401: 'Unauthorized', 403: 'Forbidden', 503: 'Service Unavailable' };
 export function refuseUpgrade(socket, verdict) {
   const { status, json } = REFUSALS[verdict];

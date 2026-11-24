@@ -22,7 +22,7 @@ import { readMachineState } from '../shared/machine-gate.mjs';
 import { BASE_KEY, baseWorktreeOf } from '../board/prototype-base.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
 import { hubGate } from '../board/on-host.mjs';
-import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
+import { pipeUpgrade, refuse, refuseUpgrade, refusalLine } from './front-door.mjs';
 import { signedIn as ownerSignedIn, withoutOwnerCookie } from '../shared/owner-sign-in.mjs';
 
 // ask: 'busy' or 'cap' when the refusal is a serve the board holds back, which the card's Serve tap words as a dialog.
@@ -391,7 +391,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     // (docs/adr/2026-11-18-1200-the-owner-signs-in-with-a-link-that-sets-a-device-cookie.md).
     run.relay = http.createServer(async (req, res) => {
       const verdict = await gate(req);
-      if (verdict !== 'owner') { refuse(req, res, verdict); return; }
+      if (verdict !== 'owner') { log(refusalLine(req, verdict, run.https)); refuse(req, res, verdict); return; }
       if (!signedIn(req)) { refuse(req, res, 'signed-out', { hub: hubAddress() }); return; }
       run.visited = now();
       const headers = appHeaders(req);
@@ -408,7 +408,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     run.relay.on('connection', track);
     run.relay.on('upgrade', async (req, socket, head) => {
       const verdict = await gate(req);
-      if (verdict !== 'owner') { refuseUpgrade(socket, verdict); return; }
+      if (verdict !== 'owner') { log(refusalLine(req, verdict, run.https)); refuseUpgrade(socket, verdict); return; }
       if (!signedIn(req)) { refuseUpgrade(socket, 'signed-out'); return; }
       const cookie = withoutOwnerCookie(req.headers.cookie);
       track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url, replace: [...IDENTITY_HEADERS, 'cookie'], extra: cookie ? [`Cookie: ${cookie}`] : [] }));
