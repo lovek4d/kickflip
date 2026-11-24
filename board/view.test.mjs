@@ -5817,7 +5817,7 @@ test("the topmost card on screen keeps its place through a filter change, a card
   assert.equal(top('p1'), at, 'the only card on screen moving');
 });
 
-test("a lane or card opening or shutting by a tap leaves its title where it was, even when it hides the top card, and a fold opening upward in a thread keeps its reply box in place through the resize that follows", async () => {
+test("a lane or card opening or shutting by a tap leaves its title where it was, even when it hides the top card, and a fold opening in a thread keeps its summary in place through the resize that follows", async () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const run = (n) => ({ ts: at(n), who: 'claude', kind: 'status', run: 'r1', agent: 'Builder', text: `Step ${n}` });
   const msgs = [{ ts: at(0), who: 'claude', text: 'One' }, run(1), run(2), run(3), { ts: at(4), who: 'claude', text: 'Two' }];
@@ -5844,15 +5844,13 @@ test("a lane or card opening or shutting by a tap leaves its title where it was,
   b.page.resized();
   assert.equal(top(r2), r2At);
 
-  // holdBelow scrolls the page so the reply box stays: the resize after it holds that, not the card above.
-  const box = () => b.root.querySelector('form[data-reply="w/p1"] textarea');
+  // The fold's summary stays where it was tapped through the resize that follows.
   const fold = b.root.querySelector('[data-thread="w/p1"] details.status-fold');
-  const boxAt = top(box());
+  const summaryAt = top(fold.querySelector('summary'));
   b.page.fire(b.root, 'click', { target: fold.querySelector('summary') });
   assert.equal(fold.open, true);
-  assert.equal(top(box()), boxAt);
   b.page.resized();
-  assert.equal(top(box()), boxAt);
+  assert.equal(top(fold.querySelector('summary')), summaryAt);
 });
 
 test("Done closes the card as the board moves it to Done and holds the cards still on screen, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves flashes once, and a card another hand updates takes the tint in its place", async () => {
@@ -8760,7 +8758,7 @@ test('a project made with New project… lands A–Z among the team’s projects
 });
 
 
-test("opening or closing a fold in a thread, and tapping Show more, grow and shrink it upward: the reply box keeps its place on screen and the page scrolls by the added height", async () => {
+test("opening or closing a fold in a thread grows it downward with its summary held, and tapping Show more grows it upward: the reply box keeps its place on screen and the page scrolls by the added height", async () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const said = (n, text) => ({ ts: at(n), who: 'claude', text });
   const run = (n, extra) => ({ ts: at(n), who: 'claude', kind: 'status', run: 'r1', agent: 'Builder', text: `Step ${n}`, ...extra });
@@ -8780,14 +8778,19 @@ test("opening or closing a fold in a thread, and tapping Show more, grow and shr
   const box = () => b.root.querySelector('form[data-reply="w/A1"] textarea');
   const boxTop = () => box().getBoundingClientRect().top;
   const fold = () => b.root.querySelector('[data-thread="w/A1"] details.status-fold');
+  const summaryTop = () => fold().querySelector('summary').getBoundingClientRect().top;
   const start = boxTop();
+  const summaryAt = summaryTop();
 
   b.page.fire(b.root, 'click', { target: fold().querySelector('summary') });
-  assert.deepEqual([fold().open, boxTop()], [true, start]);
-  assert.deepEqual(view.scrolls.map((y) => y > 0), [true]);
+  assert.equal(fold().open, true);
+  b.page.resized();
+  assert.deepEqual([summaryTop(), view.scrolls], [summaryAt, []], 'a fold grows down: its toggle and the page stay');
 
   b.page.fire(b.root, 'click', { target: fold().querySelector('summary') });
-  assert.deepEqual([fold().open, boxTop()], [false, start]);
+  assert.equal(fold().open, false);
+  b.page.resized();
+  assert.deepEqual([summaryTop(), boxTop(), view.scrolls], [summaryAt, start, []]);
 
   const before = b.root.querySelectorAll('[data-thread="w/A1"] .msg').length;
   b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-thread="w/A1"] [data-thread-more]') });

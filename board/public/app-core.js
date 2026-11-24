@@ -125,12 +125,13 @@ BoardView.part((B) => {
   for (const type of ['pointerdown', 'wheel', 'keydown']) B.on(window, type, () => { pinned = null; }, { capture: true, passive: true });
   B.on(B.root, 'focusout', () => setTimeout(() => take(anchorNow())));
   // A tapped card's, lane's or Done fold's title anchors the change its tap makes, so opening a lane above the topmost
-  // card leaves the title where it was tapped. A thread's folds hold their reply form instead (holdBelow).
+  // card leaves the title where it was tapped, as do a thread's folds (app-threads.js). Show more holds the reply form instead (holdBelow).
+  const holdTitle = (title) => take({ find: () => (title.isConnected ? title : null), top: topOf(title) });
   B.on(B.root, 'click', (ev) => {
     const title = ev.target.closest?.('details.item > summary, details.lane > summary, details.fold > summary');
-    if (title) take({ find: () => (title.isConnected ? title : null), top: topOf(title) });
+    if (title) holdTitle(title);
   }, true);
-  // Runs change, which grows or shrinks a thread above its reply form, and scrolls the page by the form's move so the
+  // Runs change, Show more's, which grows a thread above its reply form, and scrolls the page by the form's move so the
   // form, and every message below the change, stays where it was on screen: the page above takes the height
   // (docs/adr/2026-11-15-1600-expanding-in-a-thread-grows-it-upward.md).
   function holdBelow(thread, change) {
@@ -221,5 +222,5 @@ BoardView.part((B) => {
   const confirm = (message, labels) => dialogs.confirm(message, { ...labels, signal: controller.signal });
   const notice = dialogs.notice;
 
-  Object.assign(B, { steady, holdBelow, restorePlace, plural, seen, seenBefore, takeMarks, markRead, markSeen, links, svg, confirm, notice });
+  Object.assign(B, { steady, holdBelow, holdTitle, restorePlace, plural, seen, seenBefore, takeMarks, markRead, markSeen, links, svg, confirm, notice });
 });

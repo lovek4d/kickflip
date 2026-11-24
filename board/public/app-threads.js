@@ -80,12 +80,15 @@ BoardView.part((B) => {
     moreTaps.set(key, (moreTaps.get(key) || 0) + 1);
     B.holdBelow($(`[data-thread="${CSS.escape(key)}"]`), () => B.repaintThread(key));
   });
-  // A fold in a thread, a run of status lines or a long output, opens and closes upward, whether tapped or keyed.
+  // A fold in a thread, a run of status lines or a long output, opens and closes downward, whether tapped or keyed: its
+  // summary, the toggle that closes it, stays where it was tapped.
   B.on(B.root, 'click', (ev) => {
     const fold = ev.target.closest('[data-thread] .msgs summary')?.parentElement;
     if (!fold || ev.target.closest('a')) return;
     ev.preventDefault();
-    B.holdBelow(fold.closest('[data-thread]'), () => { fold.open = !fold.open; });
+    const summary = fold.querySelector(':scope > summary');
+    B.holdTitle(summary);
+    fold.open = !fold.open;
   });
 
   // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md,
