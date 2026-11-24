@@ -21,8 +21,11 @@ const popstate = () => page.dispatchEvent(Object.assign(new Event('popstate'), {
 const pop = () => { history.at--; popstate(); };
 // The browser landing a back the page asked for.
 const land = () => { history.backs--; pop(); };
+// The document: its capture keydown listeners, the focused element, and the dialog an Escape would reach natively.
+const keys = [];
+const doc = { addEventListener: (type, fn, capture) => { if (type === 'keydown' && capture) keys.push(fn); }, activeElement: null, querySelector: () => null };
 const context = vm.createContext({
-  document: { addEventListener() {} }, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443', href: 'https://mac.ts.net/board-a/' }, navigator: { onLine: true },
+  document: doc, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443', href: 'https://mac.ts.net/board-a/' }, navigator: { onLine: true },
   setTimeout: (fn, ms) => timers.push({ fn, ms }), clearTimeout, matchMedia: () => reduced, history, Event,
   addEventListener: (type, fn) => page.addEventListener(type, fn),
 });
@@ -53,6 +56,10 @@ const sheetEl = (name) => {
   };
   el.style = { setProperty: (_, v) => { el.layer = Number(v); } };
   el.querySelectorAll = () => [];
+  el.querySelector = () => null;
+  el.contains = (n) => n === el;
+  el.tabIndex = 0;
+  el.focus = (opts) => { doc.activeElement = el; el.focused = opts; };
   for (const type of ['sheet-return', 'cancel', 'page-back']) el.addEventListener(type, () => el.got.push(type));
   made.push(el);
   return el;
@@ -216,4 +223,69 @@ test('closing a sheet never scrolls the board: no window scroll, no scrollToFocu
 test('swapSheet is gone: a sheet opened from another stacks on it', () => {
   assert.equal(context.BoardUI.swapSheet, undefined);
   for (const f of fs.readdirSync(new URL('./public/', import.meta.url)).filter((x) => x.endsWith('.js'))) assert.doesNotMatch(src(f), /swapSheet/, f);
+});
+
+// One Escape for the stack, in ui.js.
+// A keydown of Escape as the page's capture listener gets it, aimed at target; whether it was kept from the browser.
+const escape = (target = null, key = 'Escape') => {
+  let kept = false;
+  for (const fn of keys) fn({ key, target, preventDefault: () => { kept = true; } });
+  return kept;
+};
+// Each sheet runs its own close path on a cancel, as a view's does.
+const closing = (el) => el.addEventListener('cancel', (ev) => { ev.preventDefault(); closeSheet(el); });
+
+test('Escape closes only the top sheet, and again the one beneath, each held by the stack', async () => {
+  await fresh();
+  const a = sheetEl('a'), b = sheetEl('b');
+  closing(a); closing(b);
+  openSheet(a); openSheet(b);
+  assert.equal(escape(b), true, 'kept from the browser');
+  timers.shift().fn();
+  await tick();
+  assert.deepEqual([a.open, b.open, isTopSheet(a)], [true, false, true]);
+  assert.equal(escape(a), true);
+  timers.shift().fn();
+  await tick();
+  assert.deepEqual([a.open, b.open], [false, false]);
+  assert.equal(escape(null), false, 'no sheet open: left to the page');
+});
+
+test('Escape in a dialog that is not the top sheet, in an open popup, or any other key, is left alone', async () => {
+  await fresh();
+  const a = sheetEl('a'), b = sheetEl('b'), confirm = sheetEl('confirm');
+  closing(a); closing(b);
+  openSheet(a);
+  assert.equal(escape({ closest: () => confirm }), false, 'a confirm dialog outside the stack closes itself');
+  openSheet(b);
+  assert.equal(escape({ closest: () => a }), true, 'focus left in a lower sheet still closes the top one');
+  assert.ok(timers.some((t) => t.ms === 180) && b.classList.contains('closing') && !a.classList.contains('closing'), 'b closes, not a');
+  await fresh();
+  openSheet(a);
+  doc.querySelector = (sel) => (sel === ':popover-open' ? {} : null);
+  assert.equal(escape(a), false, 'a popup closes itself');
+  doc.querySelector = () => null;
+  assert.equal(escape(a, 'Enter'), false);
+  assert.ok(a.open);
+});
+
+test('a sheet with no cancel of its own closes on Escape through closeSheet', async () => {
+  await fresh();
+  const a = sheetEl('a');
+  openSheet(a);
+  escape(a);
+  assert.ok(timers.some((t) => t.ms === 180), 'closing played');
+});
+
+test('a sheet takes focus when it opens or comes back on top: its autofocus field, else itself', async () => {
+  await fresh();
+  const a = sheetEl('a'), b = sheetEl('b'), field = { focus: (o) => { doc.activeElement = field; field.focused = o; } };
+  b.querySelector = (sel) => (sel === '[autofocus]' ? field : null);
+  openSheet(a);
+  assert.deepEqual([doc.activeElement, a.focused?.preventScroll, a.tabIndex], [a, true, -1]);
+  openSheet(b);
+  assert.deepEqual([doc.activeElement, field.focused?.preventScroll], [field, true]);
+  b.contains = (n) => n === b || n === field;
+  closeSheet(b);
+  assert.equal(doc.activeElement, a, 'a is on top again, and takes it back');
 });

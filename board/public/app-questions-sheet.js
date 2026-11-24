@@ -334,8 +334,6 @@ globalThis.BoardQuestionsSheet = (sheet, { board, threads = () => [], send, onli
     const q = questionsOf(topic).find((x) => x.id === request.closest('section.q').dataset.q);
     if (q) ask(q, BoardUI.requestOf(request));
   });
-  // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it, when on top.
-  on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal && BoardUI.isTopSheet(sheet)) close(); });
   // Back on top from a sheet opened over it (ui.js openSheet), such as a prototype whose Choose this drafted a pick, it
   // draws its questions again from their drafts.
   on(sheet, 'sheet-return', redraw);

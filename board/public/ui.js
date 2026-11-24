@@ -569,7 +569,28 @@
     }
     order.forEach((sheet, i) => sheet.style.setProperty('--layer', String(i)));
     shown = order;
+    focusTop();
   }
+  // The top sheet holds the focus: its autofocus field, else the sheet itself, so the keys go to it. Focus already inside
+  // it stays.
+  function focusTop() {
+    const top = layers.at(-1)?.sheet;
+    if (!top?.open || top.contains(document.activeElement)) return;
+    const target = top.querySelector('[autofocus]');
+    if (target) target.focus({ preventScroll: true });
+    else { top.tabIndex = -1; top.focus({ preventScroll: true }); }
+  }
+  // The one Escape for the stack: it closes the top sheet by that sheet's own cancel, which every sheet's own close path
+  // answers, and else closes it through closeSheet. A dialog outside the stack (a confirm above it) or an open popup has its own; focus left in a lower sheet still closes the top.
+  if (typeof document !== 'undefined') document.addEventListener('keydown', (ev) => {
+    const top = layers.at(-1)?.sheet;
+    if (ev.key !== 'Escape' || !top?.open) return;
+    const dialog = ev.target?.closest?.('dialog');
+    if (dialog && !layers.some((l) => l.sheet === dialog)) return;
+    if (document.querySelector(':popover-open')) return;
+    ev.preventDefault();
+    if (top.dispatchEvent(new Event('cancel', { cancelable: true }))) closeSheet(top, (ms, fn) => setTimeout(fn, ms));
+  }, true);
   // The layer at, out of the stack.
   function unstack(at) {
     const [layer] = layers.splice(at, 1);

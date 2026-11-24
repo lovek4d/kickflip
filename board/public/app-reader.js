@@ -424,8 +424,6 @@ BoardView.part((B) => {
   // A prototype's Choose this, or its push sending a picked question on to its card's thread (prototype-switcher.js
   // replaceWith), leaves through the sheet.
   B.on(sheet, 'reader-leave', (ev) => leave(ev.detail));
-  // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it.
-  B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal && BoardUI.isTopSheet(sheet)) close(); });
   B.atUnmount(BoardUI.swipeToDismiss(sheet));
   // The view going takes its sheet out of the sheet stack (ui.js openSheet).
   B.atUnmount(() => sheet.close());
