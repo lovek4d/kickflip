@@ -122,7 +122,7 @@
     return `<div class="msg reviewer"><div class="who">Reviewer</div><div class="body"><p>${escText(m.text)}</p>${top.length ? findingList(top, links) : ''}${rest.length ? `<details class="findings-more"><summary>Show all ${m.findings.length}</summary>${findingList(rest, links, TOP_FINDINGS + 1)}</details>` : ''}</div>${msgFooter(m, [])}</div>`;
   };
   // A line naming a card (domain.mjs namedLine): its words, then the card's reference as it stands (ui-links.js cardRef).
-  const named = (m, links) => `${escText(m.words)} ${cardRef(m.card, links)}`;
+  const named = (m, links) => `${escText(m.words)} ${cardRef(m.card, links)}${m.after ? escText(m.after) : ''}`;
   const line = (m, links, folded = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div>${msgFooter(m, [])}</div>`
     : m.kind === 'ask-link' ? statusLine('link', statusMark('ask-link') + named(m, links), m.ts)

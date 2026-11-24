@@ -1102,7 +1102,7 @@ export const COMMANDS = {
   'prototype-started': 'Prototype started', 'grill-started': 'Grill started', 'visual-started': 'Visual started', [`${REVIEWER}-started`]: 'Review started',
   reask: 'Re-ask requested', hold: 'Blocked', resume: 'Unblocked', done: 'Marked done', reopened: 'Reopened', cancelled: 'Cancelled Implement',
   discussing: 'Marked as discussing', staged: 'Marked as staged', readied: 'Marked as ready',
-  related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
+  related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of', filed: 'Filed',
   created: 'Created ticket', 'created-from': 'Created from', 'blocked-by': 'Blocked by', unblocks: 'Unblocks',
   // docs/adr/2026-11-18-2100-a-card-tap-logs-a-sending-line-and-its-button-just-disables.md: the owner's taps that record no
   // line of their own otherwise: a Bump or Unbump, a held card's Merge, a Serve or Kill the hub took, a script's Run or Decline.
@@ -1114,7 +1114,7 @@ export const COMMANDS = {
 // Each tap command's tone (hub-lines.mjs TONES): a request for a planner is blue like a planner's own lines.
 export const COMMAND_TONES = {
   prototype: 'blue', grill: 'blue', visual: 'blue', [REVIEWER]: 'blue', 'prototype-started': 'blue', 'grill-started': 'blue', 'visual-started': 'blue', [`${REVIEWER}-started`]: 'blue', reask: 'blue', hold: 'grey', resume: 'orange', done: 'green', reopened: 'grey', cancelled: 'grey',
-  discussing: 'grey', staged: 'orange', readied: 'green', related: 'grey', unrelated: 'grey', followup: 'grey', 'followup-of': 'grey',
+  discussing: 'grey', staged: 'orange', readied: 'green', related: 'grey', unrelated: 'grey', followup: 'grey', 'followup-of': 'grey', filed: 'blue',
   created: 'blue', 'created-from': 'blue', 'blocked-by': 'grey', unblocks: 'grey',
   bumped: 'grey', unbumped: 'grey', merge: 'orange', served: 'orange', killed: 'grey', 'script-ran': 'orange', 'script-declined': 'grey',
   tagged: 'grey', untagged: 'grey',
@@ -1178,15 +1178,25 @@ const askerOf = (asked) => (asked.by === 'orchestrator' ? 'Orchestrator' : asked
 // Who asked an asked ask, as the board's text to the orchestrator names it, and the words that say it is not the owner's.
 export const askedBy = (asked) => (asked.by === 'orchestrator' ? 'the orchestrator' : asked.by === 'schedule' ? `the board's schedule ${asked.schedule}` : askerOf(asked));
 export const NOT_THE_OWNER = 'not the owner, so its words approve nothing';
-// The task an orchestrator-filed ask came from: the one --from named, else its parent, else its first related.
-const filedFrom = (e) => e.data.asked.from || e.data.links?.parent || e.data.links?.related?.[0];
-function askedLine(e) {
+// The task an orchestrator-filed ask came from: the one --from named, else its first related unless it has a parent,
+// whose Created ticket and Created from lines already tell it. The card's own line reads Filed from it and the other's
+// reads Filed (cards.mjs postAskLinks), neither also Related to.
+export const filedFromOf = (asked, links = {}) => asked.from || (links.parent ? null : links.related?.[0]);
+function askedLine(e, cards) {
   const asked = e.data?.asked;
   if (!asked) return [];
+  const base = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'asked-from' };
+  // A task's card is named as a line naming a card is (namedLine), so its ref is the one it has when the line shows;
+  // a task's builder or planner follows it: From <ref>'s builder.
+  const named = asked.by === 'orchestrator' ? filedFromOf(asked, e.data.links) : asked.by === 'schedule' ? null : asked.key;
+  if (named) {
+    const after = asked.by === 'orchestrator' ? '' : `'s ${asked.by}`;
+    const m = naming({ ...base, text: '' }, asked.by === 'orchestrator' ? 'Filed from' : 'From', named, cards);
+    return [{ ...m, ...hubLineOf(m), text: m.text + after, ...(after ? { after } : {}), html: null, via: null }];
+  }
   // A schedule's fire links its last fire's task.
-  const from = asked.by === 'orchestrator' ? filedFrom(e) : asked.by === 'schedule' ? e.data.links?.related?.[0] : asked.key;
-  const phrase = asked.by === 'schedule' ? `From schedule ${asked.schedule}` : asked.by !== 'orchestrator' ? `From ${askerOf(asked)}` : from ? `Filed from ${asked.ref || from.split('/').pop()}` : 'Filed by the orchestrator';
-  const m = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'asked-from', text: hubText('asked-from', { phrase }) };
+  const from = asked.by === 'schedule' ? e.data.links?.related?.[0] : null;
+  const m = { ...base, text: hubText('asked-from', { phrase: asked.by === 'schedule' ? `From schedule ${asked.schedule}` : 'Filed by the orchestrator' }) };
   return [{ ...m, ...hubLineOf(m), html: null, link: from ? `#selectedCard=${encodeURIComponent(from)}` : null, via: null }];
 }
 // An ask the orchestrator filed names who asked.
@@ -1343,7 +1353,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     }),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       // An ask the orchestrator filed (data.asked) is its message, under its From line; any other is the owner's.
-      .flatMap((e) => [...routedLine(e), ...handedLine(e), ...askedLine(e), { ts: e.ts, who: e.data?.asked ? 'claude' : 'love', via: 'ask', kind: e.kind, ...(e.data?.asked ? { asked: true } : {}), text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e), ...slackOf(e),
+      .flatMap((e) => [...routedLine(e), ...handedLine(e), ...askedLine(e, cards), { ts: e.ts, who: e.data?.asked ? 'claude' : 'love', via: 'ask', kind: e.kind, ...(e.data?.asked ? { asked: true } : {}), text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e), ...slackOf(e),
         ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}), ...(BRIEF_KINDS.includes(e.data?.request) ? { status: COMMANDS[e.data.request] } : {}) },
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));

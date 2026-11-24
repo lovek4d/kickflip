@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { squashBody, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { COMMANDS, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, threadOf, builds, mergeBlockers, owesNext, pushTag, refOf, HELPER, implementAsk } from './domain.mjs';
+import { COMMANDS, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, threadOf, builds, filedFromOf, mergeBlockers, owesNext, pushTag, refOf, HELPER, implementAsk } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { builderRepo } from './worktree.mjs';
 import { reviseQueued, pushKindError } from '../hub/push.mjs';
@@ -1553,11 +1553,16 @@ export async function replyFirst(site, keys, replyOn) {
   return async () => { await appendMessage(site, waiting[0], { text: replyOn }); };
 }
 // A New card holds back the Related to line on each card it is related to (postAskLinks), as the owner can't open it
-// yet; once it leaves New, each of those cards without a standing Related to line for it gets one.
+// yet; once it leaves New, each of those cards without a standing line for it gets one: Filed for the card it was filed
+// from (domain.mjs filedFromOf), else Related to.
 async function postHeldLinks(site, key) {
+  const { item } = await loadItem(site, key);
+  const ask = item.from_ask && (await readLog(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === item.from_ask && e.kind === 'ask');
+  const filed = ask?.data?.asked?.by === 'orchestrator' ? filedFromOf(ask.data.asked, ask.data.links) : undefined;
   for (const other of (await linksOf(site, key)).related) {
-    const last = (await readLog(threadFile(site, other))).filter((m) => ['related', 'unrelated'].includes(m.command) && m.card === key).at(-1);
-    if (last?.command !== 'related') await appendCommand(site, other, { command: 'related', card: key });
+    const command = other === filed ? 'filed' : 'related';
+    const last = (await readLog(threadFile(site, other))).filter((m) => ['related', 'unrelated', 'filed'].includes(m.command) && m.card === key).at(-1);
+    if (last?.command !== command) await appendCommand(site, other, { command, card: key });
   }
 }
 // A new task's words (what) must link each task they name, by any link in links (keys): → refuses naming the rest.
@@ -1652,12 +1657,14 @@ export async function linksOf(site, key) {
 // (linksOf): Related to or Unrelated from, and Follow-up in the Parent's thread with Follow-up of in the child's. A card
 // filed with its Parent (item add --parent) reads Created ticket in its Parent's thread and Created from in its own.
 // held: key is a New card, whose Related to line in the other card's thread waits until it leaves New (postHeldLinks).
-export async function postLinkLines(site, key, before, after, { spunOut = false, held = false } = {}) {
+export async function postLinkLines(site, key, before, after, { spunOut = false, held = false, filed } = {}) {
   const both = async (command, other, mine = command, theirs = command) => {
     await appendCommand(site, key, { command: mine, card: other });
     await appendCommand(site, other, { command: theirs, card: key });
   };
-  for (const other of after.related) if (!before.related.has(other)) await (held ? appendCommand(site, key, { command: 'related', card: other }) : both('related', other));
+  // filed: the card key was filed from, whose line reads Filed key and key's own is drawn from its ask (domain.mjs askedLine).
+  for (const other of after.related) if (!before.related.has(other) && other === filed) { if (!held) await appendCommand(site, other, { command: 'filed', card: key }); }
+  else if (!before.related.has(other)) await (held ? appendCommand(site, key, { command: 'related', card: other }) : both('related', other));
   for (const other of before.related) if (!after.related.has(other)) await both('unrelated', other);
   if (after.parent && after.parent !== before.parent) await (spunOut ? both('created-from', after.parent, 'created-from', 'created') : both('followup-of', after.parent, 'followup-of', 'followup'));
 }

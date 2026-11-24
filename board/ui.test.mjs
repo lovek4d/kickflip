@@ -3231,6 +3231,10 @@ test('a status line draws icon, words and link in one tone; Created gets its own
   const tone = (html) => html.match(/class="msg status-line ([^"]*)"/)[1];
   assert.equal(tone(ui.threadMessages([card('created', 'Created ticket', 'blue')])), 'request tone-blue');
   assert.equal(tone(ui.threadMessages([card('related', 'Related to', 'grey')])), 'request');
+  // Filed reads like Created ticket in blue, with the arrow Filed from has.
+  assert.equal(tone(ui.threadMessages([card('filed', 'Filed', 'blue')])), 'request tone-blue');
+  assert.equal(ui.MARK_ICONS.Filed, ui.MARK_ICONS['ask-link']);
+  assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'asked-from', mark: 'ask-link', words: 'From', after: "'s builder", card: 'w/A2', text: "From #12's builder", link: '#selectedCard=w%2FA2', tone: 'blue' }]), /From <a href="#selectedCard=w%2FA2">A2<\/a>&#39;s builder/);
   const hub = (extra) => ({ ts: ago(1), who: 'claude', kind: 'hub', text: 'x', mark: 'Fault', ...extra });
   assert.equal(tone(ui.threadMessages([hub({ tone: 'red', link: '#a' })])), 'request hub tone-red');
   assert.equal(tone(ui.threadMessages([hub({ line: 'ticket-made', mark: 'Created ticket', tone: 'blue' })])), 'request hub tone-blue');

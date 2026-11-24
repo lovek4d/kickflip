@@ -4,7 +4,7 @@
 import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
-import { LANES, boardAsksOf, builds, implementAsk, slackSourced } from './domain.mjs';
+import { LANES, boardAsksOf, builds, filedFromOf, implementAsk, slackSourced } from './domain.mjs';
 import { appendEvent, isListening, listBoards, samePath } from '../hub/boards.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { appendLine, boardConfig, eventId as newEventId, itemSources, readJSON, readLog, remove, replace, writeJSON } from './files.mjs';
@@ -86,7 +86,7 @@ export const fileAsk = (site, eventId, pending, options) => ticketWrite(site, as
   itemFile.items.push(item);
   await writeJSON(source.file, itemFile);
   const key = `${source.slug}/${item.id}`;
-  await postAskLinks(site, key, ask.data?.links, options);
+  await postAskLinks(site, key, ask.data, options);
   return key;
 });
 
@@ -125,6 +125,8 @@ export async function askItem(site, file, { text: request, parent, split, relate
   await (await replyFirst(site, linked.filter(Boolean), replyOn))();
   const source = from === undefined ? undefined : depKey(file.split('/')[0], String(from).trim());
   if (source) await loadItem(site, source);
+  // --from links the two cards even with no --relate.
+  if (source && source !== links.parent && !links.related?.includes(source)) links.related = [...links.related || [], source];
   const asked = by === 'orchestrator' ? { by, ...(source ? { from: source, ref: await cardName(site, source) } : {}) } : { by, key: links.parent, ref: await cardName(site, links.parent) };
   const id = await appendEvent(boardTarget(site), 'ask', { text: words, asked, file, ...(Object.keys(links).length ? { links } : {}) });
   // A running board may file it first, as it takes the event.
@@ -143,11 +145,13 @@ async function askLinks(site, item, slug, links = {}) {
   if (links.deps?.length) item.deps = links.deps.map((k) => (parseKey(k).file === slug ? parseKey(k).id : k));
 }
 // Once its card is written: the tasks it blocks gain it as a dep, and each link posts its line in both threads, but
-// for a Related to line on another card, held while the card is New.
-async function postAskLinks(site, key, links = {}, options) {
+// for a Related to line on another card, held while the card is New. An orchestrator's ask reads Filed on the card it
+// came from (domain.mjs filedFromOf) in place of Related to, as the card's own line is drawn from its ask.
+async function postAskLinks(site, key, { links = {}, asked } = {}, options) {
   const { item } = await loadItem(site, key);
+  const filed = asked?.by === 'orchestrator' ? filedFromOf(asked, links) : undefined;
   await blockLines(site, key, links.before || [], item.deps || [], options);
-  await postLinkLines(site, key, { related: new Set(), parent: null }, await linksOf(site, key), { spunOut: true, held: inIntake(item) });
+  await postLinkLines(site, key, { related: new Set(), parent: null }, await linksOf(site, key), { spunOut: true, held: inIntake(item), filed });
 }
 
 // The item file an ask's card goes in, {source, itemFile}: the one named slug, else the first there is; a file-items
@@ -214,7 +218,7 @@ export const fileAsks = (site) => ticketWrite(site, async () => {
     // Each card is written as it is made, so the next one's number counts it.
     await writeJSON(target.source.file, target.itemFile);
     carded.set(ask.id, `${target.source.slug}/${item.id}`);
-    await postAskLinks(site, carded.get(ask.id), ask.data?.links);
+    await postAskLinks(site, carded.get(ask.id), ask.data);
     filed.push(carded.get(ask.id));
   }
   const cardOf = (topic) => carded.get(/^item:ask:(.+)$/.exec(topic || '')?.[1]);

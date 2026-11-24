@@ -2272,7 +2272,7 @@ test("a thread-file line a button wrote is a request line carrying its command k
   const cards = new Map([['w/A2', { ref: '#12' }]]);
   const linked = threadOf('w/A1', { lines: [{ ts: '2026-11-06T10:00:00Z', who: 'claude', text: 'Related to', command: 'related', card: 'w/A2' }], cards });
   assert.deepEqual(linked.map((m) => [m.text, m.words, m.link, m.card, m.mark]), [['Related to #12', 'Related to', '#selectedCard=w%2FA2', 'w/A2', 'Related to']]);
-  assert.deepEqual(Object.keys(COMMANDS), ['prototype', 'grill', 'visual', 'reviewer', 'prototype-started', 'grill-started', 'visual-started', 'reviewer-started', 'reask', 'hold', 'resume', 'done', 'reopened', 'cancelled', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of', 'created', 'created-from', 'blocked-by', 'unblocks',
+  assert.deepEqual(Object.keys(COMMANDS), ['prototype', 'grill', 'visual', 'reviewer', 'prototype-started', 'grill-started', 'visual-started', 'reviewer-started', 'reask', 'hold', 'resume', 'done', 'reopened', 'cancelled', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of', 'filed', 'created', 'created-from', 'blocked-by', 'unblocks',
     'bumped', 'unbumped', 'merge', 'served', 'killed', 'script-ran', 'script-declined', 'tagged', 'untagged']);
 });
 

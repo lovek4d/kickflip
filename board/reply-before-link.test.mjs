@@ -54,15 +54,24 @@ test('--reply-on with no linked card awaiting a reply is refused, as it would wr
   assert.deepEqual(thread('Q1').map(said), ['related audit/Q2']);
 });
 
-test("a task filed in New posts its Related to line on the other card at triage, not at item add, after the orchestrator's reply there", async () => {
+test("a task filed in New posts its Filed line, not Related to, on the other card at triage, not at item add, after the orchestrator's reply there", async () => {
   card('R1');
   const child = await askFrom('--relate', 'R1');
   assert.deepEqual(thread('R1'), [], 'the owner cannot open a New task yet');
-  assert.deepEqual(thread(child).map(said), ['related audit/R1'], 'the new card names it at once');
+  assert.deepEqual(thread(child).map(said), [], 'the new card draws its Filed from line from its ask, and stores none');
   assert.equal((await cli('thread', 'audit/R1', '--text', 'Filed a follow-up.')).code, 0);
   assert.equal((await cli('item', 'triage', `audit/${child}`, '--title', 'feat: child', '--phase', 'grilling')).code, 0);
-  assert.deepEqual(thread('R1').map(said), ['Filed a follow-up.', `related audit/${child}`]);
-  assert.equal(thread(child).filter((m) => m.command === 'related').length, 1);
+  assert.deepEqual(thread('R1').map(said), ['Filed a follow-up.', `filed audit/${child}`]);
+  assert.equal(thread(child).filter((m) => m.command === 'related').length, 0);
+});
+
+test("--from alone links the two cards: the filing card reads Filed, the new one reads Filed from, and a second related card keeps Related to", async () => {
+  card('F1'); card('F2');
+  const child = await askFrom('--from', 'F1', '--relate', 'F2');
+  assert.equal((await cli('item', 'triage', `audit/${child}`, '--title', 'feat: child', '--phase', 'grilling')).code, 0);
+  assert.deepEqual(thread('F1').map(said), [`filed audit/${child}`]);
+  assert.deepEqual(thread('F2').map(said), [`related audit/${child}`]);
+  assert.deepEqual(thread(child).map(said), [`related audit/F2`]);
 });
 
 test("thread, reply and item text naming a T-<n> this board hasn't made yet is refused, until item add makes it", async () => {

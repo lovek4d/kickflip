@@ -155,7 +155,7 @@
     // The board's status lines (board/hub-lines.mjs): a block's circle with a bar, a fault's warning triangle.
     Blocked: shape('blocked'), 'Blocked by': shape('blocked'), Unblocks: shape('blocked'),
     Fault: shape('warn'),
-    'Related to': shape('link'), 'Unrelated from': shape('link'), 'Follow-up': shape('link'), 'Follow-up of': shape('link'), 'Created ticket': shape('created'), 'Created from': shape('created'),
+    'Related to': shape('link'), 'Unrelated from': shape('link'), 'Follow-up': shape('link'), 'Follow-up of': shape('link'), Filed: shape('arrow'), 'Created ticket': shape('created'), 'Created from': shape('created'),
     'Marked done': shape('circle-check'),
     Reopened: shape('reopen'),
     // The record of a tap that writes no line of its own otherwise (domain.mjs COMMANDS).

@@ -86,13 +86,18 @@ test("an ask the orchestrator filed opens with a blue line naming who asked, and
     ['claude', undefined, 'Cache the config', undefined, 'Orchestrator', undefined],
   ]);
   const filed = (data) => view({ ...at('a4', { by: 'orchestrator', ...data.asked }), data: { text: 'Cache the config', asked: { by: 'orchestrator', ...data.asked }, links: data.links } })[0].slice(1, 4);
-  assert.deepEqual(filed({ asked: { from: 'w/T-2', ref: 'T-2' }, links: { parent: 'w/T-3', related: ['w/T-5'] } }), ['asked-from', 'Filed from T-2', '#selectedCard=w%2FT-2'], '--from wins');
-  assert.deepEqual(filed({ links: { parent: 'w/T-3', related: ['w/T-5'] } }), ['asked-from', 'Filed from T-3', '#selectedCard=w%2FT-3'], 'else the parent');
+  assert.deepEqual(filed({ asked: { from: 'w/T-2', ref: 'T-2' }, links: { parent: 'w/T-3', related: ['w/T-5'] } }), ['asked-from', 'Filed from T-2', '#selectedCard=w%2FT-2'], '--from wins, even with a parent');
+  assert.deepEqual(filed({ links: { parent: 'w/T-3', related: ['w/T-5'] } }), ['asked-from', 'Filed by the orchestrator', null], 'a parent has Created from, so no Filed from');
   assert.deepEqual(filed({ links: { related: ['w/T-5', 'w/T-6'] } }), ['asked-from', 'Filed from T-5', '#selectedCard=w%2FT-5'], 'else the first related');
   assert.deepEqual(view(at('a2', { by: 'builder', key: 'w/T-4', ref: 'T-4' })), [
     ['claude', 'asked-from', "From T-4's builder", '#selectedCard=w%2FT-4', undefined, 'blue'],
     ['claude', undefined, 'Cache the config', undefined, "T-4's builder", undefined],
   ]);
+  // The ref is the card's own when the line shows, so a ticket made since reads as it is now.
+  const named = threadOf('w/T-9', { events: [{ ...at('a5', { by: 'orchestrator', from: 'w/T-2' }), data: { text: 'Cache the config', asked: { by: 'orchestrator', from: 'w/T-2', ref: 'T-2' } } }], fromAsk: 'a5', cards: new Map([['w/T-2', { ref: '#1193' }]]) })[0];
+  assert.deepEqual([named.text, named.words, named.card], ['Filed from #1193', 'Filed from', 'w/T-2']);
+  const builder = threadOf('w/T-9', { events: [at('a6', { by: 'builder', key: 'w/T-4', ref: 'T-4' })], fromAsk: 'a6', cards: new Map([['w/T-4', { ref: '#77' }]]) })[0];
+  assert.deepEqual([builder.text, builder.words, builder.after], ["From #77's builder", 'From', "'s builder"]);
   assert.deepEqual(view(at('a3', undefined)), [['love', undefined, 'Cache the config', undefined, undefined, undefined]], "the owner's own ask stays theirs");
 });
 
