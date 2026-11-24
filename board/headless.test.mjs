@@ -95,6 +95,30 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
   assert.ok(!brief.includes('testing'), 'the brief has no testing step');
 });
 
+// docs/adr/2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md
+test("a builder's brief has it write the PR's body to a file by the repo's PR guide: the doc AGENTS.md names, else the PR template, else kickflip's default", () => {
+  const b = `node ${BOARD_CLI} --site shop`;
+  const wt = tempDir('pr-guide-');
+  const bodyLine = (brief) => brief.split('\n').find((l) => l.startsWith('- --body-file'));
+  const fallback = bodyLine(builderBrief({ ...card, worktree: wt }));
+  assert.ok(builderBrief(card).includes(`${b} builder done w/A1 --risk low|medium|high --summary "${SUMMARY_HINT}" --text "<what you checked>" --body-file <path>`));
+  assert.match(fallback, /^- --body-file <path> is the draft PR's body on a board with pull requests, markdown with no length cap; --text stays the short line of what you checked, the thread's closing line\. Write the body by kickflip's default PR guide, as this repo has none: ## Summary \(Problem \/ Solution \/ Impact\), ## Verification \(the commands you ran, on the base then on the branch, in a collapsed <details> block, and a "Not checked:" line\), ## Known limits when there are any, and ## Merge risk \(the level, a one-way or two-way door, the blast radius, the deploy order, the rollback, what to watch\)\. The merge squashes its Summary section, wrapped at 72, into the commit on main\.$/);
+  fs.mkdirSync(path.join(wt, '.github'));
+  fs.writeFileSync(path.join(wt, '.github', 'PULL_REQUEST_TEMPLATE.md'), '## What\n');
+  assert.match(bodyLine(builderBrief({ ...card, worktree: wt })), /Write the body by the repo's PR guide, \.github\/PULL_REQUEST_TEMPLATE\.md, in the worktree: read it first\. The merge squashes/);
+  fs.mkdirSync(path.join(wt, 'docs'));
+  fs.writeFileSync(path.join(wt, 'docs', 'pull-requests.md'), '# PRs\n');
+  fs.writeFileSync(path.join(wt, 'AGENTS.md'), '# Agents\n\nSee [the style guide](docs/style.md).\nPR descriptions follow [our guide](docs/pull-requests.md).\n');
+  assert.match(bodyLine(builderBrief({ ...card, worktree: wt })), /Write the body by the repo's PR guide, docs\/pull-requests\.md, in the worktree: read it first\./);
+  // A doc AGENTS.md names that isn't there falls through to the template.
+  fs.rmSync(path.join(wt, 'docs', 'pull-requests.md'));
+  assert.match(bodyLine(builderBrief({ ...card, worktree: wt })), /PR guide, \.github\/PULL_REQUEST_TEMPLATE\.md,/);
+  // A builder launched with no worktree yet gets the default.
+  assert.match(bodyLine(builderBrief({ ...card, worktree: null })), /by kickflip's default PR guide/);
+  // A red-CI fix run keeps the open PR's body unless it has to change.
+  assert.match(bodyLine(builderBrief({ ...card, fix: { pr: 9, failing: [] } })), /^- --body-file <path> replaces the open PR's body; leave it out to keep the body as it is\./);
+});
+
 // docs/adr/2026-11-16-1915-the-hub-status-opens-the-load-sheet-at-any-load-collapsed.md
 test("a builder's brief has it stop any process it starts in the background before the command returns, never leaving one detached", () => {
   assert.match(builderBrief(card), /A process you start in the background \(CPU load such as `yes` to reproduce a flake, a server, a watcher\) you stop before the command that started it returns, with a `trap` or an explicit `kill`: never leave one running detached\. builder done refuses while one still runs in your worktree, and names it\./);

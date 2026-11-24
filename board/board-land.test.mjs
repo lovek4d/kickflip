@@ -168,7 +168,7 @@ test("land --site refuses a squash message whose subject isn't Conventional or r
   };
   const main = git(repo, 'rev-parse', 'main');
 
-  const shape = (subject) => [1, `land: commit <c> "${subject}" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; reword it to the commit standard and land again\n`];
+  const shape = (subject) => [1, `land: commit <c> "${subject}" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope or a comma list of them; reword it to the commit standard and land again\n`];
   assert.deepEqual(await refused('A1: the old form\n\nRefs: A1'), shape('A1: the old form'));
   assert.deepEqual(await refused('feature(board): x\n\nRefs: A1'), shape('feature(board): x'));
   const long = `feat(board): ${'x'.repeat(88)}`;

@@ -66,6 +66,24 @@ const helperSteps = (b, key) => [
   `5. To run a separate part of the work in parallel, ask the board for a helper: \`${b} agent launch ${key} --name <short-name> --task "<the whole task, with the files and what to hand back>"\`, adding --writes when it changes code or runs tests (it gets its own worktree off your branch, and waits for a free implementer slot). Then \`${b} agent wait ${key} --name <short-name>\`, which prints its hand-back; it returns within 10 minutes, so run it again while it says still running, and do the task yourself if it says the helper exited. Merge a writing helper's work with \`${b} agent merge ${key} --name <short-name>\` before you finish.`,
 ];
 
+// docs/adr/2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md
+// The guide a builder writes its PR's body by, from its worktree: the doc AGENTS.md names on a line about PRs (a link or
+// a backticked path to a .md file there), else .github's PR template, else kickflip's default.
+const PR_DEFAULT = "kickflip's default PR guide, as this repo has none: ## Summary (Problem / Solution / Impact), ## Verification (the commands you ran, on the base then on the branch, in a collapsed <details> block, and a \"Not checked:\" line), ## Known limits when there are any, and ## Merge risk (the level, a one-way or two-way door, the blast radius, the deploy order, the rollback, what to watch)";
+// A builder launched with no worktree yet, on a board with no repo, gets the default.
+function prGuide(worktree) {
+  if (!worktree) return PR_DEFAULT;
+  let agents = '';
+  try { agents = fs.readFileSync(path.join(worktree, 'AGENTS.md'), 'utf8'); } catch {}
+  const named = agents.split('\n').filter((l) => /\b(PRs?|pull requests?)\b/i.test(l))
+    .flatMap((l) => [...l.matchAll(/\]\(([^)\s#]+\.md)\)|`([^`\s]+\.md)`/g)].map((m) => path.normalize(m[1] ?? m[2])));
+  const guide = [...named, '.github/PULL_REQUEST_TEMPLATE.md', '.github/pull_request_template.md'].find((rel) => fs.existsSync(path.join(worktree, rel)));
+  return guide ? `the repo's PR guide, ${guide}, in the worktree: read it first` : PR_DEFAULT;
+}
+const bodyLine = (worktree, fix) => (fix
+  ? `- --body-file <path> replaces the open PR's body; leave it out to keep the body as it is. A new body follows ${prGuide(worktree)}.`
+  : `- --body-file <path> is the draft PR's body on a board with pull requests, markdown with no length cap; --text stays the short line of what you checked, the thread's closing line. Write the body by ${prGuide(worktree)}. The merge squashes its Summary section, wrapped at 72, into the commit on main.`);
+
 // The standard brief for a card's headless builder. card: {route, key, ref, title, notes, worktree, base, rules, links}.
 // With fix, {pr, failing: [check name]}, it is the fix run of a PR whose CI is red (docs/adr/2026-11-19-1500-red-ci-on-a-cards-pr-launches-its-builder.md).
 export function builderBrief({ route, key, ref, title, notes, thread, worktree, base, rules = [], links = [], fix = null }) {
@@ -99,8 +117,9 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     "A process you start in the background (CPU load such as `yes` to reproduce a flake, a server, a watcher) you stop before the command that started it returns, with a `trap` or an explicit `kill`: never leave one running detached. builder done refuses while one still runs in your worktree, and names it.",
     `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape.`,
     '',
-    `To finish, run \`${b} builder done ${key} --risk low|medium|high --summary "${SUMMARY_HINT}" --text "<what you checked>"\`, picking one risk word.`,
-    "- --summary is the owner's plain account of the build: it posts as the Builder's message in the thread, above your judgment calls, and done refuses without it. --text stays the short line of what you checked.",
+    `To finish, run \`${b} builder done ${key} --risk low|medium|high --summary "${SUMMARY_HINT}" --text "<what you checked>"${fix ? '' : ' --body-file <path>'}\`, picking one risk word.`,
+    "- --summary is the owner's plain account of the build: it posts as the Builder's message in the thread, above your judgment calls, and done refuses without it.",
+    bodyLine(worktree, fix),
     "- --risk is your judgment of how likely your change is to break something, from what it touches and how well the tests cover it: it colours the PR's Slack message for its reviewers.",
     "- If you recorded a judgment call, it hands the task back for the orchestrator to verify your calls; stop there: the orchestrator's verification finishes the task.",
     ...finishSteps({ route, key, worktree, base }),

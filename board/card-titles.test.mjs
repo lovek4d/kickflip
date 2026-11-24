@@ -7,7 +7,7 @@ import { buildBoard, pullOf } from './domain.mjs';
 import { fakeGh, prView, writePR, calls } from '../shared/fake-gh.mjs';
 import { boardWith, home, at, site, write, read, lines, run, board, wave, launched } from './board-fixture.mjs';
 
-const shape = 'isn\'t "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope';
+const shape = 'isn\'t "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope or a comma list of them';
 const words = '"<type>(<scope>): <summary>" of at most 100 characters, or "ask(<scope>): <question>?" for a question';
 const items = () => read(at('waves', 'w', 'wave.json')).items;
 
@@ -82,4 +82,17 @@ test("merge refuses a PR whose title isn't a Conventional subject before it merg
   assert.deepEqual(calls(dir).filter((a) => a[1] === 'merge'), []);
   assert.equal(items()[0].lane, 'review');
   assert.equal(fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')) && lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).length, false);
+});
+
+// docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
+test("merge takes a PR titled with a comma list of scopes, and squashes its body's Summary section, wrapped at 72, into the commit", async () => {
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'feat: one', prs: [{ number: 7 }], lane: 'review' }] });
+  const body = '## Summary\n\nThe API and the web app both read the new field, so a change across the two packages lands as one.\n\n## Verification\n\nRan the tests.\n';
+  writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', title: 'feat(api,web): one field across both', body }));
+  const r = await boardWith(['--site', 'orch', 'merge', 'w/A1'], env);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(calls(dir).filter((a) => a[1] === 'merge'), [['pr', 'merge', '7', '--repo', 'o/r', '--squash', '--subject', 'feat(api,web): one field across both',
+    '--body', 'The API and the web app both read the new field, so a change across the\ntwo packages lands as one.\n\nRefs: A1\nCo-Authored-By: Claude <noreply@anthropic.com>']]);
 });

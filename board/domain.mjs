@@ -1993,21 +1993,22 @@ function unsorted(items, e, key) {
 }
 // docs/adr/2026-11-15-0730-a-new-task-is-triaged-in-one-command-before-it-is-investigated.md
 // The open work cards a card's title suggests it relates to, for its triage: each sharing two or more significant
-// words with its title, or the scope of a Conventional title when both have one, most shared words first, at most
+// words with its title, or a scope of a Conventional title (one of a comma list) when both have one, most shared words first, at most
 // CANDIDATES_SHOWN. A significant word is four letters or more, not a STOP word, with a plural or verb ending dropped.
 const CANDIDATES_SHOWN = 5;
 const STOP = new Set(['about', 'also', 'board', 'boards', 'card', 'cards', 'could', 'does', 'each', 'every', 'from', 'have', 'into', 'just',
   'like', 'make', 'more', 'only', 'over', 'should', 'some', 'task', 'tasks', 'than', 'that', 'them', 'then', 'there', 'their', 'they',
   'this', 'what', 'when', 'which', 'with', 'would']);
-const scopeOf = (title) => /^[a-z]+\(([^)]+)\)!?:/i.exec(title)?.[1]?.toLowerCase() ?? null;
+// A Conventional title's scopes, a comma list's each, or none.
+const scopesOf = (title) => (/^[a-z]+\(([^)]+)\)!?:/i.exec(title)?.[1] ?? '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
 const stem = (w) => w.replace(/(?:ing|ed|es|s)$/, (end) => (w.length - end.length >= 4 ? '' : end));
 const wordsOf = (title) => new Set(String(title).replace(/^[a-z]+(\([^)]*\))?!?:/i, '').toLowerCase().split(/[^a-z0-9]+/)
   .filter((w) => w.length >= 4 && !STOP.has(w)).map(stem));
 export function relatedCandidates(items, it) {
   const words = wordsOf(it.title);
-  const scope = scopeOf(it.title);
+  const scopes = scopesOf(it.title);
   return items.filter((o) => o.kind === 'work' && o.key !== it.key && !closedLane(o) && !o.unsorted)
-    .map((o) => ({ o, shared: [...wordsOf(o.title)].filter((w) => words.has(w)).length, scoped: Boolean(scope) && scopeOf(o.title) === scope }))
+    .map((o) => ({ o, shared: [...wordsOf(o.title)].filter((w) => words.has(w)).length, scoped: scopesOf(o.title).some((s) => scopes.includes(s)) }))
     .filter(({ shared, scoped }) => shared >= 2 || scoped)
     .sort((a, b) => b.shared - a.shared)
     .slice(0, CANDIDATES_SHOWN)

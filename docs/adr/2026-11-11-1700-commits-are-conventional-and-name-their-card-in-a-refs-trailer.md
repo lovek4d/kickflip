@@ -1,6 +1,6 @@
 # Commits are Conventional and name their card in a Refs trailer
 
-Status: accepted (#517, 11/11). Land's check of every commit is superseded by [every land squashes the branch into one commit](2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md): land checks the squash message only and writes the Refs trailer itself.
+Status: accepted (#517, 11/11). Amended by [a builder writes its PR's body by the repo's PR guide](2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md): the squash body is the PR body's Summary section, and a scope may be a comma list (`feat(api,web): …`). Land's check of every commit is superseded by [every land squashes the branch into one commit](2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md): land checks the squash message only and writes the Refs trailer itself.
 
 ## Context
 
@@ -26,7 +26,7 @@ The owner's answers on #517:
 
 **A new PR's title is a Conventional subject.** `builder done` and `builder verified` take `--title`. On a GitHub board with PRs on, a finish that opens a new PR titles it with `--title`, or else with the branch's first commit subject. It refuses a title `subjectFault` faults before anything is pushed or tested. A card whose PR is already open keeps its title. The builder brief asks for `--title` written from the whole diff. At verify the orchestrator passes its own.
 
-**The squash merge is the PR's title over its body and trailers.** `board.mjs merge` and the Merge tap run `gh pr merge --squash --subject <PR title> --body <squashBody>`. The body is the PR's body, which is the builder's checked text, then `Refs: <card ref>` and each Co-Authored-By trailer the PR's commits carry, once each, matched without regard to case. GitHub's " (#N)" suffix goes because `--subject` replaces its default. The merge reads them with one `gh pr view --json title,body,commits` per PR just before its `gh pr merge`. They stay out of `PR_VIEW_FIELDS`, whose view also feeds PR reports, where `commits` already means the GraphQL query's recent commits.
+**The squash merge is the PR's title over its body and trailers.** `board.mjs merge` and the Merge tap run `gh pr merge --squash --subject <PR title> --body <squashBody>`. The body is the PR body's Summary section, wrapped at 72 (the whole body when it has no Summary heading), then `Refs: <card ref>` and each Co-Authored-By trailer the PR's commits carry, once each, matched without regard to case. GitHub's " (#N)" suffix goes because `--subject` replaces its default. The merge reads them with one `gh pr view --json title,body,commits` per PR just before its `gh pr merge`. They stay out of `PR_VIEW_FIELDS`, whose view also feeds PR reports, where `commits` already means the GraphQL query's recent commits.
 
 **Releases go through `scripts/release.mjs <x.y.z> --ref <ref>`.** It lists the subjects since the last `v*` tag, oldest first and skipping merges, and commits the version bump with `releaseMessage`, which ends in the card's `Refs:` trailer. Land makes and pushes the tag ([land tags a release commit and pushes the tag](2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md)).
 

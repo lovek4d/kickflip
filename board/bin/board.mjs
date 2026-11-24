@@ -790,6 +790,14 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          branch's first commit subject); refused in any other
                                                          shape before anything is pushed or squashed. builder
                                                          verified takes it too
+         [--body-file <path>]                            the draft PR's body on a GitHub board, markdown with no
+                                                         length cap, apart from --text, the thread's line; the
+                                                         board keeps it until a finish puts it on the task's PR,
+                                                         so a hand-back's verify opens the PR with it. On a task
+                                                         whose PR is open it replaces that PR's body (gh pr edit);
+                                                         without it a new PR's body is --text and an open one's
+                                                         stays. builder verified takes it too, replacing the
+                                                         build's. Refused empty, with --dir, or on a helper's done
          builder takes --dir <dir> for an item file in <dir>; its records go in <dir>/agents
   builder stop <file>/<id>                               the orchestrator's stop of the task's run the board launched,
                                                          its headless builder, lander or rebase run, with every process
@@ -901,7 +909,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          running builder as news by themselves
   builder verified <file>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
          [--note <t>] [--title <t>]                      refuses while any record on the task has a call after it.
-                                                         On a handed-back build (not done, no builder open, every
+         [--body-file <path>]                            On a handed-back build (not done, no builder open, every
                                                          call verified) it finishes the task in the same step, as
                                                          builder done does, --note its closing line (else "Judgment
                                                          calls verified."). While a question on the task is open it
@@ -1093,7 +1101,17 @@ function noteOf(f) {
 }
 
 // name: [positional args, allowed flags (...<flag> may repeat, and run gets its values as a list), run(site, args, flags) → message]
-async function builderDone(site, key, { 'owner-step': ownerStep, check, text, title, risk, summary, ...f }) {
+// docs/adr/2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md: --body-file is the draft PR's body,
+// kept for the finish that puts it on the card's PR.
+async function keepBody(site, key, file, f) {
+  if (!site || f.dir) throw new UsageError('--body-file goes on a board task: pass --site, not --dir');
+  if ((f.agent ?? 'main') !== 'main') throw new UsageError("--body-file goes on the build's own done, not a helper's");
+  const body = readInput(file);
+  if (!body.trim()) throw new store.BoardError(`--body-file ${file} is empty: write the PR's body there`);
+  await store.keepPRBody(site, key, body);
+}
+
+async function builderDone(site, key, { 'owner-step': ownerStep, check, text, title, risk, summary, 'body-file': bodyFile, ...f }) {
   if (risk !== undefined && (!site || f.dir)) throw new UsageError('--risk goes on a board task: pass --site, not --dir');
   if (risk !== undefined) await store.setItem(site, key, { risk });
   if (ownerStep !== undefined && (!site || f.dir)) throw new UsageError('--owner-step goes on a board task: pass --site, not --dir');
@@ -1104,6 +1122,7 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ti
   if (onBoard) await store.refuseDetached(site, key, f, detachedIn);
   if (summary !== undefined && !onBoard) throw new UsageError('--summary goes on a board task: pass --site, not --dir');
   if (onBoard) await store.recordSummary(site, key, summary, f);
+  if (bodyFile !== undefined) await keepBody(site, key, bodyFile, f);
   const handed = onBoard && await store.handBackCalls(site, key, f);
   if (handed) return handed;
   if (onBoard && f.next === undefined && await store.finishesCard(site, key, f)) {
@@ -1401,7 +1420,7 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'title', 'risk', 'summary'], (site, [key], f) => builderDone(site, key, f)],
+  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'title', 'risk', 'summary', 'body-file'], (site, [key], f) => builderDone(site, key, f)],
   'builder pick': [['file/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   'agent launch': [['file/id'], ['name', 'task', 'writes', 'model'], (site, [key], f) => store.requestHelper(site, key, f)],
   'agent wait': [['file/id'], ['name', 'agent', 'timeout'], (site, [key], f) => store.waitHelper(site, key, { ...f, alive: pidAlive })],
@@ -1423,8 +1442,9 @@ const COMMANDS = {
   'builder defer': [['file/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text, { deferred: true })],
   'builder asks': [['file/id'], ['wait', 'timeout'], (site, [key], f) => store.listAsks(site, key, f)],
   'builder resume': [['file/id'], ['text'], (site, [key], f) => store.builderResume(site, key, f.text)],
-  'builder verified': [['file/id'], ['dir', 'agent', 'note', 'title'], async (site, [key], f) => {
+  'builder verified': [['file/id'], ['dir', 'agent', 'note', 'title', 'body-file'], async (site, [key], f) => {
     await store.verifyCalls(site, key, f);
+    if (f['body-file'] !== undefined) await keepBody(site, key, f['body-file'], f);
     const next = site && !f.dir ? await store.verifiedFinish(site, key) : null;
     if (!next) return {};
     if (next.held) return { said: `${await store.cardName(site, key)} didn't land: ${next.held}` };

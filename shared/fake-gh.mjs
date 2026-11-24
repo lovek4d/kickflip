@@ -159,6 +159,8 @@ if (args[0] === 'pr' && args[1] === 'create' && args.includes('--repo')) {
   console.log('https://github.com/' + args[args.indexOf('--repo') + 1] + '/pull/' + (99 + n));
   process.exit(0);
 }
+// gh pr edit <n> --repo <repo> --body <body>: a finish replacing an open PR's body.
+if (args.length === 7 && args[0] === 'pr' && args[1] === 'edit' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--body') process.exit(0);
 // gh pr list --repo <repo> --head <branch> --state open --json number --jq '.[0].number': the first of writeOpen's
 // open PRs for repo from that branch, whatever its base; no fixture lists none.
 if (args[0] === 'pr' && args[1] === 'list' && args.includes('--repo') && args.includes('--head')) {
@@ -171,10 +173,10 @@ if (args[0] === 'pr' && args[1] === 'list' && args.includes('--repo') && args.in
   process.exit(0);
 }
 if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === 'title,body,commits') {
-  // A PR fixture's own title stands over the squash source's.
+  // A PR fixture's own title and body stand over the squash source's.
   let own = {};
   try { own = JSON.parse(fs.readFileSync(fixture('pr', args[4], args[2]), 'utf8')); } catch {}
-  console.log(JSON.stringify({ ...${JSON.stringify(SQUASH_SOURCE)}, ...(own.title ? { title: own.title } : {}) }));
+  console.log(JSON.stringify({ ...${JSON.stringify(SQUASH_SOURCE)}, ...(own.title ? { title: own.title } : {}), ...(own.body ? { body: own.body } : {}) }));
   process.exit(0);
 }
 let file;

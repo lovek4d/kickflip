@@ -20,7 +20,7 @@ import { landRetry } from './hub-lines.mjs';
 import { threadFile, messageText, cardName, shownCard, loadItem, heldMerge, appendStatus, appendWaitOver, setItem, appendMessage, builderModel, cardTitleOf, boardSource } from './cards.mjs';
 import { checkClose } from './questions.mjs';
 import { readBoardSettings } from './settings.mjs';
-import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase, endFixRun } from './runs.mjs';
+import { recordedWorktree, checkCallsVerified, landingLine, landFirst, testReport, recordCall, waitOnMainFix, cardPR, recordRebase, endFixRun, keptPRBody, dropPRBody } from './runs.mjs';
 import { blockWordsOf } from './domain.mjs';
 import { builderRepo, git, joiningLand, landInTurn, passTests, repoRun, syncBase, worktreePath } from './worktree.mjs';
 import { scriptsOf } from './build-script.mjs';
@@ -225,6 +225,9 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   const pushed = open ? git(dir, 'push', '--quiet', `--force-with-lease=refs/heads/${branch}:${from}`, 'origin', `HEAD:refs/heads/${branch}`)
     : git(dir, 'push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`);
   if (!pushed.ok) fail(`could not push ${branch} to origin: ${pushed.err}`);
+  // docs/adr/2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md: the body the build kept
+  // (--body-file) opens the PR, or replaces an open one's; with none kept, a new PR's body is text.
+  const body = github ? await keptPRBody(site, key) : null;
   if (open) {
     // Rebase-only: no more commits on base than the PR had, so the run replayed the PR's commits and added none of its own.
     const ahead = (tip) => Number(git(dir, 'rev-list', '--count', `refs/remotes/origin/${base}..${tip}`).out);
@@ -232,14 +235,18 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
     await endFixRun(site, key);
     const set = await setItem(site, key, { pr: open });
     await appendMessage(site, key, { text });
-    return { said: `pushed ${branch} to PR #${open}`, lines: set.lines };
+    if (!body) return { said: `pushed ${branch} to PR #${open}`, lines: set.lines };
+    const edited = ghSync(['pr', 'edit', String(open), '--repo', github, '--body', body], { cwd: dir });
+    if (edited.status !== 0) return { said: `pushed ${branch} to PR #${open}, but its body wasn't replaced: ${(edited.stderr || `gh exited ${edited.status}`).trim().split('\n')[0]}`, lines: set.lines };
+    await dropPRBody(site, key);
+    return { said: `pushed ${branch} to PR #${open} and replaced its body`, lines: set.lines };
   }
   if (!github) {
     const set = await setItem(site, key, { pushed: branch });
     await appendMessage(site, key, { text });
     return { said: `pushed ${branch} for its merge`, lines: set.lines };
   }
-  const created = ghSync(['pr', 'create', '--draft', '--repo', github, '--base', base, '--head', branch, '--title', title, '--body', text], { cwd: dir });
+  const created = ghSync(['pr', 'create', '--draft', '--repo', github, '--base', base, '--head', branch, '--title', title, '--body', body ?? text], { cwd: dir });
   // A PR an earlier finish opened for the branch is the one the card moves to.
   const out = `${created.stdout || ''}\n${created.stderr || ''}`;
   const number = (created.status === 0 || /already exists/.test(out)) && /\/pull\/(\d+)/.exec(out)?.[1];
@@ -248,6 +255,7 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   if (!number) fail(`could not open a draft PR for ${branch}: ${(created.stderr || `gh exited ${created.status}`).trim().split('\n')[0]}`);
   const set = await setItem(site, key, { pr: Number(number) });
   await appendMessage(site, key, { text });
+  await dropPRBody(site, key);
   // The PR is announced on the card's ticket once, when this finish opened it, not when it found one already open.
   if (created.status === 0) {
     const { item } = await loadItem(site, key);

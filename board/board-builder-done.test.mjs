@@ -185,7 +185,7 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: the builder titles the
   // PR with a Conventional subject, checked before anything is pushed.
   const bad = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it on the phone.', '--title', 'A1: One');
-  assert.deepEqual([bad.code, bad.err], [1, `--title "A1: One" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; pass --title "<type>(<scope>): <summary>", at most 100 characters\n`]);
+  assert.deepEqual([bad.code, bad.err], [1, `--title "A1: One" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope or a comma list of them; pass --title "<type>(<scope>): <summary>", at most 100 characters\n`]);
   assert.equal(git(origin, 'branch', '--list', 'me/orch/a1'), '');
   const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it on the phone.', '--title', 'feat(board): the work, as one PR');
   assert.equal(r.code, 0, r.err);
@@ -195,6 +195,78 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   assert.deepEqual([itemOf().prs, itemOf().lane, typeof record().done], [[{ number: 100 }], 'review', 'string']);
   assert.equal(threadOf().at(-1).text, 'Checked it on the phone.');
   assert.equal(fs.existsSync(worktree()), true);
+});
+
+// docs/adr/2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md
+test("builder done --body-file is the draft PR's body, apart from --text, the thread's line; on a card whose PR is open it replaces that PR's body", async () => {
+  const ghDir = path.join(home, 'gh');
+  remoteBoard(() => ({ github: 'owner/project' }));
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  launched('orch', 'w/A1');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
+  const body = path.join(home, 'pr-body.md');
+  fs.writeFileSync(body, '');
+  const empty = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--body-file', body);
+  assert.deepEqual([empty.code, empty.err], [1, `--body-file ${body} is empty: write the PR's body there\n`]);
+  const text = `## Summary\n\n${'A long line of the body. '.repeat(100)}\n\n## Verification\n\nRan it.\n`;
+  fs.writeFileSync(body, text);
+  const r = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--body-file', body, '--title', 'feat(board): the work');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr' && a[1] === 'create').slice(9), ['--title', 'feat(board): the work', '--body', text]);
+  assert.equal(threadOf().at(-1).text, 'Checked it.');
+
+  // A later build on the card pushes to its open PR; its --body-file replaces the PR's body, and none keeps it.
+  commit(worktree(), 'more.txt', 'more\n', 'fix: more\n\nRefs: A1');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  fs.writeFileSync(body, '## Summary\n\nThe work, fixed.\n');
+  const again = await b('builder', 'done', 'w/A1', '--summary', 'Fixed it.', '--text', 'Checked the fix.', '--body-file', body);
+  assert.equal(again.code, 0, again.err);
+  assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'edit'), [['pr', 'edit', '100', '--repo', 'owner/project', '--body', '## Summary\n\nThe work, fixed.\n']]);
+  commit(worktree(), 'last.txt', 'last\n', 'fix: last\n\nRefs: A1');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  assert.equal((await b('builder', 'done', 'w/A1', '--summary', 'Again.', '--text', 'Checked.')).code, 0);
+  assert.equal(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'edit').length, 1, 'a done with no --body-file leaves the body');
+});
+
+test("a handed-back build keeps its --body-file for builder verified's PR, and verified's own --body-file replaces it", async () => {
+  const ghDir = path.join(home, 'gh');
+  remoteBoard(() => ({ github: 'owner/project' }));
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  launched('orch', 'w/A1');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
+  assert.equal((await b('builder', 'call', 'w/A1', 'Kept the old colour')).code, 0);
+  const body = path.join(home, 'pr-body.md');
+  fs.writeFileSync(body, "## Summary\n\nThe builder's body.\n");
+  const handed = await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--body-file', body);
+  assert.equal(handed.code, 0, handed.err);
+  assert.equal(calls(ghDir).some((a) => a[0] === 'pr' && a[1] === 'create'), false);
+  fs.rmSync(body);
+  const r = await b('builder', 'verified', 'w/A1', '--note', 'Calls hold.', '--title', 'feat(board): the work');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr' && a[1] === 'create').slice(11), ['--body', "## Summary\n\nThe builder's body.\n"]);
+  assert.equal(threadOf().at(-1).text, 'Calls hold.');
+});
+
+test("builder verified --body-file replaces the handed-back build's body", async () => {
+  const ghDir = path.join(home, 'gh');
+  remoteBoard(() => ({ github: 'owner/project' }));
+  const env = { PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => boardWith(['--site', 'orch', ...args], env);
+  launched('orch', 'w/A1');
+  assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build')).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
+  assert.equal((await b('builder', 'call', 'w/A1', 'Kept the old colour')).code, 0);
+  const body = path.join(home, 'pr-body.md');
+  fs.writeFileSync(body, "## Summary\n\nThe builder's body.\n");
+  assert.equal((await b('builder', 'done', 'w/A1', '--summary', 'Built it.', '--text', 'Checked it.', '--body-file', body)).code, 0);
+  fs.writeFileSync(body, "## Summary\n\nThe orchestrator's body.\n");
+  const r = await b('builder', 'verified', 'w/A1', '--title', 'feat(board): the work', '--body-file', body);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr' && a[1] === 'create').slice(11), ['--body', "## Summary\n\nThe orchestrator's body.\n"]);
 });
 
 // docs/adr/2026-11-24-0100-a-block-holds-every-transition-and-its-end-moves-the-card-or-opens-a-wait.md

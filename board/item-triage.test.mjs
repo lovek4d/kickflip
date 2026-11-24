@@ -142,6 +142,9 @@ test('the related candidates are open cards sharing two significant title words,
   assert.deepEqual(relatedCandidates(items, it).map((c) => c.key), ['w/T-4', 'w/T-1']);
   const scoped = card('w/T-10', 'feat(hub): a new integration');
   assert.deepEqual(relatedCandidates([...items, scoped], scoped).map((c) => c.key), ['w/T-2']);
+  // A comma list of scopes matches a card with any one of them.
+  const across = card('w/T-11', 'feat(api,hub): a new integration');
+  assert.deepEqual(relatedCandidates([...items, across], across).map((c) => c.key), ['w/T-2']);
   const many = Array.from({ length: 7 }, (_, n) => card(`w/M${n}`, `the header jumps ${n}`));
   assert.equal(relatedCandidates([it, ...many], it).length, 5);
 });

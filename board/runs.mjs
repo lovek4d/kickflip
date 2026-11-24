@@ -2077,6 +2077,20 @@ export async function recordSummary(site, key, summary, { agent = 'main', next }
   await writeJSON(file, { ...record, summary: words });
 }
 
+// docs/adr/2026-11-24-0300-a-builder-writes-its-prs-body-by-the-repos-pr-guide.md
+// The draft PR's body a build's or verify's --body-file gave, kept beside the card's records as agents/<id>.pr-body.md
+// until a finish puts it on the card's PR (finish.mjs sendForReview): a hand-back's verify, or the lander a failed
+// verify launches, opens the PR with it, though the lander's start replaces the build's record.
+const prBodyFile = async (site, key) => path.join(path.dirname(await builderFile(site, key)), `${parseKey(key).id}.pr-body.md`);
+export async function keepPRBody(site, key, body) {
+  const file = await prBodyFile(site, key);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, body);
+}
+// → the kept body, or null when none waits.
+export const keptPRBody = async (site, key) => fs.readFile(await prBodyFile(site, key), 'utf8').catch(() => null);
+export const dropPRBody = async (site, key) => fs.rm(await prBodyFile(site, key), { force: true });
+
 // `builder done`'s hand-back for a record with unverified calls: its records close as handed back with the Next the calls ask
 // for, a question first (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
 // → {lines}, or null when the record has none.

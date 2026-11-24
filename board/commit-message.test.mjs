@@ -8,11 +8,11 @@ test('the brief tells a builder to put Refs on the line directly above Co-Author
 
 test('a subject is Conventional: one of the Angular types, an optional lowercase scope, an optional "!", a summary, 100 characters at most', () => {
   for (const type of TYPES) assert.equal(subjectFault(`${type}: something`), null, type);
-  for (const ok of ['feat(board): land checks the subject', 'fix!: drop the old flag', 'refactor(hub-sync)!: one poll', `feat: ${'x'.repeat(66)}`]) {
+  for (const ok of ['feat(board): land checks the subject', 'fix!: drop the old flag', 'refactor(hub-sync)!: one poll', 'feat(api,web): one change', 'fix(api, web-ui)!: two packages', `feat: ${'x'.repeat(66)}`]) {
     assert.equal(subjectFault(ok), null, ok);
   }
   const shape = /^isn't "<type>\(<scope>\): <summary>"/;
-  for (const bad of ['#517: land checks the subject', 'feature: x', 'Feat: x', 'feat(Board): x', 'feat(): x', 'feat:x', 'feat: ', 'feat(#517): x', 'Version 0.8.0']) {
+  for (const bad of ['#517: land checks the subject', 'feature: x', 'Feat: x', 'feat(Board): x', 'feat(): x', 'feat:x', 'feat: ', 'feat(#517): x', 'Version 0.8.0', 'feat(api,): x', 'feat(,api): x', 'feat(api,Web): x', 'feat(api;web): x']) {
     assert.match(subjectFault(bad), shape, bad);
   }
   assert.equal(subjectFault(`feat: ${'x'.repeat(95)}`), 'is 101 characters, over 100');
@@ -30,7 +30,43 @@ test('a release subject names its version; any other subject names none', () => 
   for (const other of ['chore: 0.9.0', 'chore(release)!: 0.9.0', 'feat(release): 0.9.0', 'chore(release): ']) assert.equal(releaseVersion(other), null, other);
 });
 
-test("a squash body is the PR's body, then Refs: <ref> and each Co-Authored-By its commits carry, once", () => {
+test('the standard lets the scope be a comma list of areas', () => {
+  assert.match(standardWords('#7'), /the scope optional, lowercase and naming the area \(board, hub, skill\), or a comma list of areas for a change across them \(api,web\)/);
+});
+
+// docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
+test("a squash body is the PR body's Summary section, wrapped at 72, then the trailers; a body with no Summary heading goes whole", () => {
+  const body = [
+    '<!-- the template\'s note -->',
+    '## Summary',
+    '',
+    '**Problem**: every board PR opened with a one-line body, so the orchestrator rewrote each one by hand with gh pr edit.',
+    '',
+    '- a list item long enough that it has to wrap onto a second line at the commit width',
+    '',
+    '### Solution',
+    'Builders pass --body-file.',
+    '',
+    '## Verification',
+    '<details><summary>commands</summary>npm test</details>',
+  ].join('\n');
+  assert.equal(squashBody('#7', body, []), [
+    '**Problem**: every board PR opened with a one-line body, so the',
+    'orchestrator rewrote each one by hand with gh pr edit.',
+    '',
+    '- a list item long enough that it has to wrap onto a second line at the',
+    '  commit width',
+    '',
+    '### Solution',
+    'Builders pass --body-file.',
+    '',
+    'Refs: #7',
+  ].join('\n'));
+  assert.equal(squashBody('#7', `Hand-written.\n\n${'word '.repeat(20)}`, []), `Hand-written.\n\n${'word '.repeat(14).trim()}\n${'word '.repeat(6).trim()}\n\nRefs: #7`);
+  assert.equal(squashBody('#7', '# Summary\nOne.\n# Verification\nRan it.', []), 'One.\n\nRefs: #7');
+});
+
+test("a squash body keeps the trailers: Refs: <ref> and each Co-Authored-By its commits carry, once", () => {
   const commits = [{ messageBody: 'Detail.\n\nRefs: #7\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' }, { messageBody: 'Refs: #7\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>\nCo-Authored-By: Ann <ann@x>' }, { messageBody: '' }];
   assert.equal(squashBody('#7', 'Checked it on the phone.\n', commits),
     'Checked it on the phone.\n\nRefs: #7\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>\nCo-Authored-By: Ann <ann@x>');
@@ -50,7 +86,7 @@ test('a card title is a Conventional subject, or an ask, "ask(<scope>): <questio
 
 test("a card goes into In Progress only with a Conventional subject for a title, and the refusal names item set --title", () => {
   assert.equal(startTitleFault('w/A1', 'feat(board): one'), null);
-  assert.equal(startTitleFault('w/A1', 'One'), 'w/A1\'s title "One" isn\'t "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; retitle it with item set w/A1 --title "<type>(<scope>): <summary>" before it goes into In Progress');
+  assert.equal(startTitleFault('w/A1', 'One'), 'w/A1\'s title "One" isn\'t "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope or a comma list of them; retitle it with item set w/A1 --title "<type>(<scope>): <summary>" before it goes into In Progress');
   assert.match(startTitleFault('w/A1', 'ask(board): why?'), /^w\/A1's title "ask\(board\): why\?" is an ask, which is answered, not built; retitle it with item set w\/A1 --title/);
   // The same refusal in a status line: its reason, with no title quoted.
   assert.equal(startTitleBrief('feat(board): one'), null);
