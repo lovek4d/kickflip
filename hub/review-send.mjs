@@ -9,7 +9,7 @@
 // Each posted link and reply is reacted to with its PR's state, the reaction removed once the state stops holding, and
 // one an earlier build gave a state line is edited once to drop it
 // (docs/adr/2026-11-18-0434-a-prs-state-is-reactions-again-and-the-signature-is-picked.md). A failed send stays owed
-// and goes again next poll. After the sends, the hub hears the day threads (hearBoards).
+// and goes again next poll. The Slack poll hears the day threads (hearReviews), taking turns with the sends.
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendEvent, listBoards } from './boards.mjs';
@@ -132,25 +132,50 @@ async function hearBoards(boards, slack, now) {
   return { sent, failed };
 }
 
-// Hears the day threads, or, while the token can't read them, pushes that once; sends go on either way.
+// Hears the day threads, or, while the token can't read them, pushes that once; sends go on either way. queued: the
+// push went into the queue.
 async function hear(boards, slack, now) {
   try { return await hearBoards(boards, slack, now); } catch (e) {
     if (!missingScope(e)) return { sent: [], failed: [`hearing the day threads: ${e.message}`] };
     setHearing(false);
     if (!hearingUnpushed()) return { sent: [], failed: [] };
-    await deliver({ title: 'Slack can’t read the review threads', body: 'Reviewers’ messages to the board wait unheard until Hub’s Slack app has im:history: add it, reinstall the app and paste its new token in Hub › Integrations › Slack. Sends go on.', url: '/_hub/settings#slack', tag: 'slack-unheard' }, { kind: 'fault', at: now });
+    const pushed = await deliver({ title: 'Slack can’t read the review threads', body: 'Reviewers’ messages to the board wait unheard until Hub’s Slack app has im:history: add it, reinstall the app and paste its new token in Hub › Integrations › Slack. Sends go on.', url: '/_hub/settings#slack', tag: 'slack-unheard' }, { kind: 'fault', at: now });
     markHearingPushed();
-    return { sent: ["pushed that Slack can't read the review threads"], failed: [] };
+    return { sent: ["pushed that Slack can't read the review threads"], failed: [], ...(pushed.queued ? { queued: true } : {}) };
   }
 }
 
-// boards: listBoards()'s {route, dir, title}. Sends, then hears the day threads unless Slack refused the token.
+// The sends and the hearing take turns: a link posted while its day thread is read would be heard as the owner's
+// message before its ts is recorded as the board's own.
+let turn = Promise.resolve();
+const inTurn = (run) => {
+  const mine = turn.then(run);
+  turn = mine.catch(() => {});
+  return mine;
+};
+
+// docs/adr/2026-11-25-0200-slack-is-read-every-30-seconds-on-its-own-poll.md
+// boards: listBoards()'s {route, dir, title}; slack: the client, the saved token's by default. Hears the day threads
+// unless Slack refused the token. → {sent: ['<route>: slack-question from <who>' | the push], failed: [why], queued?:
+// true once a push went into the queue}, both empty without a saved token.
+export function hearReviews({ boards = listBoards(), fetch, slack = savedSlack({ fetch }), now = new Date() } = {}) {
+  if (!slack || slackStatus().refused) return Promise.resolve({ sent: [], failed: [] });
+  return inTurn(async () => {
+    try { return await hear(boards, slack, now); } catch (e) { return { sent: [], failed: [`unheard push: ${e.message}`] }; }
+  });
+}
+
+// boards: listBoards()'s {route, dir, title}. Sends what each board's review owes.
 // → {sent: ['<route>: <what>'], failed: ['<route>: <why>']}, both empty without a saved token.
-export async function sendReviews({ boards = listBoards(), fetch, now = new Date() } = {}) {
+export function sendReviews({ boards = listBoards(), fetch, now = new Date() } = {}) {
   const slack = savedSlack({ fetch });
+  if (!slack) return Promise.resolve({ sent: [], failed: [] });
+  return inTurn(() => sendAll(boards, slack, now));
+}
+
+async function sendAll(boards, slack, now) {
   const sent = [];
   const failed = [];
-  if (!slack) return { sent, failed };
   for (const board of boards) {
     try {
       const out = await sendBoard(board, slack, now);
@@ -160,13 +185,6 @@ export async function sendReviews({ boards = listBoards(), fetch, now = new Date
       failed.push(`${board.route}: ${e.message}`);
       if (refusedToken(e)) break;
     }
-  }
-  if (!slackStatus().refused) {
-    try {
-      const heard = await hear(boards, slack, now);
-      sent.push(...heard.sent);
-      failed.push(...heard.failed);
-    } catch (e) { failed.push(`unheard push: ${e.message}`); }
   }
   try { sent.push(...await pushRefusal(boards, now)); } catch (e) { failed.push(`refused-token push: ${e.message}`); }
   return { sent, failed };

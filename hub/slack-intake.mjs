@@ -1,7 +1,7 @@
 // docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md
 // A message saying kickflip, with or without the @, in one of the owner's 1:1 Slack DMs, from anyone, goes to the router as a request, which files it as a
 // routed ask on the board it fits; the board refuses to sort that ask ready before the owner stages its card. One
-// search.messages call each poll finds the matches. The token is the owner's, with no bot, so the match is on the
+// search.messages call each Slack poll finds the matches, two while the workspace has a kickflip bot user. The token is the owner's, with no bot, so the match is on the
 // word kickflip in the text, or the mention of the workspace's kickflip bot user when it has one. A filed message gets the received status's reaction, 👀 by default; a failed reaction is reported, never fatal. The request's words are the thread up to the match: the opener and the replies before it, then
 // the match, each as "<name>: <text>". Its from names the Slack thread, {channel, thread_ts, ts, reacted?}, reacted the
 // received status's emoji (statusEmojis) once Slack took it, the reaction the task's status then swaps
@@ -36,11 +36,10 @@ async function slackNames(slack, failed) {
 // A message's text with each Slack mention written as @<name>.
 const mentionsNamed = (text, name) => String(text || '').replace(/<@(U[A-Z0-9]+)(\|[^>]*)?>/g, (_, id) => `@${name(id)}`);
 
-// Files each new @kickflip DM as a queued request, which the hub's tick routes. → {filed: ['<name> in <channel>:
-// <link>'], failed: [why]}, both empty without a saved working token, or while it lacks search:read, which the Slack
-// row then says.
-export async function fileSlackAsks({ boards = listBoards(), fetch, now = new Date() } = {}) {
-  const slack = savedSlack({ fetch });
+// Files each new @kickflip DM as a queued request, which the hub's tick routes. slack: the client, the saved token's
+// by default; a client kept across polls asks for the bot user once. → {filed: ['<name> in <channel>: <link>'],
+// failed: [why]}, both empty without a saved working token, or while it lacks search:read, which the Slack row then says.
+export async function fileSlackAsks({ boards = listBoards(), fetch, slack = savedSlack({ fetch }), now = new Date() } = {}) {
   const filed = [];
   const failed = [];
   if (!slack || slackStatus().refused) return { filed, failed };
@@ -104,56 +103,77 @@ export async function fileSlackAsks({ boards = listBoards(), fetch, now = new Da
 }
 
 // docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
-// Each new reply in the Slack thread an open task was filed from lands on the task, until the task is Done: one
-// conversations.replies read per thread a poll, from the newest reply read. The @kickflip's sender's replies and the
+// Each new reply in the Slack thread an open task was filed from lands on the task, until the task is Done. Each poll
+// reads one conversations.history per DM holding such threads, which gives each thread's latest_reply, and reads a
+// thread's replies, from the newest one read, only when its latest_reply moved past it, as hearing the day threads does
+// (review-send.mjs hearBoards). The @kickflip's sender's replies and the
 // owner's naming @kickflip are item-message events, which wake the orchestrator as the owner's own message does, drawn
 // under the sender's name with Slack and the reply's permalink; every other reply is a thread line under its writer's
 // name, which wakes no one. A file in a reply is its name and permalink, since a Slack file opens only with a token.
 // Not copied: the boards' own posts, the owner's signed-off ones (the orchestrator's), Slack's bot and event messages,
-// and an empty one. A read that fails writes one fault line on the card, and the thread is read again each poll. Each reply is marked read once it is in, so a failure part way copies none twice.
-// → {copied: ['<route> <key>: <name>'], failed: [why]}, both empty without a saved working token.
+// and an empty one. A read that fails, its DM's or its own, writes one fault line on the card, and the thread is read
+// again each poll until it is read. Each reply is marked read once it is in, so a failure part way copies none twice.
+// slack: the client, as for fileSlackAsks. → {copied: ['<route> <key>: <name>'], failed: [why]}, both empty without a
+// saved working token.
 const COPIED_SUBTYPES = ['file_share', 'thread_broadcast'];
-export async function followSlackAsks({ boards = listBoards(), fetch } = {}) {
-  const slack = savedSlack({ fetch });
+export async function followSlackAsks({ boards = listBoards(), fetch, slack = savedSlack({ fetch }) } = {}) {
   const copied = [];
   const failed = [];
   if (!slack || slackStatus().refused) return { copied, failed };
   const owner = slackUserId();
   let names;
+  // Boards share the owner's DMs, so each DM's threads are gathered across boards and its history read once.
+  const byChannel = new Map();
   for (const board of boards) {
-    let threads, ours;
     try {
-      threads = await followedSlackThreads(board.dir);
-      if (threads.length) ours = await boardPosts(board.dir);
-    } catch (e) { failed.push(`${board.route}: reading its Slack-filed tasks: ${e.message}`); continue; }
-    for (const thread of threads) {
+      const threads = await followedSlackThreads(board.dir);
+      const ours = threads.length ? await boardPosts(board.dir) : null;
+      for (const thread of threads) byChannel.set(thread.channel, [...(byChannel.get(thread.channel) || []), { board, thread, ours }]);
+    } catch (e) { failed.push(`${board.route}: reading its Slack-filed tasks: ${e.message}`); }
+  }
+  const unread = async ({ board, thread }, e) => {
+    failed.push(`${board.route}: following ${thread.key}'s Slack thread: ${e.message}`);
+    if (!thread.failing) {
+      await markSlackFollow(board.dir, thread, true);
+      await appendStatus(board.dir, thread.key, 'slack-follow-failed', { error: e.message });
+    }
+  };
+  for (const [channel, follows] of byChannel) {
+    let latest;
+    try {
+      const oldest = follows.map((f) => f.thread.thread_ts).sort((a, b) => Number(a) - Number(b))[0];
+      latest = new Map((await slack.history({ channel, oldest })).map((m) => [m.ts, m.latest_reply]));
+    } catch (e) {
+      // A token without im:history reads no thread; hearing the day threads pushes that (review-send.mjs hear).
+      if (missingScope(e)) return { copied, failed };
+      for (const f of follows) await unread(f, e);
+      continue;
+    }
+    for (const { board, thread, ours } of follows) {
       try {
-        const fresh = (await slack.replies({ channel: thread.channel, ts: thread.thread_ts, oldest: thread.heard })).filter((m) => Number(m.ts) > Number(thread.heard));
-        for (const m of fresh) {
-          if (!m.bot_id && (!m.subtype || COPIED_SUBTYPES.includes(m.subtype)) && !ours.has(m.ts) && !(m.user === owner && isSignedOff(m.text, m.attachments))) {
-            names ??= await slackNames(slack, failed);
-            const name = (id) => names.get(id) || id;
-            const text = [mentionsNamed(m.text, name), ...(m.files || []).map((f) => `${f.name || f.title}: ${f.permalink}`)].filter((t) => t.trim()).join('\n');
-            if (text) {
-              const link = `${new URL(thread.link).origin}/archives/${thread.channel}/p${m.ts.replace('.', '')}?thread_ts=${thread.thread_ts}&cid=${thread.channel}`;
-              const theirs = m.user === owner ? null : name(m.user);
-              if (name(m.user) === thread.by || (!theirs && NAMED.test(m.text || ''))) {
-                await appendEvent(board, 'item-message', { key: thread.key, text, sendId: `slack:${thread.channel}:${m.ts}`, slack: { ...(theirs ? { by: theirs } : {}), link, thread: { channel: thread.channel, thread_ts: thread.thread_ts } } });
-              } else await appendMessage(board.dir, thread.key, { text, who: theirs || 'love', via: 'slack', link });
-              copied.push(`${board.route} ${thread.key}: ${name(m.user)}`);
+        if (Number(latest.get(thread.thread_ts)) > Number(thread.heard)) {
+          const fresh = (await slack.replies({ channel: thread.channel, ts: thread.thread_ts, oldest: thread.heard })).filter((m) => Number(m.ts) > Number(thread.heard));
+          for (const m of fresh) {
+            if (!m.bot_id && (!m.subtype || COPIED_SUBTYPES.includes(m.subtype)) && !ours.has(m.ts) && !(m.user === owner && isSignedOff(m.text, m.attachments))) {
+              names ??= await slackNames(slack, failed);
+              const name = (id) => names.get(id) || id;
+              const text = [mentionsNamed(m.text, name), ...(m.files || []).map((f) => `${f.name || f.title}: ${f.permalink}`)].filter((t) => t.trim()).join('\n');
+              if (text) {
+                const link = `${new URL(thread.link).origin}/archives/${thread.channel}/p${m.ts.replace('.', '')}?thread_ts=${thread.thread_ts}&cid=${thread.channel}`;
+                const theirs = m.user === owner ? null : name(m.user);
+                if (name(m.user) === thread.by || (!theirs && NAMED.test(m.text || ''))) {
+                  await appendEvent(board, 'item-message', { key: thread.key, text, sendId: `slack:${thread.channel}:${m.ts}`, slack: { ...(theirs ? { by: theirs } : {}), link, thread: { channel: thread.channel, thread_ts: thread.thread_ts } } });
+                } else await appendMessage(board.dir, thread.key, { text, who: theirs || 'love', via: 'slack', link });
+                copied.push(`${board.route} ${thread.key}: ${name(m.user)}`);
+              }
             }
+            await markSlackThreadHeard(board.dir, thread, m.ts);
           }
-          await markSlackThreadHeard(board.dir, thread, m.ts);
         }
         if (thread.failing) await markSlackFollow(board.dir, thread, false);
       } catch (e) {
-        // A token without im:history reads no thread; hearing the day threads pushes that (review-send.mjs hear).
         if (missingScope(e)) return { copied, failed };
-        failed.push(`${board.route}: following ${thread.key}'s Slack thread: ${e.message}`);
-        if (!thread.failing) {
-          await markSlackFollow(board.dir, thread, true);
-          await appendStatus(board.dir, thread.key, 'slack-follow-failed', { error: e.message });
-        }
+        await unread({ board, thread }, e);
       }
     }
   }
@@ -167,9 +187,9 @@ export async function followSlackAsks({ boards = listBoards(), fetch } = {}) {
 // line posts per wait (slack-store.mjs ownerWaitWords), after the replies; a wait that clears and a new one post again.
 // A failed wait line is retried each poll with no fault line. A failed post writes one fault line on the card and is retried
 // each poll, holding back the thread's later posts; each posted one's ts is recorded, so none posts twice.
-// → {posted: ['<route> <key>: a reply' | 'its end line'], failed: [why]}, both empty without a saved working token.
-export async function postSlackReplies({ boards = listBoards(), fetch } = {}) {
-  const slack = savedSlack({ fetch });
+// slack: the client, as for fileSlackAsks. → {posted: ['<route> <key>: a reply' | 'its end line'], failed: [why]}, both
+// empty without a saved working token.
+export async function postSlackReplies({ boards = listBoards(), fetch, slack = savedSlack({ fetch }) } = {}) {
   const posted = [];
   const failed = [];
   if (!slack || slackStatus().refused) return { posted, failed };
@@ -202,10 +222,9 @@ export async function postSlackReplies({ boards = listBoards(), fetch } = {}) {
 // Each Slack message on a Slack-filed task shows where it stands as one reaction, swapped as it moves on (slack-store.mjs
 // slackStatusDue): 👀 received, 🤔 thinking, ✋ waiting on the owner, ✅ done, or Hub › Slack's picks. A message's
 // removal goes before its add, and a failed one holds back that message's rest until the next poll, which tries again.
-// listening(board) says whether the board's session hears its events. → {reacted: ['<route> <key>: [removed ]:<emoji>:'],
-// failed: [why]}, both empty without a saved working token.
-export async function reactSlackStatus({ boards = listBoards(), fetch, listening = (board) => isListening(board) } = {}) {
-  const slack = savedSlack({ fetch });
+// listening(board) says whether the board's session hears its events; slack: the client, as for fileSlackAsks.
+// → {reacted: ['<route> <key>: [removed ]:<emoji>:'], failed: [why]}, both empty without a saved working token.
+export async function reactSlackStatus({ boards = listBoards(), fetch, slack = savedSlack({ fetch }), listening = (board) => isListening(board) } = {}) {
   const reacted = [];
   const failed = [];
   if (!slack || slackStatus().refused) return { reacted, failed };

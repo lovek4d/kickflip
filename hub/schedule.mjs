@@ -21,6 +21,12 @@ export const alertsOf = (file) => Object.fromEntries(Object.keys(ALERTS).map((ki
 // What heldUntil returns while notifications are off: no time comes when held pushes go, so they are dropped.
 export const NEVER = 'never';
 
+// docs/adr/2026-11-25-0200-slack-is-read-every-30-seconds-on-its-own-poll.md
+// Seconds between Slack polls (hub/slack-poll.mjs): the same here or away, whatever GitHub's points, and slower in
+// quiet hours, the first job to slow there.
+export const SLACK_SECONDS = Object.freeze({ normal: 30, quiet: 300 });
+export const slackEvery = (t, s) => (quietAt(t, s) ? SLACK_SECONDS.quiet : SLACK_SECONDS.normal) * 1000;
+
 // Minutes between checks: while the owner is present, while away, and both while GitHub's points left read below LOW_POINTS.
 export const CHECK_MINUTES = Object.freeze({ present: 1, away: 5, lowPresent: 5, lowAway: 15 });
 export const LOW_POINTS = 1000;

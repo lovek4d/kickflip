@@ -118,6 +118,20 @@ test("a picked @Kickflip mention of the workspace's bot user files, and without 
   assert.deepEqual(world.reactions.map((r) => r.timestamp), [ts]);
 });
 
+test('a client kept across polls asks for the bot user once, and a failed ask is asked again', async () => {
+  const { world, slack } = await started();
+  const { savedSlack } = await import('./slack.mjs');
+  const client = savedSlack({ fetch: slack.fetch });
+  const poll = () => fileSlackAsks({ boards, slack: client, now: new Date(1792800900_000) });
+  world.missingScope = true;
+  assert.match((await poll()).failed[0], /finding the kickflip bot user: Slack: missing_scope/);
+  world.missingScope = false;
+  world.people = [...people, { id: 'UB', name: 'kickflip', is_bot: true, profile: { real_name: 'Kickflip' } }];
+  slack.calls.length = 0;
+  for (let i = 0; i < 3; i++) await poll();
+  assert.deepEqual(slack.calls.map((c) => c.method), ['users.list', ...Array(3).fill(['search.messages', 'search.messages']).flat()]);
+});
+
 test("a <@ID> mention with no bot user in the workspace files nothing", async () => {
   const { slack, poll } = await started();
   await poll();
@@ -189,9 +203,10 @@ test("each later reply in a Slack-filed task's thread lands on the task once: th
     { key: 'items/T-1', text: 'Here\ntrace.png: https://acme.slack.com/files/U2/F1/trace.png', sendId: `slack:D2:${shot}`, slack: { by: 'Bob', link: link(world, 'D2', shot, asked), thread: { channel: 'D2', thread_ts: asked } } },
   ]);
   assert.deepEqual(threadLines().map((m) => [m.who, m.via, m.text, m.link]), [['love', 'slack', 'Seen, thanks', link(world, 'D2', plain, asked)]]);
+  // A quiet poll reads only the DM's history, whose latest_reply says the thread didn't move.
   slack.calls.length = 0;
   assert.deepEqual(await follow(slack), { copied: [], failed: [] });
-  assert.deepEqual(slack.calls.map((c) => [c.method, c.body.oldest]), [['conversations.replies', shot]]);
+  assert.deepEqual(slack.calls.map((c) => [c.method, c.body.oldest]), [['conversations.history', asked]]);
   assert.equal(messageEvents().length, 3);
 });
 
@@ -255,5 +270,23 @@ test("a thread that can't be read says so once on its card, is read again each p
   assert.deepEqual(messageEvents().map((e) => e.data.sendId), [`slack:D2:${later}`]);
   down = true;
   await followSlackAsks({ boards, fetch });
+  assert.equal(threadLines().filter((m) => m.line === 'slack-follow-failed').length, 1, 'a thread that did not move is not read');
+  slack.say({ channel: 'D2', user: 'U2', text: 'And now?', thread_ts: asked });
+  await followSlackAsks({ boards, fetch });
   assert.equal(threadLines().filter((m) => m.line === 'slack-follow-failed').length, 2, 'a recovered thread says so again when it fails anew');
+});
+
+test("a DM whose history can't be read fails each of its threads once on their cards, and its threads are read once it answers", async () => {
+  const { world, slack } = await started();
+  const asked = slack.say({ channel: 'D2', user: 'U2', text: '@kickflip the export button 500s' });
+  slackFiled(world, { thread_ts: asked });
+  slack.say({ channel: 'D2', user: 'U2', text: 'Any news?', thread_ts: asked });
+  let down = true;
+  const fetch = async (url, init) => (down && String(url).includes('conversations.history')
+    ? { ok: true, status: 200, json: async () => ({ ok: false, error: 'internal_error' }) }
+    : slack.fetch(url, init));
+  for (let i = 0; i < 2; i++) assert.deepEqual((await followSlackAsks({ boards, fetch })).failed, ["orch: following items/T-1's Slack thread: Slack: internal_error"]);
+  assert.equal(threadLines().filter((m) => m.line === 'slack-follow-failed').length, 1);
+  down = false;
+  assert.deepEqual(await followSlackAsks({ boards, fetch }), { copied: ['orch items/T-1: Bob'], failed: [] });
 });

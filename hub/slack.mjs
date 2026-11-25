@@ -177,6 +177,7 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     if (!out.ok) throw new SlackError(`Slack: ${out.error}`);
     return out;
   }
+  let bot = null;
   // The workspace's custom emoji, asked once per client; any failure reads as none, and missing_scope is kept for
   // emojiScopeMissing.
   let emojis, emojiScope = true;
@@ -210,10 +211,12 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
       const out = (await members()).filter((m) => !m.deleted && !m.is_bot && m.id !== 'USLACKBOT').map((m) => ({ id: m.id, name: m.profile?.real_name || m.real_name || m.name }));
       return out.sort((a, b) => a.name.localeCompare(b.name));
     },
-    // The id of the workspace's bot user named kickflip (an @Kickflip a person can pick), or undefined without one.
-    // Needs the users:read scope.
-    async botId() {
-      return (await members()).find((m) => m.is_bot && !m.deleted && [m.name, m.real_name, m.profile?.real_name].some((n) => /^kickflip$/i.test(n || '')))?.id;
+    // The id of the workspace's bot user named kickflip (an @Kickflip a person can pick), or undefined without one,
+    // asked once per client: a failed ask is asked again next time. Needs the users:read scope.
+    botId() {
+      bot ??= members().then((all) => all.find((m) => m.is_bot && !m.deleted && [m.name, m.real_name, m.profile?.real_name].some((n) => /^kickflip$/i.test(n || '')))?.id,
+        (e) => { bot = null; throw e; });
+      return bot;
     },
     // The owner's DM with a user → its channel id
     openDM: async (user) => (await call('conversations.open', { users: user })).channel.id,
@@ -337,4 +340,15 @@ export function markHearingPushed() {
 export function savedSlack({ fetch } = {}) {
   const saved = savedToken();
   return saved ? slackClient(saved.token, { fetch, checked: (works) => markChecked(saved.token, works) }) : null;
+}
+
+// docs/adr/2026-11-25-0200-slack-is-read-every-30-seconds-on-its-own-poll.md
+// savedSlack's client, kept while the saved token stays the same, so what a client asks once (the bot user) is asked
+// once per token, not once per Slack poll. null when no token is saved.
+let held = null;
+export function heldSlack() {
+  const saved = savedToken();
+  if (!saved) return (held = null);
+  if (held?.token !== saved.token) held = { token: saved.token, client: savedSlack() };
+  return held.client;
 }

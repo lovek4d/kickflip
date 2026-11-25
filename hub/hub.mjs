@@ -237,7 +237,7 @@
 // and the router's route-queue.json and routed.json: every 15 seconds the router files the requests still queued
 // (router.mjs drainRoutes; docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md) and Haiku
 // answers each ask every board passed (router.mjs answerUnplaced), and
-// slack-intake.json, where each poll's @kickflip DM search starts (slack-intake.mjs).
+// slack-intake.json, where each Slack poll's @kickflip DM search starts (slack-intake.mjs, slack-poll.mjs).
 import { sweepStaleTempsUnder } from './stale-tmp.mjs';
 import { sweepLeftovers } from './leftovers.mjs';
 import http from 'node:http';
@@ -311,7 +311,7 @@ import { pollsPage } from './polls-page.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
 import { SlackError, slackStatus, removeSlackToken, saveSlackToken, savedSlack, readPREmoji, setPREmoji, readSignOff, setSignOff } from './slack.mjs';
 import { sendReviews } from './review-send.mjs';
-import { fileSlackAsks, followSlackAsks, postSlackReplies, reactSlackStatus } from './slack-intake.mjs';
+import { slackPoll } from './slack-poll.mjs';
 import { createAnswering } from './answering.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -751,7 +751,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   const ERROR_LOG_MS = 60 * 60_000;
   // running: the poll in progress; startedAt: when the last one began; last: its result; remaining: GitHub's points left
   // after its query, null when it made none.
-  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, ticketErrorLoggedAt: 0, slackErrorLoggedAt: 0, slackIntakeErrorLoggedAt: 0, slackFollowErrorLoggedAt: 0, slackRepliesErrorLoggedAt: 0, slackStatusErrorLoggedAt: 0 };
+  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, ticketErrorLoggedAt: 0, slackErrorLoggedAt: 0 };
   const owner = ownerTracker();
 
   const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
@@ -761,7 +761,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     if (back && polls.startedAt && !polls.running) runPoll().catch((e) => log('poll failed:', e.message));
   }
 
-  // The GitHub, Linear and Slack poll, which the tick starts when nextPollAt says (schedule.mjs checkEvery).
+  // The GitHub and Linear poll, with the review sends, which the tick starts when nextPollAt says (schedule.mjs
+  // checkEvery). Every other Slack read and post is the Slack poll's (slack-poll.mjs).
   // poll: github-poll
   function runPoll({ flush = true } = {}) {
     if (polls.running) return polls.running;
@@ -801,47 +802,14 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         polls.ticketErrorLoggedAt = clock();
         log(`ticket check: ${result.tickets.failed.length} step${result.tickets.failed.length === 1 ? '' : 's'} failed, first: ${result.tickets.failed[0]} (logged at most hourly)`);
       }
-      // docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md
+      // docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md: the day threads are heard on
+      // the Slack poll.
       try { result.slack = await sendReviews({ boards: listBoards(loadManifest()) }); }
       catch (e) { result.slack = { sent: [], failed: [e.message] }; }
       for (const line of result.slack.sent) log(`slack: sent ${line}`);
       if (result.slack.failed.length && clock() - polls.slackErrorLoggedAt > ERROR_LOG_MS) {
         polls.slackErrorLoggedAt = clock();
         log(`slack sends: ${result.slack.failed.length} failed, first: ${result.slack.failed[0]} (logged at most hourly)`);
-      }
-      // docs/adr/2026-11-15-0130-an-at-kickflip-in-a-slack-dm-is-filed-as-a-routed-ask.md: queued here, routed on the tick.
-      // poll: slack-poll
-      try { result.slackIntake = await fileSlackAsks({ boards: listBoards(loadManifest()) }); }
-      catch (e) { result.slackIntake = { filed: [], failed: [e.message] }; }
-      for (const line of result.slackIntake.filed) log(`slack: @kickflip from ${line}, queued for the router`);
-      if (result.slackIntake.failed.length && clock() - polls.slackIntakeErrorLoggedAt > ERROR_LOG_MS) {
-        polls.slackIntakeErrorLoggedAt = clock();
-        log(`slack intake: ${result.slackIntake.failed.length} failed, first: ${result.slackIntake.failed[0]} (logged at most hourly)`);
-      }
-      // docs/adr/2026-11-15-1530-later-replies-in-a-slack-filed-tasks-thread-land-on-the-task.md
-      try { result.slackFollow = await followSlackAsks({ boards: listBoards(loadManifest()) }); }
-      catch (e) { result.slackFollow = { copied: [], failed: [e.message] }; }
-      for (const line of result.slackFollow.copied) log(`slack: copied a reply onto ${line}`);
-      if (result.slackFollow.failed.length && clock() - polls.slackFollowErrorLoggedAt > ERROR_LOG_MS) {
-        polls.slackFollowErrorLoggedAt = clock();
-        log(`slack follow: ${result.slackFollow.failed.length} failed, first: ${result.slackFollow.failed[0]} (logged at most hourly)`);
-      }
-      // docs/adr/2026-11-16-1700-replies-to-a-slack-message-post-into-its-slack-thread.md
-      try { result.slackReplies = await postSlackReplies({ boards: listBoards(loadManifest()) }); }
-      catch (e) { result.slackReplies = { posted: [], failed: [e.message] }; }
-      for (const line of result.slackReplies.posted) log(`slack: posted ${line}`);
-      if (result.slackReplies.failed.length && clock() - polls.slackRepliesErrorLoggedAt > ERROR_LOG_MS) {
-        polls.slackRepliesErrorLoggedAt = clock();
-        log(`slack replies: ${result.slackReplies.failed.length} failed, first: ${result.slackReplies.failed[0]} (logged at most hourly)`);
-      }
-      // docs/adr/2026-11-23-0010-a-slack-message-on-a-task-shows-where-it-stands-as-one-reaction.md: after the replies, so a
-      // message whose reply just posted swaps to done on the same poll.
-      try { result.slackStatus = await reactSlackStatus({ boards: listBoards(loadManifest()) }); }
-      catch (e) { result.slackStatus = { reacted: [], failed: [e.message] }; }
-      for (const line of result.slackStatus.reacted) log(`slack: reacted on ${line}`);
-      if (result.slackStatus.failed.length && clock() - polls.slackStatusErrorLoggedAt > ERROR_LOG_MS) {
-        polls.slackStatusErrorLoggedAt = clock();
-        log(`slack status: ${result.slackStatus.failed.length} failed, first: ${result.slackStatus.failed[0]} (logged at most hourly)`);
       }
       try { result.deaf = await checkListening({ manifest: loadManifest() }); }
       catch (e) { result.deaf = { pushed: [], failed: [e.message] }; }
@@ -860,6 +828,8 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     })().finally(() => { polls.running = null; }));
     return polls.running;
   }
+
+  const slackPoller = slackPoll({ boards: () => listBoards(loadManifest()), log, clock });
 
   let waking = null;
   function runWakes() {
@@ -2130,6 +2100,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     'nightly-suite': runSuite, // poll: nightly-suite
     'leftovers-sweep': runSweep, // poll: leftovers-sweep
     'peer-outbox': runOutbox, // poll: peer-outbox
+    'slack-poll': () => { const run = slackPoller.run(); if (run) track(run); }, // poll: slack-poll
   };
   for (const p of POLLS) if (p.clock && !jobs[p.id]) throw new Error(`shared/polls.mjs names ${p.id} on the hub's ${p.clock} clock, which runs no such job`);
   if (ticks) {

@@ -38,14 +38,14 @@ const QUIET_END = 'quiet hours’ end';
 
 export const POLLS = Object.freeze([
   // GitHub and PRs
-  { id: 'github-poll', group: 'github', name: 'GitHub poll and checks', what: 'Looks at PRs, checks and merges, fetches each board’s branches and pulls Main; the same poll reads Linear and sends queued pushes.',
+  { id: 'github-poll', group: 'github', name: 'GitHub poll and checks', what: 'Looks at PRs, checks and merges, fetches each board’s branches and pulls Main; the same poll reads Linear, sends the reviewers’ Slack links and digests, and sends queued pushes.',
     every: MINUTE, cadence: PRESENCE, runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'review-digest', group: 'github', name: 'Review digest', what: 'Posts each reviewer’s day digest of PRs waiting on them, weekdays only.',
     every: DAY, cadence: QUIET_END, runs: 'Hub', where: 'hub/slack.mjs' },
 
   // Slack
-  { id: 'slack-poll', group: 'slack', name: 'Slack poll', what: 'One search per poll for @kickflip asks and replies in their threads, and posts the replies owed; rides the GitHub poll.',
-    every: MINUTE, cadence: PRESENCE, runs: 'Hub', where: 'hub/hub.mjs' },
+  { id: 'slack-poll', group: 'slack', name: 'Slack poll', what: 'Searches for new @kickflip asks (two searches while the workspace has a kickflip bot user), reads a Slack-filed task’s thread or a day thread only when its DM says it moved, posts the replies owed and swaps their reactions; on its own, here or away, whatever GitHub’s points.',
+    ...on('quarter', 2), cadence: '30 s · 5 min in quiet hours', runs: 'Hub', where: 'hub/hub.mjs' },
 
   // Sessions and prompts
   { id: 'reconcile', group: 'sessions', name: 'Reconcile', what: 'The hub’s process supervisor: starts, stops and restarts board servers (crashed, removed or changed), ends a shared page whose share was taken away, and reconnects the hub to a board’s change stream that dropped and watches each board’s watcher file, while a page is open.',
@@ -85,7 +85,7 @@ export const POLLS = Object.freeze([
       { name: 'Route incoming asks', what: 'sorted onto boards by Haiku' },
       { name: 'Usage pause lift', what: 'resumes once the limit resets' },
       { name: 'Mac load sample' },
-      { name: 'Owner presence', what: 'and starts the GitHub, Linear and Slack poll when due', cadence: PRESENCE },
+      { name: 'Owner presence', what: 'and starts the GitHub and Linear poll when due', cadence: PRESENCE },
       { name: 'Settle Starting boards' },
       { name: 'Morning wake', cadence: `checked every 15 s, due once a day, at ${QUIET_END}` },
       { name: 'Keep awake' },

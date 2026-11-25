@@ -35,3 +35,5 @@ The owner (T-376): "I just want page running me through every single poll we do,
 - **Session prompts.** The 25 s is how long one held request waits, not a timer; it is listed so the page has every recurring thing.
 
 Extends [the browser's polls ride the change stream](2026-11-15-1921-the-browsers-polls-ride-the-change-stream.md), whose board check ran every 30 s, and [the npm check rides the hub's tick every 15 wall-clock minutes](2026-11-12-0110-the-npm-check-rides-the-hubs-tick-every-15-wall-clock-minutes.md). Supersedes the 09:00 of [one digest opens each day thread](2026-11-14-0449-one-digest-opens-each-day-thread.md).
+
+Amended by [Slack is read every 30 seconds, on its own poll](2026-11-25-0200-slack-is-read-every-30-seconds-on-its-own-poll.md): the 15 s clock runs the Slack poll every 2 ticks.

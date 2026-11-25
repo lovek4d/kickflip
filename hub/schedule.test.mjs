@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ALERTS, alertsOf, DEFAULTS, NEVER, validate, fromPolling, quietOf, editQuiet, quietAt, quietMiddleOf, holdsPushes, heldUntil, hold, snoozeEnd, flushAt, wakesDue, localDay, notifications, clock, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
+import { ALERTS, alertsOf, DEFAULTS, NEVER, validate, fromPolling, quietOf, editQuiet, quietAt, quietMiddleOf, holdsPushes, heldUntil, hold, snoozeEnd, flushAt, wakesDue, localDay, notifications, clock, checkEvery, nextCheckAt, LOW_POINTS, slackEvery } from './schedule.mjs';
 
 const t = (h, m = 0, day = 14, s = 0) => new Date(2026, 9, day, h, m, s);
 const ON = { on: true, weekends_off: false, snoozed_until: null };
@@ -274,4 +274,13 @@ test('clock formats local times relative to today', () => {
   assert.equal(clock(t(18), t(9)), '6:00pm');
   assert.equal(clock(t(8, 5, 15), t(23)), '8:05am tomorrow');
   assert.equal(clock(t(0, 0), t(0, 0)), '12:00am');
+});
+
+test('Slack is read every 30 s, here or away, and every 5 minutes in quiet hours', () => {
+  const s = quiet('22:00', '08:00');
+  assert.equal(slackEvery(t(14), s), 30_000);
+  assert.equal(slackEvery(t(21, 59), s), 30_000);
+  assert.equal(slackEvery(t(22), s), 300_000);
+  assert.equal(slackEvery(t(3), s), 300_000);
+  assert.equal(slackEvery(t(8), s), 30_000);
 });

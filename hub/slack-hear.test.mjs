@@ -10,7 +10,13 @@ import { tempDir } from '../shared/temp-dir.mjs';
 // boards.mjs and store.mjs read HOME as they load, so it is set before they are imported.
 const home = tempDir('slack-hear-');
 process.env.HOME = home;
-const { sendReviews } = await import('./review-send.mjs');
+const { sendReviews, hearReviews } = await import('./review-send.mjs');
+// One GitHub poll's review sends, then one Slack poll's hearing of the day threads.
+async function sendAndHear(args) {
+  const sends = await sendReviews(args);
+  const heard = await hearReviews(args);
+  return { sent: [...sends.sent, ...heard.sent], failed: [...sends.failed, ...heard.failed] };
+}
 const { slackStatus, slackClient } = await import('./slack.mjs');
 const { readinessRows } = await import('./readiness.mjs');
 const { slackThread, slackAnswer, slackSay, slackTask, slackLink, slackSkip } =await import('../board/slack-store.mjs');
@@ -43,7 +49,7 @@ async function opened() {
   const world = slackWorld();
   const slack = fakeSlack(world);
   saveToken(world);
-  const poll = (now = sunday) => sendReviews({ boards, fetch: slack.fetch, now });
+  const poll = (now = sunday) => sendAndHear({ boards, fetch: slack.fetch, now });
   await poll();
   return { world, slack, poll, day: world.messages[0].ts };
 }
@@ -89,7 +95,7 @@ test("until the token can read DMs (im:history), sends go on, the owner is pushe
   const slack = fakeSlack(world);
   saveToken(world);
   world.unheard = true;
-  const poll = () => sendReviews({ boards, fetch: slack.fetch, now: sunday });
+  const poll = () => sendAndHear({ boards, fetch: slack.fetch, now: sunday });
   const first = await poll();
   assert.deepEqual(first.sent, ['orch: digest to Ann', 'orch: link to Ann on o/r#1', "pushed that Slack can't read the review threads"]);
   assert.deepEqual(first.failed, []);
