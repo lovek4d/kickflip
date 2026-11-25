@@ -41,7 +41,8 @@ export const PLAIN = {
   'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${[e.data?.cards?.length && `${e.data.cards.length} tasks wait on open questions`, e.data?.description && 'the board\'s description is due a check (board.mjs description)'].filter(Boolean).join('; ')}; run the triage, then board.mjs reply ${e.id}`,
   // docs/adr/2026-11-15-1200-an-event-with-no-task-waits-on-the-orchestrator-until-acted-on.md: pr-review, review-failed,
   // arch-review and slack-question each wait on the orchestrator until the command its line names runs.
-  'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle; read its diff and review post it, or review record it`,
+  // docs/adr/2026-11-25-0000-an-incoming-review-leads-with-the-boards-overlap.md: SKILL.md's Incoming reviews.
+  'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle; run review overlap ${e.data?.pr} and review it as SKILL.md's Incoming reviews says, then review post it, or review record it`,
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
   'orchestrator-waits': (e) => [e.data?.opened?.length && `waiting on you now: ${[...new Set(e.data.opened.map((w) => w.key))].join(', ')}`,
     e.data?.again?.length && waitsAgainLine(e.data.again, Date.parse(e.ts))].filter(Boolean).join(' · '),

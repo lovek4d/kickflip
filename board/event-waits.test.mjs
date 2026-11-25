@@ -15,7 +15,7 @@ test('a pr-review waits until review post or review record records a review at i
   const events = [{ id: 'e1', ts: AT, kind: 'pr-review', data: { pr: 12, head: 'aaa', title: 'Fix limiter' } }];
   const waits = eventWaits(events, { incoming });
   assert.deepEqual(brief(waits), [{ key: 'e1', ref: 'PR #12', kind: 'pr-review', since: AT, picked: null, link: '#review=12' }]);
-  assert.match(waits[0].next, /review post 12 --file <review\.md> --read-at <time>/);
+  assert.match(waits[0].next, /as SKILL\.md's Incoming reviews says: review overlap 12 first, then review post 12 --file <review\.md> --read-at <time>/);
   assert.match(waits[0].next, /review record 12 --state posted\|needs/);
   assert.deepEqual(eventWaits(events, { incoming, reviews: { 12: { number: 12, head: 'aaa', state: 'posted', at: LATER } } }), []);
   // A review recorded at an older head, or before the ask, leaves it waiting.

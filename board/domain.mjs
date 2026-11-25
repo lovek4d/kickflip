@@ -811,7 +811,7 @@ function agentsOf(records = {}, withPast = false) {
 }
 // The worktree path the newest builder record keeping one names (board/worktree.mjs makeWorktree), or null. The board
 // server drops it once land has removed the folder.
-function worktreeOf(records = {}) {
+export function worktreeOf(records = {}) {
   return Object.values(records).filter((r) => r?.worktree?.path).sort((a, b) => String(a.started || '').localeCompare(String(b.started || ''))).at(-1)?.worktree.path ?? null;
 }
 
@@ -2493,7 +2493,7 @@ export function eventWaits(events, { items = [], incoming = null, reviews = {} }
   const byKey = new Map(items.map((i) => [i.key, i]));
   const waitOf = {
     'pr-review': (e) => reviewing.has(e.id) && { ref: `PR #${e.data.pr}`, title: `Review asked on PR #${e.data.pr}${e.data.title ? ` ${e.data.title}` : ''}`, link: `#review=${e.data.pr}`,
-      next: `Review PR #${e.data.pr} at its head: review post ${e.data.pr} --file <review.md> --read-at <time>, or review record ${e.data.pr} --state posted|needs` },
+      next: `Review PR #${e.data.pr} at its head as SKILL.md's Incoming reviews says: review overlap ${e.data.pr} first, then review post ${e.data.pr} --file <review.md> --read-at <time>, or review record ${e.data.pr} --state posted|needs` },
     'review-failed': (e) => reviewing.has(e.id) && { ref: `PR #${e.data.pr}`, title: `${e.data.answer === 'skip' ? 'Skip' : 'Post'} failed on the held review of PR #${e.data.pr}: ${e.data.error}`, link: `#review=${e.data.pr}`,
       next: e.data.answer === 'skip' ? `Record it posted, posting nothing: review record ${e.data.pr} --state posted --text <why>` : `Fix the cause and post the held review: review post ${e.data.pr} --file <review.md> --read-at <time>` },
     'arch-review': (e) => {

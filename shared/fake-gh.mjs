@@ -12,6 +12,10 @@ export const writePR = (dir, n, value) => write(dir, 'pr', n, value);
 export const writeIssueComments = (dir, n, value) => write(dir, 'issue-comments', n, value);
 export const writeReviewComments = (dir, n, value) => write(dir, 'review-comments', n, value);
 export const writeReviews = (dir, n, value) => write(dir, 'reviews', n, value);
+// [{filename, previous_filename?}]: the files PR n changes, as gh api repos/<repo>/pulls/<n>/files lists them.
+export const writePRFiles = (dir, n, value) => write(dir, 'pr-files', n, value);
+// {sha}: the merge base gh api repos/<repo>/compare/<base>...<head> answers for PR n's head (keyed by n).
+export const writeMergeBase = (dir, n, sha) => write(dir, 'merge-base', n, { sha });
 // {error}: gh pr merge <n> fails, printing error.
 export const writeMerge = (dir, n, value) => write(dir, 'merge', n, value);
 // What gh pr view <n> --json title,body,commits answers, for a merge's squash message.
@@ -179,6 +183,23 @@ if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test
   console.log(JSON.stringify({ ...${JSON.stringify(SQUASH_SOURCE)}, ...(own.title ? { title: own.title } : {}), ...(own.body ? { body: own.body } : {}) }));
   process.exit(0);
 }
+// gh pr view <n> --repo <repo> --json title,author,baseRefName,headRefOid,statusCheckRollup: a review's read of the PR
+// fixture, its base main unless the fixture names one.
+if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === 'title,author,baseRefName,headRefOid,statusCheckRollup') {
+  let own = null;
+  try { own = JSON.parse(fs.readFileSync(fixture('pr', args[4], args[2]), 'utf8')); } catch { fail(); }
+  console.log(JSON.stringify({ title: own.title ?? null, author: own.author ?? null, baseRefName: own.baseRefName || 'main', headRefOid: own.headRefOid, statusCheckRollup: own.statusCheckRollup ?? [] }));
+  process.exit(0);
+}
+// gh api repos/<repo>/compare/<base>...<head> --jq …: the merge base fixture of the PR whose fixture has that head.
+if (args.length === 4 && args[0] === 'api' && /^repos\\/[^/]+\\/[^/]+\\/compare\\//.test(args[1]) && args[2] === '--jq') {
+  const head = args[1].split('...').at(-1);
+  const folder = path.join(dir, 'pr');
+  const n = (fs.existsSync(folder) ? fs.readdirSync(folder) : []).find((f) => { try { return JSON.parse(fs.readFileSync(path.join(folder, f), 'utf8')).headRefOid === head; } catch { return false; } });
+  if (!n) fail();
+  try { console.log(fs.readFileSync(path.join(dir, 'merge-base', n), 'utf8')); } catch { fail(); }
+  process.exit(0);
+}
 // gh pr view <n> --repo <repo> --json headRefOid: the PR fixture's head.
 if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === 'headRefOid') {
   let own = null;
@@ -196,9 +217,9 @@ else if (args.length === 4 && args[0] === 'api' && args[1] === '--paginate' && a
   list = true;
 }
 else if (args.length === 4 && args[0] === 'api' && args[1] === '--paginate' && args[2] === '--slurp') {
-  const match = /^repos\\/([^/]+\\/[^/]+)\\/(issues|pulls)\\/(\\d+)\\/(comments\\?since=.+|reviews)$/.exec(args[3]);
-  if (!match || (match[2] === 'issues' && match[4] === 'reviews')) process.exit(1);
-  file = fixture(match[4] === 'reviews' ? 'reviews' : match[2] === 'issues' ? 'issue-comments' : 'review-comments', match[1], match[3]);
+  const match = /^repos\\/([^/]+\\/[^/]+)\\/(issues|pulls)\\/(\\d+)\\/(comments(?:\\?since=.+)?|reviews|files)$/.exec(args[3]);
+  if (!match || (match[2] === 'issues' && ['reviews', 'files'].includes(match[4]))) process.exit(1);
+  file = fixture(match[4] === 'reviews' ? 'reviews' : match[4] === 'files' ? 'pr-files' : match[2] === 'issues' ? 'issue-comments' : 'review-comments', match[1], match[3]);
   list = true;
 } else process.exit(1);
 let value;

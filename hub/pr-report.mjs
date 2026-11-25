@@ -69,11 +69,46 @@ export async function githubUser(login) {
   try { return (await gh(['api', `users/${encodeURIComponent(login)}`])).login; } catch { return null; }
 }
 
-// The reviews on PR pr of repo submitted after the ISO time since: [{login, at}]
+// The reviews and comments on PR pr of repo written after the ISO time since: its reviews, and its comments and inline
+// review comments written or edited since (a bot's sticky comment is edited in place). → [{login, at, kind: review | comment}]
 export async function reviewsSince({ repo, pr, since }) {
+  const list = async (endpoint) => (await gh(['api', '--paginate', '--slurp', `repos/${repo}/${endpoint}`])).flat();
+  const after = (at) => Date.parse(at) > Date.parse(since);
   try {
-    const reviews = (await gh(['api', '--paginate', '--slurp', `repos/${repo}/pulls/${pr}/reviews`])).flat();
-    return reviews.filter((r) => Date.parse(r.submitted_at) > Date.parse(since)).map((r) => ({ login: r.user?.login ?? null, at: r.submitted_at }));
+    const q = `?since=${encodeURIComponent(since)}`;
+    const [reviews, comments, inline] = await Promise.all([list(`pulls/${pr}/reviews`), list(`issues/${pr}/comments${q}`), list(`pulls/${pr}/comments${q}`)]);
+    return [
+      ...reviews.filter((r) => after(r.submitted_at)).map((r) => ({ login: r.user?.login ?? null, at: r.submitted_at, kind: 'review' })),
+      ...[...comments, ...inline].map((c) => ({ login: c.user?.login ?? null, at: c.updated_at ?? c.created_at, kind: 'comment' })).filter((c) => after(c.at)),
+    ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  } catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
+}
+
+// docs/adr/2026-11-25-0000-an-incoming-review-leads-with-the-boards-overlap.md
+// What a review of PR pr of repo reads first, as login: its title, author, head, base branch and the commit it branched
+// from main at (GitHub's merge base), every file it changes (a rename's old path too), its CI still running, and every
+// review, comment and inline comment already on it, each marked bot when an app wrote it.
+// → {title, author, head, base, mergeBase, files, pending, said: [{kind, login, bot, at, state?, path?, line?, body, url}]}
+export async function prForReview({ repo, pr, login }) {
+  const as = await asLogin(login);
+  const list = async (endpoint) => (await gh(['api', '--paginate', '--slurp', `repos/${repo}/${endpoint}`], as)).flat();
+  try {
+    const view = await gh(['pr', 'view', String(pr), '--repo', repo, '--json', 'title,author,baseRefName,headRefOid,statusCheckRollup'], as);
+    const [changed, reviews, comments, inline, compare] = await Promise.all([
+      list(`pulls/${pr}/files`), list(`pulls/${pr}/reviews`), list(`issues/${pr}/comments`), list(`pulls/${pr}/comments`),
+      gh(['api', `repos/${repo}/compare/${encodeURIComponent(view.baseRefName)}...${view.headRefOid}`, '--jq', '{sha: .merge_base_commit.sha}'], as),
+    ]);
+    const by = (u) => ({ login: u?.login ?? null, bot: u?.type === 'Bot' || /\[bot\]$/.test(u?.login ?? '') });
+    return {
+      title: view.title, author: view.author?.login ?? null, head: view.headRefOid, base: view.baseRefName, mergeBase: compare.sha,
+      files: [...new Set(changed.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean)))],
+      pending: checksOf(view.statusCheckRollup ?? []).pending,
+      said: [
+        ...reviews.map((r) => ({ kind: 'review', ...by(r.user), at: r.submitted_at, state: r.state, body: r.body ?? '', url: r.html_url })),
+        ...comments.map((c) => ({ kind: 'comment', ...by(c.user), at: c.updated_at ?? c.created_at, body: c.body ?? '', url: c.html_url })),
+        ...inline.map((c) => ({ kind: 'inline', ...by(c.user), at: c.updated_at ?? c.created_at, path: c.path, line: c.line ?? null, body: c.body ?? '', url: c.html_url })),
+      ].sort((a, b) => String(a.at).localeCompare(String(b.at))),
+    };
   } catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
 }
 

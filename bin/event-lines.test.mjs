@@ -116,3 +116,11 @@ test("an answer that picks no take on a prototype tells the session the card owe
   assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1', prototype_again: true })), /it picks no take, so the task owes you the next prototype round's brief: item brief <key> --kind prototype --file <draft.md>/);
   assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1' })), /act on it on its task/);
 });
+
+// docs/adr/2026-11-25-0000-an-incoming-review-leads-with-the-boards-overlap.md
+test("a pr-review tells the session to run review overlap and review as SKILL.md's Incoming reviews says, which SKILL.md has", () => {
+  assert.equal(PLAIN['pr-review'](event('pr-review', { pr: 12, head: 'aaa' })), "review asked on PR #12: the board was idle; run review overlap 12 and review it as SKILL.md's Incoming reviews says, then review post it, or review record it");
+  const skill = fs.readFileSync(path.join(root, 'SKILL.md'), 'utf8');
+  assert.match(skill, /\n\*\*Incoming reviews\*\* \(.*\)\. .*First run `board\.mjs --site <route> review overlap <pr>`/);
+  assert.match(skill, /\n1\. \*\*Overlap first\.\*\*.*\n2\. .*only where no review or comment on the PR has said it\.\n3\. \*\*Line-level\*\* .*only when `review overlap` says due, meaning no bot has submitted a review or inline review comments \(a deploy or coverage bot's plain comment doesn't count\), or when the owner or the asker asks for it in words/);
+});

@@ -290,6 +290,7 @@ const KNOWN = {
   'board/questions.mjs settleQuestion': "owner.json's questions: a screened one, settled",
   'board/cards.mjs restoreArchived': 'an archived task and its questions back, with the ticket they had',
   'board/domain.mjs buildBoard': 'the board view, read only',
+  'board/review-overlap.mjs reviewOverlap': "the board's tasks with their worktrees, read only, for a PR's overlap",
   'board/server.mjs thread': "an archived task's questions read beside owner.json's, read only",
   'board/snapshot.mjs withArchived': 'archived tasks read beside their wave files to build a Done page, read only',
   'board/snapshot.mjs readSnapshot': "archived tasks' questions read beside owner.json's to build a Done page, read only",

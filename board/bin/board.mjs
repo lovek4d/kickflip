@@ -26,6 +26,7 @@ import { prototypeBase } from '../prototype-base.mjs';
 import { detachedIn } from '../detached.mjs';
 import { readScript, scriptFileOf, scriptsOf, writeScript } from '../build-script.mjs';
 import { readInbox } from '../../bin/event-lines.mjs';
+import { reviewOverlap } from '../review-overlap.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
@@ -561,6 +562,14 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          holds. edits: each message an earlier build gave a state
                                                          line, again without it. The hub sends and records each.
                                                          While Slack isn't ready: {waiting} and nothing owed
+  review overlap <pr>                                   what a review of a teammate's PR (its link, owner/repo#n
+                                                         or n in the board's repo) reads first: the open tasks
+                                                         whose worktree changes its files, the tasks landed on
+                                                         main since it branched that changed them, their notes'
+                                                         lines naming those files, every review and comment
+                                                         already on it, the time it was read (review post's
+                                                         --read-at), and whether a line-level review is due: not
+                                                         when a bot reviewed or left inline comments, wait while CI runs
   review post <pr> --file <review.md>                   posts the session's words as one Comment review (never an
           --read-at <time>                               approval or a request for changes) on an incoming PR at
                                                          its listed head, as the board's github-login (else gh's
@@ -1382,6 +1391,7 @@ const COMMANDS = {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('review record takes --text or --file');
     return store.recordReview(site, pr, { state: f.state, text: f.text ?? readInput(f.file) });
   }],
+  'review overlap': [['pr'], [], (site, [pr]) => reviewOverlap(needSite(site, 'review overlap'), pr)],
   'review post': [['pr'], ['file', 'read-at', 'task'], async (site, [pr], f) => {
     if (f.file === undefined) throw new UsageError('review post needs --file <review.md>');
     if (f['read-at'] === undefined) throw new UsageError('review post needs --read-at <time>, when you read the PR, so a review that landed since is caught');

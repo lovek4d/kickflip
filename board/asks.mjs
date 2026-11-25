@@ -834,7 +834,7 @@ export async function postIncomingReview(site, number, { words, readAt, task }) 
     const target = pr || await taskPR(site, number, task, login);
     const repo = target.repo || fail('review post needs a board on GitHub; this board has no repo there');
     const newer = await reviewsSince({ repo, pr: target.number, since: readAt });
-    if (newer.length) fail(`PR #${target.number} got ${newer.length === 1 ? 'a review' : `${newer.length} reviews`} after ${readAt} (${newer.map((r) => `${r.login} at ${r.at}`).join(', ')}); reread the PR and review again`);
+    if (newer.length) fail(`PR #${target.number} got ${newer.length === 1 ? `a ${newer[0].kind}` : `${newer.length} reviews and comments`} after ${readAt} (${newer.map((r) => `${r.login} at ${r.at}`).join(', ')}); reread the PR and review again`);
     const review_url = await postReview({ repo, pr: target.number, head: target.head, body: `${header}\n\n${text}\n${githubSignOffLine()}\n\n${CLAUDE_MARK}`, login });
     if (pr) await saveReview(site, pr, { state: 'posted', text, review_url });
     return { lines: [`posted review on PR #${target.number}: ${review_url}${pr ? '' : `; reply to ${task}'s message with it`}`] };
