@@ -61,7 +61,7 @@ test('a reply to the @kickflip ask posts into its Slack thread once, signed off'
   const { world, slack, asked, post } = filed();
   await writeReply(site, 'ea', 'Looking: the export job times out at 30s.');
   assert.deepEqual(await post(), { posted: ['orch items/T-1: a reply'], failed: [] });
-  assert.deepEqual(inThread(world, asked), ['Looking: the export job times out at 30s.\n- :robot_face:']);
+  assert.deepEqual(inThread(world, asked), ['Looking: the export job times out at 30s.\n- :skateboard:']);
   assert.deepEqual(await post(), { posted: [], failed: [] });
   assert.equal(inThread(world, asked).length, 1, 'never posted twice');
   // The posted reply is the board's own: following the thread copies it back nowhere.
@@ -78,7 +78,7 @@ test("a reply to a Slack reply copied onto the task posts; a reply to the owner'
   await appendMessage(site, 'items/T-1', { text: 'Raising the timeout.' });
   await writeReply(site, 'es', 'A fix for the timeout is on its way.');
   await post();
-  assert.deepEqual(inThread(world, asked), ['A fix for the timeout is on its way.\n- :robot_face:']);
+  assert.deepEqual(inThread(world, asked), ['A fix for the timeout is on its way.\n- :skateboard:']);
 });
 
 test('a failed post is one fault line on the card, retried each poll until it posts, in order', async () => {
@@ -93,7 +93,7 @@ test('a failed post is one fault line on the card, retried each poll until it po
   assert.deepEqual(threadLines().filter((m) => m.line === 'slack-post-failed').map((m) => m.text), ["Couldn't post a reply to its Slack thread, retrying each poll: Slack: channel_not_found"]);
   delete world.postError;
   assert.equal((await post()).posted.length, 2);
-  assert.deepEqual(inThread(world, asked), ['First.\n- :robot_face:', 'Second.\n- :robot_face:']);
+  assert.deepEqual(inThread(world, asked), ['First.\n- :skateboard:', 'Second.\n- :skateboard:']);
 });
 
 test('once the task is Done one end line posts, closed or built and landed, and mirroring stops', async () => {
@@ -106,7 +106,7 @@ test('once the task is Done one end line posts, closed or built and landed, and 
     await post();
     await writeReply(site, 'ea', 'After Done.');
     await post();
-    assert.deepEqual(inThread(world, asked), ['Done here.\n- :robot_face:', `${end}: fix: export 500s\n- :robot_face:`]);
+    assert.deepEqual(inThread(world, asked), ['Done here.\n- :skateboard:', `${end}: fix: export 500s\n- :skateboard:`]);
   }
 });
 
@@ -130,7 +130,7 @@ test('a reply by task key is refused while a message is unanswered, listing each
   await writeReply(site, 'es', 'Will do.');
   await writeReply(site, 'eb', 'Waiting for CI.');
   await post();
-  assert.deepEqual(inThread(world, asked), ['Will do.\n- :robot_face:']);
+  assert.deepEqual(inThread(world, asked), ['Will do.\n- :skateboard:']);
   // The ask is still open, so the task key stays refused until it is answered.
   await assert.rejects(store.answerCard(site, 'items/T-1', 'On it.'), /ea \(Slack · Bob\)/);
 });
@@ -149,7 +149,7 @@ test('a Slack message stays unanswered after any thread line, until its reply or
   assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'items.json'), 'utf8')).items[0].no_reply.es));
   await store.answerCard(site, 'items/T-1', 'Done here.');
   await post();
-  assert.deepEqual(inThread(world, asked), ['Posted: https://github.com/o/r/pull/7#pullrequestreview-1\n- :robot_face:'], 'the no-reply mark posts nothing');
+  assert.deepEqual(inThread(world, asked), ['Posted: https://github.com/o/r/pull/7#pullrequestreview-1\n- :skateboard:'], 'the no-reply mark posts nothing');
   setItem({ lane: 'done', phase: 'closed' });
   addEvent({ id: 'el', ts: '2026-11-15T11:00:00Z', kind: 'item-message', data: { key: 'items/T-1', text: 'great', slack: { by: 'Bob', link: 'https://acme.slack.com/y' } } });
   await assert.rejects(store.markNoReply(site, 'el'), /is Done, so its Slack messages owe nothing/);
@@ -165,7 +165,7 @@ test('a Slack-filed task posts one "Waiting on owner" line when a question is as
   assert.deepEqual(inThread(world, asked), [], 'no wait, no line');
   ask('How should I run the Simulator check?');
   assert.deepEqual(await post(), { posted: ['orch items/T-1: a wait line'], failed: [] });
-  assert.deepEqual(inThread(world, asked), ['Waiting on owner: How should I run the Simulator check?\n- :robot_face:']);
+  assert.deepEqual(inThread(world, asked), ['Waiting on owner: How should I run the Simulator check?\n- :skateboard:']);
   await post();
   assert.equal(inThread(world, asked).length, 1, 'the same wait posts once');
   assert.ok((await boardPosts(site)).has(world.messages.at(-1).ts), 'the board own post is not copied back');
@@ -174,7 +174,7 @@ test('a Slack-filed task posts one "Waiting on owner" line when a question is as
   assert.equal(inThread(world, asked).length, 1, 'answering posts nothing');
   ask('Which device?');
   await post();
-  assert.deepEqual(inThread(world, asked).slice(1), ['Waiting on owner: Which device?\n- :robot_face:']);
+  assert.deepEqual(inThread(world, asked).slice(1), ['Waiting on owner: Which device?\n- :skateboard:']);
 });
 
 test('a board-filed task posts nothing when it waits on the owner', async () => {
@@ -195,8 +195,8 @@ test("a Slack ask folded into a task keeps its thread: its reply posts there, an
   await writeReply(site, 'ef', 'Taking the new round.');
   await writeReply(site, 'ea', 'Answering the first.');
   await post();
-  assert.deepEqual(inThread(world, second), ['Taking the new round.\n- :robot_face:']);
-  assert.deepEqual(inThread(world, asked), ['Answering the first.\n- :robot_face:']);
+  assert.deepEqual(inThread(world, second), ['Taking the new round.\n- :skateboard:']);
+  assert.deepEqual(inThread(world, asked), ['Answering the first.\n- :skateboard:']);
   // A later message in the folded thread lands on the task, and its reply goes back there.
   const later = slack.say({ channel: 'D2', user: 'U2', text: 'and the tests too', thread_ts: second });
   const { copied } = await followSlackAsks({ boards, fetch: slack.fetch });
@@ -205,6 +205,6 @@ test("a Slack ask folded into a task keeps its thread: its reply posts there, an
   assert.ok(landed);
   await writeReply(site, landed.id, 'On it.');
   await post();
-  assert.deepEqual(inThread(world, second).slice(2), ['On it.\n- :robot_face:']);
+  assert.deepEqual(inThread(world, second).slice(2), ['On it.\n- :skateboard:']);
   assert.equal(inThread(world, asked).length, 1);
 });

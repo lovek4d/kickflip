@@ -137,19 +137,19 @@ const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired',
 // The standard emoji Hub › Slack's picker offers for a PR state's reaction and the signature, with the character each
 // shows as.
 export const STANDARD_EMOJI = [
-  ['white_check_mark', '✅'], ['heavy_check_mark', '✔️'], ['large_purple_circle', '🟣'], ['x', '❌'], ['robot_face', '🤖'], ['+1', '👍'], ['tada', '🎉'],
+  ['white_check_mark', '✅'], ['heavy_check_mark', '✔️'], ['large_purple_circle', '🟣'], ['x', '❌'], ['robot_face', '🤖'], ['skateboard', '🛹'], ['+1', '👍'], ['tada', '🎉'],
   ['rocket', '🚀'], ['sparkles', '✨'], ['fire', '🔥'], ['100', '💯'], ['star', '⭐'], ['eyes', '👀'], ['clap', '👏'], ['raised_hands', '🙌'],
   ['ship', '🚢'], ['checkered_flag', '🏁'], ['large_green_circle', '🟢'], ['large_blue_circle', '🔵'], ['large_orange_circle', '🟠'],
   ['red_circle', '🔴'], ['white_circle', '⚪'], ['no_entry', '⛔'], ['no_entry_sign', '🚫'], ['octagonal_sign', '🛑'], ['wastebasket', '🗑️'],
   ['lock', '🔒'], ['hourglass', '⌛'], ['heart', '❤️'], ['purple_heart', '💜'], ['green_heart', '💚'],
   ['thinking_face', '🤔'], ['raised_hand', '✋'],
 ].map(([name, char]) => ({ name, char }));
-// The signature as GitHub shows it: “- ” and the picked emoji's character, the robot face when the pick is a custom
+// The signature as GitHub shows it: “- ” and the picked emoji's character, the skateboard when the pick is a custom
 // emoji GitHub can't show.
 export const githubSignOffLine = () => `- ${(STANDARD_EMOJI.find((e) => e.name === readSignOff()) || STANDARD_EMOJI.find((e) => e.name === SIGN_OFF_DEFAULT)).char}`;
-export const SIGN_OFF_DEFAULT = 'robot_face';
+export const SIGN_OFF_DEFAULT = 'skateboard';
 export const signOffLine = () => `- :${readSignOff()}:`;
-// The sign-offs the hub used before the pick: :claude_kickflip: while the workspace had it, else :robot_face:.
+// The sign-offs the hub used before the pick: :claude_kickflip: while the workspace had it, else :robot_face:. The robot stays one of ours.
 const SIGNED_OFF_ALWAYS = ['claude_kickflip', 'robot_face'];
 // Whether a message is one of ours, by the last line of its text or, with attachments, of its last attachment's: a
 // sign-off with the picked emoji, one picked before it, or one the hub used before the pick. Our posts go out as the

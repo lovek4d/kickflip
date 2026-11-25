@@ -184,7 +184,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
         linear = opts.body.has('remove') ? { set: false } : opts.body.get('key') === 'bad' ? { set: true, refused: true } : { set: true, workspace: 'Acme', url_key: 'acme' };
         return { ok: true, json: async () => data() };
       }
-      if (url === '/_hub/api/slack-emoji') return { ok: true, json: async () => prEmojiView({ picks: {}, signOff: 'robot_face', customs: {} }) };
+      if (url === '/_hub/api/slack-emoji') return { ok: true, json: async () => prEmojiView({ picks: {}, signOff: 'skateboard', customs: {} }) };
       if (url === '/_hub/settings/slack') {
         slack = opts.body.has('remove') ? { set: false } : { set: true, team: 'Acme', user: 'love' };
         return { ok: true, json: async () => data() };
@@ -1397,7 +1397,7 @@ test("the hub page's New task box sends through the page's outbox: its row leads
 test("Hub › Slack's emoji rows: each PR state's reaction and the signature, its default from the workspace's customs or the standard one marked, and a changed pick naming what it changed from", () => {
   const customs = { git_approved: 'https://emoji.example/git_approved.png', git_merged: 'https://emoji.example/git_merged.png', ship_it: 'https://emoji.example/ship_it.png' };
   const rows = (view) => view.rows.map((r) => [r.kind, r.title, r.emoji.name, r.tag, r.sub, r.changed]);
-  const has = prEmojiView({ picks: {}, signOff: 'robot_face', customs });
+  const has = prEmojiView({ picks: {}, signOff: 'skateboard', customs });
   assert.equal(has.label, 'Reactions and signature');
   assert.equal(has.note, "One set for every board. A PR's Slack messages get its state's reaction, each Slack message on a Slack-filed task gets its status's, and every message the hub posts ends with the signature. A standard emoji stands in while the workspace lacks a custom one.");
   assert.deepEqual(rows(has), [
@@ -1408,18 +1408,18 @@ test("Hub › Slack's emoji rows: each PR state's reaction and the signature, it
     ['thinking', 'Thinking', 'thinking_face', 'standard', ':thinking_face: · standard', false],
     ['waiting', 'Waiting on owner', 'raised_hand', 'standard', ':raised_hand: · standard', false],
     ['done', 'Done', 'white_check_mark', 'standard', ':white_check_mark: · standard', false],
-    ['signature', 'Signature', 'robot_face', 'standard', ':robot_face: · standard', false],
+    ['signature', 'Signature', 'skateboard', 'standard', ':skateboard: · standard', false],
   ]);
-  assert.deepEqual(has.rows.at(-1).emoji, { name: 'robot_face', char: '🤖' });
+  assert.deepEqual(has.rows.at(-1).emoji, { name: 'skateboard', char: '🛹' });
   assert.deepEqual(has.rows.slice(3, 7).map((r) => r.emoji.char), ['👀', '🤔', '✋', '✅']);
-  assert.deepEqual(rows(prEmojiView({ picks: {}, signOff: 'ship_it', customs })).at(-1), ['signature', 'Signature', 'ship_it', null, ':ship_it: · changed from :robot_face:', true]);
+  assert.deepEqual(rows(prEmojiView({ picks: {}, signOff: 'ship_it', customs })).at(-1), ['signature', 'Signature', 'ship_it', null, ':ship_it: · changed from :skateboard:', true]);
   assert.deepEqual(has.rows[0].emoji, { name: 'git_approved', url: customs.git_approved });
   assert.deepEqual(has.rows[2].emoji, { name: 'x', char: '❌' });
   assert.deepEqual(has.customs, [['git_approved', customs.git_approved], ['git_merged', customs.git_merged], ['ship_it', customs.ship_it]].map(([name, url]) => ({ name, url })));
   assert.ok(has.standard.some((e) => e.name === 'white_check_mark' && e.char === '✅'));
   assert.ok(has.standard.some((e) => e.name === 'large_purple_circle' && e.char === '🟣'));
 
-  assert.deepEqual(rows(prEmojiView({ picks: {}, signOff: 'robot_face', customs: {} })), [
+  assert.deepEqual(rows(prEmojiView({ picks: {}, signOff: 'skateboard', customs: {} })), [
     ['approved', 'Approved', 'white_check_mark', 'standard', ':white_check_mark: · standard, :git_approved: isn’t in this workspace', false],
     ['merged', 'Merged', 'large_purple_circle', 'standard', ':large_purple_circle: · standard, :git_merged: isn’t in this workspace', false],
     ['closed', 'Closed', 'x', 'standard', ':x: · standard', false],
@@ -1427,9 +1427,9 @@ test("Hub › Slack's emoji rows: each PR state's reaction and the signature, it
     ['thinking', 'Thinking', 'thinking_face', 'standard', ':thinking_face: · standard', false],
     ['waiting', 'Waiting on owner', 'raised_hand', 'standard', ':raised_hand: · standard', false],
     ['done', 'Done', 'white_check_mark', 'standard', ':white_check_mark: · standard', false],
-    ['signature', 'Signature', 'robot_face', 'standard', ':robot_face: · standard', false],
+    ['signature', 'Signature', 'skateboard', 'standard', ':skateboard: · standard', false],
   ]);
-  assert.deepEqual(rows(prEmojiView({ picks: { approved: 'tada', closed: 'ship_it' }, signOff: 'robot_face', customs })).filter((r) => r[5]), [
+  assert.deepEqual(rows(prEmojiView({ picks: { approved: 'tada', closed: 'ship_it' }, signOff: 'skateboard', customs })).filter((r) => r[5]), [
     ['approved', 'Approved', 'tada', null, ':tada: · changed from :git_approved:', true],
     ['closed', 'Closed', 'ship_it', null, ':ship_it: · changed from :x:', true],
   ]);

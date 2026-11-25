@@ -522,7 +522,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
             [--domain x] [--timezone Area/City]
   slack signature                                       the sign-off line that ends every Slack message the hub and
                                                          the orchestrator post, "- :<emoji>:", its emoji picked in
-                                                         Hub › Slack (:robot_face: by default)
+                                                         Hub › Slack (:skateboard: by default)
   slack thread <eventId>                                a slack-question event's day thread, read from Slack through
                                                          Hub's token: one message a line, named board, you or the
                                                          reviewer; → marks the event's message. On a message that

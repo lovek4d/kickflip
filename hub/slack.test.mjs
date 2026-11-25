@@ -39,18 +39,18 @@ test('the client checks the token, opens a DM, posts and threads, and reacts onc
   assert.equal(await client.openDM('U2'), 'D2');
   const ts = await client.post({ channel: 'D2', text: 'https://github.com/o/r/pull/1' });
   await client.post({ channel: 'D2', text: 'reply', thread_ts: ts });
-  assert.deepEqual(world.messages.map((m) => [m.channel, m.text, m.thread_ts ?? null]), [['D2', 'https://github.com/o/r/pull/1\n- :robot_face:', null], ['D2', 'reply\n- :robot_face:', ts]]);
+  assert.deepEqual(world.messages.map((m) => [m.channel, m.text, m.thread_ts ?? null]), [['D2', 'https://github.com/o/r/pull/1\n- :skateboard:', null], ['D2', 'reply\n- :skateboard:', ts]]);
   // With attachments, the sign-off ends the last one's text instead, as its last line, and an edit names its time there.
   const bar = [{ color: '#2eb67d', title: 'Fix', title_link: 'https://github.com/o/r/pull/1', text: '+1/-0 · 1 file · low risk', fallback: 'r#1 Fix' }];
   const barred = await client.post({ channel: 'D2', text: '<@U2>', thread_ts: ts, attachments: bar });
   const signed = (a, line) => ({ ...a, text: `${a.text}\n${line}`, mrkdwn_in: ['text'] });
-  assert.deepEqual(world.messages.at(-1), { channel: 'D2', user: 'U0', text: '<@U2>', thread_ts: ts, ts: barred, attachments: [signed(bar[0], '- :robot_face:')] });
+  assert.deepEqual(world.messages.at(-1), { channel: 'D2', user: 'U0', text: '<@U2>', thread_ts: ts, ts: barred, attachments: [signed(bar[0], '- :skateboard:')] });
   assert.ok(isSignedOff(world.messages.at(-1).text, world.messages.at(-1).attachments));
   assert.ok(!isSignedOff('<@U2>', bar));
   const red = { ...bar[0], color: '#e01e5a' };
   // 14:05 in Los Angeles
   await client.update({ channel: 'D2', ts: barred, text: '<@U2>', attachments: [red], at: new Date('2026-11-02T22:05:00Z') });
-  assert.deepEqual(world.messages.at(-1).attachments, [signed(red, '- :robot_face: · _updated 14:05_')]);
+  assert.deepEqual(world.messages.at(-1).attachments, [signed(red, '- :skateboard: · _updated 14:05_')]);
   assert.ok(isSignedOff(world.messages.at(-1).text, world.messages.at(-1).attachments));
   world.messages.length = 2;
   for (let i = 0; i < 2; i++) await client.react({ channel: 'D2', ts, name: 'git_merged' });
@@ -135,10 +135,10 @@ test("the hub serves Hub › Slack's PR state emoji and signature from the works
   const { base } = await inProcessHub(t);
   const names = (view) => view.rows.map((r) => r.emoji.name);
   // With no token, the standard emojis stand in.
-  assert.deepEqual(names(await (await fetch(`${base}/_hub/api/slack-emoji`)).json()), ['white_check_mark', 'large_purple_circle', 'x', 'eyes', 'thinking_face', 'raised_hand', 'white_check_mark', 'robot_face']);
+  assert.deepEqual(names(await (await fetch(`${base}/_hub/api/slack-emoji`)).json()), ['white_check_mark', 'large_purple_circle', 'x', 'eyes', 'thinking_face', 'raised_hand', 'white_check_mark', 'skateboard']);
   write(kf('secrets.json'), { slack: { token: world.token, team: 'Acme', user: 'love', user_id: 'U0' } });
   const view = await (await fetch(`${base}/_hub/api/slack-emoji`)).json();
-  assert.deepEqual([names(view), view.customs.map((e) => e.name)], [['git_approved', 'git_merged', 'x', 'eyes', 'thinking_face', 'raised_hand', 'white_check_mark', 'robot_face'], ['claude_kickflip', 'git_approved', 'git_merged']]);
+  assert.deepEqual([names(view), view.customs.map((e) => e.name)], [['git_approved', 'git_merged', 'x', 'eyes', 'thinking_face', 'raised_hand', 'white_check_mark', 'skateboard'], ['claude_kickflip', 'git_approved', 'git_merged']]);
   assert.equal(view.warning, null);
   world.emojiMissingScope = true;
   assert.match((await (await fetch(`${base}/_hub/api/slack-emoji`)).json()).warning, /lacks the emoji:read user scope/);
@@ -147,36 +147,36 @@ test("the hub serves Hub › Slack's PR state emoji and signature from the works
   const picked = await (await pick('state=approved&emoji=tada')).json();
   assert.deepEqual([picked.rows[0].emoji, picked.rows[0].sub], [{ name: 'tada', char: '🎉' }, ':tada: · changed from :git_approved:']);
   assert.deepEqual(readPREmoji(), { approved: 'tada' });
-  assert.deepEqual(names(await (await pick('state=approved&emoji=')).json()), ['git_approved', 'git_merged', 'x', 'eyes', 'thinking_face', 'raised_hand', 'white_check_mark', 'robot_face']);
-  // The signature is saved as slack.json's sign_off_emoji, and its reset goes back to robot_face.
+  assert.deepEqual(names(await (await pick('state=approved&emoji=')).json()), ['git_approved', 'git_merged', 'x', 'eyes', 'thinking_face', 'raised_hand', 'white_check_mark', 'skateboard']);
+  // The signature is saved as slack.json's sign_off_emoji, and its reset goes back to skateboard.
   const signed = await (await pick('state=signature&emoji=claude_kickflip')).json();
-  assert.deepEqual([signed.rows.at(-1).emoji, signed.rows.at(-1).sub], [{ name: 'claude_kickflip', url: 'https://emoji.example/claude_kickflip.png' }, ':claude_kickflip: · changed from :robot_face:']);
+  assert.deepEqual([signed.rows.at(-1).emoji, signed.rows.at(-1).sub], [{ name: 'claude_kickflip', url: 'https://emoji.example/claude_kickflip.png' }, ':claude_kickflip: · changed from :skateboard:']);
   assert.equal(readSignOff(), 'claude_kickflip');
-  assert.deepEqual(names(await (await pick('state=signature&emoji=')).json()).at(-1), 'robot_face');
-  assert.equal(readSignOff(), 'robot_face');
+  assert.deepEqual(names(await (await pick('state=signature&emoji=')).json()).at(-1), 'skateboard');
+  assert.equal(readSignOff(), 'skateboard');
   const bad = await pick('state=reviewing&emoji=tada');
   assert.deepEqual([bad.status, (await bad.json()).error], [400, 'Unknown PR state reviewing']);
 });
 
-test('every post ends with a “- :robot_face:” line by default, whatever emoji the workspace has, or with the signature picked in Hub › Slack, asking Slack nothing for it', async () => {
+test('every post ends with a “- :skateboard:” line by default, whatever emoji the workspace has, or with the signature picked in Hub › Slack, asking Slack nothing for it', async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);
   const client = slackClient(world.token, { fetch: slack.fetch });
   await client.post({ channel: 'D2', text: 'one' });
   await setSignOff('tada');
   await client.post({ channel: 'D2', text: 'two\nlines' });
-  assert.deepEqual(world.messages.map((m) => m.text), ['one\n- :robot_face:', 'two\nlines\n- :tada:']);
+  assert.deepEqual(world.messages.map((m) => m.text), ['one\n- :skateboard:','two\nlines\n- :tada:']);
   assert.equal(slack.calls.filter((c) => c.method === 'emoji.list').length, 0);
   assert.equal(read(kf('slack.json')).sign_off_emoji, 'tada');
   await assert.rejects(setSignOff(':tada:'), /emoji must be an emoji name/);
 });
 
-test("GitHub's signature is “- ” and the picked emoji's character, the robot face when the pick is a custom emoji", async () => {
-  assert.equal(githubSignOffLine(), '- 🤖');
+test("GitHub's signature is “- ” and the picked emoji's character, the skateboard when the pick is a custom emoji", async () => {
+  assert.equal(githubSignOffLine(), '- 🛹');
   await setSignOff('tada');
   assert.equal(githubSignOffLine(), '- 🎉');
   await setSignOff('ship_it');
-  assert.equal(githubSignOffLine(), '- 🤖');
+  assert.equal(githubSignOffLine(), '- 🛹');
 });
 
 test('a message signed off with the picked emoji reads as ours, and so does one signed with any emoji picked before it, :robot_face: or :claude_kickflip:; no other does', async () => {
@@ -190,7 +190,8 @@ test('a message signed off with the picked emoji reads as ours, and so does one 
   await setSignOff('');
   assert.deepEqual(['robot_face', 'claude_kickflip', 'tada', 'ship_it'].map(ours), [true, true, true, true]);
   assert.deepEqual(read(kf('slack.json')).sign_off_past, ['tada', 'ship_it']);
-  assert.equal(readSignOff(), 'robot_face');
+  assert.equal(readSignOff(), 'skateboard');
+  assert.ok(ours('skateboard'));
 });
 
 test("a PR state's reaction is the custom git_approved and git_merged when the workspace has them, else the standard ones, and x for closed; a failed emoji.list reads as none", async () => {
@@ -231,7 +232,7 @@ test('an edit is signed off with its time in the Slack timezone, in italics, and
   const ts = await client.post({ channel: 'D2', text: 'Board Digest\n2 PRs pending review' });
   // 14:05 in Los Angeles
   await client.update({ channel: 'D2', ts, text: 'Board Digest\n1 PR pending review', at: new Date('2026-11-02T22:05:00Z') });
-  assert.equal(world.messages[0].text, 'Board Digest\n1 PR pending review\n- :robot_face: · _updated 14:05_');
+  assert.equal(world.messages[0].text, 'Board Digest\n1 PR pending review\n- :skateboard: · _updated 14:05_');
   assert.ok(isSignedOff(world.messages[0].text));
   assert.ok(isSignedOff('words\n- :claude_kickflip:'));
   assert.ok(!isSignedOff('words\n- :claude_kickflip: · updated later'));
