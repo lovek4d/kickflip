@@ -1,5 +1,5 @@
-// The board view's pane: from 900px, beside the lanes, the surface every sheet opens into (the reader, a card page, a
-// card's questions; ui.js openSheet), each staying until closed. Under them, with none open, the landing: the board's
+// The board view's pane: from 900px, beside the lanes, the surface the board's items open into (the reader, a card page, a
+// card's questions; ui.js openSheet), each staying until closed; board settings and Repo review are centred modals over it. Under them, with none open, the landing: the board's
 // name, one line, and chips counting what needs the owner, the questions and the ready cards, each setting the board
 // filter to show only those (docs/adr/2026-11-17-2000-one-board-filter-replaces-waiting-on-you.md), then the board at a
 // glance: its lanes, what's building and what landed today (glanceHtml). Below 900px there is

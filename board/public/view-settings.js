@@ -166,7 +166,7 @@
     });
     B.atUnmount(() => { unfitModal(); modal.close(); if (previous?.isConnected) previous.focus({ preventScroll: true }); });
     B.atUnmount(BoardUI.swipeToDismiss(modal));
-    BoardUI.openSheet(modal);
+    BoardUI.openSheet(modal, { centred: true });
     $('#boardSettingsTitle').focus({ preventScroll: true });
     const route = B.route;
     const closeRow = $('#closeBoard');

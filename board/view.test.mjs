@@ -8392,7 +8392,7 @@ test("a card page's sheet stands near full height on a phone, and from 900px tak
   const wideAt = css.indexOf('@media (min-width: 900px) {\n  .split');
   assert.doesNotMatch(css, /\.reader-sheet\.reader-page \{/, 'a card page has no height of its own');
   assert.match(css.slice(0, wideAt), /\.reader-frame \{[^}]*flex: 1;[^}]*border: 0;/);
-  assert.match(css.slice(wideAt), /\.sheet\.reader-sheet, \.sheet\.arch-sheet, \.settings-modal \{ position: fixed; z-index: calc\(30 \+ var\(--layer, 0\)\);/, 'a sheet stacked over another lies above it by its layer (ui.js openSheet)');
+  assert.match(css.slice(wideAt), /\.sheet\.reader-sheet \{ position: fixed; z-index: calc\(30 \+ var\(--layer, 0\)\);/, 'a sheet stacked over another lies above it by its layer (ui.js openSheet)');
   assert.doesNotMatch(css, /reader-page \{ z-index/);
   assert.doesNotMatch(css, /pane-viewer|\.pv-top|board-pane\.viewing|board-pane\.widened/, 'the pane viewer is gone');
 });

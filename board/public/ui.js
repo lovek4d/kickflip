@@ -607,13 +607,17 @@
       if (layers.find((l) => l.sheet === sheet && !l.page).modal) sheet.showModal(); else sheet.show();
       for (const [el, top] of scrolled) el.scrollTop = top;
     }
+    // A centred modal lies over the pane without joining its strips: the sheets beneath it count as if it were not there.
+    const centred = (sheet) => layers.some((l) => l.sheet === sheet && l.centred);
+    const strips = order.filter((sheet) => !centred(sheet));
     order.forEach((sheet, i) => {
-      const depth = order.length - 1 - i;
+      const at = strips.indexOf(sheet);
+      const depth = at < 0 ? 0 : strips.length - 1 - at;
       sheet.style.setProperty('--layer', String(i));
       sheet.toggleAttribute('data-under', depth > 0);
-      sheet.toggleAttribute('data-over', i > 0);
+      sheet.toggleAttribute('data-over', at > 0);
       sheet.style.setProperty('--depth', String(depth));
-      sheet.style.setProperty('--below', String(i));
+      sheet.style.setProperty('--below', String(Math.max(at, 0)));
     });
     shown = order;
     focusTop();
@@ -727,9 +731,12 @@
   // on top as the sheets above it close. Replacing, every other sheet closes and the sheet's own pages go: one already
   // open stays as it is, any other opens alone. One on its way out is left as it is.
   // auto: an auto-open, as within opening('auto'). A sheet opened again by hand is the owner's from then on.
-  function openSheet(sheet, { modal = true, auto = false } = {}) {
+  // centred: a modal centred on the page from 900px up (style.css), over the pane rather than in it: there it opens over
+  // the sheets as they are, with no strip for them; on a phone it is a sheet like any other.
+  function openSheet(sheet, { modal = true, auto = false, centred = false } = {}) {
     auto ||= how === 'auto';
-    const over = opensOver({ auto });
+    centred &&= globalThis.matchMedia('(min-width: 900px)').matches;
+    const over = opensOver({ auto }) || (centred && layers.length > 0);
     const own = () => layers.find((l) => l.sheet === sheet && !l.page);
     if (sheet.open && !own()) return;
     if (!over) {
@@ -744,7 +751,7 @@
       return;
     }
     // A sheet shut by its own close(), a swipe or a view's unmount, leaves the stack too; one shown again since stays.
-    const layer = { sheet, modal, auto, shut: () => { if (!sheet.open && !moving.has(sheet)) leaveLayer(sheet); } };
+    const layer = { sheet, modal, auto, centred, shut: () => { if (!sheet.open && !moving.has(sheet)) leaveLayer(sheet); } };
     sheet.addEventListener('close', layer.shut);
     layers.push(layer);
     restack();

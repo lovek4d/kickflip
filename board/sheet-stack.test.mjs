@@ -23,9 +23,11 @@ async function load({ width = 390, height = 760, modal = true } = {}) {
   fs.writeFileSync(file, `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="${pub}style.css"><style>*, ::backdrop { animation: none !important; }</style></head><body><button id="board" style="position:fixed;left:10px;top:200px">board</button>
 ${SHEET('a', 'b')}${SHEET('b', 'c')}${SHEET('c', 'a')}
+<dialog id="m" class="settings-modal"><div class="settings-head"><h2>Settings</h2></div><p>body</p></dialog>
 <script src="${pub}ui-icon-text.js"></script><script src="${pub}ui.js"></script><script>
 const later = (ms, fn) => fn();
 const open = (el, opts) => BoardUI.openSheet(el, { modal: ${modal}, ...opts });
+m.addEventListener('cancel', (ev) => { ev.preventDefault(); BoardUI.closeSheet(m, later); });
 for (const el of [a, b, c]) {
   el.addEventListener('cancel', (ev) => { ev.preventDefault(); BoardUI.closeSheet(el, later); });
   el.querySelector('button').addEventListener('click', (ev) => open(document.getElementById(ev.target.dataset.to)));
@@ -173,5 +175,31 @@ test('at 1280, a tap on the board leaves exactly one root sheet open, whatever w
       await p.escape();
       assert.deepEqual(await openDialogs(), [], `${before}: Escape closed it`);
     }
+  } finally { await p.close(); }
+});
+
+// docs/adr/2026-11-25-0100-board-settings-and-repo-review-open-centred.md
+test('from 900px a centred modal opens over the pane: the sheet beneath stays open and unstripped, the modal sits mid-screen', { skip: !chromeInstalled }, async () => {
+  const p = await load({ width: 1280, modal: false });
+  try {
+    await p.run('open(a)');
+    await p.run('BoardUI.openSheet(m, { centred: true })');
+    assert.deepEqual((await p.state()).open, ['a', 'm'], 'a stayed open beneath');
+    assert.equal(await p.run(`document.getElementById('a').hasAttribute('data-under')`), false, 'no peek strip on the pane sheet');
+    assert.equal(await p.run(`document.getElementById('m').hasAttribute('data-over')`), false);
+    const box = await p.box('m');
+    assert.ok(box.width <= 680, `at most 680px wide, got ${box.width}`);
+    assert.ok(Math.abs(box.left + box.width / 2 - 640) < 2, 'centred across the window');
+    await p.escape();
+    assert.deepEqual((await p.state()).open, ['a'], 'Escape closed the modal, the card stayed');
+  } finally { await p.close(); }
+});
+
+test('on a phone a centred modal replaces the open sheet, as every sheet does', { skip: !chromeInstalled }, async () => {
+  const p = await load({ width: 390 });
+  try {
+    await p.run('open(a)');
+    await p.run('BoardUI.openSheet(m, { centred: true })');
+    assert.deepEqual((await p.state()).open, ['m']);
   } finally { await p.close(); }
 });

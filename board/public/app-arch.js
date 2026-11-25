@@ -55,7 +55,7 @@ BoardView.part((B) => {
     const a = state.board?.arch;
     if (!ev.target.closest('[data-arch-sheet]') || !a || sheet.open) return;
     $('#archBody').innerHTML = body(a);
-    BoardUI.openSheet(sheet);
+    BoardUI.openSheet(sheet, { centred: true });
   });
   B.atUnmount(BoardUI.swipeToDismiss(sheet));
   B.on(sheet, 'click', (ev) => {

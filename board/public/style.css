@@ -1234,13 +1234,16 @@ button.thread-more[aria-busy="true"]::after { inset: 0 auto 0 12px; margin: auto
   :root { --sheet-w: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); }
   /* The reader sheet (app-reader.js) is a panel over the pane's half, at the width the seam gives it, while it is open. */
   /* A sheet stacked over another lies above it by its --layer (ui.js openSheet). */
-  .sheet.reader-sheet, .sheet.arch-sheet, .settings-modal { position: fixed; z-index: calc(30 + var(--layer, 0)); inset: 56px 0 0 auto; margin: 0; width: var(--sheet-w); max-width: none;
+  .sheet.reader-sheet { position: fixed; z-index: calc(30 + var(--layer, 0)); inset: 56px 0 0 auto; margin: 0; width: var(--sheet-w); max-width: none;
     height: auto; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
-  .sheet.reader-sheet[open], .sheet.arch-sheet[open], .settings-modal[open] { animation: reader-in .22s ease-out; }
-  .sheet.reader-sheet.closing, .sheet.arch-sheet.closing, .settings-modal.closing { animation: reader-out .18s ease-in forwards; }
+  .sheet.reader-sheet[open] { animation: reader-in .22s ease-out; }
+  .sheet.reader-sheet.closing { animation: reader-out .18s ease-in forwards; }
+  /* Settings and the architecture review are not board items: centred modals over the board and any card in the pane (docs/adr/2026-11-25-0100-board-settings-and-repo-review-open-centred.md). */
+  .settings-modal, .sheet.arch-sheet { inset: 0; margin: auto; width: min(680px, calc(100% - 48px)); height: fit-content; max-height: calc(100dvh - 48px); border-width: 1px; border-radius: 18px; box-shadow: 0 20px 70px #0004; }
+  .settings-modal[open], .sheet.arch-sheet[open], .settings-modal.closing, .sheet.arch-sheet.closing { animation: none; }
   .reader-sheet::backdrop { background: transparent; }
-  .sheet.reader-sheet[data-over], .sheet.arch-sheet[data-over], .settings-modal[data-over] { top: calc(56px + var(--below, 0) * var(--peek)); }
-  :is(.sheet.reader-sheet, .sheet.arch-sheet, .settings-modal):is([data-over], [data-under]) { border-top-width: 1px; border-top-left-radius: 12px; }
+  .sheet.reader-sheet[data-over] { top: calc(56px + var(--below, 0) * var(--peek)); }
+  .sheet.reader-sheet:is([data-over], [data-under]) { border-top-width: 1px; border-top-left-radius: 12px; }
   .board-pane { display: flex; flex-direction: column; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px 16px 0; border-left: 1px solid var(--line); }
   /* The landing: the board's name, one line and the chips, then the glance, in a column at the pane's top. */
   .pane-landing { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 6px; text-align: center; }

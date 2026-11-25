@@ -1,5 +1,7 @@
 # One standard sheet size: full height on a phone, the right pane on desktop
 
+Amended by [board settings and Repo review open centred](2026-11-25-0100-board-settings-and-repo-review-open-centred.md): from 900px the architecture review and settings are centred modals, and the pane holds the reader family only.
+
 The standard sheet is the reader family (questions, prototypes, logs, transcripts, visuals, notes, a card page), the
 architecture review (.arch-sheet) and settings (.settings-modal). Below 900px it is one height, the screen less the
 status bar, standing on the bottom edge or above the app bar and keyboard (`--standard-height` in style.css, built from

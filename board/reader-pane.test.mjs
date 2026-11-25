@@ -6,7 +6,7 @@ import fs from 'node:fs';
 
 const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
 const wide = css.slice(css.indexOf('@media (min-width: 900px) {\n  .split'));
-const panel = wide.match(/\.sheet\.reader-sheet, \.sheet\.arch-sheet, \.settings-modal \{[^}]*\}/)?.[0] ?? '';
+const panel = wide.match(/\.sheet\.reader-sheet \{[^}]*\}/)?.[0] ?? '';
 
 test('the reader takes the right pane: below the header, to the right edge, at the pane width', () => {
   assert.match(panel, /inset: 56px 0 0 auto/);
@@ -18,7 +18,7 @@ test('the reader takes the right pane: below the header, to the right edge, at t
 
 test('the board stays visible beside it and it slides in from the right', () => {
   assert.match(wide, /\.reader-sheet::backdrop \{[^}]*background: transparent/);
-  assert.match(wide, /\.sheet\.reader-sheet\[open\], \.sheet\.arch-sheet\[open\], \.settings-modal\[open\] \{ animation: reader-in/);
+  assert.match(wide, /\.sheet\.reader-sheet\[open\] \{ animation: reader-in/);
   assert.match(css, /@keyframes reader-in \{ from \{ transform: translateX\(100%\); \} \}/);
 });
 
@@ -30,7 +30,7 @@ test('one seam, --sheet-w, gives every desktop sheet its width: no other rule se
   const sheetSel = /\.reader-sheet|\.reader-page|#questionsSheet|\.questions-sheet/;
   const rules = [...wide.replace(/\/\*[^]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, sel, body]) => [sel.trim(), body]);
   const setters = rules.filter(([sel, body]) => sheetSel.test(sel) && /(^|[\s;])(max-)?width\s*:/.test(body)).map(([sel]) => sel);
-  assert.deepEqual(setters, ['.sheet.reader-sheet, .sheet.arch-sheet, .settings-modal'], 'only the reader sheet rule sets a width, from --sheet-w');
+  assert.deepEqual(setters, ['.sheet.reader-sheet'], 'only the reader sheet rule sets a width, from --sheet-w');
 });
 
 // Below 900px every standard sheet (the reader family, the architecture review, settings) is one height: the screen
@@ -58,7 +58,7 @@ test('every sheet height comes from 100dvh, which follows rotation and ignores t
 test('no other rule gives a standard sheet its own height', () => {
   const rules = [...css.replace(/\/\*[^]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, sel, body]) => [sel.trim(), body]);
   const own = rules.filter(([sel, body]) => /reader-sheet|reader-page|arch-sheet|settings-modal/.test(sel) && /(^|[\s;])(max-)?height\s*:\s*(?!auto|none|fit-content)/.test(body)).map(([sel]) => sel.replace(/\s+/g, ' '));
-  assert.deepEqual(own.map((sel) => sel.replace(/^@media[^{]*$/, '').replace(/^.*\) /, '')), ['.sheet.reader-sheet, .sheet.arch-sheet, .settings-modal']);
+  assert.deepEqual(own.map((sel) => sel.replace(/^@media[^{]*$/, '').replace(/^.*\) /, '')), ['.sheet.reader-sheet', '.settings-modal, .sheet.arch-sheet']);
   assert.doesNotMatch(css, /\.reader-page \{[^}]*height:/);
 });
 
@@ -66,7 +66,12 @@ test('the sheets kept small are not standard', () => {
   for (const kind of ['keyboard-sheet', 'waits-sheet', 'join-sheet', 'links-sheet', 'pause-sheet']) assert.doesNotMatch(standard, new RegExp(kind));
 });
 
-test('from 900px the architecture review and settings take the pane too, stacked by --layer', () => {
+test('from 900px the reader is stacked by --layer, and settings and the architecture review leave the pane for a centred modal', () => {
   assert.match(panel, /z-index: calc\(30 \+ var\(--layer, 0\)\)/);
-  assert.match(wide, /\.sheet\.arch-sheet\[open\], \.settings-modal\[open\] \{ animation: reader-in/);
+  assert.doesNotMatch(wide, /reader-in[^}]*\.settings-modal|\.sheet\.arch-sheet\[open\], \.settings-modal\[open\] \{ animation: reader-in/);
+  const centred = wide.match(/\n\s*\.settings-modal, \.sheet\.arch-sheet \{[^}]*\}/)?.[0] ?? '';
+  assert.match(centred, /inset: 0; margin: auto/);
+  assert.match(centred, /width: min\(680px, calc\(100% - 48px\)\)/);
+  assert.match(centred, /border-radius: 18px/);
+  assert.match(wide, /\.settings-modal\[open\], \.sheet\.arch-sheet\[open\][^{]*\{ animation: none/);
 });
