@@ -643,6 +643,59 @@ test('a lander whose process is gone while its builder record is open (the usage
   assert.equal(runs.length, 3, 'the restarted server launches the lander again');
 });
 
+// docs/adr/2026-11-25-0030-a-live-lander-session-is-never-handed-back.md
+// A verified card on a site: one handed-back record, its worktree, and the server's launcher.
+function verifiedCard(t) {
+  const home = emptyHome();
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  const clone = path.join(home, 'clone');
+  fs.mkdirSync(clone);
+  git(clone, 'init', '--quiet', '-b', 'main');
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  const worktree = path.join(home, 'wt');
+  fs.mkdirSync(worktree);
+  const recordFile = path.join(data, 'agents', 'H3.json');
+  const handedBack = { started: '2026-11-04T01:00:00.000Z', done: '2026-11-04T02:00:00.000Z', kind: 'claude', model: 'opus', handed_back: '2026-11-04T02:00:00.000Z', verified: { at: '2026-11-04T03:00:00.000Z' }, worktree: { path: worktree, branch: 'H3', repo: clone } };
+  fs.writeFileSync(recordFile, JSON.stringify(handedBack));
+  const waveFile = path.join(data, 'items.json');
+  fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" }] }));
+  return { home, site, data, recordFile, waveFile, handedBack, ...launcher(t) };
+}
+
+test("a lander whose launched process is gone while its record's session lives is not handed back", async (t) => {
+  const { site, data, recordFile, waveFile, handedBack, runs, launch, gone } = verifiedCard(t);
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 1, 'the lander launches');
+  await gone(runs[0].pid);
+  // The lander's record is open, its session a live process (a lander resumed beside the launched one).
+  const { done: _, handed_back: __, ...open } = handedBack;
+  fs.writeFileSync(recordFile, JSON.stringify({ ...open, label: 'Lander', started: new Date().toISOString(), session: { pid: process.pid, at: new Date().toISOString() } }));
+  const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].next = 'Landing'; fs.writeFileSync(waveFile, JSON.stringify(w));
+  await wrote(board, recordFile, waveFile);
+  const record = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
+  assert.deepEqual([record.done, record.handed_back], [undefined, undefined], 'its record stays open');
+  assert.equal(runs.length, 1, 'no second lander launches');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))['t/H3'].pid, runs[0].pid, 'its entry is kept');
+});
+
+test('a verified card whose land is running launches no second lander', async (t) => {
+  const { home, site, runs, launch } = verifiedCard(t);
+  const { cardName } = await import('./cards.mjs');
+  const landing = path.join(home, '.claude', 'kickflip', 'landing');
+  fs.mkdirSync(landing, { recursive: true });
+  fs.writeFileSync(path.join(landing, encodeURIComponent(await cardName(site, 't/H3'))), JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 0, 'the land of its verification runs once');
+});
+
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test('a lander that exited without landing on a checked card is relaunched once the host eases, and exiting again is a fault', async (t) => {
   const home = emptyHome();

@@ -41,7 +41,7 @@ import { shownEvents } from './snapshot.mjs';
 import { appendLine, editJSON, itemSources, readJSON, readLog, remove, writeJSON } from './files.mjs';
 import { agentMayRun, hasBuilder, landByBuilder, launchBuilder, launchedAgents, launchLives, pidAlive, releaseLaunch, rerunBrief, resumeBrief, resumeBuilder, runFailure, sessionIdOf, stopRuns } from './headless.mjs';
 import { beside, besideAgent, blockWordsOf, refOf, BUILD_REFUSED, BUILDER_ASK, briefsDue, builds, bumpIn, byBump, handedBackAt, HELPER, LANDER, landSkipOf, landStep, LANES, LOGGED_OUT_WORDS, modelName, MOVE, owesNext, PAUSE_CLEARS, PHASES, PLANNER_WORD, plans, providerOf, queuedPlannerCard, queuedPlannerKey, rebasesDue, fixesDue, REVIEWER, stoppedWords, SUMMARY_HINT, VISUAL } from './domain.mjs';
-import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree, removeClosedWorktree } from './worktree.mjs';
+import { boardWorktree, builderRepo, clearStoppedLand, helperWorktree, prWorktree, removeClosedWorktree, runningLand } from './worktree.mjs';
 import { builderPick, heldFor, holdsWork, launchHeldWords, pauseReason, pauseReasonFor, readUsageGate } from '../shared/usage-gate.mjs';
 import { readClaudeModel } from '../shared/hub-settings.mjs';
 import { runLimit } from '../hub/usage.mjs';
@@ -413,8 +413,8 @@ async function launchBriefed(site, items, io, pass) {
 // worktree-gone, blocked, asking) leave it, held waits for the hold to clear, launch lands it through its builder
 // (headless.mjs landByBuilder: the first launch resumes the builder, a relaunch is a fresh lander), and fault, the first
 // time, puts the exited-twice line on the card and marks the entry handedBack, so the orchestrator's wait on it is a
-// stale one. A lander whose process has gone while its own record is still open stopped partway: its card is handed
-// back again (relaunchLander) and takes its step in this pass. A lander the orchestrator stopped (stopped) is
+// stale one. A lander whose process has gone while its own record is still open stopped partway (no open record of
+// the card has a live session, as one resumed beside it would): its card is handed back again (relaunchLander) and takes its step in this pass. A lander the orchestrator stopped (stopped) is
 // neither sent back nor relaunched. A dead lander whose card has no lander open and isn't handed back (landed, archived,
 // or built again) has its entry dropped; relaunchLander would restore an archived card from the archive. A lander is
 // only ever due on a handed-back card, so with none handed back and none sent back, landable's read of the wave files is
@@ -436,6 +436,8 @@ async function launchLanders(site, items, stopped, io, pass) {
   for (const [key, entry] of Object.entries(sent)) {
     if (!entry.pid || entry.alive || stopped.has(key) || status[key] === 'checking') continue;
     if (status[key] !== 'landing') { delete kept[key]; continue; }
+    // The entry's pid is the launched process; a lander resumed beside it (its own session) may still be landing.
+    if ((await openRuns(site, key)).some((r) => Number.isInteger(r.pid) && pidAlive(r.pid))) continue;
     await relaunchLander(site, key);
     sentBack = true;
     io.log({ call: 'lander', key, result: 'handed back again', reason: 'Its lander exited with its record still open.', inputs: kept[key] });
@@ -1994,7 +1996,8 @@ export async function landable(site) {
       const builds = records.filter((r) => r.kind !== HELPER).sort((a, b) => String(b.started).localeCompare(String(a.started)));
       const newest = builds.find((r) => r.worktree?.path);
       const skip = !newest || !existsSync(newest.worktree.path) ? { step: 'worktree-gone' }
-        : (await cardQuestions(site, key)).asked.some((q) => q.state === 'open') ? { step: 'asking' } : null;
+        : (await cardQuestions(site, key)).asked.some((q) => q.state === 'open') ? { step: 'asking' }
+        : runningLand(await cardName(site, key)) ? { step: 'running' } : null;
       const built = newest ?? builds[0];
       out.push({ key, verified, kind: providerOf(built?.kind), model: built?.model, skip });
     }
