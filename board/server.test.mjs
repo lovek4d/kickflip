@@ -1192,7 +1192,8 @@ test("a Tag… pick is one events POST that writes the tag to the card's item fi
 test("a link's pick or × is one events POST that links or unlinks both cards, with the owner's line in each thread and no event; one that changes nothing, links a card to itself or names no card is refused", async () => {
   const wave = path.join(site, 'data', 'items.json');
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
-  const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean) : []);
+  // Only events a link could write: other writes on the shared server don't count.
+  const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter((l) => l.includes('card-relate') || l.includes('t/RL')) : []);
   const thread = (id) => fs.readFileSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const stored = (id) => JSON.parse(fs.readFileSync(wave, 'utf8')).items.find((i) => i.id === id);
   await putWave(JSON.stringify({ items: [
