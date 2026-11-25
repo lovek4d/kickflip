@@ -107,7 +107,7 @@ button.chip { border: 0; }
 /* A release card's line (ui-cards.js releaseLine): publishing orange, published green, failed red, its run's link in its colour. */
 .sub.release-published { color: var(--color-success); }
 .sub.release a, .sub.release-published a { color: inherit; }
-.toast-stack { position: fixed; left: 50%; bottom: calc(var(--app-bottom, 0px) + 12px + env(safe-area-inset-bottom));
+.toast-stack { position: fixed; left: var(--toast-centre, 50%); bottom: calc(var(--app-bottom, 0px) + 12px + env(safe-area-inset-bottom));
   width: min(520px, calc(100vw - 32px)); height: 0; transform: translateX(-50%); z-index: 25; pointer-events: none; }
 .toast-row { position: absolute; top: 0; left: 0; width: 100%; display: flex; justify-content: center;
   transition: transform 200ms ease; pointer-events: none; }
@@ -1232,6 +1232,9 @@ button.thread-more[aria-busy="true"]::after { inset: 0 auto 0 12px; margin: auto
   .split > .col-handle { right: calc(var(--pane-w, 50%) - 4px); }
   /* The one width every sheet over the board takes (reader, card page, questions): the pane's, else half the room right of the sidebar. */
   :root { --sheet-w: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); }
+  /* A toast centres on the room it has: right of the sidebar on a page, and on the lanes (the room left of the pane) on the board. */
+  body.has-sidebar { --toast-centre: calc(50vw + var(--sidebar-w, 0px) / 2); }
+  body.has-sidebar .view-board { --toast-centre: calc(50vw + var(--sidebar-w, 0px) / 2 - var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)) / 2); }
   /* The reader sheet (app-reader.js) is a panel over the pane's half, at the width the seam gives it, while it is open. */
   /* A sheet stacked over another lies above it by its --layer (ui.js openSheet). */
   .sheet.reader-sheet { position: fixed; z-index: calc(30 + var(--layer, 0)); inset: 56px 0 0 auto; margin: 0; width: var(--sheet-w); max-width: none;
