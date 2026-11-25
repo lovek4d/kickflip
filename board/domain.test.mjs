@@ -628,7 +628,7 @@ test("needs lists card lines in the board's order, then a topic with no card by 
   assert.deepEqual(pills(newer), ['item:w/A1', 'site']);
 });
 
-test("questions on In Progress cards come first, oldest card first, then the other cards the same way, and their pills carry progress", () => {
+test("questions on In Progress cards come first, in the lane's order, then the other cards the same way, and their pills carry progress", () => {
   const card = (id, created, lane) => ({ id, title: id, created, lane, branch: id });
   const q = (id, topic) => ({ id: `q-${id}`, topic: `item:w/${id}`, question: 'Keep it?', asked_at: '2026-10-23T20:00:00Z' });
   const ids = ['P-old', 'P-new', 'T-old', 'T-new'];
@@ -638,9 +638,9 @@ test("questions on In Progress cards come first, oldest card first, then the oth
   const lanes = Object.fromEntries(b.items.map((i) => [i.id, i.lane]));
   assert.deepEqual([lanes['P-old'], lanes['P-new']], ['progress', 'progress']);
   assert.notEqual(lanes['T-old'], 'progress');
-  assert.deepEqual(b.needs.map((l) => l.title.split(':')[1].trim()), ['P-old', 'P-new', 'T-old', 'T-new']);
+  assert.deepEqual(b.needs.map((l) => l.title.split(':')[1].trim()), ['P-new', 'P-old', 'T-old', 'T-new']);
   const pills = b.ownerTopics.filter((t) => t.open > 0);
-  assert.deepEqual(pills.map((t) => t.id), ['P-old', 'P-new', 'T-old', 'T-new'].map((id) => `item:w/${id}`));
+  assert.deepEqual(pills.map((t) => t.id), ['P-new', 'P-old', 'T-old', 'T-new'].map((id) => `item:w/${id}`));
   assert.deepEqual(pills.map((t) => Boolean(t.progress)), [true, true, false, false]);
 });
 
@@ -1093,7 +1093,7 @@ test("a merge-ready card keeps its place in In Review through a Merge tap, a Wai
   });
   const order = (b) => b.items.map((i) => i.id);
   const before = build();
-  assert.deepEqual(order(before), ['B', 'A']);
+  assert.deepEqual(order(before), ['A', 'B']);
   const after = build(
     { merge_ready: { branch: 'A', at: '2026-11-04T22:00:00Z', tapped: '2026-11-04T22:30:00Z' } },
     { 'w/A': [
@@ -1102,7 +1102,7 @@ test("a merge-ready card keeps its place in In Review through a Merge tap, a Wai
     ] },
     { lander: { kind: 'lander', started: '2026-11-04T23:10:00Z' } },
   );
-  assert.deepEqual(order(after), ['B', 'A']);
+  assert.deepEqual(order(after), ['A', 'B']);
   const sortAt = (b) => b.items.find((i) => i.id === 'A').sortAt;
   assert.equal(sortAt(after), sortAt(before));
   assert.equal(sortAt(after), '2026-11-04T08:00:00.000Z');
@@ -1349,7 +1349,7 @@ test('a bumped card tops its lane, the earliest bump first, a held Todo card bum
     { id: 'A6', title: 'Six', lane: 'progress' },
   ];
   const cards = (events) => askBoard(events, { items, agents: runningBuilders('A5', 'A6') }).items.filter((i) => i.kind === 'work').map((i) => [i.key, i.lane, i.bumpable, i.bumpedAt]);
-  assert.deepEqual(cards([]).map(([key, , bumpable]) => [key, bumpable]), [['w/A6', true], ['w/A5', true], ['w/A1', true], ['w/A2', true], ['w/A3', true], ['w/A4', true]]);
+  assert.deepEqual(cards([]).map(([key, , bumpable]) => [key, bumpable]), [['w/A5', true], ['w/A6', true], ['w/A1', true], ['w/A2', true], ['w/A3', true], ['w/A4', true]]);
   const at1 = '2026-10-23T11:10:00Z';
   const at2 = '2026-10-23T11:20:00Z';
   assert.deepEqual(cards([bump('w/A1', at1), bump('w/A2', at2), bump('w/A5', at2), bump('w/A4', at2)]), [
@@ -1465,8 +1465,8 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
   };
   const b = built();
   assert.deepEqual(lanesOf(b), {
-    review: ['R1', 'R2', 'P4', 'S1', 'S2'],
-    progress: ['P2', 'P3', 'P1'],
+    review: ['S2', 'S1', 'P4', 'R2', 'R1'],
+    progress: ['P1', 'P3', 'P2'],
     todo: ['ENG-1', 'T2', 'ENG-2', 'Q1', 'T1', 'Q2'],
     done: ['Q4', 'D4', 'Q3', 'D3', 'D2', 'D1'],
   });
@@ -1479,6 +1479,8 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
   });
   const bumped = built([{ id: 'cb', ts: at(10), kind: 'card-bump', data: { key: 'w/ENG-2' }, reply: null }]);
   assert.deepEqual(lanesOf(bumped).todo, ['ENG-2', 'ENG-1', 'T2', 'Q1', 'T1', 'Q2']);
+  const bumpedProgress = built([{ id: 'cb2', ts: at(10), kind: 'card-bump', data: { key: 'w/P2' }, reply: null }]);
+  assert.deepEqual(lanesOf(bumpedProgress).progress, ['P2', 'P1', 'P3']);
 });
 
 test("an S<n> card's ref reads INT-<n>, and each card lists when Claude or GitHub wrote in its thread, leaving out builder status lines and the owner's answers", () => {

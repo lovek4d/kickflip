@@ -1795,7 +1795,7 @@ function linkCards(items, byKey, stored) {
 }
 
 // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
-// The time each lane sorts by, newest first: Todo when the card was made, In Progress and In Review when it
+// The time each lane sorts by, oldest first but Done, which lists newest first: Todo when the card was made, In Progress and In Review when it
 // came into the lane, Done when it closed. A Todo card has no fallback; an In Progress or Done card with none falls
 // back to its latest activity.
 const SORT_AT = { todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.reviewSince, done: (i) => i.closedAt };
