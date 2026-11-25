@@ -26,6 +26,7 @@ const roughly = (ms) => (ms < 120000 ? `${Math.round(ms / 1000)} seconds` : `${M
 const cutoffWords = `the run's ${runLimit % 60000 ? `${runLimit / 1000}-second` : `${runLimit / 60000}-minute`} cutoff`;
 if (process.env.NODE_TEST_CONTEXT && process.argv[1]?.endsWith('.test.mjs')) {
   const began = Date.now();
+  const startedAt = performance.now(); // a test's mocked Date can't move it
   if (began >= ends) {
     process.stderr.write(`Error: test file not started: ${cutoffWords} is near\n`);
     process.exit(CUT_OFF_EXIT);
@@ -35,7 +36,7 @@ if (process.env.NODE_TEST_CONTEXT && process.argv[1]?.endsWith('.test.mjs')) {
     const holding = [...new Set(process.getActiveResourcesInfo())].join(', ');
     const waiting = childCommands();
     const when = atCutoff
-      ? `near ${cutoffWords} after ${roughly(Date.now() - began)}`
+      ? `near ${cutoffWords} after ${roughly(performance.now() - startedAt)}`
       : `after ${limit % 60000 ? `${limit / 1000} seconds` : `${limit / 60000} minutes`}`;
     process.stderr.write(`Error: test file still running ${when}, held open by ${holding}${waiting.length ? `, waiting on ${waiting.join('; ')}` : ''}\n`);
     process.exit(atCutoff ? CUT_OFF_EXIT : 1);

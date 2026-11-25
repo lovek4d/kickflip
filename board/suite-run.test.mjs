@@ -130,6 +130,19 @@ test("a test file the runner starts after the run's end exits at once as cut off
   assert.equal(fs.existsSync(ran), false);
 });
 
+// What T-859's land hit: its test mocked Date, so the cutoff message read "after -1880313 seconds".
+test("a test file that mocks Date is still ended near the run's cutoff, its elapsed time read from a clock the mock can't move", (t) => {
+  const dir = home(t);
+  const file = path.join(dir, 'mocks-date.test.mjs');
+  fs.writeFileSync(file, 'Date.now = () => 1e15;\nsetInterval(() => {}, 1000);\n');
+  const r = spawnSync(process.execPath, [`--import=${new URL('./exit-with-run.mjs', import.meta.url).pathname}`, file], {
+    encoding: 'utf8',
+    env: { ...process.env, NODE_OPTIONS: '', NODE_TEST_CONTEXT: 'child-v8', KICKFLIP_TEST_RUN: String(process.pid), KICKFLIP_TEST_FILE_LIMIT: '60000', KICKFLIP_TEST_RUN_ENDS: String(Date.now() + 1500), KICKFLIP_TEST_RUN_LIMIT: '900000' },
+  });
+  assert.equal(r.status, CUT_OFF_EXIT);
+  assert.match(r.stderr, /^Error: test file still running near the run's 15-minute cutoff after [12] seconds, held open by /);
+});
+
 test('a suite that passes resolves with its counts and saves no log', async (t) => {
   const dir = home(t);
   const tree = path.join(dir, 'tree');
