@@ -173,6 +173,11 @@
 //                                card-tag {key, tag, on} is a Tag… pick, which puts the tag on the card or takes it off
 //                                in its item file with the owner's Tagged or Untagged line and records no event; one
 //                                that changes nothing or names no valid tag → 400 {error} (cards.mjs tagItem).
+//                                card-relate {key, other, on} is a pick in the open card's Related to search (on) or a
+//                                link's ×, which links the two cards or unlinks them, whichever stores the link, with the
+//                                owner's Related to or Unrelated from line in both threads and no event; one that changes
+//                                nothing, links the card to itself or names no card on this board → 400 {error}
+//                                (cards.mjs relateItem).
 //                                tag-archive {key, tag, on} is the picker's Archive (on) or Restore of a tag, written to
 //                                data/tags.json with no event; one already so → 400 {error} (cards.mjs archiveTag).
 //                                card-hold {key, hold: true, for} is a Block sheet chip or its Custom time

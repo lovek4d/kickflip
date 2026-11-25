@@ -2199,7 +2199,7 @@ const CARD_TAPS = ['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-
 // A tap that asks for a planner, and the brief it owes.
 const REQUEST_BRIEFS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': VISUAL, 'review-request': REVIEWER };
 // The event kinds tapPlan decides.
-export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'card-unbump', 'card-tag', 'tag-archive', ...Object.keys(REQUEST_BRIEFS)]);
+export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'card-unbump', 'card-tag', 'card-relate', 'tag-archive', ...Object.keys(REQUEST_BRIEFS)]);
 
 // docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md
 // What the owner's tap of kind, with its event's data body, does to card (the built card its key names, or undefined
@@ -2271,6 +2271,13 @@ export function tapPlan(card, kind, body) {
   if (kind === 'card-tag') {
     const tag = String(body.tag || '');
     return [{ do: 'record', nothing: `${card?.ref || key} ${body.on ? 'already carries' : 'doesn’t carry'} the tag ${tag}, so nothing changed.`, stops: false }];
+  }
+  // docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md: a link's pick or × in the open
+  // card's Related to row (card-relate {key, other, on}) is written to the item files with a line in both threads, and
+  // wakes no session.
+  if (kind === 'card-relate') {
+    const other = String(body.other || '');
+    return [{ do: 'record', nothing: `${card?.ref || key} ${body.on ? 'is already related to' : 'isn’t related to'} ${other.slice(other.indexOf('/') + 1)}, so nothing changed.`, stops: false }];
   }
   // docs/adr/2026-11-22-1200-an-archived-tag-greys-out-and-leaves-the-picker.md: an Archive or Restore in the picker
   // (tag-archive {key, tag, on}, on archiving) is written to the board's data/tags.json, wakes no session.

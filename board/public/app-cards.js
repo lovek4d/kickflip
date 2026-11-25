@@ -208,7 +208,10 @@ BoardView.part((B) => {
       // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: the Tags row, always shown for its + Add tag, sits
       // above Related to.
       if (label === 'Related to') rows.push(['Tags', BoardUI.tagRow(it)]);
-      if (list?.length) rows.push([label, list.map(cardLink).join(', ')]);
+      // docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md: Related to, always shown for
+      // its + Add link, draws its links as chips, as Tags does.
+      if (label === 'Related to') rows.push([label, BoardUI.relatedRow(it, linkSearch?.key === it.key ? { typed: linkSearch.typed, items: drawnItems() } : null)]);
+      else if (list?.length) rows.push([label, list.map(cardLink).join(', ')]);
     }
     // The builder's risk (builder done --risk), its word coloured as its PR's Slack bar.
     if (it.risk) rows.push(['Risk', `<span class="risk tone-${BoardUI.RISK_TONES[it.risk]}">${esc(it.risk)}</span>`]);
@@ -586,6 +589,53 @@ BoardView.part((B) => {
     }
   });
   B.on(B.root, 'input', (ev) => { if (ev.target.matches('#tagPicker [data-tag-field]')) drawTagRows(); });
+
+  // docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md
+  // An open card's + Add link turns into a search field in its Related to row (ui-cards.js relatedRow), the hits under
+  // it narrowed as the field changes; a hit's tap, or Enter for the first, links the card and closes the field, which
+  // Esc, its × or a tap anywhere else closes too. A link's × unlinks it. Each is a card-relate {key, other, on} through
+  // the card's outbox, drawn on both cards at once (ui-snapshot.js tapped). linkSearch: {key, typed} while open.
+  let linkSearch = null;
+  const linkField = () => linkSearch && $(`[data-link-field="${CSS.escape(linkSearch.key)}"]`);
+  function openLinkSearch(key) {
+    linkSearch = { key, typed: '' };
+    B.render();
+    linkField().focus();
+  }
+  function closeLinkSearch() {
+    linkSearch = null;
+    B.render();
+  }
+  function relate(key, other, on) { B.enqueue(key, { kind: 'card-relate', fields: { other, on } }); }
+  function linkTo(other) {
+    const { key } = linkSearch;
+    closeLinkSearch();
+    relate(key, other, true);
+  }
+  B.on(B.root, 'click', (ev) => {
+    const add = ev.target.closest('button[data-link-add]');
+    const remove = ev.target.closest('button[data-link-remove]');
+    if (remove) relate(remove.dataset.key, remove.dataset.linkRemove, false);
+    if (add) { openLinkSearch(add.dataset.linkAdd); return; }
+    if (!linkSearch) return;
+    const pick = ev.target.closest('[data-link-pick]');
+    if (pick) linkTo(pick.dataset.linkPick);
+    else if (!ev.target.closest('.link-field, .link-hits') || ev.target.closest('[data-link-cancel]')) closeLinkSearch();
+  });
+  B.on(B.root, 'input', (ev) => {
+    if (!linkSearch || !ev.target.matches('[data-link-field]')) return;
+    linkSearch.typed = ev.target.value;
+    BoardUI.setHTML(ev.target.closest('dd').querySelector('.link-hits'), BoardUI.linkHits(menuCard(linkSearch.key), drawnItems(), linkSearch.typed));
+  });
+  B.on(B.root, 'keydown', (ev) => {
+    if (!linkSearch || !ev.target.matches('[data-link-field]')) return;
+    if (ev.key === 'Escape') { ev.preventDefault(); closeLinkSearch(); }
+    if (ev.key === 'Enter' && !ev.isComposing) {
+      ev.preventDefault();
+      const hot = ev.target.closest('dd').querySelector('.link-hit.hot');
+      if (hot) linkTo(hot.dataset.linkPick);
+    }
+  });
   B.on(B.root, 'keydown', (ev) => {
     if (ev.key !== 'Enter' || !ev.target.matches('#tagPicker [data-tag-field]')) return;
     ev.preventDefault();

@@ -158,11 +158,12 @@ BoardView.part((B) => {
   // The line a tap draws until the board's own takes its place, in the board's words (domain.mjs COMMANDS, ACTION_LABELS,
   // INTENT_LABELS): with text or files the owner's message with the tap in its footer, else the tap's status line. waits:
   // whether a session picks the board's line up, so it reads waiting… once the board has it; the board applies a Block,
-  // Unblock, Done, Reopen, Bump, Unbump, Tag… pick and bare Implement itself. A Merge's line is the board's on a held card; on a
+  // Unblock, Done, Reopen, Bump, Unbump, Tag… pick, link pick or × and bare Implement itself. A Merge's line is the board's on a held card; on a
   // card with a PR its own words stand until a thread load after the answer.
   const REQUESTED = { 'prototype-request': 'Prototype requested', 'grill-more': 'Grill requested', 'visual-request': 'Visual requested', 'review-request': 'Review requested' };
   const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Blocked' : 'Unblocked'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened', 'card-cancel': () => 'Cancelled Implement', 'card-merge': () => 'Merge requested',
-    'card-bump': () => 'Moved to the top', 'card-unbump': () => 'Unbumped', 'tag-archive': (m) => `${m.fields.on ? 'Archived' : 'Restored'} the tag ${m.fields.tag}`, 'card-tag': (m) => `${m.fields.on ? 'Tagged' : 'Untagged'} ${m.fields.tag}` };
+    'card-bump': () => 'Moved to the top', 'card-unbump': () => 'Unbumped', 'tag-archive': (m) => `${m.fields.on ? 'Archived' : 'Restored'} the tag ${m.fields.tag}`, 'card-tag': (m) => `${m.fields.on ? 'Tagged' : 'Untagged'} ${m.fields.tag}`,
+    'card-relate': (m) => `${m.fields.on ? 'Related to' : 'Unrelated from'} ${state.board?.items.find((i) => i.key === m.fields.other)?.ref || m.fields.other}` };
   function tapOf(m) {
     if (m.text || m.files.length || m.uploads) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
     return { words: REQUESTED[m.kind] || CARD_TAPS[m.kind]?.(m) || 'Marked as staged', waits: Boolean(REQUESTED[m.kind]) };

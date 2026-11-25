@@ -148,6 +148,36 @@
   const tagPicker = (it, tags) => `<div class="tag-head">${TAG_ICON}<span>Tag ${esc(it.ref)}</span></div>
     <input type="text" data-tag-field placeholder="Type or pick a tag" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Tag ${esc(it.ref)}">
     <div class="tag-rows" role="menu">${tagRows(it, tags, '')}</div>`;
+  // docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md
+  // The open card's Related to row (app-cards.js detail): each linked card as a chip that opens it, with a × that
+  // unlinks it, then + Add link. While its search is open (search: {typed, items}, the board's cards as drawn) the add
+  // chip is the search field, with the hits under the row.
+  function relatedRow(it, search) {
+    const { taskLink } = globalThis.BoardUI;
+    const chips = (it.related || []).map((l) => `<span class="tag-chip whole link-chip">${taskLink(l.key, l.ref, l.lane, { cls: 'card-link' })}<button type="button" data-link-remove="${esc(l.key)}" data-key="${esc(it.key)}" aria-label="Remove the link to ${esc(l.ref)}">×</button></span>`).join(' ');
+    const end = !search ? `<button type="button" class="tag-add" data-link-add="${esc(it.key)}">+ Add link</button>`
+      : `<span class="link-field"><input type="text" data-link-field="${esc(it.key)}" data-own-escape value="${esc(search.typed)}" placeholder="Key or title" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Link ${esc(it.ref)} to a card"><button type="button" data-link-cancel aria-label="Close the search">×</button></span><div class="link-hits" role="listbox">${linkHits(it, search.items, search.typed)}</div>`;
+    return chips + (chips ? ' ' : '') + end;
+  }
+  const LINK_HITS = 8;
+  // The search's hits for the words typed: this board's work cards whose key, ticket or title has them (cardMatches),
+  // leaving out the card itself and the cards it links, open ones first and then Done, at most LINK_HITS. The first is
+  // hot: Enter picks it.
+  function linkHits(it, items, typed) {
+    const words = searchWords(typed);
+    if (!words.length) return '<p class="tag-note">Type a key or title.</p>';
+    const { laneRing } = globalThis.BoardUI;
+    const linked = new Set([it.key, ...(it.related || []).map((l) => l.key)]);
+    const found = items.filter((c) => c.kind === 'work' && !linked.has(c.key) && cardMatches(c, words));
+    const groups = [['Open', found.filter((c) => c.lane !== 'done')], ['Done', found.filter((c) => c.lane === 'done')]];
+    let shown = 0;
+    const hit = (c) => `<button type="button" role="option" class="link-hit${c.lane === 'done' ? ' done' : ''}${shown++ ? '' : ' hot'}" data-link-pick="${esc(c.key)}"><span class="link-ref">${marked(c.ref, words)}${laneRing(c.lane)}</span><span class="link-title">${marked(c.title, words)}</span></button>`;
+    const html = groups.map(([name, cards]) => {
+      const kept = cards.slice(0, LINK_HITS - shown);
+      return kept.length ? `<div class="link-group">${name}</div>${kept.map(hit).join('')}` : '';
+    }).join('');
+    return html || '<p class="tag-note">No card matches.</p>';
+  }
   // docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: gray ● pending,
   // orange ● commented, red ✗ changes, green ✓ approved.
   const REVIEW = {
@@ -747,5 +777,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane, searchWords, cardMatches, FILTER_BOXES, filterHides, filterOnly, filterCounts, marked, linkedKeys, hasLinks, cardMenu, LINK, tagChips, boardTags, tagRows, tagRow, tagPicker });
+  Object.assign(globalThis.BoardUI, { prChips, commitChip, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, RISK_TONES, newEntries, newStrip, askLine, reviewLane, searchWords, cardMatches, FILTER_BOXES, filterHides, filterOnly, filterCounts, marked, linkedKeys, hasLinks, cardMenu, LINK, tagChips, boardTags, tagRows, tagRow, tagPicker, relatedRow, linkHits });
 })();

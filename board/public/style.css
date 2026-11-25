@@ -429,10 +429,29 @@ button.attach:disabled { opacity: .35; }
 .line1 .tag-chip.archived, .grid .tag-chip.archived { color: var(--muted); opacity: .6; }
 .line1 .tag-chip.more { max-width: none; color: var(--muted); }
 .line1 .tag-chip[data-tag-filter] { cursor: pointer; }
-/* The open card's Tags row (app-cards.js detail): each tag whole with its ×, then a dashed + Add tag. */
-.grid .tag-chip.whole { display: inline-flex; align-items: center; gap: 2px; margin: 2px 0; padding: 1px 2px 1px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; overflow-wrap: anywhere; }
-.grid .tag-chip.whole button { min-width: 24px; min-height: 24px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
-.grid .tag-add { margin: 2px 0; padding: 2px 10px; border: 1px dashed var(--muted); border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+/* The open card's Tags and Related to rows (app-cards.js detail): each tag or link whole with its ×, then a dashed add
+   chip, or, while Related to's search is open, its field; all are 28px, so a row is 32px with chips or without
+   (docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md). */
+.grid .tag-chip.whole, .grid .tag-add, .grid .link-field { box-sizing: border-box; min-height: 28px; margin: 2px 0; border-radius: 999px; font: inherit; font-size: 13px; vertical-align: middle; }
+.grid .tag-chip.whole { display: inline-flex; align-items: center; gap: 2px; padding: 0 1px 0 10px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+.grid .tag-chip.whole button { flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.grid .tag-chip.whole a.card-link { color: var(--text); text-decoration: none; }
+.grid .tag-add { display: inline-flex; align-items: center; padding: 0 10px; border: 1px dashed var(--muted); background: none; color: var(--muted); cursor: pointer; }
+.grid .link-field { display: inline-flex; align-items: center; width: min(100%, 300px); height: 28px; padding: 0 1px 0 10px; border: 1px solid var(--accent); outline: 2px solid var(--accent-soft); background: var(--panel); }
+.grid .link-field input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: none; color: var(--text); font: inherit; }
+/* iOS zooms into a field under 16px as it takes focus. */
+@media (pointer: coarse) { .grid .link-field input { font-size: 16px; } }
+.grid .link-field button { flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.grid .link-hits { max-width: 460px; margin: 2px 0 4px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); text-wrap: initial; }
+.grid .link-hits .tag-note { margin: 6px 10px; color: var(--muted); }
+.grid .link-group { margin: 8px 10px 2px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.grid .link-group:first-child { margin-top: 4px; }
+.grid .link-hit { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 10px; border: 0; border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.grid .link-hit.done { color: var(--muted); }
+.grid .link-hit.hot, .grid .link-hit:hover { background: var(--chip); }
+.grid .link-hit mark { background: none; color: var(--accent); font-weight: 700; }
+.grid .link-ref { flex: none; font-weight: 600; white-space: nowrap; }
+.grid .link-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .line2.meta { justify-content: flex-start; margin-top: 4px; }
 .line3 { margin-top: 3px; }
 /* The active bar blinks its fill, not its opacity: an opacity animation gives it its own layer, which Safari can snap a

@@ -105,28 +105,44 @@
     // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: a Tag… pick (card-tag) disables nothing; its card
     // draws with the tag put on or taken off at once.
     const picks = new Map();
+    // docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md: a link's pick or × (card-relate)
+    // disables nothing either; both cards draw with the link made or gone at once, as a link shows on both.
+    const relinks = new Map();
+    const relink = (key, other, on) => relinks.set(key, [...(relinks.get(key) || []), { other, on }]);
     // A card with a failed send in the outbox carries notSent, red on its card (ui-cards.js timeLine).
     const failed = new Set();
     for (const m of outbox) {
       const key = m.key ?? m.fields?.key;
       if (m.failed && key) failed.add(key);
       if (m.kind === 'card-tag' && !m.failed) picks.set(key, [...(picks.get(key) || []), m.fields]);
+      if (m.kind === 'card-relate' && !m.failed) {
+        relink(key, m.fields.other, m.fields.on);
+        relink(m.fields.other, key, m.fields.on);
+      }
       const act = !m.failed && tapAct(m);
       if (!act) continue;
       sending.set(key, [...new Set([...(sending.get(key) || []), act])]);
     }
-    if (!sending.size && !picks.size && !failed.size) return items;
+    if (!sending.size && !picks.size && !relinks.size && !failed.size) return items;
     const { BUTTON } = globalThis.BoardUI;
     const resolves = { finish: BUTTON.done, build: BUTTON.implement, merge: BUTTON.merge };
     const same = (a, b) => a.toLowerCase() === b.toLowerCase();
     const picked = (tags, { tag, on }) => (on ? (tags.some((t) => same(t, tag)) ? tags : [...tags, tag]) : tags.filter((t) => !same(t, tag)));
+    const byKey = new Map(items.map((i) => [i.key, i]));
+    const linked = (related, { other, on }) => {
+      const kept = related.filter((l) => l.key !== other);
+      const card = byKey.get(other);
+      return on && card ? [...kept, { key: other, ref: card.ref, lane: card.lane }] : kept;
+    };
     return items.map((item) => {
       const it = failed.has(item.key) ? { ...item, notSent: true } : item;
       const acts = sending.get(it.key);
       const tags = picks.get(it.key)?.reduce(picked, it.tags || []);
-      if (!acts) return tags ? { ...it, tags } : it;
+      const related = relinks.get(it.key)?.reduce(linked, it.related || []);
+      const drawn = { ...(tags ? { tags } : {}), ...(related ? { related } : {}) };
+      if (!acts) return tags || related ? { ...it, ...drawn } : it;
       const clears = it.resolvedBy && acts.some((act) => resolves[act] === it.resolvedBy);
-      return { ...it, ...(tags ? { tags } : {}), sending: acts, ...(acts.includes('merge') ? { merging: true } : {}), ...(clears ? { action: null, resolvedBy: null } : {}) };
+      return { ...it, ...drawn, sending: acts, ...(acts.includes('merge') ? { merging: true } : {}), ...(clears ? { action: null, resolvedBy: null } : {}) };
     });
   };
 

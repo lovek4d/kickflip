@@ -1188,6 +1188,45 @@ test("a Tag… pick is one events POST that writes the tag to the card's item fi
   assert.equal('tags' in JSON.parse(fs.readFileSync(wave, 'utf8')).items.find((i) => i.id === 'TG1'), false);
 });
 
+// docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md
+test("a link's pick or × is one events POST that links or unlinks both cards, with the owner's line in each thread and no event; one that changes nothing, links a card to itself or names no card is refused", async () => {
+  const wave = path.join(site, 'data', 'items.json');
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
+  const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean) : []);
+  const thread = (id) => fs.readFileSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const stored = (id) => JSON.parse(fs.readFileSync(wave, 'utf8')).items.find((i) => i.id === id);
+  await putWave(JSON.stringify({ items: [
+    { id: 'RL1', title: 'One' },
+    { id: 'RL2', title: 'Two', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z', lane_at: '2026-11-01T00:00:00.000Z' },
+    { id: 'RL3', title: 'Three', related: ['t/RL1'] },
+  ] }));
+  await board.settled();
+  const before = logged().length;
+  const [status, out] = await post({ kind: 'card-relate', key: 't/RL1', other: 't/RL2', on: true, sendId: 'rel-1' });
+  assert.equal(status, 200, out.error);
+  assert.deepEqual(out.board.items.find((i) => i.id === 'RL1').related.map((l) => l.key).sort(), ['t/RL2', 't/RL3']);
+  assert.deepEqual(out.board.items.find((i) => i.id === 'RL2').related.map((l) => l.key), ['t/RL1']);
+  assert.deepEqual(stored('RL1').related, ['t/RL2']);
+  assert.ok(thread('RL1').some((m) => m.command === 'related' && m.card === 't/RL2' && m.who === 'love' && m.sendId === 'rel-1'));
+  assert.ok(thread('RL2').some((m) => m.command === 'related' && m.card === 't/RL1' && m.who === 'love'));
+  assert.equal(logged().length, before, 'a link wakes no session');
+  assert.deepEqual(await post({ kind: 'card-relate', key: 't/RL2', other: 't/RL1', on: true }), [400, { error: 'RL2 is already related to RL1, so nothing changed.' }]);
+  // The × takes off a link the other card stores, as the link shows on both.
+  const [off, unlinked] = await post({ kind: 'card-relate', key: 't/RL1', other: 't/RL3', on: false, sendId: 'rel-2' });
+  assert.equal(off, 200, unlinked.error);
+  assert.equal('related' in stored('RL3'), false);
+  assert.ok(thread('RL1').some((m) => m.command === 'unrelated' && m.card === 't/RL3' && m.who === 'love' && m.sendId === 'rel-2'));
+  assert.ok(thread('RL3').some((m) => m.command === 'unrelated' && m.card === 't/RL1' && m.who === 'love'));
+  assert.deepEqual(await post({ kind: 'card-relate', key: 't/RL1', other: 't/RL3', on: false }), [400, { error: 'RL1 isn’t related to RL3, so nothing changed.' }]);
+  const [self, selfOut] = await post({ kind: 'card-relate', key: 't/RL1', other: 't/RL1', on: true });
+  assert.equal(self, 400);
+  assert.match(selfOut.error, /a card can't be related to itself/);
+  const [none, noneOut] = await post({ kind: 'card-relate', key: 't/RL1', other: 't/RL9', on: true });
+  assert.equal(none, 400);
+  assert.match(noneOut.error, /RL9/);
+  assert.equal(logged().length, before);
+});
+
 // docs/adr/2026-11-22-1200-an-archived-tag-greys-out-and-leaves-the-picker.md
 test("an Archive tap is one events POST that writes the tag to data/tags.json with no event, the board answers it, and a repeat is refused", async () => {
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);

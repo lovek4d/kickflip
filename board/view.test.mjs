@@ -4832,6 +4832,46 @@ test("an open card's Tags row sits above its Related to: its × takes a tag off 
   assert.equal(picker.hidden, false);
 });
 
+// docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md
+test("an open card's + Add link turns into a search field in its Related to row; a hit's tap links the card and closes the field, a link's × unlinks it, Esc or a tap away closes the field, all with no confirm", async () => {
+  const cards = [workCard('T1', { bumpable: false, related: [{ key: 'w/T2', ref: 'T2', lane: 'todo' }] }), workCard('T2', { bumpable: false }), workCard('T3', { bumpable: false, title: 'Third card' }), workCard('D4', { lane: 'done', bumpable: false, title: 'Third done' })];
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const detail = () => b.root.querySelector('details.item[data-key="w/T1"] .detail');
+  const field = () => detail().querySelector('[data-link-field="w/T1"]');
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-remove="w/T2"]') });
+  await b.settle();
+  assert.deepEqual(sentNoIds(b), [['card-relate', { key: 'w/T1', other: 'w/T2', on: false }]]);
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-add="w/T1"]') });
+  assert.ok(field(), 'the add chip became the field');
+  assert.equal(detail().querySelector('button[data-link-add]'), null);
+  field().value = 'third';
+  b.page.fire(b.root, 'input', { target: field() });
+  assert.deepEqual([...detail().querySelectorAll('[data-link-pick]')].map((h) => h.dataset.linkPick), ['w/T3', 'w/D4']);
+  b.page.fire(b.root, 'click', { target: detail().querySelector('[data-link-pick="w/D4"]') });
+  await b.settle();
+  assert.deepEqual(sentNoIds(b).at(-1), ['card-relate', { key: 'w/T1', other: 'w/D4', on: true }]);
+  assert.equal(field(), null, 'a pick closes the field');
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-add="w/T1"]') });
+  field().value = 'third';
+  b.page.fire(b.root, 'input', { target: field() });
+  const enter = b.page.fire(b.root, 'keydown', { key: 'Enter', target: field() });
+  await b.settle();
+  assert.equal(enter.defaultPrevented, true);
+  assert.deepEqual(sentNoIds(b).at(-1), ['card-relate', { key: 'w/T1', other: 'w/T3', on: true }], 'Enter picks the first hit');
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-add="w/T1"]') });
+  b.page.fire(b.root, 'keydown', { key: 'Escape', target: field() });
+  assert.equal(field(), null, 'Esc closes the field');
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-add="w/T1"]') });
+  b.page.fire(b.root, 'click', { target: detail().querySelector('dt') });
+  assert.equal(field(), null, 'a tap away closes the field');
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-add="w/T1"]') });
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-cancel]') });
+  assert.equal(field(), null, 'its × closes the field');
+  assert.equal(sentNoIds(b).length, 3);
+  assert.deepEqual(b.confirms, []);
+});
+
 test("the Tag… picker's Archive sends a tag-archive tap with no confirm, and an archived tag shows greyed in an Archived group with a Restore that sends the reverse", async () => {
   const board = { ...boardOf([workCard('T1', { bumpable: false, tags: ['phone', 'perf'], archivedTags: ['perf'] })]), archivedTags: ['perf'] };
   const b = boardOnDom({ board, threads: {}, confirm: true });
@@ -5883,9 +5923,9 @@ test("Done closes the card as the board moves it to Done and holds the cards sti
   // counts 2px per element: the sending line's spinner is one element where its mark's icon was several (an svg and its
   // shapes), so the line is shorter here; the real .mark is a fixed 18x12 box, so the line's pixel height is the same.
   // Every card's "…" (its actions box, button, svg and three dots) counts 12px more than its real height there too, and
-  // the open card's Tags row (its dt, dd and + Add tag) 6px more.
+  // the open card's Tags and Related to rows (each its dt, dd and add chip) 6px more each.
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
-    ['done', false, '[]', [-110]]);
+    ['done', false, '[]', [-116]]);
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };

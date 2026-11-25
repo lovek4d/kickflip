@@ -3495,7 +3495,7 @@ test("tapPlan records a planner request, then clears the card's owner mark and o
 test("tapPlan moves a bumped card's queued lands after its event, then writes the owner's line", () => {
   assert.deepEqual(tapPlan(tapCard(), 'card-bump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: true }, { do: 'line', command: 'bumped' }]);
   assert.deepEqual(tapPlan(tapCard(), 'card-unbump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: false }, { do: 'line', command: 'unbumped' }]);
-  assert.deepEqual([...TAP_KINDS].sort(), ['card-build', 'card-bump', 'card-cancel', 'card-done', 'card-hold', 'card-merge', 'card-reopen', 'card-tag', 'card-unbump', 'grill-more', 'item-message', 'prototype-request', 'review-request', 'tag-archive', 'visual-request']);
+  assert.deepEqual([...TAP_KINDS].sort(), ['card-build', 'card-bump', 'card-cancel', 'card-done', 'card-hold', 'card-merge', 'card-relate', 'card-reopen', 'card-tag', 'card-unbump', 'grill-more', 'item-message', 'prototype-request', 'review-request', 'tag-archive', 'visual-request']);
 });
 
 test("a built card is landing while its own newest status line is the finish step's landing line", () => {

@@ -653,10 +653,11 @@
   }
   if (typeof document !== 'undefined') {
     // The one Escape for the stack: it closes the top sheet. A dialog outside the stack (a confirm above it) or an open
-    // popup has its own; focus left in a lower sheet still closes the top.
+    // popup has its own, as has a field in a sheet marked data-own-escape (the Related to search, app-cards.js); focus
+    // left in a lower sheet still closes the top.
     document.addEventListener('keydown', (ev) => {
       const top = layers.at(-1)?.sheet;
-      if (ev.key !== 'Escape' || !top?.open) return;
+      if (ev.key !== 'Escape' || !top?.open || ev.target?.closest?.('[data-own-escape]')) return;
       const dialog = ev.target?.closest?.('dialog');
       if (dialog && !layers.some((l) => l.sheet === dialog)) return;
       if (document.querySelector(':popover-open')) return;

@@ -1096,7 +1096,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(NOW - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
-  assert.deepEqual(rows(pushed), [['Tags', '+ Add tag'], ['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
+  assert.deepEqual(rows(pushed), [['Tags', '+ Add tag'], ['Related to', '+ Add link'], ['Branch', 'INT-12'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
   assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
   // Notes is a button at the end of the workflow row, after Block, and has no ↗.
   assert.match(B.detail(open), /<div class="action-row workflow">.*<a class="button" href="notes\.html\?item=w%2FA1">Notes<\/a><\/div>/s);
@@ -1110,7 +1110,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   assert.deepEqual([copied, link.textContent, prevented], [['INT-12'], 'Copied the branch name', true]);
   later.at(-1)[1]();
   assert.equal(link.textContent, 'Pushed INT-12 to gitlab.com · 25m ago');
-  assert.deepEqual(rows(open), [['Tags', '+ Add tag'], ['Next', 'Waiting for PR reviewers']]);
+  assert.deepEqual(rows(open), [['Tags', '+ Add tag'], ['Related to', '+ Add link'], ['Next', 'Waiting for PR reviewers']]);
   assert.doesNotMatch(B.detail(open), /Old short note|A stored summary|view more|<summary[^>]*>Notes/);
   assert.doesNotMatch(B.detail({ ...open, hasNotes: false }), /Notes|notes\.html/);
   const install = { url: 'https://m/app.apk', older: false };
@@ -1200,7 +1200,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
     parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], blockers: [link('#80')], blocks: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  assert.deepEqual(rows(card), [['Parent', '#53'], ['Children', '#94 , #95'], ['Tags', '+ Add tag'], ['Related to', '#75'], ['Blocked by', '#80'], ['Blocks', '#99']]);
+  assert.deepEqual(rows(card), [['Parent', '#53'], ['Children', '#94 , #95'], ['Tags', '+ Add tag'], ['Related to', '#75 × + Add link'], ['Blocked by', '#80'], ['Blocks', '#99']]);
   // The builder's risk is a Risk row under the card links, its word in the colour the PR's Slack bar has.
   for (const [risk, tone] of [['low', 'ready'], ['medium', 'notice'], ['high', 'danger']]) {
     assert.deepEqual(rows({ ...card, risk }).slice(-2), [['Blocks', '#99'], ['Risk', risk]]);
@@ -1210,15 +1210,16 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
     [['#selectedCard=w%2FGH-53', '#53'], ['#selectedCard=w%2FGH-94', '#94'], ['#selectedCard=w%2FGH-95', '#95'], ['#selectedCard=w%2FGH-75', '#75'], ['#selectedCard=w%2FGH-80', '#80'], ['#selectedCard=w%2FGH-99', '#99']]);
   // The links are text joined by a comma and a space, with nothing else between them.
   assert.match(B.detail(card), /<\/a>, <a class="card-link" href="#selectedCard=w%2FGH-95"/);
-  // No row repeats the card's status: a card with nothing to list has only its Tags row, for its + Add tag, whatever its
-  // lane or agent (docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md).
+  // No row repeats the card's status: a card with nothing to list has only its Tags and Related to rows, for their add
+  // chips, whatever its lane or agent (docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md,
+  // docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md).
   const bare = { ...card, parent: null, children: [], related: [], blockedBy: [], blockers: [], blocks: [] };
   for (const extra of [{ lane: 'todo' }, { lane: 'progress', builder: { progress: 'Building · x', words: 'Building · x', phase: 'building', at: null } }, { lane: 'review' }, { lane: 'done' }]) {
-    assert.deepEqual(rows({ ...bare, ...extra }), [['Tags', '+ Add tag']], JSON.stringify(extra));
+    assert.deepEqual(rows({ ...bare, ...extra }), [['Tags', '+ Add tag'], ['Related to', '+ Add link']], JSON.stringify(extra));
   }
   // A blocker stays in Blocked by once it is Done, drawn with its done ring, while the footer drops it.
   const doneBlocker = { ...bare, blockers: [{ ...link('#80'), lane: 'done' }] };
-  assert.deepEqual(rows(doneBlocker), [['Tags', '+ Add tag'], ['Blocked by', '#80']]);
+  assert.deepEqual(rows(doneBlocker), [['Tags', '+ Add tag'], ['Related to', '+ Add link'], ['Blocked by', '#80']]);
   assert.match(B.detail(doneBlocker), /<dt>Blocked by<\/dt><dd><a class="card-link" href="#selectedCard=w%2FGH-80">#80<span class="status link-lane done"><\/span><\/a><\/dd>/);
   assert.doesNotMatch(app.BoardUI.workLines({ ...doneBlocker, footer: footerOf(doneBlocker), linear: [], ticket: null }), /blocked by/);
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on/);
@@ -3074,6 +3075,45 @@ test("the open card's Tags row lists every tag whole, each with a × that takes 
   assert.deepEqual(removes, [['phone', 'phone', 'Remove the tag phone'], ['a-very-long-tag-name', 'a-very-long-tag-name', 'Remove the tag a-very-long-tag-name'], ['&lt;b&gt;', '&lt;b&gt;', 'Remove the tag &lt;b&gt;']]);
   assert.match(row, /<button type="button" class="tag-add" data-tag-add="w\/B5">\+ Add tag<\/button>$/);
   assert.equal(ui.tagRow({ key: 'w/B5', tags: [] }), '<button type="button" class="tag-add" data-tag-add="w/B5">+ Add tag</button>');
+});
+
+// docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md
+test("the open card's Related to row draws each link as a chip with a × that unlinks it, then + Add link, which becomes the search field and its hits while open", () => {
+  const it = { key: 'w/B5', ref: 'B5', related: [{ key: 'w/B6', ref: 'ENG-2', lane: 'review' }, { key: 'w/B7', ref: '<b>', lane: 'done' }] };
+  const row = ui.relatedRow(it);
+  const chips = [...row.matchAll(/<span class="tag-chip whole link-chip"><a class="card-link" href="([^"]*)">([^<]*)<span class="status link-lane (\w+)"><\/span><\/a><button type="button" data-link-remove="([^"]*)" data-key="w\/B5" aria-label="([^"]*)">×<\/button><\/span>/g)].map((m) => m.slice(1));
+  assert.deepEqual(chips, [['#selectedCard=w%2FB6', 'ENG-2', 'review', 'w/B6', 'Remove the link to ENG-2'], ['#selectedCard=w%2FB7', '&lt;b&gt;', 'done', 'w/B7', 'Remove the link to &lt;b&gt;']]);
+  assert.match(row, /<button type="button" class="tag-add" data-link-add="w\/B5">\+ Add link<\/button>$/);
+  assert.equal(ui.relatedRow({ key: 'w/B5', related: [] }), '<button type="button" class="tag-add" data-link-add="w/B5">+ Add link</button>');
+  const open = ui.relatedRow(it, { typed: 'T-<8', items: [] });
+  assert.doesNotMatch(open, /data-link-add/, 'the field takes the add chip\'s place');
+  assert.match(open, /<span class="link-field"><input type="text" data-link-field="w\/B5" data-own-escape value="T-&lt;8"[^>]*><button type="button" data-link-cancel aria-label="Close the search">×<\/button><\/span><div class="link-hits" role="listbox">/);
+});
+
+test("the Related to search matches this board's work cards by key or title, open ones first and then Done, leaving out the card itself and the cards it links", () => {
+  const card = (id, title, lane = 'todo', extra = {}) => ({ kind: 'work', key: `w/${id}`, id, ref: id, title, lane, ...extra });
+  const items = [card('T-801', 'Tap a link', 'progress'), card('T-822', 'Archive a tag', 'done'), card('T-803', 'Usage bars'), card('T-812', 'This card'),
+    card('T-850', 'Linked already'), card('X-1', 'Mentions T-8 in its title', 'review'), { kind: 'ask', key: 'ask:1', ref: 'T-8 ask', title: 'An ask' }];
+  const it = { key: 'w/T-812', ref: 'T-812', related: [{ key: 'w/T-850', ref: 'T-850' }] };
+  const hits = (typed) => [...ui.linkHits(it, items, typed).matchAll(/data-link-pick="([^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(hits('t-8'), ['w/T-801', 'w/T-803', 'w/X-1', 'w/T-822']);
+  assert.deepEqual(hits('ARCHIVE'), ['w/T-822']);
+  const html = ui.linkHits(it, items, 't-8');
+  assert.deepEqual([...html.matchAll(/<div class="link-group">([^<]*)<\/div>/g)].map((m) => m[1]), ['Open', 'Done']);
+  assert.match(html, /<button type="button" role="option" class="link-hit hot" data-link-pick="w\/T-801"><span class="link-ref"><mark>T-8<\/mark>01<span class="status link-lane progress"><\/span><\/span><span class="link-title">Tap a link<\/span><\/button>/);
+  assert.equal((html.match(/ hot"/g) || []).length, 1, 'only the first hit, which Enter picks, is hot');
+  assert.match(ui.linkHits(it, items, ''), /<p class="tag-note">Type a key or title\.<\/p>/);
+  assert.match(ui.linkHits(it, items, 'nothing like it'), /<p class="tag-note">No card matches\.<\/p>/);
+});
+
+test("a link's pick or × in the outbox draws on both cards at once, until the board answers; a failed one leaves the cards as the board has them", () => {
+  const items = [{ key: 'w/A1', ref: 'A1', lane: 'todo', related: [{ key: 'w/C1', ref: 'C1', lane: 'done' }] }, { key: 'w/B1', ref: 'B1', lane: 'review' }, { key: 'w/C1', ref: 'C1', lane: 'done', related: [{ key: 'w/A1', ref: 'A1', lane: 'todo' }] }];
+  const tap = (key, other, on, extra = {}) => ({ kind: 'card-relate', key, fields: { other, on }, ...extra });
+  const keys = (drawn) => plain(drawn.map((i) => (i.related || []).map((l) => l.key)));
+  assert.deepEqual(keys(ui.tapped(items, [tap('w/A1', 'w/B1', true), tap('w/A1', 'w/C1', false)])), [['w/B1'], ['w/A1'], []]);
+  assert.deepEqual(plain(ui.tapped(items, [tap('w/A1', 'w/B1', true)])[0].related.at(-1)), { key: 'w/B1', ref: 'B1', lane: 'review' });
+  assert.deepEqual(keys(ui.tapped(items, [tap('w/A1', 'w/B1', true, { failed: true })])), [['w/C1'], [], ['w/A1']]);
+  assert.equal(ui.tapped(items, [tap('w/A1', 'w/B1', true)])[0].sending, undefined, 'a link tap disables no button');
 });
 
 test("the Tag… picker lists the board's tags by use, ticked where the card has them, narrowed by the words typed, with a New tag row for a name no tag has", () => {

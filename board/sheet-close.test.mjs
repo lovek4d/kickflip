@@ -258,14 +258,19 @@ test('Escape closes only the top sheet, and again the one beneath, each held by 
   assert.equal(escape(null), false, 'no sheet open: left to the page');
 });
 
-test('Escape in a dialog that is not the top sheet, in an open popup, or any other key, is left alone', async () => {
+// A target in dialog, whose closest answers only 'dialog' (and, for a field that takes its own Escape, '[data-own-escape]').
+const inDialog = (dialog, own = false) => ({ closest: (sel) => (sel === 'dialog' ? dialog : sel === '[data-own-escape]' && own ? {} : null) });
+
+test('Escape in a dialog that is not the top sheet, in an open popup, in a field that takes its own, or any other key, is left alone', async () => {
   await fresh();
   const a = sheetEl('a'), b = sheetEl('b'), confirm = sheetEl('confirm');
   closing(a); closing(b);
   openSheet(a);
-  assert.equal(escape({ closest: () => confirm }), false, 'a confirm dialog outside the stack closes itself');
+  assert.equal(escape(inDialog(confirm)), false, 'a confirm dialog outside the stack closes itself');
+  assert.equal(escape(inDialog(a, true)), false, 'a field marked data-own-escape (the Related to search) closes itself');
+  assert.ok(a.open);
   openOver(a, b);
-  assert.equal(escape({ closest: () => a }), true, 'focus left in a lower sheet still closes the top one');
+  assert.equal(escape(inDialog(a)), true, 'focus left in a lower sheet still closes the top one');
   assert.ok(timers.some((t) => t.ms === 180) && b.classList.contains('closing') && !a.classList.contains('closing'), 'b closes, not a');
   await fresh();
   openSheet(a);

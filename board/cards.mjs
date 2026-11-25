@@ -1315,6 +1315,26 @@ export async function tagItem(site, key, { tag, untag, who = 'claude', sendId })
   return { tagged, untagged };
 }
 
+// docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md
+// The owner's link (on) between card key and other, a card on the same board, or its removal, whichever card stores
+// it, with a Related to or Unrelated from line in both threads from who, key's with the tap's sendId. A card in any lane
+// takes it, Done included. → {related, unrelated} with the key changed, or null when nothing changed.
+export async function relateItem(site, key, other, on, { who = 'love', sendId } = {}) {
+  if (!other.trim()) fail('a link names the card to link');
+  if (depKey(parseKey(key).file, other.trim()) === key) fail("a card can't be related to itself");
+  const [target] = await relatedKeys(site, key, other, on ? 'relate' : 'unrelate');
+  const before = await linksOf(site, key);
+  if (before.related.has(target) === on) return null;
+  const { source, itemFile, item } = await loadItem(site, key);
+  const file = parseKey(key).file;
+  if (on) item.related = [...new Set([...(item.related || []).map((r) => depKey(file, r)), target])];
+  const unlink = on ? null : unrelateCards(site, key, item, [target]);
+  await writeJSON(source.file, itemFile);
+  if (unlink) await unlink();
+  await postLinkLines(site, key, before, await linksOf(site, key), { who, sendId });
+  return on ? { related: [target], unrelated: [] } : { related: [], unrelated: [target] };
+}
+
 // docs/adr/2026-11-22-1200-an-archived-tag-greys-out-and-leaves-the-picker.md
 // The board's archived tags, data/tags.json {archived: [names]}: tags the picker no longer offers, still on their cards.
 // Names match whatever their case; a tag no card carries can be archived too. Writes run one at a time.
@@ -1336,7 +1356,7 @@ export function archiveTag(site, name, archived) {
 }
 
 // The owner's Block, Unblock, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}),
-// or a Tag… pick (card-tag {key, tag, on}, tagItem),
+// a Tag… pick (card-tag {key, tag, on}, tagItem) or a link's pick or × (card-relate {key, other, on}, relateItem),
 // recorded in the item file as the board server takes it, with a thread line; a Done closes the card and unblocks blocked cards as item set --done does
 // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). An Unblock that leaves nothing
 // blocking the card ends its block (blockEnded), unless blockEnds is false: the owner's Implement, whose build is what the
@@ -1345,6 +1365,7 @@ export async function recordOwnerTap(site, kind, data, { blockEnds = true } = {}
   const key = String(data?.key || '');
   if (kind === 'tag-archive') return archiveTag(site, data.tag, Boolean(data.on));
   if (kind === 'card-tag') return tagItem(site, key, { [data.on ? 'tag' : 'untag']: [String(data.tag ?? '')], who: 'love', sendId: data.sendId });
+  if (kind === 'card-relate') return relateItem(site, key, String(data.other ?? ''), Boolean(data.on), { sendId: data.sendId });
   const { file: slug, id } = parseKey(key);
   const { source, itemFile } = await loadItemFile(site, slug);
   // The owner's line, so it answers none of their messages that wait on Claude.
@@ -1699,10 +1720,11 @@ export async function linksOf(site, key) {
 // (linksOf): Related to or Unrelated from, and Follow-up in the Parent's thread with Follow-up of in the child's. A card
 // filed with its Parent (item add --parent) reads Created ticket in its Parent's thread and Created from in its own.
 // held: key is a New card, whose Related to line in the other card's thread waits until it leaves New (postHeldLinks).
-export async function postLinkLines(site, key, before, after, { spunOut = false, held = false, filed } = {}) {
+// who and sendId: the owner's link or unlink (relateItem), whose lines are theirs, key's with the tap's sendId.
+export async function postLinkLines(site, key, before, after, { spunOut = false, held = false, filed, who, sendId } = {}) {
   const both = async (command, other, mine = command, theirs = command) => {
-    await appendCommand(site, key, { command: mine, card: other });
-    await appendCommand(site, other, { command: theirs, card: key });
+    await appendCommand(site, key, { command: mine, card: other, who, sendId });
+    await appendCommand(site, other, { command: theirs, card: key, who });
   };
   // filed: the card key was filed from, whose line reads Filed key and key's own is drawn from its ask (domain.mjs askedLine).
   for (const other of after.related) if (!before.related.has(other) && other === filed) { if (!held) await appendCommand(site, other, { command: 'filed', card: key }); }
