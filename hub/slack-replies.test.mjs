@@ -177,6 +177,17 @@ test('a Slack-filed task posts one "Waiting on owner" line when a question is as
   assert.deepEqual(inThread(world, asked).slice(1), ['Waiting on owner: Which device?\n- :skateboard:']);
 });
 
+// docs/adr/2026-11-25-1616-a-key-reads-by-its-ref-live-or-archived.md
+test("a wait line names the cards its question names by their tickets, the task's own and an archived one", async () => {
+  const { world, asked, post } = filed();
+  await store.saveBoardSettings(site, { tickets: { source: 'github' } });
+  write(path.join(site, 'data', 'done-archive.json'), { cards: [{ key: 'items/T-3', file: 'items', item: { id: 'T-3', title: 'fix: three', lane: 'done', ticket: '#9' } }] });
+  setItem({ ticket: '#7' });
+  ask('Should T-1 wait for T-3, as items/T-3 did?');
+  await post();
+  assert.deepEqual(inThread(world, asked), ['Waiting on owner: Should #7 wait for #9, as #9 did?\n- :skateboard:']);
+});
+
 test('a board-filed task posts nothing when it waits on the owner', async () => {
   const { world, asked, post } = filed();
   const events = fs.readFileSync(eventsFile, 'utf8').replace(/"via":"slack"/, '"via":"board"');

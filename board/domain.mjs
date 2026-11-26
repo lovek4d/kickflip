@@ -78,6 +78,27 @@ const internalRef = (id) => String(id).replace(/^S(\d+)$/, 'INT-$1');
 // task; its key keeps the stored id (docs/adr/2026-11-02-2100-a-card-is-named-by-its-boards-ticket-source.md).
 export const refOf = (itemFile, item, tickets) => (ticketIn(tickets, item.ticket) ? item.ticket
   : internalRef(item.id));
+// docs/adr/2026-11-25-1616-a-key-reads-by-its-ref-live-or-archived.md
+// A card's ref by its key from cards ({key: {ref}}, the live cards' and the archived ones a text names, cards.mjs
+// refsOf), else its stored id, read as refOf reads it: a text that names a card never shows its <file>/<id> key.
+export const keyRef = (key, cards) => cards.get(key)?.ref ?? internalRef(key.slice(key.indexOf('/') + 1));
+// A text's words that name a card: a <file>/<id> key, or a bare id (letters, then a number: T-12, A1, ENG-3) of a
+// card in file, the board file the text belongs to. → [{at, word, key}], each word with the key it names, for refsIn
+// and for the keys whose refs a text needs.
+const CARD_WORD = /(?<![\w./#-])(?:([\w-]+)\/)?([A-Za-z]+-?\d+)(?![\w-])/g;
+export const cardWords = (text, file) => [...String(text ?? '').matchAll(CARD_WORD)]
+  .map((m) => ({ at: m.index, word: m[0], key: m[1] ? `${m[1]}/${m[2]}` : file ? `${file}/${m[2]}` : null })).filter((w) => w.key);
+// text with each word naming a card in cards (cardWords) read as that card's ref, as the page's linkText draws it.
+export function refsIn(text, cards, file) {
+  let out = '';
+  let from = 0;
+  for (const w of cardWords(text, file)) {
+    if (!cards.has(w.key)) continue;
+    out += text.slice(from, w.at) + cards.get(w.key).ref;
+    from = w.at + w.word.length;
+  }
+  return from ? out + text.slice(from) : text;
+}
 // A stored ticket from another source, an INT-<n> from the retired Internal source included, keeps its own id, unlinked
 // (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md).
 const ticketOf = (tickets, stored, at) => ticketBadge(tickets, stored, at) || (stored ? { id: String(stored), url: null, source: null } : null);
@@ -1192,13 +1213,18 @@ export const NOT_THE_OWNER = 'not the owner, so its words approve nothing';
 // whose Created ticket and Created from lines already tell it. The card's own line reads Filed from it and the other's
 // reads Filed (cards.mjs postAskLinks), neither also Related to.
 export const filedFromOf = (asked, links = {}) => asked.from || (links.parent ? null : links.related?.[0]);
+// The card an ask the orchestrator, a builder or a planner filed names in its From line, or null.
+export const askedCard = (e) => {
+  const asked = e.data?.asked;
+  return !asked || asked.by === 'schedule' ? null : asked.by === 'orchestrator' ? filedFromOf(asked, e.data.links) || null : asked.key || null;
+};
 function askedLine(e, cards) {
   const asked = e.data?.asked;
   if (!asked) return [];
   const base = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'asked-from' };
   // A task's card is named as a line naming a card is (namedLine), so its ref is the one it has when the line shows;
   // a task's builder or planner follows it: From <ref>'s builder.
-  const named = asked.by === 'orchestrator' ? filedFromOf(asked, e.data.links) : asked.by === 'schedule' ? null : asked.key;
+  const named = askedCard(e);
   if (named) {
     const after = asked.by === 'orchestrator' ? '' : `'s ${asked.by}`;
     const m = naming({ ...base, text: '' }, asked.by === 'orchestrator' ? 'Filed from' : 'From', named, cards);
@@ -1219,10 +1245,12 @@ const slackOf = (e) => (e.data?.slack ? { via: 'slack', link: e.data.slack.link,
   : slackSourced(e) ? { via: 'slack', link: e.data.routed.link, ...(e.data.routed.by ? { by: e.data.routed.by } : {}) } : {});
 // docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
 // A line that names a card carries its key (card) and the words before it (words); board/public/ui-links.js cardRef
-// draws the reference when the line shows, at the ref the card has then, linked, with its lane ring. Its text reads the
-// same words and the card's ref from cards (by key, {ref}), or its id once it has left the board, never its key.
-const refText = (key, cards) => cards.get(key)?.ref ?? key.slice(key.indexOf('/') + 1);
-const naming = (m, words, key, cards) => ({ ...m, card: key, words, text: `${words} ${refText(key, cards)}`, link: `#selectedCard=${encodeURIComponent(key)}` });
+// draws the reference when the line shows, at the ref the card has then, linked, with its lane ring. Its text and ref
+// read the same words and the card's ref (keyRef), for a card the page no longer has.
+const naming = (m, words, key, cards) => ({ ...m, card: key, words, ref: keyRef(key, cards), text: `${words} ${keyRef(key, cards)}`, link: `#selectedCard=${encodeURIComponent(key)}` });
+// The keys a card's thread names (threadOf over these lines and events), its own for its Created ticket line: the keys
+// whose refs its cards map needs.
+export const threadNames = (key, lines, events) => [key, ...lines.map((m) => m.card), ...events.map(askedCard)].filter(Boolean);
 // A link's line (cards.mjs postLinkLines) names the other card by its stored key, under the command's words. A card's
 // Created ticket line (hub-lines.mjs ticket-made) names the card itself, so it reads the ticket the card has now.
 const namedLine = (m, key, cards) => (m.card ? naming(m, COMMANDS[m.command], m.card, cards)
@@ -1350,7 +1378,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === REVIEWER ? { kind: m.kind, findings: m.findings || [] } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(waits.over.has(m.ts) ? { tone: 'grey' } : {}), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen), ...(m.questions.some(isOpen) ? { tone: 'orange' } : {}) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
+    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === REVIEWER ? { kind: m.kind, findings: m.findings || [] } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(waits.over.has(m.ts) ? { tone: 'grey' } : {}), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen), ...(m.questions.some(isOpen) ? { tone: 'orange' } : {}) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words, ref: m.ref } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}), ...(m.script ? { script: scriptView(m.script) } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.
@@ -1444,8 +1472,10 @@ export function buildBoard(snapshot) {
   const tickets = snapshot.tickets;
   const cardHolds = new Map(events.filter((e) => e.kind === 'card-hold').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.key, e]));
   const madeFrom = new Map();
-  // Every work card's ref by key, for the lines that name a card.
-  const cards = new Map(snapshot.files.flatMap(({ slug, itemFile }) => itemFile.items.map((it) => [`${slug}/${it.id}`, { ref: refOf(itemFile, it, tickets) }])));
+  // Every work card's ref by key, and the archived cards' the board's texts name (snapshot.mjs offBoard), for the lines
+  // that name a card.
+  const cards = new Map([...Object.entries(snapshot.offBoard || {}).map(([key, ref]) => [key, { ref }]),
+    ...snapshot.files.flatMap(({ slug, itemFile }) => itemFile.items.map((it) => [`${slug}/${it.id}`, { ref: refOf(itemFile, it, tickets) }]))]);
   const askLinks = snapshot.askLinks || {};
   // The asks folded into each work item (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md).
   const foldedInto = new Map();
@@ -1649,7 +1679,7 @@ export function buildBoard(snapshot) {
     it.staging = unstarted && it.phase === 'staging';
     if (it.kind === 'work') it.footer = footerOf(it);
   }
-  linkCards(items, byKey, storedLinks);
+  linkCards(items, byKey, storedLinks, cards);
   // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that
   // card's ask, a later orchestrator command on its card (actedOn), its ask becoming or folding into a card, or its card
   // leaving the board or closing after the mark. An event on no card works until its reply. Working is display only: it
@@ -1729,7 +1759,7 @@ export function buildBoard(snapshot) {
     .sort((a, b) => b.at.localeCompare(a.at));
   merges.sort((a, b) => b.at.localeCompare(a.at));
   // unfiled: the asks with no card yet, for the board server to file (asks.mjs fileAsks).
-  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, boardAsks: newBoardAsks(events, working), owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews, archivedTags: snapshot.archivedTags || [] }, snapshot);
+  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, boardAsks: newBoardAsks(events, working), owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews, archivedTags: snapshot.archivedTags || [], offBoard: snapshot.offBoard || {} }, snapshot);
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
@@ -1767,10 +1797,10 @@ const linkKey = (slug, k) => (String(k).includes('/') ? String(k) : `${slug}/${k
 // Links list oldest first: by the cards' creation time, a card with none after those with one, ties by ref.
 const byAge = (a, b) => (a.created ? (b.created ? Date.parse(a.created) - Date.parse(b.created) : -1) : b.created ? 1 : 0)
   || a.ref.localeCompare(b.ref, undefined, { numeric: true });
-// Each work card's Parent (one card or none; a Parent no longer on the board reads as its stored id), its Children
+// Each work card's Parent (one card or none; a Parent no longer on the board reads by its ref, keyRef), its Children
 // (the cards whose Parent it is), its Related to (set on either card, shown on both) and what it Blocks (the cards
 // that name it as a dep, Done or not, the mirror of blockers). A card with a Parent is a follow-up.
-function linkCards(items, byKey, stored) {
+function linkCards(items, byKey, stored, refs) {
   const children = new Map();
   const related = new Map();
   const blocks = new Map();
@@ -1787,7 +1817,7 @@ function linkCards(items, byKey, stored) {
   const cards = (keys = []) => [...new Set(keys)].map((k) => byKey.get(k)).filter(Boolean).sort(byAge).map(linkOf);
   for (const it of items) {
     const parent = stored.get(it.key)?.parent;
-    it.parent = parent ? (byKey.has(parent) ? linkOf(byKey.get(parent)) : { key: parent, ref: parent.slice(parent.indexOf('/') + 1) }) : null;
+    it.parent = parent ? (byKey.has(parent) ? linkOf(byKey.get(parent)) : { key: parent, ref: keyRef(parent, refs) }) : null;
     it.children = cards(children.get(it.key));
     it.related = cards(related.get(it.key));
     it.blocks = cards(blocks.get(it.key));
@@ -2307,9 +2337,11 @@ export const pushTag = (key) => (key.startsWith('ask:') ? `ask-${key.slice(4)}` 
 // Needs you line for a topic off the cards, tagged topic-<id>, and each held review, tagged review-<PR number>; a card's Done tap is no action here. questions are the open questions behind it, oldest
 // first. url is relative to the site root. → [{tag, kind, title, body, url, questions: [{id, question}]}]
 export function ownerActions(built) {
-  const open = (topic) => built.owner.filter((q) => q.topic === topic && q.state === 'open').map(({ id, question }) => ({ id, question }));
+  // A question's words name cards by their refs, the archived ones its board's texts name included (refsIn).
+  const refs = new Map([...Object.entries(built.offBoard || {}).map(([key, ref]) => [key, { ref }]), ...built.items.map((it) => [it.key, { ref: it.ref }])]);
+  const open = (topic, file = null) => built.owner.filter((q) => q.topic === topic && q.state === 'open').map(({ id, question }) => ({ id, question: refsIn(question, refs, file) }));
   const cards = built.items.filter((it) => it.action && it.action.kind !== ACTION_KIND.close).map((it) => {
-    const questions = ASKING.has(it.action.kind) ? open(it.questions.topic) : [];
+    const questions = ASKING.has(it.action.kind) ? open(it.questions.topic, it.file) : [];
     return { tag: pushTag(it.key), kind: it.action.kind, title: `${it.ref}: ${it.action.label}`, body: questions[0]?.question || it.title,
       url: questions.length ? it.action.url : `#selectedCard=${encodeURIComponent(it.key)}`, questions };
   });

@@ -79,10 +79,11 @@
   const taskLink = (key, ref, lane, { base = '', cls = '', lead = '', title = '', attrs = '' } = {}) => `<a${cls ? ` class="${cls}"` : ''} href="${esc(`${base}#selectedCard=${encodeURIComponent(key)}`)}"${title ? ` title="${esc(title)}"` : ''}${attrs}>${esc(lead)}${esc(ref)}${laneRing(lane)}</a>`;
   // docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
   // A card named by key (a ref in text, a thread line naming a card): the ref the card has now (its ticket once it has
-  // one, else its id), as a taskLink. A card off the board reads by its id, never its <file>/<id> key. was: the ref the
-  // text named, as the link's title when the card reads otherwise now.
-  const cardRef = (key, ctx = {}, { className = '', was = null } = {}) => {
-    const shown = record(ctx.current || {}, key) || key.slice(key.indexOf('/') + 1);
+  // one, else its id), as a taskLink. A card off the board reads by ref, the one the server named it by (domain.mjs
+  // keyRef, an archived card's ticket), else its id, never its <file>/<id> key. was: the ref the text named, as the
+  // link's title when the card reads otherwise now.
+  const cardRef = (key, ctx = {}, { className = '', was = null, ref = null } = {}) => {
+    const shown = record(ctx.current || {}, key) || ref || key.slice(key.indexOf('/') + 1);
     return taskLink(key, shown, record(ctx.lanes || {}, key), { base: ctx.base || '', cls: className, title: was && was !== shown ? `was ${was}` : '' });
   };
   const cardLink = (ref, ctx) => cardRef(record(ctx.refs, ref), ctx, { was: ref });

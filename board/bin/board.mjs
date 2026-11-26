@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
 import * as slackStore from '../slack-store.mjs';
 import * as schedules from '../schedules.mjs';
-import { waitsHistory, waitsHistoryLines } from '../domain.mjs';
+import { keyRef, waitsHistory, waitsHistoryLines } from '../domain.mjs';
 import { cardTiming, cardTimingLines, timingDays, timingDaysLines } from '../timing.mjs';
 import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, repoRun, worktreePath } from '../worktree.mjs';
 import { ownTests } from '../affected.mjs';
@@ -1356,8 +1356,9 @@ const COMMANDS = {
     const questions = [...((await store.readJSON(path.join(data, 'owner.json'), {})).items || []), ...archive.flatMap((a) => a.questions || [])];
     const events = await store.readLog(path.join(data, 'events.jsonl'));
     const now = new Date();
+    const refs = await store.refsOf(dir, cards.map((c) => c.key));
     const timings = await Promise.all(cards.map(async ({ key, item }) => cardTiming({
-      key, item, lines: await store.readLog(store.threadFile(dir, key)), events, now,
+      key, ref: keyRef(key, refs), item, lines: await store.readLog(store.threadFile(dir, key)), events, now,
       questions: new Set(questions.filter((q) => q.topic === `item:${key}`).map((q) => q.id)),
     })));
     return { lines: keys.length ? cardTimingLines(timings[0]) : timingDaysLines(timingDays(timings, { from })) };

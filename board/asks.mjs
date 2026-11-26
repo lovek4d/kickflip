@@ -289,7 +289,7 @@ async function buildStarted({ source, item }) {
 // refusal's words, or null.
 export async function withdrawRefused(site, eventId) {
   const card = await askCardOf(needSite(site), eventId);
-  return card && (await buildStarted(card)) ? `A build has already started on ${card.item.id}. Block it to stop the build.` : null;
+  return card && (await buildStarted(card)) ? `A build has already started on ${await cardName(site, card.key)}. Block it to stop the build.` : null;
 }
 // The owner deleted ask eventId's message: its card goes, with no Done row, at any stage until its build starts. → its
 // key, or null.

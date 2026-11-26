@@ -71,7 +71,7 @@ function runsOf(lines) {
 // → {key, ref, title, created, closed, built, spans: [{label, from, to}], totals: {you, orchestrator, builder, held,
 // idle} in ms, gaps: [text]}: closed is closed_at for a task in Done, else null; built is whether a builder (not only
 // a planner) ran on it; spans merge neighbours of one label and drop the empty.
-export function cardTiming({ key, item, lines, events, questions, now }) {
+export function cardTiming({ key, ref, item, lines, events, questions, now }) {
   const start = Date.parse(item.created);
   const closed = item.lane === 'done' && item.closed_at ? item.closed_at : null;
   const end = closed ? Date.parse(closed) : now.getTime();
@@ -103,7 +103,7 @@ export function cardTiming({ key, item, lines, events, questions, now }) {
   const totals = Object.fromEntries([...WAITS, 'idle'].map((w) => [w, 0]));
   for (const s of spans) totals[BUCKET[s.label]] += s.to - s.from;
   return {
-    key, ref: item.id, title: item.title, created: item.created, closed, built: runs.some((r) => !r.planner),
+    key, ref, title: item.title, created: item.created, closed, built: runs.some((r) => !r.planner),
     spans: spans.map((s) => ({ label: s.label, from: new Date(s.from).toISOString(), to: new Date(s.to).toISOString() })),
     totals, gaps: lines.length ? [] : ['no thread lines: only its events time it'],
   };

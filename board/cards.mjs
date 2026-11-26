@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { squashBody, startTitleFault, subjectFault, withTicket } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { COMMANDS, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, threadOf, builds, filedFromOf, mergeBlockers, owesNext, pushTag, refOf, HELPER, implementAsk } from './domain.mjs';
+import { COMMANDS, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, threadOf, builds, filedFromOf, mergeBlockers, owesNext, pushTag, refOf, keyRef, threadNames, HELPER, implementAsk } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { builderRepo } from './worktree.mjs';
 import { reviseQueued, pushKindError } from '../hub/push.mjs';
@@ -550,7 +550,8 @@ export async function readThread(site, key) {
   const events = (await shownEvents(site)).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind))
     || (e.kind === 'owner-answer' && asked.has(e.data?.id)) || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
   const lines = (await Promise.all([...keys].map((k) => readLog(threadFile(site, k))))).flat();
-  const thread = threadOf(key, { lines, events: await Promise.all(events.map((e) => withReply(site, e))), owner, noReply: item.no_reply || {}, fromAsk: item.from_ask || null, moved });
+  const thread = threadOf(key, { lines, events: await Promise.all(events.map((e) => withReply(site, e))), owner, noReply: item.no_reply || {}, fromAsk: item.from_ask || null, moved,
+    cards: await refsOf(site, threadNames(key, lines, events)) });
   // Reading the owner's words here hands them over, as inbox read does: a line written after this read answers them.
   await markDelivered(site, thread.filter((m) => m.who === 'love' && m.eventId).map((m) => m.eventId));
   const replyText = (r) => String(r.md ?? r.html ?? JSON.stringify(r.json) ?? '').trim();
@@ -558,22 +559,40 @@ export async function readThread(site, key) {
     .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((m) => `${m.ts} ${m.who}: ${String(m.text ?? '').trim()}`);
 }
 
+// docs/adr/2026-11-25-1616-a-key-reads-by-its-ref-live-or-archived.md
+// The refs of the archived cards among keys, by tickets, the board's ticket source: {<key>: <ref>}. The archive is read
+// at each call, and only when keys holds one, since a land or an archiving pass writes it under a running server. A
+// command with no site (a wave file's builder) has no archive.
+export async function archivedRefs(site, keys, tickets) {
+  const want = new Set(keys);
+  if (!site || !want.size) return {};
+  return Object.fromEntries((await readArchive(site)).filter((a) => want.has(a.key)).map((a) => [a.key, refOf(null, a.item, tickets)]));
+}
+// Each <file>/<id> key's ref, wherever its card is: {key: {ref}} from the live card, else the archived one
+// (archivedRefs). A key on neither is left out, and reads by its stored id (domain.mjs keyRef).
+export async function refsOf(site, keys) {
+  const { tickets } = settingsOf(await boardConfig(site));
+  const want = new Set(keys);
+  const refs = new Map();
+  for (const source of await itemSources(site)) {
+    const itemFile = await readJSON(source.file, null);
+    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
+      const key = `${source.slug}/${it.id}`;
+      if (want.has(key)) refs.set(key, { ref: refOf(itemFile, it, tickets) });
+    }
+  }
+  for (const [key, ref] of Object.entries(await archivedRefs(site, [...want].filter((k) => !refs.has(k)), tickets))) refs.set(key, { ref });
+  return refs;
+}
+
 // A card as the board labels it, for the one-line summaries board/bin/board.mjs and bin/wait-events.mjs print: a work
 // item by its ref, an ask (ask:<event id>) by the card it became or was folded into, else "task <id>",
 // the owner's word for an ask (CONTEXT.md New task).
 export async function cardName(site, key) {
+  const ask = /^ask:(.+)$/.exec(key)?.[1];
+  if (ask === undefined) return /^[^/\s]+\/[^/\s]+$/.test(key) ? keyRef(key, await refsOf(site, [key])) : key;
   const { tickets } = settingsOf(await boardConfig(site));
   const sources = await itemSources(site);
-  const ask = /^ask:(.+)$/.exec(key)?.[1];
-  if (ask === undefined) {
-    const m = /^([^/\s]+)\/([^/\s]+)$/.exec(key);
-    if (!m) return key;
-    const source = sources.find((s) => s.slug === m[1]);
-    const itemFile = source && await readJSON(source.file, null);
-    if (!itemFile) return m[2];
-    const card = (itemFile.items || []).find((it) => it.id === m[2]);
-    return refOf(itemFile, card || { id: m[2] }, tickets);
-  }
   const folded = site ? routeRecord(await readAskLinks(site), ask) : undefined;
   if (folded) return cardName(site, folded);
   for (const s of sources) {

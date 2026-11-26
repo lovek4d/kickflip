@@ -32,7 +32,7 @@ const EVENTS = [
 const ITEM = { id: 'T1', title: 'feat(board): a timed task', created: at(0), lane: 'done', closed_at: at(100) };
 
 test("a task's life splits by who it waited on, a builder's run over a hold over whose turn it is, to the minute", () => {
-  const t = cardTiming({ key: KEY, item: ITEM, lines: LINES, events: EVENTS, questions: new Set(['q1']), now: new Date(at(500)) });
+  const t = cardTiming({ key: KEY, ref: 'T1', item: ITEM, lines: LINES, events: EVENTS, questions: new Set(['q1']), now: new Date(at(500)) });
   assert.deepEqual(t.spans.map((s) => [s.label, (Date.parse(s.to) - Date.parse(s.from)) / m]), [
     ['you', 10], ['orchestrator', 5], ['you', 5], ['held', 10], ['you', 10], ['orchestrator', 5], ['queued', 5], ['builder', 30], ['idle', 20],
   ]);
@@ -69,7 +69,7 @@ test("an orchestrator wait opens on its event and ends at the orchestrator's nex
     said(91, { kind: 'move', text: 'Moved to In Review' }),
   ];
   const events = [event(20, 'orchestrator-waits', { opened: [{ key: KEY, kind: 'brief', since: at(20) }], again: [] }), event(55, 'card-unblocked', { key: KEY })];
-  const t = cardTiming({ key: KEY, item: { id: 'T1', title: 'Open task', created: at(0), lane: 'progress' }, lines, events, questions: new Set(), now: new Date(at(120)) });
+  const t = cardTiming({ key: KEY, ref: 'T1', item: { id: 'T1', title: 'Open task', created: at(0), lane: 'progress' }, lines, events, questions: new Set(), now: new Date(at(120)) });
   assert.deepEqual(t.spans.map((s) => [s.label, (Date.parse(s.to) - Date.parse(s.from)) / m]), [
     ['planner', 10], ['idle', 10], ['orchestrator', 10], ['idle', 9.5], ['orchestrator', 0.5], ['you', 20], ['builder', 8], ['you', 52],
   ]);
@@ -78,13 +78,13 @@ test("an orchestrator wait opens on its event and ends at the orchestrator's nex
   // The totals count a span under a minute; the list leaves it out.
   assert.deepEqual(cardTimingLines(t).slice(0, 2), ['T1 Open task: open, 2h so far', 'on you 1h 12m · on the orchestrator 10m · on a builder or planner 18m · held or queued 0m · idle 19m']);
   assert.deepEqual(cardTimingLines(t).slice(2).map((l) => l.slice(25)), ['planner run 10m', 'idle 10m', 'on the orchestrator 10m', 'idle 9m', 'on you 20m', 'builder run 8m', 'on you 52m']);
-  const planned = cardTiming({ key: KEY, item: { id: 'T1', title: 'Grilled', created: at(0) }, lines: lines.slice(0, 2), events: [], questions: new Set(), now: new Date(at(20)) });
+  const planned = cardTiming({ key: KEY, ref: 'T1', item: { id: 'T1', title: 'Grilled', created: at(0) }, lines: lines.slice(0, 2), events: [], questions: new Set(), now: new Date(at(20)) });
   assert.equal(planned.built, false);
   // A hold tap from either side holds the task until its resume.
   const holds = [said(0), { ts: at(5), who: 'love', command: 'hold', text: 'Held' }, said(10, { command: 'resume', text: 'Resumed' })];
-  assert.deepEqual(cardTiming({ key: KEY, item: { id: 'T1', title: 'Held', created: at(0) }, lines: holds, events: [], questions: new Set(), now: new Date(at(20)) })
+  assert.deepEqual(cardTiming({ key: KEY, ref: 'T1', item: { id: 'T1', title: 'Held', created: at(0) }, lines: holds, events: [], questions: new Set(), now: new Date(at(20)) })
     .spans.map((s) => s.label), ['you', 'held', 'orchestrator']);
-  const bare = cardTiming({ key: KEY, item: { id: 'T1', title: 'Bare', created: at(0) }, lines: [], events: [], questions: new Set(), now: new Date(at(20)) });
+  const bare = cardTiming({ key: KEY, ref: 'T1', item: { id: 'T1', title: 'Bare', created: at(0) }, lines: [], events: [], questions: new Set(), now: new Date(at(20)) });
   assert.deepEqual(bare.gaps, ['no thread lines: only its events time it']);
   assert.equal(cardTimingLines(bare).at(-1), 'gap: no thread lines: only its events time it');
 });

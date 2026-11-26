@@ -13,7 +13,8 @@ import { reviewLinks, reviewTime, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
 import { BoardError, domId, needSite, text } from './checks.mjs';
-import { addItem, appendMessage, askTaskOf } from './cards.mjs';
+import { addItem, appendMessage, askTaskOf, refsOf } from './cards.mjs';
+import { cardWords, refsIn } from './domain.mjs';
 import { builtBoard, builtCards } from './snapshot.mjs';
 import { boardRepoOf, boardTarget, sameName, settingsOf, storedTickets } from './settings.mjs';
 
@@ -345,14 +346,16 @@ export const markSlackFollow = (site, thread, failing) => editJSON(slackThreadsF
 // thread, {channel, thread_ts}, is the Slack thread of the message it answers; none means the task's own ask's.
 export const queueSlackReply = (site, key, name, thread) => editJSON(slackThreadsFile(site), (all) => { all.replies = { ...all.replies, [name]: { key, ...(thread ? { thread } : {}) } }; });
 // docs/adr/2026-11-22-0100-a-slack-filed-task-tells-its-thread-when-it-waits-on-the-owner.md
-// What a card waits on the owner for, in words, or null: its open question's text, else its next step. A card waits
+// What a card waits on the owner for, in words, or null: its open question's text, the cards it names read by their
+// refs (domain.mjs refsIn), else its next step. A card waits
 // when it carries an owner action or waitsOn owner, the state that lights the owner's Reply (domain.mjs placeOwnerWait).
 const waitsOnOwner = (card) => card.waitsOn === 'owner' || Boolean(card.action);
 async function ownerWaitWords(site, card) {
   if (!waitsOnOwner(card)) return null;
   if (card.questions?.open > 0) {
     const asked = ((await readJSON(path.join(site, 'data', 'owner.json'), { items: [] })).items || []).find((q) => q.id === card.questions.first);
-    if (asked?.question) return asked.question;
+    const file = card.key.slice(0, card.key.indexOf('/'));
+    if (asked?.question) return refsIn(asked.question, await refsOf(site, cardWords(asked.question, file).map((w) => w.key)), file);
   }
   return card.action?.label || card.next;
 }

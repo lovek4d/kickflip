@@ -7,12 +7,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { boardConfig, itemSources, readJSON, readLog } from './files.mjs';
-import { buildBoard } from './domain.mjs';
+import { askedCard, buildBoard, cardWords } from './domain.mjs';
 import { topicItems } from './review.mjs';
 import { transcriptMovedAt } from './transcript.mjs';
 import { alive as runAlive, landable, queuedPlanners, readLanders } from './runs.mjs';
 import { BoardError } from './checks.mjs';
-import { readActedOn, readArchivedTags, readAgents, readAskLinks, readDelivered, readHidden, readReplyIndex, readWorking, replyFilesOf, threadFile } from './cards.mjs';
+import { archivedRefs, readActedOn, readArchivedTags, readAgents, readAskLinks, readDelivered, readHidden, readReplyIndex, readWorking, replyFilesOf, threadFile } from './cards.mjs';
 import { itemNotes, readScreening } from './questions.mjs';
 import { opensPRs, settingsOf } from './settings.mjs';
 import { boardAt, githubStateFile } from '../hub/boards.mjs';
@@ -165,6 +165,19 @@ async function itemSnapshot(site, { cfg, github, local, hub, remote, branch }, f
     incoming: await readJSON(path.join(data, 'incoming.json'), null), reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
 }
 
+// docs/adr/2026-11-25-1616-a-key-reads-by-its-ref-live-or-archived.md
+// The refs of the archived cards the board's texts name, {<key>: <ref>} (cards.mjs archivedRefs), for buildBoard's
+// cards map: a thread line's card, an ask's From line, a Parent, and a word of an open question on a card. The archive
+// is read only when one of those names a card off the item files.
+async function offBoardRefs(site, { files, threads, tickets }, events, owner) {
+  const live = new Set(files.flatMap(({ slug, itemFile }) => itemFile.items.map((it) => `${slug}/${it.id}`)));
+  const parents = files.flatMap(({ slug, itemFile }) => itemFile.items.map((it) => it.parent && (String(it.parent).includes('/') ? String(it.parent) : `${slug}/${it.parent}`)));
+  const asked = (owner.items || []).filter((q) => !q.resolved && String(q.topic).startsWith('item:'))
+    .flatMap((q) => cardWords(q.question, q.topic.slice(5, q.topic.indexOf('/'))).map((w) => w.key));
+  const named = [...Object.values(threads).flat().map((m) => m.card), ...events.map(askedCard), ...parents, ...asked];
+  return archivedRefs(site, [...new Set(named)].filter((k) => k && !live.has(k)), tickets);
+}
+
 const NEEDS_REPLY = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'review-request', 'item-message', 'overnight-triage']);
 
 // Reads every source buildBoard needs for board site: item files and their builder records, PR state from the hub's
@@ -213,13 +226,14 @@ export async function readSnapshot(site, outside, { archived = [], items: itemsO
   const verifiedAny = files.some(({ agents }) => Object.values(agents || {}).some((byAgent) => Object.values(byAgent).some((r) => r?.verified)));
   const landSkips = verifiedAny ? Object.fromEntries((await landable(here)).filter((c) => c.skip).map((c) => [c.key, c.skip])) : {};
 
+  const owner = await readJSON(path.join(data, 'owner.json'), { items: [] });
   const tries = await readJSON(path.join(data, 'try.json'), null);
   return {
     // docs/adr/2026-11-15-1200-notes-ride-the-boards-sync.md: main's log tail rides the board while its build is failing.
     mainLog: tries?.main?.state === 'failed' ? await tryLogTail(here, 'main') : null,
     ...items, moved, alive, loggedOut: await loggedOutCards(files, home), try: tries, main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), archivedTags: await readArchivedTags(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(here),
-    owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
+    owner: { ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }, offBoard: await offBoardRefs(here, items, pageEvents, owner),
     topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
     screening: await readScreening(here), queuedPlanners: await queuedPlanners(here), landers, landHeld: outside.landHeld, landSkips,
   };

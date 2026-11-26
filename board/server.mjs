@@ -374,7 +374,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { REQUEST_KINDS, TAP_KINDS, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, bumpIn, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { REQUEST_KINDS, TAP_KINDS, threadNames, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, bumpIn, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { alertsOf, localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -387,7 +387,7 @@ import { launchAgent } from './agents.mjs';
 import { BOARD_CLI, pidAlive, stopAgents, stopRuns } from './headless.mjs';
 import { BoardError } from './checks.mjs';
 import { draftOf, pruneDrafts, readDrafts, saveDraft } from './drafts.mjs';
-import { cardName, readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
+import { cardName, refsOf, readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
 import { heldReview, applyReviewAnswer, dropAskCard, withdrawRefused, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
 import { SILENT_DEFAULTS, finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf, overridesOf, readBoardJSON } from './settings.mjs';
@@ -888,7 +888,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const lines = (await Promise.all([...keys].map((k) => readLog(threadFile(k))))).flat();
     const clearedAt = item?.lane === 'done' ? String(item.closed_at || '') : '';
     return threadOf(key, { lines, events: await Promise.all(mine.map((e) => withReply(e))), owner, working: await readWorking(here), delivered: await readDelivered(here), actedAt: routeRecord(await readActedOn(here), key) || '', listening: !boardAt(here) || (listenState(boardAt(here)) === 'listening' && sessionBusy(boardAt(here))), clearedAt, noReply: item?.no_reply || {}, fromAsk: askId,
-      links: own ? await askLinksOf(askId) : [], agents, moved, cards: new Map((await sharedBoard()).items.map((i) => [i.key, { ref: i.ref }])) });
+      links: own ? await askLinksOf(askId) : [], agents, moved, cards: await refsOf(here, threadNames(key, lines, mine)) });
   }
 
 

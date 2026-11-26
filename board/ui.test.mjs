@@ -3354,6 +3354,10 @@ test("one helper draws every card reference: its current ref, linked to the card
   const links = ui.linkContext([{ key: 'hub/T-1', id: 'T-1', ref: '#620', file: 'hub', lane: 'todo' }, { key: 'hub/T-2', id: 'T-2', ref: '#631', file: 'hub', lane: 'progress' }], 'hub/T-2');
   assert.equal(ui.cardRef('hub/T-1', links), '<a href="#selectedCard=hub%2FT-1">#620<span class="status link-lane todo"></span></a>');
   assert.equal(ui.cardRef('hub/T-9', links), '<a href="#selectedCard=hub%2FT-9">T-9</a>');
+  // docs/adr/2026-11-25-1616-a-key-reads-by-its-ref-live-or-archived.md: an archived card, off the page, draws the ref
+  // the server named its line by.
+  assert.ok(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'command', command: 'blocked-by', request: true, mark: 'Blocked by', words: 'Blocked by', text: 'Blocked by #9', ref: '#9', card: 'hub/T-9', link: '#selectedCard=hub%2FT-9' }], links)
+    .includes('Blocked by <a href="#selectedCard=hub%2FT-9">#9</a>'));
   assert.equal(ui.cardRef('hub/T-1', { ...links, base: './' }, { className: 'card-link' }), '<a class="card-link" href="./#selectedCard=hub%2FT-1">#620<span class="status link-lane todo"></span></a>');
   // A ref in written text links through the same helper.
   assert.ok(ui.linkText('See #620.', links).includes(ui.cardRef('hub/T-1', links)));
