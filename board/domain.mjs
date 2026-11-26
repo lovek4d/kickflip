@@ -1141,6 +1141,8 @@ export const COMMANDS = {
   'script-ran': 'Ran the script', 'script-declined': 'Declined the script',
   // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md: a tag put on or taken off, its line naming the tag.
   tagged: 'Tagged', untagged: 'Untagged',
+  // docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md: a bell set or taken off.
+  belled: 'Bell on', unbelled: 'Bell off',
 };
 // Each tap command's tone (hub-lines.mjs TONES): a request for a planner is blue like a planner's own lines.
 export const COMMAND_TONES = {
@@ -1148,7 +1150,7 @@ export const COMMAND_TONES = {
   discussing: 'grey', staged: 'orange', readied: 'green', related: 'grey', unrelated: 'grey', followup: 'grey', 'followup-of': 'grey', filed: 'blue',
   created: 'blue', 'created-from': 'blue', 'blocked-by': 'grey', unblocks: 'grey',
   bumped: 'grey', unbumped: 'grey', merge: 'orange', served: 'orange', killed: 'grey', 'script-ran': 'orange', 'script-declined': 'grey',
-  tagged: 'grey', untagged: 'grey',
+  tagged: 'grey', untagged: 'grey', belled: 'blue', unbelled: 'grey',
 };
 const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'review-request': REVIEWER, 'reask-request': 'reask' };
 export const ACTION_LABELS = { 'mark-ready': 'Mark ready', ...Object.fromEntries(Object.entries(REQUEST_COMMANDS).map(([kind, key]) => [kind, COMMANDS[key]])) };
@@ -2229,7 +2231,7 @@ const CARD_TAPS = ['card-build', 'card-hold', 'card-done', 'card-reopen', 'card-
 // A tap that asks for a planner, and the brief it owes.
 const REQUEST_BRIEFS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': VISUAL, 'review-request': REVIEWER };
 // The event kinds tapPlan decides.
-export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'card-unbump', 'card-tag', 'card-relate', 'tag-archive', ...Object.keys(REQUEST_BRIEFS)]);
+export const TAP_KINDS = new Set([...CARD_TAPS, 'item-message', 'card-bump', 'card-unbump', 'card-tag', 'card-relate', 'card-bell', 'tag-archive', ...Object.keys(REQUEST_BRIEFS)]);
 
 // docs/adr/2026-11-17-2330-a-pure-tap-plan-decides-what-an-owner-tap-does.md
 // What the owner's tap of kind, with its event's data body, does to card (the built card its key names, or undefined
@@ -2302,6 +2304,11 @@ export function tapPlan(card, kind, body) {
     const tag = String(body.tag || '');
     return [{ do: 'record', nothing: `${card?.ref || key} ${body.on ? 'already carries' : 'doesn’t carry'} the tag ${tag}, so nothing changed.`, stops: false }];
   }
+  // docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md: a bell (card-bell {key, on}) is
+  // written to the item file with the owner's line, and wakes no session.
+  if (kind === 'card-bell') {
+    return [{ do: 'record', nothing: `${card?.ref || key} ${body.on ? 'already has its bell or is done' : 'has no bell or reminder'}, so nothing changed.`, stops: false }];
+  }
   // docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md: a link's pick or × in the open
   // card's Related to row (card-relate {key, other, on}) is written to the item files with a line in both threads, and
   // wakes no session.
@@ -2350,6 +2357,39 @@ export function ownerActions(built) {
     return { tag: `topic-${line.topic}`, kind: ACTION_KIND.questions, title: line.text, body: questions[0]?.question || line.title, url: line.url, questions };
   });
   return [...cards, ...topics, ...reviewActions(built.reviews)];
+}
+
+// docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md
+// A task's reminder that is the owner's bell (remind_when every-stage, cards.mjs bellItem).
+export const EVERY_STAGE = 'every-stage';
+// The pushes of the belled tasks (remindWhen every-stage, the owner's bell) at a push check, for the built board's items, its
+// actions (ownerActions) and seen, each belled task's stage at the last check ({<key>: {lane, action, questions}}: its
+// lane, its action's kind or null, and its open questions' ids). A task newly belled is recorded with no push. At most
+// one push a task a check, for the change that asks most of the owner: Done, as "landed" with a commit, else "is done",
+// on its first check too, marked last, the bell's end; a question that wasn't open, as its words; an action that
+// wasn't, or of another kind, as "needs you"; a lane move. An action or question ending is no stage. A done task leaves
+// seen. → {pushes: [{key, title, body, url, last?}], seen}, url relative to the site root.
+export function bellStep(items, actions, seen) {
+  const pushes = [];
+  const next = {};
+  for (const it of items.filter((i) => i.remindWhen === EVERY_STAGE)) {
+    const card = `#selectedCard=${encodeURIComponent(it.key)}`;
+    if (it.lane === 'done') {
+      pushes.push({ key: it.key, title: `${it.ref} ${it.commit ? 'landed' : 'is done'}`, body: it.title, url: card, last: true });
+      continue;
+    }
+    const action = actions.find((a) => a.tag === pushTag(it.key));
+    const stage = { lane: it.lane, action: action?.kind ?? null, questions: (action?.questions || []).map((q) => q.id) };
+    next[it.key] = stage;
+    const was = seen[it.key];
+    if (!was) continue;
+    const asked = (action?.questions || []).filter((q) => !was.questions.includes(q.id)).at(-1);
+    const push = asked ? { title: `${it.ref} asked a question`, body: asked.question, url: action.url }
+      : action && action.kind !== was.action ? { title: `${it.ref} needs you`, body: `${action.title.slice(`${it.ref}: `.length)} · ${it.title}`, url: action.url }
+        : it.lane !== was.lane ? { title: `${it.ref} moved to ${LANES[it.lane]}`, body: it.title, url: card } : null;
+    if (push) pushes.push({ key: it.key, ...push });
+  }
+  return { pushes, seen: next };
 }
 
 // docs/adr/2026-11-15-1300-a-boards-needs-you-pushes-are-one-live-row.md

@@ -3044,14 +3044,14 @@ test("a card's chain is its links walked both ways, depth first, stopping on a r
   assert.deepEqual([ui.hasLinks(cards[6]), ui.hasLinks(cards[4])], [false, true]);
 });
 
-test("a card's menu holds Bump or Unbump when it can be bumped and Tag… on every card, then Linked · 1 hop and Linked · all when it has links", () => {
+test("a card's menu holds Bump or Unbump when it can be bumped, Tag… on every card and Notify me on one not Done, then Linked · 1 hop and Linked · all when it has links", () => {
   const items = (html) => [...html.matchAll(/<button type="button" role="menuitem"([^>]*)>.*?<span>([^<]+)<\/span><\/button>/g)].map((m) => [m[2], m[1].trim()]);
   const related = [{ key: 'w/B6', ref: 'ENG-2' }];
   assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, related })), [
-    ['Bump', 'data-card-bump="w/B5"'], ['Tag…', 'data-card-tag="w/B5"'], ['Linked · 1 hop', 'data-linked="w/B5" data-depth="hop"'], ['Linked · all', 'data-linked="w/B5" data-depth="all"']]);
-  assert.match(ui.cardMenu({ ...workCard, bumpable: true, related }), /Tag…<\/span><\/button><div class="sep" role="separator"><\/div><button/);
-  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, bumpedAt: ago(1) })), [['Unbump', 'data-card-bump="w/B5" data-bumped'], ['Tag…', 'data-card-tag="w/B5"']]);
-  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: false, related })).map(([label]) => label), ['Tag…', 'Linked · 1 hop', 'Linked · all']);
+    ['Bump', 'data-card-bump="w/B5"'], ['Tag…', 'data-card-tag="w/B5"'], ['Notify me', 'data-card-bell="w/B5"'], ['Linked · 1 hop', 'data-linked="w/B5" data-depth="hop"'], ['Linked · all', 'data-linked="w/B5" data-depth="all"']]);
+  assert.match(ui.cardMenu({ ...workCard, bumpable: true, related }), /Notify me<\/span><\/button><div class="sep" role="separator"><\/div><button/);
+  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, bumpedAt: ago(1) })), [['Unbump', 'data-card-bump="w/B5" data-bumped'], ['Tag…', 'data-card-tag="w/B5"'], ['Notify me', 'data-card-bell="w/B5"']]);
+  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: false, related })).map(([label]) => label), ['Tag…', 'Notify me', 'Linked · 1 hop', 'Linked · all']);
   assert.deepEqual(items(ui.cardMenu({ ...workCard, lane: 'done', bumpable: false })).map(([label]) => label), ['Tag…'], 'a Done card with no links has Tag… alone');
   assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: false }), /class="sep"/);
 });
@@ -3156,6 +3156,27 @@ test("a Tag… pick in the outbox draws on its card at once, put on or taken off
   const drawn = ui.tapped(items, [tap('w/A1', 'perf', true), tap('w/A1', 'PHONE', false), tap('w/B1', 'docs', true), tap('w/B1', 'x', true, { failed: true })]);
   assert.deepEqual(plain(drawn.map((i) => i.tags)), [['perf'], ['docs']]);
   assert.equal(drawn[0].sending, undefined, 'a tag pick disables no button');
+});
+
+// docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md
+test("a card with a reminder draws a lit bell on its row before the \"…\", labelled with an orchestrator's one event, and its menu reads Stop notifying me", () => {
+  const actions = (it) => workLines({ ...workCard, bumpable: false, ...it }).split('<div class="line1')[0];
+  assert.doesNotMatch(actions({}), /card-bell/, 'no reminder, no bell');
+  const bell = actions({ remindWhen: 'every-stage' });
+  assert.match(bell, /<button type="button" class="ghost icon card-bell" data-card-bell="w\/B5" data-on aria-label="Bell on · tap to cancel" title="Bell on · tap to cancel"><span class="it it-current"><span class="it-i it-bell"/);
+  assert.match(bell, /card-bell[^]*data-card-menu/, 'the bell sits before the "…"');
+  assert.doesNotMatch(bell, /card-bell-label/, "the owner's bell, which pushes at every stage, has no label");
+  assert.match(actions({ remindWhen: 'done' }), /title="Bell on · when it&#39;s done · tap to cancel">.*<span class="card-bell-label">when it&#39;s done<\/span><\/button>/);
+  assert.match(actions({ remindWhen: 'needs-you' }), /<span class="card-bell-label">when it needs you<\/span>/);
+  const menu = ui.cardMenu({ ...workCard, bumpable: false, remindWhen: 'done' });
+  assert.match(menu, /<button type="button" role="menuitemcheckbox" aria-checked="true" data-card-bell="w\/B5" data-on>.*<span>Stop notifying me<\/span><\/button>/);
+});
+
+test("a bell in the outbox draws its card's bell lit or gone at once, disabling nothing", () => {
+  const items = [{ ...workCard, remindWhen: null }, { ...workCard, key: 'w/B6', remindWhen: 'done' }];
+  const drawn = ui.tapped(items, [{ key: 'w/B5', kind: 'card-bell', fields: { on: true } }, { key: 'w/B6', kind: 'card-bell', fields: { on: false } }]);
+  assert.deepEqual(drawn.map((i) => [i.remindWhen, i.sending]), [['every-stage', undefined], [null, undefined]]);
+  assert.deepEqual(ui.tapped(items, [{ key: 'w/B5', kind: 'card-bell', fields: { on: true }, failed: true }]).map((i) => i.remindWhen), [null, 'done'], 'a failed bell draws the board as it is');
 });
 
 test("a menu drawn while the board is narrowed to the card's chain marks the matching Linked item on, whose tap ends it", () => {

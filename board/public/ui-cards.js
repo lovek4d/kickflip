@@ -525,8 +525,28 @@
   // The "…" at a card's top right, on every work card, opening its menu (cardMenu), filled orange while the card is bumped.
   const DOTS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
   const moreButton = (it) => `<button type="button" class="ghost icon card-more${it.bumpedAt ? ' bumped' : ''}" data-card-menu="${esc(it.key)}" aria-haspopup="menu" aria-expanded="false" aria-label="More" title="${it.bumpedAt ? 'Bumped · More' : 'More'}">${DOTS}</button>`;
-  // A card's menu (app-cards.js opens it): Bump or Unbump when it can be bumped, and Tag…, then Linked · 1 hop and Linked · all
-  // when it has links, which narrow the board to its chain (app-search.js showLinked).
+  // docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md
+  // A task's reminder (its remindWhen) as a lit bell on its card row, before the "…": blue and filled, labelled with the
+  // one event an orchestrator's reminder waits on, bare for the owner's bell (every-stage), which pushes at every stage. Its
+  // tap (app-cards.js) sends card-bell {key, on: false}, taking off whichever it is. A card with none draws no bell.
+  const BELL = globalThis.BoardUI.iconText('bell', 'current', '');
+  const BELL_EVENTS = { done: "when it's done", 'needs-you': 'when it needs you' };
+  const bellButton = (it) => {
+    if (!it.remindWhen) return '';
+    const label = BELL_EVENTS[it.remindWhen];
+    const words = `Bell on${label ? ` · ${label}` : ''} · tap to cancel`;
+    return `<button type="button" class="ghost icon card-bell" data-card-bell="${esc(it.key)}" data-on aria-label="${esc(words)}" title="${esc(words)}">${BELL}${label ? `<span class="card-bell-label">${esc(label)}</span>` : ''}</button>`;
+  };
+  // The menu's Notify me sets the owner's bell on a card not Done; on a card with a reminder it reads checked, Stop
+  // notifying me, and takes it off as the lit bell does.
+  const bellItem = (it) => {
+    if (it.lane === 'done' && !it.remindWhen) return '';
+    const on = Boolean(it.remindWhen);
+    return `<button type="button" role="${on ? 'menuitemcheckbox' : 'menuitem'}"${on ? ' aria-checked="true"' : ''} data-card-bell="${esc(it.key)}"${on ? ' data-on' : ''}>${BELL}<span>${on ? 'Stop notifying me' : 'Notify me'}</span></button>`;
+  };
+  // A card's menu (app-cards.js opens it): Bump or Unbump when it can be bumped, Tag…, and Notify me or Stop notifying me
+  // (bellItem), then Linked · 1 hop and Linked · all when it has links, which narrow the board to its chain
+  // (app-search.js showLinked).
   const LINK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
   // While the board is narrowed to this card's chain at that depth (narrowed is app-search.js linkedTo), the item reads on
   // and its tap ends the narrowing, as Unbump undoes Bump.
@@ -539,10 +559,10 @@
     const bump = it.bumpable ? cardBumpItem(it.key, Boolean(it.bumpedAt), it.sending?.includes('bump')) : '';
     const tag = `<button type="button" role="menuitem" data-card-tag="${esc(it.key)}">${TAG_ICON}<span>Tag…</span></button>`;
     const linked = hasLinks(it) ? linkedItem(it.key, 'hop', 'Linked · 1 hop', narrowed) + linkedItem(it.key, 'all', 'Linked · all', narrowed) : '';
-    return [bump + tag, linked].filter(Boolean).join('<div class="sep" role="separator"></div>');
+    return [bump + tag + bellItem(it), linked].filter(Boolean).join('<div class="sep" role="separator"></div>');
   }
   function cardActions(it) {
-    const buttons = ownerNext(it) + moreButton(it);
+    const buttons = ownerNext(it) + bellButton(it) + moreButton(it);
     return `<div class="ask-actions">${buttons}</div>`;
   }
 

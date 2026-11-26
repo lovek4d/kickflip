@@ -2275,7 +2275,7 @@ test("a thread-file line a button wrote is a request line carrying its command k
   const linked = threadOf('w/A1', { lines: [{ ts: '2026-11-06T10:00:00Z', who: 'claude', text: 'Related to', command: 'related', card: 'w/A2' }], cards });
   assert.deepEqual(linked.map((m) => [m.text, m.words, m.link, m.card, m.mark]), [['Related to #12', 'Related to', '#selectedCard=w%2FA2', 'w/A2', 'Related to']]);
   assert.deepEqual(Object.keys(COMMANDS), ['prototype', 'grill', 'visual', 'reviewer', 'prototype-started', 'grill-started', 'visual-started', 'reviewer-started', 'reask', 'hold', 'resume', 'done', 'reopened', 'cancelled', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of', 'filed', 'created', 'created-from', 'blocked-by', 'unblocks',
-    'bumped', 'unbumped', 'merge', 'served', 'killed', 'script-ran', 'script-declined', 'tagged', 'untagged']);
+    'bumped', 'unbumped', 'merge', 'served', 'killed', 'script-ran', 'script-declined', 'tagged', 'untagged', 'belled', 'unbelled']);
 });
 
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
@@ -3495,7 +3495,7 @@ test("tapPlan records a planner request, then clears the card's owner mark and o
 test("tapPlan moves a bumped card's queued lands after its event, then writes the owner's line", () => {
   assert.deepEqual(tapPlan(tapCard(), 'card-bump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: true }, { do: 'line', command: 'bumped' }]);
   assert.deepEqual(tapPlan(tapCard(), 'card-unbump', { key: 'w/A1' }), [EVENT, { do: 'moveLand', first: false }, { do: 'line', command: 'unbumped' }]);
-  assert.deepEqual([...TAP_KINDS].sort(), ['card-build', 'card-bump', 'card-cancel', 'card-done', 'card-hold', 'card-merge', 'card-relate', 'card-reopen', 'card-tag', 'card-unbump', 'grill-more', 'item-message', 'prototype-request', 'review-request', 'tag-archive', 'visual-request']);
+  assert.deepEqual([...TAP_KINDS].sort(), ['card-bell', 'card-build', 'card-bump', 'card-cancel', 'card-done', 'card-hold', 'card-merge', 'card-relate', 'card-reopen', 'card-tag', 'card-unbump', 'grill-more', 'item-message', 'prototype-request', 'review-request', 'tag-archive', 'visual-request']);
 });
 
 test("a built card is landing while its own newest status line is the finish step's landing line", () => {

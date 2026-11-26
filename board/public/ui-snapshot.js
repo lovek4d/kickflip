@@ -109,12 +109,16 @@
     // disables nothing either; both cards draw with the link made or gone at once, as a link shows on both.
     const relinks = new Map();
     const relink = (key, other, on) => relinks.set(key, [...(relinks.get(key) || []), { other, on }]);
+    // docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md: a bell (card-bell) disables
+    // nothing; its card draws with the bell lit or gone at once.
+    const bells = new Map();
     // A card with a failed send in the outbox carries notSent, red on its card (ui-cards.js timeLine).
     const failed = new Set();
     for (const m of outbox) {
       const key = m.key ?? m.fields?.key;
       if (m.failed && key) failed.add(key);
       if (m.kind === 'card-tag' && !m.failed) picks.set(key, [...(picks.get(key) || []), m.fields]);
+      if (m.kind === 'card-bell' && !m.failed) bells.set(key, m.fields.on ? 'every-stage' : null);
       if (m.kind === 'card-relate' && !m.failed) {
         relink(key, m.fields.other, m.fields.on);
         relink(m.fields.other, key, m.fields.on);
@@ -123,7 +127,7 @@
       if (!act) continue;
       sending.set(key, [...new Set([...(sending.get(key) || []), act])]);
     }
-    if (!sending.size && !picks.size && !relinks.size && !failed.size) return items;
+    if (!sending.size && !picks.size && !relinks.size && !bells.size && !failed.size) return items;
     const { BUTTON } = globalThis.BoardUI;
     const resolves = { finish: BUTTON.done, build: BUTTON.implement, merge: BUTTON.merge };
     const same = (a, b) => a.toLowerCase() === b.toLowerCase();
@@ -139,8 +143,8 @@
       const acts = sending.get(it.key);
       const tags = picks.get(it.key)?.reduce(picked, it.tags || []);
       const related = relinks.get(it.key)?.reduce(linked, it.related || []);
-      const drawn = { ...(tags ? { tags } : {}), ...(related ? { related } : {}) };
-      if (!acts) return tags || related ? { ...it, ...drawn } : it;
+      const drawn = { ...(tags ? { tags } : {}), ...(related ? { related } : {}), ...(bells.has(it.key) ? { remindWhen: bells.get(it.key) } : {}) };
+      if (!acts) return Object.keys(drawn).length ? { ...it, ...drawn } : it;
       const clears = it.resolvedBy && acts.some((act) => resolves[act] === it.resolvedBy);
       return { ...it, ...drawn, sending: acts, ...(acts.includes('merge') ? { merging: true } : {}), ...(clears ? { action: null, resolvedBy: null } : {}) };
     });

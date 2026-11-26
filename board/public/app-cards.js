@@ -382,7 +382,7 @@ BoardView.part((B) => {
   // what counts, not the toggle.
   B.on(B.root, 'click', (ev) => {
     const card = ev.target.closest?.('details.item > summary')?.parentNode;
-    if (!card || ev.target.closest('button[data-card-menu]')) return;
+    if (!card || ev.target.closest('button[data-card-menu], button[data-card-bell]')) return;
     if (card.open) { B.leaveCardQuestions(card.dataset.key); B.leaveCardNotes(card.dataset.key); return; }
     B.select(card.dataset.key, { board: false });
     B.followCardNotes(card.dataset.key, B.followCardQuestions(card.dataset.key));
@@ -657,6 +657,16 @@ BoardView.part((B) => {
     ev.preventDefault();
     const key = b.dataset.cardBump;
     B.enqueue(key, { kind: b.hasAttribute('data-bumped') ? 'card-unbump' : 'card-bump' });
+  });
+
+  // docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md
+  // A card's Notify me sets its bell, and its lit bell or Stop notifying me takes its reminder off (data-on), with no
+  // confirm, through the card's outbox as Bump does; the card draws its bell lit or gone at once (ui-snapshot.js tapped).
+  B.on(B.root, 'click', (ev) => {
+    const b = ev.target.closest('button[data-card-bell]');
+    if (!b) return;
+    ev.preventDefault();
+    B.enqueue(b.dataset.cardBell, { kind: 'card-bell', fields: { on: !b.hasAttribute('data-on') } });
   });
 
   B.on(B.root, 'click', (ev) => {

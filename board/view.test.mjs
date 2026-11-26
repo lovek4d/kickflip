@@ -9454,20 +9454,20 @@ function linkedOnDom(opts = {}) {
   return { ...b, menu, more, items, open, choose, banner };
 }
 
-test('a card\'s "…" opens its menu: Bump or Unbump when it can be bumped, Tag… on every card, Linked · 1 hop and Linked · all when it has links; a tap elsewhere or Esc closes it', async () => {
+test('a card\'s "…" opens its menu: Bump or Unbump when it can be bumped, Tag… on every card, Notify me on one not Done, Linked · 1 hop and Linked · all when it has links; a tap elsewhere or Esc closes it', async () => {
   const b = linkedOnDom();
   await b.settle();
   assert.equal(b.items(), null);
   await b.open('T-601');
-  assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded'), b.menu().dataset.key], [['Bump', 'Tag…', 'Linked · 1 hop', 'Linked · all'], 'true', 'w/T-601']);
+  assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded'), b.menu().dataset.key], [['Bump', 'Tag…', 'Notify me', 'Linked · 1 hop', 'Linked · all'], 'true', 'w/T-601']);
   await b.open('T-601');
   assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded')], [null, 'false'], 'the "…" again closes it');
   await b.open('T-612');
-  assert.deepEqual([b.items(), b.more('T-612').classList.contains('bumped')], [['Unbump', 'Tag…'], true]);
+  assert.deepEqual([b.items(), b.more('T-612').classList.contains('bumped')], [['Unbump', 'Tag…', 'Notify me'], true]);
   await b.open('T-598');
   assert.deepEqual(b.items(), ['Tag…', 'Linked · 1 hop', 'Linked · all'], 'Done: not bumpable');
   await b.open('T-33');
-  assert.deepEqual(b.items(), ['Tag…'], 'neither bumpable nor linked: Tag… alone');
+  assert.deepEqual(b.items(), ['Tag…', 'Notify me'], 'neither bumpable nor linked: Tag… and Notify me');
   b.page.fire(b.doc, 'click', { target: b.root.querySelector('#lanes') });
   await b.settle();
   assert.equal(b.items(), null);

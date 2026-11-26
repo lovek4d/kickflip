@@ -348,6 +348,11 @@ a.hub { display: inline-flex; flex: none; }
 .ask-actions .icon.bumped { color: var(--color-notice); opacity: 1; }
 .ask-actions .icon.bumped svg { fill: currentColor; }
 .ask-actions .icon.owner-done { color: var(--color-notice); }
+/* docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md: a lit bell is info for the owner,
+   blue and filled; an orchestrator's reminder names its one event beside it. */
+.ask-actions .icon.card-bell { color: var(--color-info); display: inline-flex; align-items: center; gap: 4px; }
+.ask-actions .icon.card-bell .it-i svg { width: 18px; height: 18px; fill: currentColor; }
+.card-bell-label { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .ask-actions .icon.card-more[aria-expanded="true"] { background: var(--chip); color: var(--text); }
 /* A work card's "…" always shows on touch screens; with a hover pointer it shows only while the header is hovered,
    the card is bumped or its menu is open */
@@ -369,6 +374,7 @@ a.hub { display: inline-flex; flex: none; }
 .card-menu button:hover, .card-menu button:focus-visible { background: var(--chip); }
 .card-menu button svg { flex: none; width: 16px; height: 16px; color: var(--muted); }
 .card-menu button[data-bumped] svg, .card-menu button[data-on] svg { color: var(--color-notice); fill: currentColor; }
+.card-menu button[data-card-bell][data-on] svg { color: var(--color-info); }
 .card-menu .sep { height: 1px; margin: 3px 4px; background: var(--line); }
 /* The Tag… picker (app-cards.js), a card menu with a field over the board's tags: a tick on each the card carries, its
    count of cards at the right. */

@@ -173,6 +173,9 @@
 //                                card-tag {key, tag, on} is a Tag… pick, which puts the tag on the card or takes it off
 //                                in its item file with the owner's Tagged or Untagged line and records no event; one
 //                                that changes nothing or names no valid tag → 400 {error} (cards.mjs tagItem).
+//                                card-bell {key, on} is a card's Notify me (on) or its lit bell's tap, which sets a
+//                                bell as the task's reminder or takes off the reminder it has, with the owner's Bell on
+//                                or Bell off line and no event; one that changes nothing → 400 {error} (cards.mjs bellItem).
 //                                card-relate {key, other, on} is a pick in the open card's Related to search (on) or a
 //                                link's ×, which links the two cards or unlinks them, whichever stores the link, with the
 //                                owner's Related to or Unrelated from line in both threads and no event; one that changes
@@ -374,7 +377,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { REQUEST_KINDS, TAP_KINDS, threadNames, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, bumpIn, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, pushTag, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { REQUEST_KINDS, TAP_KINDS, threadNames, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, bumpIn, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, pushTag, EVERY_STAGE, bellStep, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { alertsOf, localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -1789,7 +1792,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // snooze and the weekend don't hold it, under reminder-<key>; needs-you reads as its action does and lands where the
   // owner answers. A needs-you reminder on a task that closed ends with no push.
   async function pushReminders(items, actions) {
-    for (const it of items.filter((i) => i.remindWhen)) {
+    await pushBells(items, actions);
+    for (const it of items.filter((i) => i.remindWhen && i.remindWhen !== EVERY_STAGE)) {
       const action = actions.find((a) => a.tag === pushTag(it.key));
       const done = it.lane === 'done';
       if (!done && !(it.remindWhen === 'needs-you' && action)) continue;
@@ -1800,6 +1804,22 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       await sendOwnPush({ kind: 'reminder', title: push.title, body: push.body, url: `/${route}/${push.url}`, tag: `reminder-${it.key}`, urgent: true },
         { key: it.key, reason: it.remindWhen === 'done' ? 'The owner asked to know when it is done, and it is.' : 'The owner asked to know when it needs them, and it does.', inputs: { when: it.remindWhen } });
     }
+  }
+  // docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md
+  // The pushes of the tasks the owner's bell is on (domain.mjs bellStep), diffed against data/bell-stages.json, each
+  // belled task's stage at the last check: each pushed as kind reminder, urgent as every reminder is, under
+  // reminder-<key>, so a newer stage replaces an older one on the phone. A done task's push is its bell's last: the
+  // bell is cleared first (cards.mjs endReminder), with its Reminder sent line.
+  async function pushBells(items, actions) {
+    const file = path.join(data, 'bell-stages.json');
+    const seen = await readJSON(file, {});
+    const step = bellStep(items, actions, seen);
+    for (const push of step.pushes) {
+      if (push.last) await endReminder(here, push.key, { sent: true });
+      await sendOwnPush({ kind: 'reminder', title: push.title, body: push.body, url: `/${route}/${push.url}`, tag: `reminder-${push.key}`, urgent: true },
+        { key: push.key, reason: "The owner's bell is on this task, and its stage changed.", inputs: { when: EVERY_STAGE, was: seen[push.key] ?? null } });
+    }
+    if (JSON.stringify(step.seen) !== JSON.stringify(seen)) await writeJSON(file, step.seen, { told: false });
   }
   async function pushActions() {
     const file = path.join(data, 'action-pushes.json');

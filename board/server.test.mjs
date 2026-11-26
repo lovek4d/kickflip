@@ -2633,3 +2633,44 @@ test("a task's reminder pushes once through every hold when it needs the owner o
     await heard(ownerFile);
   }
 });
+
+// docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md
+test("the owner's bell on a task: one urgent push at each stage change, none while it stands, the last when it's done, and the lit bell's tap takes it off", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
+  const stored = (id) => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === id);
+  const before = pushes().length;
+  const bells = () => pushes().slice(before).filter((c) => flag(c, 'kind') === 'reminder').map((c) => [flag(c, 'tag'), flag(c, 'title'), flag(c, 'body'), c.includes('--urgent')]);
+  const card = (over = {}) => ({ id: 'WB', title: 'Ring the bell', lane: 'todo', ...stored('WB'), ...over });
+  try {
+    await putWave(JSON.stringify({ items: [{ id: 'WB', title: 'Ring the bell', lane: 'todo' }, { id: 'WX', title: 'No bell', lane: 'todo' }] }));
+    const [status, out] = await post({ kind: 'card-bell', key: 't/WB', on: true, sendId: 'bell-1' });
+    assert.equal(status, 200, out.error);
+    assert.equal(out.board.items.find((i) => i.id === 'WB').remindWhen, 'every-stage');
+    assert.deepEqual(await post({ kind: 'card-bell', key: 't/WB', on: true }), [400, { error: 'WB already has its bell or is done, so nothing changed.' }]);
+    await heard(path.join(site, 'data', 'items.json'));
+    assert.deepEqual(bells(), [], 'setting the bell pushes nothing');
+    await putWave(JSON.stringify({ items: [card({ lane: 'progress' }), { id: 'WX', title: 'No bell', lane: 'progress' }] }));
+    assert.deepEqual(bells(), [['reminder-t/WB', 'WB moved to In Progress', 'Ring the bell', true]], 'a lane move; the card with no bell pushes nothing');
+    await putWave(JSON.stringify({ items: [card(), { id: 'WX', title: 'No bell', lane: 'progress' }] }));
+    assert.equal(bells().length, 1, 'no push while its stage stands');
+    fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'wb1', topic: 'item:t/WB', question: 'Bell or chime?', options: [{ id: 'A', label: 'Bell' }] }] }));
+    await heard(ownerFile);
+    assert.deepEqual(bells().slice(1), [['reminder-t/WB', 'WB asked a question', 'Bell or chime?', true]]);
+    fs.writeFileSync(ownerFile, '{"items":[]}');
+    await heard(ownerFile);
+    await putWave(JSON.stringify({ items: [card({ lane: 'done', closed_at: '2026-11-26T10:00:00.000Z', landed_sha: 'abc1234' })] }));
+    assert.deepEqual(bells().slice(2), [['reminder-t/WB', 'WB landed', 'Ring the bell', true]]);
+    assert.equal('remind_when' in stored('WB'), false, "a done task's bell ends");
+    await putWave(JSON.stringify({ items: [{ id: 'WC', title: 'Cancel it', lane: 'progress', remind_when: 'every-stage' }] }));
+    const [off] = await post({ kind: 'card-bell', key: 't/WC', on: false, sendId: 'bell-2' });
+    assert.equal(off, 200);
+    assert.equal('remind_when' in stored('WC'), false);
+    await putWave(JSON.stringify({ items: [{ ...stored('WC'), lane: 'review' }] }));
+    assert.equal(bells().length, 3, 'a bell taken off pushes no more');
+  } finally {
+    fs.writeFileSync(ownerFile, '{"items":[]}');
+    await putWave(JSON.stringify({ items: [] }));
+    await heard(ownerFile);
+  }
+});

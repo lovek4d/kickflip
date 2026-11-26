@@ -70,7 +70,9 @@ export const HUB_LINES = {
   // ended with its task closed.
   'reminder-set': { tone: 'blue', mark: REMINDER, text: ({ when }) => `Reminder set: one push when ${REMIND_WORDS[when]}.`, longest: { when: 'needs-you' } },
   'reminder-cancelled': { tone: 'grey', mark: REMINDER, text: () => 'Reminder cancelled.' },
-  'reminder-sent': { tone: 'blue', mark: REMINDER, text: ({ when }) => `Reminder sent: ${REMIND_WORDS[when]}.`, longest: { when: 'needs-you' } },
+  // docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md: a bell ends with its task
+  // done, its last push sent.
+  'reminder-sent': { tone: 'blue', mark: REMINDER, text: ({ when }) => (when === 'every-stage' ? "Bell's last push sent: it's done." : `Reminder sent: ${REMIND_WORDS[when]}.`), longest: { when: 'every-stage' } },
   'reminder-dropped': { tone: 'grey', mark: REMINDER, text: () => 'Reminder dropped: it closed without needing you.' },
   'hold-ended': { tone: 'orange', mark: RESUMED, text: ({ at }) => `Unblocked: its block until ${at} ended.`, longest: { at: AT } },
   // No longer written: a blocked card is never ready, so none stays ready at its block's end. It stays so threads

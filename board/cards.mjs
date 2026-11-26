@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { squashBody, startTitleFault, subjectFault, withTicket } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { COMMANDS, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, threadOf, builds, filedFromOf, mergeBlockers, owesNext, pushTag, refOf, keyRef, threadNames, HELPER, implementAsk } from './domain.mjs';
+import { COMMANDS, EVERY_STAGE, LANES, MOVE, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, blockWordsOf, threadOf, builds, filedFromOf, mergeBlockers, owesNext, pushTag, refOf, keyRef, threadNames, HELPER, implementAsk } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { builderRepo } from './worktree.mjs';
 import { reviseQueued, pushKindError } from '../hub/push.mjs';
@@ -1312,6 +1312,18 @@ export async function remindItem(site, key, { when, cancel }) {
   await appendStatus(site, key, cancel ? 'reminder-cancelled' : 'reminder-set', cancel ? {} : { when });
   return cancel ? { cancelled: true } : { when };
 }
+// docs/adr/2026-11-26-2300-a-bell-on-a-card-pushes-at-every-stage-of-its-task.md
+// The owner's bell on card key (card-bell {key, on}): on sets its bell as its reminder, remind_when every-stage, replacing a
+// one-event one; off, the lit bell's tap, takes off whichever it has. Each is the owner's Bell on or Bell off line,
+// with the tap's sendId. A Done task takes no bell. → {on}, or null when nothing changed.
+export async function bellItem(site, key, on, { sendId } = {}) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  if (on ? item.remind_when === EVERY_STAGE || (await shownCard(site, key)).lane === 'done' : !item.remind_when) return null;
+  if (on) item.remind_when = EVERY_STAGE; else delete item.remind_when;
+  await writeJSON(source.file, itemFile);
+  await appendCommand(site, key, { who: 'love', command: on ? 'belled' : 'unbelled', sendId });
+  return { on };
+}
 // The end of card key's reminder, as board/server.mjs pushReminders finds it: cleared from its item, with a Reminder
 // line in its thread, sent when its push goes out (the line's `when`), else dropped, a needs-you reminder on a task that
 // closed. The board server clears it before it pushes, so a restart can't push it twice.
@@ -1404,7 +1416,8 @@ export function archiveTag(site, name, archived) {
 }
 
 // The owner's Block, Unblock, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}),
-// a Tag… pick (card-tag {key, tag, on}, tagItem) or a link's pick or × (card-relate {key, other, on}, relateItem),
+// a Tag… pick (card-tag {key, tag, on}, tagItem), a link's pick or × (card-relate {key, other, on}, relateItem) or a
+// bell (card-bell {key, on}, bellItem),
 // recorded in the item file as the board server takes it, with a thread line; a Done closes the card and unblocks blocked cards as item set --done does
 // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). An Unblock that leaves nothing
 // blocking the card ends its block (blockEnded), unless blockEnds is false: the owner's Implement, whose build is what the
@@ -1413,6 +1426,7 @@ export async function recordOwnerTap(site, kind, data, { blockEnds = true } = {}
   const key = String(data?.key || '');
   if (kind === 'tag-archive') return archiveTag(site, data.tag, Boolean(data.on));
   if (kind === 'card-tag') return tagItem(site, key, { [data.on ? 'tag' : 'untag']: [String(data.tag ?? '')], who: 'love', sendId: data.sendId });
+  if (kind === 'card-bell') return bellItem(site, key, Boolean(data.on), { sendId: data.sendId });
   if (kind === 'card-relate') return relateItem(site, key, String(data.other ?? ''), Boolean(data.on), { sendId: data.sendId });
   const { file: slug, id } = parseKey(key);
   const { source, itemFile } = await loadItemFile(site, slug);
