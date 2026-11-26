@@ -112,7 +112,7 @@ BoardView.part((B) => {
   }, { passive: true });
 
   // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
-  // A card's Linked · 1 hop or Linked · all (its "…" menu, app-cards.js) narrows the lanes to the card's chain
+  // A card's Linked (its "…" menu, app-cards.js) narrows the lanes to the card's chain
   // (ui-cards.js linkedKeys) over every card the page holds: the board's, Done's archive pages and the search's archive
   // matches. Choosing again on any card re-roots it there. The banner's × or Esc (once the search bar is closed) ends
   // it. Like the words, it lives in memory only.
@@ -121,10 +121,10 @@ BoardView.part((B) => {
   function linkedKeys() {
     if (!linked) return null;
     const byKey = new Map([...state.found.cards, ...state.archived.cards, ...state.board.items].map((c) => [c.key, c]));
-    return BoardUI.linkedKeys(byKey, linked.key, linked.depth);
+    return BoardUI.linkedKeys(byKey, linked.key);
   }
-  function showLinked(key, depth) {
-    linked = { key, depth };
+  function showLinked(key) {
+    linked = { key };
     draw();
   }
   function endLinked() {

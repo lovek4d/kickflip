@@ -9454,18 +9454,18 @@ function linkedOnDom(opts = {}) {
   return { ...b, menu, more, items, open, choose, banner };
 }
 
-test('a card\'s "…" opens its menu: Bump or Unbump when it can be bumped, Tag… on every card, Notify me on one not Done, Linked · 1 hop and Linked · all when it has links; a tap elsewhere or Esc closes it', async () => {
+test('a card\'s "…" opens its menu: Bump or Unbump when it can be bumped, Tag… on every card, Notify me on one not Done, Linked when it has links; a tap elsewhere or Esc closes it', async () => {
   const b = linkedOnDom();
   await b.settle();
   assert.equal(b.items(), null);
   await b.open('T-601');
-  assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded'), b.menu().dataset.key], [['Bump', 'Tag…', 'Notify me', 'Linked · 1 hop', 'Linked · all'], 'true', 'w/T-601']);
+  assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded'), b.menu().dataset.key], [['Bump', 'Tag…', 'Notify me', 'Linked'], 'true', 'w/T-601']);
   await b.open('T-601');
   assert.deepEqual([b.items(), b.more('T-601').getAttribute('aria-expanded')], [null, 'false'], 'the "…" again closes it');
   await b.open('T-612');
   assert.deepEqual([b.items(), b.more('T-612').classList.contains('bumped')], [['Unbump', 'Tag…', 'Notify me'], true]);
   await b.open('T-598');
-  assert.deepEqual(b.items(), ['Tag…', 'Linked · 1 hop', 'Linked · all'], 'Done: not bumpable');
+  assert.deepEqual(b.items(), ['Tag…', 'Linked'], 'Done: not bumpable');
   await b.open('T-33');
   assert.deepEqual(b.items(), ['Tag…', 'Notify me'], 'neither bumpable nor linked: Tag… and Notify me');
   b.page.fire(b.doc, 'click', { target: b.root.querySelector('#lanes') });
@@ -9480,33 +9480,29 @@ test('a card\'s "…" opens its menu: Bump or Unbump when it can be bumped, Tag�
 test("a filter and a chain together show two stacked banners, the filter's under the chain's, each with its own ×", async () => {
   const b = linkedOnDom();
   await b.settle();
-  await b.choose('T-594', 'Linked · 1 hop');
+  await b.choose('T-594', 'Linked');
   b.view.B.showOnly(['ready']);
   await b.settle();
   const els = b.root.querySelectorAll('#linkedBanner, #filterBanner');
   assert.deepEqual(els.map((el) => [el.id, el.hidden]), [['linkedBanner', false], ['filterBanner', false]]);
   b.page.fire(b.root, 'click', { target: b.root.querySelector('#filterBanner [data-filter-end]') });
   await b.settle();
-  assert.deepEqual([b.banner(), b.root.querySelector('#filterBanner').hidden], ['Linked to T-594 · 1 hop', true], 'ending the filter leaves the chain');
+  assert.deepEqual([b.banner(), b.root.querySelector('#filterBanner').hidden], ['Linked to T-594', true], 'ending the filter leaves the chain');
   b.view.unmount();
 });
 
-test('Linked · 1 hop shows the card and its direct links, Linked · all the whole chain: a banner reads Linked to the card and the depth, lanes read x of y, a lane with none of the chain and Auto Review hide, and choosing again on a card in the chain re-roots', async () => {
+test('Linked shows the card and its direct links only: a banner reads Linked to the card, lanes read x of y, a lane with none of the chain and Auto Review hide, and choosing again on a card in the chain re-roots', async () => {
   const b = linkedOnDom();
   await b.settle();
-  await b.choose('T-594', 'Linked · 1 hop');
-  assert.deepEqual([b.banner(), b.items()], ['Linked to T-594 · 1 hop', null]);
+  await b.choose('T-594', 'Linked');
+  assert.deepEqual([b.banner(), b.items()], ['Linked to T-594', null]);
   assert.deepEqual(b.shown(), ['w/n1', 'w/T-600', 'w/T-601', 'w/T-594', 'w/T-598']);
   assert.deepEqual(b.counts(), [['new', '1'], ['progress', '1 of 1'], ['todo', '1 of 3'], ['done', '2 of 3']]);
   assert.equal(b.lane('done').open, true, 'a folded lane holding the chain opens');
   assert.deepEqual(b.root.querySelectorAll('details.item.linked-root').map((el) => el.dataset.key), ['w/T-594']);
 
-  await b.choose('T-594', 'Linked · all');
-  assert.equal(b.banner(), 'Linked to T-594 · all');
-  assert.deepEqual(b.shown(), ['w/n1', 'w/T-600', 'w/T-601', 'w/T-594', 'w/T-598', 'w/T-596'], 'related walked too');
-
-  await b.choose('T-600', 'Linked · 1 hop');
-  assert.equal(b.banner(), 'Linked to T-600 · 1 hop', 'the banner moves, never stacks');
+  await b.choose('T-600', 'Linked');
+  assert.equal(b.banner(), 'Linked to T-600', 'the banner moves, never stacks');
   assert.deepEqual(b.shown(), ['w/n1', 'w/T-600', 'w/T-601', 'w/T-594']);
   assert.equal(b.root.querySelectorAll('#linkedBanner .hold-banner').length, 1);
 
@@ -9521,14 +9517,14 @@ test('Linked · 1 hop shows the card and its direct links, Linked · all the who
 test('typed search narrows within the chain, the banner staying; Esc in the search ends the search, then Esc ends the chain', async () => {
   const b = linkedOnDom();
   await b.settle();
-  await b.choose('T-594', 'Linked · all');
+  await b.choose('T-594', 'Linked');
   await b.press('/');
   await b.type('polls');
   assert.deepEqual(b.shown(), ['w/T-601', 'w/T-598'], 'T-610 holds the word, not the link');
   assert.deepEqual(b.counts(), [['new', '0 of 1'], ['todo', '1 of 3'], ['done', '1 of 3']]);
-  assert.equal(b.banner(), 'Linked to T-594 · all');
+  assert.equal(b.banner(), 'Linked to T-594');
   await b.press('Escape', { target: b.field() });
-  assert.deepEqual([b.bar().hidden, b.banner()], [true, 'Linked to T-594 · all']);
+  assert.deepEqual([b.bar().hidden, b.banner()], [true, 'Linked to T-594']);
   await b.press('Escape');
   assert.equal(b.banner(), null);
   assert.equal(b.shown().length, 10);
@@ -9538,7 +9534,7 @@ test('typed search narrows within the chain, the banner staying; Esc in the sear
 test('a link to a card the chain hides asks to reset filters: yes ends the chain and opens the card', async () => {
   const b = linkedOnDom({ width: 1280, confirm: true });
   await b.settle();
-  await b.choose('T-594', 'Linked · 1 hop');
+  await b.choose('T-594', 'Linked');
   b.page.win.location.hash = '#selectedCard=w%2FT-610';
   b.page.fire(vm.runInContext('window', b.page.win), 'hashchange');
   await b.settle();
@@ -9737,10 +9733,10 @@ test('tapping a tag chip narrows every lane to that tag under its own banner, ca
 test('a tag banner stacks with the chain and the filter, all intersecting; each × ends only its own, and Esc ends the tag last', async () => {
   const b = taggedOnDom();
   await b.settle();
-  await b.choose('T-594', 'Linked · 1 hop');
+  await b.choose('T-594', 'Linked');
   b.page.fire(b.root, 'click', { target: b.chip('T-598', 'perf') });
   await b.settle();
-  assert.deepEqual([b.banner(), b.tagBanner()], ['Linked to T-594 · 1 hop', 'Tag: perf · 2 cards']);
+  assert.deepEqual([b.banner(), b.tagBanner()], ['Linked to T-594', 'Tag: perf · 2 cards']);
   assert.deepEqual(b.shown(), ['w/n1', 'w/T-598'], 'in the chain and tagged perf');
   b.page.fire(b.root, 'click', { target: b.chip('T-598', 'Phone') });
   await b.settle();

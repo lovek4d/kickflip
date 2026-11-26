@@ -375,7 +375,6 @@ a.hub { display: inline-flex; flex: none; }
 .card-menu button svg { flex: none; width: 16px; height: 16px; color: var(--muted); }
 .card-menu button[data-bumped] svg, .card-menu button[data-on] svg { color: var(--color-notice); fill: currentColor; }
 .card-menu button[data-card-bell][data-on] svg { color: var(--color-info); }
-.card-menu .sep { height: 1px; margin: 3px 4px; background: var(--line); }
 /* The Tag… picker (app-cards.js), a card menu with a field over the board's tags: a tick on each the card carries, its
    count of cards at the right. */
 .tag-picker { width: 330px; }

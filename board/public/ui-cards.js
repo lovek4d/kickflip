@@ -506,21 +506,11 @@
   // the cards it waits on (blockers) and the cards it blocks.
   const linksOf = (it) => [it.parent, ...(it.children || []), ...(it.related || []), ...(it.blockers || []), ...(it.blocks || [])].filter(Boolean).map((l) => l.key);
   const hasLinks = (it) => linksOf(it).length > 0;
-  // The keys of root's chain, root included: depth 'hop' its direct links, 'all' every card reached through links,
-  // walked depth first with a seen set that stops on a repeat. byKey maps a key to the card held; a link to a card not
-  // held is in the chain but not walked.
-  function linkedKeys(byKey, root, depth) {
-    const seen = new Set([root]);
-    const stack = [root];
-    while (stack.length) {
-      const card = byKey.get(stack.pop());
-      for (const key of card ? linksOf(card) : []) {
-        if (seen.has(key)) continue;
-        seen.add(key);
-        if (depth === 'all') stack.push(key);
-      }
-    }
-    return seen;
+  // The keys of root's chain, root included: its direct links, one hop. byKey maps a key to the card held; a link to a
+  // card not held is in the chain.
+  function linkedKeys(byKey, root) {
+    const card = byKey.get(root);
+    return new Set([root, ...(card ? linksOf(card) : [])]);
   }
   // The "…" at a card's top right, on every work card, opening its menu (cardMenu), filled orange while the card is bumped.
   const DOTS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
@@ -545,21 +535,19 @@
     return `<button type="button" role="${on ? 'menuitemcheckbox' : 'menuitem'}"${on ? ' aria-checked="true"' : ''} data-card-bell="${esc(it.key)}"${on ? ' data-on' : ''}>${BELL}<span>${on ? 'Stop notifying me' : 'Notify me'}</span></button>`;
   };
   // A card's menu (app-cards.js opens it): Bump or Unbump when it can be bumped, Tag…, and Notify me or Stop notifying me
-  // (bellItem), then Linked · 1 hop and Linked · all when it has links, which narrow the board to its chain
-  // (app-search.js showLinked).
+  // (bellItem), then Linked when it has links, which narrows the board to its chain (app-search.js showLinked).
   const LINK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
-  // While the board is narrowed to this card's chain at that depth (narrowed is app-search.js linkedTo), the item reads on
-  // and its tap ends the narrowing, as Unbump undoes Bump.
-  const linkedItem = (key, depth, label, narrowed) => {
-    const on = narrowed?.key === key && narrowed.depth === depth;
-    return `<button type="button" role="${on ? 'menuitemcheckbox' : 'menuitem'}"${on ? ' aria-checked="true"' : ''} data-linked="${esc(key)}" data-depth="${depth}"${on ? ' data-on' : ''}>${LINK}<span>${label}</span></button>`;
+  // While the board is narrowed to this card's chain (narrowed is app-search.js linkedTo), the item reads on and its
+  // tap ends the narrowing, as Unbump undoes Bump.
+  const linkedItem = (key, narrowed) => {
+    const on = narrowed?.key === key;
+    return `<button type="button" role="${on ? 'menuitemcheckbox' : 'menuitem'}"${on ? ' aria-checked="true"' : ''} data-linked="${esc(key)}"${on ? ' data-on' : ''}>${LINK}<span>Linked</span></button>`;
   };
   // Tag… is on every card's menu, Done included; it opens the Tag… picker (tagPicker).
   function cardMenu(it, narrowed = null) {
     const bump = it.bumpable ? cardBumpItem(it.key, Boolean(it.bumpedAt), it.sending?.includes('bump')) : '';
     const tag = `<button type="button" role="menuitem" data-card-tag="${esc(it.key)}">${TAG_ICON}<span>Tag…</span></button>`;
-    const linked = hasLinks(it) ? linkedItem(it.key, 'hop', 'Linked · 1 hop', narrowed) + linkedItem(it.key, 'all', 'Linked · all', narrowed) : '';
-    return [bump + tag + bellItem(it), linked].filter(Boolean).join('<div class="sep" role="separator"></div>');
+    return bump + tag + bellItem(it) + (hasLinks(it) ? linkedItem(it.key, narrowed) : '');
   }
   function cardActions(it) {
     const buttons = ownerNext(it) + bellButton(it) + moreButton(it);

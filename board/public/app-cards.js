@@ -520,7 +520,7 @@ BoardView.part((B) => {
     }
     const linked = ev.target.closest('#cardMenu button[data-linked]');
     if (linked?.hasAttribute('data-on')) B.endLinked();
-    else if (linked) B.showLinked(linked.dataset.linked, linked.dataset.depth);
+    else if (linked) B.showLinked(linked.dataset.linked);
     const tag = ev.target.closest('#cardMenu button[data-card-tag]');
     if (ev.target.closest('#cardMenu button[role^="menuitem"]')) closeCardMenu();
     if (tag) openTagPicker(tag.dataset.cardTag);

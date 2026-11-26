@@ -3022,7 +3022,7 @@ test("a card's top right holds one bare glyph that follows the card's action: Im
 });
 
 // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
-test("a card's chain is its links walked both ways, depth first, stopping on a repeat: 1 hop the direct links, all the whole chain", () => {
+test("a card's chain is its links walked both ways, one hop: the card and its direct links", () => {
   const link = (key) => ({ key, ref: key.slice(2) });
   const cards = [
     { key: 'w/P', children: [link('w/A'), link('w/B'), link('w/C')] },
@@ -3034,26 +3034,25 @@ test("a card's chain is its links walked both ways, depth first, stopping on a r
     { key: 'w/U' },
   ];
   const byKey = new Map(cards.map((c) => [c.key, c]));
-  const chain = (root, depth) => [...ui.linkedKeys(byKey, root, depth)].sort();
-  assert.deepEqual(chain('w/P', 'hop'), ['w/A', 'w/B', 'w/C', 'w/P']);
-  assert.deepEqual(chain('w/P', 'all'), ['w/A', 'w/B', 'w/C', 'w/F', 'w/GONE', 'w/P', 'w/R'], 'a link to a card not held is in the chain, not walked');
-  assert.deepEqual(chain('w/B', 'hop'), ['w/B', 'w/C', 'w/P'], 'blocks and the parent');
-  assert.deepEqual(chain('w/C', 'hop'), ['w/B', 'w/C', 'w/F', 'w/P'], 'blocked by, the parent and a follow-up');
-  assert.deepEqual(chain('w/F', 'all'), chain('w/P', 'all'), 'the same chain from any card in it');
-  assert.deepEqual(chain('w/U', 'all'), ['w/U']);
+  const chain = (root) => [...ui.linkedKeys(byKey, root)].sort();
+  assert.deepEqual(chain('w/P'), ['w/A', 'w/B', 'w/C', 'w/P']);
+  assert.deepEqual(chain('w/R'), ['w/A', 'w/GONE', 'w/R'], 'a link to a card not held is in the chain');
+  assert.deepEqual(chain('w/A'), ['w/A', 'w/P', 'w/R'], 'one hop: the parent and related, not their other links');
+  assert.deepEqual(chain('w/B'), ['w/B', 'w/C', 'w/P'], 'blocks and the parent');
+  assert.deepEqual(chain('w/C'), ['w/B', 'w/C', 'w/F', 'w/P'], 'blocked by, the parent and a follow-up');
+  assert.deepEqual(chain('w/U'), ['w/U']);
   assert.deepEqual([ui.hasLinks(cards[6]), ui.hasLinks(cards[4])], [false, true]);
 });
 
-test("a card's menu holds Bump or Unbump when it can be bumped, Tag… on every card and Notify me on one not Done, then Linked · 1 hop and Linked · all when it has links", () => {
+test("a card's menu holds Bump or Unbump when it can be bumped, Tag… on every card and Notify me on one not Done, then Linked when it has links, with no rule above it", () => {
   const items = (html) => [...html.matchAll(/<button type="button" role="menuitem"([^>]*)>.*?<span>([^<]+)<\/span><\/button>/g)].map((m) => [m[2], m[1].trim()]);
   const related = [{ key: 'w/B6', ref: 'ENG-2' }];
   assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, related })), [
-    ['Bump', 'data-card-bump="w/B5"'], ['Tag…', 'data-card-tag="w/B5"'], ['Notify me', 'data-card-bell="w/B5"'], ['Linked · 1 hop', 'data-linked="w/B5" data-depth="hop"'], ['Linked · all', 'data-linked="w/B5" data-depth="all"']]);
-  assert.match(ui.cardMenu({ ...workCard, bumpable: true, related }), /Notify me<\/span><\/button><div class="sep" role="separator"><\/div><button/);
+    ['Bump', 'data-card-bump="w/B5"'], ['Tag…', 'data-card-tag="w/B5"'], ['Notify me', 'data-card-bell="w/B5"'], ['Linked', 'data-linked="w/B5"']]);
   assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: true, bumpedAt: ago(1) })), [['Unbump', 'data-card-bump="w/B5" data-bumped'], ['Tag…', 'data-card-tag="w/B5"'], ['Notify me', 'data-card-bell="w/B5"']]);
-  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: false, related })).map(([label]) => label), ['Tag…', 'Notify me', 'Linked · 1 hop', 'Linked · all']);
+  assert.deepEqual(items(ui.cardMenu({ ...workCard, bumpable: false, related })).map(([label]) => label), ['Tag…', 'Notify me', 'Linked']);
   assert.deepEqual(items(ui.cardMenu({ ...workCard, lane: 'done', bumpable: false })).map(([label]) => label), ['Tag…'], 'a Done card with no links has Tag… alone');
-  assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: false }), /class="sep"/);
+  assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: true, related }), /class="sep"/);
 });
 
 // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md
@@ -3181,10 +3180,9 @@ test("a bell in the outbox draws its card's bell lit or gone at once, disabling 
 
 test("a menu drawn while the board is narrowed to the card's chain marks the matching Linked item on, whose tap ends it", () => {
   const related = [{ key: 'w/B6', ref: 'ENG-2' }];
-  const html = ui.cardMenu({ ...workCard, bumpable: false, related }, { key: 'w/B5', depth: 'hop' });
-  assert.match(html, /<button type="button" role="menuitemcheckbox" aria-checked="true" data-linked="w\/B5" data-depth="hop" data-on>/);
-  assert.match(html, /<button type="button" role="menuitem" data-linked="w\/B5" data-depth="all">/);
-  assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: false, related }, { key: 'w/B6', depth: 'hop' }), /aria-checked/);
+  const html = ui.cardMenu({ ...workCard, bumpable: false, related }, { key: 'w/B5' });
+  assert.match(html, /<button type="button" role="menuitemcheckbox" aria-checked="true" data-linked="w\/B5" data-on>/);
+  assert.doesNotMatch(ui.cardMenu({ ...workCard, bumpable: false, related }, { key: 'w/B6' }), /aria-checked/);
 });
 
 test("a card waiting on its owner step reads its code check under the Next, or that the check can't run", () => {

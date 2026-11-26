@@ -76,7 +76,7 @@ BoardView.part((B) => {
 
   // docs/adr/2026-11-17-1100-a-cards-menu-narrows-the-board-to-its-chain.md
   // The chain banner while a card's Linked narrows the board (app-search.js linkedTo): the hub's hold banner
-  // (hub.css .hold-banner), in blue as information, reading Linked to the card and the depth, its × ending it.
+  // (hub.css .hold-banner), in blue as information, reading Linked to the card, its × ending it.
   const X = svg('<path d="M18 6 6 18M6 6l12 12"/>', 16);
   const FILTER = svg('<path d="M22 3H2l8 9.46V19l4 2v-8.54z"/>', 16);
   function renderLinked() {
@@ -85,8 +85,7 @@ BoardView.part((B) => {
     el.hidden = !linked;
     if (!linked) { BoardUI.setHTML(el, ''); return; }
     const root = [...state.board.items, ...state.archived.cards, ...state.found.cards].find((c) => c.key === linked.key);
-    const depth = linked.depth === 'all' ? 'all' : '1 hop';
-    BoardUI.setHTML(el, `<div class="hold-banner linked" role="status">${BoardUI.LINK}<span>Linked to <b>${esc(root?.ref || linked.key)}</b> · ${depth}</span>`
+    BoardUI.setHTML(el, `<div class="hold-banner linked" role="status">${BoardUI.LINK}<span>Linked to <b>${esc(root?.ref || linked.key)}</b></span>`
       + `<button type="button" class="btn quiet" data-linked-end aria-label="Show every card" title="Show every card (Esc)">${X}</button></div>`);
   }
 
