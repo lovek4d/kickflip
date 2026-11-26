@@ -2596,3 +2596,40 @@ test('a symlink in the board\'s public folder that leads outside its roots is no
   assert.equal((await fetch(`${base}/inside.js`)).status, 200);
   assert.equal((await fetch(`${base}/leak.js`)).status, 404);
 });
+
+// docs/adr/2026-11-26-2200-a-let-me-know-when-reminder-pushes-once.md
+test("a task's reminder pushes once through every hold when it needs the owner or is done, then clears, and its task leaves the live row silent", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const before = pushes().length;
+  const since = () => pushes().slice(before);
+  const reminders = () => since().filter((c) => flag(c, 'kind') === 'reminder').map((c) => [flag(c, 'tag'), flag(c, 'title'), flag(c, 'body'), c.includes('--urgent')]);
+  const row = () => since().filter((c) => flag(c, 'tag') === 'board-site').map((c) => [flag(c, 'title'), c.includes('--now'), c.includes('--silent')]);
+  const stored = (id) => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === id);
+  const sent = (id) => (fs.existsSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`), 'utf8') : '')
+    .split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((m) => String(m.line || '').startsWith('reminder')).map((m) => [m.line, m.text]);
+  const done = { lane: 'done', closed_at: '2026-11-26T10:00:00.000Z', landed_sha: 'abc1234' };
+  const cards = { RD: { id: 'RD', title: 'Ship the bell', lane: 'progress', remind_when: 'done' }, RN: { id: 'RN', title: 'Pick a colour', lane: 'progress', remind_when: 'needs-you' }, RC: { id: 'RC', title: 'Closes quietly', lane: 'progress', remind_when: 'needs-you' } };
+  const wave = (over = {}) => putWave(JSON.stringify({ items: Object.values({ ...cards, ...over }) }));
+  try {
+    await wave();
+    assert.deepEqual(reminders(), [], 'nothing holds yet');
+    assert.equal((await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/RD').remindWhen, 'done', 'the card carries its reminder');
+    fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'rn1', topic: 'item:t/RN', question: 'Blue or green?', options: [{ id: 'A', label: 'Blue' }] }] }));
+    await heard(ownerFile);
+    assert.deepEqual(reminders(), [['reminder-t/RN', 'RN: Answer 1 question', 'Blue or green?', true]], 'needs you: one urgent push, as its action reads');
+    assert.deepEqual(row(), [['RN: Answer 1 question', false, true]], 'the live row opens silently: the reminder sounded for it');
+    assert.equal('remind_when' in stored('RN'), false, 'a fired reminder is cleared');
+    assert.deepEqual(sent('RN'), [['reminder-sent', 'Reminder sent: it needs you.']]);
+    await wave({ RN: { ...cards.RN, remind_when: undefined }, RD: { ...cards.RD, ...done }, RC: { ...cards.RC, ...done } });
+    assert.deepEqual(reminders().slice(1), [['reminder-t/RD', 'RD is done', 'Ship the bell', true]], 'done: one urgent push');
+    assert.deepEqual(sent('RD'), [['reminder-sent', "Reminder sent: it's done."]]);
+    assert.deepEqual(sent('RC'), [['reminder-dropped', 'Reminder dropped: it closed without needing you.']], 'a needs-you reminder on a closed task ends with no push');
+    assert.equal('remind_when' in stored('RD') || 'remind_when' in stored('RC'), false);
+    await putWave(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8'));
+    assert.equal(reminders().length, 2, 'each fires once');
+  } finally {
+    fs.writeFileSync(ownerFile, '{"items":[]}');
+    await putWave(JSON.stringify({ items: [] }));
+    await heard(ownerFile);
+  }
+});

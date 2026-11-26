@@ -986,6 +986,18 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          Prints "filed: <ref> from <id>", "skipped: <id>", and
                                                          "waiting: <ids>" while any are unanswered; once none is, it
                                                          closes the audit task as done
+  remind <file>/<id> --when done|needs-you             a one-shot reminder the owner asked for in words ("let
+                                                         me know when it lands", "tell me when it needs me"):
+                                                         stored on the task as remind_when, with a Reminder line
+                                                         in its thread, replacing one it has; refused on a task
+                                                         already done. The board server pushes it once, as kind
+                                                         reminder through quiet hours and a snooze, when the task
+                                                         reaches Done (done) or gains Action needed or a question
+                                                         (needs-you), then clears it with a Reminder sent line; a
+                                                         needs-you one on a task that closes ends with no push.
+                                                         While a task has one, its joining the board's live
+                                                         notification leaves it silent
+  remind <file>/<id> --cancel                            takes the task's reminder off, with a line in its thread
   push --kind fault|reminder --title <t>                 runs kickflip push with these flags, adding
        [--body <b>] [--url </route/path>]                "· and N replies" to the body for the replies
        [--tag <tag>] [--now | --urgent]                  written since the site's last push through this
@@ -1004,7 +1016,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'blocked', 'unblocked', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close', 'split', 'final', 'no-reply']);
+const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'blocked', 'unblocked', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement', 'close', 'split', 'final', 'no-reply', 'cancel']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -1542,6 +1554,7 @@ const COMMANDS = {
   merge: [['file/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
     : store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed }))],
   'arch file': [['file/id'], [], (site, [key]) => (site ? fileFindings(site, key) : Promise.reject(new store.BoardError('arch file needs --site <route>')))],
+  remind: [['file/id'], ['when', 'cancel'], (site, [key], f) => store.remindItem(needSite(site, 'remind'), key, { when: f.when, cancel: f.cancel })],
   push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => {
     if (f.kind !== 'fault' && f.kind !== 'reminder') throw new UsageError(`a session pushes only --kind fault or reminder${f.kind === undefined || f.kind === true ? '' : `, not "${f.kind}"`}: the board server pushes Action needed, and news goes on the board`);
     if (f.title === undefined) throw new UsageError('push needs --title');
@@ -1587,6 +1600,7 @@ const SAID = {
   'prototype add': async (site, [topic], f) => `prototype ${topic} recorded${f.card ? ` for ${await card(site, f.card)}` : ''}`,
   'prototype rm': (site, [topic]) => `prototype ${topic} removed`,
   'item set': async (site, [key], f) => `${await card(site, key)}: ${itemChanges(f)}`,
+  remind: async (site, [key], f, r) => `${await card(site, key)}: ${r.cancelled ? 'reminder cancelled' : `reminder set for when ${r.when === 'done' ? "it's done" : 'it needs you'}`}`,
   'item add': async (site, _, f, { key }) => `${await card(site, key)} added as ${key}${f.ask !== undefined ? ': an ask in New; triage it as you do the owner\'s' : ''}`,
   'item notes': async (site, [key], f, { file, heading }) => `${await card(site, key)}: notes section "${heading}" added to ${file}`,
   'item triage': async (site, [key], f) => (f['fold-into'] !== undefined ? `${key} folded into ${await card(site, f['fold-into'])}` : `${await card(site, key)}: triaged ${f.phase ?? 'staging'}`),
@@ -1627,7 +1641,7 @@ const SAID = {
 // name: (site, args, flags, result) → [card key]
 const onCard = (site, [key]) => [key];
 const ACTS = {
-  'item set': onCard, 'item notes': onCard, 'item brief': onCard, 'item stall': onCard, 'item bump': onCard, 'item unbump': onCard,
+  'item set': onCard, 'item notes': onCard, remind: onCard, 'item brief': onCard, 'item stall': onCard, 'item bump': onCard, 'item unbump': onCard,
   'item relate-ask': (site, [, key]) => [key],
   'item triage': (site, [key], f) => (f['fold-into'] !== undefined ? [f['fold-into']] : [key]),
   reply: (site, [id]) => (id.includes('/') ? [id] : []),

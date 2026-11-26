@@ -1294,6 +1294,35 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   await writeJSON(source.file, itemFile);
 }
 
+// docs/adr/2026-11-26-2200-a-let-me-know-when-reminder-pushes-once.md
+// The events a task's reminder waits on: done, its lane Done; needs-you, an Action needed or a question of its own in
+// the board's live row (domain.mjs ownerActions).
+export const REMIND_WHEN = ['done', 'needs-you'];
+// board.mjs remind: stores reminder `when` on card key, its item's remind_when, replacing one it has, or with cancel
+// takes it off, each a Reminder line in its thread. A task already done takes none. → {when} | {cancelled: true}
+export async function remindItem(site, key, { when, cancel }) {
+  needSite(site);
+  if (Boolean(cancel) === (when !== undefined)) fail('remind needs --when done|needs-you, or --cancel');
+  if (!cancel && !REMIND_WHEN.includes(when)) fail(`--when takes done or needs-you, not "${when}"`);
+  const { source, itemFile, item } = await loadItem(site, key);
+  if (cancel && !item.remind_when) fail(`${await cardName(site, key)} has no reminder to cancel`);
+  if (!cancel && (await shownCard(site, key)).lane === 'done') fail(`${await cardName(site, key)} is already done`);
+  if (cancel) delete item.remind_when; else item.remind_when = when;
+  await writeJSON(source.file, itemFile);
+  await appendStatus(site, key, cancel ? 'reminder-cancelled' : 'reminder-set', cancel ? {} : { when });
+  return cancel ? { cancelled: true } : { when };
+}
+// The end of card key's reminder, as board/server.mjs pushReminders finds it: cleared from its item, with a Reminder
+// line in its thread, sent when its push goes out (the line's `when`), else dropped, a needs-you reminder on a task that
+// closed. The board server clears it before it pushes, so a restart can't push it twice.
+export async function endReminder(site, key, { sent }) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  const when = item.remind_when;
+  delete item.remind_when;
+  await writeJSON(source.file, itemFile);
+  await appendStatus(site, key, sent ? 'reminder-sent' : 'reminder-dropped', sent ? { when } : {});
+}
+
 // docs/adr/2026-11-22-0200-a-card-carries-board-only-tags.md
 // A tag's name as stored: trimmed, its runs of spaces one space. A tag is free text of 1 to 48 characters with no comma
 // (item set --tag takes a comma list); two names differing only in case are the same tag.

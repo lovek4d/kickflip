@@ -36,6 +36,8 @@ export function fit(prefix, free, suffix = '') {
 }
 
 const HELD = 'Held', RESUMED = 'Resumed', BLOCKED = 'Blocked', FAULT = 'Fault', MOVE = 'move', QUESTIONS = 'questions';
+const REMINDER = 'Reminder';
+const REMIND_WORDS = { done: "it's done", 'needs-you': 'it needs you' };
 const BUILD = 'Implementation requested', PROTOTYPE = 'Prototype requested', DONE = 'Marked done';
 // The longest of a few inputs several kinds take: a planner kind, a PR in another repo and a time.
 const KIND = 'prototype', PR = 'owner/a-long-repo-name#10000', AT = 'Wed, 11/30, 12:00 PM', VERSION = '10.100.1000-rc.100';
@@ -64,6 +66,12 @@ export const HUB_LINES = {
   // Todo is silent (docs/adr/2026-11-16-1800-a-phase-change-within-todo-writes-no-thread-line.md). They stay so threads
   // written before still render.
   'ready-expired': { tone: 'grey', mark: MOVE, text: () => 'Ready expired after a day unpulled: re-checking against what landed since' },
+  // docs/adr/2026-11-26-2200-a-let-me-know-when-reminder-pushes-once.md: a task's reminder set, cancelled, pushed or
+  // ended with its task closed.
+  'reminder-set': { tone: 'blue', mark: REMINDER, text: ({ when }) => `Reminder set: one push when ${REMIND_WORDS[when]}.`, longest: { when: 'needs-you' } },
+  'reminder-cancelled': { tone: 'grey', mark: REMINDER, text: () => 'Reminder cancelled.' },
+  'reminder-sent': { tone: 'blue', mark: REMINDER, text: ({ when }) => `Reminder sent: ${REMIND_WORDS[when]}.`, longest: { when: 'needs-you' } },
+  'reminder-dropped': { tone: 'grey', mark: REMINDER, text: () => 'Reminder dropped: it closed without needing you.' },
   'hold-ended': { tone: 'orange', mark: RESUMED, text: ({ at }) => `Unblocked: its block until ${at} ended.`, longest: { at: AT } },
   // No longer written: a blocked card is never ready, so none stays ready at its block's end. It stays so threads
   // written before still render.

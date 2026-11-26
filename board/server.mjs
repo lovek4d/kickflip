@@ -374,7 +374,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { REQUEST_KINDS, TAP_KINDS, threadNames, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, bumpIn, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { REQUEST_KINDS, TAP_KINDS, threadNames, tapPlan, SCRIPT_EVENTS, BRIEF_KINDS, BUILD_REFUSED, bumpIn, pauseWork, confirmedDrops, archivedOf, buildBoard, movesOf, withHub,DONE_KEPT, orchestratorWaits, ownerWordEnds, triageWaitOf, eventWaits, boardAskWaits, waitsStep, waitsHistory, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, slimDone, needsAnswer, ownerActions, ownerRow, rowAlerts, pushTag, picksNoTake, pullOf, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { alertsOf, localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { overnightOn } from '../hub/overnight.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
@@ -387,7 +387,7 @@ import { launchAgent } from './agents.mjs';
 import { BOARD_CLI, pidAlive, stopAgents, stopRuns } from './headless.mjs';
 import { BoardError } from './checks.mjs';
 import { draftOf, pruneDrafts, readDrafts, saveDraft } from './drafts.mjs';
-import { cardName, refsOf, readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
+import { cardName, refsOf, readScriptOffer, readAgents, tapMerge, appendStatus, appendCommand, archiveCards, archiveCount, archiveRank, archiveMatching, archiveReader, readArchive, moveCard, pickUp, endReminder, sendPush, recordOwnerTap, mergeCard, readAskLinks, readMarks, readWorking, readDelivered, readActedOn, readUpload, markRead, saveUpload, setHidden, threadFile as siteThreadFile } from './cards.mjs';
 import { restageStaleReady, publishUnscreened, stageImplement, clearOwnerWait, stageReply, planAgain, followUp, addTopic, readPrototypes, takeFile, readNotes, resolveNoteAnswers, resolveSentAnswers, settleAnswers, unrecorded, handedOver } from './questions.mjs';
 import { heldReview, applyReviewAnswer, dropAskCard, withdrawRefused, fileAsk, fileAsks, retitleAskCard } from './asks.mjs';
 import { SILENT_DEFAULTS, finishHandshake, readBoardRules, readBoardSettings, readBoardDescription, saveBoardDescription, descriptionDue, readHandshake, addReviewers, removeReviewers, saveBoardRules, saveBoardSettings, setBoardPause, settingsOf, overridesOf, readBoardJSON } from './settings.mjs';
@@ -1765,7 +1765,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // last check (domain.mjs ownerRow) and the kind of each action in it. A row where there was none pushes and alerts; a
   // changed row pushes silently, so only its first push alerts until it closes, unless an action joins it of a kind whose
   // alert switch is on in settings.json (domain.mjs rowAlerts), read each check: that push alerts, held as a first push
-  // is. A file without items takes the row's actions now as already pushed. A row gone drops its queued push, or closes the one already sent (hub/push.mjs
+  // is. An action of a task with a reminder at the check (pushReminders) neither opens the row alerting nor sounds it as
+  // it joins. A file without items takes the row's actions now as already pushed. A row gone drops its queued push, or closes the one already sent (hub/push.mjs
   // withdraw). The first check records the row without pushing it. A file from before the live row, {<tag>: {kind, ids}}
   // with a tag per card, counts as a row open when it held any, and its card tags are withdrawn. A check asked for while
   // one runs runs again after it.
@@ -1781,10 +1782,35 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     })().finally(() => { checkingActions = null; });
     return checkingActions;
   }
+  // docs/adr/2026-11-26-2200-a-let-me-know-when-reminder-pushes-once.md
+  // Each task's reminder (cards.mjs remindItem) whose event holds at this check, for the built board's items and its
+  // actions (domain.mjs ownerActions): done when its lane is Done, needs-you when one of actions is its own. Each is
+  // cleared first (cards.mjs endReminder), so it fires once, then pushed as kind reminder, urgent so quiet hours, a
+  // snooze and the weekend don't hold it, under reminder-<key>; needs-you reads as its action does and lands where the
+  // owner answers. A needs-you reminder on a task that closed ends with no push.
+  async function pushReminders(items, actions) {
+    for (const it of items.filter((i) => i.remindWhen)) {
+      const action = actions.find((a) => a.tag === pushTag(it.key));
+      const done = it.lane === 'done';
+      if (!done && !(it.remindWhen === 'needs-you' && action)) continue;
+      const sent = it.remindWhen === 'done' || !done;
+      await endReminder(here, it.key, { sent });
+      if (!sent) { logCall({ call: 'push', key: it.key, reason: 'Its needs-you reminder ended: the task closed without needing the owner.', inputs: { when: it.remindWhen }, result: 'dropped' }); continue; }
+      const push = it.remindWhen === 'done' ? { title: `${it.ref} is done`, body: it.title, url: `#selectedCard=${encodeURIComponent(it.key)}` } : action;
+      await sendOwnPush({ kind: 'reminder', title: push.title, body: push.body, url: `/${route}/${push.url}`, tag: `reminder-${it.key}`, urgent: true },
+        { key: it.key, reason: it.remindWhen === 'done' ? 'The owner asked to know when it is done, and it is.' : 'The owner asked to know when it needs them, and it does.', inputs: { when: it.remindWhen } });
+    }
+  }
   async function pushActions() {
     const file = path.join(data, 'action-pushes.json');
     const previous = await readJSON(file, null);
-    const actions = ownerActions(await sharedBoard());
+    const built = await sharedBoard();
+    const actions = ownerActions(built);
+    // docs/adr/2026-11-26-2200-a-let-me-know-when-reminder-pushes-once.md: a task with a reminder at this check
+    // sounds its reminder, not the live row.
+    const reminded = new Set(built.items.filter((it) => it.remindWhen).map((it) => pushTag(it.key)));
+    await pushReminders(built.items, actions);
+    const sounding = actions.filter((a) => !reminded.has(a.tag));
     const row = ownerRow(actions, { route, title: (await config()).title || route });
     const current = { row: row && { title: row.title, body: row.body, url: row.url }, items: Object.fromEntries(actions.map((a) => [a.tag, a.kind])) };
     const legacy = previous && !('row' in previous) ? Object.keys(previous) : [];
@@ -1793,12 +1819,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const key = actions.length === 1 && actions[0].tag.startsWith('item-') ? actions[0].tag.slice(5) : undefined;
     if (legacy.length) await withdraw(legacy, route);
     const joined = wasOpen && row
-      ? rowAlerts(actions, previous.items ?? current.items, alertsOf(await readJSON(path.join(home, '.claude', 'kickflip', 'settings.json'), {}))) : [];
+      ? rowAlerts(sounding, previous.items ?? current.items, alertsOf(await readJSON(path.join(home, '.claude', 'kickflip', 'settings.json'), {}))) : [];
     // A count that falls, or words that change, send nothing: only something new joining the row pushes.
     const arrived = wasOpen && row ? actions.filter((a) => !(a.tag in (previous.items ?? current.items))) : [];
     if (previous && row && (!wasOpen || joined.length || arrived.length)) {
-      const alert = !wasOpen || joined.length > 0;
-      const reason = !wasOpen ? 'Something waits on the owner, and the board had no notification open.'
+      const alert = (!wasOpen && sounding.length > 0) || joined.length > 0;
+      const reason = !wasOpen ? `Something waits on the owner, and the board had no notification open${alert ? '' : ": its task's reminder sounds instead"}.`
         : joined.length ? `${joined.map((a) => a.title).join(', ')} joined the board's open notification, and the owner's alert for it is on.`
           : `${arrived.map((a) => a.title).join(', ')} joined the board's open notification, and the owner's alert for it is off.`;
       await sendOwnPush({ kind: 'action', title: row.title, body: row.body, url: `/${route}/${row.url}`, tag, now: alert, silent: !alert },

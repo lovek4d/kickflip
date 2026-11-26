@@ -10,7 +10,7 @@ const css = fs.readFileSync(new URL('./public/sidebar.css', import.meta.url), 'u
 
 // docs/adr/2026-11-14-2250-one-icon-and-text-helper-takes-a-shape-and-a-colour.md
 test('iconText draws a shape and a word in one colour, the icon hidden unless it is labelled', () => {
-  assert.deepEqual([...ICON_SHAPES], ['dot', 'pulse', 'check', 'x', 'spinner', 'pause', 'arrow', 'clock', 'warn', 'eye', 'flame', 'image', 'retry', 'move', 'chat', 'code', 'flag', 'blocked', 'play', 'link', 'created', 'circle-check', 'reopen', 'reply', 'chevron', 'question', 'search', 'tag']);
+  assert.deepEqual([...ICON_SHAPES], ['dot', 'pulse', 'check', 'x', 'spinner', 'pause', 'arrow', 'clock', 'warn', 'eye', 'flame', 'image', 'retry', 'move', 'chat', 'code', 'flag', 'blocked', 'play', 'link', 'created', 'circle-check', 'reopen', 'reply', 'chevron', 'question', 'search', 'bell', 'tag']);
   assert.deepEqual([...ICON_COLOURS], ['red', 'orange', 'blue', 'green', 'purple', 'grey']);
   assert.equal(iconText('dot', 'red', 'not listening'), '<span class="it it-red"><span class="it-i it-dot" aria-hidden="true"></span><span class="it-w">not listening</span></span>');
   assert.match(iconText('check', 'green', 'done'), /^<span class="it it-green"><span class="it-i it-check" aria-hidden="true"><svg [^>]*><path d="M20 6 9 17l-5-5"\/><\/svg><\/span><span class="it-w">done<\/span><\/span>$/);

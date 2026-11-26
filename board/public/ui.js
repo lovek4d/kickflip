@@ -163,6 +163,7 @@
     'Serve started': shape('play'), 'Serve killed': shape('pause'),
     'Ran the script': shape('play'), 'Declined the script': shape('x'),
     Tagged: shape('tag'), Untagged: shape('tag'),
+    Reminder: shape('bell'),
     Reply: shape('reply'),
     Implement: shape('code'),
     'answers submitted': shape('check'),
