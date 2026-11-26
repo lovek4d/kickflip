@@ -306,6 +306,7 @@ import { pipeUpgrade, refuse, refuseUpgrade, safeNext } from './front-door.mjs';
 import { agentCaller, blockedClients, deviceIdOf, devicesOf, isBlocked, makePin, noteSeen, redeemPin, removeDevice, signInCookie, signedIn as ownerSignedIn, unblock, voidPin, withoutOwnerCookie } from '../shared/owner-sign-in.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
+import { sendDue } from './reminders.mjs';
 import { POLLS, CLOCKS, dueOn } from '../shared/polls.mjs';
 import { pollsPage } from './polls-page.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
@@ -2091,6 +2092,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   if (ticks) runSweep();
   // The hub's clock (shared/polls.mjs CLOCKS): each job runs every so many ticks of its clock, as its registry
   // entry says (docs/adr/2026-11-17-0330-every-poll-is-in-one-registry-and-the-hub-runs-on-two-clocks.md).
+  let reminding = null;
   const jobs = {
     reconcile: () => { reconcileLogged(); stream.reconcile(); }, // poll: reconcile
     'sidebar-refresh': () => stream.refresh(), // poll: sidebar-refresh
@@ -2100,6 +2102,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     'nightly-suite': runSuite, // poll: nightly-suite
     'leftovers-sweep': runSweep, // poll: leftovers-sweep
     'peer-outbox': runOutbox, // poll: peer-outbox
+    reminders: () => { if (!reminding) reminding = track(sendDue({ now: new Date(clock()) }).catch((e) => log('reminders failed:', e.message)).finally(() => { reminding = null; })); }, // poll: reminders
     'slack-poll': () => { const run = slackPoller.run(); if (run) track(run); }, // poll: slack-poll
   };
   for (const p of POLLS) if (p.clock && !jobs[p.id]) throw new Error(`shared/polls.mjs names ${p.id} on the hub's ${p.clock} clock, which runs no such job`);

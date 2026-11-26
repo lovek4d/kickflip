@@ -93,6 +93,8 @@ export const POLLS = Object.freeze([
       { name: 'Prune dead prompts' },
       { name: 'Session check', what: 'resumes or restarts sessions, /compact when full, logged-out push' },
     ] },
+  { id: 'reminders', group: 'hub', name: 'Reminders', what: 'Sends each “remind me to” push whose time has come, once, through quiet hours and snooze.',
+    ...on('quarter', 1), runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'self-restart', group: 'hub', name: 'New hub code', what: 'Restarts the hub once its new code is whole on disk and no land is landing.',
     ...on('quarter', 1), runs: 'Hub', where: 'hub/hub.mjs' },
   { id: 'peer-outbox', group: 'hub', name: 'Asks to your other hubs', what: 'Sends again the asks and answers to another of your hubs that waited while it was offline or older, oldest first.',

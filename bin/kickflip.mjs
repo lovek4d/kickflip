@@ -169,6 +169,10 @@
 //               the queued one, which still alerts when it goes. While notifications are off every push is dropped,
 //               urgent ones too.
 //               Prints "sent", "queued" with the next send time, or "dropped". Exit 3 when no device has turned them on.
+//   kickflip remind --at <time> --text "<what>"
+//               stores a one-shot reminder in the hub (../hub/reminders.mjs); at its time the hub's 15 s clock sends one `reminder`
+//               push carrying only the text, through quiet hours and a snooze (not while notifications are off), then drops it.
+//               --at is <n>m, <n>h, <n>d, <n>w or an ISO date and time, at most 30 days on. Prints the id and the time
 //   kickflip push log [--json]
 //               prints the push log (../hub/push.mjs pushLog), oldest first: each push sent to each device, with the
 //               report its service worker posted back on the same line. --json prints the entries as they are stored
@@ -1092,6 +1096,14 @@ const commands = {
     out(r.sent);
     if (!r.sent.some((x) => x.status >= 200 && x.status < 300)) fail('every push was refused', 1);
     out(args.urgent ? 'sent (urgent)' : args.silent ? 'sent (silent)' : 'sent');
+  },
+
+  async remind() {
+    const { addReminder } = await import(path.join(SKILL, 'hub', 'reminders.mjs'));
+    const r = await addReminder({ at: args.at, text: args.text });
+    if (r.error) fail(r.error, 2);
+    out(`reminder ${r.reminder.id} at ${r.reminder.at}: ${r.reminder.text}`);
+    if (!(await hubStatus())) out('warning: the hub is not running, so it goes out only once the hub runs');
   },
 
   async quiet() {
