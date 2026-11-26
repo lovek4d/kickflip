@@ -38,7 +38,7 @@ after(() => {
 
 test('labels and maps each REST event shape, drops Claude and bots, and merges by string time', async () => {
   writeIssueComments(dir, 7, [
-    comment(1, 'owner', '2026-10-23T11:00:00Z'),
+    { ...comment(1, 'owner', '2026-10-23T11:00:00Z'), body: 'Ask Claude to look' },
     comment(2, 'owner', '2026-10-23T11:01:00Z', '🤖 Done\n\n<!-- claude-bridge -->'),
     comment(3, 'chatgpt-codex-connector[bot]', '2026-10-23T11:02:00Z'),
     comment(4, 'renovate[bot]', '2026-10-23T11:03:00Z'),
@@ -52,7 +52,7 @@ test('labels and maps each REST event shape, drops Claude and bots, and merges b
   const copy = structuredClone(fetched);
   const report = reportOf(fetched, { ...input, me: 'owner' });
   assert.deepEqual(report.events, [
-    { kind: 'issue_comment', id: 1, login: 'owner', at: '2026-10-23T11:00:00Z', body: 'Comment 1', url: comment(1).html_url, who: 'user' },
+    { kind: 'issue_comment', id: 1, login: 'owner', at: '2026-10-23T11:00:00Z', body: 'Ask Claude to look', url: comment(1).html_url, who: 'user' },
     { kind: 'review', id: 9, login: 'ann', at: '2026-10-23T11:00:15Z', body: '', state: 'APPROVED', url: null, who: 'reviewer' },
     { kind: 'review_comment', id: 8, login: 'bea', at: '2026-10-23T11:00:30Z', body: 'Comment 8', path: 'app.mjs', line: 12, in_reply_to: 88, url: comment(8).html_url, who: 'reviewer' },
     { kind: 'issue_comment', id: 3, login: 'chatgpt-codex-connector[bot]', at: '2026-10-23T11:02:00Z', body: 'Comment 3', url: comment(3).html_url, who: 'codex' },
@@ -85,7 +85,7 @@ test('state fields follow null fallthrough, check conclusions and status-only pe
     { name: 'running', status: 'IN_PROGRESS' }, { status: '' }, { status: null },
   ] });
   const report = reportOf({ view, issueComments: [], reviewComments: [], reviews: [] }, { pr: '7', since, me: 'owner' });
-  assert.deepEqual(report, { pr: 7, state: 'OPEN', isDraft: true, reviewDecision: '', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: '1234567890', failing: ['failure', 'error', 'legacy', 'null conclusion', ''], pending: 2, events: [],
+  assert.deepEqual(report, { pr: 7, state: 'OPEN', isDraft: true, reviewDecision: '', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: '1234567890', failing: ['failure', 'error', 'legacy', 'null conclusion', ''], pending: 2, events: [], threadOnly: [],
     title: null, additions: null, deletions: null, files: null, approved: false,
     url: null, mergedAt: null, headRefName: null, headRefOid: '1234567890abcdef', updatedAt: null, checks: { total: 10, fail: 6, pending: 2, state: 'fail' }, reviews: {} });
   const missing = reportOf({ view: {}, issueComments: [{ user: { login: 'ann' }, created_at: '2026-10-23T11:00:00Z' }], reviewComments: [{ created_at: '2026-10-23T12:00:00Z' }], reviews: [{ submitted_at: '2026-10-23T13:00:00Z' }] }, { ...input, me: 'owner' });
@@ -121,7 +121,7 @@ test('a configured board login labels posts, and the check never asks gh api use
   assert.deepEqual(poll.changes, []);
   assert.deepEqual(poll.checked, ['configured']);
   assert.ok(!calls(dir).some((a) => a[1] === 'user'));
-  writeIssueComments(dir, 7, [comment(2, 'owner', '2026-10-23T11:01:00Z')]);
+  writeIssueComments(dir, 7, [comment(2, 'owner', '2026-10-23T11:01:00Z', 'claude, look')]);
   assert.deepEqual((await checkGitHub({ every: 15, manifest })).changes[0].changes, ['comments']);
 });
 
@@ -186,7 +186,7 @@ test('fetchPRs reads every PR in one GraphQL query, in the shapes reportOf reads
   writePR(dir, 'o/site#3', prView({ isDraft: true, failing: ['lint'], title: 'Fix limiter', additions: 84, deletions: 12, changedFiles: 5,
     latestReviews: { nodes: [{ state: 'COMMENTED' }, { state: 'APPROVED' }] } }));
   writeIssueComments(dir, 7, [
-    comment(1, 'owner', '2026-10-23T11:00:00Z'),
+    comment(1, 'owner', '2026-10-23T11:00:00Z', 'kickflip please'),
     comment(2, 'owner', '2026-10-23T11:01:00Z', '🤖 Done\n\n<!-- claude-bridge -->'),
     comment(3, 'chatgpt-codex-connector[bot]', '2026-10-23T11:02:00Z'),
     comment(4, 'renovate[bot]', '2026-10-23T11:03:00Z'),
@@ -202,7 +202,7 @@ test('fetchPRs reads every PR in one GraphQL query, in the shapes reportOf reads
   assert.equal(calls(dir).length, 1);
   const report = reportOf(results[0], { ...input, me: login });
   assert.deepEqual(report.events, [
-    { kind: 'issue_comment', id: 1, login: 'owner', at: '2026-10-23T11:00:00Z', body: 'Comment 1', url: comment(1).html_url, who: 'user' },
+    { kind: 'issue_comment', id: 1, login: 'owner', at: '2026-10-23T11:00:00Z', body: 'kickflip please', url: comment(1).html_url, who: 'user' },
     { kind: 'review', id: 9, login: 'ann', at: '2026-10-23T11:00:15Z', body: '', state: 'APPROVED', url: null, who: 'reviewer' },
     { kind: 'review_comment', id: 8, login: 'bea', at: '2026-10-23T11:00:30Z', body: 'Comment 8', path: 'app.mjs', line: 12, in_reply_to: 88, url: comment(8).html_url, who: 'reviewer' },
     { kind: 'issue_comment', id: 3, login: 'chatgpt-codex-connector[bot]', at: '2026-10-23T11:02:00Z', body: 'Comment 3', url: comment(3).html_url, who: 'codex' },
@@ -255,4 +255,12 @@ test("a repo's collaborators come as sorted logins, and a GitHub user is found b
   writeGithubUser(dir, 'ann', { login: 'Ann' });
   assert.equal(await githubUser('ann'), 'Ann');
   assert.equal(await githubUser('ghost'), null);
+});
+
+test('an owner comment needs a reply only with claude or kickflip as a whole word, any case; others always do', () => {
+  const at = '2026-10-23T11:00:00Z';
+  const bodies = ['claude', 'Hey KickFlip, fix', 'ask (Claude).', 'kickflip-board', 'kickflipping', 'claudes', 'nothing here', null];
+  const report = reportOf({ view: {}, issueComments: [...bodies.map((body, i) => ({ id: i, user: { login: 'owner' }, created_at: at, body })), { id: 20, user: { login: 'ann' }, created_at: at, body: 'plain' }], reviewComments: [], reviews: [] }, { ...input, me: 'owner' });
+  assert.deepEqual(report.events.map((e) => e.id), [0, 1, 2, 3, 20]);
+  assert.deepEqual(report.threadOnly.map((e) => e.id), [4, 5, 6, 7]);
 });

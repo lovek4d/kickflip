@@ -644,7 +644,7 @@ test('item set records a UTC gh-since and pr prints the board report through gh'
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
   writePR(dir, 7, prView());
   writeUser(dir, { login: 'owner' });
-  writeIssueComments(dir, 7, [{ id: 1, user: { login: 'owner' }, created_at: '2026-10-23T12:00:00Z', body: 'Please fix', html_url: 'https://github.com/o/r/issues/7#issuecomment-1' }]);
+  writeIssueComments(dir, 7, [{ id: 1, user: { login: 'owner' }, created_at: '2026-10-23T12:00:00Z', body: 'Claude, please fix', html_url: 'https://github.com/o/r/issues/7#issuecomment-1' }]);
   const pr = () => boardWith(['--site', 'orch', 'pr', 'w/A1'], env);
   assert.match((await pr()).err, /has no PR/);
   const w = read(at('waves', 'w', 'wave.json'));

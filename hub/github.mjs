@@ -266,7 +266,7 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
   const written = new Set(state.threaded[key]?.[recipient] || []);
   const itemFile = board.files.find((w) => w.slug === p.file)?.itemFile;
   const names = { ...board.reviewerLogins, ...reviewerLogins(itemFile?.reviewers) };
-  for (const e of report.events) {
+  for (const e of [...report.events, ...report.threadOnly].sort((a, b) => (a.at < b.at ? -1 : 1))) {
     const id = `${e.kind}:${e.id}`;
     if (!['user', 'reviewer'].includes(e.who) || e.at <= p.since || written.has(id)) continue;
     const said = lineText(e);

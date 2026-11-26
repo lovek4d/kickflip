@@ -218,6 +218,9 @@ export async function fetchPRs(prs, repos = []) {
   return { login: data.viewer?.login ?? null, rate: data.rateLimit ?? null, results, open };
 }
 
+// Whole word, any case: "kickflip-board" matches, "kickflipping" doesn't.
+const OWNER_KEYWORD = /\b(claude|kickflip)\b/i;
+
 export function reportOf({ view, issueComments, reviewComments, reviews }, { pr, since, me }) {
   const comment = (c, kind) => ({ kind, id: c.id ?? null, login: c.user?.login ?? null, at: c.created_at ?? null, body: c.body ?? null });
   const events = [
@@ -228,12 +231,15 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
     ...e, who: e.login === me ? ((e.body ?? '').includes(CLAUDE_MARK) ? 'me' : 'user')
       : /codex/.test(e.login) ? 'codex' : /\[bot\]$|^linear/.test(e.login) ? 'bot' : 'reviewer',
   })).filter((e) => e.who !== 'me' && e.who !== 'bot').sort((a, b) => a.at < b.at ? -1 : a.at > b.at ? 1 : 0);
+  // The owner's own comments get a reply only when they name Claude or kickflip; the rest are thread lines.
+  const threadOnly = events.filter((e) => e.who === 'user' && !OWNER_KEYWORD.test(e.body ?? ''));
+  const asked = events.filter((e) => !threadOnly.includes(e));
   const checks = view.statusCheckRollup ?? [];
   return {
     pr: Number(pr), state: view.state ?? null, isDraft: view.isDraft ?? null, reviewDecision: view.reviewDecision ?? null,
     mergeable: view.mergeable ?? null, mergeStateStatus: view.mergeStateStatus ?? null, head: view.headRefOid?.slice(0, 10) ?? null,
     failing: checks.filter((c) => /FAILURE|ERROR/.test(c.conclusion ?? c.state ?? '')).map((c) => c.name ?? c.context ?? null),
-    pending: checks.filter((c) => (c.status ?? 'COMPLETED') !== 'COMPLETED').length, events,
+    pending: checks.filter((c) => (c.status ?? 'COMPLETED') !== 'COMPLETED').length, events: asked, threadOnly,
     title: view.title ?? null, additions: view.additions ?? null, deletions: view.deletions ?? null, files: view.changedFiles ?? null,
     approved: Boolean(view.approved),
     // The board's badges (fetchPRs; a REST fetchPR view has none but the CI and the full head).
