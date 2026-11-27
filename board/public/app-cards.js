@@ -565,6 +565,10 @@ BoardView.part((B) => {
     drawTagRows();
     Popup.open(picker(), anchor, { align: 'end', onClose: closeTagPicker });
   }
+  async function removeTag(key, tag) {
+    if (!(await B.confirm(`Remove the tag ${tag} from ${menuCard(key).ref}?`)) || !B.alive()) return;
+    B.enqueue(key, { kind: 'card-tag', fields: { tag, on: false } });
+  }
   function pickTag(tag, on) {
     B.enqueue(tagKey, { kind: 'card-tag', fields: { tag, on } });
     keepTagPicker();
@@ -573,7 +577,7 @@ BoardView.part((B) => {
     const add = ev.target.closest('button[data-tag-add]');
     const remove = ev.target.closest('button[data-tag-remove]');
     if (add) openTagPicker(add.dataset.tagAdd, 'add');
-    if (remove) B.enqueue(remove.dataset.key, { kind: 'card-tag', fields: { tag: remove.dataset.tagRemove, on: false } });
+    if (remove) removeTag(remove.dataset.key, remove.dataset.tagRemove);
     // An Archive or Restore is a tag-archive {key, tag, on} through the open card's outbox; the board's answer redraws
     // the picker (keepTagPicker) with the tag moved.
     const archive = ev.target.closest('#tagPicker button[data-tag-archive]');
@@ -593,7 +597,7 @@ BoardView.part((B) => {
   // docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md
   // An open card's + Add link turns into a search field in its Related to row (ui-cards.js relatedRow), the hits under
   // it narrowed as the field changes; a hit's tap, or Enter for the first, links the card and closes the field, which
-  // Esc, its × or a tap anywhere else closes too. A link's × unlinks it. Each is a card-relate {key, other, on} through
+  // Esc, its × or a tap anywhere else closes too. A link's × asks to confirm, then unlinks it. Each is a card-relate {key, other, on} through
   // the card's outbox, drawn on both cards at once (ui-snapshot.js tapped). linkSearch: {key, typed} while open.
   let linkSearch = null;
   const linkField = () => linkSearch && $(`[data-link-field="${CSS.escape(linkSearch.key)}"]`);
@@ -607,6 +611,10 @@ BoardView.part((B) => {
     B.render();
   }
   function relate(key, other, on) { B.enqueue(key, { kind: 'card-relate', fields: { other, on } }); }
+  async function unlink(key, other) {
+    if (!(await B.confirm(`Unlink ${menuCard(key).ref} and ${menuCard(other).ref}? Both cards drop the link.`)) || !B.alive()) return;
+    relate(key, other, false);
+  }
   function linkTo(other) {
     const { key } = linkSearch;
     closeLinkSearch();
@@ -615,7 +623,7 @@ BoardView.part((B) => {
   B.on(B.root, 'click', (ev) => {
     const add = ev.target.closest('button[data-link-add]');
     const remove = ev.target.closest('button[data-link-remove]');
-    if (remove) relate(remove.dataset.key, remove.dataset.linkRemove, false);
+    if (remove) unlink(remove.dataset.key, remove.dataset.linkRemove);
     if (add) { openLinkSearch(add.dataset.linkAdd); return; }
     if (!linkSearch) return;
     const pick = ev.target.closest('[data-link-pick]');

@@ -3428,7 +3428,8 @@ function boardOnDom({ open = [], seen = {}, stored = [], filter = null, board, t
   const sent = [];
   const confirms = [];
   const confirmLabels = [];
-  page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push(text); confirmLabels.push(labels?.ok ? { ok: labels.ok, cancel: labels.cancel } : undefined); return confirm; };
+  const answers = { confirm };
+  page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push(text); confirmLabels.push(labels?.ok ? { ok: labels.ok, cancel: labels.cancel } : undefined); return answers.confirm; };
   const notices = [];
   page.win.BoardDialogs.notice = async (text) => { notices.push(text); };
   if (realDialogs) vm.runInContext(fs.readFileSync(new URL('./public/dialogs.js', import.meta.url), 'utf8'), page.win);
@@ -3472,7 +3473,7 @@ function boardOnDom({ open = [], seen = {}, stored = [], filter = null, board, t
   if (filter) view.B.state.boardFilter = filter;
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
-  return { page, root, view, settle, change, sent, confirms, confirmLabels, notices, posts, gets, downloads, patched, server, storage, doc: page.win.document };
+  return { page, root, view, settle, change, sent, confirms, confirmLabels, answers, notices, posts, gets, downloads, patched, server, storage, doc: page.win.document };
 }
 // The work card an ask became (from_ask; docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
 const askCard = (id, lane) => ({ key: `w/${id}`, id, kind: 'work', lane, title: `Task ${id}`, ref: `T-${id}`, fromAsk: id, deps: [], manualSteps: [], othersAt: [] });
@@ -4812,15 +4813,21 @@ test("a Done card's \"…\" opens its menu, whose Tag… opens the picker of the
   assert.equal(picker.hidden, false, 'the picker stays open for more picks');
 });
 
-test("an open card's Tags row sits above its Related to: its × takes a tag off and + Add tag opens the Tag… picker on that card, both sent with no confirm", async () => {
+test("an open card's Tags row sits above its Related to: its × asks first, then takes a tag off, and + Add tag opens the Tag… picker on that card with no confirm", async () => {
   const cards = [workCard('T1', { bumpable: false, tags: ['phone', 'perf'], related: [{ key: 'w/T2', ref: 'T2', lane: 'todo' }] }), workCard('T2', { bumpable: false })];
   const b = boardOnDom({ open: ['w/T1'], board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const detail = () => b.root.querySelector('details.item[data-key="w/T1"] .detail');
   assert.deepEqual(detail().querySelectorAll('dt').map((dt) => dt.textContent).slice(0, 2), ['Tags', 'Related to']);
+  b.answers.confirm = false;
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-tag-remove="perf"]') });
+  await b.settle();
+  assert.deepEqual([b.confirms, sentNoIds(b)], [['Remove the tag perf from T1?'], []], 'declining sends nothing');
+  b.answers.confirm = true;
   b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-tag-remove="perf"]') });
   await b.settle();
   assert.deepEqual(sentNoIds(b), [['card-tag', { key: 'w/T1', tag: 'perf', on: false }]]);
+  b.confirms.length = 0;
   b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-tag-add="w/T1"]') });
   const picker = b.root.querySelector('#tagPicker');
   assert.equal(picker.hidden, false);
@@ -4833,15 +4840,21 @@ test("an open card's Tags row sits above its Related to: its × takes a tag off 
 });
 
 // docs/adr/2026-11-25-0405-the-owner-links-and-unlinks-a-cards-related-to-by-hand.md
-test("an open card's + Add link turns into a search field in its Related to row; a hit's tap links the card and closes the field, a link's × unlinks it, Esc or a tap away closes the field, all with no confirm", async () => {
+test("an open card's + Add link turns into a search field in its Related to row; a hit's tap links the card and closes the field, a link's × asks first, then unlinks it, Esc or a tap away closes the field with no confirm", async () => {
   const cards = [workCard('T1', { bumpable: false, related: [{ key: 'w/T2', ref: 'T2', lane: 'todo' }] }), workCard('T2', { bumpable: false }), workCard('T3', { bumpable: false, title: 'Third card' }), workCard('D4', { lane: 'done', bumpable: false, title: 'Third done' })];
   const b = boardOnDom({ open: ['w/T1'], board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const detail = () => b.root.querySelector('details.item[data-key="w/T1"] .detail');
   const field = () => detail().querySelector('[data-link-field="w/T1"]');
+  b.answers.confirm = false;
+  b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-remove="w/T2"]') });
+  await b.settle();
+  assert.deepEqual([b.confirms, sentNoIds(b)], [['Unlink T1 and T2? Both cards drop the link.'], []], 'declining sends nothing');
+  b.answers.confirm = true;
   b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-remove="w/T2"]') });
   await b.settle();
   assert.deepEqual(sentNoIds(b), [['card-relate', { key: 'w/T1', other: 'w/T2', on: false }]]);
+  b.confirms.length = 0;
   b.page.fire(b.root, 'click', { target: detail().querySelector('button[data-link-add="w/T1"]') });
   assert.ok(field(), 'the add chip became the field');
   assert.equal(detail().querySelector('button[data-link-add]'), null);
