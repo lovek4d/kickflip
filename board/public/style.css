@@ -1332,3 +1332,4 @@ button.thread-more[aria-busy="true"]::after { inset: 0 auto 0 12px; margin: auto
 /* A task link's hover title (app-link-hover.js): one line, ellipsised at 48ch, taking no pointer so the link's click still lands. */
 .link-tip { padding: 4px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); font-size: 12px; pointer-events: none; }
 .link-tip span { display: block; max-width: 48ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
