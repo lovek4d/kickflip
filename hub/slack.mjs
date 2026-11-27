@@ -149,10 +149,10 @@ export const STANDARD_EMOJI = [
 export const githubSignOffLine = () => `- ${(STANDARD_EMOJI.find((e) => e.name === readSignOff()) || STANDARD_EMOJI.find((e) => e.name === SIGN_OFF_DEFAULT)).char}`;
 export const SIGN_OFF_DEFAULT = 'skateboard';
 export const signOffLine = () => `- :${readSignOff()}:`;
-// The sign-offs the hub used before the pick: :claude_kickflip: while the workspace had it, else :robot_face:. The robot stays one of ours.
-const SIGNED_OFF_ALWAYS = ['claude_kickflip', 'robot_face'];
+// The sign-off the hub used before the pick, while the workspace had it: :claude_kickflip:.
+const SIGNED_OFF_ALWAYS = ['claude_kickflip'];
 // Whether a message is one of ours, by the last line of its text or, with attachments, of its last attachment's: a
-// sign-off with the picked emoji, one picked before it, or one the hub used before the pick. Our posts go out as the
+// sign-off with the picked emoji, one picked before it, or the one the hub used before the pick. Our posts go out as the
 // owner, so the hub hears past them by this.
 export function isSignedOff(text, attachments = []) {
   const emoji = String((attachments.length ? attachments.at(-1).text : text) || '').split('\n').at(-1).match(/^- :([a-z0-9_+'-]+):( · _updated \d\d:\d\d_)?$/)?.[1];

@@ -179,16 +179,16 @@ test("GitHub's signature is “- ” and the picked emoji's character, the skate
   assert.equal(githubSignOffLine(), '- 🛹');
 });
 
-test('a message signed off with the picked emoji reads as ours, and so does one signed with any emoji picked before it, :robot_face: or :claude_kickflip:; no other does', async () => {
+test('a message signed off with the picked emoji reads as ours, and so does one signed with any emoji picked before it or :claude_kickflip:; no other does, the robot included', async () => {
   const ours = (emoji) => isSignedOff(`words\n- :${emoji}:`);
-  assert.deepEqual(['robot_face', 'claude_kickflip', 'tada', 'ship_it'].map(ours), [true, true, false, false]);
+  assert.deepEqual(['robot_face', 'claude_kickflip', 'tada', 'ship_it'].map(ours), [false, true, false, false]);
   await setSignOff('tada');
-  assert.deepEqual(['robot_face', 'claude_kickflip', 'tada', 'ship_it'].map(ours), [true, true, true, false]);
+  assert.deepEqual(['robot_face', 'claude_kickflip', 'tada', 'ship_it'].map(ours), [false, true, true, false]);
   assert.ok(isSignedOff('', [{ text: '+1/-0\n- :tada: · _updated 09:00_' }]));
   await setSignOff('ship_it');
-  assert.deepEqual(['robot_face', 'claude_kickflip', 'tada', 'ship_it'].map(ours), [true, true, true, true]);
+  assert.deepEqual(['robot_face', 'claude_kickflip', 'tada', 'ship_it'].map(ours), [false, true, true, true]);
   await setSignOff('');
-  assert.deepEqual(['robot_face', 'claude_kickflip', 'tada', 'ship_it'].map(ours), [true, true, true, true]);
+  assert.deepEqual(['robot_face', 'claude_kickflip', 'tada', 'ship_it'].map(ours), [false, true, true, true]);
   assert.deepEqual(read(kf('slack.json')).sign_off_past, ['tada', 'ship_it']);
   assert.equal(readSignOff(), 'skateboard');
   assert.ok(ours('skateboard'));
