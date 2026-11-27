@@ -8,13 +8,23 @@
   --chip: #f1f1f4; --band: #f2f2f5; --claude: #fdf3e4;
   --color-quiet: var(--muted); --color-info: var(--accent); --color-notice: var(--warn); --color-danger: var(--bad); --color-success: var(--ok);
   --color-merged: var(--purple);
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #0b0c0d; --panel: #111214; --line: #212226; --text: #e8e9ec; --muted: #8a8f98;
     --accent: #6fa8e8; --accent-soft: #141b26; --on-accent: #0b0b0e; --ok: #3ccf7f; --warn: #e3a33a; --bad: #f0687f; --purple: #ab7df8;
-    --chip: #1a1b1e; --band: #141517; --claude: #1f1a12; }
+    --chip: #1a1b1e; --band: #141517; --claude: #1f1a12; color-scheme: dark; }
   /* OLED mode (docs/adr/2026-11-12-1700-oled-mode-turns-dark-modes-ground-pure-black.md): the shell's head script sets data-oled on :root
      from this device's hub:oled key; only the ground changes, so the semantic colours and their priority read as in dark mode. */
   :root[data-oled] { --bg: #000000; --panel: #08080a; --line: #1c1c20; --text: #f2f2f5; --muted: #85858f;
     --accent-soft: #0d141d; --chip: #121215; --band: #0d0d0f; --claude: #17120a; }
 }
+
+/* Scrollbars follow the theme: thin, a clear track so no band shows between the panes, a thumb mixed from --muted into --bg.
+   Safari reads the ::-webkit-scrollbar rules where it ignores scrollbar-color. */
+:root { --scroll-thumb: color-mix(in srgb, var(--muted) 40%, var(--bg)); --scroll-thumb-hover: color-mix(in srgb, var(--muted) 65%, var(--bg)); }
+* { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
