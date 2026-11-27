@@ -1192,8 +1192,8 @@ test("a Tag… pick is one events POST that writes the tag to the card's item fi
 test("a link's pick or × is one events POST that links or unlinks both cards, with the owner's line in each thread and no event; one that changes nothing, links a card to itself or names no card is refused", async () => {
   const wave = path.join(site, 'data', 'items.json');
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
-  // Only events a link could write: other writes on the shared server don't count.
-  const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter((l) => l.includes('card-relate') || l.includes('t/RL')) : []);
+  // Only the kind a link could write: the board's own waits lines, written on its own clock, don't count.
+  const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind === 'card-relate') : []);
   const thread = (id) => fs.readFileSync(path.join(site, 'data', 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const stored = (id) => JSON.parse(fs.readFileSync(wave, 'utf8')).items.find((i) => i.id === id);
   await putWave(JSON.stringify({ items: [
@@ -1271,9 +1271,11 @@ test("an ask from the page is stored under its send id, which its card's from_as
   const card = items().find((i) => i.from_ask === built.id);
   fs.mkdirSync(path.join(site, 'data', 'agents'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'agents', `${card.id}.json`), JSON.stringify({ kind: 'claude', started: new Date().toISOString() }));
-  const before = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8');
+  // Only the kind a withdrawal writes: the board's own waits lines, written on its own clock, don't count.
+  const withdrawn = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).filter((l) => JSON.parse(l).kind === 'ask-withdrawn');
+  const before = withdrawn();
   assert.deepEqual(await post({ kind: 'ask-withdrawn', id: built.id }), [400, { error: `A build has already started on ${card.id}. Block it to stop the build.` }]);
-  assert.equal(fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8'), before);
+  assert.deepEqual(withdrawn(), before);
   assert.ok(items().some((i) => i.id === card.id));
   fs.rmSync(path.join(site, 'data', 'agents', `${card.id}.json`));
   assert.equal((await post({ kind: 'ask-withdrawn', id: built.id }))[0], 200);
