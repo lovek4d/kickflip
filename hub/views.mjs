@@ -126,7 +126,7 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 // overnight is overnight.mjs overnightJobs, the Quiet hours modal's Overnight work rows.
 // pausedUntil is Pause hub's end, a Date or FOREVER, or null while it is off
 // (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): its picker is the snooze picker's.
-export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, pausedUntil = null, overnight = [], alerts = { implement: false, merge: false } }) {
+export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, pausedUntil = null, overnight = [], alerts = { implement: false, merge: false }, reminders = { boards: [], timed: [] } }) {
   const s = st.settings;
   const n = s.notifications;
   const until = snoozedUntil(n, now);
@@ -146,6 +146,7 @@ export function settingsView({ now, st, rules = [], linear = { set: false }, sla
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(s.quiet.start)} until Monday ${timeOfDay(s.quiet.end)}. Urgent ones still go.` },
     quiet: quietView(s, now, overnight),
     alerts: alertsView(alerts),
+    reminders: remindersView(reminders, now),
     rules,
     linear: linearWords(linear),
     slack: slackWords(slack),
@@ -164,6 +165,24 @@ function alertsView(alerts) {
     summary: kinds.filter((k) => k.on).map((k) => k.title).join(' · ') || 'Off',
     note: "A board's notification sounds when it opens, then updates silently. An alert switched on sounds it again each time a task of its kind joins. Quiet hours, weekends and snoozes hold an alert, as they hold the first.",
     kinds,
+  };
+}
+
+// docs/adr/2026-11-27-1500-hub-settings-lists-and-cancels-every-reminder.md
+// Notifications › Reminders: reminders.mjs listReminders' rows grouped by board, the hub's timed ones last as the Hub group,
+// each row the card and its kind in words or the text and its time, with what Cancel posts; the row's summary is the count.
+const WHEN_WORDS = { done: "When it's done", 'needs-you': 'When it needs you', 'every-stage': 'Every stage' };
+function remindersView({ boards, timed }, now) {
+  const groups = [
+    ...boards.map((b) => ({ title: b.title, rows: b.rows.map((r) => ({ cancel: { route: b.route, key: r.key }, title: `${r.ref} ${r.title}`, sub: WHEN_WORDS[r.when] })) })),
+    ...(timed.length ? [{ title: 'Hub', rows: timed.map((r) => ({ cancel: { id: r.id }, title: r.text, sub: `At ${clock(new Date(r.at), now)}`, timed: true })) }] : []),
+  ];
+  const count = groups.reduce((n, g) => n + g.rows.length, 0);
+  return {
+    summary: count ? plural(count, 'reminder') : '',
+    note: 'Each board keeps its own. A reminder is gone once it has pushed.',
+    empty: { title: 'No reminders', sub: 'Tap the bell on a card, or ask the orchestrator to remind you.' },
+    groups,
   };
 }
 

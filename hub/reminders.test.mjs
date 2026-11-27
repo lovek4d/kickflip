@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fakeDevice } from './fake-device.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
-import { addReminder, readReminders, sendDue, remindersFile } from './reminders.mjs';
+import { addReminder, readReminders, sendDue, remindersFile, listReminders, cancelReminder } from './reminders.mjs';
 
 let home, device;
 const fetch = (url, init) => (String(url) === device.subscription.endpoint ? device.fetch(url, init) : Promise.reject(new TypeError('fetch failed')));
@@ -74,4 +74,46 @@ test('addReminder refuses empty text and a time that is not ahead or readable', 
   assert.match((await addReminder({ at: 'soon', text: 'x' }, { now: NOON, home })).error, /--at/);
   assert.match((await addReminder({ at: at(-5).toISOString(), text: 'x' }, { now: NOON, home })).error, /--at/);
   assert.deepEqual(readReminders(home), []);
+});
+
+// docs/adr/2026-11-27-1500-hub-settings-lists-and-cancels-every-reminder.md
+// A file board in the hub's own temp home: items.json holds the cards, board.json names it as the board's item file.
+const fileBoard = (route, title, items, tickets) => {
+  const dir = path.join(home, route);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'board.json'), JSON.stringify({ items: 'items.json', slug: route }));
+  fs.writeFileSync(path.join(dir, 'items.json'), JSON.stringify({ items }));
+  return { route, title, dir, tickets, files: [{ slug: route, itemFile: { items } }] };
+};
+const itemsOf = (board) => JSON.parse(fs.readFileSync(path.join(board.dir, 'items.json'), 'utf8')).items;
+
+test('the list holds every board\'s bells and when-reminders by board, and the hub\'s timed ones soonest first', async () => {
+  const alpha = fileBoard('alpha', 'Alpha', [
+    { id: 'T-1', title: 'one', lane: 'progress', remind_when: 'every-stage' },
+    { id: 'T-2', title: 'two', lane: 'todo', remind_when: 'done' },
+    { id: 'T-3', title: 'no reminder', lane: 'todo' },
+  ]);
+  const beta = fileBoard('beta', 'Beta', [{ id: 'T-4', title: 'four', lane: 'progress', remind_when: 'needs-you' }]);
+  const quiet = fileBoard('quiet', 'Quiet', [{ id: 'T-5', title: 'five', lane: 'todo' }]);
+  await addReminder({ at: '2h', text: 'later' }, { now: NOON, home });
+  await addReminder({ at: '30m', text: 'sooner' }, { now: NOON, home });
+  const list = listReminders([alpha, beta, quiet], { home });
+  assert.deepEqual(list.boards.map((b) => [b.route, b.title, b.rows.map((r) => [r.key, r.ref, r.title, r.when])]), [
+    ['alpha', 'Alpha', [['alpha/T-1', 'T-1', 'one', 'every-stage'], ['alpha/T-2', 'T-2', 'two', 'done']]],
+    ['beta', 'Beta', [['beta/T-4', 'T-4', 'four', 'needs-you']]],
+  ]);
+  assert.deepEqual(list.timed.map((r) => r.text), ['sooner', 'later']);
+});
+
+test('Cancel takes a board reminder off its card as the owner\'s Bell off, and a timed one out of the hub\'s file', async () => {
+  const alpha = fileBoard('alpha', 'Alpha', [{ id: 'T-1', title: 'one', lane: 'progress', remind_when: 'done' }, { id: 'T-2', title: 'two', lane: 'progress', remind_when: 'every-stage' }]);
+  const { reminder } = await addReminder({ at: '1h', text: 'call' }, { now: NOON, home });
+  await addReminder({ at: '2h', text: 'stay' }, { now: NOON, home });
+  assert.equal(await cancelReminder({ route: 'alpha', key: 'alpha/T-1' }, { boards: [alpha], home }), true);
+  assert.deepEqual(itemsOf(alpha).map((it) => [it.id, it.remind_when]), [['T-1', undefined], ['T-2', 'every-stage']]);
+  assert.equal(await cancelReminder({ id: reminder.id }, { boards: [alpha], home }), true);
+  assert.deepEqual(readReminders(home).map((r) => r.text), ['stay']);
+  assert.equal(await cancelReminder({ id: reminder.id }, { boards: [alpha], home }), false, 'already gone, nothing changes');
+  assert.equal(await cancelReminder({ route: 'alpha', key: 'alpha/T-1' }, { boards: [alpha], home }), false, 'no reminder left on the card');
+  assert.equal(await cancelReminder({ route: 'gone', key: 'gone/T-1' }, { boards: [alpha], home }), false, 'no such board');
 });

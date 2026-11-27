@@ -2,7 +2,8 @@
 // settingsView's words from GET /_hub/api/settings. Linear's key and Slack's token open the same modal from the button on their Integrations rows (view-hub.js),
 // with no summary row of their own ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)); Slack's
 // holds its PR state reactions and signature (slack-emoji.js) under the token. Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, except
-// the Alerts sheet's, which Notifications' Alerts row opens stacked on the modal: its toggles post to /_hub/settings/alerts. Quiet
+// the Alerts sheet's, which Notifications' Alerts row opens stacked on the modal: its toggles post to /_hub/settings/alerts. The Reminders row
+// opens a sheet stacked the same way, each reminder's Cancel posting to /_hub/settings/reminders. Quiet
 // hours' times and hold to /_hub/settings/quiet, its Overnight work toggles to /_hub/settings/overnight, and saves at once, as Linear's key and Slack's token do through linear-key.js; Done waits for
 // a key's save to land. The rules editor saves through POST /_hub/settings/rules
 // and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
@@ -33,7 +34,9 @@
       attrs: ` id="notifyOn" data-confirm="${esc(d.on.confirm)}"` });
     const weekendRow = toggle({ icon: tile('calendar', 'var(--color-quiet)'), set: 'weekends', title: 'Off on weekends', checked: d.weekends.on, attrs: ' data-submit' });
     const alertsRow = `<button type="button" class="row" data-alerts-open aria-haspopup="dialog">${tile('bell', 'var(--accent)')}<span class="body"><span class="text"><span class="title">Alerts</span><span class="sub">${esc(d.alerts.summary)}</span></span><span class="chev" aria-hidden="true">›</span></span></button>`;
-    return `${onRow}\n${snoozeRow(d)}\n${weekendRow}\n${alertsRow}`;
+    const reminders = d.reminders.summary ? `<span class="sub">${esc(d.reminders.summary)}</span>` : '';
+    const remindersRow = `<button type="button" class="row" data-reminders-open aria-haspopup="dialog">${tile('clock', 'var(--color-info)')}<span class="body"><span class="text"><span class="title">Reminders</span>${reminders}</span><span class="chev" aria-hidden="true">›</span></span></button>`;
+    return `${onRow}\n${snoozeRow(d)}\n${weekendRow}\n${alertsRow}\n${remindersRow}`;
   }
 
   // docs/adr/2026-11-17-1505-alerts-opt-in-to-sounding-the-live-row-as-implement-or-a-merge-joins.md
@@ -42,6 +45,17 @@
     const { tile } = HubUI;
     const kind = (k) => `<form class="row field" method="post" action="/_hub/settings/alerts"><input type="hidden" name="kind" value="${esc(k.kind)}">${tile(k.kind === 'merge' ? 'merge' : 'power', 'var(--accent)')}<label class="body"><span class="text"><span class="title">${esc(k.title)}</span><span class="sub wrap">${esc(k.sub)}</span></span><input type="checkbox" name="value" value="on" class="toggle" data-submit${k.on ? ' checked' : ''}></label></form>`;
     return `<p class="note">${esc(a.note)}</p><div class="group">${a.kinds.map(kind).join('')}</div>`;
+  }
+
+  // docs/adr/2026-11-27-1500-hub-settings-lists-and-cancels-every-reminder.md
+  // The Reminders sheet: a group per board and the hub's timed ones last, each row a Cancel posting its id, or its route and
+  // key, to /_hub/settings/reminders.
+  function remindersRows(r) {
+    const { tile } = HubUI;
+    const cancel = (c) => Object.entries(c).map(([name, value]) => `<input type="hidden" name="${name}" value="${esc(value)}">`).join('');
+    const row = (x) => `<form class="row" method="post" action="/_hub/settings/reminders">${cancel(x.cancel)}${tile(x.timed ? 'clock' : 'bell', x.timed ? 'var(--color-info)' : 'var(--accent)')}<span class="body"><span class="text"><span class="title">${esc(x.title)}</span><span class="sub">${esc(x.sub)}</span></span><button class="btn quiet" aria-label="Cancel ${esc(x.title)}">Cancel</button></span></form>`;
+    if (!r.groups.length) return `<div class="note"><b>${esc(r.empty.title)}</b> ${esc(r.empty.sub)}</div>`;
+    return `<p class="note">${esc(r.note)}</p>${r.groups.map((g) => `<h2 class="label">${esc(g.title)}</h2><div class="group">${g.rows.map(row).join('')}</div>`).join('')}`;
   }
 
   // Quiet hours (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md): start and
@@ -121,6 +135,7 @@
   const markup = () => `${sections.map(([id, title]) => `<button type="button" class="hub-setting" id="${id}" data-settings-open="${id}" aria-haspopup="dialog"><span class="text"><span class="title">${title}</span><span class="sub" data-summary="${id}">Loading…</span></span><span class="chev" aria-hidden="true">›</span></button>`).join('')}${pollsRow}
 <dialog class="settings-modal hub-modal" id="hubSettingsModal" aria-labelledby="hubSettingsTitle"><div class="settings-head"><div><h2 id="hubSettingsTitle" tabindex="-1"></h2><p class="muted small">Hub settings</p></div><button type="button" class="ghost" data-settings-dismiss aria-label="Close hub settings">✕</button></div><div class="set settings-body"><div class="hs-flash"></div><div class="setting-content"></div></div><div class="settings-footer"><button type="button" data-settings-dismiss>Done</button></div>
 <dialog class="sheet alerts-sheet" id="alertsSheet" aria-labelledby="alertsTitle"><div class="alerts-body"><div class="grab" aria-hidden="true"></div><div class="sheet-head"><h2 id="alertsTitle">Alerts</h2><button type="button" class="ghost" data-alerts-dismiss aria-label="Close Alerts">✕</button></div><div class="alerts-content"></div></div></dialog>
+<dialog class="sheet alerts-sheet" id="remindersSheet" aria-labelledby="remindersTitle"><div class="alerts-body"><div class="grab" aria-hidden="true"></div><div class="sheet-head"><h2 id="remindersTitle">Reminders</h2><button type="button" class="ghost" data-reminders-dismiss aria-label="Close Reminders">✕</button></div><div class="reminders-content"></div></div></dialog>
 <dialog class="sheet closed-sheet" id="closedSheet" aria-labelledby="closedTitle"><div class="closed-body"><div class="grab" aria-hidden="true"></div><div class="sheet-head"><h2 id="closedTitle"></h2><button type="button" class="ghost" data-closed-dismiss aria-label="Close">✕</button></div><div class="closed-content"></div></div></dialog></dialog>`;
 
   globalThis.HubSettings = {
@@ -130,6 +145,7 @@
       const modal = B.$('#hubSettingsModal');
       const content = B.$('.setting-content');
       const alertsSheet = B.$('#alertsSheet');
+      const remindersSheet = B.$('#remindersSheet');
       const closedSheet = B.$('#closedSheet');
       // The closed board whose detail sheet is open; the act running, {route, act: 'reopen'|'delete'}; and each route's
       // refused act, {act, error}, shown under its row with Retry.
@@ -193,6 +209,7 @@
           B.$('.closed-content').innerHTML = closedDetail(shown);
         }
         B.$('.alerts-content').innerHTML = alertsRows(last.alerts);
+        B.$('.reminders-content').innerHTML = remindersRows(last.reminders);
         pickers.painted();
         B.$('.settings-body').scrollTop = scrollTop;
         const summaries = {
@@ -240,6 +257,7 @@
 
       function closeModal(restore = true) {
         if (alertsSheet.open) alertsSheet.close();
+        if (remindersSheet.open) remindersSheet.close();
         if (closedSheet.open) closedSheet.close();
         unfitModal?.(); unfitModal = null;
         modal.close();
@@ -290,6 +308,8 @@
         if (opener) { B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener); return; }
         if (e.target.closest?.('[data-alerts-open]')) { BoardUI.openSheet(alertsSheet); return; }
         if (e.target.closest?.('[data-alerts-dismiss]')) { alertsSheet.close(); return; }
+        if (e.target.closest?.('[data-reminders-open]')) { BoardUI.openSheet(remindersSheet); return; }
+        if (e.target.closest?.('[data-reminders-dismiss]')) { remindersSheet.close(); return; }
         if (e.target.closest?.('[data-settings-dismiss]')) { dismiss(); return; }
         if (BoardUI.onBackdrop(e, modal)) {
           const r = modal.getBoundingClientRect();
@@ -302,8 +322,10 @@
       B.atUnmount(() => closeModal(false));
       B.atUnmount(BoardUI.swipeToDismiss(modal));
       B.atUnmount(BoardUI.swipeToDismiss(alertsSheet));
+      B.atUnmount(BoardUI.swipeToDismiss(remindersSheet));
       B.atUnmount(BoardUI.swipeToDismiss(closedSheet));
       B.on(alertsSheet, 'click', (e) => { if (BoardUI.onBackdrop(e, alertsSheet)) alertsSheet.close(); });
+      B.on(remindersSheet, 'click', (e) => { if (BoardUI.onBackdrop(e, remindersSheet)) remindersSheet.close(); });
       B.on(closedSheet, 'click', (e) => { if (BoardUI.onBackdrop(e, closedSheet)) closedSheet.close(); });
       const device = HubKit.device(B, { paint, changed: () => ctx.sidebarChanged?.() });
       device.ready.then(() => { if (B.alive()) paint(); });

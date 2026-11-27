@@ -71,6 +71,23 @@ test('Hub Settings words the Alerts sheet: a toggle per kind, off unless switche
   assert.equal(settingsView({ now, st: status(now, DEFAULTS), alerts: { implement: true, merge: true } }).alerts.summary, 'Implement needed · Merge ready');
 });
 
+// docs/adr/2026-11-27-1500-hub-settings-lists-and-cancels-every-reminder.md
+test('Hub Settings words the Reminders sheet: a group per board, the timed ones as Hub, each with what Cancel posts, and a count for the row', () => {
+  const now = t(10);
+  const v = (reminders) => plain(settingsView({ now, st: status(now, DEFAULTS), reminders }).reminders);
+  assert.deepEqual([v(undefined).summary, v(undefined).groups], ['', []]);
+  const full = v({ boards: [{ route: 'alpha', title: 'Alpha', rows: [{ key: 'alpha/T-1', ref: '#12', title: 'one', when: 'every-stage' }, { key: 'alpha/T-2', ref: 'T-2', title: 'two', when: 'done' }] },
+    { route: 'beta', title: 'Beta', rows: [{ key: 'beta/T-4', ref: 'T-4', title: 'four', when: 'needs-you' }] }],
+    timed: [{ id: 'u1', at: t(16).toISOString(), text: 'call' }, { id: 'u2', at: t(9, 0, 15).toISOString(), text: 'renew' }] });
+  assert.equal(full.summary, '5 reminders');
+  assert.deepEqual(full.groups.map((g) => [g.title, g.rows.map((r) => [r.title, r.sub, r.cancel])]), [
+    ['Alpha', [['#12 one', 'Every stage', { route: 'alpha', key: 'alpha/T-1' }], ['T-2 two', "When it's done", { route: 'alpha', key: 'alpha/T-2' }]]],
+    ['Beta', [['T-4 four', 'When it needs you', { route: 'beta', key: 'beta/T-4' }]]],
+    ['Hub', [['call', 'At 4:00pm', { id: 'u1' }], ['renew', 'At 9:00am tomorrow', { id: 'u2' }]]],
+  ]);
+  assert.equal(v({ boards: [], timed: [{ id: 'u1', at: t(16).toISOString(), text: 'call' }] }).summary, '1 reminder');
+});
+
 test('Hub Settings says whether pushes go, when a snooze ends and what each snooze choice would end at', () => {
   const now = t(10);
   const v = settingsView({ now, st: status(now, DEFAULTS), rules: [{ id: 'r1', text: 'Be brief' }] });
@@ -148,8 +165,9 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   let checked = null;
   let pausedUntil = null;
   let alerts = { implement: false, merge: false };
+  let reminders = { boards: [{ route: 'alpha', title: 'Alpha', rows: [{ key: 'alpha/T-1', ref: 'T-1', title: 'one', when: 'done' }] }], timed: [{ id: 'u1', at: t(16).toISOString(), text: 'call' }] };
   const overnight = [{ id: 'wake', title: 'Daily wake', icon: 'calendar', does: (w) => `Wakes every board once at ${w.end}, when quiet hours end.`, on: true, last: { at: t(8).toISOString(), failed: 'failed on alpha', href: '/alpha/' } }];
-  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, pausedUntil, overnight, alerts });
+  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, pausedUntil, overnight, alerts, reminders });
   let confirmed = false;
   let live;
   let subscribed = false;
@@ -194,6 +212,11 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
         const end = choice === 'off' ? null : snoozeEnd(now, choice, DEFAULTS);
         return { ok: true, json: async () => data({ ...ON, snoozed_until: end === 'forever' ? end : end?.toISOString() || null }) };
       }
+      if (url === '/_hub/settings/reminders') {
+        const [id, key] = [opts.body.get('id'), opts.body.get('key')];
+        reminders = { boards: reminders.boards.map((b) => ({ ...b, rows: b.rows.filter((r) => r.key !== key) })).filter((b) => b.rows.length), timed: reminders.timed.filter((r) => r.id !== id) };
+        return { ok: true, json: async () => data() };
+      }
       if (url === '/_hub/settings/alerts') {
         alerts = { ...alerts, [opts.body.get('kind')]: opts.body.get('value') === 'on' };
         return { ok: true, json: async () => data() };
@@ -232,7 +255,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => b.textContent), ['1h', '3h', '6h', '1d', 'Forever']);
   assert.equal(root.querySelector('.dur-custom .btn').textContent, 'Custom');
-  assert.equal(root.querySelectorAll('dialog').length, 3, 'the settings modal, and the Alerts and closed board sheets in it');
+  assert.equal(root.querySelectorAll('dialog').length, 4, 'the settings modal, and the Alerts, Reminders and closed board sheets in it');
   assert.equal(modal.open, true);
   assert.doesNotMatch(modal.textContent, /Pushes wait, then go|Turn off to drop|unlocked and used/);
   const enable = root.querySelector('[data-device="on"]');
@@ -261,6 +284,20 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.deepEqual(alertsSheet.querySelectorAll('input.toggle').map((el) => el.hasAttribute('checked')), [false, true]);
   assert.equal(root.querySelector('[data-alerts-open] .sub').textContent, 'Merge ready');
   assert.deepEqual([alertsSheet.open, modal.open], [true, true]);
+  // docs/adr/2026-11-27-1500-hub-settings-lists-and-cancels-every-reminder.md
+  const remindersRow = root.querySelector('[data-reminders-open]');
+  assert.deepEqual([remindersRow.querySelector('.title').textContent, remindersRow.querySelector('.sub').textContent], ['Reminders', '2 reminders']);
+  const remindersSheet = root.querySelector('#remindersSheet');
+  for (const l of listeners.filter((l) => l.target === root && l.type === 'click')) l.fn({ target: remindersRow });
+  assert.deepEqual([remindersSheet.open, modal.open], [true, true], 'the Reminders sheet stacks on Notifications');
+  assert.deepEqual(remindersSheet.querySelectorAll('.label').map((el) => el.textContent), ['Alpha', 'Hub']);
+  assert.deepEqual(remindersSheet.querySelectorAll('form .title').map((el) => el.textContent), ['T-1 one', 'call']);
+  await submitForm(remindersSheet.querySelectorAll('form')[0]);
+  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/reminders', 'route=alpha&key=alpha%2FT-1']);
+  assert.deepEqual(remindersSheet.querySelectorAll('form .title').map((el) => el.textContent), ['call'], 'Cancel takes the row off');
+  await submitForm(remindersSheet.querySelectorAll('form')[0]);
+  assert.deepEqual([posts.at(-1).opts.body.toString(), remindersSheet.querySelector('.note b').textContent, root.querySelector('[data-reminders-open] .sub')], ['id=u1', 'No reminders', null]);
+  assert.deepEqual([remindersSheet.open, modal.open], [true, true]);
   const endSnooze = async () => {
     assert.equal(root.querySelector('.dur-chips'), null);
     const form = root.querySelector('.dur-on form');

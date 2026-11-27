@@ -90,6 +90,7 @@
 //                     setNotifications choice | off> → /_hub/api/settings's JSON, or 400 {error} when refused
 //                     (303 to ?refused=snooze). Custom posts a UTC ISO date-time; snoozeEnd refuses an end not
 //                     after now or more than 30 days on.
+//   /_hub/settings/reminders POST id=<timed reminder> or route=<board>&key=<card> takes one off Notifications › Reminders (its Cancel)
 //   /_hub/settings/alerts POST kind=implement|merge with value=on (absent for off) turns one Notifications › Alerts
 //                     switch on or off (push.mjs setAlert) → /_hub/api/settings's JSON, or 400 {error}
 //   /_hub/settings/keep-awake POST keep_awake=on (anything else, or nothing, is off) → /_hub/api/settings's JSON, or
@@ -306,7 +307,7 @@ import { pipeUpgrade, refuse, refuseUpgrade, safeNext } from './front-door.mjs';
 import { agentCaller, blockedClients, deviceIdOf, devicesOf, isBlocked, makePin, noteSeen, redeemPin, removeDevice, signInCookie, signedIn as ownerSignedIn, unblock, voidPin, withoutOwnerCookie } from '../shared/owner-sign-in.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
-import { sendDue } from './reminders.mjs';
+import { sendDue, listReminders, cancelReminder } from './reminders.mjs';
 import { POLLS, CLOCKS, dueOn } from '../shared/polls.mjs';
 import { pollsPage } from './polls-page.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
@@ -1293,7 +1294,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const now = new Date();
     const gate = readUsageGate({ now });
     const pausedUntil = gate.manual === 'hub' ? endOf(gate.resets_at, now) : null;
-    return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil, overnight: overnightJobs(), alerts: readAlerts() }), closed: closedBoards() };
+    return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil, overnight: overnightJobs(), alerts: readAlerts(), reminders: listReminders(listBoards(loadManifest())) }), closed: closedBoards() };
   };
 
   const slackEmojiData = async () => prEmojiView({ picks: readPREmoji(), signOff: readSignOff(), customs: await savedSlack()?.workspaceEmoji() || {}, scopeMissing: await savedSlack()?.emojiScopeMissing() });
@@ -1613,6 +1614,11 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         if (e.status !== 400) throw e;
         return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
       }
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#notifications');
+    }
+    if (p === '/_hub/settings/reminders' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      await cancelReminder({ id: f.get('id') ?? undefined, route: f.get('route') ?? undefined, key: f.get('key') ?? undefined }, { boards: listBoards(loadManifest()) });
       return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#notifications');
     }
     if (p === '/_hub/settings/keep-awake' && req.method === 'POST') {

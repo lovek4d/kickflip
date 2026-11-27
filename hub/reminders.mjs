@@ -10,6 +10,8 @@ import crypto from 'node:crypto';
 import { deliver } from './push.mjs';
 import { durationEnd } from './duration.mjs';
 import { withFileLock } from './locks.mjs';
+import { bellItem } from '../board/cards.mjs';
+import { refOf } from '../board/domain.mjs';
 
 export const remindersFile = (home = os.homedir()) => path.join(home, '.claude', 'kickflip', 'reminders.json');
 
@@ -52,4 +54,29 @@ export async function sendDue({ now = new Date(), home = os.homedir(), fetch = g
   }
   if (sent.length) await change(home, (list) => list.filter((x) => !sent.includes(x.id)));
   return sent;
+}
+
+// docs/adr/2026-11-27-1500-hub-settings-lists-and-cancels-every-reminder.md
+// Every reminder the hub holds, for Hub settings' Reminders sheet: each board's cards with a remind_when (done, needs-you
+// or every-stage, the bell), a board with none left out, and the stored timed ones, soonest first.
+// boards: listBoards' boards. → {boards: [{route, title, rows: [{key, ref, title, when}]}], timed: [{id, at, text}]}
+export function listReminders(boards, { home = os.homedir() } = {}) {
+  return {
+    boards: boards.map(({ route, title, files, tickets }) => ({ route, title,
+      rows: files.flatMap(({ slug, itemFile }) => itemFile.items.filter((it) => it.remind_when)
+        .map((it) => ({ key: `${slug}/${it.id}`, ref: refOf(itemFile, it, tickets), title: it.title, when: it.remind_when }))) })).filter((b) => b.rows.length),
+    timed: readReminders(home),
+  };
+}
+
+// The owner's Cancel on a sheet row: {id} a timed reminder, or {route, key} a card's, taken off as the lit bell's tap does
+// (cards.mjs bellItem, the owner's Bell off line). → whether it was there to cancel.
+export async function cancelReminder({ id, route, key }, { boards, home = os.homedir() }) {
+  if (id !== undefined) {
+    let found = false;
+    await change(home, (list) => list.filter((r) => (r.id === id ? !(found = true) : true)));
+    return found;
+  }
+  const board = boards.find((b) => b.route === route);
+  return Boolean(board && await bellItem(board.dir, key, false));
 }
