@@ -1211,10 +1211,11 @@ export const ITEM_SET_SAYS = {
   ticket: (f) => `ticket ${f.ticket}`,
   'new-ticket': () => 'ticket made',
   text: null,
+  'owner-step': (f) => `owner step ${f['owner-step'].trim()}`,
   check: (f) => (f.check.trim() ? `check ${f.check.trim().split(/\s+/).join(' ')}` : 'check removed'),
   'reply-on': null,
 };
-export const ITEM_SET_FLAGS = ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'base', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'tag', 'untag', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check', 'reply-on'];
+export const ITEM_SET_FLAGS = ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'base', 'gh-since', 'from-ask', 'phase', 'state', 'blocked', 'unblocked', 'pick-up-at', 'notes-file', 'plan', 'blocked-by', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'tag', 'untag', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'owner-step', 'check', 'reply-on'];
 const unsaid = ITEM_SET_FLAGS.map((flag) => flag.replace('...', '')).filter((flag) => !(flag in ITEM_SET_SAYS));
 if (unsaid.length) throw new Error(`item set takes ${unsaid.map((flag) => `--${flag}`).join(', ')} but ITEM_SET_SAYS does not name it`);
 const COMMANDS = {
@@ -1282,7 +1283,7 @@ const COMMANDS = {
       if (Object.keys(f).every((flag) => ['tag', 'untag', 'reply-on'].includes(flag))) return changed;
     }
     return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, base: f.base, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, block: f.blocked, unblock: f.unblocked, pickUpAt: f['pick-up-at'], deps: f['blocked-by'], blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check, replyOn: f['reply-on'] }, options);
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, ownerStep: f['owner-step'], check: f.check, replyOn: f['reply-on'] }, options);
   }],
   'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'blocks', 'blocked-by', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'blocked', 'parent', 'split', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text', 'ask', 'by', 'reply-on', 'from', 'implement'], async (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new task\'s notes with item add --notes-from <draft.md>');

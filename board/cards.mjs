@@ -973,7 +973,7 @@ async function changeItem(site, key, { replyOn, risk, ticket, newTicket, status,
   if (ask && phase === undefined && !item.phase && !hold) fail(FROM_ASK_PHASE);
   const wasFinished = shown.finished;
   if (split && wasFinished) fail(`${key} is already Done, so the tasks waiting on it were unblocked then; move them with item set <key> --blocked-by`);
-  if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or builder done before the merge`);
+  if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or item set --owner-step or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
   if (ownerDone) delete item.owner_step;
   if (spec !== undefined && !item.owner_step) fail(`--check goes with an owner step, which ${key} doesn't have: pass --owner-step "<the step>" with it on builder done or land`);

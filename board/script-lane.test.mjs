@@ -9,8 +9,8 @@ const cardIn = (lane) => buildBoard({ now: Date.parse(at(59)), owner: {}, events
   files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane, created: at(0), ...(lane === 'progress' ? { next: 'Soon' } : {}) }] } }] })
   .items.find((i) => i.key === 'w/A1');
 
-test('a waiting script marks its task as Action needed and leaves it in the lane it was in', () => {
-  for (const lane of ['todo', 'progress']) {
+test('a waiting script marks its task as Action needed, a Done one too, and leaves it in the lane it was in', () => {
+  for (const lane of ['todo', 'progress', 'done']) {
     const card = cardIn(lane);
     assert.equal(card.action.kind, ACTION_KIND.script, lane);
     assert.equal(card.lane, lane, lane);

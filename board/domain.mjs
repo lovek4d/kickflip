@@ -570,8 +570,9 @@ export function ownerWaitOf(it) {
 // waiting only on its Done has no action. The owner's block only stops the automatic pull, so such a card has actions
 // like any other (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 function actionOf(it, questionById, autoMerge) {
-  if (closedLane(it)) return null;
   const thread = `#selectedCard=${encodeURIComponent(it.key)}`;
+  // An offered script waits on the owner even on a Done card: a script posted after the merge still needs its Run or Decline.
+  if (closedLane(it)) return it.scriptWaiting ? { kind: ACTION_KIND.script, url: thread, label: 'Run or decline the script' } : null;
   if (it.stalled) return { kind: ACTION_KIND.stalled, url: thread, label: `stalled: ${it.stalled}` };
   if (it.scriptWaiting) return { kind: ACTION_KIND.script, url: thread, label: 'Run or decline the script' };
   if (asking(it)) {

@@ -519,7 +519,7 @@ test('builder done --owner-step records the step on the card, and refuses one on
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, 'Tag the first release');
   items({ lane: 'done', closed_at: '2026-11-01T10:00:00Z' });
   const late = await board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag it');
-  assert.deepEqual([late.code, late.err], [1, 'w/A1 is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or builder done before the merge\n']);
+  assert.deepEqual([late.code, late.err], [1, 'w/A1 is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or item set --owner-step or builder done before the merge\n']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, undefined);
 });
 
@@ -817,4 +817,16 @@ test('a commit in a scratch repo starts no background git maintenance, so a copy
     while (Date.now() < end) for (const e of fs.readdirSync(objects)) if (!/^([0-9a-f]{2}|info|pack)$/.test(e)) strays.add(e);
   }
   assert.deepEqual([...strays], []);
+});
+
+test('item set --owner-step puts a step on a card before its merge and refuses one on a Done card', async () => {
+  const items = (extra) => write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', pr: 7, ...extra }] });
+  items({});
+  const set = await board('item', 'set', 'w/A1', '--site', 'orch', '--owner-step', 'Tag the first release');
+  assert.equal(set.code, 0, set.err);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, 'Tag the first release');
+  items({ lane: 'done', closed_at: '2026-11-01T10:00:00Z' });
+  const late = await board('item', 'set', 'w/A1', '--site', 'orch', '--owner-step', 'Tag it');
+  assert.equal(late.code, 1);
+  assert.match(late.err, /already Done/);
 });
