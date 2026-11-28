@@ -136,6 +136,15 @@ test('the answering board draws each unanswered question as a New strip entry fr
   assert.doesNotMatch(html, /data-edit=|data-withdraw=/);
 });
 
+test('a board-ask marked working stops reading working once its answer is written', () => {
+  const q = (id) => ({ id, ts: '2026-11-15T00:31:00.000Z', kind: 'board-ask', data: { text: 'Old?', from: { route: 'orch', title: 'Orch' } } });
+  const marks = { q1: '2026-11-15T00:32:00.000Z', q2: '2026-11-15T00:32:00.000Z' };
+  const answer = { id: 'x', ts: '2026-11-15T00:33:00.000Z', kind: 'board-ask-answered', data: { id: 'q2', text: 'Yes' } };
+  const built = buildBoard({ files: [], events: [q('q1'), q('q2'), answer], working: marks });
+  assert.deepEqual(built.workingOn.map((w) => w.id), ['q1']);
+  assert.equal(built.working, 1);
+});
+
 test("a builder's and a planner's brief say to ask another board when the repo doesn't explain why", () => {
   const card = { route: 'orch', key: 'w/A1', ref: 'A1', title: 'feat: one', thread: '/t.jsonl', worktree: '/wt', base: 'main', repo: '/repo', brief: { heading: 'Brief', text: 'Grill it.' } };
   for (const brief of [builderBrief(card), plannerBrief({ ...card, kind: 'grill' }), plannerBrief({ ...card, kind: 'prototype' })]) {

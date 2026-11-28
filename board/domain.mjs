@@ -1695,9 +1695,10 @@ export function buildBoard(snapshot) {
   };
   const cardOf = (e) => { const card = ownCardOf(e); return moved.get(card) || card; };
   const closedAt = (key) => [cardDones.get(key), closedWork.get(key)].filter(Boolean).sort().pop() || '';
+  const boardAnswered = new Set(events.filter((x) => x.kind === 'board-ask-answered').map((x) => x.data?.id));
   const unanswered = (e) => {
     const card = cardOf(e);
-    if (card === null) return !e.reply;
+    if (card === null) return !e.reply && !(e.kind === 'board-ask' && boardAnswered.has(e.id));
     if (!byKey.has(card) || !(closedAt(card) < String(routeRecord(working, e.id)))) return false;
     if (threadStates.has(e.id)) return threadStates.get(e.id) === 'working';
     return !e.reply && !moved.has(ownCardOf(e)) && !([claudeAt.get(card), routeRecord(actedOn, card)].some((t) => String(t || '') > String(e.ts)));
